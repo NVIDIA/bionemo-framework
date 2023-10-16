@@ -1,0 +1,73 @@
+## Configuration of the training of the MegaMolBARTRetro given randomly initialized weights or a pretrained model
+## on USPTO 50K dataset given its splits consistent with data used for MolBART training and testing originally available
+## under https://az.app.box.com/s/7eci3nd9vy0xplqniitpk02rbg9q2zcq/file/854847820319#:~:text=by%20Ross%20Irwin-,Download,-Sign%20up
+## USPTO 50K dataset consists of ~50K reaction records labelled by a reaction type
+## The training configuration has been set to the best checkpoint trained on OCI cluster
+
+## MegaMolBART model architecture is compliant with the model downloaded by
+## executing ./launch.sh download from https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/models/megamolbart_0_2
+defaults:
+  - pretrain_base
+
+name: MegaMolBARTRetro_uspto50k
+# model architecture compatible with MegaMolBart model downloaded by executing ./launch.sh download
+restore_from_path: /model/molecule/megamolbart/megamolbart.nemo # set to null to start from randomly initialize weights
+
+trainer:
+  num_nodes: 1
+  limit_val_batches: 20 # number of batches in validation step, use fraction for fraction of data, 0 to disable (the training dataset is of size ~5K samples)
+  max_steps: 20000 # pretrained model converges quicker and the training dataset is of size ~45K samples
+  log_every_n_steps: 100 # number training steps between logging
+  val_check_interval: 200
+
+model:
+  name: ${name}
+  micro_batch_size: 256
+  num_layers: 6
+  hidden_size: 512
+  num_attention_heads: 8
+
+  data:
+    ## configuration of dataset for fine-tuning
+    encoder_mask: False # should be always set to false in fine-tuning
+    decoder_mask: False # should be always set to false in fine-tuning
+
+    ## configuration of dataset for fine-tuning on USPTO_50K
+    # AstraZeneca dataset used to train MolBART on USPTO50K. The file can be manually downloaded from the original repo
+    # https://az.app.box.com/s/7eci3nd9vy0xplqniitpk02rbg9q2zcq/file/854847820319#:~:text=by%20Ross%20Irwin-,Download,-Sign%20up
+    ngc_registry_target: uspto_50k_dataset
+    ngc_registry_version: v23.06
+    dataset_path: /data/uspto_50k_dataset # TODO how to determine this
+    index_mapping_dir: null
+
+    data_impl: "csv_fields_mmap"
+    data_impl_kwargs:
+      csv_fields_mmap:
+        newline_int: 10 # byte-value of newline
+        header_lines: 1 # skip first N header lines
+        workers: ${model.data.num_workers} # number of workers when creating missing index files (null defaults to cpu_num // 2)
+        sort_dataset_paths: False # if True datasets will be sorted by name
+        data_sep: ',' # string to split text into columns
+        # field names and corresponding columns to use for data
+        data_fields:
+          products: 3
+          reactants: 2
+    input_name: products
+    target_name: reactants
+
+  optim:
+    lr: 0.01 # max is scaled by Noam scheduler to d_model**(-0.5) * warmup**(-0.5)
+    betas:
+      - 0.9
+      - 0.99
+    sched:
+      warmup_steps: 5000 # use to set warmup_steps explicitly or leave as null to calculate
+      min_lr: 1e-6
+
+exp_manager:
+  checkpoint_callback_params:
+    monitor: val_reduced_loss
+    mode: min
+  wandb_logger_kwargs:
+    project: ${model.name}
+    name: ${model.name}

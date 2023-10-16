@@ -1,0 +1,24 @@
+#!/bin/bash
+#
+# Copyright (c) 2023, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
+
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# BioNeMo Models
+
+ESM1NV_MODEL="nvidian/clara-lifesciences/esm1nv:23.06"
+PROTT5NV_MODEL="nvidian/clara-lifesciences/prott5nv:23.06"
+MEGAMOLBART_MODEL="nvidian/clara-lifesciences/megamolbart:23.06"
+ESM2NV_650M_MODEL="nvidian/cvai_bnmo_trng/esm2nv650m:1.0-rc1" #TODO: update path when model is released
+ESM2NV_3B_MODEL="nvidian/cvai_bnmo_trng/esm2nv3b:1.0-rc1" #TODO: update path when model is released

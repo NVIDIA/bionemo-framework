@@ -1,0 +1,6 @@
+{
+    "consumed_samples": 40.0,
+    "global_step": 9.0,
+    "reduced_train_loss": 1.0359920164337382,
+    "val_loss": 1.1096115387917962
+}

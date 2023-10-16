@@ -1,0 +1,28 @@
+##
+## The minimal set of changes to scale the ESM2nv-8M to 3B
+##
+
+defaults:
+  - base_config
+restore_from_path: null # used when starting from a .nemo file
+
+name: esm2-15B
+
+model:
+  num_layers: 48
+  hidden_size: 5120
+  ffn_hidden_size: 20480 # Transformer FFN hidden size. Usually 4 * hidden_size.
+  num_attention_heads: 40
+
+  tokenizer:
+    # NOTE: this tokenizer doesnt exist?
+    model_name: "facebook/esm2_t48_15B_UR50D"
+
+  # model/data parallelism
+  tensor_model_parallel_size: 1 # model parallelism
+  pipeline_model_parallel_size: 1 # model parallelism
+  micro_batch_size: 1
+
+  # Enable/disable downstream task validation in the loop
+  dwnstr_task_validation:
+    enabled: True

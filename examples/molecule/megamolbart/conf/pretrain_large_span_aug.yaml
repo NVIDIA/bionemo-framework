@@ -1,0 +1,19 @@
+defaults:
+  - pretrain_base
+
+# Large model from Chemformer paper with augmentation of the encoder SMILES and masking of decoder tokens
+trainer:
+  devices: 8
+  num_nodes: 8
+
+model:
+  name: large_span_aug
+  # model architecture
+  num_layers: 8
+  hidden_size: 1024
+  num_attention_heads: 16
+  data:
+    data_impl_kwargs:
+      csv_mmap:
+        data_col: 1
+

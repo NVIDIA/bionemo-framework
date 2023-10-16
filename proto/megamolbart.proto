@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package bionemo.model.molecule.megamolbart.grpc;
+
+
+service GenerativeSampler {
+  rpc SmilesToEmbedding(InputSpec) returns (OutputSpec) {};
+  rpc SmilesToHidden(InputSpec) returns (OutputSpec) {};
+  rpc HiddenToSmis(InputSpec) returns (OutputSpec) {};
+}
+
+
+message InputSpec {
+  repeated string smis = 1;
+  repeated float hidden_states = 2;
+  repeated int32 dim = 3;
+  repeated bool masks = 4;
+}
+
+
+message OutputSpec {
+  repeated string smis = 1;
+  repeated float hidden_states = 2;
+  repeated float embeddings = 3;
+  repeated int32 dim = 4;
+  repeated bool masks = 5;
+}

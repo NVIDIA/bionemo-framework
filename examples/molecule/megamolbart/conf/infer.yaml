@@ -1,0 +1,28 @@
+defaults:
+  - base_infer_config
+  # allow this config to override defaults
+  - _self_
+
+hydra:
+  searchpath:
+     - file://${oc.env:BIONEMO_HOME}/examples/conf/
+     - file:///workspace/bionemo/examples/conf/
+
+name: MegaMolBART_Inference
+desc: Minimum configuration for initializing a MegaMolBART model for inference.
+
+model:
+  tokenizer:
+    vocab_path: /tokenizers/molecule/megamolbart/vocab/megamolbart.vocab
+    model_path: /tokenizers/molecule/megamolbart/vocab/megamolbart.model
+  downstream_task:
+    restore_from_path: /model/molecule/megamolbart/megamolbart.nemo
+    outputs: [embeddings] # Which outputs to extract per sample (a value or list). Possible values: hiddens, embeddings.
+  data:
+    data_fields_map: # name which data_fields shoud be used for sequence/id (dataset dependant)
+      sequence: "smiles"
+      id: "iupac"
+    dataset_path: ${oc.env:PROJECT_MOUNT}/examples/tests/test_data/molecule/phys_chem/SAMPL/test/x000 # full path to dataset (can include range or a list)
+
+target: bionemo.model.molecule.megamolbart.megamolbart_model.MegaMolBARTModel # path to model class to load
+infer_target: bionemo.model.molecule.megamolbart.infer.MegaMolBARTInference # path to inferende class to load

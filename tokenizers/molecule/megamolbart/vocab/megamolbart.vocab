@@ -1,0 +1,523 @@
+<PAD>
+?
+^
+&
+<MASK>
+<SEP>
+LogD_change_(-0.1, 0.1]
+LogD_change_(0.1, 0.3]
+LogD_change_(0.3, 0.5]
+LogD_change_(0.5, 0.7]
+LogD_change_(0.7, 0.9]
+LogD_change_(0.9, 1.1]
+LogD_change_(1.1, 1.3]
+LogD_change_(1.3, 1.5]
+LogD_change_(1.5, 1.7]
+LogD_change_(1.7, 1.9]
+LogD_change_(1.9, 2.1]
+LogD_change_(2.1, 2.3]
+LogD_change_(2.3, 2.5]
+LogD_change_(2.5, 2.7]
+LogD_change_(2.7, 2.9]
+LogD_change_(2.9, 3.1]
+LogD_change_(3.1, 3.3]
+LogD_change_(3.3, 3.5]
+LogD_change_(3.5, 3.7]
+LogD_change_(3.7, 3.9]
+LogD_change_(3.9, 4.1]
+LogD_change_(4.1, 4.3]
+LogD_change_(4.3, 4.5]
+LogD_change_(4.5, 4.7]
+LogD_change_(4.7, 4.9]
+LogD_change_(4.9, 5.1]
+LogD_change_(5.1, 5.3]
+LogD_change_(5.3, 5.5]
+LogD_change_(5.5, 5.7]
+LogD_change_(5.7, 5.9]
+LogD_change_(5.9, inf]
+LogD_change_(-0.3, -0.1]
+LogD_change_(-0.5, -0.3]
+LogD_change_(-0.7, -0.5]
+LogD_change_(-0.9, -0.7]
+LogD_change_(-1.1, -0.9]
+LogD_change_(-1.3, -1.1]
+LogD_change_(-1.5, -1.3]
+LogD_change_(-1.7, -1.5]
+LogD_change_(-1.9, -1.7]
+LogD_change_(-2.1, -1.9]
+LogD_change_(-2.3, -2.1]
+LogD_change_(-2.5, -2.3]
+LogD_change_(-2.7, -2.5]
+LogD_change_(-2.9, -2.7]
+LogD_change_(-3.1, -2.9]
+LogD_change_(-3.3, -3.1]
+LogD_change_(-3.5, -3.3]
+LogD_change_(-3.7, -3.5]
+LogD_change_(-3.9, -3.7]
+LogD_change_(-4.1, -3.9]
+LogD_change_(-4.3, -4.1]
+LogD_change_(-4.5, -4.3]
+LogD_change_(-4.7, -4.5]
+LogD_change_(-4.9, -4.7]
+LogD_change_(-5.1, -4.9]
+LogD_change_(-5.3, -5.1]
+LogD_change_(-5.5, -5.3]
+LogD_change_(-5.7, -5.5]
+LogD_change_(-inf, -5.7]
+Solubility_low->high
+Solubility_high->low
+Solubility_no_change
+Clint_low->high
+Clint_high->low
+Clint_no_change
+<UNUSED_0>
+<UNUSED_1>
+<UNUSED_2>
+<UNUSED_3>
+<UNUSED_4>
+<UNUSED_5>
+<UNUSED_6>
+<UNUSED_7>
+<UNUSED_8>
+<UNUSED_9>
+<UNUSED_10>
+<UNUSED_11>
+<UNUSED_12>
+<UNUSED_13>
+<UNUSED_14>
+<UNUSED_15>
+<UNUSED_16>
+<UNUSED_17>
+<UNUSED_18>
+<UNUSED_19>
+<UNUSED_20>
+<UNUSED_21>
+<UNUSED_22>
+<UNUSED_23>
+<UNUSED_24>
+<UNUSED_25>
+<UNUSED_26>
+<UNUSED_27>
+<UNUSED_28>
+<UNUSED_29>
+<UNUSED_30>
+<UNUSED_31>
+<UNUSED_32>
+<UNUSED_33>
+<UNUSED_34>
+<UNUSED_35>
+<UNUSED_36>
+<UNUSED_37>
+<UNUSED_38>
+<UNUSED_39>
+<UNUSED_40>
+<UNUSED_41>
+<UNUSED_42>
+<UNUSED_43>
+<UNUSED_44>
+<UNUSED_45>
+<UNUSED_46>
+<UNUSED_47>
+<UNUSED_48>
+<UNUSED_49>
+<UNUSED_50>
+<UNUSED_51>
+<UNUSED_52>
+<UNUSED_53>
+<UNUSED_54>
+<UNUSED_55>
+<UNUSED_56>
+<UNUSED_57>
+<UNUSED_58>
+<UNUSED_59>
+<UNUSED_60>
+<UNUSED_61>
+<UNUSED_62>
+<UNUSED_63>
+<UNUSED_64>
+<UNUSED_65>
+<UNUSED_66>
+<UNUSED_67>
+<UNUSED_68>
+<UNUSED_69>
+<UNUSED_70>
+<UNUSED_71>
+<UNUSED_72>
+<UNUSED_73>
+<UNUSED_74>
+<UNUSED_75>
+<UNUSED_76>
+<UNUSED_77>
+<UNUSED_78>
+<UNUSED_79>
+<UNUSED_80>
+<UNUSED_81>
+<UNUSED_82>
+<UNUSED_83>
+<UNUSED_84>
+<UNUSED_85>
+<UNUSED_86>
+<UNUSED_87>
+<UNUSED_88>
+<UNUSED_89>
+<UNUSED_90>
+<UNUSED_91>
+<UNUSED_92>
+<UNUSED_93>
+<UNUSED_94>
+<UNUSED_95>
+<UNUSED_96>
+<UNUSED_97>
+<UNUSED_98>
+<UNUSED_99>
+<UNUSED_100>
+<UNUSED_101>
+<UNUSED_102>
+<UNUSED_103>
+<UNUSED_104>
+<UNUSED_105>
+<UNUSED_106>
+<UNUSED_107>
+<UNUSED_108>
+<UNUSED_109>
+<UNUSED_110>
+<UNUSED_111>
+<UNUSED_112>
+<UNUSED_113>
+<UNUSED_114>
+<UNUSED_115>
+<UNUSED_116>
+<UNUSED_117>
+<UNUSED_118>
+<UNUSED_119>
+<UNUSED_120>
+<UNUSED_121>
+<UNUSED_122>
+<UNUSED_123>
+<UNUSED_124>
+<UNUSED_125>
+<UNUSED_126>
+<UNUSED_127>
+<UNUSED_128>
+<UNUSED_129>
+<UNUSED_130>
+<UNUSED_131>
+<UNUSED_132>
+<UNUSED_133>
+<UNUSED_134>
+<UNUSED_135>
+<UNUSED_136>
+<UNUSED_137>
+<UNUSED_138>
+<UNUSED_139>
+<UNUSED_140>
+<UNUSED_141>
+<UNUSED_142>
+<UNUSED_143>
+<UNUSED_144>
+<UNUSED_145>
+<UNUSED_146>
+<UNUSED_147>
+<UNUSED_148>
+<UNUSED_149>
+<UNUSED_150>
+<UNUSED_151>
+<UNUSED_152>
+<UNUSED_153>
+<UNUSED_154>
+<UNUSED_155>
+<UNUSED_156>
+<UNUSED_157>
+<UNUSED_158>
+<UNUSED_159>
+<UNUSED_160>
+<UNUSED_161>
+<UNUSED_162>
+<UNUSED_163>
+<UNUSED_164>
+<UNUSED_165>
+<UNUSED_166>
+<UNUSED_167>
+<UNUSED_168>
+<UNUSED_169>
+<UNUSED_170>
+<UNUSED_171>
+<UNUSED_172>
+<UNUSED_173>
+<UNUSED_174>
+<UNUSED_175>
+<UNUSED_176>
+<UNUSED_177>
+<UNUSED_178>
+<UNUSED_179>
+<UNUSED_180>
+<UNUSED_181>
+<UNUSED_182>
+<UNUSED_183>
+<UNUSED_184>
+<UNUSED_185>
+<UNUSED_186>
+<UNUSED_187>
+<UNUSED_188>
+<UNUSED_189>
+<UNUSED_190>
+<UNUSED_191>
+<UNUSED_192>
+<UNUSED_193>
+<UNUSED_194>
+<UNUSED_195>
+<UNUSED_196>
+<UNUSED_197>
+<UNUSED_198>
+<UNUSED_199>
+C
+c
+1
+(
+-
+2
+s
+N
+=
+)
+n
+Br
+3
+O
+[nH]
+[C@H]
+/
+\
+[C@@H]
+[C@]
+o
+4
+[C@@]
+5
+6
+7
+[n+]
+.
+[Br-]
+S
+I
+F
+Cl
+[O-]
+#
+P
+[Na+]
+[N+]
+[Cl-]
+8
+[Si]
+[N-]
+[18F]
+9
+[I-]
+B
+[S+]
+[2H]
+[P+]
+[125I]
+%10
+%11
+[n-]
+[B-]
+[O]
+[o+]
+[N@@+]
+[N@+]
+[PH]
+[se]
+[Se]
+[s+]
+[Li+]
+[P@]
+[P@@]
+[3H]
+[K+]
+[OH-]
+[te+]
+[se+]
+[Te]
+[S@+]
+[BH2-]
+[11CH3]
+[11C]
+[Cl+3]
+[N@@]
+[S-]
+[C+]
+[P@+]
+[C-]
+[Zn+2]
+[Ca+2]
+[Mg+2]
+[SeH]
+[BH-]
+[SH2]
+[TeH2]
+[SiH4]
+[N@]
+[14CH2]
+[Ag]
+[S@@+]
+[I+]
+[MgH2]
+[125IH]
+[Se+]
+[As]
+[SiH2]
+[Ra]
+[IH2]
+[P-]
+[Na]
+[NH-]
+[Cs]
+[Zn]
+[Li]
+[As+]
+[te]
+[131I]
+[Ag+]
+p
+[Al-3]
+[Rb+]
+[13CH]
+[11CH]
+[11CH2]
+[14c]
+[14C@@]
+[127I]
+[Mg]
+[14C]
+[123I]
+[124I]
+[F-]
+[14CH3]
+[135I]
+%12
+[NH+]
+[76Br]
+[32PH]
+[35S]
+b
+[73Se]
+[11C@@H]
+[Se-]
+[c+]
+[14C@H]
+[18OH]
+[SH]
+[S@@]
+[Cs+]
+[He]
+[O+]
+[nH+]
+[NH2+]
+[32P]
+[Zn+]
+[BH3-]
+[I+3]
+[Si-]
+[SH+]
+[19F]
+[Br+2]
+[I+2]
+[Al+3]
+[123I-]
+[131I-]
+[127Xe]
+[133Xe]
+[89Sr+2]
+[N]
+[82Rb+]
+[75Se]
+[Rb]
+[81Kr]
+[18F-]
+[13NH3]
+[K]
+[Cl+2]
+[Zn-2]
+[SeH2]
+[AsH3]
+[Kr]
+[Xe]
+[S@]
+[cH-]
+[NH4+]
+[Al]
+[Si@]
+[15n]
+[SH-]
+[SiH]
+[11c]
+[OH]
+[c-]
+[18FH]
+[123IH]
+[13c]
+[13cH]
+[14cH]
+[Cl+]
+[Sr+2]
+[CH-]
+[Bi]
+[B]
+[Ba+2]
+[Bi+3]
+[SiH-]
+[b-]
+[H+]
+[13C]
+[OH+]
+[14CH]
+[15nH]
+[CaH2]
+[LiH]
+[C]
+[Ca]
+[42K+]
+[123Te]
+[S-2]
+[223Ra+2]
+[S]
+[Ra+2]
+[22Na+]
+[125I-]
+[85Sr+2]
+[PH2]
+[SrH2]
+[15OH2]
+[47Ca+2]
+[85SrH2]
+[45Ca+2]
+[B@@-]
+[B@-]
+[17F]
+[PH2+]
+[11C-]
+[Mg+]
+[NaH]
+[P@@+]
+[SiH3-]
+[P-3]
+[KH]
+[Be+2]
+[NH3+]
+[Ag-4]
+[18O]
+[14C@@H]
+[CH]
+[CH2]
+[O-2]
+[124I-]
+[As-]
+[Ba]
+[223Ra]
+[82Rb]
+[76BrH]
+[AsH]
+[131Cs]

@@ -1,0 +1,47 @@
+defaults:
+  - base_config
+
+restore_from_path: /model/protein/esm1nv/esm1nv.nemo
+trainer:
+  devices: 1
+  num_nodes: 1
+  max_epochs: 1 # PTL default. In practice we don't usually train for more than 1 epoch.
+  max_steps: 500 # consumed_samples = global_step * micro_batch_size * data_parallel_size * accumulate_grad_batches
+  val_check_interval: 500
+  limit_val_batches: 1
+  accumulate_grad_batches: 1
+    
+model:
+  seq_length: 1024
+  micro_batch_size: 4
+  global_batch_size: 4
+  pre_process: True # add embedding
+  post_process: True # add pooler
+  bert_binary_head: False # BERT binary head
+  tokenizer:
+    library: 'sentencepiece'
+    type: null
+    model: /tokenizers/protein/esm1nv/vocab/protein_sequence_sentencepiece.model
+    vocab_file: /tokenizers/protein/esm1nv/vocab/protein_sequence_sentencepiece.vocab
+  data:
+    dataset_path: ${oc.env:PROJECT_MOUNT}/examples/tests/test_data/protein # parent directory for data, contains train / val / test folders
+    dataset: # inclusive range of data files to load or can load a single file, e.g. x000.csv
+      train: x[000..001]
+      test: x[000..001]
+      val: x[000..001]
+    micro_batch_size: ${model.micro_batch_size}
+    num_workers: 10
+    dataloader_type: single
+    data_impl_kwargs:
+      csv_mmap:
+        data_col: 3 # 0-based
+    modify_percent: 0.1
+    perturb_percent: 0.5
+    data_prefix: null
+
+exp_manager:
+  exp_dir: /tmp/nemo_experiments/esm1nv_pretrain
+  create_wandb_logger: False
+  create_tensorboard_logger: False
+  wandb_logger_kwargs:
+    offline: True

@@ -1,0 +1,27 @@
+defaults:
+  - downstream_retro_uspto50k
+
+trainer:
+  devices: 1
+  num_nodes: 1
+  max_epochs: 1
+  max_steps: 500
+  val_check_interval: 50
+  limit_val_batches: 1
+  accumulate_grad_batches: 1
+    
+model:
+  micro_batch_size: 4
+  global_batch_size: null
+  data:
+    dataset_path: ${oc.env:PROJECT_MOUNT}/examples/tests/test_data/reaction/ # parent directory for data, contains train / val / test folders
+    micro_batch_size: ${model.micro_batch_size}
+    header_lines: 1
+    num_workers: 10
+
+exp_manager:
+  exp_dir: /tmp/nemo_experiments/megamolbart_downstream_retro
+  create_wandb_logger: False
+  create_tensorboard_logger: False
+  wandb_logger_kwargs:
+    offline: True

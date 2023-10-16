@@ -1,0 +1,43 @@
+defaults:
+  - base_config
+
+name: prott5nv_model
+do_training: True # set to false if data preprocessing steps must be completed
+do_testing: False # set to true to run evaluation on test data after training, requires test_dataset section
+restore_from_path: /model/protein/prott5nv/prott5nv.nemo # used when starting from a .nemo file
+
+trainer:
+  devices: 1
+  num_nodes: 1
+  accelerator: gpu
+  precision: 16
+  max_steps: 200 # consumed_samples = global_step * micro_batch_size * data_parallel_size * accumulate_grad_batches
+  val_check_interval: 200
+  limit_val_batches: 1
+  accumulate_grad_batches: 1
+
+model:
+  seq_length: 1024
+  global_batch_size: 4
+  micro_batch_size: 4
+  data:
+    ngc_registry_target: uniref50_2022_05
+    ngc_registry_version: v23.06
+    dataset_path: ${oc.env:PROJECT_MOUNT}/examples/tests/test_data/protein # parent directory for data, contains train / val / test folders
+    dataset: # inclusive range of data files to load or can load a single file, e.g. x000.csv
+      train: x000
+      test: x000
+      val: x000
+    micro_batch_size: ${model.micro_batch_size}
+    data_prefix: null
+    data_col: 3 # 0-based
+    data_sep: ','
+    header_lines: 1
+    num_workers: 10
+
+exp_manager:
+  exp_dir: /tmp/nemo_experiments/prott5nv_pretrain
+  create_wandb_logger: False
+  create_tensorboard_logger: False
+  wandb_logger_kwargs:
+    offline: True

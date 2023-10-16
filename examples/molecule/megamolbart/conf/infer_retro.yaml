@@ -1,0 +1,42 @@
+defaults:
+  - base_infer_config
+  # allow this config to override defaults
+  - _self_
+
+hydra:
+  searchpath:
+     - file://${oc.env:BIONEMO_HOME}/examples/conf/
+     - file:///workspace/bionemo/examples/conf/
+
+name: MegaMolBARTRetro_Inference
+desc: Minimum configuration for initializing a fine-tuned MegaMolBART model for inference. The model has been fine-tuned 
+  on the retrosynthesis downstream task.
+
+model:
+  tokenizer:
+    vocab_path: /tokenizers/molecule/megamolbart/vocab/megamolbart.vocab
+    model_path: /tokenizers/molecule/megamolbart/vocab/megamolbart.model
+  downstream_task:
+    # TODO update with the official retro path when the checkpoint is ready
+    restore_from_path: /model/molecule/megamolbart/megamolbart_retro.nemo
+    outputs: [embeddings, hiddens] # Which outputs to extract per sample (a value or list). Possible values: hiddens, embeddings.
+  data:
+    # TODO exchange with whole dataset if needed
+    dataset_path: examples/tests/test_data/reaction/processed/test/data.csv # full path to dataset (can include range or a list)
+    batch_size: 10
+    data_impl: "csv_fields_mmap"
+    data_impl_kwargs:
+      csv_fields_mmap:
+        newline_int: 10 # byte-value of newline
+        header_lines: 1 # skip first N header lines
+        sort_dataset_paths: False # if True datasets will be sorted by name
+        data_sep: ',' # string to split text into columns
+        # field names and corresponding columns to use for data
+        data_fields:
+          products: 3
+          reactants: 2
+    input_name: products
+    target_name: reactants
+
+target: bionemo.model.molecule.megamolbart.megamolbart_downstream_retro.MegaMolBARTRetroModel # path to model class to load
+infer_target: bionemo.model.molecule.megamolbart.infer.MegaMolBARTInference # path to inferende class to load

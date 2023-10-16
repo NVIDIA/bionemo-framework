@@ -1,0 +1,77 @@
+defaults:
+  - base_config
+
+name: prott5nv_sec_str_val
+do_training: True # set to false if data preprocessing steps must be completed
+do_testing: False # set to true to run evaluation on test data after training, requires test_dataset section
+restore_from_path: /model/protein/prott5nv/prott5nv.nemo # used when starting from a .nemo file
+
+trainer:
+  devices: 1
+  num_nodes: 1
+  accelerator: gpu
+  precision: 16
+  max_steps: 200 # consumed_samples = global_step * micro_batch_size * data_parallel_size * accumulate_grad_batches
+  val_check_interval: 200
+  limit_val_batches: 1
+  accumulate_grad_batches: 1
+  num_sanity_val_steps: 1
+
+model:
+  global_batch_size: null
+  micro_batch_size: 4
+  data:
+    ngc_registry_target: uniref50_2022_05
+    ngc_registry_version: v23.06
+    dataset_path: ${oc.env:PROJECT_MOUNT}/examples/tests/test_data/protein # parent directory for data, contains train / val / test folders
+    dataset: # inclusive range of data files to load or can load a single file, e.g. x000.csv
+      train: x000
+      test: x000
+      val: x000
+    data_prefix: null
+    data_col: 3 # 0-based
+    data_sep: ','
+    header_lines: 1
+  dwnstr_task_validation:
+    enabled: True
+    dataset:
+      class: PerTokenPredictionCallback
+      task_type: token-level-classification
+      infer_target: bionemo.model.protein.prott5nv.infer.ProtT5nvInference
+      max_seq_length: ${model.seq_length}
+      emb_batch_size: 128
+      batch_size: 128
+      num_epochs: 5
+      shuffle: True
+      num_workers: 10
+      task_name: downstream
+      dataset_path: ${oc.env:PROJECT_MOUNT}/examples/tests/test_data/protein/downstream
+      dataset: 
+        train: x000
+        test: x000
+      target_sizes: [3, 8, 2]
+      mask_column: ["resolved", "resolved", null]
+      target_column: ["3state","8state", "resolved"]
+      sequence_column: "sequence"
+      random_seed: 1234
+      optim:
+        name: adam
+        lr: 0.001
+        betas:
+          - 0.9
+          - 0.999
+        eps: 1e-8
+        weight_decay: 0.01
+        sched:
+          name: WarmupAnnealing
+          min_lr: 0.00001
+          last_epoch: -1
+          warmup_ratio: 0.01
+          max_steps: 1000
+  
+exp_manager:
+  exp_dir: /tmp/nemo_experiments/prott5nv_sec_str_val
+  create_wandb_logger: False
+  create_tensorboard_logger: False
+  wandb_logger_kwargs:
+    offline: True

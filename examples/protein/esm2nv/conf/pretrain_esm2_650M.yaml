@@ -1,0 +1,30 @@
+defaults:
+  - base_config
+use_cpu_initialization: False
+
+model:
+  # These parameters are similar to pretrain_ESM1b_small
+  num_layers: 33
+  hidden_size: 1280
+  ffn_hidden_size: 5120 # Transformer FFN hidden size. Usually 4 * hidden_size.
+
+  tokenizer:
+    model_name: "facebook/esm2_t33_650M_UR50D"
+
+  # model/data parallelism
+  tensor_model_parallel_size: 1 # model parallelism
+  pipeline_model_parallel_size: 1 # model parallelism
+  micro_batch_size: 2
+
+  dwnstr_task_validation:
+    # TODO there are some failures with this enabled.
+    enabled: True 
+
+exp_manager:
+  wandb_logger_kwargs:
+    offline: True # set to True if there are issues uploading to WandB during training
+  # TODO
+  resume_if_exists: False # automatically resume if checkpoint exists
+
+restore_from_path: null # used when starting from a .nemo file
+name: esm2-650M

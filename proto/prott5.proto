@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package bionemo.model.protein.prott5nv.grpc;
+
+
+service GenerativeSampler {
+  rpc SeqToEmbedding(InputSpec) returns (OutputSpec) {};
+}
+
+
+message InputSpec {
+  repeated string seqs = 1;
+}
+
+
+message OutputSpec {
+  repeated string seqs = 1;
+  repeated float embeddings = 2;
+  repeated int32 dim = 3;
+}

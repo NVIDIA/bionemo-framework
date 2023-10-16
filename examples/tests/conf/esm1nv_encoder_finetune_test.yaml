@@ -1,0 +1,64 @@
+defaults:
+  - pretrain_small
+
+name: esm1nv_sec_str
+do_training: True # set to false if data preprocessing steps must be completed
+do_testing: False # set to true to run evaluation on test data after training
+restore_from_path: /model/protein/esm1nv/esm1nv.nemo 
+target: bionemo.model.protein.esm1nv.ESM1nvModel
+infer_target: bionemo.model.protein.esm1nv.infer.ESM1nvInference
+
+trainer:
+  devices: 1 # number of GPUs or CPUs
+  num_nodes: 1 
+  max_epochs: 1 # # use max_steps instead with NeMo Megatron model
+  max_steps: 10 # consumed_samples = global_step * micro_batch_size * data_parallel_size * accumulate_grad_batches
+  val_check_interval: 10
+  limit_val_batches: 1 # number of batches in validation step, use fraction for fraction of data
+  limit_test_batches: 1 # number of batches in test step, use fraction for fraction of data
+  num_sanity_val_steps: 0
+
+exp_manager:
+  exp_dir: /tmp/nemo_experiments/esm1nv_encoder_finetuning
+  create_wandb_logger: False
+  create_tensorboard_logger: False
+  wandb_logger_kwargs:
+    offline: True
+
+model:
+  encoder_frozen: False
+  post_process: False
+  micro_batch_size: 4 # NOTE: adjust to occupy ~ 90% of GPU memory
+  global_batch_size: null
+  tensor_model_parallel_size: 1  # model parallelism
+  
+  data:
+    task_type: token-level-classification
+    emb_batch_size: ${model.micro_batch_size}
+    dataset_path: ${oc.env:PROJECT_MOUNT}/examples/tests/test_data/protein/downstream
+    dataset:
+      train: x000
+      test: x000
+      val: x000
+    sequence_column: "sequence" 
+    target_column: ["3state","8state", "resolved"] 
+    target_sizes: [3, 8, 2] 
+    mask_column: ["resolved", "resolved", null]
+    num_workers: 8
+  
+  finetuning_optim:
+    name: adam
+    lr: 0.0001
+    betas:
+      - 0.9
+      - 0.999
+    eps: 1e-8
+    weight_decay: 0.01
+    sched:
+      name: WarmupAnnealing
+      min_lr: 0.00001
+      last_epoch: -1
+      warmup_steps: 100
+      max_steps: 1000
+  dwnstr_task_validation:
+    enabled: False

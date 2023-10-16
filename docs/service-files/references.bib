@@ -1,0 +1,447 @@
+
+@ARTICLE{jumper2021alphafold,
+    title    = "Highly accurate protein structure prediction with {AlphaFold}",
+    author   = "Jumper, John and Evans, Richard and Pritzel, Alexander and Green,
+                Tim and Figurnov, Michael and Ronneberger, Olaf and
+                Tunyasuvunakool, Kathryn and Bates, Russ and {\v Z}{\'\i}dek,
+                Augustin and Potapenko, Anna and Bridgland, Alex and Meyer,
+                Clemens and Kohl, Simon A A and Ballard, Andrew J and Cowie,
+                Andrew and Romera-Paredes, Bernardino and Nikolov, Stanislav and
+                Jain, Rishub and Adler, Jonas and Back, Trevor and Petersen, Stig
+                and Reiman, David and Clancy, Ellen and Zielinski, Michal and
+                Steinegger, Martin and Pacholska, Michalina and Berghammer, Tamas
+                and Bodenstein, Sebastian and Silver, David and Vinyals, Oriol
+                and Senior, Andrew W and Kavukcuoglu, Koray and Kohli, Pushmeet
+                and Hassabis, Demis",
+    journal  = "Nature",
+    volume   =  596,
+    number   =  7873,
+    pages    = "583--589",
+    month    =  aug,
+    year     =  2021,
+    language = "en",
+    doi = {10.1038/s41586-021-03819-2},
+}
+
+@MISC{corso2023diffdock,
+    title={DiffDock: Diffusion Steps, Twists, and Turns for Molecular Docking}, 
+    author={Gabriele Corso and Hannes Stärk and Bowen Jing and Regina Barzilay and Tommi Jaakkola},
+    year={2023},
+    eprint={2210.01776},
+    archivePrefix={arXiv},
+    primaryClass={q-bio.BM},
+}
+
+@MISC{thomas2018tensorfield,
+    title         = "Tensor field networks: Rotation- and translation-equivariant
+                    neural networks for {3D} point clouds",
+    author        = "Thomas, Nathaniel and Smidt, Tess and Kearnes, Steven and
+                    Yang, Lusann and Li, Li and Kohlhoff, Kai and Riley, Patrick",
+    abstract      = "We introduce tensor field neural networks, which are locally
+                    equivariant to 3D rotations, translations, and permutations
+                    of points at every layer. 3D rotation equivariance removes
+                    the need for data augmentation to identify features in
+                    arbitrary orientations. Our network uses filters built from
+                    spherical harmonics; due to the mathematical consequences of
+                    this filter choice, each layer accepts as input (and
+                    guarantees as output) scalars, vectors, and higher-order
+                    tensors, in the geometric sense of these terms. We
+                    demonstrate the capabilities of tensor field networks with
+                    tasks in geometry, physics, and chemistry.",
+    month         =  feb,
+    year          =  2018,
+    archivePrefix = "arXiv",
+    primaryClass  = "cs.LG",
+    eprint        = "1802.08219",
+}
+
+@MISC{geiger2022e3nn,
+    title         = "e3nn: Euclidean Neural Networks",
+    author        = "Geiger, Mario and Smidt, Tess",
+    abstract      = "We present e3nn, a generalized framework for creating E(3)
+                    equivariant trainable functions, also known as Euclidean
+                    neural networks. e3nn naturally operates on geometry and
+                    geometric tensors that describe systems in 3D and transform
+                    predictably under a change of coordinate system. The core of
+                    e3nn are equivariant operations such as the TensorProduct
+                    class or the spherical harmonics functions that can be
+                    composed to create more complex modules such as convolutions
+                    and attention mechanisms. These core operations of e3nn can
+                    be used to efficiently articulate Tensor Field Networks, 3D
+                    Steerable CNNs, Clebsch-Gordan Networks, SE(3) Transformers
+                    and other E(3) equivariant networks.",
+    month         =  jul,
+    year          =  2022,
+    archivePrefix = "arXiv",
+    primaryClass  = "cs.LG",
+    eprint        = "2207.09453",
+}
+
+@ARTICLE{liu2017score,
+    title     = "Forging the Basis for Developing {Protein--Ligand} Interaction
+                Scoring Functions",
+    author    = "Liu, Zhihai and Su, Minyi and Han, Li and Liu, Jie and Yang,
+                Qifan and Li, Yan and Wang, Renxiao",
+    journal   = "Acc. Chem. Res.",
+    publisher = "American Chemical Society",
+    volume    =  50,
+    number    =  2,
+    pages     = "302--309",
+    month     =  feb,
+    year      =  2017,
+    doi = {10.1021/acs.accounts.6b00491}
+}
+
+@ARTICLE{berman2003pdb,
+    title    = "Announcing the worldwide Protein Data Bank",
+    author   = "Berman, Helen and Henrick, Kim and Nakamura, Haruki",
+    journal  = "Nat. Struct. Biol.",
+    volume   =  10,
+    number   =  12,
+    pages    = "980",
+    month    =  dec,
+    year     =  2003,
+    language = "en",
+    doi = {10.1038/nsb1203-980}
+}
+
+@MISC{stark2022equibind,
+    title         = "{EquiBind}: Geometric Deep Learning for Drug Binding
+                    Structure Prediction",
+    author        = "St{\"a}rk, Hannes and Ganea, Octavian-Eugen and Pattanaik,
+                    Lagnajit and Barzilay, Regina and Jaakkola, Tommi",
+    month         =  feb,
+    year          =  2022,
+    archivePrefix = "arXiv",
+    primaryClass  = "q-bio.BM",
+    eprint        = "2202.05146",
+}
+
+@MISC{dallago2021flip,
+	author = {Christian Dallago and Jody Mou and Kadina E. Johnston and Bruce J. Wittmann and Nicholas Bhattacharya and Samuel Goldman and Ali Madani and Kevin K. Yang},
+	title = {FLIP: Benchmark tasks in fitness landscape inference for proteins},
+	elocation-id = {2021.11.09.467890},
+	year = {2022},
+	doi = {10.1101/2021.11.09.467890},
+	publisher = {Cold Spring Harbor Laboratory},
+	journal = {bioRxiv},
+}
+
+@ARTICLE{rives2021esm,
+    title    = "Biological structure and function emerge from scaling
+                unsupervised learning to 250 million protein sequences",
+    author   = "Rives, Alexander and Meier, Joshua and Sercu, Tom and Goyal,
+                Siddharth and Lin, Zeming and Liu, Jason and Guo, Demi and Ott,
+                Myle and Zitnick, C Lawrence and Ma, Jerry and Fergus, Rob",
+    journal  = "Proc. Natl. Acad. Sci. U. S. A.",
+    volume   =  118,
+    number   =  15,
+    month    =  apr,
+    year     =  2021,
+    keywords = "deep learning; generative biology; protein language model;
+                representation learning; synthetic biology",
+    language = "en",
+    doi = {10.1073/pnas.2016239118}
+}
+
+@MISC{devlin2018bert,
+    title         = "{BERT}: Pre-training of Deep Bidirectional Transformers for
+                    Language Understanding",
+    author        = "Devlin, Jacob and Chang, Ming-Wei and Lee, Kenton and
+                    Toutanova, Kristina",
+    month         =  oct,
+    year          =  2018,
+    archivePrefix = "arXiv",
+    primaryClass  = "cs.CL",
+    eprint        = "1810.04805",
+}
+
+@ARTICLE{uniprot2021,
+    title    = "{UniProt}: the universal protein knowledgebase in 2021",
+    author   = "{UniProt Consortium}",
+    journal  = "Nucleic Acids Res.",
+    volume   =  49,
+    number   = "D1",
+    pages    = "D480--D489",
+    month    =  jan,
+    year     =  2021,
+    language = "en",
+    doi = {10.1093/nar/gkaa1100}
+}
+
+@ARTICLE{lin2023esmfold,
+    title    = "Evolutionary-scale prediction of atomic-level protein structure
+                with a language model",
+    author   = "Lin, Zeming and Akin, Halil and Rao, Roshan and Hie, Brian and
+                Zhu, Zhongkai and Lu, Wenting and Smetanin, Nikita and Verkuil,
+                Robert and Kabeli, Ori and Shmueli, Yaniv and Dos Santos Costa,
+                Allan and Fazel-Zarandi, Maryam and Sercu, Tom and Candido,
+                Salvatore and Rives, Alexander",
+    journal  = "Science",
+    volume   =  379,
+    number   =  6637,
+    pages    = "1123--1130",
+    month    =  mar,
+    year     =  2023,
+    language = "en",
+    doi = {10.1101/2022.07.20.500902}
+}
+
+@MISC{ahdritz2022openfold,
+    title    = "{OpenFold}: Retraining {AlphaFold2} yields new insights into its
+                learning mechanisms and capacity for generalization",
+    author   = "Ahdritz, Gustaf and Bouatta, Nazim and Kadyan, Sachin and Xia,
+                Qinghui and Gerecke, William and O'Donnell, Timothy J and
+                Berenberg, Daniel and Fisk, Ian and Zanichelli, Niccol{\`o} and
+                Zhang, Bo and Nowaczynski, Arkadiusz and Wang, Bei and
+                Stepniewska-Dziubinska, Marta M and Zhang, Shang and Ojewole,
+                Adegoke and Guney, Murat Efe and Biderman, Stella and Watkins,
+                Andrew M and Ra, Stephen and Lorenzo, Pablo Ribalta and Nivon,
+                Lucas and Weitzner, Brian and Ban, Yih-En Andrew and Sorger,
+                Peter K and Mostaque, Emad and Zhang, Zhao and Bonneau, Richard
+                and AlQuraishi, Mohammed",
+    journal  = "bioRxiv",
+    pages    = "2022.11.20.517210",
+    month    =  nov,
+    year     =  2022,
+    language = "en",
+    doi = {10.1101/2022.11.20.517210}
+}
+
+@ARTICLE{steinegger2018mmseqs2,
+    title    = "Clustering huge protein sequence sets in linear time",
+    author   = "Steinegger, Martin and S{\"o}ding, Johannes",
+    journal  = "Nat. Commun.",
+    volume   =  9,
+    number   =  1,
+    pages    = "2542",
+    month    =  jun,
+    year     =  2018,
+    language = "en",
+    doi = {10.1038/s41467-018-04964-5}
+}
+
+@MISC{lewis2019bart,
+    title         = "{BART}: Denoising {Sequence-to-Sequence} Pre-training for
+                    Natural Language Generation, Translation, and Comprehension",
+    author        = "Lewis, Mike and Liu, Yinhan and Goyal, Naman and
+                    Ghazvininejad, Marjan and Mohamed, Abdelrahman and Levy,
+                    Omer and Stoyanov, Ves and Zettlemoyer, Luke",
+    month         =  oct,
+    year          =  2019,
+    archivePrefix = "arXiv",
+    primaryClass  = "cs.CL",
+    eprint        = "1910.13461",
+}
+
+@ARTICLE{irwin2022chemformer,
+    title     = "Chemformer: a pre-trained transformer for computational
+                chemistry",
+    author    = "Irwin, Ross and Dimitriadis, Spyridon and He, Jiazhen and
+                Bjerrum, Esben Jannik",
+    journal   = "Mach. Learn.: Sci. Technol.",
+    publisher = "IOP Publishing",
+    volume    =  3,
+    number    =  1,
+    pages     = "015022",
+    month     =  jan,
+    year      =  2022,
+    language  = "en",
+    doi = {10.1088/2632-2153/ac3ffb}
+}
+
+@ARTICLE{sterling2015zinc,
+    title    = "{ZINC} 15--Ligand Discovery for Everyone",
+    author   = "Sterling, Teague and Irwin, John J",
+    journal  = "J. Chem. Inf. Model.",
+    volume   =  55,
+    number   =  11,
+    pages    = "2324--2337",
+    month    =  nov,
+    year     =  2015,
+    language = "en",
+    doi = {10.1021/acs.jcim.5b00559}
+}
+
+@MISC{kingma2018glow,
+    title         = "Glow: Generative flow with invertible 1x1 convolutions",
+    author        = "Kingma, Diederik P and Dhariwal, Prafulla",
+    month         =  jul,
+    year          =  2018,
+    copyright     = "http://arxiv.org/licenses/nonexclusive-distrib/1.0/",
+    archivePrefix = "arXiv",
+    primaryClass  = "stat.ML",
+    eprint        = "1807.03039",
+}
+
+@INPROCEEDINGS{zang2020moflow,
+    title     = "{MoFlow}: An Invertible Flow Model for Generating Molecular
+                Graphs",
+    booktitle = "Proceedings of the 26th {ACM} {SIGKDD} International Conference
+                on Knowledge Discovery \& Data Mining",
+    author    = "Zang, Chengxi and Wang, Fei",
+    publisher = "Association for Computing Machinery",
+    pages     = "617--626",
+    series    = "KDD '20",
+    month     =  aug,
+    year      =  2020,
+    address   = "New York, NY, USA",
+    keywords  = "graph generative model, molecular graph optimization, molecular
+                graph generation, graph normalizing flow, de novo drug design,
+                deep generative model, graph conditional flow",
+    location  = "Virtual Event, CA, USA",
+    doi = {10.1145/3394486.3403104}
+}
+
+@MISC{dinh2016nvp,
+    title         = "Density estimation using Real {NVP}",
+    author        = "Dinh, Laurent and Sohl-Dickstein, Jascha and Bengio, Samy",
+    month         =  may,
+    year          =  2016,
+    archivePrefix = "arXiv",
+    primaryClass  = "cs.LG",
+    eprint        = "1605.08803",
+}
+
+@INPROCEEDINGS{schlichtkrull2018gcn,
+    title     = "Modeling Relational Data with Graph Convolutional Networks",
+    booktitle = "The Semantic Web",
+    author    = "Schlichtkrull, Michael and Kipf, Thomas N and Bloem, Peter and
+                van den Berg, Rianne and Titov, Ivan and Welling, Max",
+    publisher = "Springer International Publishing",
+    pages     = "593--607",
+    year      =  2018,
+    doi = {10.1007/978-3-319-93417-4_38}
+}
+
+@ARTICLE{gomez-bombarelli2018chemvae,
+    title     = "Automatic Chemical Design Using a {Data-Driven} Continuous
+                Representation of Molecules",
+    author    = "G{\'o}mez-Bombarelli, Rafael and Wei, Jennifer N and Duvenaud,
+                David and Hern{\'a}ndez-Lobato, Jos{\'e} Miguel and
+                S{\'a}nchez-Lengeling, Benjam{\'\i}n and Sheberla, Dennis and
+                Aguilera-Iparraguirre, Jorge and Hirzel, Timothy D and Adams,
+                Ryan P and Aspuru-Guzik, Al{\'a}n",
+    journal   = "ACS Cent. Sci.",
+    publisher = "American Chemical Society",
+    volume    =  4,
+    number    =  2,
+    pages     = "268--276",
+    month     =  feb,
+    year      =  2018,
+    doi = {10.1021/acscentsci.7b00572}
+}
+
+@MISC{openproteinset,
+    title    = "{OpenProteinSet}",
+    url="https://registry.opendata.aws/openfold/"
+}
+
+@ARTICLE{mirdita2017uniclust,
+    title    = "Uniclust databases of clustered and deeply annotated protein
+                sequences and alignments",
+    author   = "Mirdita, Milot and von den Driesch, Lars and Galiez, Clovis and
+                Martin, Maria J and S{\"o}ding, Johannes and Steinegger, Martin",
+    journal  = "Nucleic Acids Res.",
+    volume   =  45,
+    number   = "D1",
+    pages    = "D170--D176",
+    month    =  jan,
+    year     =  2017,
+    language = "en",
+    doi = {10.1093/nar/gkw1081}
+}
+
+@ARTICLE{remmert2011hhblits,
+    title    = "{HHblits}: lightning-fast iterative protein sequence searching by
+                {HMM-HMM} alignment",
+    author   = "Remmert, Michael and Biegert, Andreas and Hauser, Andreas and
+                S{\"o}ding, Johannes",
+    journal  = "Nat. Methods",
+    volume   =  9,
+    number   =  2,
+    pages    = "173--175",
+    month    =  dec,
+    year     =  2011,
+    language = "en",
+    doi = {10.1186/1471-2105-11-431}
+}
+
+@ARTICLE{johnson2010jackhmmer,
+    title    = "Hidden Markov model speed heuristic and iterative {HMM} search
+                procedure",
+    author   = "Johnson, L Steven and Eddy, Sean R and Portugaly, Elon",
+    journal  = "BMC Bioinformatics",
+    volume   =  11,
+    pages    = "431",
+    month    =  aug,
+    year     =  2010,
+    language = "en",
+    doi = {10.1186/1471-2105-11-431}
+}
+
+@ARTICLE{mitchell2020mgnify,
+    title    = "{MGnify}: the microbiome analysis resource in 2020",
+    author   = "Mitchell, Alex L and Almeida, Alexandre and Beracochea, Martin
+                and Boland, Miguel and Burgin, Josephine and Cochrane, Guy and
+                Crusoe, Michael R and Kale, Varsha and Potter, Simon C and
+                Richardson, Lorna J and Sakharova, Ekaterina and Scheremetjew,
+                Maxim and Korobeynikov, Anton and Shlemov, Alex and Kunyavskaya,
+                Olga and Lapidus, Alla and Finn, Robert D",
+    journal  = "Nucleic Acids Res.",
+    volume   =  48,
+    number   = "D1",
+    pages    = "D570--D578",
+    month    =  jan,
+    year     =  2020,
+    language = "en",
+    doi = {10.1093/nar/gkz1035}
+}
+
+@ARTICLE{suzek2015unirefclust,
+    title    = "{UniRef} clusters: a comprehensive and scalable alternative for
+                improving sequence similarity searches",
+    author   = "Suzek, Baris E and Wang, Yuqi and Huang, Hongzhan and McGarvey,
+                Peter B and Wu, Cathy H and {UniProt Consortium}",
+    journal  = "Bioinformatics",
+    volume   =  31,
+    number   =  6,
+    pages    = "926--932",
+    month    =  mar,
+    year     =  2015,
+    language = "en",
+    doi = {10.1093/bioinformatics/btu739}
+}
+
+@ARTICLE{steinegger2019hhsuite,
+    title    = "{HH-suite3} for fast remote homology detection and deep protein
+                annotation",
+    author   = "Steinegger, Martin and Meier, Markus and Mirdita, Milot and
+                V{\"o}hringer, Harald and Haunsberger, Stephan J and S{\"o}ding,
+                Johannes",
+    journal  = "BMC Bioinformatics",
+    volume   =  20,
+    number   =  1,
+    pages    = "473",
+    month    =  sep,
+    year     =  2019,
+    keywords = "Algorithm; Functional annotation; Homology detection; Profile
+                HMM; Protein alignment; SIMD; Sequence search",
+    language = "en",
+    doi = {10.1186/s12859-019-3019-7}
+}
+
+
+@ARTICLE{ferruz2022protgpt2,
+    title    = "{ProtGPT2} is a deep unsupervised language model for protein
+                design",
+    author   = "Ferruz, Noelia and Schmidt, Steffen and H{\"o}cker, Birte",
+    journal  = "Nat. Commun.",
+    volume   =  13,
+    number   =  1,
+    pages    = "4348",
+    month    =  jul,
+    year     =  2022,
+    language = "en",
+    doi = {10.1038/s41467-022-32007-7}
+}

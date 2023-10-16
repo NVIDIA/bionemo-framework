@@ -1,0 +1,7 @@
+{
+    "consumed_samples": 2000.0,
+    "global_step": 499.0,
+    "reduced_train_loss": 2.816444158554077,
+    "val_loss": 3.074651002883911,
+    "val_loss_ECE": 8.424850463867188
+}

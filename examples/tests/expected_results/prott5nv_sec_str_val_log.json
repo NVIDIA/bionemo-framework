@@ -1,0 +1,13 @@
+{
+    "consumed_samples": 796.0,
+    "dwnstr_task_val_loss": 1.2449353098517928,
+    "global_step": 200.0,
+    "grad_norm": 1.7947642803192139,
+    "loss_scale": 32768.0,
+    "lr": 1.283881465496961e-05,
+    "reduced_train_loss": 1.5524500608444214,
+    "test_3state_accuracy": 42.89080932433402,
+    "test_8state_accuracy": 37.77328484233034,
+    "test_resolved_accuracy": 90.79124812659802,
+    "val_loss": 1.5604580640792847
+}

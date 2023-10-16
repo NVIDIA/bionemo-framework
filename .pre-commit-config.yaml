@@ -1,0 +1,11 @@
+repos:
+  - repo: https://github.com/python/black
+    rev: 23.1.0
+    hooks:
+      - id: black
+        args: ["--skip-string-normalization", "--line-length=119"]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.0.292
+    hooks:
+      - id: ruff
+        args: ["--fix"] # Attempt to in-place fix issues.

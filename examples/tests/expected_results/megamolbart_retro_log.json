@@ -1,0 +1,13 @@
+{
+    "consumed_samples": 1996.0,
+    "global_step": 500.0,
+    "grad_norm": 4.71289587020874,
+    "loss_scale": 65536.0,
+    "lr": 5.912500000704313e-07,
+    "reduced_train_loss": 1.2993667125701904,
+    "val_character_accuracy": 0.7777777910232544,
+    "val_loss": 0.5462320446968079,
+    "val_molecular_accuracy": 0.0,
+    "val_percent_invalid": 0.0,
+    "val_reduced_loss": 1.407150387763977
+}

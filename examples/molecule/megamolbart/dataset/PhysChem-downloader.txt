@@ -1,0 +1,3 @@
+https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/delaney-processed.csv
+https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/SAMPL.csv
+https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/Lipophilicity.csv

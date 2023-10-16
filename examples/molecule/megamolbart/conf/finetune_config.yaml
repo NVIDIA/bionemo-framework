@@ -1,0 +1,75 @@
+name: mmb_physchem
+defaults: 
+  - pretrain_small_span_aug
+do_training: True # set to false if data preprocessing steps must be completed
+do_testing: True # set to true to run evaluation on test data after training, requires test_dataset section
+restore_from_path: /model/molecule/megamolbart/megamolbart.nemo
+target: bionemo.model.molecule.megamolbart.MegaMolBARTModel
+infer_target: bionemo.model.molecule.megamolbart.infer.MegaMolBARTInference
+
+trainer:
+  devices: 1 # number of GPUs or CPUs
+  num_nodes: 1
+  max_epochs: 100 # use max_steps instead with NeMo Megatron models
+  max_steps: 10000 # consumed_samples = global_step * micro_batch_size * data_parallel_size * accumulate_grad_batches
+  val_check_interval: 8 # set to integer when using steps to determine frequency of validation, use fraction with epochs
+  limit_val_batches: 20 # number of batches in validation step, use fraction for fraction of data, 0 to disable
+  limit_test_batches: 100 # number of batches in test step, use fraction for fraction of data, 0 to disable
+
+exp_manager:
+  wandb_logger_kwargs:
+    project: ${name}_finetuning
+    name: ${name}_finetuning_encoder_frozen_${model.encoder_frozen}
+  checkpoint_callback_params:
+    monitor: val_loss # use molecular accuracy to select best checkpoints
+    mode: min # use min or max of monitored metric to select best checkpoints
+    filename: '${name}-${model.name}--{val_loss:.2f}-{step}-{consumed_samples}'
+  resume_if_exists: True
+
+model:
+  encoder_frozen: True
+  post_process: False
+  micro_batch_size: 32 # NOTE: adjust to occupy ~ 90% of GPU memory
+  global_batch_size: null
+  tensor_model_parallel_size: 1  # model parallelism
+  
+  downstream_task:
+    n_outputs: 1
+    hidden_layer_size: 128
+    loss_func: MSELoss
+
+  data:
+    # Preprocessing data params
+    links_file: ${oc.env:PROJECT_MOUNT}/examples/molecule/megamolbart/dataset/PhysChem-downloader.txt
+    preprocessed_data_path: /data/physchem/ #sets the location physchem dataset will be downloaded
+    dataset_path: ${model.data.preprocessed_data_path}/${model.data.task_name} 
+    split_data: True
+    val_frac: 0.15 # proportion of samples used for validation set
+    test_frac: 0.15 # proportion of samples used for test set
+
+    # Finetuning data params
+    task_name: SAMPL #specifies which MoleculeNet physchem dataset to use for training, expected values: SAMPL, Lipophilicity, or delaney-processed
+    task_type: 'regression'
+    sequence_column: 'smiles'
+    target_column: 'expt'
+    emb_batch_size: ${model.micro_batch_size}
+    dataset:
+      train: x000
+      val: x000
+      test: x000
+    num_workers: 8
+    shuffle: False
+  
+  finetuning_optim:
+    name: adam
+    lr: 0.001
+    betas:
+      - 0.9
+      - 0.999
+    eps: 1e-8
+    weight_decay: 0.01
+    sched:
+      name: WarmupAnnealing
+      min_lr: 0.00001
+      last_epoch: -1
+      warmup_steps: 100

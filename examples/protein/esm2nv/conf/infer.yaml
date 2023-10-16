@@ -1,0 +1,29 @@
+defaults:
+  - base_infer_config
+  # allow this config to override defaults
+  - _self_
+
+hydra:
+  searchpath:
+     - /workspace/bionemo/examples/conf/
+
+name: ESM2nv_Inference
+desc: Minimum configuration for initializing a ESM2nv model for inference.
+
+model:
+  post_process: False
+  tokenizer:
+    library: 'huggingface'
+    type: 'BertWordPieceLowerCase'
+    model_name: "facebook/esm2_t33_650M_UR50D"  # Other supported models: esm2_t6_8M_UR50D esm2_t36_3B_UR50D 
+    vocab_path: null
+    model_path: null
+  downstream_task:
+    restore_from_path: "/model/protein/esm2nv/protein/esm2nv/esm2nv_650M_converted.nemo" # Path to pretrained checkpoint. Other options: esm2nv_3B_converted.nemo
+    outputs: [embeddings, hiddens] # Which outputs to extract per sample (a value or list). Possible values: hiddens, embeddings.
+  data:
+    dataset_path: /data/FLIP/secondary_structure/test/x000 # full path to dataset (can include range or a list)
+    batch_size: 32
+
+target: bionemo.model.protein.esm1nv.esm1nv_model.ESM2nvModel  # path to model class to load
+infer_target: bionemo.model.protein.esm1nv.infer.ESM1nvInference # path to inferende class to load

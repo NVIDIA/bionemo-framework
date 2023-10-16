@@ -1,0 +1,24 @@
+defaults:
+  - base_infer_config
+  # allow this config to override defaults
+  - _self_
+
+hydra:
+  searchpath:
+     - file:///workspace/bionemo/examples/conf/
+
+name: ProtT5_Inference
+desc: Minimum configuration for initializing a ProtT5 model for inference.
+
+model:
+  tokenizer:
+    vocab_path: /tokenizers/protein/prott5nv/vocab/protein_sequence_sentencepiece.vocab
+    model_path: /tokenizers/protein/prott5nv/vocab/protein_sequence_sentencepiece.model
+  downstream_task:
+    restore_from_path: "/model/protein/prott5nv/prott5nv.nemo"
+    outputs: [embeddings, hiddens] # Which outputs to extract per sample (a value or list). Possible values: hiddens, embeddings.
+  data:
+    dataset_path: /data/FLIP/secondary_structure/test/x000 # full path to dataset (can include range or a list)
+
+target: bionemo.model.protein.prott5nv.prott5_model.ProtT5nvModel # path to model class to load
+infer_target: bionemo.model.protein.prott5nv.infer.ProtT5nvInference # path to inferende class to load

@@ -1,0 +1,27 @@
+##
+## A faithful reproduction of the ESM-2 architecture and training parameters originally developed by META-ai
+## using NVIDIA NeMo building blocks. Original model https://github.com/facebookresearch/esm
+##
+
+defaults:
+  - base_config
+restore_from_path: null # used when starting from a .nemo file
+
+name: esm2-8M
+model:
+  seq_length: 1024
+  num_layers: 6
+  hidden_size: 320
+  ffn_hidden_size: 1280 # Transformer FFN hidden size. Usually 4 * hidden_size.
+  num_attention_heads: 20
+
+
+  tokenizer:
+    model_name: "facebook/esm2_t6_8M_UR50D"
+
+  dwnstr_task_validation:
+    enabled: True
+
+exp_manager:
+  wandb_logger_kwargs:
+    offline: True # set to True if there are issues uploading to WandB during training
