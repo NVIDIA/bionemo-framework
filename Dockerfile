@@ -1,97 +1,91 @@
-# Use the specified base image
+# Base image with apex and transformer engine, but without NeMo or Megatron-LM.
 ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.02-py3
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS bionemo2-base
 
-# Set the working directory
-WORKDIR /workspace/
+# Install NeMo dependencies.
+WORKDIR /build
 
 ARG MAX_JOBS=4
 ENV MAX_JOBS=${MAX_JOBS}
 
 # See NeMo readme for the latest tested versions of these libraries
+ARG APEX_COMMIT=810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
 RUN git clone https://github.com/NVIDIA/apex.git && \
   cd apex && \
-  git checkout 810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c && \
-  pip install . -v --no-build-isolation --disable-pip-version-check --no-cache-dir --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
+  git checkout ${APEX_COMMIT} && \
+  pip install . -v --no-build-isolation --disable-pip-version-check --no-cache-dir \
+  --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
 
 # Transformer Engine pre-1.7.0. 1.7 standardizes the meaning of bits in the attention mask to match
-#  Use the version NeMo claims works in the readme (bfe21c3d68b0a9951e5716fb520045db53419c5e)
+ARG TE_COMMIT=7d576ed25266a17a7b651f2c12e8498f67e0baea
 RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
   cd TransformerEngine && \
-  git fetch origin 7d576ed25266a17a7b651f2c12e8498f67e0baea && \
+  git fetch origin ${TE_COMMIT} && \
   git checkout FETCH_HEAD && \
   git submodule init && git submodule update && \
   NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi pip install .
 
-# This is the latest commit of megatron-lm on 2024/06/14
-#   feel free to try updating.
-RUN git clone https://github.com/NVIDIA/Megatron-LM.git && \
-  cd Megatron-LM && \
-  git checkout c7a1f82d761577e6ca0338d3521eac82f2aa0904 && \
-  pip install .
+# Install core apt packages.
+RUN apt-get update \
+  && apt-get install -y \
+  libsndfile1 \
+  ffmpeg \
+  git \
+  curl \
+  pre-commit \
+  sudo \
+  && rm -rf /var/lib/apt/lists/*
 
-# Install NeMo dependencies including apt packages and causal-conv1d
-RUN apt-get update && apt-get install -y libsndfile1 ffmpeg && rm -rf /var/lib/apt/lists/*
 # Check the nemo dependency for causal conv1d and make sure this checkout
-#  tag matches. If not, update the tag in the following line.
-RUN git clone https://github.com/Dao-AILab/causal-conv1d.git && \
-  cd causal-conv1d && \
-  git checkout v1.2.0.post2  && \
-  CAUSAL_CONV1D_FORCE_BUILD=TRUE pip install .
-# Full install of NeMo from source
-RUN git clone https://github.com/NVIDIA/NeMo.git && \
-    cd NeMo && \
-    git checkout d28c1b2dd7c8539299a4c31f7c8d1678e2cbb9c8 && \
-    ./reinstall.sh
+# tag matches. If not, update the tag in the following line.
+RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
+  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.0.post2
 
-# Install any additional dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    pre-commit \
-    && rm -rf /var/lib/apt/lists/*
+# Copy and install pypi depedencies.
+RUN mkdir /tmp/pip-tmp
+COPY requirements-dev.txt /tmp/pip-tmp/
+COPY requirements-test.txt /tmp/pip-tmp/
+COPY sub-packages/bionemo-fw/requirements.txt /tmp/pip-tmp/requirements-fw.txt
+COPY sub-packages/bionemo-contrib/requirements.txt /tmp/pip-tmp/requirements-contrib.txt
 
-WORKDIR /workspace/bionemo2
+RUN pip --disable-pip-version-check --no-cache-dir install \
+  -r /tmp/pip-tmp/requirements-dev.txt \
+  -r /tmp/pip-tmp/requirements-test.txt \
+  -r /tmp/pip-tmp/requirements-fw.txt \
+  -r /tmp/pip-tmp/requirements-contrib.txt \
+  && rm -rf /tmp/pip-tmp
 
-# install devtools and test dependencies
-COPY ./requirements-dev.txt .
-RUN pip install -r requirements-dev.txt
+# Change the workspace and delete the temporary /build directory.
+WORKDIR /workspace
+RUN rm -rf /build
 
-COPY ./requirements-test.txt .
-RUN pip install -r requirements-test.txt
+# Create a non-root user to use inside a devcontainer.
+ARG USERNAME=bionemo
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+RUN groupadd --gid $USER_GID $USERNAME \
+  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+  && chmod 0440 /etc/sudoers.d/$USERNAME
 
-#
-# install dependencies of all bionemo namespace packages
-#
 
-# TODO: install reqs of feature package(s)
-# --
-# COPY ./sub-packages/bionemo-.../requirements.txt ./sub-packages/bionemo-.../requirements.txt
-# RUN pip install -r ./sub-packages/bionemo-.../requirements.txt
-# ...
+# Create a development image with NeMo and Megatron-LM pre-installed.
+FROM bionemo2-base AS standalone
 
-COPY ./sub-packages/bionemo-fw/requirements.txt ./sub-packages/bionemo-fw/requirements.txt
-RUN pip install -r ./sub-packages/bionemo-fw/requirements.txt
+# This is the latest commit of megatron-lm on 2024/06/14
+# feel free to try updating.
+ARG MEGATRON_COMMIT=c7a1f82d761577e6ca0338d3521eac82f2aa0904
+RUN pip --disable-pip-version-check --no-cache-dir install \
+  git+https://github.com/NVIDIA/Megatron-LM.git@${MEGATRON_COMMIT}
 
-COPY ./sub-packages/bionemo-contrib/requirements.txt ./sub-packages/bionemo-contrib/requirements.txt
-RUN pip install -r ./sub-packages/bionemo-contrib/requirements.txt
+# Full install of NeMo from source.
+ARG NEMO_COMMIT=d28c1b2dd7c8539299a4c31f7c8d1678e2cbb9c8
+RUN pip --disable-pip-version-check --no-cache-dir install \
+  git+https://github.com/NVIDIA/NeMo.git@${NEMO_COMMIT}#egg=nemo_toolkit[all]
 
-#
-# install all bionemo namespaced code
-#
 
-# NOTE: We do not install from the `_requirements.txt` file, which contains each namespaced packages'
-#       inter-dependent bionemo2 subpackage relationships. This is because we manually install each
-#       subpackage's code independently. This speeds up the image building significantly.
-
-# TODO install code of feature package(s)
-# --
-# WORKDIR /workspace/bionemo2/
-# COPY ./sub-packages/bionemo-... ./sub-packages/bionemo-...
-# WORKDIR /workspace/bionemo2/sub-packages/bionemo-...
-# RUN pip install -r _requirements.txt
-# RUN pip install --no-deps -e .
-# ...
+# Create a release image with bionemo2 installed.
+FROM standalone AS release
 
 WORKDIR /workspace/bionemo2/
 COPY ./sub-packages/bionemo-fw/ ./sub-packages/bionemo-fw/
@@ -106,9 +100,3 @@ RUN pip install --no-deps -e .
 WORKDIR /workspace/bionemo2/
 COPY ./scripts ./scripts
 COPY ./README.md ./
-
-
-# Copy the rest of the bionemo2 project
-WORKDIR /workspace/
-# COPY . /workspace/bionemo2/
-WORKDIR /workspace/bionemo2/
