@@ -1,27 +1,79 @@
-Development in BioNeMo is done through forks and Merge Requests (MRs). When starting to contribute to BioNeMo, create your personal fork, add your feature branch from `dev`, commit your changes and then make a merge request into the main repo.
+# Contributing guidelines for internal bionemo2 contributions
 
-Don't create branches directly in the main repo.
+Note: For code review standards please see [CODE-REVIEW](CODE-REVIEW.md)
+
+
+## Python Coding Standards
+
+This page contains the Python coding standards for the BioNeMo repository. They apply to all Python code in the repository (unless external constraints prevent it).
+
+
+# General principles
+
+## Coding Style
+- We follow the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html) with a few tweaks.
+- The most important parts of this style guide that our code must adhere to are:
+  - [Docstring](https://google.github.io/styleguide/pyguide.html#381-docstrings)
+  - [Mutable global state](https://google.github.io/styleguide/pyguide.html#25-mutable-global-state)
+  - [Do not use mutable values as default arguments](https://google.github.io/styleguide/pyguide.html#212-default-argument-values)
+  - [Default iterators](https://google.github.io/styleguide/pyguide.html#28-default-iterators-and-operators)
+  - [Bad naming / abbreviation](https://google.github.io/styleguide/pyguide.html#316-naming)
+- The exceptions to this style guide are:
+  + [Module](https://google.github.io/styleguide/pyguide.html#22-imports) imports. If a module is uniquely named, import the module. Otherwise, import the value, type, or function directly.
+- Linting and formatting of all code is required by using `ruff` with bionemo's configured options.
+- Unit testing with `pytest`.
+- Add type annotations everywhere. In particular, new code should all be type-annotated as thoroughly as possible. This also obviates the need for including type hints in the function docstring. It is ok to omit annotations for private helper functions, but use your best judgement.
+- Include docstrings for every class, function, and method exposed to the user.
+  +Docstrings **should** answer (a) what is the code doing and (b) why would someone use it.
+- Never use wildcard imports.
+- Define `__all__ = (,)` in modules: make explicit the API of each module, auto-documenting the most important definitions.
+- Minimize the use of `**kwargs`.
+- `raise` an `Exception` instead of using an `assert` statement.
+- F-strings are preferred to format strings.
+- Loggers are preferred to print. In BioNeMo, you can use logger from `import logging`.
+- Private functions (functions starting with ``_``) shouldn't be called outside its host file.
+
+
+### General Guidelines
+- **User-oriented**: make it easy for end users, even at the cost of writing more code in the background
+- **Robust**: make it hard for users to make mistakes.
+- **Well-tested**: please add simple, fast unit tests.
+- **Reusable**: for every piece of code, think about how it can be reused in the future and make it easy to reuse.
+- **Readable**: code should be easy to read and well documented (with comments and docstrings).
+- **Legal**: if you copy even one line of code from the Internet, make sure that the code allows the license that BioNeMo supports. Give credit and link back to the code.
+- **Sensible**: code should make sense. If you think a piece of code might be confusing, write comments.
+- **Consistency**: we work in a team. It is important to integrate changes with existing code.
+- **Readability**: your code should be easy to read and understand by any other engineer, including outside NVIDIA. Some tips:
+  + Document your code. Make all comments complete sentences, starting with a capitalized letter and ending with a period.
+  + Avoid abbreviations: 'bn' is harder to understand than 'batch_norm'.
+  + Avoid baked-in constants throughout the code. Instead, specify them as parameters to your function. If you must have a constant, follow the naming guideline (e.g., `GLOBAL_CONSTANT`).
+  + Avoid functions that span hundreds of lines. Large functions are more difficult to read and more difficult to test. If >120 lines, consider re-factoring it into smaller logical functions, each unit-tested and well-documented.
+  + Re-use code by importing. **Do not copy and paste code.**
+  + Usage of third-party code should be legally compatible and attributed.
+
+### Coding Style
+
+
 
 # Merge Requests (MR) Guidelines
 
-**Send your MRs to the `dev` branch**
+**Send your MRs to the `dev` branch**. Branch off from `dev` when making your changes.
+Prefix your branches with your name or initials (i.e. `yourname/branch_description`).
 
-1) Make sure your MR does one thing. Have a clear answer to "What does this MR do?"
-2) Make sure you have the linters enabled via pre-commit hooks (`pre-commit install`)
-2) Follow the default MR template
-3) Make sure all unit tests finish successfully before running MR pipeline by invoking `pytest` in `bionemo` folder
-4) Run `pytest examples/tests/test_model_pretrain_and_downstream.py -k test_model_training`, if changes to the codebase are made in training or inference-related pyton scripts (these tests are less comprehensive than tests in JET but can help you to spot issues before running `jet` stage in CI)
-4) Make sure you added necessary tests and documentation changes (could be just comments in the config files) for the feature in your MR
-5) Rebase your feature branch with the latest `dev` to include any new changes that have been added. Resolve merge conflicts, if any
-6) Send your MR and request a review
-7) If your MR is still WIP, mark it as "Draft"
-8) Set `JET_NOT_REQUIRED` label as one of MR's labels if the MR is eligible for NOT running `jet` stage (and tests in JET) - more info below
-8) Your merge request must pass all pipelines and be peer-reviewed before it can be merged.
-9) Make sure to merge your MR when it's ready and pipeline is successful
+- Make sure your MR does one thing. Have a clear answer to "What does this MR do?"
+- Make sure you have the linters enabled via pre-commit hooks (`pre-commit install`)
+- Follow the default MR template
+- Make sure all unit tests finish successfully before running MR pipeline by invoking `pytest`.
+- Run `pytest examples/tests/test_model_pretrain_and_downstream.py -k test_model_training`, if changes to the codebase are made in training or inference-related pyton scripts (these tests are less comprehensive than tests in JET but can help you to spot issues before running `jet` stage in CI)
+- Make sure you added necessary tests and documentation changes (could be just comments in the config files) for the feature in your MR
+- Rebase your feature branch with the latest `dev` to include any new changes that have been added. Resolve merge conflicts, if any
+- Send your MR and request a review
+- If your MR is still WIP, mark it as "Draft"
+- Set `JET_NOT_REQUIRED` label as one of MR's labels if the MR is eligible for NOT running `jet` stage (and tests in JET) - more info below
+- Your merge request must pass all pipelines and be peer-reviewed before it can be merged.
+- Make sure to merge your MR when it's ready and pipeline is successful
 
 ## Unit tests
-Following [Wikipedia](https://en.wikipedia.org/wiki/Unit_testing), unit testing is a testing method by which individual units of source code—sets of one or more computer program modules together with associated control data, usage procedures, and operating procedures—are tested to determine whether they are fit for use.
-
 Contributors to BioNeMo FW are expected to unit test their introduced changes. Tests must be run locally in the docker container with incorporated changes while developing with the following command:
 ```
 pytest
@@ -31,7 +83,7 @@ If your changes to the codebase are related to the model training and inference 
 
 As an example, unit tests in `dev-latest-devel` container can be run using SLURM
 ```
-srun -t 00:30:00 -J unit-tests -N 1 -o=<OUTPUT_PATH>/pytest-slurm-%A.out --container-image gitlab-master.nvidia.com/clara-discovery/bionemo:dev-latest-devel bash -c "set -x; set -e; cd /opt/nvidia/bionemo; pytest"
+srun -t 00:30:00 -J unit-tests -N 1 -o=<OUTPUT_PATH>/pytest-slurm-%A.out --container-image github.com/NVIDIA/bionemo-fw-ea:dev-latest-devel bash -c "set -x; set -e; cd /opt/nvidia/bionemo; pytest"
 ```
 
 After testing your code locally, trigger tests in the MR's CI. Go to your MR -> "Pipelines" and trigger the pipeline by clicking an arrow sign or click on the pipeline id and trigger stages manually.
@@ -61,7 +113,7 @@ UPDATE_EXPECTED_CFG=1 pytest examples/tests/test_model_pretrain_and_downstream.p
 
 ## Stages of the gitlab CI pipeline during Merge Requests
 The MR pipeline must be completed successfully if MR is to be merged. The subsequent stages are outlined in  `.gitlab-ci.yml` file:
-1) `build` - builds a pipeline-specific docker image which can be found in the [Container Registry](https://gitlab-master.nvidia.com/clara-discovery/bionemo/container_registry) searching for `pipeline-<GITLAB-PIPELINE_ID>` and `pipeline-<GITLAB-PIPELINE_ID>-devel`
+1) `build` - builds a pipeline-specific docker image which can be found in the [Container Registry](https://github.com/NVIDIA/bionemo-fw-ea/container_registry) searching for `pipeline-<GITLAB-PIPELINE_ID>` and `pipeline-<GITLAB-PIPELINE_ID>-devel`
 2) `download` - the checkpoints of the models listed in `artifact_paths.yaml` are downloaded by `download_artifacts.py`
 3) `test` - CPU-specific and GPU-specific unit tests are run using `pytest`, excluding `pytest examples/tests/test_model_pretrain_and_downstream.py -k test_model_training`
 4) `jet` - comprehensive performance and convergence tests of BioNeMo models that are run and managed by [JET](https://jet.nvidia.com/docs), this step can be omitted if a MR is eligible for NOT running it (see below). More information on JET in `internal/README.md`
@@ -70,48 +122,65 @@ JET stage is manually triggered to avoid unnecessary pipelines in JET to be run.
 
 Before MR is ready to be merged, all CI pipelines must be completed and successful. Otherwise, the merge is blocked.
 
-## Type of changes to the codebase that can be merged WITHOUT BioNeMo CI or `jet` stage being triggered
-One stage of a pipeline is called `jet` and triggers comprehensive performance and convergence tests of BioNeMo models in [JET](https://jet.nvidia.com/docs). The tests are more comprehensive than the tests invoked by `pytest examples/tests/test_model_pretrain_and_downstream.py -k test_model_training`.
-This stage is resources- and time-consuming and can be **OMITTED** for some changes to the codebase by `JET_NOT_REQUIRED` label as one of MR's labels.
-Also, some changes to the codebase do not require to run time-consuming BioNeMo CI and can use `SKIP_CI` label.
 
-The changes to the codebase that are eligible for using `SKIP_CI` label are:
+## Merge / Pull Request Guidelines
+
+You should always carefully test your changes. Run `pytest ...` in-container locally. All tests are done via `pytest`.
+
+To run **all** tests, you must first download all models and datasets to your machine. Run the `download_models.py` file to do this. Note that you only need to do this once per machine. Reruns are necessary only when new models and datasets are added.
+Changes that affect model training accuracy or compute performance should be tested on SLURM.
+
+Major features or changes should be discussed and designed before the PR review stage.
+Design iteration for minor features, documentation changes, and bugs may occur during PR review.
+
+### <a name="before-pr-ready"></a> Before your PR is "Ready for review?
+
+Before asking for reviewers, be sure to review your own changes first. For all contributed code, be sure you have:
+- documentation updates
+- tests
+- verified that the covered tests run successfully in CI
+
+**Most of the changes** to files with extensions `*.py`, `*.yaml`, `*.yml`, `Dockerfile*` or `requirements.txt` **DO REQUIRE both `pytest-` and `jet-` CI jobs** of `stage: test`.
+
+However, these are resource-intensive stages. The `pytest-` stages require GPU enabled runners.
+The `jet-` stages require SLURM cluster access and run 10s of jobs per pipeline using [JET](https://jet.nvidia.com/docs).
+
+The `JET_NOT_REQUIRED` MR label disables running JET tests. The `SKIP_CI` label additionally disables the `pytest-` tests. For more context on JET, please see the [JET README](https://github.com/NVIDIA/bionemo-fw-ea/-/tree/dev/internal/jet?ref_type=heads).
+The next sections detail when these labels can be used on an MR.
+
+### <a name="skip-ci"></a> Can you add the `SKIP_CI` label to your MR?
+
+_Why would you use this?_ Makes the MR skip the `pytest-`, docker image building, and `jet-` CI jobs, which take a very long time to complete (~3-4 hours).
+
+_When can you use this?_ The changes to the codebase that are eligible for using `SKIP_CI` label are:
+
 * changes to the files with extension `.md` or `.ipynb`
 * changes under folders `docs`, `LICENSE`,
 * changes to the files with extension `.sh` under `examples/**/scripts/*.sh` related to training scripts of models
-* updating files with extensions different than `*.sh`, `*.py`, `*.yaml`, `*.yml`,  `Dockerfile*` or `requirements.txt` that **DO NOT** affect model checkpoints or data download, docker building, unit tests and model performance or convergence
+* changes to the other files with extension `.sh` not affecting container build, models and data download for unit test or JET tests
+* updating files with extensions different than `*.sh`, `*.py`, `*.yaml`, `*.yml`, `Dockerfile*` or `requirements.txt` that **DO NOT** affect model checkpoints or data download, docker building, unit tests and model performance or convergence
 
-The changes to the codebase that are eligible for using `JET_NOT_REQUIRE` label are:
+### <a name="pytest"></a> Can you add the `PYTEST_NOT_REQUIRED` label to your MR?
+
+_Why would you use this?_ Makes the MR skip the `pytest-` CI jobs, which require GPU resources and take 30-40m to complete
+
+_When can you use this?_ The changes to the codebase that are eligible for using `PYTEST_NOT_REQUIRED` label are:
+
+* changes to the files with extension `.md` or `.ipynb`
+* changes under folders `docs`, `LICENSE`,
+* changes to the other files with extension `.sh` not affecting container build, models and data download for unit test
+* updating files with extensions different than `*.sh`, `*.py`, `*.yaml`, `*.yml`, `Dockerfile*` or `requirements.txt` that **DO NOT** affect model checkpoints or data download, docker building, unit tests and model performance or convergence
+
+### <a name="skip-jet"></a>Can you add the `JET_NOT_REQUIRED` label to your MR?
+
+_Why would you use this?_ Makes the MR skip the `jet-` CI jobs. The `jet-` jobs are model convergence tests, which take many hours to complete.
+
+_When can you use this_? Broadly, you can use this whenever your changes do not affect model training.
+
+More specifically, the changes to the codebase that are eligible for using `JET_NOT_REQUIRED` label are:
+* new parts of the code that do not affect model training (e.g. triton inference, new examples, new tests, new data loaders / data loaders not picked as convergence test DL, etc.)
 * docstrings update in `.py` files
 * code cleanup not related to refactoring of code (ie deleting unused imports or blank lines, improving lines formatting) in `*.py` files
-* improving hydra configs docstrings (comments and descriptions) in  `*.yaml`, `*.yml`
+* improving hydra configs docstrings (comments and descriptions) in `*.yaml`, `*.yml`
 * changes to `Dockerfile` or `requirements.txt` that **DO NOT** affect model performance or convergence. Changes that **REQUIRE** `jet` stage are, for instance, python package update or a NeMo container version update.
-* updating files with extensions different that `*.py`, `*.yaml`, `*.yml`,  `Dockerfile` or `requirements.txt` that **DO NOT** affect model performance or convergence
-
-As a final remark, most of the changes to files with extensions `*.py`, `*.yaml`, `*.yml`,  `Dockerfile*` or `requirements.txt` DO REQUIRE both BioNeMo CI and `jet` stage to be run, should be carefully tested and ARE NOT eligible to use `SKIP_CI` or `JET_NOT_REQUIRE` label as they affect model performance or convergence.
-
-# General principles
-1. **User-oriented**: make it easy for end users, even at the cost of writing more code in the background
-1. **Robust**: make it hard for users to make mistakes.
-1. **Well-tested**: please add simple, fast unit tests.
-1. **Reusable**: for every piece of code, think about how it can be reused in the future and make it easy to reuse.
-1. **Readable**: code should be easy to read and well documented (with comments and docstrings).
-1. **Legal**: if you copy even one line of code from the Internet, make sure that the code allows the license that BioNeMo supports. Give credit and link back to the code.
-1. **Sensible**: code should make sense. If you think a piece of code might be confusing, write comments.
-
-## Python style
-
-1. Include docstrings for every class and method exposed to the user.
-1. Use Python 3 type hints for every class and method exposed to the user.
-1. Avoid wild import: ``from X import *`` unless in ``X.py``, ``__all__`` is defined.
-1. Minimize the use of ``**kwargs``.
-1. ``RaiseError`` is preferred to ``assert``. Write: ```if X: raise Error``` instead of ```assert X```.
-1. Classes are preferred to standalone methods.
-1. Methods should be atomic. A method shouldn't be longer than 75 lines, e.g. can be fit into the computer screen without scrolling.
-1. If a method has arguments that don't fit into one line, each argument should be in its own line for readability.
-1. Add ``__init__.py`` for every folder.
-1. F-strings are preferred to formatted strings.
-1. Loggers are preferred to print. In BioNeMo, you can use logger from ``from nemo.utils import logging``
-1. Private functions (functions starting with ``_``) shouldn't be called outside its host file.
-1. If a comment lasts multiple lines, use ``'''`` instead of ``#``.
-
+* updating files with extensions different than `*.py`, `*.yaml`, `*.yml`, `Dockerfile` or `requirements.txt` that **DO NOT** affect model performance or convergence
