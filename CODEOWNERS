@@ -25,13 +25,14 @@ internal/ @broland @cye @dorotat @jomitchell @kdidi @jwilber @mgreaves @pbinder 
 setup/Dockerfile* @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
 setup/requirements*.txt @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
 CONTRIBUTING.md @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
-
+.secrets.baseline @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
+.pre-commit-config.yaml @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 ##                                                                                                                #
 #### Model Owners -- Changes to models must require review to its respective model PiC                            #
-#### https://docs.google.com/document/d/1QJ9F93Y4sRQUkQyYzp7mr-hZKwx9g5YHyXL4JmaQQWs/edit#heading=h.ooxyxfxbw2h6  #
+#### https://docs.google.com/document/d/1-ODmxHKJy5jH5fTgA0iiOqRU2bGIlMtoYKf0MbpsNag/edit?usp=sharing             #
 ##                                                                                                                #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
@@ -91,10 +92,11 @@ docs/readme-images/dnabert8xa100.png @skothenhill
 bionemo/model/molecule/dsmbind @farhadr @menliu
 bionemo/data/dsmbind @farhadr @menliu
 examples/molecule/dsmbind @farhadr @menliu
+examples/tests/test_data/molecule/dsmbind @farhadr @menliu
 tests/test_dsmbind_data_utils.py @farhadr @menliu
 tests/test_dsmbind_model.py @farhadr @menliu
-tests/dsmbind_test_data @farhadr @menliu
-# MISSING DOCS
+tests/test_dsmbind_inference.py @farhadr @menliu
+docs/bionemo/models/dsmbind.md @farhadr @menliu
 
 ##
 ## enformer @srabhi (TODO FIXME: requires handoff to member of bionemo team!!!)
@@ -232,7 +234,7 @@ docs/build/html/models/megamolbart.html @sveccham
 docs/build/html/.doctrees/models/megamolbart.doctree @sveccham
 
 ##
-## molmim @tshimko 
+## molmim @tshimko
 ##
 bionemo/model/molecule/molmim @jstjohn @tshimko
 bionemo/model/molecule/mol_enc_dec_model_base.py @jstjohn @tshimko
@@ -243,8 +245,9 @@ docs/bionemo/images/MolMIM_molecule_generation_2.png @jstjohn @tshimko
 docs/bionemo/models/molmim.md @jstjohn @tshimko
 docs/bionemo/notebooks/MolMIM_GenerativeAI_local_inference_with_examples.ipynb @jstjohn @tshimko
 docs/bionemo/notebooks/cma_es_guided_molecular_optimization_molmim.ipynb @jstjohn @tshimko
-docs/bionemo/notebooks/model_training_molmim.ipynb @tshimko @jstjohn 
+docs/bionemo/notebooks/model_training_molmim.ipynb @tshimko @jstjohn
 docs/readme-images/molmim_training_throughput.png @jstjohn @tshimko
+fw2nim_examples/molmim @mgreaves @tshimko
 
 ##
 ## openfold @broland @kdidi
