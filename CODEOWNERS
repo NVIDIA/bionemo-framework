@@ -1,0 +1,283 @@
+# For documentation, see: https://docs.gitlab.com/ee/user/project/codeowners/
+#
+# *** NOTE ***
+#   KEEP THE LISTS OF INDIVIDUAL CODEOWNERS/TEAMS IN ALPHABETICALLY SORTED ORDER
+#
+
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+##                                                                                                                #
+#### Infrastructure                                                                                               #
+##                                                                                                                #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+# Documentation changes are user-facing
+docs/ @saeep @trvachov @tshimko
+
+# Requires bionemo FW team or PM review to change CODEOWNERS or README
+CODEOWNERS @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @ntadimeti @pbinder @trvachov @yangzhang
+README.md @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @ntadimeti @pbinder @trvachov @yangzhang
+
+# Requires bionemo FW team review when modifying: environment, internal-only code, CI, interacting with the codebase
+.gitlab-ci.yml @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
+internal/ @broland @cye @dorotat @jomitchell @kdidi @jwilber @mgreaves @pbinder @trvachov @yangzhang
+setup/Dockerfile* @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
+setup/requirements*.txt @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
+CONTRIBUTING.md @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
+.secrets.baseline @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
+.pre-commit-config.yaml @broland @cye @dorotat @jomitchell @jwilber @kdidi @mgreaves @pbinder @trvachov @yangzhang
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+##                                                                                                                #
+#### Model Owners -- Changes to models must require review to its respective model PiC                            #
+#### https://docs.google.com/document/d/1-ODmxHKJy5jH5fTgA0iiOqRU2bGIlMtoYKf0MbpsNag/edit?usp=sharing             #
+##                                                                                                                #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+##
+## diffdock @guoqingz
+##
+bionemo/model/molecule/diffdock @guoqingz @dejunl
+tests/test_diffdock_training.py @guoqingz
+tests/test_diffdock_inference.py @guoqingz
+tests/test_diffdock_model.py @dejunl
+tests/test_so3.py @guoqingz
+tests/test_pickles_to_wds_tars.py @guoqingz
+tests/test_size_aware_batching.py @guoqingz
+bionemo/data/diffdock @guoqingz @dejunl
+examples/tests/test_data/molecule/diffdock @guoqingz @dejunl
+examples/molecule/diffdock @guoqingz
+docs/bionemo/preprocessing-bcp-training-diffdock.md @guoqingz
+docs/bionemo/images/diffdock_fw_overview.png @guoqingz @zmcclure
+docs/bionemo/images/diffdock_1.png @guoqingz @zmcclure
+docs/bionemo/images/diffdock_3.png @guoqingz @zmcclure
+docs/bionemo/images/diffdock_2.png @guoqingz @zmcclure
+docs/bionemo/images/diffdock_4.png @guoqingz @zmcclure
+docs/bionemo/images/diffdock_perf.png @guoqingz @zmcclure
+docs/bionemo/models/diffdock.md @guoqingz @zmcclure
+docs/bionemo/notebooks/model_training_diffdock.ipynb @guoqingz
+docs/build/html/_sources/preprocessing-bcp-training-diffdock.md @guoqingz
+docs/build/html/_sources/models/diffdock.md @guoqingz @zmcclure
+docs/build/html/_sources/notebooks/model_training_diffdock.ipynb @guoqingz
+docs/build/html/models/diffdock.html @guoqingz
+docs/build/html/_images/diffdock_fw_overview.png @guoqingz
+docs/build/html/_images/diffdock_1.png @guoqingz
+docs/build/html/_images/diffdock_3.png @guoqingz
+docs/build/html/_images/diffdock_2.png @guoqingz
+docs/build/html/_images/diffdock_4.png @guoqingz
+docs/build/html/_images/diffdock_perf.png @guoqingz
+docs/build/html/.doctrees/preprocessing-bcp-training-diffdock.doctree @guoqingz
+docs/build/html/.doctrees/models/diffdock.doctree @guoqingz
+docs/build/html/.doctrees/notebooks/model_training_diffdock.doctree @guoqingz
+docs/build/html/preprocessing-bcp-training-diffdock.html @guoqingz
+docs/build/html/notebooks/model_training_diffdock.html @guoqingz
+docs/build/jupyter_execute/notebooks/model_training_diffdock.ipynb @guoqingz
+
+##
+## dnabert @skothenhill
+##
+bionemo/model/dna/dnabert @skothenhill
+tests/conf/dnabert_test.yaml @skothenhill
+tokenizers/dna/dnabert @skothenhill
+docs/bionemo/models/dnabert.md @skothenhill
+docs/bionemo/models/dnabert.md @skothenhill
+docs/readme-images/dnabert1xa100.png @skothenhill
+docs/readme-images/dnabert8xa100.png @skothenhill
+
+##
+## dsmbind @menliu
+##
+bionemo/model/molecule/dsmbind @farhadr @menliu
+bionemo/data/dsmbind @farhadr @menliu
+examples/molecule/dsmbind @farhadr @menliu
+examples/tests/test_data/molecule/dsmbind @farhadr @menliu
+tests/test_dsmbind_data_utils.py @farhadr @menliu
+tests/test_dsmbind_model.py @farhadr @menliu
+tests/test_dsmbind_inference.py @farhadr @menliu
+docs/bionemo/models/dsmbind.md @farhadr @menliu
+
+##
+## enformer @srabhi (TODO FIXME: requires handoff to member of bionemo team!!!)
+##
+bionemo/model/dna/enformer @srabhi
+# MISSING TESTS
+examples/dna/enformer @srabhi
+# MISSING DOCS
+
+##
+## esm-1 @farhadr @jomitchell
+## esm-2 @farhadr @jomitchell
+##
+bionemo/model/protein/esm1nv/ @farhadr @jomitchell
+tests/test_esm1nv_inference.py @farhadr @jomitchell
+tests/test_esm2nv_forward.py @farhadr @jomitchell
+tests/test_triton/test_esm1nv_triton.py @farhadr @jomitchell @mgreaves
+tests/test_triton/test_esm2nv_triton.py @farhadr @jomitchell @mgreaves
+tests/test_examples/test_esm1nv_inference_notebook.py @farhadr @jomitchell @mgreaves
+tests/test_examples/test_esm2nv_inference_notebook.py @farhadr @jomitchell @mgreaves
+tests/test_esm2nv_data_utils.py @farhadr @jomitchell
+tests/test_protein_dataloader.py @jstjohn @farhadr @jomitchell @sichu
+tests/_test_esm2_uf90clustermapping_dataset.py @farhadr @jomitchell
+tests/test_esm2nv_training_utils.py @farhadr @jomitchell
+tests/data/esm2_golden_values @farhadr @jomitchell
+tests/data/esm2_golden_values @farhadr @jomitchell
+tokenizers/protein/esm1nv @farhadr @jomitchell
+examples/protein/esm1nv @farhadr @jomitchell
+examples/protein/esm2nv @farhadr @jomitchell
+docs/bionemo/images/esm2nv_2.png @farhadr @jomitchell
+docs/bionemo/images/esm2nv_3.png @farhadr @jomitchell
+docs/bionemo/images/esm2nv_1.png @farhadr @jomitchell
+docs/bionemo/images/esm2nv_4.png @farhadr @jomitchell
+docs/bionemo/images/esm1nv_1.png @farhadr @jomitchell
+docs/bionemo/images/esm1nv_2.png @farhadr @jomitchell
+docs/bionemo/images/esm1nv_3.png @farhadr @jomitchell
+docs/bionemo/images/esm1nv_4.png @farhadr @jomitchell
+docs/bionemo/models/esm1-nv.md @farhadr @jomitchell
+docs/bionemo/models/esm2-nv.md @farhadr @jomitchell
+docs/bionemo/deep-dive-esm1-pytriton-inference.md @farhadr @jomitchell
+docs/bionemo/notebooks/model_training_esm2nv.ipynb @farhadr @jomitchell
+docs/bionemo/notebooks/model_training_esm1nv.ipynb @farhadr @jomitchell
+docs/bionemo/notebooks/protein-esm2nv-clustering.ipynb @farhadr @jomitchell
+docs/bionemo/notebooks/protein-esm1nv-clustering.ipynb @farhadr @jomitchell
+docs/bionemo/preprocessing-bcp-training-esm2nv.md @farhadr @jomitchell
+docs/readme-images/esm2_perf_accumulate32_bionemo_tflops.png @farhadr @jomitchell
+docs/readme-images/esm2_days_to_train.png @farhadr @jomitchell
+docs/readme-images/esm2_data_flowchart.png @farhadr @jomitchell
+docs/build/html/_sources/models/esm1-nv.md @farhadr @jomitchell
+docs/build/html/_sources/models/esm2-nv.md @farhadr @jomitchell
+docs/build/html/_sources/deep-dive-esm1-pytriton-inference.md @farhadr @jomitchell
+docs/build/html/_sources/notebooks/model_training_esm2nv.ipynb @farhadr @jomitchell
+docs/build/html/_sources/notebooks/model_training_esm1nv.ipynb @farhadr @jomitchell
+docs/build/html/_sources/notebooks/protein-esm2nv-clustering.ipynb @farhadr @jomitchell
+docs/build/html/_sources/notebooks/protein-esm1nv-clustering.ipynb @farhadr @jomitchell
+docs/build/html/_sources/preprocessing-bcp-training-esm2nv.md @farhadr @jomitchell
+docs/build/html/preprocessing-bcp-training-esm2nv.html @farhadr @jomitchell
+docs/build/html/models/esm2-nv.html @farhadr @jomitchell
+docs/build/html/models/esm1-nv.html @farhadr @jomitchell
+docs/build/html/deep-dive-esm1-pytriton-inference.html @farhadr @jomitchell
+docs/build/html/_images/esm2_days_to_train.png @farhadr @jomitchell
+docs/build/html/_images/esm2nv_2.png @farhadr @jomitchell
+docs/build/html/_images/esm2nv_3.png @farhadr @jomitchell
+docs/build/html/_images/esm2nv_1.png @farhadr @jomitchell
+docs/build/html/_images/esm2nv_4.png @farhadr @jomitchell
+docs/build/html/_images/esm1nv_1.png @farhadr @jomitchell
+docs/build/html/_images/esm1nv_2.png @farhadr @jomitchell
+docs/build/html/_images/esm1nv_3.png @farhadr @jomitchell
+docs/build/html/_images/esm1nv_4.png @farhadr @jomitchell
+docs/build/html/.doctrees/preprocessing-bcp-training-esm2nv.doctree @farhadr @jomitchell
+docs/build/html/.doctrees/models/esm2-nv.doctree @farhadr @jomitchell
+docs/build/html/.doctrees/models/esm1-nv.doctree @farhadr @jomitchell
+docs/build/html/.doctrees/deep-dive-esm1-pytriton-inference.doctree @farhadr @jomitchell
+docs/build/html/.doctrees/notebooks/model_training_esm2nv.doctree @farhadr @jomitchell
+docs/build/html/.doctrees/notebooks/protein-esm1nv-clustering.doctree @farhadr @jomitchell
+docs/build/html/.doctrees/notebooks/protein-esm2nv-clustering.doctree @farhadr @jomitchell
+docs/build/html/.doctrees/notebooks/model_training_esm1nv.doctree @farhadr @jomitchell
+docs/build/html/notebooks/protein-esm1nv-clustering.html @farhadr @jomitchell
+docs/build/html/notebooks/protein-esm2nv-clustering.html @farhadr @jomitchell
+docs/build/html/notebooks/model_training_esm1nv.html @farhadr @jomitchell
+docs/build/html/notebooks/model_training_esm2nv.html @farhadr @jomitchell
+docs/build/jupyter_execute/notebooks/model_training_esm2nv.ipynb @farhadr @jomitchell
+docs/build/jupyter_execute/notebooks/model_training_esm1nv.ipynb @farhadr @jomitchell
+docs/build/jupyter_execute/notebooks/protein-esm2nv-clustering.ipynb @farhadr @jomitchell
+docs/build/jupyter_execute/notebooks/protein-esm1nv-clustering.ipynb @farhadr @jomitchell
+
+##
+## esm-2 + LoRA @camirr
+##
+bionemo/model/protein/downstream/protein_model_finetuning.py @camirr
+# MISSING TESTS
+./examples/protein/esm2nv/conf/downstream_sec_str_LORA.yaml @camirr
+# MISSING DOCS
+
+##
+## equidock @amoradzadeh @farhadr
+##
+bionemo/model/protein/equidock @amoradzadeh @farhadr
+tests/test_equidock.py @amoradzadeh @farhadr
+tests/test_equidock_inference.py @amoradzadeh @farhadr
+tests/equidock_test_data @amoradzadeh @farhadr
+bionemo/data/equidock @amoradzadeh @farhadr
+examples/protein/equidock @amoradzadeh @farhadr
+docs/bionemo/images/equidock_3.png @amoradzadeh @farhadr
+docs/bionemo/images/equidock_2.png @amoradzadeh @farhadr
+docs/bionemo/images/equidock_1.png @amoradzadeh @farhadr
+docs/bionemo/images/equidock_4.png @amoradzadeh @farhadr
+docs/bionemo/models/equidock.md @amoradzadeh @farhadr
+docs/bionemo/notebooks/model_training_equidock.ipynb @amoradzadeh @farhadr
+docs/readme-images/equidock_epoch_per_hour.png @amoradzadeh @farhadr
+docs/build/html/_sources/models/equidock.md @amoradzadeh @farhadr
+docs/build/html/_sources/notebooks/model_training_equidock.ipynb @amoradzadeh @farhadr
+docs/build/html/models/equidock.html @amoradzadeh @farhadr
+docs/build/html/_images/equidock_3.png @amoradzadeh @farhadr
+docs/build/html/_images/equidock_2.png @amoradzadeh @farhadr
+docs/build/html/_images/equidock_1.png @amoradzadeh @farhadr
+docs/build/html/_images/equidock_4.png @amoradzadeh @farhadr
+docs/build/html/_images/equidock_epoch_per_hour.png @amoradzadeh @farhadr
+docs/build/html/.doctrees/models/equidock.doctree @amoradzadeh @farhadr
+docs/build/html/.doctrees/notebooks/model_training_equidock.doctree @amoradzadeh @farhadr
+docs/build/html/notebooks/model_training_equidock.html @amoradzadeh @farhadr
+docs/build/jupyter_execute/notebooks/model_training_equidock.ipynb @amoradzadeh @farhadr
+
+##
+## megamolbart @sveccham
+##
+bionemo/model/molecule/megamolbart @sveccham
+tests/test_megamolbart_data_utils.py @sveccham
+tests/test_examples/test_megamolbart_inference_notebook.py @sveccham @mgreaves
+tokenizers/molecule/megamolbart @sveccham
+examples/molecule/megamolbart @sveccham
+docs/bionemo/models/megamolbart.md @sveccham
+docs/build/html/_sources/models/megamolbart.md @sveccham
+docs/build/html/models/megamolbart.html @sveccham
+docs/build/html/.doctrees/models/megamolbart.doctree @sveccham
+
+##
+## molmim @tshimko
+##
+bionemo/model/molecule/molmim @jstjohn @tshimko
+bionemo/model/molecule/mol_enc_dec_model_base.py @jstjohn @tshimko
+tests/test_triton/test_molmim_triton.py @jstjohn @tshimko
+docs/bionemo/images/molmim_wandb_charts.png @jstjohn @tshimko
+docs/bionemo/images/MolMIM_molecule_generation_1.png @jstjohn @tshimko
+docs/bionemo/images/MolMIM_molecule_generation_2.png @jstjohn @tshimko
+docs/bionemo/models/molmim.md @jstjohn @tshimko
+docs/bionemo/notebooks/MolMIM_GenerativeAI_local_inference_with_examples.ipynb @jstjohn @tshimko
+docs/bionemo/notebooks/cma_es_guided_molecular_optimization_molmim.ipynb @jstjohn @tshimko
+docs/bionemo/notebooks/model_training_molmim.ipynb @tshimko @jstjohn
+docs/readme-images/molmim_training_throughput.png @jstjohn @tshimko
+fw2nim_examples/molmim @mgreaves @tshimko
+
+##
+## openfold @broland @kdidi
+##
+bionemo/model/protein/openfold @broland @kdidi
+tests/test_openfold_checkpoint.py @broland @kdidi
+tests/test_openfold_inference.py @broland @kdidi
+docs/bionemo/models/openfold.md @broland @kdidi
+
+##
+## prott5 @mkorshunova (TODO FIXME: requires handoff to member of bionemo team!!)
+##
+bionemo/model/protein/prott5nv @mkorshunova
+tests/test_prott5nv_inference.py @mkorshunova
+tests/test_examples/test_prott5nv_inference_notebook.py @mkorshunova @mgreaves
+examples/protein/prott5nv @mkorshunova
+tokenizers/protein/prott5nv @mkorshunova
+docs/bionemo/models/prott5nv.md @mkorshunova
+docs/build/html/_sources/models/prott5nv.md @mkorshunova
+docs/build/html/models/prott5nv.html @mkorshunova
+docs/build/html/.doctrees/models/prott5nv.doctree @mkorshunova
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+##                                                                                                                #
+#### bionemo2                                                                                                     #
+##                                                                                                                #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+##
+## bionemo opensource team
+##
+bionemo2/ @farhadr @jomitchell @jstjohn @mgreaves @skothenhill @trvachov
