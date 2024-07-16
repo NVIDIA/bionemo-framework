@@ -1,11 +1,25 @@
 repos:
-  - repo: https://github.com/python/black
-    rev: 23.1.0
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.3.0
     hooks:
-      - id: black
-        args: ["--skip-string-normalization", "--line-length=119"]
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+        name: Check YAML (unsafe)
+        args: [--unsafe]
+        files: &non-standard-yaml-files .gitlab-ci.yml
+      # check other yaml files normally
+      - id: check-yaml
+        exclude: *non-standard-yaml-files
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.0.292
+    rev: v0.5.1
     hooks:
       - id: ruff
         args: ["--fix"] # Attempt to in-place fix issues.
+      - id: ruff-format
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+    -   id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: package.lock.json
