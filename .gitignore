@@ -52,6 +52,7 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+.dotnet
 .local
 nosetests.xml
 coverage.xml
