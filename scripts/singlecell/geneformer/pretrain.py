@@ -157,7 +157,7 @@ def main(
         random_token_prob=0.1,  # this is the incorrect setting we originally used.
         median_dict=median_dict,
         micro_batch_size=micro_batch_size,
-        global_batch_size=micro_batch_size * int(devices / pipeline_model_parallel_size),
+        global_batch_size=micro_batch_size * int(num_nodes * devices / pipeline_model_parallel_size),
         # persistent workers is supported when num_dataset_workers > 0
         persistent_workers=num_dataset_workers > 0,
         pin_memory=False,
