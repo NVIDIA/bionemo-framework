@@ -21,7 +21,7 @@ repos:
     hooks:
       - id: license-header-check
         name: Run license-check script
-        entry: python scripts/license_check.py -c . --license-header ./license_header
+        entry: python scripts/license_check.py -c . --license-header ./license_header --modify
         language: system
         pass_filenames: false
         always_run: true
