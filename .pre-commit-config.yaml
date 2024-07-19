@@ -23,3 +23,11 @@ repos:
     -   id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
         exclude: package.lock.json
+  - repo: local
+    hooks:
+      - id: license-header-check
+        name: Run license-check script
+        entry: python scripts/license_check.py -c . --license-header ./license_header
+        language: system
+        pass_filenames: false
+        always_run: true
