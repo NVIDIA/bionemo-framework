@@ -172,9 +172,9 @@ def test_nemo1_nemo2_weight_shapes_match(geneformer_config, seed: int = 42):
         new_state_dict = new_model.state_dict_for_save_checkpoint()
         # Set the new_model_prefix to "" since we are looking at the base megatron model and not the lightning module which stores a copy of
         #  this model into self.module
-        old_keys = {nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="") for k in old_weights.keys()}
-        assert len(old_keys) == len(old_weights.keys()), "Mapping unexpectedly discarded some keys."
-        new_keys = set(new_state_dict.keys())
+        old_keys = {nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="") for k in old_weights}
+        assert len(old_keys) == len(old_weights), "Mapping unexpectedly discarded some keys."
+        new_keys = set(new_state_dict)
         for k, v in old_weights.items():
             # Make sure the shapes of the weights match.
             assert new_state_dict[nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="")].shape == v.shape
