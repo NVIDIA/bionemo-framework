@@ -38,6 +38,7 @@ jobs:
          (github.actor == 'ohadmo' ||
           github.actor == 'trvachov' ||
           github.actor == 'jstjohn' ||
+          github.actor == 'pstjohn' ||
           github.actor == 'malcolmgreaves' ||
           github.actor == 'gwarmstrong' ||
           github.actor == 'farhadrgh' ||
