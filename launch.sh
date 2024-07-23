@@ -103,7 +103,7 @@ build() {
     }
 
     # Check Docker version
-    docker_version=$(docker --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+    docker_version=$(docker --version | awk -F'[, ]' '{print $3}')
     required_docker_version="23.0.1"
 
     if ! version_ge "$docker_version" "$required_docker_version"; then
@@ -112,7 +112,7 @@ build() {
     fi
 
     # Check Buildx version
-    buildx_version=$(docker buildx version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+    buildx_version=$(docker buildx version | awk '{print $2}')
     required_buildx_version="0.10.2"
 
     if ! version_ge "$buildx_version" "$required_buildx_version"; then
