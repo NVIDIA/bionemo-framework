@@ -32,24 +32,24 @@ models:
         symlink:
             source: "../../geneformer-qa.nemo"
             target: "singlecell/geneformer/geneformer-qa.nemo"
-    esm2nv_8m_untrained:
-        ngc: null
-        pbss: "s3://bionemo-ci/models/esm2nv_8M_untrained.nemo"
-        symlink:
-            source: "../../esm2nv_8M_untrained.nemo"
-            target: "protein/esm2nv/esm2nv_8M_untrained.nemo"
+    # esm2nv_8m_untrained:
+    #     ngc: null
+    #     pbss: "s3://bionemo-ci/models/esm2nv_8M_untrained.nemo"
+    #     symlink:
+    #         source: "../../esm2nv_8M_untrained.nemo"
+    #         target: "protein/esm2nv/esm2nv_8M_untrained.nemo"
     esm2nv_650m:
         ngc: "nvidia/clara/esm2nv650m:1.0"
         pbss: "s3://bionemo-ci/models/esm2nv_650M_converted.nemo"
         symlink:
             source: "../../esm2nv_650M_converted.nemo"
             target: "protein/esm2nv/esm2nv_650M_converted.nemo"
-    esm2nv_3b:
-        ngc: "nvidia/clara/esm2nv3b:1.0"
-        pbss: "s3://bionemo-ci/models/esm2nv_3B_converted.nemo"
-        symlink:
-            source: "../../esm2nv_3B_converted.nemo"
-            target: "protein/esm2nv/esm2nv_3B_converted.nemo"
+    # esm2nv_3b:
+    #     ngc: "nvidia/clara/esm2nv3b:1.0"
+    #     pbss: "s3://bionemo-ci/models/esm2nv_3B_converted.nemo"
+    #     symlink:
+    #         source: "../../esm2nv_3B_converted.nemo"
+    #         target: "protein/esm2nv/esm2nv_3B_converted.nemo"
 data:
     single_cell:
         pbss: "s3://bionemo-ci/test-data/singlecell/singlecell-testdata-20240506.tar.gz"
