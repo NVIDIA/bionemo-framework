@@ -32,6 +32,7 @@ models:
         symlink:
             source: "../../geneformer-qa.nemo"
             target: "singlecell/geneformer/geneformer-qa.nemo"
+    # ESM2 8m and 3b will be used for checkpoint conversion testing
     # esm2nv_8m_untrained:
     #     ngc: null
     #     pbss: "s3://bionemo-ci/models/esm2nv_8M_untrained.nemo"
