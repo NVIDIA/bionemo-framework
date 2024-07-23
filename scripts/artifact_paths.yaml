@@ -32,13 +32,6 @@ models:
         symlink:
             source: "../../geneformer-qa.nemo"
             target: "singlecell/geneformer/geneformer-qa.nemo"
-    # TODO (@fahadrgh) uncomment when we add hf -> nemo conversion test
-    # esm2nv_8m_untrained:
-    #     ngc: null
-    #     pbss: "s3://bionemo-ci/models/esm2nv_8M_untrained.nemo"
-    #     symlink:
-    #         source: "../../esm2nv_8M_untrained.nemo"
-    #         target: "protein/esm2nv/esm2nv_8M_untrained.nemo"
     esm2nv_650m:
         ngc: "nvidia/clara/esm2nv650m:1.0"
         pbss: "s3://bionemo-ci/models/esm2nv_650M_converted.nemo"
