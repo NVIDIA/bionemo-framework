@@ -57,7 +57,7 @@ class WarmupAnnealDecayHold(_LRScheduler):
         self.last_epoch = last_epoch
 
         for group in optimizer.param_groups:
-            group.setdefault('initial_lr', max_lr)
+            group.setdefault("initial_lr", max_lr)
 
         super(WarmupAnnealDecayHold, self).__init__(optimizer, last_epoch)
 

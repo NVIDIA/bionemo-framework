@@ -60,7 +60,7 @@ def test_esm2_650m_checkpoint(esm2_model):
         old_state_dict = torch.load(ckpt_file)
         # megatron is not registering inv_freq params anymore.
         # TODO: update Bionemo checkpoints
-        old_state_dict.pop('model.language_model.rotary_pos_emb.inv_freq')
+        old_state_dict.pop("model.language_model.rotary_pos_emb.inv_freq")
 
         new_state_dict = esm2_model.state_dict_for_save_checkpoint()
 

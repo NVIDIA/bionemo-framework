@@ -73,7 +73,7 @@ class ESM2Model(MegatronBioBertModel):
         fp16_lm_cross_entropy: bool = False,
         parallel_output: bool = True,
         share_embeddings_and_output_weights: bool = False,
-        position_embedding_type: Literal['learned_absolute', 'rope'] = 'learned_absolute',
+        position_embedding_type: Literal["learned_absolute", "rope"] = "learned_absolute",
         rotary_percent: float = 1.0,
         seq_len_interpolation_factor: Optional[float] = None,
         add_binary_head=True,
@@ -120,7 +120,7 @@ class ESM2Model(MegatronBioBertModel):
                 mask_token_id=tokenizer.mask_id,
             )
 
-        if self.position_embedding_type == 'rope':
+        if self.position_embedding_type == "rope":
             self.rotary_pos_emb = RotaryEmbedding(
                 kv_channels=self.config.kv_channels,
                 rotary_percent=rotary_percent,
@@ -208,9 +208,9 @@ class ESM2Config(BioBertConfig):
     share_embeddings_and_output_weights: bool = True
     enable_autocast: bool = True  # This has to be set to True if we use the mixed precision plugin
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.esm2_bert_layer_local_spec.value
-    position_embedding_type: Literal[
-        "learned_absolute", "rope"
-    ] = "rope"  # ESM2 uses relative positional encoding 'ROPE' to extrapolate to longer sequences unseen during training
+    position_embedding_type: Literal["learned_absolute", "rope"] = (
+        "rope"  # ESM2 uses relative positional encoding 'ROPE' to extrapolate to longer sequences unseen during training
+    )
 
     seq_length: int = 1024
     make_vocab_size_divisible_by: int = 128
@@ -235,7 +235,7 @@ class ESM2Config(BioBertConfig):
 
         # The local specs all require the standard full attention mask. For transformer engine only the NVTE_FLASH_ATTN=0
         #  option requires this full attention mask.
-        use_full_attention_mask: bool = os.getenv('NVTE_FLASH_ATTN') == '0' or self.biobert_spec_option in {
+        use_full_attention_mask: bool = os.getenv("NVTE_FLASH_ATTN") == "0" or self.biobert_spec_option in {
             BiobertSpecOption.bert_layer_local_spec,
             BiobertSpecOption.bert_layer_local_spec_with_qk_ln,
             BiobertSpecOption.esm2_bert_layer_local_spec,

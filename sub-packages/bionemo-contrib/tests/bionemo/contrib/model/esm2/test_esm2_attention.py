@@ -52,7 +52,7 @@ def test_forward(attention_layer, config):
     batch_size = 2
     sequence_length = config.seq_length
     hidden_size = config.hidden_size
-    device = torch.device('cuda')
+    device = torch.device("cuda")
 
     query = torch.randn(sequence_length, batch_size, 1, hidden_size, device=device)
     key = torch.randn(sequence_length, batch_size, 1, hidden_size, device=device)
@@ -72,7 +72,7 @@ def test_attention_with_mask(attention_layer, dtype):
     sequence_length_query = 1
     batch_size = 2
     emb_dim = 4
-    device = torch.device('cuda')
+    device = torch.device("cuda")
 
     # query and key such that the dot prod is an all-ones tensor
     query = torch.ones(batch_size, sequence_length_query, 1, emb_dim, device=device, dtype=dtype) / math.sqrt(emb_dim)

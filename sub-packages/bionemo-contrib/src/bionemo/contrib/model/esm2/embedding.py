@@ -34,7 +34,7 @@ class ESM2Embedding(LanguageModelEmbedding):
         config: TransformerConfig,
         vocab_size: int,
         max_sequence_length: int,
-        position_embedding_type: Literal["learned_absolute", "rope"] = 'rope',
+        position_embedding_type: Literal["learned_absolute", "rope"] = "rope",
         num_tokentypes: int = 0,
         # ESM2 NEW ARGS
         token_dropout: bool = True,
