@@ -5,6 +5,7 @@ FROM ${BASE_IMAGE}
 # Set the working directory
 WORKDIR /workspace/
 
+ENV SOMEVAR=42
 ARG MAX_JOBS=4
 ENV MAX_JOBS=${MAX_JOBS}
 
