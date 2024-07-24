@@ -18,7 +18,7 @@ RUN git clone https://github.com/NVIDIA/apex.git && \
 #  Use the version NeMo claims works in the readme (bfe21c3d68b0a9951e5716fb520045db53419c5e)
 RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
   cd TransformerEngine && \
-  git fetch origin bfe21c3d68b0a9951e5716fb520045db53419c5e && \
+  git fetch origin 7d576ed25266a17a7b651f2c12e8498f67e0baea && \
   git checkout FETCH_HEAD && \
   git submodule init && git submodule update && \
   NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi pip install .
@@ -27,7 +27,7 @@ RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
 #   feel free to try updating.
 RUN git clone https://github.com/NVIDIA/Megatron-LM.git && \
   cd Megatron-LM && \
-  git checkout 1d4b4b200ce3cb6fe1e6baa723a5178084045fa8 && \
+  git checkout c7a1f82d761577e6ca0338d3521eac82f2aa0904 && \
   pip install .
 
 # Install NeMo dependencies including apt packages and causal-conv1d
@@ -41,7 +41,7 @@ RUN git clone https://github.com/Dao-AILab/causal-conv1d.git && \
 # Full install of NeMo from source
 RUN git clone https://github.com/NVIDIA/NeMo.git && \
     cd NeMo && \
-    git checkout 081a16374c3e0e58dc01e812393ae8645d1fc867 && \
+    git checkout d28c1b2dd7c8539299a4c31f7c8d1678e2cbb9c8 && \
     ./reinstall.sh
 
 # Install any additional dependencies
