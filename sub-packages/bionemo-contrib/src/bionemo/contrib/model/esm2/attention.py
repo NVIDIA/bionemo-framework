@@ -136,11 +136,13 @@ class ESM2DotProductAttention(DotProductAttention):
         # ESM2 Customization
         if self.use_esm_attention:
             # NOTE: the slicing here is to make the attention_mask the same shape as the extended
-            #  attention mask in ESM2. The multiplication by -3.4028e+38 is similarly motivated
-            #  by ESM2's maskikng approach, which forces softmax of attention scores for
-            #  masked entries to be close to 0. This number is replaced with -torch.inf here
+            # attention mask in ESM2. The multiplication by -3.4028e+38 (float32 min_val) is
+            # similarly motivated by ESM2's maskikng approach, which forces softmax of attention scores
+            # for masked entries to be close to 0. This number is replaced with min_val of the precision
+            min_val = torch.finfo(attention_scores.dtype).min
+
             attention_probs: Tensor = self.esm2_scale_mask_softmax(
-                attention_scores.masked_fill(attention_mask[:, :, 0:1, :].to(bool), -torch.inf)
+                attention_scores.masked_fill(attention_mask[:, :, 0:1, :].to(bool), min_val)
             )
         # END ESM2 Customization
         else:
