@@ -259,7 +259,7 @@ def download_artifacts(
 
 
 @retry(wait=wait_exponential(multiplier=1, max=10), retry=retry_if_exception_type(ValueError))
-def execute_download(stream_stdout, conf, download_artifact, complete_download_dir, command, file_name):
+def execute_download(stream_stdout: bool, conf: Dict[str, ArtifactConfig], download_artifact: str, complete_download_dir: Path, command: List[str], file_name: str) -> None:
     """Execute the download command and check the MD5 checksum of the downloaded file."""
 
     _, stderr, retcode = streamed_subprocess_call(command, stream_stdout)
