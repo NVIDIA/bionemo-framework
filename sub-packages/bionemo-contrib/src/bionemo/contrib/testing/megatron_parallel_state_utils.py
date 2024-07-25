@@ -17,7 +17,7 @@
 from contextlib import contextmanager
 from typing import Optional
 
-import apex
+import megatron.core.num_microbatches_calculator
 import pytorch_lightning as pl
 import torch
 from megatron.core import parallel_state
@@ -45,10 +45,10 @@ def my_test():
 
 
 def _reset_microbatch_calculator():
-    """Resets _GLOBAL_NUM_MICROBATCHES_CALCULATOR in apex which is used in NeMo to initilised model parallel in
+    """Resets _GLOBAL_NUM_MICROBATCHES_CALCULATOR in megatron which is used in NeMo to initilised model parallel in
     nemo.collections.nlp.modules.common.megatron.megatron_init.initialize_model_parallel_for_nemo
     """
-    apex.transformer.pipeline_parallel.utils._GLOBAL_NUM_MICROBATCHES_CALCULATOR = None
+    megatron.core.num_microbatches_calculator._GLOBAL_NUM_MICROBATCHES_CALCULATOR = None
 
 
 def _dummy() -> None:
@@ -89,6 +89,16 @@ def _initialize_distributed_parallel_state(
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             pipeline_model_parallel_split_rank=pipeline_model_parallel_split_rank,
         )
+
+
+@contextmanager
+def clean_parallel_state_context():
+    """Puts you into a clean parallel state, and again tears it down at the end"""
+    try:
+        _teardown_apex_megatron_cuda()
+        yield
+    finally:
+        _teardown_apex_megatron_cuda()
 
 
 @contextmanager
@@ -137,4 +147,7 @@ def distributed_model_parallel_state(seed: Optional[int] = 42):
         _teardown_apex_megatron_cuda()
 
 
-__all__ = ["distributed_model_parallel_state"]
+__all__ = [
+    "clean_parallel_state_context",
+    "distributed_model_parallel_state",
+]

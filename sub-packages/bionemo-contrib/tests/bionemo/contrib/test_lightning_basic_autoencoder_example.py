@@ -22,31 +22,31 @@ from bionemo.contrib.testing import megatron_parallel_state_utils
 
 
 def test_mixin_strategy_contract_get_loss_reduction():
-    strategy = nl.MegatronStrategy(
-        tensor_model_parallel_size=1,
-        pipeline_model_parallel_size=1,
-        ddp="megatron",
-        find_unused_parameters=True,
-        enable_nemo_ckpt_io=False,
-    )
-    strategy.connect(bnptl.LightningPassthroughPredictionMixin())
-    mixin = bnptl.LightningPassthroughPredictionMixin()
-    strategy_reduction_function = strategy._get_loss_reduction("predict")
-    assert isinstance(strategy_reduction_function(mixin), bnptl.PassthroughLossReduction)
+    with megatron_parallel_state_utils.clean_parallel_state_context():
+        strategy = nl.MegatronStrategy(
+            tensor_model_parallel_size=1,
+            pipeline_model_parallel_size=1,
+            ddp="megatron",
+            find_unused_parameters=True,
+            enable_nemo_ckpt_io=False,
+        )
+        strategy.connect(bnptl.LightningPassthroughPredictionMixin())
+        mixin = bnptl.LightningPassthroughPredictionMixin()
+        strategy_reduction_function = strategy._get_loss_reduction("predict")
+        assert isinstance(strategy_reduction_function(mixin), bnptl.PassthroughLossReduction)
 
 
 @pytest.mark.needs_gpu
 def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu():
-    model = lb.LitAutoEncoder(config=lb.ExampleConfig())
-    strategy = nl.MegatronStrategy(
-        tensor_model_parallel_size=1,
-        pipeline_model_parallel_size=1,
-        ddp="megatron",
-        find_unused_parameters=True,
-        enable_nemo_ckpt_io=False,
-    )
-    with megatron_parallel_state_utils.distributed_model_parallel_state():
+    with megatron_parallel_state_utils.clean_parallel_state_context():
+        model = lb.LitAutoEncoder(config=lb.ExampleConfig())
+        strategy = nl.MegatronStrategy(
+            tensor_model_parallel_size=1,
+            pipeline_model_parallel_size=1,
+            ddp="megatron",
+            find_unused_parameters=True,
+            enable_nemo_ckpt_io=False,
+        )
         trainer = nl.Trainer(accelerator="gpu", devices=1, strategy=strategy, max_steps=10, num_nodes=1)
         data_module = lb.MNISTDataModule()
-        data_module.trainer = trainer
         trainer.fit(model, data_module)
