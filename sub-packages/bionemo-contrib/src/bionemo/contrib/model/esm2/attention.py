@@ -139,6 +139,7 @@ class ESM2DotProductAttention(DotProductAttention):
             # attention mask in ESM2. The multiplication by -3.4028e+38 (float32 min_val) is
             # similarly motivated by ESM2's maskikng approach, which forces softmax of attention scores
             # for masked entries to be close to 0. This number is replaced with min_val of the precision
+            # using min_val instead of -inf is stable in an special case where all sequence is masked
             min_val = torch.finfo(attention_scores.dtype).min
 
             attention_probs: Tensor = self.esm2_scale_mask_softmax(
