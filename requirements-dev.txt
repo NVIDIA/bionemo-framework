@@ -8,5 +8,6 @@ black==23.1.0
 pre-commit==3.4.0
 virtualenv==20.26.3
 ipdb==0.13.11
+tenacity==8.5.0
 # https://gitlab-master.nvidia.com/clara-discovery/infra-bionemo
 #infra-bionemo==0.3.1
