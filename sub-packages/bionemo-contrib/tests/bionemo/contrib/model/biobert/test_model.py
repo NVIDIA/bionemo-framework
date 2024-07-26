@@ -23,7 +23,11 @@ import pytest
 import torch
 from nemo import lightning as nl
 from torch.nn import functional as F
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
+from bionemo.contrib.data.resamplers import PRNGDatasetShuffler
+from bionemo.contrib.data.singlecell.dataset import SingleCellDataset
 from bionemo.contrib.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.contrib.model.biobert.lightning import BioBertLightningModule
 from bionemo.contrib.model.biobert.model import BioBertConfig, BiobertSpecOption
@@ -31,6 +35,7 @@ from bionemo.contrib.testing import megatron_parallel_state_utils
 from bionemo.contrib.testing.utils import assert_matrix_correlation_above_value, assert_matrix_mape_below_value
 from bionemo.contrib.utils.batching_utils import pad_token_ids
 from bionemo.contrib.utils.dtypes import get_autocast_dtype
+from bionemo.contrib.utils.random_utils import random_numpy_context
 from bionemo.contrib.utils.weight_utils import (
     nemo1_to_nemo2_biobert_key_mapping,
 )
@@ -41,6 +46,7 @@ from bionemo.contrib.utils.weight_utils import (
 test_script_dir = pathlib.Path(os.path.dirname(os.path.realpath(__file__)))
 bionemo2_root = test_script_dir.parent.parent.parent.parent.parent.parent.parent
 nemo1_checkpoint_path = bionemo2_root / "models/singlecell/geneformer/geneformer-qa.nemo"
+nemo1_release_checkpoint_path = bionemo2_root / "models/singlecell/geneformer/geneformer-10M-240530.nemo"
 nemo_1_per_layer_outputs_path = bionemo2_root / "test_data/nemo1-test-outputs-geneformer-qa.pt"
 nemo_1_expected_values_path = bionemo2_root / "test_data/nemo1_geneformer_qa_test_golden_values.pt"
 data_path = bionemo2_root / "test_data/cellxgene_2023-12-15_small/processed_data"
@@ -577,3 +583,119 @@ def test_geneformer_inference_nemo1_v_nemo2_golden_values_by_layer(
                     min_correlation=correlation_tolerances.get(new_module_name, default_correlation_tolerance),
                     msg=f"Module: {new_module_name}",
                 )
+
+
+def _get_loss_from_model(model_config: BioBertConfig, seed: int) -> float:
+    """Shared test utility that we can use for a positive and negative control on the loss from our loaded checkpoint."""
+    data_dir = pathlib.Path(data_path)
+    train_data_path = data_dir / "train"
+    test_data_path = data_dir / "test"
+    with torch.inference_mode(), megatron_parallel_state_utils.distributed_model_parallel_state(
+        seed
+    ), random_numpy_context(seed):
+        preprocessor = GeneformerPreprocess(
+            download_directory=train_data_path,
+            medians_file_path=train_data_path / "medians.json",
+            tokenizer_vocab_path=train_data_path / "geneformer.vocab",
+        )
+        match preprocessor.preprocess():
+            case {"tokenizer": tokenizer, "median_dict": median_dict}:
+                pass
+            case _:
+                assert False
+        new_model = model_config.configure_model(tokenizer).eval().cuda()
+        # NOTE: a small change to randomization in the single-cell dataset could throw our test below off by a small amount
+        #  maybe 0.02 or so, if the value is above that range then disable the 200 batch limit and check the global number
+        #  going back to `n += 1` and `loss += F.cross_entropy(logits[loss_mask], target[loss_mask], reduction="mean")`
+        #  for consistency with the old results. Then if those look good, redefine the target with our seeds and the
+        #  updated dataset.
+        ds = SingleCellDataset(
+            test_data_path,
+            tokenizer=tokenizer,
+            median_dict=median_dict,
+            max_len=2048,
+            mask_prob=0.15,
+            mask_token_prob=0.8,
+            random_token_prob=0.1,  # TODO: once this is fixed, change to 0.02 to match the prior numbers.
+            prepend_cls_token=True,
+        )
+        dss = PRNGDatasetShuffler(
+            ds,
+            seed=seed,
+        )
+        dl = DataLoader(
+            dataset=dss,  # pre-shuffled with our method
+            batch_size=8,
+            shuffle=False,
+            num_workers=0,
+            drop_last=False,
+        )
+        loss = 0
+        n = 0
+        limit_batches = 200
+        for i, batch in tqdm(enumerate(dl), total=len(dl)):
+            result = new_model(
+                input_ids=batch["text"].cuda(),
+                attention_mask=batch["attention_mask"].cuda(),
+            )
+            loss_mask = batch["loss_mask"].cuda()
+            logits = result["token_logits"]
+            target = batch["labels"].cuda()
+
+            loss += F.cross_entropy(logits[loss_mask], target[loss_mask], reduction="sum")
+            n += loss_mask.sum()
+
+            if limit_batches is not None and i + 1 >= limit_batches:
+                break
+
+        mean_loss: float = (loss / n).cpu().numpy().item()
+    return mean_loss
+
+
+def test_inference_loss_10m_released_checkpoint(geneformer_config: BioBertConfig, seed: int = 42):
+    """Test that we get a good loss when loading a bionemo1 checkpoint with a properly initialized config"""
+    geneformer_config_logit = deepcopy(geneformer_config)
+    # Set up the model to return logits and switch to the released 10M checkpoint
+    geneformer_config_logit.return_only_hidden_states = False  # return logits
+    geneformer_config_logit.nemo1_ckpt_path = nemo1_release_checkpoint_path  # release checkpoint is important
+
+    mean_loss = _get_loss_from_model(geneformer_config_logit, seed)
+
+    # NOTE: the values in the table were from the average of averages of 8 sized batches
+    # Experiment 1) loaded the 10M model and did the mean of mean loss with 8 sized batches
+    #  this gives: 2.3558831214904785 vs 2.357126723703872, so we actually do better!
+    # For NVIDIA employees see work here:
+    #   https://docs.google.com/document/d/1CofamqHbQlp5U8SjmW7NR7PbTbF72Lj9L9xz1W5t3ZI/edit
+    # Experiment 2)
+    #  With a proper loss (sum/n) and limiting to 200 _random_ batches of size 8 for speed
+    #  we get a similar range number of 2.368649959564209.
+    #  a small change that has lower impact than the change between models is probably acceptable.
+    #  the target is defined as described above for the 10M checkpoint based on our first pass
+    #  of the megatron implementation. Since we manually passed experiment 1 this experiment
+    #  will define our initial "golden value" test target.
+    target: float = 2.368649959564209
+    assert mean_loss < target or mean_loss == pytest.approx(target, abs=1e-2, rel=None)
+
+
+def test_inference_loss_10m_released_checkpoint_wrong_activation(geneformer_config: BioBertConfig, seed: int = 42):
+    """Test that when we use the wrong activation we get worse loss out of the same function we test for a positive
+    signal. This acts as the negative control.
+    """
+    geneformer_config_logit = deepcopy(geneformer_config)
+    # Set up the model to return logits and switch to the released 10M checkpoint
+    geneformer_config_logit.return_only_hidden_states = False  # return logits
+    geneformer_config_logit.nemo1_ckpt_path = nemo1_release_checkpoint_path  # release checkpoint is important
+
+    # introduce a breaking change with a future xfail as a negative control for our test
+    geneformer_config_logit.activation_func = torch.nn.functional.relu  # the model should be gelu
+    geneformer_config_logit.bias_activation_fusion = False  # this needs to be off for ReLu support
+
+    mean_loss = _get_loss_from_model(geneformer_config_logit, seed)
+    # In one run, this gave a mean_loss of 7.9! Very much broke the model.
+    #  note that the model can be trained to work with relu and produces similar loss curves
+    #  but the weights trained one way are not compatible with the other.
+    # Our HF model was at 3, so 5 is pretty clearly out of expected range. This shows how
+    #  sensitive the checkpoint is to a real change in the underlying function.
+    #  Perhaps a future model is more robust, so if this value needs to come down we can
+    #  do that.
+    assert mean_loss > 5

@@ -5,12 +5,6 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: check-yaml
-        name: Check YAML (unsafe)
-        args: [--unsafe]
-        files: &non-standard-yaml-files .gitlab-ci.yml
-      # check other yaml files normally
-      - id: check-yaml
-        exclude: *non-standard-yaml-files
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.5.1
     hooks:
@@ -23,3 +17,11 @@ repos:
     -   id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
         exclude: package.lock.json
+  - repo: local
+    hooks:
+      - id: license-header-check
+        name: Run license-check script
+        entry: python scripts/license_check.py -c . --license-header ./license_header --modify
+        language: system
+        pass_filenames: false
+        always_run: true
