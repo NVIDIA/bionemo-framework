@@ -33,6 +33,7 @@ from megatron.core.transformer.identity_op import IdentityOp
 from megatron.core.transformer.mlp import MLP, MLPSubmodules
 from megatron.core.transformer.transformer_layer import TransformerLayer, TransformerLayerSubmodules
 
+from bionemo.contrib.model.esm2.attention import ESM2DotProductAttention
 from bionemo.contrib.model.layers import TELayerNorm
 
 
@@ -45,6 +46,8 @@ class BiobertSpecOption(str, Enum):
     bert_layer_local_spec_with_qk_ln = "bert_layer_local_spec_with_qk_ln"
     bert_layer_with_transformer_engine_spec = "bert_layer_with_transformer_engine_spec"
     bert_layer_with_transformer_engine_and_qk_ln_spec = "bert_layer_with_transformer_engine_and_qk_ln_spec"
+    # ESM2 spec
+    esm2_bert_layer_local_spec = "esm2_bert_layer_local_spec"
 
 
 def get_biobert_spec(biobert_spec_option: BiobertSpecOption, qk_layernorm: bool = False) -> spec_utils.ModuleSpec:
@@ -117,6 +120,37 @@ def get_biobert_spec(biobert_spec_option: BiobertSpecOption, qk_layernorm: bool 
             },
         ),
     )
+    esm2_bert_layer_local_spec = spec_utils.ModuleSpec(
+        module=TransformerLayer,
+        submodules=TransformerLayerSubmodules(
+            input_layernorm=FusedLayerNorm,
+            self_attention=spec_utils.ModuleSpec(
+                module=SelfAttention,
+                params={"attn_mask_type": AttnMaskType.padding},
+                submodules=SelfAttentionSubmodules(
+                    linear_qkv=ColumnParallelLinear,
+                    core_attention=ESM2DotProductAttention,
+                    linear_proj=RowParallelLinear,
+                    q_layernorm=IdentityOp,
+                    k_layernorm=IdentityOp,
+                ),
+            ),
+            self_attn_bda=get_bias_dropout_add,
+            pre_mlp_layernorm=FusedLayerNorm,
+            mlp=spec_utils.ModuleSpec(
+                module=MLP,
+                submodules=MLPSubmodules(
+                    linear_fc1=ColumnParallelLinear,
+                    linear_fc2=RowParallelLinear,
+                ),
+            ),
+            mlp_bda=get_bias_dropout_add,
+            sharded_state_dict_keys_map={
+                "input_layernorm.": "self_attention.linear_qkv.layer_norm_",
+                "pre_mlp_layernorm.": "mlp.linear_fc1.layer_norm_",
+            },
+        ),
+    )
 
     match biobert_spec_option:
         case BiobertSpecOption.bert_layer_local_spec:
@@ -127,6 +161,8 @@ def get_biobert_spec(biobert_spec_option: BiobertSpecOption, qk_layernorm: bool 
             return bert_layer_specs.bert_layer_with_transformer_engine_spec
         case BiobertSpecOption.bert_layer_with_transformer_engine_and_qk_ln_spec:
             return bert_layer_with_transformer_engine_and_qk_ln_spec
+        case BiobertSpecOption.esm2_bert_layer_local_spec:
+            return esm2_bert_layer_local_spec
         case _:
             raise NotImplementedError(f"Spec option {biobert_spec_option} not implemented")
 

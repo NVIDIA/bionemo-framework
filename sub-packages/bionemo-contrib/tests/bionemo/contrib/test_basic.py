@@ -16,17 +16,23 @@
 
 from nemo import lightning as nl
 
+from bionemo.contrib.testing import megatron_parallel_state_utils
+
 
 def test_load_megatron_strategy():
-    strategy = nl.MegatronStrategy(tensor_model_parallel_size=1)
-    assert strategy.tensor_model_parallel_size == 1
+    # This will clean up most of the megatron global state that can get created
+    with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+        strategy = nl.MegatronStrategy(tensor_model_parallel_size=1)
+        assert strategy.tensor_model_parallel_size == 1
 
 
 def test_construct_nemo_lightning_trainer():
-    trainer = nl.Trainer(
-        devices=1,
-        max_steps=5,
-        accelerator="gpu",
-        strategy=nl.MegatronStrategy(tensor_model_parallel_size=1),
-    )
-    assert trainer.max_steps == 5
+    # This will clean up most of the megatron global state that can get created
+    with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+        trainer = nl.Trainer(
+            devices=1,
+            max_steps=5,
+            accelerator="gpu",
+            strategy=nl.MegatronStrategy(tensor_model_parallel_size=1),
+        )
+        assert trainer.max_steps == 5

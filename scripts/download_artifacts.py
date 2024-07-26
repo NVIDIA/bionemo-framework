@@ -16,6 +16,7 @@
 """Script to download pretrained models from NGC or PBSS."""
 
 import argparse
+import hashlib
 import logging
 import os
 import sys
@@ -26,6 +27,7 @@ from typing import Dict, List, Literal, Optional, Tuple
 
 import yaml
 from pydantic import BaseModel
+from tenacity import retry, retry_if_exception_type, wait_exponential
 
 
 ALL_KEYWORD = "all"
@@ -51,6 +53,7 @@ class ArtifactConfig(BaseModel):
     extra_args: Optional[str] = None
     untar_dir: Optional[str] = None
     unpack: bool = True
+    md5sum: str
 
 
 class Config(BaseModel):
@@ -228,9 +231,8 @@ def download_artifacts(
             extra_args = conf[download_artifact].extra_args
             command = f"{command} {extra_args}"
 
-        _, stderr, retcode = streamed_subprocess_call(command, stream_stdout)
-        if retcode != 0:
-            raise ValueError(f"Failed to download {download_artifact=}! {stderr=}")
+        execute_download(stream_stdout, conf, download_artifact, complete_download_dir, command, file_name)
+
         if artifact_type == "data":
             unpack: bool = getattr(conf[download_artifact], "unpack", True)
             if unpack:
@@ -254,6 +256,29 @@ def download_artifacts(
             _, stderr, retcode = streamed_subprocess_call(command, stream_stdout=True)
             if retcode != 0:
                 raise ValueError(f"Failed to symlink {source_file=} to {target_file=}; {stderr=}")
+
+
+@retry(wait=wait_exponential(multiplier=1, max=10), retry=retry_if_exception_type(ValueError))
+def execute_download(
+    stream_stdout: bool,
+    conf: Dict[str, ArtifactConfig],
+    download_artifact: str,
+    complete_download_dir: Path,
+    command: List[str],
+    file_name: str,
+) -> None:
+    """Execute the download command and check the MD5 checksum of the downloaded file."""
+
+    _, stderr, retcode = streamed_subprocess_call(command, stream_stdout)
+    if retcode != 0:
+        raise ValueError(f"Failed to download {download_artifact=}! {stderr=}")
+
+    downloaded_md5sum = _md5_checksum(Path(complete_download_dir) / file_name)
+    if downloaded_md5sum != conf[download_artifact].md5sum:
+        raise ValueError(
+            f"MD5 checksum mismatch for {download_artifact=}! Expected "
+            f"{conf[download_artifact].md5sum}, got {downloaded_md5sum}"
+        )
 
 
 def load_config(config_file: Path = DATA_SOURCE_CONFIG) -> Config:
@@ -331,6 +356,22 @@ def main():
 
     if not (args.models or args.data):
         logging.warning("No models or data were selected to download.")
+
+
+def _md5_checksum(file_path: Path) -> str:
+    """Calculate the MD5 checksum of a file.
+
+    Args:
+        file_path (Path): The path to the file to checksum.
+
+    Returns:
+        str: The MD5 checksum of the file.
+    """
+    md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            md5.update(chunk)
+    return md5.hexdigest()
 
 
 if __name__ == "__main__":

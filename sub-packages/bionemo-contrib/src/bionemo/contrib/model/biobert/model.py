@@ -31,6 +31,7 @@ from megatron.core.transformer.enums import ModelType
 from megatron.core.transformer.transformer_block import TransformerBlock
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import get_linear_layer
+from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
 from nemo.lightning import get_vocab_size
 from nemo.lightning.megatron_parallel import (
     MegatronLossReduction,
@@ -71,10 +72,11 @@ class MegatronBioBertModel(LanguageModule):
     def __init__(
         self,
         config: TransformerConfig,
+        num_tokentypes: int,
         transformer_layer_spec: spec_utils.ModuleSpec,
-        lm_embedding: LanguageModelEmbedding,
         vocab_size: int,
         max_sequence_length: int,
+        tokrnizer: AutoTokenizer = None,
         pre_process: bool = True,
         post_process: bool = True,
         fp16_lm_cross_entropy: bool = False,
@@ -118,7 +120,13 @@ class MegatronBioBertModel(LanguageModule):
 
         # Embeddings.
         if self.pre_process:
-            self.embedding = lm_embedding
+            self.embedding = LanguageModelEmbedding(
+                config=self.config,
+                vocab_size=self.vocab_size,
+                max_sequence_length=self.max_sequence_length,
+                position_embedding_type=position_embedding_type,
+                num_tokentypes=num_tokentypes,
+            )
 
         if self.position_embedding_type == "rope":
             self.rotary_pos_emb = RotaryEmbedding(
@@ -209,6 +217,11 @@ class MegatronBioBertModel(LanguageModule):
 
         return position_ids
 
+    def embedding_forward(
+        self, input_ids: Tensor, position_ids: Tensor, tokentype_ids: Tensor = None, attention_mask: Tensor = None
+    ):
+        return self.embedding(input_ids=input_ids, position_ids=position_ids, tokentype_ids=tokentype_ids)
+
     def set_input_tensor(self, input_tensor: Tensor) -> None:
         """Sets input tensor to the model.
 
@@ -255,7 +268,12 @@ class MegatronBioBertModel(LanguageModule):
 
         # Encoder embedding.
         if self.pre_process:
-            encoder_input = self.embedding(input_ids=input_ids, position_ids=position_ids, tokentype_ids=tokentype_ids)
+            encoder_input = self.embedding_forward(
+                input_ids=input_ids,
+                position_ids=position_ids,
+                tokentype_ids=tokentype_ids,
+                attention_mask=attention_mask,
+            )
         else:
             # intermediate stage of pipeline
             # encoder will get hidden_states from encoder.input_tensor
@@ -315,7 +333,6 @@ class MegatronBioBertModel(LanguageModule):
 @dataclass
 class BioBertConfig(TransformerConfig):
     # From megatron.core.models.gpt.bert_model.GPTModel
-    embed_module_cls: Type[LanguageModelEmbedding] = LanguageModelEmbedding
     fp16_lm_cross_entropy: bool = False
     parallel_output: bool = True
     share_embeddings_and_output_weights: bool = False  # try True
@@ -341,24 +358,6 @@ class BioBertConfig(TransformerConfig):
     #  things as part of the workflow for inference and fine-tuning.
     return_only_hidden_states: bool = False
 
-    def configure_embedding(self, vocab_size, do_next_sentence=False) -> "LanguageModelEmbedding":
-        """Configures and returns an instantiated object of embedding module
-
-        Args:
-            vocab_size (int): size of the vocabulary
-            do_next_sentence (bool, optional): add binary head. Defaults to False.
-
-        Returns:
-            LanguageModelEmbedding: an instantiated object of embedding module
-        """
-        return self.embed_module_cls(
-            config=self,
-            vocab_size=vocab_size,
-            max_sequence_length=self.seq_length,
-            position_embedding_type=self.position_embedding_type,
-            num_tokentypes=2 if do_next_sentence else 0,
-        )
-
     def configure_model(self, tokenizer) -> "MegatronBioBertModel":
         vp_size = self.virtual_pipeline_model_parallel_size
         if vp_size:
@@ -372,19 +371,18 @@ class BioBertConfig(TransformerConfig):
         use_full_attention_mask: bool = os.getenv("NVTE_FLASH_ATTN") == "0" or self.biobert_spec_option in {
             BiobertSpecOption.bert_layer_local_spec,
             BiobertSpecOption.bert_layer_local_spec_with_qk_ln,
+            BiobertSpecOption.esm2_bert_layer_local_spec,
         }
 
-        # construct an embedding object
         do_next_sentence = False
-        vocab_size = get_vocab_size(self, tokenizer.vocab_size, self.make_vocab_size_divisible_by)
-        lm_embedding = self.configure_embedding(vocab_size, do_next_sentence)
 
         model = MegatronBioBertModel(
             self,
             transformer_layer_spec=get_biobert_spec(self.biobert_spec_option, qk_layernorm=self.qk_layernorm),
-            lm_embedding=lm_embedding,
-            vocab_size=vocab_size,
+            num_tokentypes=2 if do_next_sentence else 0,
+            vocab_size=get_vocab_size(self, tokenizer.vocab_size, self.make_vocab_size_divisible_by),
             max_sequence_length=self.seq_length,
+            tokrnizer=tokenizer,
             fp16_lm_cross_entropy=self.fp16_lm_cross_entropy,
             parallel_output=self.parallel_output,
             share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,

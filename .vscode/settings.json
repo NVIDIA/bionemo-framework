@@ -1,0 +1,10 @@
+{
+    "cSpell.words": [
+        // List of words to be added to the spell-checker dictionary.
+        // In vscode, use the "Add <word> to workspace settings" in the quick-fix menu to add words to this list.
+        "bionemo"
+    ],
+    "editor.rulers": [
+        120
+    ]
+}
