@@ -22,6 +22,7 @@ repos:
       - id: license-header-check
         name: Run license-check script
         entry: python scripts/license_check.py -c . --license-header ./license_header --modify
-        language: system
+        language: python
+        additional_dependencies: ["click==8.1.7"]
         pass_filenames: false
         always_run: true
