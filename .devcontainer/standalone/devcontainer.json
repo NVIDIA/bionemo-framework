@@ -23,7 +23,8 @@
 				"eamodio.gitlens",
 				"streetsidesoftware.code-spell-checker",
 				"ms-azuretools.vscode-docker",
-				"charliermarsh.ruff"
+				"charliermarsh.ruff",
+				"njpwerner.autodocstring"
 			],
 			"settings": {
 				"python.analysis.extraPaths": [
