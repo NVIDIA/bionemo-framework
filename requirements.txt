@@ -1,2 +1,0 @@
--e ./sub-packages/bionemo-fw
--e ./sub-packages/bionemo-contrib
