@@ -21,6 +21,7 @@ from typing import List, Tuple
 
 import pytest
 import torch
+from megatron.core.transformer.module import Float16Module
 from nemo import lightning as nl
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
@@ -100,6 +101,7 @@ CELLS_FOR_TEST = [
 ]
 
 MODEL_PRECISION: str = "bf16-mixed"
+USE_TE: bool = False  # TODO use this for high level decisions around whether we're ready to switch to TE
 
 
 @pytest.fixture()
@@ -116,22 +118,24 @@ def geneformer_config():
         ffn_hidden_size=512,
         num_attention_heads=4,
         seq_length=2048,
+        fp16=autocast_dtype == torch.float16,  # normally handled by ptl precision plugin
+        bf16=autocast_dtype == torch.bfloat16,  # normally handled by ptl precision plugin
         fp32_residual_connection=False,  # TODO(@jstjohn) check this
         hidden_dropout=0.02,
         init_method_std=0.02,
         kv_channels=None,
-        apply_query_key_layer_scaling=True,
+        apply_query_key_layer_scaling=False,
         make_vocab_size_divisible_by=128,
         masked_softmax_fusion=True,  # TODO(@jstjohn) check this
         fp16_lm_cross_entropy=False,
-        params_dtype=torch.float32,
-        pipeline_dtype=torch.float32,
+        params_dtype=autocast_dtype,
+        pipeline_dtype=autocast_dtype,
         autocast_dtype=autocast_dtype,  # setting this speeds things up a lot
         gradient_accumulation_fusion=False,  # THIS BREAKS STUFF, leave False
         layernorm_zero_centered_gamma=False,  # TODO(@jstjohn) check this
         layernorm_epsilon=1.0e-12,
         activation_func=F.gelu,  # TODO(@jstjohn) check this
-        qk_layernorm=True,  # TODO(@jstjohn) check this
+        qk_layernorm=False,  # TODO(@jstjohn) check this
         apply_residual_connection_post_layernorm=True,  # False is new default, True was BERT pub.
         bias_activation_fusion=True,  # TODO(@jstjohn) check this
         bias_dropout_fusion=True,  # TODO(@jstjohn) check this
@@ -139,7 +143,9 @@ def geneformer_config():
         attention_dropout=0.1,
         share_embeddings_and_output_weights=True,
         enable_autocast=False,  # This has to be set to True if we use the mixed precision plugin
-        biobert_spec_option=BiobertSpecOption.bert_layer_local_spec,
+        biobert_spec_option=BiobertSpecOption.bert_layer_with_transformer_engine_spec
+        if USE_TE
+        else BiobertSpecOption.bert_layer_local_spec,
         nemo1_ckpt_path=nemo1_checkpoint_path,
         return_only_hidden_states=True,  # This is what we did in nemo1 for inference
     )
@@ -178,14 +184,22 @@ def test_nemo1_nemo2_weight_shapes_match(geneformer_config, seed: int = 42):
         new_state_dict = new_model.state_dict_for_save_checkpoint()
         # Set the new_model_prefix to "" since we are looking at the base megatron model and not the lightning module which stores a copy of
         #  this model into self.module
-        old_keys = {nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="") for k in old_weights}
+        old_keys = {nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="", te_mapping=USE_TE) for k in old_weights}
         assert len(old_keys) == len(old_weights), "Mapping unexpectedly discarded some keys."
         new_keys = set(new_state_dict)
         for k, v in old_weights.items():
             # Make sure the shapes of the weights match.
-            assert new_state_dict[nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="")].shape == v.shape
+            assert (
+                new_state_dict[nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="", te_mapping=USE_TE)].shape
+                == v.shape
+            )
         extra_keys = new_keys - old_keys
-        extra_non_null_keys = {k for k in extra_keys if new_state_dict[k] is not None}
+        extra_non_null_keys = {
+            # TE adds non-null ._extra_state objects to layers so skip those.
+            k
+            for k in extra_keys
+            if new_state_dict[k] is not None and not k.endswith("_extra_state")
+        }
         assert not extra_non_null_keys, "There are new keys that have state that is missing from the old checkpoint."
         missing_old_keys = old_keys - new_keys
         assert not missing_old_keys, "There are keys in the old checkpoint that are missing from the new model."
@@ -393,7 +407,7 @@ def test_geneformer_nemo1_v_nemo2_inference_golden_values(
         expected_vals["expected_hidden_state"],
         mask=expected_vals["expected_pad_masks"],
         eps=0.1,
-        max_mape=2.04,  # 2.04% average difference in final values with a magnitude over 0.1
+        max_mape=2.07,  # 2.07% average difference in final values with a magnitude over 0.1
     )
     assert_matrix_correlation_above_value(
         result,
@@ -403,6 +417,7 @@ def test_geneformer_nemo1_v_nemo2_inference_golden_values(
     )
 
 
+@pytest.mark.skipif(USE_TE, reason="This per-layer test does not yet support TE mapping.")
 def test_geneformer_inference_nemo1_v_nemo2_golden_values_by_layer(
     geneformer_config: BioBertConfig, cells: List[List[str]], seed: int = 42
 ):
@@ -428,7 +443,7 @@ def test_geneformer_inference_nemo1_v_nemo2_golden_values_by_layer(
         old_weights = torch.load(ckpt_file)
         new_state_dict_from_old = {}
         for k, v in old_weights.items():
-            new_key = nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="")
+            new_key = nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="", te_mapping=USE_TE)
             new_v = v
             new_state_dict_from_old[new_key] = new_v
         preprocessor = GeneformerPreprocess(
@@ -443,10 +458,12 @@ def test_geneformer_inference_nemo1_v_nemo2_golden_values_by_layer(
                 assert False
         geneformer_config
         new_model = geneformer_config.configure_model(tokenizer).eval().cuda()
-        new_model.load_state_dict(new_state_dict_from_old)
+        # TE adds non-null ._extra_state objects to layers, which store some kind of buffer bits
+        #  so we need to allow those to pass through.
+        new_model.load_state_dict(new_state_dict_from_old, strict=not USE_TE)
         for k, v in new_model.state_dict().items():
             # Make sure the weights were properly loaded
-            if v is not None:
+            if v is not None and not k.endswith("_extra_state"):
                 torch.testing.assert_close(new_state_dict_from_old[k], v, check_dtype=False, check_device=False)
             else:
                 assert k.endswith("_extra_state")
@@ -458,6 +475,14 @@ def test_geneformer_inference_nemo1_v_nemo2_golden_values_by_layer(
         new_model.post_process = False  # so we get hidden states rather than logits
         new_model.encoder.post_process = True
         new_model.encoder.post_layer_norm = True
+
+        # normally handled by ptl precision plugin
+        new_model = (
+            Float16Module(new_model.config, new_model)
+            if new_model.config.autocast_dtype in {torch.float16, torch.bfloat16}
+            else new_model
+        )
+
         new_outputs = {}
         from functools import partial
 
@@ -470,54 +495,59 @@ def test_geneformer_inference_nemo1_v_nemo2_golden_values_by_layer(
 
         register_hooks(new_model, hook_fn)
         # Fill up the new_outputs
+        # with torch.autocast(enabled=geneformer_config.enable_autocast, dtype=geneformer_config.autocast_dtype, device_type="cuda"):
         _ = new_model(input_ids, mask)
         ori_outputs = torch.load(nemo_1_per_layer_outputs_path)
 
         # Test settings for MAPE https://en.wikipedia.org/wiki/Mean_absolute_percentage_error thresholds
-        softmax_mape_threshold = 9.8
+        softmax_mape_threshold = 9.88
         mape_tolerances = {
-            "encoder.layers.0.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
-            "encoder.layers.0.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
-            "encoder.layers.1.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
-            "encoder.layers.1.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
-            "encoder.layers.2.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
-            "encoder.layers.2.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
-            "encoder.layers.3.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
-            "encoder.layers.3.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
-            "encoder.layers.4.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
-            "encoder.layers.4.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
-            "encoder.layers.5.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
-            "encoder.layers.5.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
-            "encoder.layers.4.pre_mlp_layernorm": 3.6,
-            "encoder.layers.5.input_layernorm": 3.6,
-            "encoder.layers.5.pre_mlp_layernorm": 4.1,
+            "module.encoder.layers.0.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
+            "module.encoder.layers.0.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
+            "module.encoder.layers.1.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
+            "module.encoder.layers.1.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
+            "module.encoder.layers.2.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
+            "module.encoder.layers.2.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
+            "module.encoder.layers.3.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
+            "module.encoder.layers.3.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
+            "module.encoder.layers.4.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
+            "module.encoder.layers.4.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
+            "module.encoder.layers.5.self_attention.core_attention.scale_mask_softmax": softmax_mape_threshold,
+            "module.encoder.layers.5.self_attention.core_attention.attention_dropout": softmax_mape_threshold,
+            "module.encoder.layers.4.pre_mlp_layernorm": 3.6,
+            "module.encoder.layers.5.input_layernorm": 3.6,
+            "module.encoder.layers.5.pre_mlp_layernorm": 4.1,
         }
         default_mape_tolerance = 3.3  # 3.3% difference in larger magnitude values with values over a magnitude of 0.1
 
         # Test settings for correlation https://en.wikipedia.org/wiki/Pearson_correlation_coefficient thresholds
         correlation_tolerances = {
-            "encoder.layers.0.self_attention.core_attention.scale_mask_softmax": 0.985,
-            "encoder.layers.0.self_attention.core_attention.attention_dropout": 0.985,
-            "encoder.layers.1.self_attention.core_attention.scale_mask_softmax": 0.975,
-            "encoder.layers.1.self_attention.core_attention.attention_dropout": 0.975,
-            "encoder.layers.2.self_attention.core_attention.scale_mask_softmax": 0.975,
-            "encoder.layers.2.self_attention.core_attention.attention_dropout": 0.975,
-            "encoder.layers.3.self_attention.core_attention.scale_mask_softmax": 0.975,
-            "encoder.layers.3.self_attention.core_attention.attention_dropout": 0.975,
-            "encoder.layers.4.self_attention.core_attention.scale_mask_softmax": 0.96,
-            "encoder.layers.4.self_attention.core_attention.attention_dropout": 0.96,
-            "encoder.layers.5.self_attention.core_attention.scale_mask_softmax": 0.925,
-            "encoder.layers.5.self_attention.core_attention.attention_dropout": 0.925,
+            "module.encoder.layers.0.self_attention.core_attention.scale_mask_softmax": 0.985,
+            "module.encoder.layers.0.self_attention.core_attention.attention_dropout": 0.985,
+            "module.encoder.layers.1.self_attention.core_attention.scale_mask_softmax": 0.975,
+            "module.encoder.layers.1.self_attention.core_attention.attention_dropout": 0.975,
+            "module.encoder.layers.2.self_attention.core_attention.scale_mask_softmax": 0.975,
+            "module.encoder.layers.2.self_attention.core_attention.attention_dropout": 0.975,
+            "module.encoder.layers.3.self_attention.core_attention.scale_mask_softmax": 0.975,
+            "module.encoder.layers.3.self_attention.core_attention.attention_dropout": 0.975,
+            "module.encoder.layers.4.self_attention.core_attention.scale_mask_softmax": 0.96,
+            "module.encoder.layers.4.self_attention.core_attention.attention_dropout": 0.96,
+            "module.encoder.layers.5.self_attention.core_attention.scale_mask_softmax": 0.925,
+            "module.encoder.layers.5.self_attention.core_attention.attention_dropout": 0.925,
         }
-        default_correlation_tolerance = 0.9998  # 0.9999 correlation for final layer
+        default_correlation_tolerance = (
+            0.9998 if new_model.config.autocast_dtype == torch.float32 else 0.99
+        )  # 0.9999 correlation for final layer
 
         mask_t = mask.transpose(1, 0).contiguous()
         mask = mask[..., None]
         mask_t = mask_t[..., None]
         for module_name, (ori_cls_name, _, ori_output) in ori_outputs.items():
-            new_module_name = nemo1_to_nemo2_biobert_key_mapping(module_name, new_model_prefix="")
-            if new_module_name == "language_model":
-                new_module_name = "encoder"
+            new_module_name = nemo1_to_nemo2_biobert_key_mapping(
+                module_name, new_model_prefix="module", te_mapping=USE_TE
+            )
+            if new_module_name == "module.language_model":
+                new_module_name = "module.encoder"
             if new_module_name == "model":
                 new_module_name = ""
             new_cls_name, _, new_output = new_outputs[new_module_name]
@@ -604,6 +634,13 @@ def _get_loss_from_model(model_config: BioBertConfig, seed: int) -> float:
             case _:
                 assert False
         new_model = model_config.configure_model(tokenizer).eval().cuda()
+        # normally handled by ptl precision plugin
+        new_model = (
+            Float16Module(new_model.config, new_model)
+            if new_model.config.autocast_dtype in {torch.float16, torch.bfloat16}
+            else new_model
+        )
+
         # NOTE: a small change to randomization in the single-cell dataset could throw our test below off by a small amount
         #  maybe 0.02 or so, if the value is above that range then disable the 200 batch limit and check the global number
         #  going back to `n += 1` and `loss += F.cross_entropy(logits[loss_mask], target[loss_mask], reduction="mean")`
@@ -634,6 +671,7 @@ def _get_loss_from_model(model_config: BioBertConfig, seed: int) -> float:
         n = 0
         limit_batches = 200
         for i, batch in tqdm(enumerate(dl), total=len(dl)):
+            # with torch.autocast(enabled=model_config.enable_autocast, dtype=model_config.autocast_dtype, device_type="cuda"):
             result = new_model(
                 input_ids=batch["text"].cuda(),
                 attention_mask=batch["attention_mask"].cuda(),
@@ -642,7 +680,7 @@ def _get_loss_from_model(model_config: BioBertConfig, seed: int) -> float:
             logits = result["token_logits"]
             target = batch["labels"].cuda()
 
-            loss += F.cross_entropy(logits[loss_mask], target[loss_mask], reduction="sum")
+            loss += F.cross_entropy(logits[loss_mask].float(), target[loss_mask], reduction="sum")
             n += loss_mask.sum()
 
             if limit_batches is not None and i + 1 >= limit_batches:

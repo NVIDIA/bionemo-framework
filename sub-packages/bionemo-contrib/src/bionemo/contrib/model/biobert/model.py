@@ -402,14 +402,21 @@ class BioBertConfig(TransformerConfig):
         # and an adapter may also be the right way to handle expected missing/extra keys when importing
         # a checkpoint for fine-tuning (eg ignore misisng lm_head, if not there in model, etc).
         if self.nemo1_ckpt_path is not None:
+            te_mapping = self.biobert_spec_option in {
+                BiobertSpecOption.bert_layer_with_transformer_engine_spec,
+                BiobertSpecOption.bert_layer_with_transformer_engine_and_qk_ln_spec,
+            }
             with tarfile.open(self.nemo1_ckpt_path, "r") as old_ckpt:
                 ckpt_file = old_ckpt.extractfile("./model_weights.ckpt")
                 old_weights = torch.load(ckpt_file)
                 new_state_dict_from_old = {}
                 for k, v in old_weights.items():
-                    new_key = nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="")
+                    new_key = nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="", te_mapping=te_mapping)
                     new_state_dict_from_old[new_key] = v
-                model.load_state_dict(new_state_dict_from_old)
+                # TE adds non-null ._extra_state objects to layers, which store some kind of buffer bits
+                #  so we need to allow those to pass through if we're loading from bionemo1 which did not
+                #  use TE.
+                model.load_state_dict(new_state_dict_from_old, strict=not te_mapping)
 
         # TODO (@jstjohn) come up with a cleaner way in the biobert module to return hidden states.
         #  maybe a suite of options like hugging face has so a user can ask for several or only one thing.

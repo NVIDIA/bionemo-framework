@@ -173,7 +173,7 @@ def main(
         hidden_dropout=0.02,
         init_method_std=0.02,
         kv_channels=None,
-        apply_query_key_layer_scaling=True,
+        apply_query_key_layer_scaling=False,
         make_vocab_size_divisible_by=128,
         masked_softmax_fusion=True,  # TODO(@jstjohn) check this
         fp16_lm_cross_entropy=False,
@@ -184,14 +184,14 @@ def main(
         layernorm_zero_centered_gamma=False,  # TODO(@jstjohn) check this
         layernorm_epsilon=1.0e-12,
         activation_func=F.gelu,  # TODO(@jstjohn) check this
-        qk_layernorm=True,  # TODO(@jstjohn) check this
+        qk_layernorm=False,  # TODO(@jstjohn) check this
         apply_residual_connection_post_layernorm=False,  # False is new default, True was BERT pub.
         bias_activation_fusion=True,  # TODO(@jstjohn) check this
         bias_dropout_fusion=True,  # TODO(@jstjohn) check this
         get_attention_mask_from_fusion=False,
         attention_dropout=0.1,
         share_embeddings_and_output_weights=True,
-        enable_autocast=True,  # This has to be set to True if we use the mixed precision plugin
+        enable_autocast=False,  # This has to be set to True if we use the mixed precision plugin
         biobert_spec_option=biobert_spec_option,
     )
 

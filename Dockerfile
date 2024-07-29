@@ -41,6 +41,10 @@ RUN apt-get update \
 RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.0.post2
 
+# Mamba dependancy installation
+RUN pip --disable-pip-version-check --no-cache-dir install \
+  git+https://github.com/state-spaces/mamba.git@v2.0.3
+
 # Copy and install pypi depedencies.
 RUN mkdir /tmp/pip-tmp
 COPY requirements-dev.txt /tmp/pip-tmp/

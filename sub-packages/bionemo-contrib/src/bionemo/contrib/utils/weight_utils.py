@@ -18,6 +18,7 @@ def nemo1_to_nemo2_biobert_key_mapping(
     old_key: str,
     new_model_prefix: str = "module",
     old_model_prefix: str = "model",
+    te_mapping: bool = False,
 ) -> str:
     """This function is used to map the keys from the old nemo BERT models to the new BioBERT models
 
@@ -48,8 +49,6 @@ def nemo1_to_nemo2_biobert_key_mapping(
         return base_rename.replace("dense_4h_to_h", "linear_fc2")
     if "query_key_value" in base_rename:
         return base_rename.replace("query_key_value", "linear_qkv")
-    if "post_attention_layernorm" in base_rename:
-        return base_rename.replace("post_attention_layernorm", "pre_mlp_layernorm")
     if "self_attention.dense" in base_rename:
         #  This is definitely the linear_proj and not the qkv. The linear_proj shapes are 256x256
         #   which match dense but not query_key_value
@@ -66,6 +65,22 @@ def nemo1_to_nemo2_biobert_key_mapping(
         return base_rename.replace("lm_head.weight", "output_layer.weight")
     if "lm_head.layernorm" in base_rename:
         return base_rename.replace("lm_head.layernorm", "lm_head.layer_norm")
+
+    if "post_attention_layernorm" in base_rename:
+        base_rename = base_rename.replace("post_attention_layernorm", "pre_mlp_layernorm")
+
+    # Handle the transformer engine spec's differences in layer naming and where things like layernorm are stored.
+    #  TE moves layernorm from  an object that's part of the main attention layer to being an internal component of
+    #  the linear layers, probably for efficiency/fusion of some sort.
+    if te_mapping:
+        if ".input_layernorm.weight" in base_rename:
+            return base_rename.replace(".input_layernorm.weight", ".self_attention.linear_qkv.layer_norm_weight")
+        if ".input_layernorm.bias" in base_rename:
+            return base_rename.replace(".input_layernorm.bias", ".self_attention.linear_qkv.layer_norm_bias")
+        if ".pre_mlp_layernorm.bias" in base_rename:
+            return base_rename.replace(".pre_mlp_layernorm.bias", ".mlp.linear_fc1.layer_norm_bias")
+        if ".pre_mlp_layernorm.weight" in base_rename:
+            return base_rename.replace(".pre_mlp_layernorm.weight", ".mlp.linear_fc1.layer_norm_weight")
     return base_rename
 
 
