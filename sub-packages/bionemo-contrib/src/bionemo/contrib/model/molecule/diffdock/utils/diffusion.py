@@ -19,10 +19,11 @@ from bionemo.contrib.model.molecule.diffdock.utils.geometry import axis_angle_to
 from bionemo.contrib.model.molecule.diffdock.utils.torsion import modify_conformer_torsion_angles
 
 
-def t_to_sigma(t_tr, t_rot, t_tor, cfg):
-    tr_sigma = cfg.diffusion.tr_sigma_min ** (1 - t_tr) * cfg.diffusion.tr_sigma_max**t_tr
-    rot_sigma = cfg.diffusion.rot_sigma_min ** (1 - t_rot) * cfg.diffusion.rot_sigma_max**t_rot
-    tor_sigma = cfg.diffusion.tor_sigma_min ** (1 - t_tor) * cfg.diffusion.tor_sigma_max**t_tor
+def t_to_sigma(t_tr, t_rot, t_tor, tr_sigma_min, tr_sigma_max, rot_sigma_min,
+               rot_sigma_max, tor_sigma_min, tor_sigma_max):
+    tr_sigma = tr_sigma_min ** (1 - t_tr) * tr_sigma_max**t_tr
+    rot_sigma = rot_sigma_min ** (1 - t_rot) * rot_sigma_max**t_rot
+    tor_sigma = tor_sigma_min ** (1 - t_tor) * tor_sigma_max**t_tor
     return tr_sigma, rot_sigma, tor_sigma
 
 
