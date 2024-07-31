@@ -29,7 +29,7 @@ from bionemo.contrib.tokenizer.gene_tokenizer import GeneTokenizer
 class Item(TypedDict):
     text: np.ndarray
     types: np.ndarray
-    padding_mask: np.ndarray
+    attention_mask: np.ndarray
     labels: np.ndarray
     loss_mask: np.ndarray
     is_random: np.ndarray
@@ -87,7 +87,23 @@ class SingleCellDataset(Dataset):
         random_token_prob: float = 0.1,
         prepend_cls_token: bool = True,
         assert_increasing_columns: bool = True,
+        keep_metadata: bool = False,
     ):
+        """
+        Initializes a SingleCellDataset object.
+
+        Args:
+            data_path (str): Path containing all the sc_memmap objects associated with the dataset.
+            tokenizer (Any): The tokenizer object.
+            median_dict (Optional[dict]): A dictionary containing median values for genes.
+            max_len (int): The maximum length of the input sequence.
+            mask_prob (float): The probability of masking a token.
+            mask_token_prob (float): The probability of replacing a masked token with a mask token.
+            random_token_prob (float): The probability of replacing a masked token with a random token.
+            prepend_cls_token (bool): Whether to prepend a CLS token to the input sequence.
+            assert_increasing_columns (bool): Whether to check if column indices are increasing for looking up genes.
+            keep_metadata (bool): If true, keeps the metadata regardless of if the featureset is consistent or inconsistent.
+        """
         super().__init__()
         self.data_path = data_path
         self.max_len = max_len
@@ -134,7 +150,7 @@ class SingleCellDataset(Dataset):
                 features_all_same = False
                 break
 
-        if not features_all_same:
+        if not features_all_same or keep_metadata:
             # We need to store per-file metadata of feature_ids. Make sure you run with a lot of RAM or few dataset workers.
             #  we need to store per-file metadata in this case because some of the files have different subsets of the
             #  feature_ids.
@@ -296,7 +312,6 @@ def process_item(
     mask = None
     mask_tokens_positions = None
     random_tokens_positions = None
-
     # - masked tokens
     if mask_prob > 0.0:
         probs = np.full(token_ids.shape[0], mask_prob)
