@@ -16,23 +16,15 @@
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, TypedDict
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 from nemo.utils import logging
 from torch.utils.data import Dataset
 
 from bionemo.contrib.data.singlecell.utils import sample_or_truncate_plus_pad
+from bionemo.contrib.data.types import BertSample
 from bionemo.contrib.tokenizer.gene_tokenizer import GeneTokenizer
-
-
-class Item(TypedDict):
-    text: np.ndarray
-    types: np.ndarray
-    padding_mask: np.ndarray
-    labels: np.ndarray
-    loss_mask: np.ndarray
-    is_random: np.ndarray
 
 
 class SingleCellDataset(Dataset):
@@ -191,7 +183,7 @@ class SingleCellDataset(Dataset):
         )
         return gene_data, col_idxs, feature_ids
 
-    def __getitem__(self, idx: int) -> Item:
+    def __getitem__(self, idx: int) -> BertSample:
         """Performs a lookup and the required transformation for the model"""
         gene_data, col_idxs, feature_ids = self.lookup_cell_by_idx(idx)
         return process_item(
@@ -221,7 +213,7 @@ def process_item(
     target_sum: int = 10000,
     normalize: bool = True,
     prepend_cls_token: bool = True,
-) -> Item:
+) -> BertSample:
     """Process a single item in the dataset.
 
     Optionally performs median normalization and rank ordering. The tokenizers CLS token is added to the beginning
