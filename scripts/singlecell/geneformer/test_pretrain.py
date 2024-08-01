@@ -14,23 +14,29 @@
 # limitations under the License.
 
 import os
-import pathlib
 import shlex
 import subprocess
 from pathlib import Path
 
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
-from pretrain import main
+from pretrain import main  # TODO: needs to be refactored to a package and imported!
 
-# relative import since this is not a package
-from bionemo.contrib.model.biobert.transformer_specs import BiobertSpecOption
+from bionemo import geneformer
+from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 
 
 # TODO(@jstjohn) use fixtures for pulling down data and checkpoints
 # python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss
-test_script_dir = pathlib.Path(os.path.dirname(os.path.realpath(__file__)))
-bionemo2_root = test_script_dir.parent.parent.parent
-data_path = bionemo2_root / "test_data/cellxgene_2023-12-15_small/processed_data"
+bionemo2_root: Path = (
+    # geneformer module's path is the most dependable --> don't expect this to change!
+    Path(geneformer.__file__)
+    # This gets us from 'sub-packages/bionemo-geneformer/src/bionemo/esm2/__init__.py' to 'sub-packages/bionemo-geneformer'
+    .parent.parent.parent.parent
+    # From here, we want to get to the root of the repository: _before_ sub-packages/
+    .parent.parent
+).absolute()
+assert bionemo2_root != Path("/")
+data_path: Path = bionemo2_root / "test_data/cellxgene_2023-12-15_small/processed_data"
 
 
 def test_bionemo2_rootdir():

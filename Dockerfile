@@ -45,22 +45,46 @@ RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-di
 RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.0.3
 
+
+FROM bionemo2-base as pip-requirements
+
 # Copy and install pypi depedencies.
 RUN mkdir /tmp/pip-tmp
+WORKDIR /tmp/pip-tmp
 
-COPY requirements-dev.txt /tmp/pip-tmp/
-COPY requirements-test.txt /tmp/pip-tmp/
-COPY sub-packages/bionemo-fw/requirements.txt /tmp/pip-tmp/requirements-fw.txt
-COPY sub-packages/bionemo-contrib/requirements.txt /tmp/pip-tmp/requirements-contrib.txt
+COPY requirements-dev.txt requirements-test.txt /tmp/pip-tmp/
 
-RUN pip --disable-pip-version-check --no-cache-dir install \
-  -r /tmp/pip-tmp/requirements-dev.txt \
-  -r /tmp/pip-tmp/requirements-test.txt \
-  -r /tmp/pip-tmp/requirements-fw.txt \
-  -r /tmp/pip-tmp/requirements-contrib.txt \
-  && rm -rf /tmp/pip-tmp
+# We want to only copy the requirements.txt, setup.py, and pyproject.toml files for *ALL* sub-packages
+# but we **can't** do COPY sub-packages/**/{requirements.txt,...} /<destination> because this will overwrite!
+# So....we copy everything into a temporary image and remove everything else!
+# Later, we can copy the result from the temporary image and get what we want
+# **WITHOUT** invalidating the cache for successive layers!
+COPY sub-packages/ /tmp/pip-tmp/sub-packages
+# remove all directories that aren't the top-level sub-packages/bionemo-{xyz}
+RUN find sub-packages/ -type d | grep "bionemo-[a-zA-Z0-9\-]*/" | xargs rm -rf && \
+    # only keep the requirements-related files
+    find sub-packages/ -type f | grep -v -E "requirements.txt|pyproject.toml|setup.py" | xargs rm
 
-# Change the workspace and delete the temporary /build directory.
+FROM bionemo2-base as dev
+
+RUN mkdir -p /workspace/bionemo2/
+WORKDIR /workspace/bionemo2
+
+# We get the sub-packcages/ top-level structure + requirements.txt files
+COPY --from=pip-requirements /tmp/pip-tmp/ /workspace/bionemo2/
+
+RUN pip install -r requirements-dev.txt -r requirements-test.txt
+
+# We calculate paths to each requirements.txt file and dynamically construct the pip install command.
+# This command will expand to something like:
+#   pip install --disable-pip-version-check --no-cache-dir \
+#      -r bionemo-core/requirements.txt \
+#      -r bionemo-pytorch/requirements.txt \
+#      -r bionemo-lmm/requirements.txt \
+#      (etc.)
+RUN X=""; for sub in $(echo sub-packages/bionemo-*); do X="-r ${sub}/requirements.txt ${X}"; done; eval "pip install --disable-pip-version-check --no-cache-dir ${X}"
+
+# Delete the temporary /build directory.
 WORKDIR /workspace
 RUN rm -rf /build
 
@@ -77,7 +101,7 @@ ENV PATH="/home/bionemo/.local/bin:${PATH}"
 
 
 # Create a release image with bionemo2 installed.
-FROM bionemo2-base AS release
+FROM dev AS release
 
 # Install 3rd-party deps
 COPY ./3rdparty /build
@@ -91,14 +115,9 @@ RUN rm -rf /build
 
 # Install bionemo2 submodules
 WORKDIR /workspace/bionemo2/
-COPY ./sub-packages/bionemo-fw/ ./sub-packages/bionemo-fw/
-WORKDIR /workspace/bionemo2/sub-packages/bionemo-fw/
-RUN pip install --disable-pip-version-check --no-cache-dir --no-deps -e .
-
-WORKDIR /workspace/bionemo2/
-COPY ./sub-packages/bionemo-contrib/ ./sub-packages/bionemo-contrib/
-WORKDIR /workspace/bionemo2/sub-packages/bionemo-contrib/
-RUN pip install --disable-pip-version-check --no-cache-dir --no-deps -e .
+COPY ./sub-packages /workspace/bionemo2/sub-packages
+# Dynamically install the code for each bionemo namespace package.
+RUN for sub in $(ls sub-packages/); do pushd sub-packages/${sub} && pip install --no-build-isolation --no-cache-dir --disable-pip-version-check --no-deps -e . && popd; done
 
 WORKDIR /workspace/bionemo2/
 COPY ./scripts ./scripts

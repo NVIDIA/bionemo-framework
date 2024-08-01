@@ -7,7 +7,7 @@ skip-string-normalization = true
 line-length = 119
 
 [tool.ruff.lint]
-ignore = ["C901", "E741", "E501", "D100", "RUF005", "RUF010"]
+ignore = ["C901", "E741", "E501", "D100", "RUF005", "RUF010", "D205", "D102", "D417", "D101"]
 select = [
     "C",    # Pylint conventions
     "E",    # style stuff, whitespaces

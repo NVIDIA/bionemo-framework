@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/gauge-sh/tach/v0.9.0/public/tach-yml-schema.json
+modules:
+  - path: bionemo.core
+    depends_on: []
+  - path: bionemo.esm2
+    depends_on:
+      - path: bionemo.core
+      - path: bionemo.llm
+  - path: bionemo.fw
+    depends_on:
+      - path: bionemo.core
+      - path: bionemo.esm2
+      - path: bionemo.geneformer
+      - path: bionemo.llm
+  - path: bionemo.geneformer
+    depends_on:
+      - path: bionemo.core
+      - path: bionemo.llm
+  - path: bionemo.llm
+    depends_on:
+      - path: bionemo.core
+  - path: bionemo.testing
+    depends_on: []
+  - path: <root>
+    depends_on: []
+exclude:
+  - .*__pycache__
+  - .*egg-info
+  - docs
+  - tests
+  - venv
+source_roots:
+  - sub-packages/bionemo-core/src
+  - sub-packages/bionemo-llm/src
+  - sub-packages/bionemo-esm2/src
+  - sub-packages/bionemo-geneformer/src
+  - sub-packages/bionemo-fw/src
+  - sub-packages/bionemo-testing/src

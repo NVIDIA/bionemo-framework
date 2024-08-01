@@ -17,6 +17,10 @@ repos:
     -   id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
         exclude: package.lock.json
+  - repo: https://github.com/gauge-sh/tach-pre-commit
+    rev: v0.9.0
+    hooks:
+      - id: tach
   - repo: local
     hooks:
       - id: license-header-check

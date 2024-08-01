@@ -1,2 +1,6 @@
 bfw/.env
 **.env
+MNISTCustom
+lightning_logs
+models
+test_data

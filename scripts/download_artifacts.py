@@ -30,10 +30,10 @@ from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, wait_exponential
 
 
-ALL_KEYWORD = "all"
+ALL_KEYWORD: str = "all"
 # Path to this file, it is expected to live in the same directory as artifact_paths.yaml
-SCRIPT_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
-DATA_SOURCE_CONFIG = SCRIPT_DIR / "artifact_paths.yaml"
+SCRIPT_DIR: Path = Path(os.path.dirname(os.path.realpath(__file__)))
+DATA_SOURCE_CONFIG: Path = SCRIPT_DIR / "artifact_paths.yaml"
 ArtifactSource = Literal["ngc", "pbss"]
 
 
@@ -291,12 +291,50 @@ def load_config(config_file: Path = DATA_SOURCE_CONFIG) -> Config:
     return Config(**config_data)
 
 
-def main():
+def _md5_checksum(file_path: Path) -> str:
+    """Calculate the MD5 checksum of a file.
+
+    Args:
+        file_path (Path): The path to the file to checksum.
+
+    Returns:
+        str: The MD5 checksum of the file.
+    """
+    md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            md5.update(chunk)
+    return md5.hexdigest()
+
+
+def main(models: Optional[List[str]], data: Optional[List[str]]) -> None:
     """Script to download pretrained checkpoints from PBSS (SwiftStack) or NGC.
 
     After the models are downloaded, symlinked paths are created. The models and symlinks
     are all defined in DATA_SOURCE_CONFIG.
     """
+    if not (models or data):
+        raise ValueError("No models or data were selected to download.")
+
+    if models:
+        if ALL_KEYWORD in models:
+            download_list = all_models_list
+        else:
+            download_list = models
+
+        download_artifacts(
+            config, download_list, args.source, Path(args.model_dir), args.verbose, artifact_type="model"
+        )
+
+    if data:
+        if ALL_KEYWORD in data:
+            download_list = all_data_list
+        else:
+            download_list = data
+        download_artifacts(config, download_list, args.source, Path(args.data_dir), args.verbose, "data")
+
+
+if __name__ == "__main__":
     config = load_config()
     all_models_list = list(config.models.keys())
     all_data_list = list(config.data.keys())
@@ -337,41 +375,7 @@ def main():
     )
     parser.add_argument("--verbose", action="store_true", help="Print model download progress.")
     args = parser.parse_args()
-    if args.models:
-        if ALL_KEYWORD in args.models:
-            download_list = all_models_list
-        else:
-            download_list = args.models
-
-        download_artifacts(
-            config, download_list, args.source, Path(args.model_dir), args.verbose, artifact_type="model"
-        )
-    if args.data:
-        if ALL_KEYWORD in args.data:
-            download_list = all_data_list
-        else:
-            download_list = args.data
-        download_artifacts(config, download_list, args.source, Path(args.data_dir), args.verbose, "data")
-
     if not (args.models or args.data):
         logging.warning("No models or data were selected to download.")
-
-
-def _md5_checksum(file_path: Path) -> str:
-    """Calculate the MD5 checksum of a file.
-
-    Args:
-        file_path (Path): The path to the file to checksum.
-
-    Returns:
-        str: The MD5 checksum of the file.
-    """
-    md5 = hashlib.md5()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            md5.update(chunk)
-    return md5.hexdigest()
-
-
-if __name__ == "__main__":
-    main()
+    else:
+        main(models=args.models, data=args.data)

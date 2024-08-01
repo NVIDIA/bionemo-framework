@@ -14,8 +14,8 @@
 # limitations under the License.
 
 
-import pathlib
-from typing import List, Optional, TypedDict
+from pathlib import Path
+from typing import List, Optional, Sequence, TypedDict
 
 import numpy as np
 import pytorch_lightning as pl
@@ -33,7 +33,10 @@ from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADER
 from torch.utils import data
 from torch.utils.data import DataLoader, Dataset
 
-from bionemo.contrib.model.biobert.lightning import LossLoggingCallback
+from bionemo.llm.model.biobert.lightning import LossLoggingCallback
+
+
+__all__: Sequence[str] = ()
 
 
 class MockDataModule(pl.LightningDataModule):
@@ -180,7 +183,7 @@ class _MockGPTDataset(Dataset):
         return self._collate_fn(batch)
 
 
-if __name__ == "__main__":
+def main() -> None:
     devices, seq_length = 1, 2048
 
     strategy = nl.MegatronStrategy(
@@ -209,5 +212,9 @@ if __name__ == "__main__":
     model = llm.GPTModel(gpt_config, tokenizer=_data.tokenizer)
 
     trainer.fit(model, _data)
-    checkpoint_path = pathlib.Path(trainer.logger.log_dir) / "ckpt"
+    checkpoint_path = Path(trainer.logger.log_dir) / "ckpt"
     trainer.save_checkpoint(checkpoint_path)
+
+
+if __name__ == "__main__":
+    main()

@@ -235,8 +235,6 @@ dev() {
 
     local IMAGE_TO_RUN
     IMAGE_TO_RUN=$IMAGE_NAME:$IMAGE_TAG
-    # HACK
-    IMAGE_TO_RUN=$IMAGE_NAME:bionemo2-latest
 
     set -x
     ${DOCKER_CMD}  --name ${DEV_CONT_NAME}  --rm -it ${IMAGE_TO_RUN} ${CMD}

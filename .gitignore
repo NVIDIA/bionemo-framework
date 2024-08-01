@@ -6,7 +6,7 @@
 
 # Lightning and project output files
 /test_data
-/lightning_logs
+lightning_logs
 /models
 /data
 
@@ -61,6 +61,9 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 MNISTCustom/
+
+# Python debugging
+.pdbhistory
 
 # Translations
 *.mo

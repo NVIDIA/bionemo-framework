@@ -1,2 +1,0 @@
-# Single Cell
-scanpy==1.9.8

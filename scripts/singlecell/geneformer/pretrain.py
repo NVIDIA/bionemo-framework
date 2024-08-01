@@ -23,7 +23,7 @@
 import argparse
 import math
 from pathlib import Path
-from typing import Optional, get_args
+from typing import Optional, Sequence, get_args
 
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
@@ -35,13 +35,17 @@ from nemo.utils import logging
 from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 from torch.nn import functional as F
 
-from bionemo.contrib.data.singlecell.datamodule import SingleCellDataModule
-from bionemo.contrib.data.singlecell.preprocess import GeneformerPreprocess
-from bionemo.contrib.lightning import LossLoggingCallback
-from bionemo.contrib.model.biobert.lightning import BioBertLightningModule
-from bionemo.contrib.model.biobert.model import BioBertConfig, BiobertSpecOption
-from bionemo.contrib.utils.dtypes import PrecisionTypes, get_autocast_dtype
-from bionemo.contrib.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
+from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
+from bionemo.geneformer.api import GeneformerConfig
+from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
+from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
+from bionemo.llm.lightning import LossLoggingCallback
+from bionemo.llm.model.biobert.lightning import BioBertLightningModule
+from bionemo.llm.model.biobert.model import BiobertSpecOption
+from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
+
+
+__all__: Sequence[str] = ("main",)
 
 
 def main(
@@ -67,7 +71,7 @@ def main(
     wandb_entity: str = "clara-discovery",
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Optional[Path] = None,
-):
+) -> None:
     """Train a Geneformer model on single cell data.
 
     Args:
@@ -164,7 +168,7 @@ def main(
         pin_memory=False,
         num_workers=num_dataset_workers,
     )
-    geneformer_config = BioBertConfig(
+    geneformer_config = GeneformerConfig(
         num_layers=6,
         hidden_size=256,
         ffn_hidden_size=512,
