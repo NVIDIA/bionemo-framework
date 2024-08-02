@@ -211,11 +211,13 @@ class ScoreModelWDS(L.LightningDataModule):
         """
         random.seed(self._seed_rng_shfl)
         is_train = split == Split.train
-        urls = glob.glob(
+        urls = sorted(glob.glob(
             f"{self._dirs_tars_wds[split]}/{self._prefix_tars_wds}-*.tar")
+            )
         dataset = (
             wds.WebDataset(urls, shardshuffle=is_train,
-                           nodesplitter=wds.split_by_node)
+                           nodesplitter=wds.split_by_node,
+                           seed=self._seed_rng_shfl)
             .decode()
             .extract_keys(f"*.{self._suffix_heterodata}")
             )
