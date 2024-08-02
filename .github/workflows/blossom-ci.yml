@@ -34,9 +34,9 @@ jobs:
     outputs:
       args: ${{ env.args }}
 
-    # This job only runs for pull request comments
+    # This job only runs for pull request comments or merge_group event
     if: |
-         github.event.comment.body == '/build-ci' &&
+         (github.event.comment.body == '/build-ci' &&
          (github.actor == 'ohadmo' ||
           github.actor == 'trvachov' ||
           github.actor == 'jstjohn' ||
@@ -50,7 +50,8 @@ jobs:
           github.actor == 'ntadimeti' ||
           github.actor == 'broland-hat' ||
           github.actor == 'polinabinder1' ||
-          github.actor == 'camirr-nv')
+          github.actor == 'camirr-nv')) ||
+          github.event_name == 'merge_group'
     steps:
       - name: Check if comment is issued by authorized person
         run: blossom-ci
