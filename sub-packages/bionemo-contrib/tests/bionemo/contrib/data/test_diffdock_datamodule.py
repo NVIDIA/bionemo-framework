@@ -16,6 +16,7 @@
 import glob
 import multiprocessing as mp
 import sys
+import torch
 
 import lightning
 
@@ -77,21 +78,39 @@ def test_ScoreModelWDS_prepare_data(create_ScoreModelWDS):
 
 
 
-def test_ScoreModelWDS_setup(create_ScoreModelWDS, create_another_ScoreModelWDS):
+def test_ScoreModelWDS_setup_dataset(create_ScoreModelWDS, create_another_ScoreModelWDS):
     data_modules= [create_ScoreModelWDS[0], create_another_ScoreModelWDS[0]]
     lists_complex_name = []
+    lists_pos_ligand = []
     stage = "fit"
     for m in data_modules:
         m.prepare_data()
         m.setup(stage)
         lightning.seed_everything(2823828)
         names = []
+        pos_ligand = []
         for sample in m._dataset_train:
             names.append(sample.name)
+            pos_ligand.append(sample["ligand"].pos)
         lists_complex_name.append(names)
+        lists_pos_ligand.append(pos_ligand)
 
-    assert len(lists_complex_name[0]) > 0, "Empty dataset"
+    assert len(lists_complex_name[0]) > 0, "No names in dataset"
     assert lists_complex_name[0] == lists_complex_name[1],\
-        f"Inconsistent data samples from data module instances: "\
-        f"{lists_complex_name} \n\nvs.\n\n"\
-        f"{lists_complex_name}"
+        f"Inconsistent sample name from data module instances: "\
+        f"{lists_complex_name[0]} \n\nvs.\n\n"\
+        f"{lists_complex_name[1]}"
+
+    assert len(lists_pos_ligand[0]) > 0, "No ligand position found in dataset"
+    assert len(lists_pos_ligand[0]) == len(lists_pos_ligand[1]),\
+        "Inconsistent number of ligand position from data module instances: "\
+        f"{len(lists_pos_ligand[0])} \n\nvs.\n\n"\
+        f"{len(lists_pos_ligand[1])}"
+    for i in range(len(lists_pos_ligand[0])):
+        pos_0 = lists_pos_ligand[0][i]
+        pos_1 = lists_pos_ligand[1][i]
+        torch.testing.assert_close(pos_0, pos_1,
+                                   msg=lambda m :
+                                   f"Inconsistent ligand position in the "
+                                   f"{i}'th sample/batch between two data "
+                                   f"module instances:\n\n{m}")
