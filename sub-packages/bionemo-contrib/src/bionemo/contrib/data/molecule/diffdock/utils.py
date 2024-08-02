@@ -80,7 +80,7 @@ def pickles_to_tars(
                 total_size += os.stat(os.path.join(dir_input, f"{name}.{input_suffix}")).st_size
             except Exception:
                 continue
-        maxsize = min(total_size * 0.7 // min_num_shards, maxsize)
+        maxsize = min(total_size * 0.6 // min_num_shards, maxsize)
     with wds.ShardWriter(wd_subset_pattern, encoder=False, maxsize=maxsize, compress=False, mode=0o777) as sink:
         for name in input_prefix_subset:
             try:
