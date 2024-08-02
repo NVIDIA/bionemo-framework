@@ -146,6 +146,9 @@ class ScoreModelWDS(L.LightningDataModule):
         self._pin_memory_dataloader = pin_memory_dataloader
         self._seed_rng_shfl = seed_rng_shfl
 
+        # to be created later in setup
+        self._dataset = dict()
+
 
     def _complex_graph_to_tar(self, complex_graph : HeteroData):
         """map input complex graph to webdataset tar file conforming to its
@@ -273,10 +276,10 @@ class ScoreModelWDS(L.LightningDataModule):
         Returns: None
         """
         if stage == "fit":
-            self._dataset_train = self._setup_wds(Split.train)
-            self._dataset_val = self._setup_wds(Split.val)
+            self._dataset[Split.train] = self._setup_wds(Split.train)
+            self._dataset[Split.val] = self._setup_wds(Split.val)
         elif stage == "test":
-            self._dataset_test = self._setup_wds(Split.test)
+            self._dataset[Split.test] = self._setup_wds(Split.test)
         else:
             raise NotImplementedError("Data setup with stage = {stage}\
                                       is not implmented")
@@ -307,21 +310,21 @@ class ScoreModelWDS(L.LightningDataModule):
 
 
     def train_dataloader(self) -> wds.WebLoader:
-        assert self._dataset_train is not None,\
+        assert self._dataset[Split.train] is not None,\
             f"dataset for train has not been setup"
-        return self._setup_dataloader(self._dataset_train)
+        return self._setup_dataloader(self._dataset[Split.train])
 
 
     def val_dataloader(self) -> wds.WebLoader:
-        assert self._dataset_val is not None,\
+        assert self._dataset[Split.val] is not None,\
             f"dataset for val has not been setup"
-        return self._setup_dataloader(self._dataset_val)
+        return self._setup_dataloader(self._dataset[Split.val])
 
 
     def test_dataloader(self) -> wds.WebLoader:
-        assert self._dataset_test is not None,\
+        assert self._dataset[Split.test] is not None,\
             f"dataset for test has not been setup"
-        return self._setup_dataloader(self._dataset_test)
+        return self._setup_dataloader(self._dataset[Split.test])
 
 
     def predict_dataloader(self) -> wds.WebLoader:

@@ -14,8 +14,7 @@
 # limitations under the License.
 
 import glob
-import multiprocessing as mp
-import sys
+import pytest
 import torch
 
 import lightning
@@ -23,88 +22,72 @@ import lightning
 from bionemo.contrib.data.molecule.diffdock.datamodule import Split
 
 
-def test_ScoreModelWDS_init(get_diffdock_score_model_heterodata,
+@pytest.mark.parametrize("split", [s for s in Split])
+def test_ScoreModelWDS_init(split, get_diffdock_score_model_heterodata,
                             create_ScoreModelWDS):
-    (_, _, names_subset_train, names_subset_val,
-     names_subset_test) = get_diffdock_score_model_heterodata
+    name_split = str(split).split('.')[1]
+    (_, _, names) = get_diffdock_score_model_heterodata
     data_module, prefix_dir_tars_wds = create_ScoreModelWDS
-    assert data_module._sizes[Split.train] == len(names_subset_train),\
-        f"Wrong train set size: expected {len(names_subset_train)}"\
-        f"but got {data_module._sizes[Split.train]}"
-    assert data_module._sizes[Split.val] == len(names_subset_val),\
-        f"Wrong val set size: expected {len(names_subset_val)}"\
-        f"but got {data_module._sizes[Split.val]}"
-    assert data_module._sizes[Split.test] == len(names_subset_test),\
-        f"Wrong test set size: expected {len(names_subset_test)} "\
-        f"but got {data_module._sizes[Split.test]}"
-    assert data_module._dirs_tars_wds[Split.train] ==\
-        f"{prefix_dir_tars_wds}train",\
-        f"Wrong tar files directory: expected {prefix_dir_tars_wds}train "\
-        f"but got {data_module._dirs_tars_wds[Split.train]}"
-    assert data_module._dirs_tars_wds[Split.val] ==\
-        f"{prefix_dir_tars_wds}val",\
-        f"Wrong tar files directory: expected {prefix_dir_tars_wds}val "\
-        f"but got {data_module._dirs_tars_wds[Split.val]}"
-    assert data_module._dirs_tars_wds[Split.test] ==\
-        f"{prefix_dir_tars_wds}test",\
-        f"Wrong tar files directory: expected {prefix_dir_tars_wds}test "\
-        f"but got {data_module._dirs_tars_wds[Split.test]}"
+    assert data_module._sizes[split] == len(names[split]),\
+        f"Wrong {split}-set size: expected {len(names[split])}"\
+        f"but got {data_module._sizes[split]}"
+    assert data_module._dirs_tars_wds[split] ==\
+        f"{prefix_dir_tars_wds}{name_split}",\
+        f"Wrong tar files directory: expected {prefix_dir_tars_wds}{split} "\
+        f"but got {data_module._dirs_tars_wds[split]}"
 
 
-def test_ScoreModelWDS_prepare_data(create_ScoreModelWDS):
+@pytest.mark.parametrize("split", [s for s in Split])
+def test_ScoreModelWDS_prepare_data(split, create_ScoreModelWDS):
     data_module, _ = create_ScoreModelWDS
     # LightningDataModule.prepare_data() is supposed to be called from the main
     # process in a Lightning-managed multi-process context so we can call it in
     # a single process
     data_module.prepare_data()
-    files_tars_train = glob.glob(
-        f"{data_module._dirs_tars_wds[Split.train]}/"\
-        f"{data_module._prefix_tars_wds}-*.tar")
-    assert len(files_tars_train) >= data_module._n_tars_wds,\
-        f"Wrong num of train tar files: expected {data_module._n_tars_wds}"\
-        f"got {len(files_tars_train)}"
-    files_tars_val = glob.glob(
-        f"{data_module._dirs_tars_wds[Split.val]}/"\
-        f"{data_module._prefix_tars_wds}-*.tar")
-    assert len(files_tars_val) >= data_module._n_tars_wds,\
-        f"Wrong num of val tar files: expected {data_module._n_tars_wds}"\
-        f"got {len(files_tars_val)}"
-    files_tars_test = glob.glob(
-        f"{data_module._dirs_tars_wds[Split.test]}/"\
-        f"{data_module._prefix_tars_wds}-*.tar")
-    assert len(files_tars_test) >= data_module._n_tars_wds,\
-        f"Wrong num of test tar files: expected {data_module._n_tars_wds}"\
-        f"got {len(files_tars_test)}"
+    files_tars = sorted(glob.glob(
+        f"{data_module._dirs_tars_wds[split]}/"\
+        f"{data_module._prefix_tars_wds}-*.tar"))
+    assert len(files_tars) >= data_module._n_tars_wds,\
+        f"Wrong num of {split}-set tar files: "\
+        f"expected {data_module._n_tars_wds} "\
+        f"got {len(files_tars)}"
 
 
-
-def test_ScoreModelWDS_setup_dataset(create_ScoreModelWDS, create_another_ScoreModelWDS):
+@pytest.mark.parametrize("split", [s for s in Split])
+def test_ScoreModelWDS_setup_dataset(split, create_ScoreModelWDS, create_another_ScoreModelWDS):
     data_modules= [create_ScoreModelWDS[0], create_another_ScoreModelWDS[0]]
     lists_complex_name = []
     lists_pos_ligand = []
-    stage = "fit"
     for m in data_modules:
         m.prepare_data()
-        m.setup(stage)
+        # run through all the possible stages first to setup all the correps.
+        # dataset objects
+        m.setup("fit")
+        m.setup("test")
         lightning.seed_everything(2823828)
         names = []
         pos_ligand = []
-        for sample in m._dataset_train:
+        for sample in m._dataset[split]:
+            if isinstance(sample, list):
+                assert len(sample) == 1,\
+                    "Uncollated sample batch returned as list"
+                sample = sample[0]
             names.append(sample.name)
             pos_ligand.append(sample["ligand"].pos)
         lists_complex_name.append(names)
         lists_pos_ligand.append(pos_ligand)
 
-    assert len(lists_complex_name[0]) > 0, "No names in dataset"
+    assert len(lists_complex_name[0]) > 0,\
+        "No names in {split} dataset"
     assert lists_complex_name[0] == lists_complex_name[1],\
-        f"Inconsistent sample name from data module instances: "\
+        f"Inconsistent sample name in {split}-set from data module instances: "\
         f"{lists_complex_name[0]} \n\nvs.\n\n"\
         f"{lists_complex_name[1]}"
 
     assert len(lists_pos_ligand[0]) > 0, "No ligand position found in dataset"
     assert len(lists_pos_ligand[0]) == len(lists_pos_ligand[1]),\
-        "Inconsistent number of ligand position from data module instances: "\
-        f"{len(lists_pos_ligand[0])} \n\nvs.\n\n"\
+        f"Inconsistent number of ligand position in {split}-set from data "\
+        f"module instances: {len(lists_pos_ligand[0])} \n\nvs.\n\n"\
         f"{len(lists_pos_ligand[1])}"
     for i in range(len(lists_pos_ligand[0])):
         pos_0 = lists_pos_ligand[0][i]
@@ -112,5 +95,5 @@ def test_ScoreModelWDS_setup_dataset(create_ScoreModelWDS, create_another_ScoreM
         torch.testing.assert_close(pos_0, pos_1,
                                    msg=lambda m :
                                    f"Inconsistent ligand position in the "
-                                   f"{i}'th sample/batch between two data "
-                                   f"module instances:\n\n{m}")
+                                   f"{i}'th sample/batch of {split}-set "
+                                   f"between two data module instances:\n\n{m}")
