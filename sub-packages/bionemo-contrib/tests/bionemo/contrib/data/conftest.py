@@ -27,12 +27,10 @@ def get_path(request):
 
 
 @pytest.fixture(scope="module")
-def get_diffdock_score_model_heterodata(get_path, tmp_path_factory):
+def get_diffdock_score_model_heterodata(get_path):
     _, dir_data = get_path
     dir_heterodata = f"{dir_data}/molecule/diffdock/heterodata"
     suffix_heterodata = "heterodata.pyd"
-    prefix_dir_tars_wds = tmp_path_factory.mktemp(
-        "diffdock_score_model_tars_wds").as_posix()
     names_subset_train = set(["6t88", "6vs3", "6wtn", "6yqv", "7amc", "7bmi",
                               "7cuo", "7d5c", "7din", "7fha", "7jnb", "7k0v",
                               "7kb1", "7km8", "7l7c", "7lcu", "7msr", "7my1",
@@ -41,15 +39,17 @@ def get_diffdock_score_model_heterodata(get_path, tmp_path_factory):
                             "7qhl", "7rh3", "7rzl", "7sgv"])
     names_subset_test = set(["7sne", "7t2i", "7tbu", "7tsf", "7umv", "7up3",
                              "7uq3", "7wpw", "7xek", "7xij"])
-    return (dir_heterodata, suffix_heterodata, prefix_dir_tars_wds,
+    return (dir_heterodata, suffix_heterodata,
             names_subset_train, names_subset_val, names_subset_test)
 
 
-@pytest.fixture(scope="module")
-def create_ScoreModelWDS(get_diffdock_score_model_heterodata):
-    (dir_heterodata, suffix_heterodata, prefix_dir_tars_wds,
-            names_subset_train, names_subset_val, names_subset_test) =\
+def _create_ScoreModelWDS_impl(tmp_path_factory,
+                               get_diffdock_score_model_heterodata):
+    (dir_heterodata, suffix_heterodata,
+     names_subset_train, names_subset_val, names_subset_test) =\
         get_diffdock_score_model_heterodata
+    prefix_dir_tars_wds = tmp_path_factory.mktemp(
+        "diffdock_score_model_tars_wds").as_posix()
     local_batch_size = 2
     global_batch_size = 2
     n_workers_dataloader = 2
@@ -62,6 +62,16 @@ def create_ScoreModelWDS(get_diffdock_score_model_heterodata):
                                 n_tars_wds=n_tars_wds,
                                 names_subset_test=names_subset_test,
                                 seed_rng_shfl=seed_rng_shfl)
-    return data_module
+    return data_module, prefix_dir_tars_wds
 
-create_another_ScoreModelWDS = create_ScoreModelWDS
+
+@pytest.fixture(scope="module")
+def create_ScoreModelWDS(tmp_path_factory, get_diffdock_score_model_heterodata):
+    return _create_ScoreModelWDS_impl(tmp_path_factory,
+                                      get_diffdock_score_model_heterodata)
+
+
+@pytest.fixture(scope="module")
+def create_another_ScoreModelWDS(tmp_path_factory, get_diffdock_score_model_heterodata):
+    return _create_ScoreModelWDS_impl(tmp_path_factory,
+                                      get_diffdock_score_model_heterodata)

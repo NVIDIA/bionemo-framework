@@ -24,9 +24,9 @@ from bionemo.contrib.data.molecule.diffdock.datamodule import Split
 
 def test_ScoreModelWDS_init(get_diffdock_score_model_heterodata,
                             create_ScoreModelWDS):
-    (_, _, prefix_dir_tars_wds, names_subset_train, names_subset_val,
+    (_, _, names_subset_train, names_subset_val,
      names_subset_test) = get_diffdock_score_model_heterodata
-    data_module = create_ScoreModelWDS
+    data_module, prefix_dir_tars_wds = create_ScoreModelWDS
     assert data_module._sizes[Split.train] == len(names_subset_train),\
         f"Wrong train set size: expected {len(names_subset_train)}"\
         f"but got {data_module._sizes[Split.train]}"
@@ -50,11 +50,8 @@ def test_ScoreModelWDS_init(get_diffdock_score_model_heterodata,
         f"but got {data_module._dirs_tars_wds[Split.test]}"
 
 
-def test_ScoreModelWDS_prepare_data(get_diffdock_score_model_heterodata,
-                                    create_ScoreModelWDS):
-    (_, _, prefix_dir_tars_wds, _, _, _) =\
-        get_diffdock_score_model_heterodata
-    data_module = create_ScoreModelWDS
+def test_ScoreModelWDS_prepare_data(create_ScoreModelWDS):
+    data_module, _ = create_ScoreModelWDS
     # LightningDataModule.prepare_data() is supposed to be called from the main
     # process in a Lightning-managed multi-process context so we can call it in
     # a single process
@@ -81,7 +78,7 @@ def test_ScoreModelWDS_prepare_data(get_diffdock_score_model_heterodata,
 
 
 def test_ScoreModelWDS_setup(create_ScoreModelWDS, create_another_ScoreModelWDS):
-    data_modules= [create_ScoreModelWDS, create_another_ScoreModelWDS]
+    data_modules= [create_ScoreModelWDS[0], create_another_ScoreModelWDS[0]]
     lists_complex_name = []
     stage = "fit"
     for m in data_modules:
@@ -94,7 +91,7 @@ def test_ScoreModelWDS_setup(create_ScoreModelWDS, create_another_ScoreModelWDS)
         lists_complex_name.append(names)
 
     assert len(lists_complex_name[0]) > 0, "Empty dataset"
-    # assert lists_complex_name[0] == lists_complex_name[1],\
-    #     f"Inconsistent data samples from data module instances: "\
-    #     f"{lists_complex_name} \n\nvs.\n\n"\
-    #     f"{lists_complex_name}"
+    assert lists_complex_name[0] == lists_complex_name[1],\
+        f"Inconsistent data samples from data module instances: "\
+        f"{lists_complex_name} \n\nvs.\n\n"\
+        f"{lists_complex_name}"
