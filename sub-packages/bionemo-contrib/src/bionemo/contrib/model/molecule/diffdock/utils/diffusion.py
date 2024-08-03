@@ -9,12 +9,16 @@
 # its affiliates is strictly prohibited.
 
 import math
+import random
+from copy import deepcopy
+from typing import Callable
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
 
+from bionemo.contrib.model.molecule.diffdock.utils import so3, torus
 from bionemo.contrib.model.molecule.diffdock.utils.geometry import axis_angle_to_matrix, rigid_transform_Kabsch_3D_torch
 from bionemo.contrib.model.molecule.diffdock.utils.torsion import modify_conformer_torsion_angles
 
@@ -145,3 +149,57 @@ def set_time(complex_graphs, t_tr, t_rot, t_tor, batchsize, all_atoms, device):
             "rot": t_rot * torch.ones(complex_graphs["atom"].num_nodes).to(device),
             "tor": t_tor * torch.ones(complex_graphs["atom"].num_nodes).to(device),
         }
+
+
+class GenerateNoise:
+    """Apply forward diffusion on the ligand
+
+    Args:
+        t_to_sigma (Callable): Callable to embed time
+        no_torsion (bool): if not to perturb ligand torsion degrees
+        all_atom (bool): all atom or coarse grained/residue for protein
+        copy_ref_pos (bool): whether or not make a copy of the input ligand position
+    """
+
+    def __init__(self, t_to_sigma: Callable, no_torsion: bool, all_atom: bool,
+                 copy_ref_pos: bool = False):
+        self.t_to_sigma = t_to_sigma
+        self.no_torsion = no_torsion
+        self.all_atom = all_atom
+        self._copy_ref_pos = copy_ref_pos
+
+    def __call__(self, source):
+        for (data,) in source:
+            if self._copy_ref_pos:
+                data["ligand"].aligned_pos = deepcopy(data["ligand"].pos)
+            t = np.random.uniform()
+            t_tr, t_rot, t_tor = t, t, t
+            yield self.apply_noise(data, t_tr, t_rot, t_tor)
+
+    def apply_noise(self, data, t_tr, t_rot, t_tor, tr_update=None, rot_update=None, torsion_updates=None):
+        if not torch.is_tensor(data["ligand"].pos):
+            data["ligand"].pos = random.choice(data["ligand"].pos)
+
+        tr_sigma, rot_sigma, tor_sigma = self.t_to_sigma(t_tr, t_rot, t_tor)
+        set_time(data, t_tr, t_rot, t_tor, 1, self.all_atom, device=None)
+
+        tr_update = torch.normal(mean=0, std=tr_sigma, size=(1, 3)) if tr_update is None else tr_update
+        rot_update = so3.sample_vec(eps=rot_sigma) if rot_update is None else rot_update
+        torsion_updates = (
+            np.random.normal(loc=0.0, scale=tor_sigma, size=data["ligand"].edge_mask.sum())
+            if torsion_updates is None
+            else torsion_updates
+        )
+        torsion_updates = None if self.no_torsion else torsion_updates
+        modify_conformer(
+            data,
+            tr_update,
+            torch.from_numpy(rot_update).float(),
+            None if data["ligand"].edge_mask.sum() == 0 else torsion_updates,
+        )
+
+        data.tr_score = -tr_update / tr_sigma**2
+        data.rot_score = torch.from_numpy(so3.score_vec(vec=rot_update, eps=rot_sigma)).float().unsqueeze(0)
+        data.tor_score = None if self.no_torsion else torch.from_numpy(torus.score(torsion_updates, tor_sigma)).float()
+        data.tor_sigma_edge = None if self.no_torsion else np.ones(data["ligand"].edge_mask.sum()) * tor_sigma
+        return data

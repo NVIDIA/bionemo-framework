@@ -25,8 +25,11 @@ from torch_geometric.data.hetero_data import HeteroData
 from torch_geometric.loader.dataloader import Collater
 import webdataset as wds
 
-from bionemo.contrib.data.molecule.diffdock.utils import pickles_to_tars, NoiseTransform, SizeAwareBatching, estimate_size
-from bionemo.contrib.model.molecule.diffdock.utils.diffusion import t_to_sigma
+from bionemo.contrib.data.molecule.diffdock.utils import (
+    pickles_to_tars, SizeAwareBatching, estimate_size
+    )
+from bionemo.contrib.model.molecule.diffdock.utils.diffusion import (
+    t_to_sigma, GenerateNoise)
 
 
 class Split(Enum):
@@ -225,17 +228,16 @@ class ScoreModelWDS(L.LightningDataModule):
             .extract_keys(f"*.{self._suffix_heterodata}")
             )
         if is_train:
-            self._xform_train = (
-                NoiseTransform(partial(t_to_sigma,
+            dataset = (dataset.compose(
+                GenerateNoise(partial(t_to_sigma,
                                        self._tr_sigma_min, self._tr_sigma_max,
                                        self._rot_sigma_min,
                                        self._rot_sigma_max,
                                        self._tor_sigma_min,
                                        self._tor_sigma_max),
-                               self._no_torsion, self._is_all_atom))
-            dataset = (dataset
-                       .compose(partial(self._xform_train.apply_noise_iter,
-                                        keep_pos=(split == Split.val)))
+                              self._no_torsion,
+                              self._is_all_atom,
+                              copy_ref_pos=(split == Split.val)))
                        )
         # sandwiched here to mirror the original DiffDock FW implementation
         size = self._sizes[split]
