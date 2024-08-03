@@ -258,7 +258,7 @@ class ScoreModelWDS(L.LightningDataModule):
                 max_total_size=0.85 * torch.cuda.get_device_properties("cuda:0").total_memory / 2**20,
                 size_fn=estimate_size,
                 )
-            dataset = dataset.compose(f_batching).with_length(n_batches)
+            dataset = dataset.compose(f_batching).with_epoch(n_batches)
         if is_train:
             dataset = dataset.select(lambda x: len(x) > 1)
 
