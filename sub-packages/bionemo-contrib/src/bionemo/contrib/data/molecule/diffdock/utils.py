@@ -36,7 +36,7 @@ from bionemo.contrib.model.molecule.diffdock.utils import so3, torus
 def pickles_to_tars(
     dir_input: str,
     input_suffix: str,
-    input_prefix_subset: set,
+    input_prefix_subset: List[str],
     dir_output: str,
     output_prefix: str,
     func_output_data: Callable = lambda data: {"data": pickle.dumps(data)},
@@ -51,7 +51,7 @@ def pickles_to_tars(
     Args:
         dir_input (str): Input directory
         input_suffix (str): Input pickle file name suffix
-        input_prefix_subset (set): Input subset of pickle files' prefix
+        input_prefix_subset (List[str]): Input subset of pickle files' prefix
         dir_output (str): Output directory
         output_prefix (str): Output tar file name prefix
         func_output_data (Callable) : function that maps data to a dictionary

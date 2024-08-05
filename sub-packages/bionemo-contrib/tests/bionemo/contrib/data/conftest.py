@@ -35,14 +35,13 @@ def get_diffdock_score_model_heterodata(get_path):
     dir_heterodata = f"{dir_data}/molecule/diffdock/heterodata"
     suffix_heterodata = "heterodata.pyd"
     names = {
-        Split.train : set(["6t88", "6vs3", "6wtn", "6yqv", "7amc", "7bmi",
-                           "7cuo", "7d5c", "7din", "7fha", "7jnb", "7k0v",
-                           "7kb1", "7km8", "7l7c", "7lcu", "7msr", "7my1",
-                           "7n6f", "7np6"]),
-        Split.val : set(["7nr6", "7oeo", "7oli", "7oso", "7p5t", "7q5i", "7qhl",
-                         "7rh3", "7rzl", "7sgv"]),
-        Split.test : set(["7sne", "7t2i", "7tbu", "7tsf", "7umv", "7up3",
-                          "7uq3", "7wpw", "7xek", "7xij"])
+        Split.train : ["6t88", "6vs3", "6wtn", "6yqv", "7amc", "7bmi", "7cuo",
+                       "7d5c", "7din", "7fha", "7jnb", "7k0v", "7kb1", "7km8",
+                       "7l7c", "7lcu", "7msr", "7my1", "7n6f", "7np6"],
+        Split.val : ["7nr6", "7oeo", "7oli", "7oso", "7p5t", "7q5i", "7qhl",
+                     "7rh3", "7rzl", "7sgv"],
+        Split.test : ["7sne", "7t2i", "7tbu", "7tsf", "7umv", "7up3", "7uq3",
+                      "7wpw", "7xek", "7xij"]
         }
     return (dir_heterodata, suffix_heterodata, names)
 
@@ -75,12 +74,9 @@ def _create_ScoreModelWDS_impl(tmp_path_factory,
     n_tars_wds = 4
     seed_rng_shfl = 822782392
     data_module = ScoreModelWDS(dir_heterodata, suffix_heterodata,
-                                prefix_dir_tars_wds, names[Split.train],
-                                names[Split.val], local_batch_size,
+                                prefix_dir_tars_wds, names, local_batch_size,
                                 global_batch_size, n_workers_dataloader,
-                                generateNoise,
-                                n_tars_wds=n_tars_wds,
-                                names_subset_test=names[Split.test],
+                                generateNoise, n_tars_wds=n_tars_wds,
                                 seed_rng_shfl=seed_rng_shfl)
     return data_module, prefix_dir_tars_wds
 

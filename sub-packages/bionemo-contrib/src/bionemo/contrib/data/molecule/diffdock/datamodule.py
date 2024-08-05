@@ -17,7 +17,7 @@ from enum import Enum, auto
 import glob
 import pickle
 import random
-from typing import Dict, Generator, Set, Optional, Tuple
+from typing import Dict, Generator, List, Set, Optional, Tuple
 import lightning as L
 import torch
 from torch_geometric.data.hetero_data import HeteroData
@@ -41,18 +41,17 @@ class ScoreModelWDS(L.LightningDataModule):
     dataloader"""
 
     def __init__(self, dir_heterodata : str, suffix_heterodata : str,
-                 prefix_dir_tars_wds : str, names_subset_train : Set[str],
-                 names_subset_val : Set[str], local_batch_size : int,
-                 global_batch_size : int, n_workers_dataloader : int,
-                 xform_gen_wds : Optional[Dict[Split, Generator[HeteroData,
-                                                                None, None]]] =
-                 None,
-                 apply_size_control : Tuple[bool, bool, bool] = (True, False,
-                                                                 False),
-                 pin_memory_dataloader : bool = True,
-                 prefix_tars_wds : str = "heterographs",
-                 n_tars_wds : Optional[int] = None, names_subset_test :
-                 Optional[Set[str]] = None, seed_rng_shfl : int = 0):
+                 prefix_dir_tars_wds : str, names_subset : Dict[Split,
+                                                                List[str]],
+                 local_batch_size : int, global_batch_size : int,
+                 n_workers_dataloader : int, xform_gen_wds :
+                 Optional[Dict[Split, Generator[HeteroData, None, None]]] =
+                 None, apply_size_control : Tuple[bool, bool, bool] = (True,
+                                                                       False,
+                                                                       False),
+                 pin_memory_dataloader : bool = True, prefix_tars_wds : str =
+                 "heterographs", n_tars_wds : Optional[int] = None,
+                 seed_rng_shfl : int = 0):
         """constructor
 
         Args:
@@ -65,10 +64,8 @@ class ScoreModelWDS(L.LightningDataModule):
                 webdataset tar files. The actual directories storing the train, val
                 and test sets will be suffixed with "train", "val" and "test"
                 respectively.
-            names_subset_train (Set[str]): list of complex names to be included
-                in the training data
-            names_subset_val (Set[str]): list of complex names to be included
-                in the validation data
+            names_subset (Dict[Split, List[str]]): list of complex names to be
+                included in each of the split
             local_batch_size (int): size of batch for each node
             global_batch_size (int): size of batch summing across nodes in Data
                 Distributed Parallel, i.e., local_batch_size * n_nodes
@@ -88,8 +85,6 @@ class ScoreModelWDS(L.LightningDataModule):
                 dataloader
             prefix_tars_wds (str): name prefix to output webdataset tar files
             n_tars_wds (int): attempt to create at least this number of webdataset shards
-            names_subset_test (Optional[Set[str]]): list of complex names to be included
-                in the test data
 
 
         """
@@ -100,15 +95,17 @@ class ScoreModelWDS(L.LightningDataModule):
         self._n_tars_wds = n_tars_wds
         self._prefix_dir_tars_wds = prefix_dir_tars_wds
         self._prefix_tars_wds = prefix_tars_wds
-        self._names_subset_train = names_subset_train
-        self._names_subset_val = names_subset_val
-        self._names_subset_test = names_subset_test
+
+        keys_subset = names_subset.keys()
+        if not (Split.train in keys_subset and Split.val in keys_subset):
+            raise RuntimeError("Input names_subset must be defined for the "\
+                               "train and val splits")
+
+        self._names_subset = names_subset
 
         self._sizes = {
-            Split.train : len(self._names_subset_train),
-            Split.val : len(self._names_subset_val),
-            Split.test : len(self._names_subset_test) if
-            self._names_subset_test is not None else None,
+            split : len(self._names_subset[split]) for split in
+            self._names_subset.keys()
             }
 
         self._dirs_tars_wds = {
@@ -157,34 +154,15 @@ class ScoreModelWDS(L.LightningDataModule):
 
         Returns: None
         """
-        # create wds shards (tar files) for train set
-        pickles_to_tars(self._dir_heterodata,
-                        self._suffix_heterodata,
-                        self._names_subset_train,
-                        self._dirs_tars_wds[Split.train],
-                        self._prefix_tars_wds,
-                        self._complex_graph_to_tar,
-                        min_num_shards=self._n_tars_wds)
-
-        # create wds shards (tar files) for val set
-        pickles_to_tars(self._dir_heterodata,
-                        self._suffix_heterodata,
-                        self._names_subset_val,
-                        self._dirs_tars_wds[Split.val],
-                        self._prefix_tars_wds,
-                        self._complex_graph_to_tar,
-                        min_num_shards=self._n_tars_wds)
-
-        if self._names_subset_test is not None:
-            # create wds shards (tar files) for test set
+        for split in self._names_subset.keys():
+            # create wds shards (tar files) for train set
             pickles_to_tars(self._dir_heterodata,
                             self._suffix_heterodata,
-                            self._names_subset_test,
-                            self._dirs_tars_wds[Split.test],
+                            self._names_subset[split],
+                            self._dirs_tars_wds[split],
                             self._prefix_tars_wds,
                             self._complex_graph_to_tar,
                             min_num_shards=self._n_tars_wds)
-
 
 
     def _setup_wds(self, split : Split) -> wds.WebDataset:
