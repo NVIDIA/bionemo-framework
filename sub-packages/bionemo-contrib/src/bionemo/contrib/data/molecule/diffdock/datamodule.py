@@ -186,7 +186,8 @@ class ScoreModelWDS(L.LightningDataModule):
             .decode()
             .extract_keys(f"*.{self._suffix_heterodata}")
             )
-        if self._xform_gen_wds is not None:
+        if (self._xform_gen_wds is not None and
+                self._xform_gen_wds[split] is not None):
             dataset = dataset.compose(self._xform_gen_wds[split])
         # sandwiched here to mirror the original DiffDock FW implementation
         size = self._sizes[split]
