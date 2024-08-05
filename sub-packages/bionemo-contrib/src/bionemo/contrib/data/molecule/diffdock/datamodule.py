@@ -237,8 +237,6 @@ class ScoreModelWDS(L.LightningDataModule):
                           copy_ref_pos=(split == Split.val)))
         # sandwiched here to mirror the original DiffDock FW implementation
         size = self._sizes[split]
-        # FIXME: remove this with_length since it's overriden later anyway
-        dataset = dataset.with_length(size)
         if is_train:
             dataset = dataset.shuffle(size=5000,
                                       rng=random.Random(self._seed_rng_shfl))
@@ -258,7 +256,10 @@ class ScoreModelWDS(L.LightningDataModule):
                 max_total_size=0.85 * torch.cuda.get_device_properties("cuda:0").total_memory / 2**20,
                 size_fn=estimate_size,
                 )
-            dataset = dataset.compose(f_batching).with_epoch(n_batches)
+            dataset = (dataset.compose(f_batching)
+                       .with_epoch(n_batches)
+                       .with_length(n_batches)
+                       )
         if is_train:
             dataset = dataset.select(lambda x: len(x) > 1)
 
