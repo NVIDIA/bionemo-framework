@@ -11,20 +11,22 @@
 import math
 import random
 from copy import deepcopy
-from typing import Callable
+from typing import Callable, Generator, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch_geometric.data.hetero_data import HeteroData
 
 from bionemo.contrib.model.molecule.diffdock.utils import so3, torus
 from bionemo.contrib.model.molecule.diffdock.utils.geometry import axis_angle_to_matrix, rigid_transform_Kabsch_3D_torch
 from bionemo.contrib.model.molecule.diffdock.utils.torsion import modify_conformer_torsion_angles
 
 
-def t_to_sigma(t_tr, t_rot, t_tor, tr_sigma_min, tr_sigma_max, rot_sigma_min,
-               rot_sigma_max, tor_sigma_min, tor_sigma_max):
+def t_to_sigma(tr_sigma_min, tr_sigma_max, rot_sigma_min,
+               rot_sigma_max, tor_sigma_min, tor_sigma_max,
+               t_tr, t_rot, t_tor):
     tr_sigma = tr_sigma_min ** (1 - t_tr) * tr_sigma_max**t_tr
     rot_sigma = rot_sigma_min ** (1 - t_rot) * rot_sigma_max**t_rot
     tor_sigma = tor_sigma_min ** (1 - t_tor) * tor_sigma_max**t_tor
@@ -161,14 +163,17 @@ class GenerateNoise:
         copy_ref_pos (bool): whether or not make a copy of the input ligand position
     """
 
-    def __init__(self, t_to_sigma: Callable, no_torsion: bool, all_atom: bool,
-                 copy_ref_pos: bool = False):
+    def __init__(self, t_to_sigma: Callable[[float, float, float], Tuple[float,
+                                                                         float,
+                                                                         float]],
+                 no_torsion: bool, all_atom: bool, copy_ref_pos: bool = False):
         self.t_to_sigma = t_to_sigma
         self.no_torsion = no_torsion
         self.all_atom = all_atom
         self._copy_ref_pos = copy_ref_pos
 
-    def __call__(self, source):
+    def __call__(self, source : Generator[HeteroData, None, None]) \
+            -> Generator[HeteroData, None, None]:
         for (data,) in source:
             if self._copy_ref_pos:
                 data["ligand"].aligned_pos = deepcopy(data["ligand"].pos)

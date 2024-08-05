@@ -14,11 +14,10 @@
 # limitations under the License.
 
 from enum import Enum, auto
-from functools import partial
 import glob
 import pickle
 import random
-from typing import Set, Optional, Tuple
+from typing import Dict, Generator, Set, Optional, Tuple
 import lightning as L
 import torch
 from torch_geometric.data.hetero_data import HeteroData
@@ -28,8 +27,6 @@ import webdataset as wds
 from bionemo.contrib.data.molecule.diffdock.utils import (
     pickles_to_tars, SizeAwareBatching, estimate_size
     )
-from bionemo.contrib.model.molecule.diffdock.utils.diffusion import (
-    t_to_sigma, GenerateNoise)
 
 
 class Split(Enum):
@@ -47,15 +44,12 @@ class ScoreModelWDS(L.LightningDataModule):
                  prefix_dir_tars_wds : str, names_subset_train : Set[str],
                  names_subset_val : Set[str], local_batch_size : int,
                  global_batch_size : int, n_workers_dataloader : int,
-                 tr_sigma_minmax : Tuple[float, float]
-                 = (0.1, 19), rot_sigma_minmax : Tuple[float, float] = (0.03,
-                                                                        1.55),
-                 tor_sigma_minmax : Optional[Tuple[float, float]] = (0.0314,
-                                                                     3.14),
-                 is_all_atom : bool = False, apply_size_control : Tuple[bool,
-                                                                        bool,
-                                                                        bool] =
-                 (True, False, False), pin_memory_dataloader : bool = True,
+                 xform_gen_wds : Optional[Dict[Split, Generator[HeteroData,
+                                                                None, None]]] =
+                 None,
+                 apply_size_control : Tuple[bool, bool, bool] = (True, False,
+                                                                 False),
+                 pin_memory_dataloader : bool = True,
                  prefix_tars_wds : str = "heterographs",
                  n_tars_wds : Optional[int] = None, names_subset_test :
                  Optional[Set[str]] = None, seed_rng_shfl : int = 0):
@@ -84,15 +78,11 @@ class ScoreModelWDS(L.LightningDataModule):
             data loading time for shuffling
 
         Kwargs:
-            tr_sigma_minmax (Tuple[float, float]): min and max sigma for the
-                translational component during diffusion
-            rot_sigma_minmax (Tuple[float, float]): min and max sigma for the
-                rotational component during diffusion
-            tor_sigma_minmax (Optional[Tuple[float, float]]): min and max sigma
-                for the torsional component during diffusion
-            is_all_atom (bool): whether to treat the data as all-atom system
-                during noise transformation
-            apply_size_control(Tuple[bool, bool, bool]): whether to use
+            xform_gen_wds (Optional[Dict[Split, Generator[HeteroData, None,
+                None]]]): a dictionary of webdatast composable, i.e., functor that
+                maps a generator to another generator that transforms the data
+                sample, for different splits
+            apply_size_control (Tuple[bool, bool, bool]): whether to use
                 SizeAwareBatching for the respective train, val and test data
             pin_memory_dataloader (bool): whether to use pin memory in pytorch
                 dataloader
@@ -127,16 +117,7 @@ class ScoreModelWDS(L.LightningDataModule):
             Split.test : f"{self._prefix_dir_tars_wds}test",
             }
 
-        self._tr_sigma_min, self._tr_sigma_max = tr_sigma_minmax
-        self._rot_sigma_min, self._rot_sigma_max = rot_sigma_minmax
-        self._tor_sigma_min, self._tor_sigma_max = (None, None)
-        self._no_torsion = True
-        if tor_sigma_minmax is not None:
-            self._tor_sigma_min, self._tor_sigma_max = tor_sigma_minmax
-            self._no_torsion = False
-        # TODO: the all-atom arg to set_time should be inferred from the
-        # complex_graph arg so we don't have to pass it all-the-way down
-        self._is_all_atom = is_all_atom
+        self._xform_gen_wds = xform_gen_wds
 
         self._local_batch_size = local_batch_size
         self._global_batch_size = global_batch_size
@@ -227,14 +208,8 @@ class ScoreModelWDS(L.LightningDataModule):
             .decode()
             .extract_keys(f"*.{self._suffix_heterodata}")
             )
-        dataset = dataset.compose(
-            GenerateNoise(partial(t_to_sigma,
-                                  self._tr_sigma_min, self._tr_sigma_max,
-                                  self._rot_sigma_min, self._rot_sigma_max,
-                                  self._tor_sigma_min,
-                                  self._tor_sigma_max),
-                          self._no_torsion, self._is_all_atom,
-                          copy_ref_pos=(split == Split.val)))
+        if self._xform_gen_wds is not None:
+            dataset = dataset.compose(self._xform_gen_wds[split])
         # sandwiched here to mirror the original DiffDock FW implementation
         size = self._sizes[split]
         if is_train:

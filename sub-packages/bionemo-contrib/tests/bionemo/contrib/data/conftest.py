@@ -15,7 +15,10 @@
 
 import os
 import pytest
+from functools import partial
 
+from bionemo.contrib.model.molecule.diffdock.utils.diffusion import (
+    t_to_sigma, GenerateNoise)
 from bionemo.contrib.data.molecule.diffdock.datamodule import Split, ScoreModelWDS
 
 
@@ -50,6 +53,22 @@ def _create_ScoreModelWDS_impl(tmp_path_factory,
         get_diffdock_score_model_heterodata
     prefix_dir_tars_wds = tmp_path_factory.mktemp(
         "diffdock_score_model_tars_wds").as_posix()
+    tr_sigma_min, tr_sigma_max = (0.1, 19)
+    rot_sigma_min, rot_sigma_max = (0.03, 1.55)
+    tor_sigma_min, tor_sigma_max = (0.0314, 3.14)
+    is_all_atom  = False
+    no_torsion = False
+    sigma_t = partial(t_to_sigma, tr_sigma_min,
+                      tr_sigma_max, rot_sigma_min, rot_sigma_max,
+                      tor_sigma_min, tor_sigma_max)
+    generateNoise = {
+        Split.train :  GenerateNoise(sigma_t, no_torsion, is_all_atom,
+                                     copy_ref_pos=False),
+        Split.val:  GenerateNoise(sigma_t, no_torsion, is_all_atom,
+                                     copy_ref_pos=True),
+        Split.test:  GenerateNoise(sigma_t, no_torsion, is_all_atom,
+                                     copy_ref_pos=False),
+        }
     local_batch_size = 2
     global_batch_size = 2
     n_workers_dataloader = 2
@@ -59,6 +78,7 @@ def _create_ScoreModelWDS_impl(tmp_path_factory,
                                 prefix_dir_tars_wds, names[Split.train],
                                 names[Split.val], local_batch_size,
                                 global_batch_size, n_workers_dataloader,
+                                generateNoise,
                                 n_tars_wds=n_tars_wds,
                                 names_subset_test=names[Split.test],
                                 seed_rng_shfl=seed_rng_shfl)
