@@ -97,3 +97,60 @@ def test_ScoreModelWDS_setup_dataset(split, create_ScoreModelWDS, create_another
                                    f"Inconsistent ligand position in the "
                                    f"{i}'th sample/batch of {split}-set "
                                    f"between two data module instances:\n\n{m}")
+
+
+@pytest.mark.parametrize("split", [s for s in Split])
+def test_ScoreModelWDS_setup_dataloader(split, create_ScoreModelWDS, create_another_ScoreModelWDS):
+    data_modules= [create_ScoreModelWDS[0], create_another_ScoreModelWDS[0]]
+    lists_complex_name = []
+    lists_pos_ligand = []
+    for m in data_modules:
+        m.prepare_data()
+        # run through all the possible stages first to setup all the correps.
+        # dataset objects
+        m.setup("fit")
+        m.setup("test")
+        lightning.seed_everything(2823828)
+        names = []
+        pos_ligand = []
+        loader = None
+        if split == Split.train:
+            loader = m.train_dataloader()
+        elif split == Split.val:
+            loader = m.val_dataloader()
+        elif split == Split.test:
+            loader = m.test_dataloader()
+        else:
+            raise RuntimeError(f"Test for split {split} not implemented")
+        assert loader is not None, "dataloader not instantated"
+        for sample in loader:
+            if isinstance(sample, list):
+                assert len(sample) == 1,\
+                    "Uncollated sample batch returned as list"
+                sample = sample[0]
+            names.append(sample.name)
+            pos_ligand.append(sample["ligand"].pos)
+        lists_complex_name.append(names)
+        lists_pos_ligand.append(pos_ligand)
+
+    assert len(lists_complex_name[0]) > 0,\
+        "No names in {split} dataloader"
+    assert lists_complex_name[0] == lists_complex_name[1],\
+        f"Inconsistent sample name in {split}-set from data module instances: "\
+        f"{lists_complex_name[0]} \n\nvs.\n\n"\
+        f"{lists_complex_name[1]}"
+
+    assert len(lists_pos_ligand[0]) > 0,\
+        "No ligand position found in dataloader"
+    assert len(lists_pos_ligand[0]) == len(lists_pos_ligand[1]),\
+        f"Inconsistent number of ligand position in {split}-set from data "\
+        f"module instances: {len(lists_pos_ligand[0])} \n\nvs.\n\n"\
+        f"{len(lists_pos_ligand[1])}"
+    for i in range(len(lists_pos_ligand[0])):
+        pos_0 = lists_pos_ligand[0][i]
+        pos_1 = lists_pos_ligand[1][i]
+        torch.testing.assert_close(pos_0, pos_1,
+                                   msg=lambda m :
+                                   f"Inconsistent ligand position in the "
+                                   f"{i}'th sample/batch of {split}-set "
+                                   f"between two data module instances:\n\n{m}")
