@@ -96,8 +96,8 @@ def _create_ScoreModelWDS_impl(tmp_path_factory,
     n_tars_wds = 4
     seed_rng_shfl = 822782392
     data_module = ScoreModelWDS(dir_heterodata, suffix_heterodata,
-                                prefix_dir_tars_wds, names, local_batch_size,
-                                global_batch_size, n_workers_dataloader,
+                                prefix_dir_tars_wds, names, global_batch_size,
+                                n_workers_dataloader,
                                 pipeline_wds=generateNoise,
                                 pipeline_prebatch_wld=pipelines_wdl_batch,
                                 n_tars_wds=n_tars_wds,

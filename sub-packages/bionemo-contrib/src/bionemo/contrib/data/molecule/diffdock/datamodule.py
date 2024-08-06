@@ -41,8 +41,7 @@ class ScoreModelWDS(L.LightningDataModule):
     def __init__(self, dir_heterodata : str, suffix_heterodata : str,
                  prefix_dir_tars_wds : str, names_subset : Dict[Split,
                                                                 List[str]],
-                 local_batch_size : int, global_batch_size : int,
-                 n_workers_dataloader : int,
+                 global_batch_size : int, n_workers_dataloader : int,
                  pipeline_wds : Optional[Dict[Split, Generator[HeteroData, None,
                                                                None]]] = None,
                  pipeline_prebatch_wld : Optional[Dict[Split,
@@ -65,9 +64,14 @@ class ScoreModelWDS(L.LightningDataModule):
                 respectively.
             names_subset (Dict[Split, List[str]]): list of complex names to be
                 included in each of the split
-            local_batch_size (int): size of batch for each node
             global_batch_size (int): size of batch summing across nodes in Data
-                Distributed Parallel, i.e., local_batch_size * n_nodes
+                Distributed Parallel, i.e., local_batch_size * n_nodes. NOTE:
+                this data module doesn't rely on the input `global_batch_size`
+                for batching the samples. The batching is supposed to be done as
+                a part of the input `pipeline_prebatch_wld`. `global_batch_size`
+                is only used to compute a (pseudo-) epoch length for the data
+                loader so that the loader yield approximately n_samples //
+                global_batch_size batches
             n_workers_dataloader (int): number of data loading workers (passed
                 to pytorch dataloader)
             seed_rng_shfl (int): seed to the random number generators used in
@@ -120,7 +124,6 @@ class ScoreModelWDS(L.LightningDataModule):
         self._pipeline_wds = pipeline_wds
         self._pipeline_prebatch_wld = pipeline_prebatch_wld
 
-        self._local_batch_size = local_batch_size
         self._global_batch_size = global_batch_size
         self._n_workers_dataloader = n_workers_dataloader
         self._pin_memory_dataloader = pin_memory_dataloader
@@ -242,7 +245,7 @@ class ScoreModelWDS(L.LightningDataModule):
 
         # strange features required by nemo optimizer lr_scheduler
         loader.dataset = dataset  # seems like only length is used, webloader doesn't have this attr
-        loader.batch_size = self._local_batch_size
+        loader.batch_size = self._global_batch_size
         loader.drop_last = False
         return loader
 
