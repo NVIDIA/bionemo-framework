@@ -176,7 +176,6 @@ class ScoreModelWDS(L.LightningDataModule):
         Returns: WebDataset
 
         """
-        random.seed(self._seed_rng_shfl)
         is_train = split == Split.train
         urls = sorted(glob.glob(
             f"{self._dirs_tars_wds[split]}/{self._prefix_tars_wds}-*.tar")
