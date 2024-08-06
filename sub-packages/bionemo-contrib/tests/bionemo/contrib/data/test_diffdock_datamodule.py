@@ -14,11 +14,12 @@
 # limitations under the License.
 
 import glob
+from numpy import isin
 import pytest
 import torch
 
 import lightning
-from torch_geometric.data import HeteroData
+from torch_geometric.data import Batch, HeteroData
 
 from bionemo.contrib.data.molecule.diffdock.datamodule import Split
 
@@ -69,6 +70,8 @@ def test_ScoreModelWDS_setup_dataset(split, create_ScoreModelWDS, create_another
         names = []
         pos_ligand = []
         for sample in m._dataset[split]:
+            assert isinstance(sample, HeteroData),\
+                "Sample yield from dataset is not PyG HeteroData"
             names.append(sample.name)
             pos_ligand.append(sample["ligand"].pos)
         lists_complex_name.append(names)
@@ -120,13 +123,14 @@ def test_ScoreModelWDS_setup_dataloader(split, create_ScoreModelWDS, create_anot
         else:
             raise RuntimeError(f"Test for split {split} not implemented")
         assert loader is not None, "dataloader not instantated"
-        for sample in loader:
-            if isinstance(sample, list):
-                assert len(sample) == 1,\
-                    "Uncollated sample batch returned as list"
-                sample = sample[0]
-            names.append(sample.name)
-            pos_ligand.append(sample["ligand"].pos)
+        for samples in loader:
+            # PyG's HeteroDataBatch is Batch inherited from HeteroData
+            assert isinstance(samples, Batch),\
+                f"Sample object is not PyG Batch"
+            assert isinstance(samples, HeteroData),\
+                f"Sample object is not PyG HeteroData"
+            names.append(samples.name)
+            pos_ligand.append(samples["ligand"].pos)
         lists_complex_name.append(names)
         lists_pos_ligand.append(pos_ligand)
 
