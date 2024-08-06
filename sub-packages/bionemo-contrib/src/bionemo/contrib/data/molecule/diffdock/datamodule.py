@@ -17,15 +17,13 @@ from enum import Enum, auto
 import glob
 import pickle
 import random
-from typing import Dict, Generator, List, Set, Optional, Tuple
+from typing import Dict, Generator, List, Optional
 import lightning as L
-import torch
 from torch_geometric.data.hetero_data import HeteroData
-from torch_geometric.loader.dataloader import Collater
 import webdataset as wds
 
 from bionemo.contrib.data.molecule.diffdock.utils import (
-    pickles_to_tars, SizeAwareBatching, estimate_size
+    pickles_to_tars
     )
 
 
@@ -44,13 +42,14 @@ class ScoreModelWDS(L.LightningDataModule):
                  prefix_dir_tars_wds : str, names_subset : Dict[Split,
                                                                 List[str]],
                  local_batch_size : int, global_batch_size : int,
-                 n_workers_dataloader : int, xform_gen_wds :
-                 Optional[Dict[Split, Generator[HeteroData, None, None]]] =
-                 None, apply_size_control : Tuple[bool, bool, bool] = (True,
-                                                                       False,
-                                                                       False),
-                 pin_memory_dataloader : bool = True, prefix_tars_wds : str =
-                 "heterographs", n_tars_wds : Optional[int] = None,
+                 n_workers_dataloader : int,
+                 pipeline_wds : Optional[Dict[Split, Generator[HeteroData, None,
+                                                               None]]] = None,
+                 pipeline_prebatch_wld : Optional[Dict[Split,
+                                                       Generator[HeteroData,
+                                                                 None, None]]] =
+                 None, pin_memory_dataloader : bool = True, prefix_tars_wds :
+                 str = "heterographs", n_tars_wds : Optional[int] = None,
                  seed_rng_shfl : int = 0):
         """constructor
 
@@ -75,12 +74,16 @@ class ScoreModelWDS(L.LightningDataModule):
             data loading time for shuffling
 
         Kwargs:
-            xform_gen_wds (Optional[Dict[Split, Generator[HeteroData, None,
-                None]]]): a dictionary of webdatast composable, i.e., functor that
-                maps a generator to another generator that transforms the data
-                sample, for different splits
-            apply_size_control (Tuple[bool, bool, bool]): whether to use
-                SizeAwareBatching for the respective train, val and test data
+            pipeline_wds (Optional[Dict[Split, Generator[HeteroData, None,
+                None]]]): a dictionary of webdatast composable, i.e., functor
+                that maps a generator to another generator that transforms the
+                data sample yield from the dataset object, for different splits
+            pipeline_prebatch_wld (Optional[Dict[Split, Generator[HeteroData,
+                None, None]]]): a dictionary of webloader composable, i.e.,
+                functor that maps a generator to another generator that
+                transforms the data sample yield from the WebLoader object, for
+                different splits. NOTE: this is applied before batching is yield
+                from the WebLoader
             pin_memory_dataloader (bool): whether to use pin memory in pytorch
                 dataloader
             prefix_tars_wds (str): name prefix to output webdataset tar files
@@ -114,15 +117,11 @@ class ScoreModelWDS(L.LightningDataModule):
             Split.test : f"{self._prefix_dir_tars_wds}test",
             }
 
-        self._xform_gen_wds = xform_gen_wds
+        self._pipeline_wds = pipeline_wds
+        self._pipeline_prebatch_wld = pipeline_prebatch_wld
 
         self._local_batch_size = local_batch_size
         self._global_batch_size = global_batch_size
-        self._use_dynamic_batch_size = {
-            Split.train : apply_size_control[0],
-            Split.val : apply_size_control[1],
-            Split.test : apply_size_control[2],
-            }
         self._n_workers_dataloader = n_workers_dataloader
         self._pin_memory_dataloader = pin_memory_dataloader
         self._seed_rng_shfl = seed_rng_shfl
@@ -186,9 +185,9 @@ class ScoreModelWDS(L.LightningDataModule):
             .decode()
             .extract_keys(f"*.{self._suffix_heterodata}")
             )
-        if (self._xform_gen_wds is not None and
-                self._xform_gen_wds[split] is not None):
-            dataset = dataset.compose(self._xform_gen_wds[split])
+        if (self._pipeline_wds is not None and
+                self._pipeline_wds[split] is not None):
+            dataset = dataset.compose(self._pipeline_wds[split])
         if is_train:
             dataset = dataset.shuffle(size=16,
                                       rng=random.Random(self._seed_rng_shfl))
@@ -231,18 +230,10 @@ class ScoreModelWDS(L.LightningDataModule):
                 batch_size=None
             ).shuffle(5000, rng=random.Random(self._seed_rng_shfl))
 
-        if not self._use_dynamic_batch_size[split]:
-            loader = loader.batched(
-                self._local_batch_size, collation_fn=Collater(dataset=[],
-                                                              follow_batch=None,
-                                                              exclude_keys=None)
-                )
-        else:
-            f_batching = SizeAwareBatching(
-                max_total_size=0.85 * torch.cuda.get_device_properties("cuda:0").total_memory / 2**20,
-                size_fn=estimate_size,
-                )
-            loader = loader.compose(f_batching)
+        if (self._pipeline_prebatch_wld is not None and
+                self._pipeline_prebatch_wld[split] is not None):
+            loader = loader.compose(
+                self._pipeline_prebatch_wld[split])
 
         if split == Split.train:
             loader = loader.select(lambda x: len(x) > 1)

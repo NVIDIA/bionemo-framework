@@ -16,9 +16,16 @@
 import os
 import pytest
 from functools import partial
+import torch
+from torch_geometric.loader.data_list_loader import collate_fn
+from torch_geometric.loader.dataloader import Collater
+from webdataset.filters import batched
 
 from bionemo.contrib.model.molecule.diffdock.utils.diffusion import (
     t_to_sigma, GenerateNoise)
+from bionemo.contrib.data.molecule.diffdock.utils import (
+    SizeAwareBatching, estimate_size
+    )
 from bionemo.contrib.data.molecule.diffdock.datamodule import Split, ScoreModelWDS
 
 
@@ -60,6 +67,7 @@ def _create_ScoreModelWDS_impl(tmp_path_factory,
     sigma_t = partial(t_to_sigma, tr_sigma_min,
                       tr_sigma_max, rot_sigma_min, rot_sigma_max,
                       tor_sigma_min, tor_sigma_max)
+    # webdataset pipeline
     generateNoise = {
         Split.train :  GenerateNoise(sigma_t, no_torsion, is_all_atom,
                                      copy_ref_pos=False),
@@ -70,13 +78,29 @@ def _create_ScoreModelWDS_impl(tmp_path_factory,
         }
     local_batch_size = 2
     global_batch_size = 2
+    size_cuda_mem = (0.85 *
+                     torch.cuda.get_device_properties("cuda:0").total_memory /
+                     2**20)
+    batch_pyg = batched(local_batch_size,
+                        collation_fn=Collater(dataset=[], follow_batch=None,
+                                            exclude_keys=None))
+    # WebLoader pipeline
+    pipelines_wdl_batch = {
+        Split.train : SizeAwareBatching(
+                max_total_size=size_cuda_mem,
+                size_fn=estimate_size),
+        Split.val : batch_pyg,
+        Split.test : batch_pyg,
+        }
     n_workers_dataloader = 2
     n_tars_wds = 4
     seed_rng_shfl = 822782392
     data_module = ScoreModelWDS(dir_heterodata, suffix_heterodata,
                                 prefix_dir_tars_wds, names, local_batch_size,
                                 global_batch_size, n_workers_dataloader,
-                                generateNoise, n_tars_wds=n_tars_wds,
+                                pipeline_wds=generateNoise,
+                                pipeline_prebatch_wld=pipelines_wdl_batch,
+                                n_tars_wds=n_tars_wds,
                                 seed_rng_shfl=seed_rng_shfl)
     return data_module, prefix_dir_tars_wds
 
