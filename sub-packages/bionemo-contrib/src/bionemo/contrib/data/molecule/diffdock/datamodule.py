@@ -17,7 +17,7 @@ from enum import Enum, auto
 import glob
 import pickle
 import random
-from typing import Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 import lightning as L
 from torch_geometric.data.hetero_data import HeteroData
 import webdataset as wds
@@ -33,31 +33,30 @@ class Split(Enum):
     test = auto()
 
 
-class ScoreModelWDS(L.LightningDataModule):
+class PickledDataWDS(L.LightningDataModule):
 
-    """lightning APIs to process score model data and setup dataset and
-    dataloader"""
+    """lightning APIs to process pickled data into webdataset tar files and
+    setup dataset and dataloader"""
 
-    def __init__(self, dir_heterodata : str, suffix_heterodata : str,
+    def __init__(self, dir_pickled : str, suffix_pickled : str,
                  prefix_dir_tars_wds : str, names_subset : Dict[Split,
                                                                 List[str]],
                  global_batch_size : int, n_workers_dataloader : int,
-                 pipeline_wds : Optional[Dict[Split, Generator[HeteroData, None,
+                 pipeline_wds : Optional[Dict[Split, Generator[Any, None,
                                                                None]]] = None,
-                 pipeline_prebatch_wld : Optional[Dict[Split,
-                                                       Generator[HeteroData,
-                                                                 None, None]]] =
-                 None, pin_memory_dataloader : bool = True, prefix_tars_wds :
-                 str = "heterographs", n_tars_wds : Optional[int] = None,
+                 pipeline_prebatch_wld : Optional[Dict[Split, Generator[Any,
+                                                                        None,
+                                                                        None]]]
+                 = None, pin_memory_dataloader : bool = True, prefix_tars_wds :
+                 str = "wdshards", n_tars_wds : Optional[int] = None,
                  seed_rng_shfl : int = 0):
         """constructor
 
         Args:
-            dir_heterodata (str): input directory of PyG HeteroData pickled
-                files
-            suffix_heterodata (str): filename suffix of the input data in
-                dir_heterodata. This is also used as the key mapped to the
-                tarballed HeteroData object in the webdataset
+            dir_pickled (str): input directory of pickled data files
+            suffix_pickled (str): filename suffix of the input data in
+                dir_pickled. This is also used as the key mapped to the
+                tarballed pickled object in the webdataset
             prefix_dir_tars_wds (str): directory name prefix to store the output
                 webdataset tar files. The actual directories storing the train, val
                 and test sets will be suffixed with "train", "val" and "test"
@@ -74,31 +73,31 @@ class ScoreModelWDS(L.LightningDataModule):
                 global_batch_size batches
             n_workers_dataloader (int): number of data loading workers (passed
                 to pytorch dataloader)
-            seed_rng_shfl (int): seed to the random number generators used in
-            data loading time for shuffling
 
         Kwargs:
-            pipeline_wds (Optional[Dict[Split, Generator[HeteroData, None,
-                None]]]): a dictionary of webdatast composable, i.e., functor
+            pipeline_wds (Optional[Dict[Split, Generator[Any, None, None]]]): a
+                dictionary of webdatast composable, i.e., functor that maps a
+                generator to another generator that transforms the data sample
+                yield from the dataset object, for different splits
+            pipeline_prebatch_wld (Optional[Dict[Split, Generator[Any, None,
+                None]]]): a dictionary of webloader composable, i.e., functor
                 that maps a generator to another generator that transforms the
-                data sample yield from the dataset object, for different splits
-            pipeline_prebatch_wld (Optional[Dict[Split, Generator[HeteroData,
-                None, None]]]): a dictionary of webloader composable, i.e.,
-                functor that maps a generator to another generator that
-                transforms the data sample yield from the WebLoader object, for
-                different splits. NOTE: this is applied before batching is yield
-                from the WebLoader
-            pin_memory_dataloader (bool): whether to use pin memory in pytorch
-                dataloader
+                data sample yield from the WebLoader object, for different
+                splits. NOTE: this is applied before batching is yield from the
+                WebLoader pin_memory_dataloader (bool): whether to use pin
+                memory in pytorch dataloader
             prefix_tars_wds (str): name prefix to output webdataset tar files
-            n_tars_wds (int): attempt to create at least this number of webdataset shards
+            n_tars_wds (int): attempt to create at least this number of
+                webdataset shards
+            seed_rng_shfl (int): seed to the random number generators used in
+                data loading time for shuffling
 
 
         """
         super().__init__()
 
-        self._dir_heterodata = dir_heterodata
-        self._suffix_heterodata = suffix_heterodata
+        self._dir_pickled = dir_pickled
+        self._suffix_pickled = suffix_pickled
         self._n_tars_wds = n_tars_wds
         self._prefix_dir_tars_wds = prefix_dir_tars_wds
         self._prefix_tars_wds = prefix_tars_wds
@@ -145,7 +144,7 @@ class ScoreModelWDS(L.LightningDataModule):
         """
         return {
             "__key__": complex_graph.name.replace(".", "-"),
-            self._suffix_heterodata: pickle.dumps(complex_graph)
+            self._suffix_pickled: pickle.dumps(complex_graph)
             }
 
 
@@ -158,8 +157,8 @@ class ScoreModelWDS(L.LightningDataModule):
         """
         for split in self._names_subset.keys():
             # create wds shards (tar files) for train set
-            pickles_to_tars(self._dir_heterodata,
-                            self._suffix_heterodata,
+            pickles_to_tars(self._dir_pickled,
+                            self._suffix_pickled,
                             self._names_subset[split],
                             self._dirs_tars_wds[split],
                             self._prefix_tars_wds,
@@ -185,7 +184,7 @@ class ScoreModelWDS(L.LightningDataModule):
                            nodesplitter=wds.split_by_node,
                            seed=self._seed_rng_shfl)
             .decode()
-            .extract_keys(f"*.{self._suffix_heterodata}")
+            .extract_keys(f"*.{self._suffix_pickled}")
             )
         if (self._pipeline_wds is not None and
                 self._pipeline_wds[split] is not None):

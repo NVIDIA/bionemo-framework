@@ -26,7 +26,9 @@ from bionemo.contrib.model.molecule.diffdock.utils.diffusion import (
 from bionemo.contrib.data.molecule.diffdock.utils import (
     SizeAwareBatching, estimate_size
     )
-from bionemo.contrib.data.molecule.diffdock.datamodule import Split, ScoreModelWDS
+from bionemo.contrib.data.molecule.diffdock.datamodule import (
+    Split, PickledDataWDS
+    )
 
 
 @pytest.fixture(scope="module")
@@ -95,11 +97,12 @@ def _create_ScoreModelWDS_impl(tmp_path_factory,
     n_workers_dataloader = 2
     n_tars_wds = 4
     seed_rng_shfl = 822782392
-    data_module = ScoreModelWDS(dir_heterodata, suffix_heterodata,
+    data_module = PickledDataWDS(dir_heterodata, suffix_heterodata,
                                 prefix_dir_tars_wds, names, global_batch_size,
                                 n_workers_dataloader,
                                 pipeline_wds=generateNoise,
                                 pipeline_prebatch_wld=pipelines_wdl_batch,
+                                prefix_tars_wds="heterographs",
                                 n_tars_wds=n_tars_wds,
                                 seed_rng_shfl=seed_rng_shfl)
     return data_module, prefix_dir_tars_wds
