@@ -15,11 +15,9 @@
 
 from enum import Enum, auto
 import glob
-import pickle
 import random
 from typing import Any, Dict, Generator, List, Optional
 import lightning as L
-from torch_geometric.data.hetero_data import HeteroData
 import webdataset as wds
 
 from bionemo.contrib.data.molecule.diffdock.utils import (
@@ -36,7 +34,16 @@ class Split(Enum):
 class PickledDataWDS(L.LightningDataModule):
 
     """lightning APIs to process pickled data into webdataset tar files and
-    setup dataset and dataloader"""
+    setup dataset and dataloader. This data module takes a directory of pickled
+    data files, data filename prefixes for train/val/test splits, data filename
+    suffixes and prepare webdataset tar files by globbing the specific pickeld
+    data files {dir_pickled}/{name_subset[split]}.{suffix_pickled} and outputing
+    to webdataset tar file with the dict structure: {"__key__" :
+    name.replace(".", "-"), suffix_pickled : pickled.dumps(data) }. NOTE: this
+    assumes only one pickled file is processed for each sample. In its setup()
+    function, it creates the webdataset object chaining up the input
+    `pipeline_wds` workflow. In its train/val/test_dataloader(), it creates the
+    WebLoader object chaining up the `pipeline_prebatch_wld` workflow"""
 
     def __init__(self, dir_pickled : str, suffix_pickled : str,
                  prefix_dir_tars_wds : str, names_subset : Dict[Split,
@@ -132,26 +139,14 @@ class PickledDataWDS(L.LightningDataModule):
         self._dataset = dict()
 
 
-    def _complex_graph_to_tar(self, complex_graph : HeteroData):
-        """map input complex graph to webdataset tar file conforming to its
-        format requirement
-
-        Args:
-            complex_graph (HeteroData): input complex graph
-
-        Returns: webdataset tar file segment (dict)
-
-        """
-        return {
-            "__key__": complex_graph.name.replace(".", "-"),
-            self._suffix_pickled: pickle.dumps(complex_graph)
-            }
-
-
     def prepare_data(self) -> None:
         """This is called only by the main process by the Lightning workflow. Do
         not rely on this data module object's state update here as there is no
-        way to communicate the state update to other subprocesses
+        way to communicate the state update to other subprocesses. The
+        `pickles_to_tars` function goes through the data name prefixes in the
+        different splits, read the corresponding pickled file and output a
+        webdataset tar archive with the dict structure: {"__key__" :
+        name.replace(".", "-"), suffix_pickled : pickled.dumps(data) }.
 
         Returns: None
         """
@@ -162,7 +157,6 @@ class PickledDataWDS(L.LightningDataModule):
                             self._names_subset[split],
                             self._dirs_tars_wds[split],
                             self._prefix_tars_wds,
-                            self._complex_graph_to_tar,
                             min_num_shards=self._n_tars_wds)
 
 
