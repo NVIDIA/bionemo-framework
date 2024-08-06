@@ -41,7 +41,8 @@ def get_path(request):
 @pytest.fixture(scope="module")
 def get_diffdock_score_model_heterodata(get_path):
     _, dir_data = get_path
-    dir_heterodata = f"{dir_data}/molecule/diffdock/heterodata"
+    dir_heterodata =\
+        f"{dir_data}/molecule/diffdock/pyg_heterodata_pickled/score_model"
     suffix_heterodata = "heterodata.pyd"
     names = {
         Split.train : ["6t88", "6vs3", "6wtn", "6yqv", "7amc", "7bmi", "7cuo",
