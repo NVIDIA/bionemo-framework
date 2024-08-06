@@ -189,34 +189,9 @@ class ScoreModelWDS(L.LightningDataModule):
         if (self._xform_gen_wds is not None and
                 self._xform_gen_wds[split] is not None):
             dataset = dataset.compose(self._xform_gen_wds[split])
-        # sandwiched here to mirror the original DiffDock FW implementation
-        size = self._sizes[split]
         if is_train:
-            dataset = dataset.shuffle(size=5000,
+            dataset = dataset.shuffle(size=16,
                                       rng=random.Random(self._seed_rng_shfl))
-        n_batches = ((size + self._global_batch_size - 1)
-                     // self._global_batch_size)
-        if not self._use_dynamic_batch_size[split]:
-            dataset = (
-                dataset.batched(self._local_batch_size,
-                                collation_fn=Collater(dataset=[],
-                                                      follow_batch=None,
-                                                      exclude_keys=None))
-                .with_epoch(n_batches)
-                .with_length(n_batches)
-                )
-        else:
-            f_batching = SizeAwareBatching(
-                max_total_size=0.85 * torch.cuda.get_device_properties("cuda:0").total_memory / 2**20,
-                size_fn=estimate_size,
-                )
-            dataset = (dataset.compose(f_batching)
-                       .with_epoch(n_batches)
-                       .with_length(n_batches)
-                       )
-        if is_train:
-            dataset = dataset.select(lambda x: len(x) > 1)
-
         return dataset
 
     def setup(self, stage: str) -> None:
@@ -237,23 +212,42 @@ class ScoreModelWDS(L.LightningDataModule):
             raise NotImplementedError("Data setup with stage = {stage}\
                                       is not implmented")
 
-    def _setup_dataloader(self, dataset : wds.WebDataset) -> wds.WebLoader:
-        """wrap the input dataset into a WebLoader
+    def _setup_dataloader(self, split : Split) -> wds.WebLoader:
+        """setup the dataloader for the input dataset split
 
         Args:
-            dataset (wds.WebDataset): input dataset object
+            split (Split): input split type
 
         Returns: WebLoader object
 
         """
-        if not hasattr(dataset, "__len__"):
-            raise RuntimeError("Input dataset object doesn't have length")
-        n_batches = len(dataset)
+        dataset = self._dataset[split]
+        n_samples = len(self._names_subset[split])
+        n_batches = ((n_samples + self._global_batch_size - 1)
+                     // self._global_batch_size)
         loader = wds.WebLoader(dataset,
                 num_workers=self._n_workers_dataloader,
                 pin_memory=self._pin_memory_dataloader,
-                collate_fn=lambda x: x[0],
-            ).with_length(n_batches).with_epoch(n_batches)
+                batch_size=None
+            ).shuffle(5000, rng=random.Random(self._seed_rng_shfl))
+
+        if not self._use_dynamic_batch_size[split]:
+            loader = loader.batched(
+                self._local_batch_size, collation_fn=Collater(dataset=[],
+                                                              follow_batch=None,
+                                                              exclude_keys=None)
+                )
+        else:
+            f_batching = SizeAwareBatching(
+                max_total_size=0.85 * torch.cuda.get_device_properties("cuda:0").total_memory / 2**20,
+                size_fn=estimate_size,
+                )
+            loader = loader.compose(f_batching)
+
+        if split == Split.train:
+            loader = loader.select(lambda x: len(x) > 1)
+
+        loader = loader.with_epoch(n_batches)
 
         # strange features required by nemo optimizer lr_scheduler
         loader.dataset = dataset  # seems like only length is used, webloader doesn't have this attr
@@ -265,19 +259,19 @@ class ScoreModelWDS(L.LightningDataModule):
     def train_dataloader(self) -> wds.WebLoader:
         assert self._dataset[Split.train] is not None,\
             f"dataset for train has not been setup"
-        return self._setup_dataloader(self._dataset[Split.train])
+        return self._setup_dataloader(Split.train)
 
 
     def val_dataloader(self) -> wds.WebLoader:
         assert self._dataset[Split.val] is not None,\
             f"dataset for val has not been setup"
-        return self._setup_dataloader(self._dataset[Split.val])
+        return self._setup_dataloader(Split.val)
 
 
     def test_dataloader(self) -> wds.WebLoader:
         assert self._dataset[Split.test] is not None,\
             f"dataset for test has not been setup"
-        return self._setup_dataloader(self._dataset[Split.test])
+        return self._setup_dataloader(Split.test)
 
 
     def predict_dataloader(self) -> wds.WebLoader:

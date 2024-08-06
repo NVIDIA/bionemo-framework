@@ -18,6 +18,7 @@ import pytest
 import torch
 
 import lightning
+from torch_geometric.data import HeteroData
 
 from bionemo.contrib.data.molecule.diffdock.datamodule import Split
 
@@ -68,10 +69,6 @@ def test_ScoreModelWDS_setup_dataset(split, create_ScoreModelWDS, create_another
         names = []
         pos_ligand = []
         for sample in m._dataset[split]:
-            if isinstance(sample, list):
-                assert len(sample) == 1,\
-                    "Uncollated sample batch returned as list"
-                sample = sample[0]
             names.append(sample.name)
             pos_ligand.append(sample["ligand"].pos)
         lists_complex_name.append(names)
