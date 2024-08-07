@@ -24,7 +24,7 @@ from webdataset.filters import batched
 from bionemo.contrib.model.molecule.diffdock.utils.diffusion import (
     t_to_sigma, GenerateNoise)
 from bionemo.contrib.data.molecule.diffdock.utils import (
-    SizeAwareBatching, estimate_size
+    SizeAwareBatching, estimate_size, SelectPoseAndLabelData
     )
 from bionemo.contrib.data.molecule.diffdock.datamodule import (
     Split, PickledDataWDS
@@ -56,8 +56,26 @@ def get_diffdock_score_model_heterodata(get_path):
     return (dir_heterodata, suffix_heterodata, names)
 
 
-def _create_ScoreModelWDS_impl(tmp_path_factory,
-                               get_diffdock_score_model_heterodata):
+@pytest.fixture(scope="module")
+def get_diffdock_confidence_model_heterodata(get_path):
+    _, dir_data = get_path
+    dir_heterodata =\
+        f"{dir_data}/molecule/diffdock/pyg_heterodata_pickled/confidence_model"
+    suffix_heterodata = "heterodata.pyd"
+    names = {
+        Split.train : ["6t88", "6vs3", "6wtn", "6yqv", "7amc", "7bmi", "7cuo",
+                       "7d5c", "7din", "7fha", "7jnb", "7k0v", "7kb1", "7km8",
+                       "7l7c", "7lcu", "7msr", "7my1", "7n6f", "7np6"],
+        Split.val : ["7nr6", "7oeo", "7oli", "7oso", "7p5t", "7q5i", "7qhl",
+                     "7rh3", "7rzl", "7sgv"],
+        Split.test : ["7sne", "7t2i", "7tbu", "7tsf", "7umv", "7up3", "7uq3",
+                      "7wpw", "7xek", "7xij"]
+        }
+    return (dir_heterodata, suffix_heterodata, names)
+
+
+def _create_datamodule_score_model_impl(tmp_path_factory,
+                                        get_diffdock_score_model_heterodata):
     (dir_heterodata, suffix_heterodata, names) =\
         get_diffdock_score_model_heterodata
     prefix_dir_tars_wds = tmp_path_factory.mktemp(
@@ -110,12 +128,72 @@ def _create_ScoreModelWDS_impl(tmp_path_factory,
 
 
 @pytest.fixture(scope="module")
-def create_ScoreModelWDS(tmp_path_factory, get_diffdock_score_model_heterodata):
-    return _create_ScoreModelWDS_impl(tmp_path_factory,
-                                      get_diffdock_score_model_heterodata)
+def create_datamodule_score_model(tmp_path_factory,
+                                  get_diffdock_score_model_heterodata):
+    return _create_datamodule_score_model_impl(tmp_path_factory,
+                                               get_diffdock_score_model_heterodata)
 
 
 @pytest.fixture(scope="module")
-def create_another_ScoreModelWDS(tmp_path_factory, get_diffdock_score_model_heterodata):
-    return _create_ScoreModelWDS_impl(tmp_path_factory,
-                                      get_diffdock_score_model_heterodata)
+def create_another_datamodule_score_model(tmp_path_factory,
+                                          get_diffdock_score_model_heterodata):
+    return _create_datamodule_score_model_impl(tmp_path_factory,
+                                               get_diffdock_score_model_heterodata)
+
+
+def _create_datamodule_confidence_model_impl(tmp_path_factory,
+                                             get_diffdock_confidence_model_heterodata):
+    (dir_heterodata, suffix_heterodata, names) =\
+        get_diffdock_confidence_model_heterodata
+    prefix_dir_tars_wds = tmp_path_factory.mktemp(
+        "diffdock_confidence_model_tars_wds").as_posix()
+    # webdataset pipeline
+    rmsd_classification_cutoff = 2.0
+    samples_per_complex = 7
+    balance = False
+    is_all_atom = True
+    seed_rng_shfl = 822782392
+    select_pose = SelectPoseAndLabelData(rmsd_classification_cutoff,
+                                         samples_per_complex, balance,
+                                         is_all_atom, seed=seed_rng_shfl)
+    pipeline_wds = {
+        Split.train : select_pose,
+        Split.val : select_pose,
+        Split.test : select_pose,
+        }
+    local_batch_size = 2
+    global_batch_size = 2
+    batch_pyg = batched(local_batch_size,
+                        collation_fn=Collater(dataset=[], follow_batch=None,
+                                            exclude_keys=None))
+    # WebLoader pipeline
+    pipelines_wdl_batch = {
+        Split.train : batch_pyg,
+        Split.val : batch_pyg,
+        Split.test : batch_pyg,
+        }
+    n_workers_dataloader = 2
+    n_tars_wds = 4
+    data_module = PickledDataWDS(dir_heterodata, suffix_heterodata,
+                                prefix_dir_tars_wds, names, global_batch_size,
+                                n_workers_dataloader,
+                                pipeline_wds=pipeline_wds,
+                                pipeline_prebatch_wld=pipelines_wdl_batch,
+                                prefix_tars_wds="heterographs",
+                                n_tars_wds=n_tars_wds,
+                                seed_rng_shfl=seed_rng_shfl)
+    return data_module, prefix_dir_tars_wds
+
+
+@pytest.fixture(scope="module")
+def create_datamodule_confidence_model(tmp_path_factory,
+                                       get_diffdock_confidence_model_heterodata):
+    return _create_datamodule_confidence_model_impl(tmp_path_factory,
+                                                    get_diffdock_confidence_model_heterodata)
+
+
+@pytest.fixture(scope="module")
+def create_another_datamodule_confidence_model(tmp_path_factory,
+                                               get_diffdock_confidence_model_heterodata):
+    return _create_datamodule_confidence_model_impl(tmp_path_factory,
+                                                    get_diffdock_confidence_model_heterodata)

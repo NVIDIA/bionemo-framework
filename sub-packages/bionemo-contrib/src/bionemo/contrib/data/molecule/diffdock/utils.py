@@ -16,21 +16,20 @@
 import os
 import pickle
 import random
-from typing import Any, Dict, Callable, Generator, List, Optional
-from copy import deepcopy
+import math
+from typing import (
+    Any, Dict, Callable, Generator, List, Optional,Union, Iterable
+    )
 
+from omegaconf.listconfig import ListConfig
 from nemo.utils import logging
 import torch
 from torch_geometric.data import HeteroData
 from torch_geometric.data.batch import Batch
 from torch_geometric.loader.dataloader import Collater
-from torch_geometric.transforms import BaseTransform
 import numpy as np
 
 import webdataset as wds
-
-from bionemo.contrib.model.molecule.diffdock.utils.diffusion import modify_conformer, set_time
-from bionemo.contrib.model.molecule.diffdock.utils import so3, torus
 
 
 def pickles_to_tars(
@@ -209,3 +208,108 @@ class SizeAwareBatching:
 
                 batch = [sample]
                 batch_size = sample_size
+
+
+class SelectPoseAndLabelData:
+    """A WebDataset composable to select one ligand poses from multiple ones and
+    label confidence model training data by RMSD threshold"""
+
+    def __init__(
+        self,
+        rmsd_classification_cutoff: Union[float, ListConfig],
+        samples_per_complex: int,
+        balance: bool,
+        all_atoms: bool,
+        seed : int = 0
+    ):
+        """constructor
+
+        Args:
+            rmsd_classification_cutoff (Union[float, ListConfig]): RMSD classification cutoff(s)
+            samples_per_complex (int): how many inference runs were done per complex
+            balance (bool): whether to do balance sampling
+            all_atoms (bool): whether the confidence model is all-atom
+            seed (int): random number generator seed
+
+        Returns:
+
+        """
+        self.rmsd_classification_cutoff = rmsd_classification_cutoff
+        self.samples_per_complex = samples_per_complex
+        self.balance = balance
+        self.all_atoms = all_atoms
+        self._seed = seed
+
+    def __call__(self, data: Iterable) -> Generator[HeteroData, None, None]:
+        """Map the input data iterator to another one that label the input data
+
+        Args:
+            data (Iterable): Input data iterator
+
+        Returns:
+
+        """
+        random.seed(self._seed)
+        for (complex_graph,) in data:
+            positions, rmsds = complex_graph.ligand_data
+
+            if self.balance:
+                if isinstance(self.rmsd_classification_cutoff, ListConfig):
+                    raise ValueError("a list for rmsd_classification_cutoff can only be used with balance=False")
+                # FIXME: should allow random.seed
+                label = random.randint(0, 1)
+                success = rmsds < self.rmsd_classification_cutoff
+                n_success = np.count_nonzero(success)
+                if label == 0 and n_success != self.samples_per_complex:
+                    # sample negative complex
+                    sample = random.randint(0, self.samples_per_complex - n_success - 1)
+                    lig_pos = positions[~success][sample]
+                    complex_graph["ligand"].pos = torch.from_numpy(lig_pos)
+                else:
+                    # sample positive complex
+                    if n_success > 0:  # if no successful sample returns the matched complex
+                        sample = random.randint(0, n_success - 1)
+                        lig_pos = positions[success][sample]
+                        complex_graph["ligand"].pos = torch.from_numpy(lig_pos)
+                complex_graph.y = torch.tensor(label).float()
+            else:
+                sample = random.randint(0, self.samples_per_complex - 1)
+                complex_graph["ligand"].pos = torch.from_numpy(positions[sample])
+                ids = (rmsds[sample] <
+                       self.rmsd_classification_cutoff).astype(int)
+                complex_graph.y = torch.tensor(ids).float().unsqueeze(0)
+                if isinstance(self.rmsd_classification_cutoff, ListConfig):
+                    complex_graph.y_binned = torch.tensor(
+                        np.logical_and(
+                            rmsds[sample] < self.rmsd_classification_cutoff + [math.inf],
+                            rmsds[sample] >= [0] + self.rmsd_classification_cutoff,
+                        ),
+                        dtype=torch.float,
+                    ).unsqueeze(0)
+                    complex_graph.y = (
+                        torch.tensor(rmsds[sample] < self.rmsd_classification_cutoff[0]).unsqueeze(0).float()
+                    )
+                complex_graph.rmsd = torch.tensor(rmsds[sample]).unsqueeze(0).float()
+
+            complex_graph["ligand"].node_t = {
+                "tr": 0 * torch.ones(complex_graph["ligand"].num_nodes),
+                "rot": 0 * torch.ones(complex_graph["ligand"].num_nodes),
+                "tor": 0 * torch.ones(complex_graph["ligand"].num_nodes),
+            }
+            complex_graph["receptor"].node_t = {
+                "tr": 0 * torch.ones(complex_graph["receptor"].num_nodes),
+                "rot": 0 * torch.ones(complex_graph["receptor"].num_nodes),
+                "tor": 0 * torch.ones(complex_graph["receptor"].num_nodes),
+            }
+            if self.all_atoms:
+                complex_graph["atom"].node_t = {
+                    "tr": 0 * torch.ones(complex_graph["atom"].num_nodes),
+                    "rot": 0 * torch.ones(complex_graph["atom"].num_nodes),
+                    "tor": 0 * torch.ones(complex_graph["atom"].num_nodes),
+                }
+            complex_graph.complex_t = {
+                "tr": 0 * torch.ones(1),
+                "rot": 0 * torch.ones(1),
+                "tor": 0 * torch.ones(1),
+            }
+            yield complex_graph
