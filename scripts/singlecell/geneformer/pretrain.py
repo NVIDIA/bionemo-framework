@@ -28,9 +28,10 @@ from typing import Optional, Sequence, get_args
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
+from nemo.lightning import io, resume
+from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
-from nemo.lightning.resume import AutoResume
 from nemo.utils import logging
 from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 from torch.nn import functional as F
@@ -71,6 +72,12 @@ def main(
     wandb_entity: str = "clara-discovery",
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Optional[Path] = None,
+    restore_from_checkpoint_path: Optional[str] = None,
+    save_best_checkpoint: bool = True,
+    save_last_checkpoint: bool = True,
+    metric_to_monitor_for_checkpoints: str = "val_loss",
+    save_top_k: int = 2,
+    save_every_n_steps: int = 100,
 ) -> None:
     """Train a Geneformer model on single cell data.
 
@@ -84,9 +91,8 @@ def main(
         wandb_offline (bool): if wandb should happen in offline mode
         num_steps (int): number of steps to train the model for
         limit_val_batches (int): limit the number of validation global batches to this many
-        val_check_interval (int): number of steps to periodically check the validation loss and save
-            an updated checkpoint
-        num_dataset_workers (int): num dataset workers
+        val_check_interval (int): number of steps to periodically check the validation loss and save num_dataset_workers (
+       int): num dataset workers
         biobert_spec_option (BiobertSpecOption): the biobert spec option (architecture) to use for this run
         lr (float): learning rate
         micro_batch_size (int): micro batch size, from this and parallelism settings we infer the global batch size
@@ -97,8 +103,8 @@ def main(
         resume_if_exists (bool): attempt to resume if the checkpoint exists [FIXME @skothenhill this doesn't work yet]
         wandb_entity (str): the group to use for the wandb run, sometimes called a team, could also be your username
         create_tensorboard_logger (bool): create the tensorboard logger
-
-
+        restore_from_checkpoint_path (path): If set, restores the model from the directory passed in. Expects the
+            checkpoint to be created by using the ModelCheckpoint class and enable_nemo_ckpt_io=True.
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -115,7 +121,7 @@ def main(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         ddp="megatron",
         find_unused_parameters=True,
-        enable_nemo_ckpt_io=False,
+        ckpt_include_optimizer=True,
     )
 
     wandb_options: Optional[WandbLoggerOptions] = (
@@ -136,11 +142,15 @@ def main(
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,  # TODO(@jstjohn) Checkpoint saving is currently broken, fix and change this.
         num_nodes=num_nodes,
-        callbacks=[LossLoggingCallback(), RichModelSummary(max_depth=4), LearningRateMonitor()],
+        callbacks=[
+            # TODO(@skothenhill-nv) these need to be cleaned up when we have the automatic addition of track_io
+            io.track_io(LossLoggingCallback)(),
+            io.track_io(RichModelSummary)(max_depth=4),
+            io.track_io(LearningRateMonitor)(),
+        ],
         plugins=nl.MegatronMixedPrecision(precision=precision, amp_O2=False),
     )
 
-    # Preprocess the data to get the tokenizer and median dictionary
     preprocessor = GeneformerPreprocess(
         download_directory=train_data_path,
         medians_file_path=train_data_path / "medians.json",
@@ -224,6 +234,16 @@ def main(
             ),
         ),
     )
+    # Configure our custom Checkpointer
+    checkpoint_callback = nl_callbacks.ModelCheckpoint(
+        save_best_model=save_best_checkpoint,
+        save_last=save_last_checkpoint,
+        monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+        save_top_k=save_top_k,
+        every_n_train_steps=save_every_n_steps,
+        enable_nemo_ckpt_io=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+        async_save=False,  # Tries to save asynchronously, previously led to race conditions.
+    )
 
     # Setup the logger and train the model
     nemo_logger = setup_nemo_lightning_logger(
@@ -231,15 +251,18 @@ def main(
         name=experiment_name,
         initialize_tensorboard_logger=create_tensorboard_logger,
         wandb_kwargs=wandb_options,
+        ckpt_callback=checkpoint_callback,
     )
-
     llm.train(
         model=model,
         data=data,
         trainer=trainer,
         log=nemo_logger,
-        # FIXME @skothenhill this doesn't work yet, but this is probably close to what we are supposed to do
-        resume=AutoResume(resume_if_exists=resume_if_exists, resume_ignore_no_checkpoint=True),
+        resume=resume.AutoResume(
+            path=restore_from_checkpoint_path,  # Overrides the path found by resume_if_exists when set.
+            resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
+            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
+        ),
     )
 
 
@@ -373,6 +396,39 @@ if __name__ == "__main__":
         required=False,
         help="Path to nemo1 file, if desired to load at init time.",
     )
+    parser.add_argument(
+        "--save-best-checkpoint",
+        action="store_true",
+        default=True,
+        help="Save the best checkpoint based on the metric to monitor.",
+    )
+    parser.add_argument(
+        "--save-last-checkpoint",
+        action="store_true",
+        default=True,
+        help="Save the last checkpoint.",
+    )
+    parser.add_argument(
+        "--metric-to-monitor-for-checkpoints",
+        type=str,
+        required=False,
+        default="val_loss",
+        help="The metric to monitor for checkpointing.",
+    )
+    parser.add_argument(
+        "--save-top-k",
+        type=int,
+        required=False,
+        default=2,
+        help="Save the top k checkpoints.",
+    )
+    parser.add_argument(
+        "--restore-from-checkpoint-path",
+        type=Path,
+        required=False,
+        default=None,
+        help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
+    )
 
     # Parse the arguments and pull them out into local variables for ease of future refactor to a
     #   config management system.
@@ -398,4 +454,10 @@ if __name__ == "__main__":
         experiment_name=args.experiment_name,
         resume_if_exists=args.resume_if_exists,
         nemo1_init_path=args.nemo1_init_path,
+        restore_from_checkpoint_path=args.restore_from_checkpoint_path,
+        save_best_checkpoint=args.save_best_checkpoint,
+        save_last_checkpoint=args.save_last_checkpoint,
+        metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
+        save_top_k=args.save_top_k,
+        save_every_n_steps=args.val_check_interval,
     )

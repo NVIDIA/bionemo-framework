@@ -34,3 +34,6 @@ convention = "google"
 [tool.pytest.ini_options]
 norecursedirs = ["3rdparty"]
 addopts = ["--ignore=3rdparty"]
+
+[project]
+license = {file = "LICENSE/license.txt"}

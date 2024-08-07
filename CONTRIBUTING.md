@@ -53,136 +53,135 @@ This page contains the Python coding standards for the BioNeMo repository. They 
   + Re-use code by importing. **Do not copy and paste code.**
   + Usage of third-party code should be legally compatible and attributed.
 
-### Coding Style
 
 
+## Pull Request (PR) Guidelines
+### Signing Your Work
 
-# Merge Requests (MR) Guidelines
+* We require that all contributors "sign-off" on their commits (not gpg signing, just adding the `-s | --signoff` argument, or follow the instructions below for auto-signing). This certifies that the contribution is your original work, or you have rights to submit it under the same license, or a compatible license.
 
-**Send your MRs to the `dev` branch**. Branch off from `dev` when making your changes.
-Prefix your branches with your name or initials (i.e. `yourname/branch_description`).
+* Any contribution which contains commits that are not Signed-Off will not be accepted.
 
-- Make sure your MR does one thing. Have a clear answer to "What does this MR do?"
-- Make sure you have the linters enabled via pre-commit hooks (`pre-commit install`)
-- Follow the default MR template
-- Make sure all unit tests finish successfully before running MR pipeline by invoking `pytest`.
-- Run `pytest examples/tests/test_model_pretrain_and_downstream.py -k test_model_training`, if changes to the codebase are made in training or inference-related pyton scripts (these tests are less comprehensive than tests in JET but can help you to spot issues before running `jet` stage in CI)
-- Make sure you added necessary tests and documentation changes (could be just comments in the config files) for the feature in your MR
-- Rebase your feature branch with the latest `dev` to include any new changes that have been added. Resolve merge conflicts, if any
-- Send your MR and request a review
-- If your MR is still WIP, mark it as "Draft"
-- Set `JET_NOT_REQUIRED` label as one of MR's labels if the MR is eligible for NOT running `jet` stage (and tests in JET) - more info below
-- Your merge request must pass all pipelines and be peer-reviewed before it can be merged.
-- Make sure to merge your MR when it's ready and pipeline is successful
+* To sign off on a commit you simply use the `--signoff` (or `-s`) option when committing your changes:
+  ```bash
+  $ git commit -s -m "Add cool feature."
+  ```
+  This will append the following to your commit message:
+  ```
+  Signed-off-by: Your Name <your@email.com>
+  ```
 
-## Unit tests
-Contributors to BioNeMo FW are expected to unit test their introduced changes. Tests must be run locally in the docker container with incorporated changes while developing with the following command:
-```
-pytest
-```
-If your changes to the codebase are related to the model training and inference (used classes or configs) make sure to test locally if **basic unit tests** for training and inference pass by running
-`pytest examples/tests/test_model_pretrain_and_downstream.py -k test_model_training`
+  If you would like this to happen automatically to all of your commits, you can modify
+  your local `~/.git-config-template.txt` file. You can do this with a command like the
+  following:
 
-As an example, unit tests in `dev-latest-devel` container can be run using SLURM
-```
-srun -t 00:30:00 -J unit-tests -N 1 -o=<OUTPUT_PATH>/pytest-slurm-%A.out --container-image github.com/NVIDIA/bionemo-fw-ea:dev-latest-devel bash -c "set -x; set -e; cd /opt/nvidia/bionemo; pytest"
-```
+  ```
+  echo "Signed-off-by: Your Name <your@email.com>" > ~/.git-commit-template.txt
+  git config --local commit.template ~/.git-commit-template.txt
+  ```
 
-After testing your code locally, trigger tests in the MR's CI. Go to your MR -> "Pipelines" and trigger the pipeline by clicking an arrow sign or click on the pipeline id and trigger stages manually.
+  If you have a commit that you want to retroactively sign, you can do that with:
 
-### Adding unit tests for new classes or methods
-Add unit tests under `tests` to examine use cases of new classes or methods that are being added to the codebase. The names of scripts must be of a format `test_*.py`. Check other scripts in this folder for help on how to write tests.
+  ```
+  git commit --amend --no-edit --signoff
+  ```
 
-### Adding unit tests for new models
-Add short training or inference unit tests to `examples/tests` that are run by `examples/tests/test_model_pretrain_and_downstream.py` . The tests shouldn't be resource- and time-hungry (use ideally 1 GPU, 1 node and a small batch size) and use small data samples. It would involve:
-* adding data samples under `examples/tests/test_data`
-* adding training or inference configs for unit tests to `examples/tests/conf` based on the configs that are used to pretrain, finetune or run inference of a new model (ie following the logic of the other configs in this folder)
-* generate expected configs by running `UPDATE_EXPECTED_CFG=1 pytest examples/tests/test_model_pretrain_and_downstream.py`
-* generate expected results by running `UPDATE_EXPECTED_RESULTS=1  pytest examples/tests/test_model_pretrain_and_downstream.py`
-* run `examples/tests/test_model_pretrain_and_downstream.py`
+* Full text of the DCO:
 
-### Changes to the unit tested expected results and configs
-Remember, that reproducibility of the training and inference results in pytorch is not guaranteed, see more in [Reproducibility](https://pytorch.org/docs/stable/notes/randomness.html) .
-The small discrepancies between expected results in the unit test `test_model_training` are expected. If larger differences are observed and are not expected (ie convergence regression), it might be an indication that your changes to the codebase are affecting training or inference performance.  You may need to consult other BioNeMo developers.
+  ```
+    Developer Certificate of Origin
+    Version 1.1
 
-If your changes modify expected test results or test configs and are **anticipated**, they can be updated with the following commands:
-```
-UPDATE_EXPECTED_RESULTS=1  pytest examples/tests/test_model_pretrain_and_downstream.py
+    Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+    1 Letterman Drive
+    Suite D4700
+    San Francisco, CA, 94129
 
-UPDATE_EXPECTED_CFG=1 pytest examples/tests/test_model_pretrain_and_downstream.py
-```
+    Everyone is permitted to copy and distribute verbatim copies of this license document, but changing it is not allowed.
+  ```
 
+  ```
+    Developer's Certificate of Origin 1.1
 
-## Stages of the gitlab CI pipeline during Merge Requests
-The MR pipeline must be completed successfully if MR is to be merged. The subsequent stages are outlined in  `.gitlab-ci.yml` file:
-1) `build` - builds a pipeline-specific docker image which can be found in the [Container Registry](https://github.com/NVIDIA/bionemo-fw-ea/container_registry) searching for `pipeline-<GITLAB-PIPELINE_ID>` and `pipeline-<GITLAB-PIPELINE_ID>-devel`
-2) `download` - the checkpoints of the models listed in `artifact_paths.yaml` are downloaded by `download_artifacts.py`
-3) `test` - CPU-specific and GPU-specific unit tests are run using `pytest`, excluding `pytest examples/tests/test_model_pretrain_and_downstream.py -k test_model_training`
-4) `jet` - comprehensive performance and convergence tests of BioNeMo models that are run and managed by [JET](https://jet.nvidia.com/docs), this step can be omitted if a MR is eligible for NOT running it (see below). More information on JET in `internal/README.md`
+    By making a contribution to this project, I certify that:
 
-JET stage is manually triggered to avoid unnecessary pipelines in JET to be run. To trigger it, click on the button `jet-generate` in your MR pipeline window.
+    (a) The contribution was created in whole or in part by me and I have the right to submit it under the open source license indicated in the file; or
 
-Before MR is ready to be merged, all CI pipelines must be completed and successful. Otherwise, the merge is blocked.
+    (b) The contribution is based upon previous work that, to the best of my knowledge, is covered under an appropriate open source license and I have the right under that license to submit that work with modifications, whether created in whole or in part by me, under the same open source license (unless I am permitted to submit under a different license), as indicated in the file; or
 
+    (c) The contribution was provided directly to me by some other person who certified (a), (b) or (c) and I have not modified it.
 
-## Merge / Pull Request Guidelines
+    (d) I understand and agree that this project and the contribution are public and that a record of the contribution (including all personal information I submit with it, including my sign-off) is maintained indefinitely and may be redistributed consistent with this project or the open source license(s) involved.
+  ```
+
+### Developer workflows:
 
 You should always carefully test your changes. Run `pytest ...` in-container locally. All tests are done via `pytest`.
 
-To run **all** tests, you must first download all models and datasets to your machine. Run the `download_models.py` file to do this. Note that you only need to do this once per machine. Reruns are necessary only when new models and datasets are added.
+To run **all** tests, you must first download all models and datasets to your machine. Run the `scripts/download_artifacts.py` file to do this. Note that you only need to do this once per machine. Reruns are necessary only when new models and datasets are added.
 Changes that affect model training accuracy or compute performance should be tested on SLURM.
 
-Major features or changes should be discussed and designed before the PR review stage.
-Design iteration for minor features, documentation changes, and bugs may occur during PR review.
 
-### <a name="before-pr-ready"></a> Before your PR is "Ready for review?
+Developer workflow for _external_ code contributions is as follows:
 
-Before asking for reviewers, be sure to review your own changes first. For all contributed code, be sure you have:
-- documentation updates
-- tests
-- verified that the covered tests run successfully in CI
+1. External developers must first [fork](https://help.github.com/en/articles/fork-a-repo) the [upstream](https://github.com/nvidia/bionemo-fw-ea) BioNeMo OSS repository and for BioNeMo2 (this branch) use the `v2-main` branch as base.
 
-**Most of the changes** to files with extensions `*.py`, `*.yaml`, `*.yml`, `Dockerfile*` or `requirements.txt` **DO REQUIRE both `pytest-` and `jet-` CI jobs** of `stage: test`.
+2. Git clone the forked repository and push changes to the personal fork.
 
-However, these are resource-intensive stages. The `pytest-` stages require GPU enabled runners.
-The `jet-` stages require SLURM cluster access and run 10s of jobs per pipeline using [JET](https://jet.nvidia.com/docs).
+```bash
+git clone https://github.com/YOUR_USERNAME/YOUR_FORK.git bionemo-fw-ea
+# Checkout the targeted branch and commit changes
+# Push the commits to a branch on the fork (remote).
+git push -u origin <local-branch>:<remote-branch>
+```
 
-The `JET_NOT_REQUIRED` MR label disables running JET tests. The `SKIP_CI` label additionally disables the `pytest-` tests. For more context on JET, please see the [JET README](https://github.com/NVIDIA/bionemo-fw-ea/-/tree/dev/internal/jet?ref_type=heads).
-The next sections detail when these labels can be used on an MR.
+Developer workflow for _internal_ or those developers that have been granted push access to our repository is as follows:
 
-### <a name="skip-ci"></a> Can you add the `SKIP_CI` label to your MR?
+1. Clone this repository locally
+2. Create a branch which ideally should be of the form `username/branch_description`
+3. Push branch up to our repository `git push -u origin HEAD`
 
-_Why would you use this?_ Makes the MR skip the `pytest-`, docker image building, and `jet-` CI jobs, which take a very long time to complete (~3-4 hours).
 
-_When can you use this?_ The changes to the codebase that are eligible for using `SKIP_CI` label are:
+For both internal and external developers, the next step is opening a PR:
 
-* changes to the files with extension `.md` or `.ipynb`
-* changes under folders `docs`, `LICENSE`,
-* changes to the files with extension `.sh` under `examples/**/scripts/*.sh` related to training scripts of models
-* changes to the other files with extension `.sh` not affecting container build, models and data download for unit test or JET tests
-* updating files with extensions different than `*.sh`, `*.py`, `*.yaml`, `*.yml`, `Dockerfile*` or `requirements.txt` that **DO NOT** affect model checkpoints or data download, docker building, unit tests and model performance or convergence
+4. Once the code changes are staged on the fork and ready for review, a [Pull Request](https://help.github.com/en/articles/about-pull-requests) (PR) can be [requested](https://help.github.com/en/articles/creating-a-pull-request) to merge the changes from a branch of the fork or branch into a v2-main.
+  * Exercise caution when selecting the source and target branches for the PR.
+    Note that versioned releases of TensorRT OSS are posted to `release/` branches of the upstream repo.
+  * Creation of a PR creation kicks off the code review process.
+  * Atleast one TensorRT engineer will be assigned for the review.
+  * While under review, mark your PRs as work-in-progress by prefixing the PR title with [WIP].
 
-### <a name="pytest"></a> Can you add the `PYTEST_NOT_REQUIRED` label to your MR?
+5. Once ready, CI can be started by a developer with permissions when they add a `/build-ci` comment. This must pass prior to merging.
 
-_Why would you use this?_ Makes the MR skip the `pytest-` CI jobs, which require GPU resources and take 30-40m to complete
 
-_When can you use this?_ The changes to the codebase that are eligible for using `PYTEST_NOT_REQUIRED` label are:
+### General guidelines
+**Send your PRs to the `v2-main` branch**. Branch off from `v2-main` when making your changes.
+Prefix your branches with your name or initials (i.e. `yourname/branch_description`) if you have push access to our repository
+otherwise please create a fork with your branch and submit a PR with `v2-main` as the target.
 
-* changes to the files with extension `.md` or `.ipynb`
-* changes under folders `docs`, `LICENSE`,
-* changes to the other files with extension `.sh` not affecting container build, models and data download for unit test
-* updating files with extensions different than `*.sh`, `*.py`, `*.yaml`, `*.yml`, `Dockerfile*` or `requirements.txt` that **DO NOT** affect model checkpoints or data download, docker building, unit tests and model performance or convergence
+- Make sure your PR does one thing. Have a clear answer to "What does this PR do?"
+- Make sure you have the linters enabled via pre-commit hooks (`pre-commit install`)
+- Follow the default PR template
+- Make sure all unit tests finish successfully before running PR pipeline by invoking `pytest scripts sub-packages`.
+- Make sure you added necessary tests and documentation changes (could be just comments in the config files) for the feature in your PR
+- Rebase your feature branch with the latest `dev` to include any new changes that have been added. Resolve merge conflicts, if any
+- Send your PR and request a review
+- If your PR is still WIP, mark it as "Draft"
+- Your merge request must pass all pipelines and be peer-reviewed before it can be merged.
+- Make sure to merge your PR when it's ready and pipeline is successful
 
-### <a name="skip-jet"></a>Can you add the `JET_NOT_REQUIRED` label to your MR?
+### Unit tests
+Contributors to BioNeMo FW are expected to unit test their introduced changes.
 
-_Why would you use this?_ Makes the MR skip the `jet-` CI jobs. The `jet-` jobs are model convergence tests, which take many hours to complete.
+After testing your code locally, trigger tests in the PR's CI. Let a code-owner know that you are ready for the build to
+ run and they will leave a `/build-ci` comment on your PR which will run the CI test suite.
 
-_When can you use this_? Broadly, you can use this whenever your changes do not affect model training.
-
-More specifically, the changes to the codebase that are eligible for using `JET_NOT_REQUIRED` label are:
-* new parts of the code that do not affect model training (e.g. triton inference, new examples, new tests, new data loaders / data loaders not picked as convergence test DL, etc.)
-* docstrings update in `.py` files
-* code cleanup not related to refactoring of code (ie deleting unused imports or blank lines, improving lines formatting) in `*.py` files
-* improving hydra configs docstrings (comments and descriptions) in `*.yaml`, `*.yml`
-* changes to `Dockerfile` or `requirements.txt` that **DO NOT** affect model performance or convergence. Changes that **REQUIRE** `jet` stage are, for instance, python package update or a NeMo container version update.
-* updating files with extensions different than `*.py`, `*.yaml`, `*.yml`, `Dockerfile` or `requirements.txt` that **DO NOT** affect model performance or convergence
+#### Adding unit tests
+Add unit tests under `tests` to examine use cases of new classes or methods that are being added to the codebase. Each
+test file must be for a particular file or module. For example if you have a file that is under
+`src/path/to/module/my_file_name.py` then your test should match the path at `tests/path/to/module/test_my_file_name.py`.
+Check the tests folders in the sub-modules of this repository for examples. If you are testing a module, such as
+integrating multiple examples of different files, then you can use the following pattern to test the module, say in the
+above example, if you wanted to test functions from several files together that all exist in the same `src/path/to/module`
+then you could create a `tests/path/to/test_module.py` file. The same is true for parents of that module and so on.
+Generally unit tests should exist at the level of the individual file however.

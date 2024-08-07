@@ -32,7 +32,7 @@ from megatron.core.transformer.transformer_block import TransformerBlock
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import get_linear_layer
 from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
-from nemo.lightning import get_vocab_size
+from nemo.lightning import get_vocab_size, io
 from nemo.lightning.megatron_parallel import MegatronLossReduction
 from torch import Tensor
 from torch.optim import Optimizer
@@ -337,7 +337,14 @@ class MegatronBioBertModel(LanguageModule):
 
 
 @dataclass
-class BioBertConfig(BionemoTrainableModelConfig[MegatronBioBertModel, MegatronLossReduction], TransformerConfig):  # noqa: D101
+class BioBertConfig(
+    BionemoTrainableModelConfig[MegatronBioBertModel, MegatronLossReduction], TransformerConfig, io.IOMixin
+):
+    """Config class for BioBert model, responsible for the partial configuration of Transformer models.
+
+    `configure_model()` is ultimately called by the LightningModule using PTL lightning module hooks.
+    """
+
     # From megatron.core.models.gpt.bert_model.GPTModel
     fp16_lm_cross_entropy: bool = False
     parallel_output: bool = True
