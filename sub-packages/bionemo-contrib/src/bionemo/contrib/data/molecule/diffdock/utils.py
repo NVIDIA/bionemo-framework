@@ -115,7 +115,7 @@ def pickles_to_tars(
                 raise e
             except Exception as e:
                 logging.error(f"Failed to write {name} into tar files due to error {e}")
-                continue
+                raise e
 
             sink.write(sample)
 

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from enum import Enum, auto
 import os
 import pytest
 from functools import partial
@@ -38,11 +39,18 @@ def get_path(request):
     return dir_test, dir_data
 
 
-@pytest.fixture(scope="module")
-def get_diffdock_score_model_heterodata(get_path):
+class DiffDockModel(Enum):
+    score = auto()
+    confidence = auto()
+
+
+@pytest.fixture(scope="module", params=[m for m in DiffDockModel])
+def get_diffdock_heterodata(get_path, request):
     _, dir_data = get_path
+    model = request.param
+    name_model = str(model).split(".")[-1]
     dir_heterodata =\
-        f"{dir_data}/molecule/diffdock/pyg_heterodata_pickled/score_model"
+        f"{dir_data}/molecule/diffdock/pyg_heterodata_pickled/{name_model}_model"
     suffix_heterodata = "heterodata.pyd"
     names = {
         Split.train : ["6t88", "6vs3", "6wtn", "6yqv", "7amc", "7bmi", "7cuo",
@@ -53,33 +61,13 @@ def get_diffdock_score_model_heterodata(get_path):
         Split.test : ["7sne", "7t2i", "7tbu", "7tsf", "7umv", "7up3", "7uq3",
                       "7wpw", "7xek", "7xij"]
         }
-    return (dir_heterodata, suffix_heterodata, names)
+    return (dir_heterodata, suffix_heterodata, names, model)
 
 
-@pytest.fixture(scope="module")
-def get_diffdock_confidence_model_heterodata(get_path):
-    _, dir_data = get_path
-    dir_heterodata =\
-        f"{dir_data}/molecule/diffdock/pyg_heterodata_pickled/confidence_model"
-    suffix_heterodata = "heterodata.pyd"
-    names = {
-        Split.train : ["6t88", "6vs3", "6wtn", "6yqv", "7amc", "7bmi", "7cuo",
-                       "7d5c", "7din", "7fha", "7jnb", "7k0v", "7kb1", "7km8",
-                       "7l7c", "7lcu", "7msr", "7my1", "7n6f", "7np6"],
-        Split.val : ["7nr6", "7oeo", "7oli", "7oso", "7p5t", "7q5i", "7qhl",
-                     "7rh3", "7rzl", "7sgv"],
-        Split.test : ["7sne", "7t2i", "7tbu", "7tsf", "7umv", "7up3", "7uq3",
-                      "7wpw", "7xek", "7xij"]
-        }
-    return (dir_heterodata, suffix_heterodata, names)
-
-
-def _create_datamodule_score_model_impl(tmp_path_factory,
-                                        get_diffdock_score_model_heterodata):
-    (dir_heterodata, suffix_heterodata, names) =\
-        get_diffdock_score_model_heterodata
+def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata,
+                                        suffix_heterodata, names):
     prefix_dir_tars_wds = tmp_path_factory.mktemp(
-        "diffdock_score_model_tars_wds").as_posix()
+        f"diffdock_score_model_tars_wds").as_posix()
     tr_sigma_min, tr_sigma_max = (0.1, 19)
     rot_sigma_min, rot_sigma_max = (0.03, 1.55)
     tor_sigma_min, tor_sigma_max = (0.0314, 3.14)
@@ -127,24 +115,8 @@ def _create_datamodule_score_model_impl(tmp_path_factory,
     return data_module, prefix_dir_tars_wds
 
 
-@pytest.fixture(scope="module")
-def create_datamodule_score_model(tmp_path_factory,
-                                  get_diffdock_score_model_heterodata):
-    return _create_datamodule_score_model_impl(tmp_path_factory,
-                                               get_diffdock_score_model_heterodata)
-
-
-@pytest.fixture(scope="module")
-def create_another_datamodule_score_model(tmp_path_factory,
-                                          get_diffdock_score_model_heterodata):
-    return _create_datamodule_score_model_impl(tmp_path_factory,
-                                               get_diffdock_score_model_heterodata)
-
-
-def _create_datamodule_confidence_model_impl(tmp_path_factory,
-                                             get_diffdock_confidence_model_heterodata):
-    (dir_heterodata, suffix_heterodata, names) =\
-        get_diffdock_confidence_model_heterodata
+def _create_datamodule_confidence_model_impl(tmp_path_factory, dir_heterodata,
+                                             suffix_heterodata, names):
     prefix_dir_tars_wds = tmp_path_factory.mktemp(
         "diffdock_confidence_model_tars_wds").as_posix()
     # webdataset pipeline
@@ -186,14 +158,30 @@ def _create_datamodule_confidence_model_impl(tmp_path_factory,
 
 
 @pytest.fixture(scope="module")
-def create_datamodule_confidence_model(tmp_path_factory,
-                                       get_diffdock_confidence_model_heterodata):
-    return _create_datamodule_confidence_model_impl(tmp_path_factory,
-                                                    get_diffdock_confidence_model_heterodata)
+def create_datamodule(tmp_path_factory, get_diffdock_heterodata):
+    dir_heterodata, suffix_heterodata, names, model = get_diffdock_heterodata
+    if model == DiffDockModel.score:
+        return _create_datamodule_score_model_impl(tmp_path_factory,
+                                                   dir_heterodata,
+                                                   suffix_heterodata,
+                                                   names)
+    elif model == DiffDockModel.confidence:
+        return _create_datamodule_confidence_model_impl(tmp_path_factory,
+                                                        dir_heterodata,
+                                                        suffix_heterodata,
+                                                        names)
 
 
 @pytest.fixture(scope="module")
-def create_another_datamodule_confidence_model(tmp_path_factory,
-                                               get_diffdock_confidence_model_heterodata):
-    return _create_datamodule_confidence_model_impl(tmp_path_factory,
-                                                    get_diffdock_confidence_model_heterodata)
+def create_another_datamodule(tmp_path_factory, get_diffdock_heterodata):
+    dir_heterodata, suffix_heterodata, names, model = get_diffdock_heterodata
+    if model == DiffDockModel.score:
+        return _create_datamodule_score_model_impl(tmp_path_factory,
+                                                   dir_heterodata,
+                                                   suffix_heterodata,
+                                                   names)
+    elif model == DiffDockModel.confidence:
+        return _create_datamodule_confidence_model_impl(tmp_path_factory,
+                                                        dir_heterodata,
+                                                        suffix_heterodata,
+                                                        names)
