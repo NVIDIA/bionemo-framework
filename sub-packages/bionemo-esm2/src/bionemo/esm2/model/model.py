@@ -208,7 +208,6 @@ class ESM2Config(BionemoModelConfig[ESM2Model], TransformerConfig):  # noqa: D10
     layernorm_epsilon: float = 1.0e-5
     layernorm_zero_centered_gamma: bool = False  # TODO(@jstjohn) check this
     activation_func: Callable = esm_gelu_func  # ESM2 MLP
-
     init_method_std: float = 0.02
 
     masked_softmax_fusion: bool = True  # Use a kernel that fuses the attention softmax with it's mask.
