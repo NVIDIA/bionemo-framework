@@ -14,7 +14,6 @@
 # limitations under the License.
 
 
-import math
 from typing import Callable, Optional, Sequence, Union
 
 import torch
@@ -23,6 +22,7 @@ from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.transformer.dot_product_attention import DotProductAttention
 from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.transformer_config import TransformerConfig
+
 from torch import Tensor
 
 
@@ -64,6 +64,7 @@ class ESM2DotProductAttention(DotProductAttention):
 
         self.use_esm_attention = config.use_esm_attention
         self.attention_softmax_in_fp32 = config.attention_softmax_in_fp32
+        self.normalize_attention_scores = config.normalize_attention_scores
 
     def forward(  # noqa: D102
         self,
@@ -96,12 +97,6 @@ class ESM2DotProductAttention(DotProductAttention):
         # [b, np, sq, sk]
         b, np, sq, sk = query.size(1), query.size(2), query.size(0), key.size(0)
 
-        # ESM2 Customization
-        # [sq, b, np, hn]
-        if self.use_esm_attention:
-            query = query / math.sqrt(self.hidden_size_per_attention_head)
-        # END ESM2 Customization
-
         # [sq, b, np, hn] -> [sq, b * np, hn]
         # This will be a simple view when doing normal attention, but in group query attention
         # the key and value tensors are repeated to match the queries so you can't use simple strides
@@ -123,7 +118,7 @@ class ESM2DotProductAttention(DotProductAttention):
             query.transpose(0, 1),  # [b * np, sq, hn]
             key.transpose(0, 1).transpose(1, 2),  # [b * np, hn, sk]
             beta=0.0,
-            alpha=(1.0 / self.norm_factor),
+            alpha=(1.0 / self.norm_factor) if self.normalize_attention_scores else 1.0,
         )
 
         # change view to [b, np, sq, sk]
@@ -138,7 +133,7 @@ class ESM2DotProductAttention(DotProductAttention):
         if self.use_esm_attention:
             # NOTE: the slicing here is to make the attention_mask the same shape as the extended
             # attention mask in ESM2. The multiplication by -3.4028e+38 (float32 min_val) is
-            # similarly motivated by ESM2's maskikng approach, which forces softmax of attention scores
+            # similarly motivated by ESM2's masking approach, which forces softmax of attention scores
             # for masked entries to be close to 0. This number is replaced with min_val of the precision
             # using min_val instead of -inf is stable in an special case where all sequence is masked
             min_val = torch.finfo(attention_scores.dtype).min

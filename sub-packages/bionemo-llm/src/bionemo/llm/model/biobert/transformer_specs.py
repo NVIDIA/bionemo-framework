@@ -36,12 +36,32 @@ from megatron.core.transformer.transformer_layer import TransformerLayer, Transf
 from torch.nn import Module
 
 from bionemo.llm.model.layers import TELayerNorm
+import torch
+import math
+from megatron.core.utils import divide
 
 
 __all__: Sequence[str] = (
     "BiobertSpecOption",
     "get_biobert_spec",
 )
+
+
+class ESM2QuaryScaling(torch.nn.Module):
+    """
+    A custom layer that scales quary values
+
+    This layer should replace the q_layernorm=IdentityOp in ESM2 ModuleSpec to reproduce ESM2
+    which apply 1/sqrt(hidden_size_per_attention_head) scaling prior to apply_rotary_pos_emb()
+    """
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__()
+        projection_size = config.kv_channels * config.num_attention_heads
+        self.hidden_size_per_attention_head = divide(projection_size, config.num_attention_heads)
+
+    def forward(self, query, *args, **kwargs):
+        return query / math.sqrt(self.hidden_size_per_attention_head)
 
 
 class BiobertSpecOption(str, Enum):
@@ -167,7 +187,7 @@ def get_biobert_spec(  # noqa: D417
                             linear_qkv=ColumnParallelLinear,
                             core_attention=core_attention,
                             linear_proj=RowParallelLinear,
-                            q_layernorm=IdentityOp,
+                            q_layernorm=ESM2QuaryScaling,
                             k_layernorm=IdentityOp,
                         ),
                     ),
