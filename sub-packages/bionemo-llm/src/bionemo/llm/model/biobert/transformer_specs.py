@@ -35,33 +35,13 @@ from megatron.core.transformer.mlp import MLP, MLPSubmodules
 from megatron.core.transformer.transformer_layer import TransformerLayer, TransformerLayerSubmodules
 from torch.nn import Module
 
-from bionemo.llm.model.layers import TELayerNorm
-import torch
-import math
-from megatron.core.utils import divide
+from bionemo.llm.model.layers import ESM2QuaryScaling, TELayerNorm, TorchLayerNorm, TorchLinear
 
 
 __all__: Sequence[str] = (
     "BiobertSpecOption",
     "get_biobert_spec",
 )
-
-
-class ESM2QuaryScaling(torch.nn.Module):
-    """
-    A custom layer that scales quary values
-
-    This layer should replace the q_layernorm=IdentityOp in ESM2 ModuleSpec to reproduce ESM2
-    which apply 1/sqrt(hidden_size_per_attention_head) scaling prior to apply_rotary_pos_emb()
-    """
-
-    def __init__(self, config, *args, **kwargs):
-        super().__init__()
-        projection_size = config.kv_channels * config.num_attention_heads
-        self.hidden_size_per_attention_head = divide(projection_size, config.num_attention_heads)
-
-    def forward(self, query, *args, **kwargs):
-        return query / math.sqrt(self.hidden_size_per_attention_head)
 
 
 class BiobertSpecOption(str, Enum):
@@ -179,7 +159,7 @@ def get_biobert_spec(  # noqa: D417
             esm2_bert_layer_local_spec = spec_utils.ModuleSpec(
                 module=TransformerLayer,
                 submodules=TransformerLayerSubmodules(
-                    input_layernorm=FusedLayerNorm,
+                    input_layernorm=TorchLayerNorm,
                     self_attention=spec_utils.ModuleSpec(
                         module=SelfAttention,
                         params={"attn_mask_type": AttnMaskType.padding},
@@ -192,12 +172,12 @@ def get_biobert_spec(  # noqa: D417
                         ),
                     ),
                     self_attn_bda=get_bias_dropout_add,
-                    pre_mlp_layernorm=FusedLayerNorm,
+                    pre_mlp_layernorm=TorchLayerNorm,
                     mlp=spec_utils.ModuleSpec(
                         module=MLP,
                         submodules=MLPSubmodules(
                             linear_fc1=ColumnParallelLinear,
-                            linear_fc2=RowParallelLinear,
+                            linear_fc2=TorchLinear,
                         ),
                     ),
                     mlp_bda=get_bias_dropout_add,
