@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import glob
-from numpy import isin
 import pytest
 import torch
 
@@ -29,10 +28,10 @@ def test_datamodule_init(split, get_diffdock_heterodata, create_datamodule):
     name_split = str(split).split('.')[1]
     (_, _, names, model) = get_diffdock_heterodata
     data_module, prefix_dir_tars_wds = create_datamodule
-    assert data_module._sizes[split] == len(names[split]),\
+    assert data_module._n_samples[split] == len(names[split]),\
         f"Wrong {split}-set size for {model} model: "\
         f"expected {len(names[split])} "\
-        f"but got {data_module._sizes[split]}"
+        f"but got {data_module._n_samples[split]}"
     assert data_module._dirs_tars_wds[split] ==\
         f"{prefix_dir_tars_wds}{name_split}",\
         f"Wrong tar files directory for {model} model: "\

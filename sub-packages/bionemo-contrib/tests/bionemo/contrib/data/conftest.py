@@ -105,12 +105,12 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata,
     n_tars_wds = 4
     seed_rng_shfl = 822782392
     data_module = PickledDataWDS(dir_heterodata, suffix_heterodata,
-                                prefix_dir_tars_wds, names, global_batch_size,
-                                n_workers_dataloader,
-                                pipeline_wds=generateNoise,
-                                pipeline_prebatch_wld=pipelines_wdl_batch,
+                                names, prefix_dir_tars_wds, global_batch_size,
                                 prefix_tars_wds="heterographs",
                                 n_tars_wds=n_tars_wds,
+                                pipeline_wds=generateNoise,
+                                pipeline_prebatch_wld=pipelines_wdl_batch,
+                                n_workers_dataloader=n_workers_dataloader,
                                 seed_rng_shfl=seed_rng_shfl)
     return data_module, prefix_dir_tars_wds
 
@@ -147,12 +147,12 @@ def _create_datamodule_confidence_model_impl(tmp_path_factory, dir_heterodata,
     n_workers_dataloader = 2
     n_tars_wds = 4
     data_module = PickledDataWDS(dir_heterodata, suffix_heterodata,
-                                prefix_dir_tars_wds, names, global_batch_size,
-                                n_workers_dataloader,
-                                pipeline_wds=pipeline_wds,
-                                pipeline_prebatch_wld=pipelines_wdl_batch,
+                                names, prefix_dir_tars_wds, global_batch_size,
                                 prefix_tars_wds="heterographs",
                                 n_tars_wds=n_tars_wds,
+                                pipeline_wds=pipeline_wds,
+                                pipeline_prebatch_wld=pipelines_wdl_batch,
+                                n_workers_dataloader=n_workers_dataloader,
                                 seed_rng_shfl=seed_rng_shfl)
     return data_module, prefix_dir_tars_wds
 
