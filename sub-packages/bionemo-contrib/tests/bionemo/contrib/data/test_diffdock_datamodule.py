@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from enum import Enum, auto
 import glob
 import pytest
 import torch
@@ -157,8 +158,15 @@ def test_datamodule_setup_dataloader(split, create_datamodule, create_another_da
                                    f"between two data module instances:\n\n{m}")
 
 
-@pytest.mark.parametrize("split", [s for s in Split])
-def test_datamodule_in_lightning(split, create_datamodule,
+class Stage(Enum):
+    fit = auto()
+    validate = auto()
+    test = auto()
+    predict = auto()
+
+
+@pytest.mark.parametrize("stage", [s for s in Stage])
+def test_datamodule_in_lightning(stage, create_datamodule,
                                  create_another_datamodule,
                                  create_trainer_and_model):
     data_modules= [create_datamodule[0], create_another_datamodule[0]]
@@ -166,16 +174,17 @@ def test_datamodule_in_lightning(split, create_datamodule,
     # get the list of samples from the loader
     lightning.seed_everything(2823828)
     data_modules[0].prepare_data()
-    stage = None
-    if split == Split.train:
-        stage = "fit"
-    elif split == Split.val:
-        stage = "validate"
-    elif split == Split.test:
-        stage = "test"
+    split = None
+    if stage == Stage.fit:
+        split = Split.train
+    elif stage == Stage.validate:
+        split = Split.val
+    elif stage == Stage.test or stage == Stage.predict:
+        split = Split.test
     else:
-        raise RuntimeError(f"{split} split not implemented")
-    data_modules[0].setup(stage)
+        raise RuntimeError(f"{stage} stage not implemented")
+    name_stage = str(stage).split(".")[-1]
+    data_modules[0].setup(name_stage)
     # get the list of samples from the workflow
     get_dataloader = getattr(data_modules[0],
                          f"{str(split).split('.')[-1]}_dataloader")
@@ -184,6 +193,6 @@ def test_datamodule_in_lightning(split, create_datamodule,
     for sample in loader:
         samples.append(sample.name)
     lightning.seed_everything(2823828)
-    workflow = getattr(trainer, stage)
+    workflow = getattr(trainer, name_stage)
     workflow(model, data_modules[1])
     assert model._samples[split] == samples

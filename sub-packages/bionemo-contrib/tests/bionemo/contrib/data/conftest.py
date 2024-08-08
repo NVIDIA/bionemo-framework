@@ -15,7 +15,6 @@
 
 from enum import Enum, auto
 import os
-from typing import Any
 import pytest
 from functools import partial
 import torch
@@ -219,6 +218,10 @@ class ModelTestDiffDock(L.LightningModule):
 
     def test_step(self, batch, batch_index):
         self._samples[Split.test].append(batch.name)
+
+    def predict_step(self, batch, batch_index):
+        self._samples[Split.test].append(batch.name)
+        return torch.zeros(1)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=2e-4)

@@ -99,9 +99,6 @@ class WDSModule(L.LightningDataModule):
         self._dirs_tars_wds = dirs_tars_wds
 
         keys_subset = self._dirs_tars_wds.keys()
-        if not (Split.train in keys_subset and Split.val in keys_subset):
-            raise RuntimeError("Input dirs_tars_wds must be defined for the "\
-                               "train and val splits")
 
         if n_samples.keys() != keys_subset:
             raise RuntimeError(f"Input n_samples has different keys than "
@@ -182,6 +179,8 @@ class WDSModule(L.LightningDataModule):
             self._dataset[Split.val] = self._setup_wds(Split.val)
         elif stage == "test":
             self._dataset[Split.test] = self._setup_wds(Split.test)
+        elif stage == "predict":
+            self._dataset[Split.test] = self._setup_wds(Split.test)
         else:
             raise NotImplementedError(f"Data setup with stage = {stage} "\
                                       f"is not implmented")
@@ -237,7 +236,7 @@ class WDSModule(L.LightningDataModule):
 
 
     def predict_dataloader(self) -> wds.WebLoader:
-        raise NotImplementedError("predict dataloader not implemented")
+        return self._setup_dataloader(Split.test)
 
 
 class PickledDataWDS(WDSModule):
