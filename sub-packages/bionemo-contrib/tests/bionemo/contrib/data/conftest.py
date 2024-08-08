@@ -18,7 +18,6 @@ import os
 import pytest
 from functools import partial
 import torch
-from torch_geometric.loader.data_list_loader import collate_fn
 from torch_geometric.loader.dataloader import Collater
 from webdataset.filters import batched
 
@@ -101,17 +100,22 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata,
         Split.val : batch_pyg,
         Split.test : batch_pyg,
         }
-    n_workers_dataloader = 2
     n_tars_wds = 4
     seed_rng_shfl = 822782392
+    kwargs_dl = {
+        Split.train : {'num_workers' : 2},
+        Split.val : {'num_workers' : 2},
+        Split.test : {'num_workers' : 2},
+        }
     data_module = PickledDataWDS(dir_heterodata, suffix_heterodata,
                                 names, prefix_dir_tars_wds, global_batch_size,
-                                prefix_tars_wds="heterographs",
                                 n_tars_wds=n_tars_wds,
+                                prefix_tars_wds="heterographs",
                                 pipeline_wds=generateNoise,
                                 pipeline_prebatch_wld=pipelines_wdl_batch,
-                                n_workers_dataloader=n_workers_dataloader,
-                                seed_rng_shfl=seed_rng_shfl)
+                                seed_rng_shfl=seed_rng_shfl,
+                                kwargs_dl=kwargs_dl
+                                )
     return data_module, prefix_dir_tars_wds
 
 
@@ -144,16 +148,21 @@ def _create_datamodule_confidence_model_impl(tmp_path_factory, dir_heterodata,
         Split.val : batch_pyg,
         Split.test : batch_pyg,
         }
-    n_workers_dataloader = 2
     n_tars_wds = 4
+    kwargs_dl = {
+        Split.train : {'num_workers' : 2},
+        Split.val : {'num_workers' : 2},
+        Split.test : {'num_workers' : 2},
+        }
     data_module = PickledDataWDS(dir_heterodata, suffix_heterodata,
                                 names, prefix_dir_tars_wds, global_batch_size,
-                                prefix_tars_wds="heterographs",
                                 n_tars_wds=n_tars_wds,
+                                prefix_tars_wds="heterographs",
                                 pipeline_wds=pipeline_wds,
                                 pipeline_prebatch_wld=pipelines_wdl_batch,
-                                n_workers_dataloader=n_workers_dataloader,
-                                seed_rng_shfl=seed_rng_shfl)
+                                seed_rng_shfl=seed_rng_shfl,
+                                kwargs_dl=kwargs_dl
+                                )
     return data_module, prefix_dir_tars_wds
 
 

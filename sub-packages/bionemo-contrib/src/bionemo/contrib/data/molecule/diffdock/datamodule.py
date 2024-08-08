@@ -42,15 +42,15 @@ class WDSModule(L.LightningDataModule):
 
     def __init__(self, dirs_tars_wds : Dict[Split, str], n_samples : Dict[Split,
                                                                           int],
-                 global_batch_size : int, suffix_keys_wds : Iterable[str],
+                 suffix_keys_wds : Iterable[str], global_batch_size : int,
                  prefix_tars_wds : str = "wdshards",
                  pipeline_wds : Optional[Dict[Split, Generator[Any, None,
                                                                None]]] = None,
                  pipeline_prebatch_wld : Optional[Dict[Split, Generator[Any,
                                                                         None,
                                                                         None]]]
-                 = None, n_workers_dataloader : int = 0, pin_memory_dataloader :
-                 bool = True, seed_rng_shfl : int = 0):
+                 = None, seed_rng_shfl : int = 0,
+                 kwargs_dl : Optional[Dict[Split, Dict[str,  str]]] = None):
         """constructor
 
         Args:
@@ -58,6 +58,10 @@ class WDSModule(L.LightningDataModule):
                 directory that contains the webdataset tar files for each split
             n_samples (Dict[Split, int]): input dictionary: Split -> number of
                 data samples for each split
+            suffix_keys_wds (Iterable): a set of keys each corresponding to a
+                data object in the webdataset tar file dictionary. The data
+                objects of these keys will be extracted and tupled for each
+                sample in the tar files
             global_batch_size (int): size of batch summing across nodes in Data
                 Distributed Parallel, i.e., local_batch_size * n_nodes. NOTE:
                 this data module doesn't rely on the input `global_batch_size`
@@ -66,10 +70,6 @@ class WDSModule(L.LightningDataModule):
                 is only used to compute a (pseudo-) epoch length for the data
                 loader so that the loader yield approximately n_samples //
                 global_batch_size batches
-            suffix_keys_wds (Iterable): a set of keys each corresponding to a
-                data object in the webdataset tar file dictionary. The data
-                objects of these keys will be extracted and tupled for each
-                sample in the tar files
         Kwargs:
             prefix_tars_wds (str): name prefix of the input webdataset tar
                 files. The input tar files are globbed by
@@ -87,12 +87,10 @@ class WDSModule(L.LightningDataModule):
                 splits. For example, this can be used for batching the samples.
                 NOTE: this is applied before batching is yield from the
                 WebLoader
-            n_workers_dataloader (int): number of data loading workers (passed
-                to pytorch dataloader)
-            pin_memory_dataloader (bool): whether to use pin memory in pytorch
-                dataloader
             seed_rng_shfl (int): seed to the random number generators used in
                 data loading time for shuffling
+            kwargs_dl (Optional[Dict[Split, Dict[str,  str]]]): kwargs for data
+                loader, e.g., num_workers, of each split
 
 
         """
@@ -120,9 +118,9 @@ class WDSModule(L.LightningDataModule):
         self._pipeline_wds = pipeline_wds
         self._pipeline_prebatch_wld = pipeline_prebatch_wld
 
-        self._n_workers_dataloader = n_workers_dataloader
-        self._pin_memory_dataloader = pin_memory_dataloader
         self._seed_rng_shfl = seed_rng_shfl
+
+        self._kwargs_dl = kwargs_dl
 
         # to be created later in setup
         self._dataset = dict()
@@ -202,10 +200,9 @@ class WDSModule(L.LightningDataModule):
         n_samples = self._n_samples[split]
         n_batches = ((n_samples + self._global_batch_size - 1)
                      // self._global_batch_size)
-        loader = wds.WebLoader(dataset,
-                num_workers=self._n_workers_dataloader,
-                pin_memory=self._pin_memory_dataloader,
-                batch_size=None
+        kwargs = self._kwargs_dl[split] if self._kwargs_dl is not None else None
+        loader = wds.WebLoader(dataset, batch_size=None,
+            **(kwargs if kwargs is not None else {})
             ).shuffle(5000, rng=random.Random(self._seed_rng_shfl))
 
         if (self._pipeline_prebatch_wld is not None and
@@ -256,16 +253,8 @@ class PickledDataWDS(WDSModule):
     WebLoader object chaining up the `pipeline_prebatch_wld` workflow"""
 
     def __init__(self, dir_pickled : str, suffix_pickled : str, names_subset :
-                 Dict[Split, List[str]], prefix_dir_tars_wds : str,
-                 global_batch_size : int, prefix_tars_wds : str = "wdshards",
-                 n_tars_wds : Optional[int] = None,
-                 pipeline_wds : Optional[Dict[Split, Generator[Any, None,
-                                                               None]]] = None,
-                 pipeline_prebatch_wld : Optional[Dict[Split, Generator[Any,
-                                                                        None,
-                                                                        None]]]
-                 = None, n_workers_dataloader : int = 0, pin_memory_dataloader :
-                 bool = True, seed_rng_shfl : int = 0):
+                 Dict[Split, List[str]], prefix_dir_tars_wds : str, *args,
+                 n_tars_wds : Optional[int] = None, **kwargs):
         """constructor
 
         Args:
@@ -279,35 +268,12 @@ class PickledDataWDS(WDSModule):
                 webdataset tar files. The actual directories storing the train, val
                 and test sets will be suffixed with "train", "val" and "test"
                 respectively.
-            global_batch_size (int): size of batch summing across nodes in Data
-                Distributed Parallel, i.e., local_batch_size * n_nodes. NOTE:
-                this data module doesn't rely on the input `global_batch_size`
-                for batching the samples. The batching is supposed to be done as
-                a part of the input `pipeline_prebatch_wld`. `global_batch_size`
-                is only used to compute a (pseudo-) epoch length for the data
-                loader so that the loader yield approximately n_samples //
-                global_batch_size batches
+            *args: arguments passed to the parent WDSModule
 
         Kwargs:
-            prefix_tars_wds (str): name prefix to output webdataset tar files
             n_tars_wds (int): attempt to create at least this number of
                 webdataset shards
-            pipeline_wds (Optional[Dict[Split, Generator[Any, None, None]]]): a
-                dictionary of webdatast composable, i.e., functor that maps a
-                generator to another generator that transforms the data sample
-                yield from the dataset object, for different splits
-            pipeline_prebatch_wld (Optional[Dict[Split, Generator[Any, None,
-                None]]]): a dictionary of webloader composable, i.e., functor
-                that maps a generator to another generator that transforms the
-                data sample yield from the WebLoader object, for different
-                splits. NOTE: this is applied before batching is yield from the
-                WebLoader
-            n_workers_dataloader (int): number of data loading workers (passed
-                to pytorch dataloader)
-            pin_memory_dataloader (bool): whether to use pin memory in pytorch
-                dataloader
-            seed_rng_shfl (int): seed to the random number generators used in
-                data loading time for shuffling
+            **kwargs: arguments passed to the parent WDSModule
 
 
         """
@@ -320,14 +286,9 @@ class PickledDataWDS(WDSModule):
                 split : len(names_subset[split]) for split in
                 names_subset.keys()
             },
-            global_batch_size,
             suffix_pickled,
-            prefix_tars_wds=prefix_tars_wds,
-            pipeline_wds=pipeline_wds,
-            pipeline_prebatch_wld=pipeline_prebatch_wld,
-            n_workers_dataloader=n_workers_dataloader,
-            pin_memory_dataloader=pin_memory_dataloader,
-            seed_rng_shfl=seed_rng_shfl
+            *args,
+             **kwargs
             )
 
         self._dir_pickled = dir_pickled
