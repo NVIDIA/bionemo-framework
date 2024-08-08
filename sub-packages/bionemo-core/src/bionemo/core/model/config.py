@@ -29,13 +29,19 @@ Loss = TypeVar("Loss")
 Model = TypeVar("Model")
 
 
-class BionemoModelConfig(Generic[Model], ABC):  # D101  # noqa: D101
+class BionemoModelConfig(Generic[Model], ABC):
+    """An abstract class for model configuration."""
+
     @abstractmethod
-    def configure_model(self, *args, **kwargs) -> Model:  # D101  # noqa: D102
+    def configure_model(self, *args, **kwargs) -> Model:
+        """Configures the model."""
         raise NotImplementedError()
 
 
-class BionemoTrainableModelConfig(Generic[Model, Loss], BionemoModelConfig[Model]):  # D101  # noqa: D101
+class BionemoTrainableModelConfig(Generic[Model, Loss], BionemoModelConfig[Model]):
+    """An abstract class for trainable model configuration."""
+
     @abstractmethod
-    def get_loss_reduction_class(self) -> Type[Loss]:  # D101  # noqa: D102
+    def get_loss_reduction_class(self) -> Type[Loss]:
+        """Returns the loss reduction class."""
         raise NotImplementedError()

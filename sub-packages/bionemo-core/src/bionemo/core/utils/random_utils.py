@@ -23,11 +23,11 @@ __all__: Sequence[str] = ("random_numpy_context",)
 
 @contextmanager
 def random_numpy_context(seed: int = 42) -> Iterator[None]:
-    """Context manager for setting numpy random state, where the state is saved on entry
-        and restored on exit to what it was. This way you can run code that needs random
-        state in a `with` context using this function, and get back to whatever state was
-        there before. This is useful for testing where you don't want the random state from
-        one test to impact other tests.
+    """Context manager for setting numpy random state.
+
+    The state is saved on entry and restored on exit to what it was. This way you can run code that needs random state
+    in a `with` context using this function, and get back to whatever state was there before. This is useful for testing
+    where you don't want the random state from one test to impact other tests.
 
     Example:
         >>> import numpy as np
@@ -37,7 +37,7 @@ def random_numpy_context(seed: int = 42) -> Iterator[None]:
             np.random.randint(5) # this will change the state
         >>> new_state = np.random.get_state()
         >>> assert ori_state == new_state
-    """  # noqa: D205
+    """
     state = np.random.get_state()  # just fail if this fails
     try:
         np.random.seed(seed)

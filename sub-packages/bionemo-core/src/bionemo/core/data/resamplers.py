@@ -21,23 +21,27 @@ from typing import Optional, Union
 from torch.utils.data import Dataset
 
 
-class PRNGDatasetShuffler(Dataset):  # noqa: D101
-    def __init__(self, dataset: Dataset, seed: int = 42, num_samples: Optional[int] = None):
-        """Initializes the PRNGDatasetShuffler. PRNGDatasetShuffler shuffles a given dataset using a pseudo-random number generator (PRNG).
-            This allows for reproducible shuffling by controlling the random seed, while not ever storing the list of indices in memory.
-            It works by generating random indices assuming that the requesting function asks for them sequentially.
-            Although random lookups are supported, random lookups will involve recomputing state which is slow, and involves
-            linearly advancing from 0 if the last requested index was greater than or equal to this requested index.
-            This should work well with the megatron sampler which is sequential. It handles
-            skipped lookups as will happen with multiple workers by not generating those numbers.
+class PRNGDatasetShuffler(Dataset):
+    """A thread-safe dataset shuffler that uses a pseudo-random number generator (PRNG) to shuffle the dataset.
 
+    PRNGDatasetShuffler shuffles a given dataset using a pseudo-random number generator (PRNG). This allows for
+    reproducible shuffling by controlling the random seed, while not ever storing the list of indices in memory. It
+    works by generating random indices assuming that the requesting function asks for them sequentially. Although random
+    lookups are supported, random lookups will involve recomputing state which is slow, and involves linearly advancing
+    from 0 if the last requested index was greater than or equal to this requested index. This should work well with the
+    megatron sampler which is sequential. It handles skipped lookups as will happen with multiple workers by not
+    generating those numbers.
+    """
+
+    def __init__(self, dataset: Dataset, seed: int = 42, num_samples: Optional[int] = None):
+        """Initializes the PRNGDatasetShuffler.
 
         Args:
             dataset (Dataset): The dataset to be shuffled.
             seed (int, optional): The seed value for the PRNG. Default is 42.
             num_samples (Optional[int], optional): The number of samples to draw from the dataset.
                 If None, the length of the dataset is used. Default is None.
-        """  # noqa: D205
+        """
         self.initial_seed = seed
         self.rng = random.Random(seed)
         self.dataset_len = len(dataset)
@@ -54,11 +58,11 @@ class PRNGDatasetShuffler(Dataset):  # noqa: D101
         """Generates a random index within the range of the dataset size."""
         return self.rng.randint(0, self.dataset_len - 1)
 
-    def advance_state(self, num_to_advance: int):  # noqa: D417
+    def advance_state(self, num_to_advance: int):
         """Advances the PRNG state by generating n_to_advance random indices.
 
         Args:
-            n_to_advance (int): The number of random state steps to advance.
+            num_to_advance: The number of random state steps to advance.
         """
         for _ in range(num_to_advance):
             self.rand_idx()

@@ -30,14 +30,18 @@ __all__: Sequence[str] = (
 )
 
 
-class SchedulerOutput(TypedDict):  # noqa: D101
+class SchedulerOutput(TypedDict):
+    """Output of the scheduler method."""
+
     optimizer: MegatronOptimizerModule
     lr_scheduler: dict
     monitor: str
 
 
-class WarmupAnnealDecayHold(_LRScheduler):  # noqa: D101
-    def __init__(  # noqa: D417
+class WarmupAnnealDecayHold(_LRScheduler):
+    """Warmup Anneal Decay Hold learning rate scheduler."""
+
+    def __init__(
         self,
         optimizer: MegatronOptimizerModule,
         *,
@@ -51,9 +55,13 @@ class WarmupAnnealDecayHold(_LRScheduler):  # noqa: D101
         """Initializes the WarmupAnnealDecayHold learning rate scheduler.
 
         Args:
-            max_steps (int): Total number of training steps.
+            optimizer: Optimizer to apply the learning rate scheduler.
             warmup_steps (int): Number of steps for the linear warm-up.
+            max_steps (int): Total number of training steps.
             max_lr (float): Peak learning rate to be achieved after warm-up.
+            min_lr (float): Minimum learning rate.
+            anneal_percentage (float): Percentage of the max_lr to hold after decay.
+            last_epoch (int): The index of the last epoch.
         """
         self.warmup_steps = warmup_steps
         self.max_steps = max_steps
@@ -67,7 +75,8 @@ class WarmupAnnealDecayHold(_LRScheduler):  # noqa: D101
 
         super(WarmupAnnealDecayHold, self).__init__(optimizer, last_epoch)
 
-    def get_lr(self) -> List[float]:  # noqa: D102
+    def get_lr(self) -> List[float]:
+        """Get the learning rate at the current step."""
         step_num = self.last_epoch
         if step_num < self.warmup_steps:
             lr = self.min_lr + (self.max_lr - self.min_lr) * step_num / self.warmup_steps
@@ -82,7 +91,7 @@ class WarmupAnnealDecayHold(_LRScheduler):  # noqa: D101
 class WarmupAnnealDecayHoldScheduler(LRSchedulerModule):
     """Warmup Policy Learning Rate Scheduler."""
 
-    def __init__(  # noqa: D107
+    def __init__(
         self,
         warmup_steps: int = 2000,
         max_steps: int = 500_000,
@@ -93,6 +102,7 @@ class WarmupAnnealDecayHoldScheduler(LRSchedulerModule):
         frequency: int = 1,
         monitor: str = "val_loss",
     ) -> None:
+        """Initializes the WarmupAnnealDecayHoldScheduler."""
         super().__init__()
         self.warmup_steps = warmup_steps
         self.max_steps = max_steps
@@ -103,7 +113,8 @@ class WarmupAnnealDecayHoldScheduler(LRSchedulerModule):
         self.frequency = frequency
         self.monitor = monitor
 
-    def scheduler(self, model: MegatronBioBertModel, optimizer: MegatronOptimizerModule) -> SchedulerOutput:  # noqa: D102
+    def scheduler(self, model: MegatronBioBertModel, optimizer: MegatronOptimizerModule) -> SchedulerOutput:
+        """Returns the scheduler output."""
         lr_scheduler = WarmupAnnealDecayHold(
             optimizer,
             warmup_steps=self.warmup_steps,

@@ -30,8 +30,7 @@ def pad_token_ids(
     pad_size_divisible_by: int = 1,
     **convert_to_kwargs,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Pads token ids with padding value, and return the padded tokens and
-    the corresponding mask.
+    """Pads token ids with padding value, and return the padded tokens and the corresponding mask.
 
     Args:
         token_ids: List of token ids or tensors
@@ -42,7 +41,7 @@ def pad_token_ids(
 
     Returns:
         Tuple[List[int], List[int]]: Padded token ids and mask
-    """  # noqa: D205
+    """
     lengths = torch.tensor([len(s) for s in token_ids])
     if padding_len is None:
         padding_len = lengths.max()

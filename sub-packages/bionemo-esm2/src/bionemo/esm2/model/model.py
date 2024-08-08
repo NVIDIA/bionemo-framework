@@ -53,26 +53,9 @@ __all__: Sequence[str] = (
 
 
 class ESM2Model(MegatronBioBertModel):
-    """ESM2 Transformer language model.
+    """ESM2 Transformer language model."""
 
-    Args:
-        config (TransformerConfig): transformer config
-        num_tokentypes (int): Set to 2 when args.bert_binary_head is True, and 0 otherwise. Defaults to 0.
-        transformer_layer_spec (ModuleSpec): Specifies module to use for transformer layers
-        vocab_size (int): vocabulary size
-        max_sequence_length (int): maximum size of sequence. This is used for positional embedding
-        tokenizer (AutoTokenizer): optional tokenizer object (currently only used in the constructor of ESM2Model)
-        pre_process (bool): Include embedding layer (used with pipeline parallelism)
-        post_process (bool): Include an output layer (used with pipeline parallelism)
-        parallel_output (bool): Do not gather the outputs, keep them split across tensor parallel ranks
-        share_embeddings_and_output_weights (bool): When True, input embeddings and output logit weights are shared. Defaults to False.
-        position_embedding_type (string): Position embedding type. Options ['learned_absolute', 'rope'].
-            Defaults is 'learned_absolute'.
-        rotary_percent (float): Percent of rotary dimension to use for rotary position embeddings.
-            Defaults to 1.0 (100%). Ignored unless position_embedding_type is 'rope'.
-    """
-
-    def __init__(  # noqa: D107
+    def __init__(
         self,
         config: TransformerConfig,
         num_tokentypes: int,
@@ -92,6 +75,29 @@ class ESM2Model(MegatronBioBertModel):
         return_embeddings=False,
         use_full_attention_mask=False,
     ) -> None:
+        """Initialize the ESM2 model.
+
+        Args:
+            config (TransformerConfig): transformer config
+            num_tokentypes (int): Set to 2 when args.bert_binary_head is True, and 0 otherwise. Defaults to 0.
+            transformer_layer_spec (ModuleSpec): Specifies module to use for transformer layers
+            vocab_size (int): vocabulary size
+            max_sequence_length (int): maximum size of sequence. This is used for positional embedding
+            tokenizer (AutoTokenizer): optional tokenizer object (currently only used in the constructor of ESM2Model)
+            pre_process (bool): Include embedding layer (used with pipeline parallelism)
+            post_process (bool): Include an output layer (used with pipeline parallelism)
+            fp16_lm_cross_entropy: Whether to move the cross entropy unreduced loss calculation for lm head to fp16.
+            parallel_output (bool): Do not gather the outputs, keep them split across tensor parallel ranks
+            share_embeddings_and_output_weights (bool): When True, input embeddings and output logit weights are shared. Defaults to False.
+            position_embedding_type (string): Position embedding type. Options ['learned_absolute', 'rope'].
+                Defaults is 'learned_absolute'.
+            rotary_percent (float): Percent of rotary dimension to use for rotary position embeddings.
+                Defaults to 1.0 (100%). Ignored unless position_embedding_type is 'rope'.
+            seq_len_interpolation_factor (Optional[float]): Interpolation factor for sequence length. Defaults to None.
+            add_binary_head (bool): Whether to add a binary head. Defaults to True.
+            return_embeddings (bool): Whether to return embeddings. Defaults to False.
+            use_full_attention_mask (bool): Whether to use full attention mask. Defaults to False.
+        """
         super(MegatronBioBertModel, self).__init__(config=config)
         self.post_process = post_process
         self.add_binary_head = add_binary_head
@@ -178,9 +184,20 @@ class ESM2Model(MegatronBioBertModel):
         if self.pre_process or self.post_process:
             self.setup_embeddings_and_output_layer()
 
-    def embedding_forward(  # noqa: D102
+    def embedding_forward(
         self, input_ids: Tensor, position_ids: Tensor, tokentype_ids: Tensor = None, attention_mask: Tensor = None
     ):
+        """Forward pass of the embedding layer.
+
+        Args:
+            input_ids: The input tensor of shape (batch_size, sequence_length) containing the input IDs.
+            position_ids: The tensor of shape (batch_size, sequence_length) containing the position IDs.
+            tokentype_ids: The tensor of shape (batch_size, sequence_length) containing the token type IDs. Defaults to None.
+            attention_mask: The tensor of shape (batch_size, sequence_length) containing the attention mask. Defaults to None.
+
+        Returns:
+            Tensor: The output tensor of shape (batch_size, sequence_length, hidden_size) containing the embedded representations.
+        """
         # ESM2 Customization: ESM2Embedding forward takes attention_mask
         # in addition to the args required by LanguageModelEmbedding
         return self.embedding(
@@ -188,18 +205,58 @@ class ESM2Model(MegatronBioBertModel):
         )
 
 
-def esm_gelu_func(x: Tensor) -> Tensor:  # D205 # D205
+def esm_gelu_func(x: Tensor) -> Tensor:
     """ESM2-specific gelu implementation from the original ESM repo.
-    Using F.gelu yields subtly wrong results.
+
+    !!! warning
+
+        Using F.gelu yields subtly wrong results.
 
     Args:
         x: input tensor of any given dimension
-    """  # noqa: D205
+    """
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
 
 
 @dataclass
-class ESM2Config(BionemoModelConfig[ESM2Model], TransformerConfig):  # noqa: D101
+class ESM2Config(BionemoModelConfig[ESM2Model], TransformerConfig):
+    """Configuration class for ESM2 model.
+
+    Attributes:
+        num_layers: Number of layers in the model.
+        hidden_size: Hidden size of the model.
+        num_attention_heads: Number of attention heads in the model.
+        ffn_hidden_size: Hidden size of the feed-forward network.
+        hidden_dropout: Dropout rate for hidden layers.
+        attention_dropout: Dropout rate for attention layers.
+        apply_residual_connection_post_layernorm: Whether to apply residual connection after layer normalization.
+        layernorm_epsilon: Epsilon value for layer normalization.
+        layernorm_zero_centered_gamma: Whether to zero-center the gamma parameter in layer normalization.
+        activation_func: Activation function used in the model.
+        init_method_std: Standard deviation for weight initialization.
+        apply_query_key_layer_scaling: Whether to apply scaling to query and key layers.
+        masked_softmax_fusion: Whether to use a kernel that fuses attention softmax with its mask.
+        fp16_lm_cross_entropy: Whether to move the cross entropy unreduced loss calculation for lm head to fp16.
+        share_embeddings_and_output_weights: Whether to share embeddings and output weights.
+        enable_autocast: Whether to enable autocast for mixed precision.
+        biobert_spec_option: BiobertSpecOption for the model.
+        position_embedding_type: Type of position embedding used in the model.
+        seq_length: Length of the input sequence.
+        make_vocab_size_divisible_by: Make the vocabulary size divisible by this value.
+        token_dropout: Whether to apply token dropout.
+        use_attention_mask: Whether to use attention mask.
+        use_esm_attention: Whether to use ESM attention.
+        attention_softmax_in_fp32: Whether to use fp32 for attention softmax.
+        optimizer_fn: Optional optimizer function for the model.
+        parallel_output: Whether to use parallel output.
+        rotary_base: Base value for rotary positional encoding.
+        rotary_percent: Percentage of rotary positional encoding.
+        seq_len_interpolation_factor: Interpolation factor for sequence length.
+        get_attention_mask_from_fusion: Whether to get attention mask from fusion.
+        nemo1_ckpt_path: Path to NEMO1 checkpoint.
+        return_only_hidden_states: Whether to return only hidden states.
+    """
+
     num_layers: int = 33  # 650M
     hidden_size: int = 1280  # 650M
     num_attention_heads: int = 20
@@ -249,7 +306,15 @@ class ESM2Config(BionemoModelConfig[ESM2Model], TransformerConfig):  # noqa: D10
     #  things as part of the workflow for inference and fine-tuning.
     return_only_hidden_states: bool = False  # return logits
 
-    def configure_model(self, tokenizer) -> ESM2Model:  # noqa: D102
+    def configure_model(self, tokenizer) -> ESM2Model:
+        """Configures the ESM2Model with the given tokenizer.
+
+        Args:
+            tokenizer: The tokenizer to be used.
+
+        Returns:
+            An instance of ESM2Model configured with the specified parameters.
+        """
         vp_size = self.virtual_pipeline_model_parallel_size
         if vp_size:
             p_size = self.pipeline_model_parallel_size

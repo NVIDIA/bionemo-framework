@@ -30,7 +30,7 @@ __all__: Sequence[str] = ("ESM2DotProductAttention",)
 
 
 class ESM2DotProductAttention(DotProductAttention):
-    """ESM2-Specific core attention
+    """ESM2-Specific core attention.
 
     Region where selective activation recomputation is applied.
     This region is memory intensive but less compute intensive which
@@ -44,9 +44,9 @@ class ESM2DotProductAttention(DotProductAttention):
      p: number of tensor model parallel partitions
      b: batch size
      s: sequence length
-    """  # noqa: D415
+    """
 
-    def __init__(  # noqa: D107
+    def __init__(
         self,
         config: TransformerConfig,
         layer_number: int,
@@ -54,6 +54,15 @@ class ESM2DotProductAttention(DotProductAttention):
         attention_type: str,
         attention_dropout: Optional[float] = None,
     ) -> None:
+        """Initializes the Attention class.
+
+        Args:
+            config: The configuration object for the transformer.
+            layer_number: The layer number of the attention module.
+            attn_mask_type: The type of attention mask to be used.
+            attention_type: The type of attention mechanism.
+            attention_dropout: The dropout rate for attention weights. Defaults to None.
+        """
         super().__init__(
             config=config,
             layer_number=layer_number,
@@ -66,7 +75,7 @@ class ESM2DotProductAttention(DotProductAttention):
         self.attention_softmax_in_fp32 = config.attention_softmax_in_fp32
         self.normalize_attention_scores = config.normalize_attention_scores
 
-    def forward(  # noqa: D102
+    def forward(
         self,
         query: Tensor,
         key: Tensor,
@@ -75,6 +84,20 @@ class ESM2DotProductAttention(DotProductAttention):
         attn_mask_type: Optional[AttnMaskType] = None,
         packed_seq_params: Optional[PackedSeqParams] = None,
     ):
+        """Forward pass of the ESM2DotProductAttention module.
+
+        Args:
+            query: The query tensor of shape [sq, b, np, hn].
+            key: The key tensor of shape [sk, b, ng, hn].
+            value: The value tensor of shape [sk, b, ng, hn].
+            attention_mask: The attention mask tensor of shape [b, np, sq, sk].
+            attn_mask_type: The attention mask type, currently unused. Defaults to None.
+            packed_seq_params: The packed sequence parameters. These are used for context parallelism so will be needed
+                to be implemented if we want to support this. Defaults to None.
+
+        Returns:
+            Tensor: The context tensor of shape [sq, b, hp].
+        """
         if packed_seq_params is not None:
             raise ValueError(
                 "Packed sequence is not supported by DotProductAttention. " "Please use TEDotProductAttention instead."

@@ -32,9 +32,9 @@ ESM2_MASK_RATIO_TRAIN = 0.15 * 0.8  # Hardcoded as the ratio used in all ESM mod
 
 
 class ESM2Embedding(LanguageModelEmbedding):
-    """ESM2 Embedding with custom logic for attention masking and token dropout"""  # noqa: D415
+    """ESM2 Embedding with custom logic for attention masking and token dropout."""
 
-    def __init__(  # noqa: D107
+    def __init__(
         self,
         config: TransformerConfig,
         vocab_size: int,
@@ -46,6 +46,7 @@ class ESM2Embedding(LanguageModelEmbedding):
         use_attention_mask: bool = True,
         mask_token_id: Optional[int] = torch.nan,
     ) -> None:
+        """Initialize the ESM2 Embedding module."""
         super().__init__(
             config=config,
             vocab_size=vocab_size,
@@ -60,7 +61,7 @@ class ESM2Embedding(LanguageModelEmbedding):
     def _apply_esm2_customization(
         self, word_embeddings: Tensor, input_ids: Tensor, attention_mask: Tensor
     ) -> Tuple[Tensor, Tensor]:
-        """ESM2 customization for attention masking and token dropout
+        """ESM2 customization for attention masking and token dropout.
 
         Args:
             word_embeddings (Tensor[float]): The input tokens. Shape: [b, s, h]
@@ -69,7 +70,7 @@ class ESM2Embedding(LanguageModelEmbedding):
 
         Returns:
             Tuple[Tensor, Tensor]: (Updated embeddings, embedding mask) Shape: ([b, s, h], [b, s])
-        """  # noqa: D415
+        """
         embeddings_mask = None
         if attention_mask is not None and (self.token_dropout or self.use_attention_mask):
             embeddings_mask = attention_mask

@@ -45,9 +45,10 @@ __all__: Sequence[str] = (
 
 @dataclass
 class ExampleConfig(ModelParallelConfig):
-    """Timers from ModelParallelConfig are required (apparently).
-    For megatron forward compatibility.
-    """  # noqa: D205
+    """ExampleConfig is a dataclass that is used to configure the model.
+
+    Timers from ModelParallelConfig are required for megatron forward compatibility.
+    """
 
     calculate_per_token_loss: bool = False
 
@@ -100,14 +101,14 @@ class MSELossReduction(MegatronLossReduction):
 
 
 class LitAutoEncoder(pl.LightningModule):
-    """A very basic lightning module example that is used for testing the megatron strategy and the megatron-nemo2-bionemo
-    contract.
-    """  # noqa: D205
+    """A very basic lightning module for testing the megatron strategy and the megatron-nemo2-bionemo contract."""
 
     def __init__(self, config):
-        """Args:
-        config: a Config object necessary to construct the actual nn.Module (the thing that has the parameters).
-        """  # noqa: D205
+        """Initializes the model.
+
+        Args:
+            config: a Config object necessary to construct the actual nn.Module (the thing that has the parameters).
+        """
         super().__init__()
         self.config = config
         self.optim = MegatronOptimizerModule(
@@ -118,7 +119,10 @@ class LitAutoEncoder(pl.LightningModule):
 
     def forward(self, batch: Dict, batch_idx: int):
         """This forward will be called by the megatron scheduler and it will be wrapped.
-        Note: The `training_step` defines the training loop and is independent of the `forward` method here.
+
+        !!! note
+
+            The `training_step` defines the training loop and is independent of the `forward` method here.
 
         Args:
             batch: A dictionary of data.
@@ -126,12 +130,14 @@ class LitAutoEncoder(pl.LightningModule):
 
         Returns:
             The output of the model.
-        """  # noqa: D205
+        """
         x = batch["data"]
         return self.module(x)
 
-    def training_step(self, batch, batch_idx: Optional[int] = None):  # noqa: D417
-        """Background:
+    def training_step(self, batch, batch_idx: Optional[int] = None):
+        """The training step is where the loss is calculated and the backpropagation is done.
+
+        Background:
         - NeMo's Strategy overrides this method.
         - The strategies' training step will call the forward method of the model.
         - That forward method then calls the wrapped forward step of MegatronParallel which wraps the forward method of the model.
@@ -142,9 +148,9 @@ class LitAutoEncoder(pl.LightningModule):
         In this particular use case, we simply call the forward method of this class, the lightning module.
 
         Args:
-            batch: A dictionary of data.
-            requires `batch_idx` as default None.
-        """  # noqa: D205
+            batch: A dictionary of data. requires `batch_idx` as default None.
+            batch_idx: The index of the batch.
+        """
         return self(batch, batch_idx)
 
     def training_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
