@@ -155,3 +155,35 @@ def test_datamodule_setup_dataloader(split, create_datamodule, create_another_da
                                    f"Inconsistent ligand position in the "
                                    f"{i}'th sample/batch of {split}-set "
                                    f"between two data module instances:\n\n{m}")
+
+
+@pytest.mark.parametrize("split", [s for s in Split])
+def test_datamodule_in_lightning(split, create_datamodule,
+                                 create_another_datamodule,
+                                 create_trainer_and_model):
+    data_modules= [create_datamodule[0], create_another_datamodule[0]]
+    trainer, model = create_trainer_and_model
+    # get the list of samples from the loader
+    lightning.seed_everything(2823828)
+    data_modules[0].prepare_data()
+    stage = None
+    if split == Split.train:
+        stage = "fit"
+    elif split == Split.val:
+        stage = "validate"
+    elif split == Split.test:
+        stage = "test"
+    else:
+        raise RuntimeError(f"{split} split not implemented")
+    data_modules[0].setup(stage)
+    # get the list of samples from the workflow
+    get_dataloader = getattr(data_modules[0],
+                         f"{str(split).split('.')[-1]}_dataloader")
+    loader = get_dataloader()
+    samples = []
+    for sample in loader:
+        samples.append(sample.name)
+    lightning.seed_everything(2823828)
+    workflow = getattr(trainer, stage)
+    workflow(model, data_modules[1])
+    assert model._samples[split] == samples

@@ -178,11 +178,13 @@ class WDSModule(L.LightningDataModule):
         if stage == "fit":
             self._dataset[Split.train] = self._setup_wds(Split.train)
             self._dataset[Split.val] = self._setup_wds(Split.val)
+        elif stage == "validate":
+            self._dataset[Split.val] = self._setup_wds(Split.val)
         elif stage == "test":
             self._dataset[Split.test] = self._setup_wds(Split.test)
         else:
-            raise NotImplementedError("Data setup with stage = {stage}\
-                                      is not implmented")
+            raise NotImplementedError(f"Data setup with stage = {stage} "\
+                                      f"is not implmented")
 
     def _setup_dataloader(self, split : Split) -> wds.WebLoader:
         """setup the dataloader for the input dataset split

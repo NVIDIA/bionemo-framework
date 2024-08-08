@@ -15,11 +15,13 @@
 
 from enum import Enum, auto
 import os
+from typing import Any
 import pytest
 from functools import partial
 import torch
 from torch_geometric.loader.dataloader import Collater
 from webdataset.filters import batched
+import lightning as L
 
 from bionemo.contrib.model.molecule.diffdock.utils.diffusion import (
     t_to_sigma, GenerateNoise)
@@ -194,3 +196,38 @@ def create_another_datamodule(tmp_path_factory, get_diffdock_heterodata):
                                                         dir_heterodata,
                                                         suffix_heterodata,
                                                         names)
+
+
+class ModelTestDiffDock(L.LightningModule):
+    def __init__(self) -> None:
+        super().__init__()
+        self._model = torch.nn.Linear(3, 3)
+        self._samples = { split : [] for split in Split }
+
+
+    def forward(self, x):
+        return self._model(x["ligand"].pos)
+
+    def training_step(self, batch):
+        self._samples[Split.train].append(batch.name)
+        loss = self(batch).sum()
+        return loss
+
+    def validation_step(self, batch, batch_index):
+        self._samples[Split.val].append(batch.name)
+        return torch.zeros(1)
+
+    def test_step(self, batch, batch_index):
+        self._samples[Split.test].append(batch.name)
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=2e-4)
+        return optimizer
+
+
+@pytest.fixture(scope="function")
+def create_trainer_and_model():
+    trainer = L.Trainer(max_epochs=1, accelerator="gpu",
+                        devices=1, val_check_interval=1)
+    model = ModelTestDiffDock()
+    return trainer, model
