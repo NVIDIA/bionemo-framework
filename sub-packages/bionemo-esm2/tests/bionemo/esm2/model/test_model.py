@@ -154,8 +154,10 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
     input_ids = tokens["input_ids"]
     attention_mask = tokens["attention_mask"]
 
-    hf_model = EsmForMaskedLM.from_pretrained("facebook/esm2_t33_650M_UR50D")  # HF 650M model
-    hf_model = hf_model.to(device=device, dtype=get_autocast_dtype(32))
+    # HF 650M model
+    hf_model = EsmForMaskedLM.from_pretrained(
+        "facebook/esm2_t33_650M_UR50D", device_map=device, torch_dtype=get_autocast_dtype(32)
+    )
 
     with torch.no_grad():
         hf_output_all = hf_model(input_ids, attention_mask, output_hidden_states=True)
