@@ -13,17 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import tarfile
+from copy import deepcopy
 from pathlib import Path
+from typing import List, Tuple
 
 import pytest
 import torch
 from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
+from torch import Tensor
+from transformers import EsmForMaskedLM
 
 from bionemo import esm2
+from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.esm2.api import ESM2Config, ESM2Model
 from bionemo.esm2.model.embedding import ESM2Embedding
-from bionemo.llm.model.biobert.model import BiobertSpecOption, MegatronBioBertModel
+from bionemo.llm.model.biobert.model import MegatronBioBertModel
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
 
@@ -40,17 +46,69 @@ assert bionemo2_root != Path("/")
 nemo1_checkpoint_path: Path = bionemo2_root / "models/protein/esm2nv/esm2nv_650M_converted.nemo"
 
 
+def reduce_hiddens(hiddens: Tensor, attention_mask: Tensor) -> Tensor:
+    """reduce last layer's hidden values to embeddings
+
+    Args:
+        hiddens: [b, s, h] tensor of hidden values
+        attention_mask: [b, s] attention mask tensor
+
+    Returns:
+        reduced embedding tensor [b, h]
+    """
+    masks = torch.sum(attention_mask, dim=1)
+    embeddings = torch.zeros(
+        size=(hiddens.shape[0], hiddens.shape[2]),
+        dtype=torch.float32,
+        device=torch.cuda.current_device(),
+    )
+    for i, (hidden, mask) in enumerate(zip(hiddens, masks)):
+        embeddings[i, :] = torch.mean(hidden[1 : mask - 1], dim=0)
+    return embeddings
+
+
 @pytest.fixture(scope="module")
-def esm2_model() -> ESM2Model:
+def esm2_config() -> ESM2Config:
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        yield ESM2Config()
+
+
+@pytest.fixture(scope="module")
+def esm2_650M_config_w_ckpt() -> ESM2Config:
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        yield ESM2Config(nemo1_ckpt_path=nemo1_checkpoint_path)
+
+
+@pytest.fixture(scope="module")
+def esm2_model(esm2_config) -> ESM2Model:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
-        esm2_config = ESM2Config(
-            gradient_accumulation_fusion=False,
-            apply_residual_connection_post_layernorm=False,
-            biobert_spec_option=BiobertSpecOption.esm2_bert_layer_local_spec.value,
-        )
         model = esm2_config.configure_model(tokenizer)
         yield model
+
+
+@pytest.fixture(scope="module")
+def sample_data() -> List[Tuple[str, str]]:
+    """Generates sample protein sequences for sanity checks, including mask tokens."""
+    max_length = 1022  # The maximum length of the protein sequences to be considered.
+    sample_data = [
+        (
+            "protein1",
+            "MNGTEGPNFYVPFSNATGVVRSPFEYPQYYLAEPWQFSMLAAYMFLLIVLGFPINFLTLYVTVQHKKLRTPLNYILLNLAVADLFMVLGGFTSTLYTSLHGYFVFGPTGCNLEGFFATLGGEIALWSLVVLAIERYVVVCKPMSNFRFGENHAIMGVAFTWVMALACAAPPLAGWSRYIPEGLQCSCGIDYYTLKPEVNNESFVIYMFVVHFTIPMIIIFFCYGQLVFTVKEAAAQQQESATTQKAEKEVTRMVIIMVIAFLICWVPYASVAFYIFTHQGSNFGPIFMTIPAFFAKSAAIYNPVIYIMMNKQFRNCMLTTICCGKNPLGDDEASATVSKTETSQVAPA",
+        ),
+        ("protein2", "MKTVRQERLKSIVRILERSKEPVSGAQLAEELSVSRQVIVQDIAYLRSLGYNIVATPRGYVLA"),
+        (
+            "protein3",
+            "MKTVRQERLKSI<mask>RILERSKEPVSGAQLAEELS<mask>SRQVIVQDIAYLRSLGYN<mask>VATPRGYVLAGG",
+        ),
+        (
+            "protein4",
+            "MKTVRQERLKSI<mask>RILERSKEPVSGAQLAEELS<mask>SRQVIVQDIAYLRSLGYN<mask>VATPRGYVLA",
+        ),
+    ]
+    # add another sample protein that uses the maximum length to test this edge case
+    sample_data.append(("protein5", (sample_data[0][1] * 3)[:max_length]))
+    yield sample_data
 
 
 def test_esm2_model_initialized(esm2_model):
@@ -86,3 +144,51 @@ def test_esm2_650m_checkpoint(esm2_model):
 
         missing_old_keys = old_keys.difference(new_keys)
         assert not missing_old_keys, "There are keys in the old checkpoint that are missing from the new model."
+
+
+def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
+    device = "cuda"
+
+    tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
+    tokens = tokenizer.tokenizer([row[1] for row in sample_data], return_tensors="pt", padding=True).to(device)
+    input_ids = tokens["input_ids"]
+    attention_mask = tokens["attention_mask"]
+
+    hf_model = EsmForMaskedLM.from_pretrained("facebook/esm2_t33_650M_UR50D")  # HF 650M model
+    hf_model = hf_model.to(device=device, dtype=get_autocast_dtype(32))
+
+    with torch.no_grad():
+        hf_output_all = hf_model(input_ids, attention_mask, output_hidden_states=True)
+        hf_logits = hf_output_all.logits
+        hf_embeddings = reduce_hiddens(hf_output_all.hidden_states[-1], attention_mask)
+
+        # free GPU RAM
+        del hf_model
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # configure the model to return logits
+        model = esm2_650M_config_w_ckpt.configure_model(tokenizer).to(device)
+        model.eval()
+        result = model(input_ids, attention_mask)
+        logits = result["token_logits"][..., : tokenizer.vocab_size]
+
+        # free GPU RAM
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # configure the model to return hiddens
+        esm2_650M_config_hiddens = deepcopy(esm2_650M_config_w_ckpt)
+        esm2_650M_config_hiddens.return_only_hidden_states = True
+        model = esm2_650M_config_hiddens.configure_model(tokenizer).to(device)
+        model.eval()
+        hiddens = model(input_ids, attention_mask)
+        embeddings = reduce_hiddens(torch.transpose(hiddens, 0, 1).float(), attention_mask)
+
+        logits_diff = (logits - hf_logits) * attention_mask.unsqueeze(-1)
+        logits_max_abs_diff = logits_diff.abs().max().item()
+        assert logits_max_abs_diff < 8e-2
+
+        embedding_max_abs_diff = (embeddings - hf_embeddings).abs().max()
+        assert embedding_max_abs_diff < 5e-3
