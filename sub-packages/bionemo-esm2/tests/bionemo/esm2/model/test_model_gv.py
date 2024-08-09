@@ -15,6 +15,7 @@
 
 
 import gc
+from copy import deepcopy
 from functools import partial
 from pathlib import Path
 from typing import List, Tuple, Union
@@ -22,11 +23,11 @@ from typing import List, Tuple, Union
 import pytest
 import torch
 from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
+from torch import Tensor
 from transformers import EsmForMaskedLM
 
 from bionemo import esm2
-from bionemo.esm2.api import ESM2Config, ESM2Model
-from bionemo.llm.model.biobert.model import BiobertSpecOption
+from bionemo.esm2.api import ESM2Config
 from bionemo.testing import megatron_parallel_state_utils
 
 
@@ -43,38 +44,28 @@ nemo1_checkpoint_path: Path = bionemo2_root / "models/protein/esm2nv/esm2nv_650M
 
 
 def register_hooks(model, hook_fn):
+    """register arbitrary hook_fn to access individual modules
+
+    Example usage:
+        new_outputs = {}
+        def capture_IO(name, module, input, output):
+            new_outputs[name] = (str(type(module)), input, output)
+
+        register_hooks(model, capture_IO)
+
+    Args:
+        model: PyTorch module
+        hook_fn: function to register as a hook
+    """
     for name, module in model.named_modules():
-        # if 'encoder.layers.1.' in name:
         module.register_forward_hook(partial(hook_fn, name))
 
 
 @pytest.fixture(scope="module")
-def esm2_config() -> ESM2Config:
+def esm2_650M_config() -> ESM2Config:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        esm2_config = ESM2Config(
-            gradient_accumulation_fusion=False,
-            apply_residual_connection_post_layernorm=False,
-            biobert_spec_option=BiobertSpecOption.esm2_bert_layer_local_spec.value,
-        )
+        esm2_config = ESM2Config(nemo1_ckpt_path=nemo1_checkpoint_path)
         yield esm2_config
-
-
-@pytest.fixture(scope="module")
-def esm2_model(esm2_config) -> ESM2Model:
-    with megatron_parallel_state_utils.distributed_model_parallel_state():
-        tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
-        model = esm2_config.configure_model(tokenizer)
-        yield model
-
-
-@pytest.fixture(scope="module")
-def esm2_model_from_nemo1(esm2_config) -> ESM2Model:
-    with megatron_parallel_state_utils.distributed_model_parallel_state():
-        tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
-        esm2_config.nemo1_ckpt_path = nemo1_checkpoint_path
-        # esm2_config.return_only_hidden_states = True
-        model = esm2_config.configure_model(tokenizer)
-        yield model
 
 
 def load_sample_protein_sequence_data(max_length: int = 1022) -> List[Tuple[str, str]]:
@@ -112,6 +103,27 @@ def load_sample_protein_sequence_data(max_length: int = 1022) -> List[Tuple[str,
     return sample_data
 
 
+def reduce_hiddens(hiddens: Tensor, attention_mask: Tensor) -> Tensor:
+    """reduce last layer's hidden values to embeddings
+
+    Args:
+        hiddens: [b, s, h] tensor of hidden values
+        attention_mask: [b, s] attention mask tensor
+
+    Returns:
+        reduced embedding tensor [b, h]
+    """
+    masks = torch.sum(attention_mask, dim=1)
+    embeddings = torch.zeros(
+        size=(hiddens.shape[0], hiddens.shape[2]),
+        dtype=torch.float32,
+        device=torch.cuda.current_device(),
+    )
+    for i, (hidden, mask) in enumerate(zip(hiddens, masks)):
+        embeddings[i, :] = torch.mean(hidden[1 : mask - 1], dim=0)
+    return embeddings
+
+
 def dtype_from_precision(precision: Union[str, int]) -> torch.dtype:
     """
     Determines the appropriate PyTorch data type (dtype) based on the given precision.
@@ -142,9 +154,10 @@ def dtype_from_precision(precision: Union[str, int]) -> torch.dtype:
     return dtype
 
 
-def test_esm2_logits(esm2_model_from_nemo1):
+def test_esm2_golden_values(esm2_650M_config):
     device = "cuda"
     sample_data = load_sample_protein_sequence_data()
+
     tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
     tokens = tokenizer.tokenizer([row[1] for row in sample_data], return_tensors="pt", padding=True)
     tokens["input_ids"] = tokens["input_ids"].to(device)
@@ -154,21 +167,37 @@ def test_esm2_logits(esm2_model_from_nemo1):
     hf_model = hf_model.to(device=device, dtype=dtype_from_precision(32))
 
     with torch.no_grad():
-        esm2_model_from_nemo1.eval()
-
-        hf_output_all = hf_model(**tokens, output_hidden_states=False)
+        hf_output_all = hf_model(**tokens, output_hidden_states=True)
         hf_logits = hf_output_all.logits
+        hf_embeddings = reduce_hiddens(hf_output_all.hidden_states[-1], tokens["attention_mask"])
 
-        # free GPU RAM for the NeMo model
+        # free GPU RAM
         del hf_model
         gc.collect()
         torch.cuda.empty_cache()
 
-        # Get hidden embeddings from the converted BioNeMo model
-        esm2_model_from_nemo1 = esm2_model_from_nemo1.to(device)
-        result = esm2_model_from_nemo1(tokens["input_ids"], tokens["attention_mask"])
-
+        # configure the model to return logits
+        model = esm2_650M_config.configure_model(tokenizer).to(device)
+        model.eval()
+        result = model(tokens["input_ids"], tokens["attention_mask"])
         logits = result["token_logits"][:, :, : tokenizer.vocab_size]
-        diff = (logits - hf_logits) * tokens["attention_mask"].unsqueeze(-1)
-        max_abs_diff = diff.abs().max().item()
-    assert max_abs_diff < 8e-2
+
+        # free GPU RAM
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # configure the model to return hiddens
+        esm2_650M_config_hiddens = deepcopy(esm2_650M_config)
+        esm2_650M_config_hiddens.return_only_hidden_states = True
+        model = esm2_650M_config_hiddens.configure_model(tokenizer).to(device)
+        model.eval()
+        hiddens = model(tokens["input_ids"], tokens["attention_mask"])
+        embeddings = reduce_hiddens(torch.transpose(hiddens, 0, 1).float(), tokens["attention_mask"])
+
+        logits_diff = (logits - hf_logits) * tokens["attention_mask"].unsqueeze(-1)
+        logits_max_abs_diff = logits_diff.abs().max().item()
+        assert logits_max_abs_diff < 8e-2
+
+        embedding_max_abs_diff = (embeddings - hf_embeddings).abs().max()
+        assert embedding_max_abs_diff < 5e-3
