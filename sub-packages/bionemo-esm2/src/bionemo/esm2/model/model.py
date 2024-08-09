@@ -18,6 +18,7 @@ import math
 import os
 import tarfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Literal, Optional, Sequence, Type
 
 import torch
@@ -301,7 +302,7 @@ class ESM2Config(BionemoModelConfig[ESM2Model], TransformerConfig):
     # TODO (@skothenhill,@jstjohn) come up with a nice way of doing fine-tuning checkpoint loading,
     #  where some acceptible layers (eg lm_head) may or may not be absent from the model, and others
     #  (like a new head) may be new and missing from the initial checkpoint.
-    nemo1_ckpt_path: Optional[str] = None
+    nemo1_ckpt_path: Optional[Path] = None
     # TODO (@jstjohn) come up with a cleaner way in the biobert module to return user requested
     #  things as part of the workflow for inference and fine-tuning.
     return_only_hidden_states: bool = False  # return logits
