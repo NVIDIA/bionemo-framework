@@ -213,10 +213,6 @@ class WDSModule(L.LightningDataModule):
 
         loader = loader.with_epoch(n_batches)
 
-        # strange features required by nemo optimizer lr_scheduler
-        loader.dataset = dataset  # seems like only length is used, webloader doesn't have this attr
-        loader.batch_size = self._global_batch_size
-        loader.drop_last = False
         return loader
 
 
