@@ -97,7 +97,7 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata,
     pipelines_wdl_batch = {
         Split.train : SizeAwareBatching(
                 max_total_size=size_cuda_mem,
-                size_fn=estimate_size),
+                size_fn=estimate_size, no_single_sample=True),
         Split.val : batch_pyg,
         Split.test : batch_pyg,
         }

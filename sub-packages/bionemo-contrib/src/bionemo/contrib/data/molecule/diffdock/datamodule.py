@@ -211,9 +211,6 @@ class WDSModule(L.LightningDataModule):
             loader = loader.compose(
                 self._pipeline_prebatch_wld[split])
 
-        if split == Split.train:
-            loader = loader.select(lambda x: len(x) > 1)
-
         loader = loader.with_epoch(n_batches)
 
         # strange features required by nemo optimizer lr_scheduler

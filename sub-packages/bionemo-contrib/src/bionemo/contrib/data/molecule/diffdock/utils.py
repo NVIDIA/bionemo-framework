@@ -181,11 +181,13 @@ class SizeAwareBatching:
         max_total_size: int,
         size_fn: Callable[[HeteroData], int],
         collate_fn: Callable[[List[Any]], Any] = Collater(dataset=None, follow_batch=None, exclude_keys=None),
+        no_single_sample : bool = True
     ):
         self.max_total_size = max_total_size
         self.size_fn = size_fn
         self.collate_fn = collate_fn
         self.cached_sizes = {}
+        self.no_single_sample = no_single_sample
 
     def __call__(self, data: Batch) -> Generator[Batch, None, None]:
         batch_size = 0
@@ -202,6 +204,12 @@ class SizeAwareBatching:
                 batch.append(sample)
                 batch_size += sample_size
             else:
+                if self.no_single_sample and len(batch) <= 1:
+                    # memory size requirement is met but there is less than 2
+                    # samples in the batch so skip
+                    batch = [sample]
+                    batch_size = sample_size
+                    continue
                 if self.collate_fn is not None:
                     batch = self.collate_fn(batch)
                 yield batch
