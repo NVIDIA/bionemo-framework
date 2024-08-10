@@ -16,7 +16,7 @@
 from enum import Enum, auto
 import glob
 import random
-from typing import Any, Dict, Generator, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Union
 import lightning as L
 import webdataset as wds
 
@@ -44,11 +44,12 @@ class WDSModule(L.LightningDataModule):
                                                                           int],
                  suffix_keys_wds : Iterable[str], global_batch_size : int,
                  prefix_tars_wds : str = "wdshards",
-                 pipeline_wds : Optional[Dict[Split, Generator[Any, None,
-                                                               None]]] = None,
-                 pipeline_prebatch_wld : Optional[Dict[Split, Generator[Any,
-                                                                        None,
-                                                                        None]]]
+                 pipeline_wds : Optional[Dict[Split,
+                                              Union[Iterable[Iterable[Any]],
+                                                    Iterable[Any]]]] =
+                 None, pipeline_prebatch_wld : Optional[Dict[Split,
+                                                             Union[Iterable[Iterable[Any]],
+                                                                   Iterable[Any]]]]
                  = None, seed_rng_shfl : int = 0,
                  kwargs_dl : Optional[Dict[Split, Dict[str,  str]]] = None):
         """constructor
@@ -74,19 +75,22 @@ class WDSModule(L.LightningDataModule):
             prefix_tars_wds (str): name prefix of the input webdataset tar
                 files. The input tar files are globbed by
                 "{dirs_tars_wds[split]}/{prefix_tars_wds}-*.tar"
-            pipeline_wds (Optional[Dict[Split, Generator[Any, None, None]]]): a
-                dictionary of webdatast composable, i.e., functor that maps a
-                generator to another generator that transforms the data sample
-                yield from the dataset object, for different splits. For
-                example, this can be used to transform the sample in the worker
-                before sending it to the main process of the dataloader
-            pipeline_prebatch_wld (Optional[Dict[Split, Generator[Any, None,
-                None]]]): a dictionary of webloader composable, i.e., functor
-                that maps a generator to another generator that transforms the
-                data sample yield from the WebLoader object, for different
-                splits. For example, this can be used for batching the samples.
-                NOTE: this is applied before batching is yield from the
-                WebLoader
+            pipeline_wds (Optional[Dict[Split, Union[Iterable[Iterable[Any]],
+                Iterable[Any]]]]): a dictionary of webdatast composable, i.e.,
+                functor that maps a iterator to another iterator that
+                transforms the data sample yield from the dataset object, for
+                different splits, or an iterable to such a sequence of such
+                iterators. For example, this can be used to transform the
+                sample in the worker before sending it to the main process of
+                the dataloader
+            pipeline_prebatch_wld (Optional[Dict[Split,
+                Union[Iterable[Iterable[Any]], Iterable[Any]]]]): a dictionary
+                of webloader composable, i.e., functor that maps a iterator to
+                another iterator that transforms the data sample yield from the
+                WebLoader object, for different splits, or an iterable to a
+                seuqnence of such iterators. For example, this can be used for
+                batching the samples. NOTE: this is applied before batching is
+                yield from the WebLoader
             seed_rng_shfl (int): seed to the random number generators used in
                 data loading time for shuffling
             kwargs_dl (Optional[Dict[Split, Dict[str,  str]]]): kwargs for data
@@ -157,7 +161,11 @@ class WDSModule(L.LightningDataModule):
             )
         if (self._pipeline_wds is not None and
                 self._pipeline_wds[split] is not None):
-            dataset = dataset.compose(self._pipeline_wds[split])
+            if isinstance(self._pipeline_wds[split],
+                          Iterable):
+                dataset = dataset.compose(*self._pipeline_wds[split])
+            else:
+                dataset = dataset.compose(self._pipeline_wds[split])
         if is_train:
             dataset = dataset.shuffle(size=16,
                                       rng=random.Random(self._seed_rng_shfl))
@@ -208,8 +216,12 @@ class WDSModule(L.LightningDataModule):
 
         if (self._pipeline_prebatch_wld is not None and
                 self._pipeline_prebatch_wld[split] is not None):
-            loader = loader.compose(
-                self._pipeline_prebatch_wld[split])
+            if isinstance(self._pipeline_prebatch_wld[split], Iterable):
+                loader = loader.compose(
+                    *self._pipeline_prebatch_wld[split])
+            else:
+                loader = loader.compose(
+                    self._pipeline_prebatch_wld[split])
 
         loader = loader.with_epoch(n_batches)
 

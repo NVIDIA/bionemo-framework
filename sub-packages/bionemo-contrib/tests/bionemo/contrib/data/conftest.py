@@ -15,6 +15,7 @@
 
 from enum import Enum, auto
 import os
+from typing import Any, Iterable
 import pytest
 from functools import partial
 import torch
@@ -64,6 +65,10 @@ def get_diffdock_heterodata(get_path, request):
     return (dir_heterodata, suffix_heterodata, names, model)
 
 
+def no_op_gen(it : Iterable[Any]):
+    yield from it
+
+
 def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata,
                                         suffix_heterodata, names):
     prefix_dir_tars_wds = tmp_path_factory.mktemp(
@@ -78,8 +83,8 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata,
                       tor_sigma_min, tor_sigma_max)
     # webdataset pipeline
     generateNoise = {
-        Split.train :  GenerateNoise(sigma_t, no_torsion, is_all_atom,
-                                     copy_ref_pos=False),
+        Split.train :  [GenerateNoise(sigma_t, no_torsion, is_all_atom,
+                                      copy_ref_pos=False), no_op_gen],
         Split.val:  GenerateNoise(sigma_t, no_torsion, is_all_atom,
                                      copy_ref_pos=True),
         Split.test:  GenerateNoise(sigma_t, no_torsion, is_all_atom,
@@ -98,7 +103,7 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata,
         Split.train : SizeAwareBatching(
                 max_total_size=size_cuda_mem,
                 size_fn=estimate_size, no_single_sample=True),
-        Split.val : batch_pyg,
+        Split.val : [batch_pyg, no_op_gen],
         Split.test : batch_pyg,
         }
     n_tars_wds = 4
