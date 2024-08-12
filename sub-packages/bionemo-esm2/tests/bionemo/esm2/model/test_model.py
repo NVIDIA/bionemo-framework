@@ -161,7 +161,7 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
 
     with torch.no_grad():
         hf_output_all = hf_model(input_ids, attention_mask, output_hidden_states=True)
-        hf_logits = hf_output_all.logits
+        hf_logits = hf_output_all.logits * attention_mask.unsqueeze(-1)
         hf_embeddings = reduce_hiddens(hf_output_all.hidden_states[-1], attention_mask)
 
         # free GPU RAM
@@ -174,6 +174,7 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         model.eval()
         result = model(input_ids, attention_mask)
         logits = result["token_logits"][..., : tokenizer.vocab_size]
+        logits = logits * attention_mask.unsqueeze(-1)  # incorporate masking logic
 
         # free GPU RAM
         del model
@@ -188,9 +189,5 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         hiddens = model(input_ids, attention_mask)
         embeddings = reduce_hiddens(torch.transpose(hiddens, 0, 1).float(), attention_mask)
 
-        logits_diff = (logits - hf_logits) * attention_mask.unsqueeze(-1)
-        logits_max_abs_diff = logits_diff.abs().max().item()
-        assert logits_max_abs_diff < 8e-2
-
-        embedding_max_abs_diff = (embeddings - hf_embeddings).abs().max()
-        assert embedding_max_abs_diff < 5e-3
+        assert torch.allclose(logits, hf_logits, atol=8e-2, rtol=0.0)
+        assert torch.allclose(embeddings, hf_embeddings, atol=5e-3, rtol=0.0)
