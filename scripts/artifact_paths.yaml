@@ -68,3 +68,7 @@ data:
         pbss: "s3://bionemo-ci/test-data/singlecell/nemo1_geneformer_qa_test_golden_values.pt"
         relative_download_dir: "test_data/"
         md5sum: 3e9e95b4ff05dfe825d5b850c3de1ee3 # pragma: allowlist secret
+    scdl_test:
+        pbss: "s3://bionemo-ci/test-data/scdl_sample_test.tar.gz"
+        relative_download_dir: "sub-packages/bionemo-scdl/tests/"
+        md5sum: c258fc181a6e87db80c47692ce12071a # pragma: allowlist secret

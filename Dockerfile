@@ -36,6 +36,8 @@ RUN apt-get update \
   sudo \
   && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get install -y gnupg
+
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
 RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
@@ -46,7 +48,7 @@ RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.0.3
 
 
-FROM bionemo2-base as pip-requirements
+FROM bionemo2-base AS pip-requirements
 
 # Copy and install pypi depedencies.
 RUN mkdir /tmp/pip-tmp
@@ -65,7 +67,7 @@ RUN find sub-packages/ -type d | grep "bionemo-[a-zA-Z0-9\-]*/" | xargs rm -rf &
     # only keep the requirements-related files
     find sub-packages/ -type f | grep -v -E "requirements.txt|pyproject.toml|setup.py" | xargs rm
 
-FROM bionemo2-base as dev
+FROM bionemo2-base AS dev
 
 RUN mkdir -p /workspace/bionemo2/
 WORKDIR /workspace/bionemo2
