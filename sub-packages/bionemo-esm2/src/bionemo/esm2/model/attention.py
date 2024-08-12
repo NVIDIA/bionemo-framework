@@ -70,10 +70,6 @@ class ESM2DotProductAttention(DotProductAttention):
             attention_dropout=attention_dropout,
         )
 
-        self.use_esm_attention = config.use_esm_attention
-        self.attention_softmax_in_fp32 = config.attention_softmax_in_fp32
-        self.normalize_attention_scores = config.normalize_attention_scores
-
     def forward(
         self,
         query: Tensor,
@@ -140,7 +136,7 @@ class ESM2DotProductAttention(DotProductAttention):
             query.transpose(0, 1),  # [b * np, sq, hn]
             key.transpose(0, 1).transpose(1, 2),  # [b * np, hn, sk]
             beta=0.0,
-            alpha=(1.0 / self.norm_factor) if self.normalize_attention_scores else 1.0,
+            alpha=(1.0 / self.norm_factor) if self.config.normalize_attention_scores else 1.0,
         )
 
         # change view to [b, np, sq, sk]
@@ -152,7 +148,7 @@ class ESM2DotProductAttention(DotProductAttention):
 
         # attention scores and attention mask [b, np, sq, sk]
         # ESM2 Customization
-        if self.use_esm_attention:
+        if self.config.use_esm_attention:
             # NOTE: the slicing here is to make the attention_mask the same shape as the extended
             # attention mask in ESM2. The multiplication by -3.4028e+38 (float32 min_val) is
             # similarly motivated by ESM2's masking approach, which forces softmax of attention scores
@@ -234,7 +230,9 @@ class ESM2DotProductAttention(DotProductAttention):
             )
 
         original_dtype = input.dtype  # Store original dtype
-        if (original_dtype == torch.float16 or original_dtype == torch.bfloat16) and self.attention_softmax_in_fp32:
+        if (
+            original_dtype == torch.float16 or original_dtype == torch.bfloat16
+        ) and self.config.attention_softmax_in_fp32:
             input = input.float()  # Convert to float32 for softmax
 
         if scale is not None:
@@ -245,7 +243,7 @@ class ESM2DotProductAttention(DotProductAttention):
 
         probs = torch.nn.functional.softmax(input, dim=-1)  # Apply softmax
 
-        if self.attention_softmax_in_fp32 and original_dtype in (torch.float16, torch.bfloat16):
+        if self.config.attention_softmax_in_fp32 and original_dtype in (torch.float16, torch.bfloat16):
             probs = probs.to(original_dtype)  # Convert back to original dtype if necessary
 
         return probs
