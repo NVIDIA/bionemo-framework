@@ -22,7 +22,7 @@ from megatron.core.utils import divide
 from torch import Tensor
 
 
-__all__: Sequence[str] = ("TELayerNorm", "ESM2QuaryScaling", "TorchLayerNorm", "TorchLinear")
+__all__: Sequence[str] = ("TELayerNorm", "ESM2QueryScaling", "TorchLayerNorm", "TorchLinear")
 
 
 class TELayerNorm(te.pytorch.LayerNorm):  # noqa: D101
@@ -43,7 +43,7 @@ class TELayerNorm(te.pytorch.LayerNorm):  # noqa: D101
         )
 
 
-class ESM2QuaryScaling(torch.nn.Module):  # noqa: D101
+class ESM2QueryScaling(torch.nn.Module):  # noqa: D101
     def __init__(self, config: TransformerConfig, *args, **kwargs) -> None:  # noqa: D417
         """A custom layer that scales quary values.
 
