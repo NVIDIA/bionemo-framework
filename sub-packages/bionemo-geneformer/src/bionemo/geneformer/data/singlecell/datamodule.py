@@ -14,9 +14,11 @@
 # limitations under the License.
 
 
+import functools
 from pathlib import Path
 from typing import List, Optional, Sequence
 
+import numpy as np
 import pytorch_lightning as pl
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
@@ -25,7 +27,10 @@ from tokenizers import Tokenizer
 from torch.utils.data import DataLoader
 
 from bionemo.core.data.resamplers import PRNGDatasetShuffler
+from bionemo.core.utils import random_utils
 from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
+from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
+from bionemo.llm.data import collate
 
 
 __all__: Sequence[str] = ("SingleCellDataModule",)
@@ -90,6 +95,8 @@ class SingleCellDataModule(pl.LightningDataModule):
         self.persistent_workers = persistent_workers
         self.pin_memory = pin_memory
         self.index_mapping_dir = index_mapping_dir or str(Path(self.data_path_train).parent)
+
+        rng = np.random.default_rng(seed)
         self._train_dataset_ori = SingleCellDataset(
             self.data_path_train,
             self.tokenizer,
@@ -98,6 +105,7 @@ class SingleCellDataModule(pl.LightningDataModule):
             mask_prob=self.mask_prob,
             mask_token_prob=self.mask_token_prob,
             random_token_prob=self.random_token_prob,
+            seed=random_utils.get_seed_from_rng(rng),
         )
         self._val_dataset_ori = SingleCellDataset(
             self.data_path_val,
@@ -107,6 +115,7 @@ class SingleCellDataModule(pl.LightningDataModule):
             mask_prob=self.mask_prob,
             mask_token_prob=self.mask_token_prob,
             random_token_prob=self.random_token_prob,
+            seed=random_utils.get_seed_from_rng(rng),
         )
         self._test_dataset_ori = SingleCellDataset(
             self.data_path_test,
@@ -116,6 +125,7 @@ class SingleCellDataModule(pl.LightningDataModule):
             mask_prob=self.mask_prob,
             mask_token_prob=self.mask_token_prob,
             random_token_prob=self.random_token_prob,
+            seed=random_utils.get_seed_from_rng(rng),
         )
 
         # This is needed here, or you need to specify it in the megatron adapter thing TODO name?
@@ -169,7 +179,12 @@ class SingleCellDataModule(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.persistent_workers,
-            # collate_fn=dataset.collate_fn,  No special work happens in this dataloader outside of getitem
+            collate_fn=functools.partial(
+                collate.bert_padding_collate_fn,
+                padding_value=self.tokenizer.token_to_id(GeneTokenizer.pad_token),
+                min_length=None,
+                max_length=self.max_len,
+            ),
             **kwargs,
         )
 

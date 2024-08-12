@@ -1,0 +1,31 @@
+site_name: BioNeMo Framework
+site_url: https://docs.nvidia.com/bionemo-framework/
+repo_url: https://github.com/NVIDIA/bionemo-fw-ea
+repo_name: NVIDIA/bionemo-fw-ea
+
+
+theme:
+  name: "material"
+  features:
+    - content.code.annotate
+    - navigation.tabs
+    - navigation.sections
+    - navigation.instant
+    - navigation.instant.prefetch
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - scripts/gen_ref_pages.py
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - /sub-packages/*/src
+
+markdown_extensions:
+  - pymdownx.snippets:
+      check_paths: true
+      restrict_base_path: False
+      base_path: "."

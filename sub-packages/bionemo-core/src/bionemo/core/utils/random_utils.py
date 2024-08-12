@@ -44,3 +44,11 @@ def random_numpy_context(seed: int = 42) -> Iterator[None]:
         yield
     finally:
         np.random.set_state(state)
+
+
+def get_seed_from_rng(rng: np.random.Generator) -> int:
+    """Generates a deterministic random seed from an existing random generator.
+
+    Used to seed a torch random generator from a numpy random generator.
+    """
+    return rng.integers(np.iinfo(np.int64).max)

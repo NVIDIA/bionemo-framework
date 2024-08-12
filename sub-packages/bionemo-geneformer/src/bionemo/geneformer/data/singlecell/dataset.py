@@ -16,30 +16,23 @@
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple, TypedDict
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
+import torch
 from nemo.utils import logging
 from torch.utils.data import Dataset
 
-from bionemo.geneformer.data.singlecell.utils import sample_or_truncate_plus_pad
+from bionemo.core.utils import random_utils
+from bionemo.geneformer.data.singlecell.utils import sample_or_truncate
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
+from bionemo.llm.data import masking, types
 
 
 __all__: Sequence[str] = (
     "SingleCellDataset",
-    "Item",
     "process_item",
 )
-
-
-class Item(TypedDict):  # noqa: D101
-    text: np.ndarray
-    types: np.ndarray
-    padding_mask: np.ndarray
-    labels: np.ndarray
-    loss_mask: np.ndarray
-    is_random: np.ndarray
 
 
 class SingleCellDataset(Dataset):
@@ -94,6 +87,7 @@ class SingleCellDataset(Dataset):
         random_token_prob: float = 0.1,
         prepend_cls_token: bool = True,
         assert_increasing_columns: bool = True,
+        seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
         super().__init__()
         self.data_path = data_path
@@ -102,6 +96,7 @@ class SingleCellDataset(Dataset):
         self.mask_token_prob = mask_token_prob
         self.mask_prob = mask_prob
         self.prepend_cls_token = prepend_cls_token
+        self._seed = seed
         # check if column indices are increasing for looking up genes. This is a way of spotting if the sc_memmap.py
         #  script produced properly strctured sparse files.
         self.assert_increasing_columns = assert_increasing_columns
@@ -198,8 +193,10 @@ class SingleCellDataset(Dataset):
         )
         return gene_data, col_idxs, feature_ids
 
-    def __getitem__(self, idx: int) -> Item:
-        """Performs a lookup and the required transformation for the model"""  # noqa: D415
+    def __getitem__(self, idx: int) -> types.BertSample:  # noqa: D105
+        rng = np.random.default_rng([self._seed, idx])
+
+        """Performs a lookup and the required transformation for the model"""
         gene_data, col_idxs, feature_ids = self.lookup_cell_by_idx(idx)
         return process_item(
             gene_data,
@@ -207,6 +204,7 @@ class SingleCellDataset(Dataset):
             feature_ids,
             self.tokenizer,
             gene_median=self.gene_medians,
+            rng=rng,
             max_len=self.max_len,
             mask_token_prob=self.mask_token_prob,
             mask_prob=self.mask_prob,
@@ -221,6 +219,7 @@ def process_item(  # noqa: D417
     feature_ids: np.ndarray,
     tokenizer: GeneTokenizer,
     gene_median: dict,
+    rng: np.random.Generator,
     max_len: int = 1024,
     mask_prob: float = 0.15,
     mask_token_prob: float = 0.8,
@@ -228,7 +227,7 @@ def process_item(  # noqa: D417
     target_sum: int = 10000,
     normalize: bool = True,
     prepend_cls_token: bool = True,
-) -> Item:
+) -> types.BertSample:
     """Process a single item in the dataset.
 
     Optionally performs median normalization and rank ordering. The tokenizers CLS token is added to the beginning
@@ -240,6 +239,7 @@ def process_item(  # noqa: D417
         feature_ids (list): Feature ids for the full dataset.
         tokenizer (Tokenizer): Tokenizer object.
         gene_median (optional(dict)): Dictionary of gene medians. Defaults to None. Expects ensembl IDs to be keys.
+        rng: Random number generator to ensure deterministic results.
         max_len (int): Maximum length of the item. Defaults to 1024. Applies padding to any sequence shorter than max_len and truncates any sequence longer than max_len.
         mask_prob (float): Probability of masking a token. Defaults to 0.15.
         target_sum (int): Target sum for normalization. Defaults to 10000.
@@ -258,14 +258,6 @@ def process_item(  # noqa: D417
     """
     if max_len < 1:
         raise ValueError(f"max_len must be greater than 1, {max_len=}")
-
-    if random_token_prob + mask_token_prob > 1.0:
-        raise ValueError(
-            "Sum of random_token_prob and mask_token_prob must be less than or equal to 1.0, identity_token_prob is any remainder less than 1.0."
-        )
-
-    identity_token_prob = 1.0 - (random_token_prob + mask_token_prob)
-    assert identity_token_prob >= 0.0
 
     if gene_median is None:
         raise ValueError("gene_median must be provided for this tokenizer")
@@ -296,62 +288,34 @@ def process_item(  # noqa: D417
         token_ids = token_ids[idxs]
 
     # - select max_len subset, set sample to false so it doesnt permute the already rank ordered expression values.
-    token_ids = sample_or_truncate_plus_pad(
-        token_ids, max_len, tokenizer.token_to_id(tokenizer.pad_token), sample=False
+    token_ids = sample_or_truncate(token_ids, max_len, sample=False)
+
+    masked_tokens, labels, loss_mask = masking.apply_bert_pretraining_mask(
+        tokenized_sequence=torch.from_numpy(token_ids),
+        random_seed=random_utils.get_seed_from_rng(rng),
+        mask_config=masking.BertMaskConfig(
+            mask_token=tokenizer.token_to_id(tokenizer.mask_token),
+            random_tokens=range(5, len(tokenizer.vocab)),
+            mask_prob=mask_prob,
+            mask_token_prob=mask_token_prob,
+            random_token_prob=random_token_prob,
+        ),
     )
 
-    mask = None
-    mask_tokens_positions = None
-    random_tokens_positions = None
-
-    # - masked tokens
-    if mask_prob > 0.0:
-        probs = np.full(token_ids.shape[0], mask_prob)
-        probs[token_ids == tokenizer.token_to_id(tokenizer.pad_token)] = 0.0
-        mask = np.random.binomial(1, probs).astype(bool)
-        mask_tokens_positions = mask & np.random.binomial(1, mask_token_prob, mask.shape).astype(bool)
-        random_tokens_positions = (
-            mask & np.random.binomial(1, random_token_prob, mask.shape).astype(bool) & (~mask_tokens_positions)
-        )
-        # - ensure [CLS] token is masked from the loss. Note that we're dealing with 1d arrays so flattening isn't a problem here.
-        if prepend_cls_token:
-            mask = np.insert(mask, 0, False)
-            mask_tokens_positions = np.insert(mask_tokens_positions, 0, False)
-            random_tokens_positions = np.insert(random_tokens_positions, 0, False)
-
-    # - add [CLS] token, note that token_ids is a 1d array so flattening isn't a problem here.
     if prepend_cls_token:
-        token_ids = np.insert(token_ids, 0, tokenizer.token_to_id(tokenizer.cls_token))
-    attention_mask = token_ids != tokenizer.token_to_id(tokenizer.pad_token)
-
-    labels = np.ones(len(token_ids)) * -1
-
-    if mask is None:
-        # If prob is set to zero, we get None for our mask, which could have unintended side effects.
-        # We abuse the scenario where mask == None
-        labels[mask] = token_ids[mask]
-        mask = np.zeros(shape=token_ids.shape, dtype=bool)
-    else:
-        mask[~attention_mask] = False  # make sure that we aren't doing MLM on [PAD] tokens
-        labels[mask] = token_ids[mask]
-    if mask_tokens_positions is None:
-        mask_tokens_positions = np.zeros_like(mask)
-    if random_tokens_positions is None:
-        random_tokens_positions = np.zeros_like(mask)
-    # identity_tokens = mask & (~mask_tokens_positions) & (~random_tokens_positions), not needed because
-    token_ids[mask_tokens_positions] = tokenizer.token_to_id(tokenizer.mask_token)
-    # There are 5 special tokens in the tokenizer, so we start from 5. TODO make this a parameter of the tokenizer.
-    if random_tokens_positions.sum() > 0:
-        token_ids[random_tokens_positions] = np.random.randint(5, len(tokenizer.vocab), random_tokens_positions.sum())
+        masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
+            sequence=masked_tokens,
+            labels=labels,
+            loss_mask=loss_mask,
+            cls_token=tokenizer.token_to_id(tokenizer.cls_token),
+        )
 
     # NeMo megatron assumes this return structure.
-    item = {
-        "text": token_ids.astype(np.int64),
-        "types": np.zeros_like(token_ids).astype(np.int64),
-        "attention_mask": attention_mask.astype(np.int64),
-        "labels": labels.astype(np.int64),
-        "loss_mask": mask,
-        "is_random": np.zeros_like(token_ids).astype(np.int64),
+    return {
+        "text": masked_tokens,
+        "types": torch.zeros_like(masked_tokens, dtype=torch.int64),
+        "attention_mask": torch.ones_like(masked_tokens, dtype=torch.int64),
+        "labels": labels,
+        "loss_mask": loss_mask,
+        "is_random": torch.zeros_like(masked_tokens, dtype=torch.int64),
     }
-
-    return item

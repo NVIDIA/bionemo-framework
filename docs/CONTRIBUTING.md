@@ -1,4 +1,4 @@
-# Contributing guidelines for internal bionemo2 contributions
+# Contributing Guidelines
 
 Note: For code review standards please see [CODE-REVIEW](CODE-REVIEW.md)
 
@@ -10,7 +10,7 @@ Note: For all PRs, an approved NVIDIA staff member must sign off and trigger the
 This page contains the Python coding standards for the BioNeMo repository. They apply to all Python code in the repository (unless external constraints prevent it).
 
 
-# General principles
+## General principles
 
 ## Coding Style
 - We follow the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html) with a few tweaks.

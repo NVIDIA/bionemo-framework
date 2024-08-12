@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 import tarfile
 from copy import deepcopy
 from pathlib import Path
@@ -34,6 +35,7 @@ from bionemo.core.utils.random_utils import random_numpy_context
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
+from bionemo.llm.data import collate
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
@@ -171,9 +173,11 @@ def test_nemo1_nemo2_weight_shapes_match(geneformer_config, seed: int = 42):
     if not train_data_path.exists():
         raise FileNotFoundError(f"Could not find train data at {train_data_path}. {data_error_str}")
 
-    with tarfile.open(
-        nemo1_checkpoint_path, "r"
-    ) as old_ckpt, torch.no_grad(), megatron_parallel_state_utils.distributed_model_parallel_state(seed):
+    with (
+        tarfile.open(nemo1_checkpoint_path, "r") as old_ckpt,
+        torch.no_grad(),
+        megatron_parallel_state_utils.distributed_model_parallel_state(seed),
+    ):
         ckpt_file = old_ckpt.extractfile("./model_weights.ckpt")
         old_weights = torch.load(ckpt_file)
         preprocessor = GeneformerPreprocess(
@@ -442,9 +446,11 @@ def test_geneformer_inference_nemo1_v_nemo2_golden_values_by_layer(
     if not train_data_path.exists():
         raise FileNotFoundError(f"Could not find train data at {train_data_path}. {data_error_str}")
 
-    with tarfile.open(
-        nemo1_checkpoint_path, "r"
-    ) as old_ckpt, torch.inference_mode(), megatron_parallel_state_utils.distributed_model_parallel_state(seed):
+    with (
+        tarfile.open(nemo1_checkpoint_path, "r") as old_ckpt,
+        torch.inference_mode(),
+        megatron_parallel_state_utils.distributed_model_parallel_state(seed),
+    ):
         ckpt_file = old_ckpt.extractfile("./model_weights.ckpt")
         old_weights = torch.load(ckpt_file)
         new_state_dict_from_old = {}
@@ -626,9 +632,11 @@ def _get_loss_from_model(model_config: GeneformerConfig, seed: int) -> float:
     data_dir = Path(data_path)
     train_data_path = data_dir / "train"
     test_data_path = data_dir / "test"
-    with torch.inference_mode(), megatron_parallel_state_utils.distributed_model_parallel_state(
-        seed
-    ), random_numpy_context(seed):
+    with (
+        torch.inference_mode(),
+        megatron_parallel_state_utils.distributed_model_parallel_state(seed),
+        random_numpy_context(seed),
+    ):
         preprocessor = GeneformerPreprocess(
             download_directory=train_data_path,
             medians_file_path=train_data_path / "medians.json",
@@ -659,8 +667,9 @@ def _get_loss_from_model(model_config: GeneformerConfig, seed: int) -> float:
             max_len=2048,
             mask_prob=0.15,
             mask_token_prob=0.8,
-            random_token_prob=0.1,  # TODO: once this is fixed, change to 0.02 to match the prior numbers.
+            random_token_prob=0.02,
             prepend_cls_token=True,
+            seed=42,
         )
         dss = PRNGDatasetShuffler(
             ds,
@@ -671,6 +680,12 @@ def _get_loss_from_model(model_config: GeneformerConfig, seed: int) -> float:
             batch_size=8,
             shuffle=False,
             num_workers=0,
+            collate_fn=functools.partial(
+                collate.bert_padding_collate_fn,
+                padding_value=tokenizer.token_to_id(tokenizer.pad_token),
+                min_length=None,
+                max_length=2048,
+            ),
             drop_last=False,
         )
         loss = 0

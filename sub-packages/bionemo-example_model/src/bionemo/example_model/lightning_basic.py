@@ -16,7 +16,7 @@
 """This is intended to be a minimal self-container NeMo2 example."""
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Sequence, Tuple, TypedDict
+from typing import Any, Dict, Optional, Sequence, Tuple, TypedDict
 
 import pytorch_lightning as pl
 import torch
@@ -75,8 +75,8 @@ class MSELossReduction(MegatronLossReduction):
 
         Returns:
             A tuple containing [<loss_tensor>, ReductionT] where the loss tensor will be used for
-            backpropagation and the ReductionT will be passed to the reduce method
-            (which currently only works for logging.).
+                backpropagation and the ReductionT will be passed to the reduce method
+                (which currently only works for logging.).
         """
         x = batch["data"]
         x_hat = forward_out
@@ -117,7 +117,7 @@ class LitAutoEncoder(pl.LightningModule):
         # Bind the configure_optimizers method to the model
         self.optim.connect(self)
 
-    def forward(self, batch: Dict, batch_idx: int):
+    def forward(self, batch: Dict, batch_idx: int) -> Any:
         """This forward will be called by the megatron scheduler and it will be wrapped.
 
         !!! note

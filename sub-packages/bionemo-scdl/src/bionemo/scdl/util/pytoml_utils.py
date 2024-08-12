@@ -13,29 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import numpy as np
+import tomli
 
 
-def sample_or_truncate(
-    gene_ids: np.ndarray,
-    max_length: int,
-    sample: bool = True,
-) -> np.ndarray:
-    """Truncate and pad samples.
-
-    Args:
-        gene_ids (np.ndarray): Array of gene IDs.
-        max_length (int): Maximum length of the samples.
-        sample (bool, optional): Whether to sample or truncate the samples. Defaults to True.
-
-    Returns:
-        np.array: Tuple containing the truncated or padded gene IDs.
-    """
-    if len(gene_ids) <= max_length:
-        return gene_ids
-
-    if sample:
-        indices = np.random.permutation(len(gene_ids))[:max_length]
-        return gene_ids[indices]
-    else:
-        return gene_ids[:max_length]
+def get_version_from_pyproject():
+    """Get the code version from pyproject.toml file."""
+    with open("pyproject.toml", "rb") as f:
+        pyproject_data = tomli.load(f)
+    return pyproject_data["project"]["version"]

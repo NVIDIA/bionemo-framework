@@ -169,7 +169,7 @@ def main(
         train_dataset_path=train_data_path,
         val_dataset_path=val_data_path,
         test_dataset_path=test_data_path,
-        random_token_prob=0.1,  # this is the incorrect setting we originally used.
+        random_token_prob=0.02,  # changed to represent the incorrect setting we originally used.
         median_dict=median_dict,
         micro_batch_size=micro_batch_size,
         global_batch_size=micro_batch_size * int(num_nodes * devices / pipeline_model_parallel_size),
