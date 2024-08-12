@@ -155,8 +155,8 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
     attention_mask = tokens["attention_mask"]
 
     # HF 650M model
-    hf_model = EsmForMaskedLM.from_pretrained(
-        "facebook/esm2_t33_650M_UR50D", device_map=device, torch_dtype=get_autocast_dtype(32)
+    hf_model = EsmForMaskedLM.from_pretrained("facebook/esm2_t33_650M_UR50D", torch_dtype=get_autocast_dtype(32)).to(
+        device
     )
 
     with torch.no_grad():
@@ -193,4 +193,4 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         assert logits_max_abs_diff < 8e-2
 
         embedding_max_abs_diff = (embeddings - hf_embeddings).abs().max()
-        assert embedding_max_abs_diff < 5e-3
+        assert embedding_max_abs_diff < 4e-3
