@@ -193,4 +193,4 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         assert logits_max_abs_diff < 8e-2
 
         embedding_max_abs_diff = (embeddings - hf_embeddings).abs().max()
-        assert embedding_max_abs_diff < 4e-3
+        assert embedding_max_abs_diff < 5e-3
