@@ -44,16 +44,15 @@ class TELayerNorm(te.pytorch.LayerNorm):  # noqa: D101
 
 
 class ESM2QuaryScaling(torch.nn.Module):
-    """A custom layer that scales quary values
-
-    This layer should replace the q_layernorm=IdentityOp in ESM2 ModuleSpec to reproduce ESM2
-    which apply 1/sqrt(hidden_size_per_attention_head) scaling prior to apply_rotary_pos_emb()
-
-    Args:
-        config (TransformerConfig): The megatron config. This is used for computing projection_size
-    """
-
     def __init__(self, config: TransformerConfig, *args, **kwargs) -> None:
+        """A custom layer that scales quary values
+
+        This layer should replace the q_layernorm=IdentityOp in ESM2 ModuleSpec to reproduce ESM2
+        which apply 1/sqrt(hidden_size_per_attention_head) scaling prior to apply_rotary_pos_emb()
+
+        Args:
+            config (TransformerConfig): The megatron config. This is used for computing projection_size
+        """
         super().__init__()
         projection_size = config.kv_channels * config.num_attention_heads
         self.hidden_size_per_attention_head = divide(projection_size, config.num_attention_heads)
@@ -63,24 +62,22 @@ class ESM2QuaryScaling(torch.nn.Module):
 
 
 class TorchLayerNorm(torch.nn.LayerNorm):
-    """A wrapper around PyTorch LayerNorm
-
-    This layer should replace FusedLayerNorm in TransformerLayerSubmodules to ensure equivalency
-    of ESM2 logits with HF implementation
-    """
-
     def __init__(self, config: TransformerConfig, hidden_size: int, eps: float, *args, **kwargs) -> None:
+        """A wrapper around PyTorch LayerNorm
+
+        This layer should replace FusedLayerNorm in TransformerLayerSubmodules to ensure equivalency
+        of ESM2 logits with HF implementation
+        """
         super().__init__(normalized_shape=hidden_size, eps=eps, elementwise_affine=True)
 
 
 class TorchLinear(torch.nn.Linear):
-    """A wrapper around PyTorch Linear
-
-    This layer should replace RowParallelLinear in TransformerLayerSubmodules to ensure equivalency
-    of ESM2 logits with HF implementation
-    """
-
     def __init__(self, input_size, output_size, config, init_method, bias, *args, **kwargs):
+        """A wrapper around PyTorch Linear
+
+        This layer should replace RowParallelLinear in TransformerLayerSubmodules to ensure equivalency
+        of ESM2 logits with HF implementation
+        """
         super().__init__(in_features=input_size, out_features=output_size, bias=bias)
 
     def forward(self, input: Tensor) -> Tuple[Tensor, Tensor]:
