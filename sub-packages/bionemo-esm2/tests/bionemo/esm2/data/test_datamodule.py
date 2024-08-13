@@ -15,39 +15,20 @@
 
 from unittest import mock
 
-import pandas as pd
 import pytest
 import torch.utils.data
 
 from bionemo.esm2.data.datamodule import ESMDataModule
 
 
-def _create_dummy_parquet_inputs(tmp_path):
-    train_cluster_path = tmp_path / "train_clusters.parquet"
-    train_clusters = pd.DataFrame(
-        {
-            "ur90_id": [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]],
-        }
-    )
-    train_clusters.to_parquet(train_cluster_path)
-
-    valid_cluster_path = tmp_path / "valid_clusters.parquet"
-    valid_clusters = pd.DataFrame(
-        {
-            "ur50_id": ["UniRef50_A", "UniRef50_B"],
-        }
-    )
-    valid_clusters.to_parquet(valid_cluster_path)
-
-
-def test_create_esm_datamodule_raises_without_trainer(tmp_path, dummy_protein_dataset):
-    _create_dummy_parquet_inputs(tmp_path)
+def test_create_esm_datamodule_raises_without_trainer(dummy_protein_dataset, dummy_parquet_train_val_inputs):
+    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
     # Initialize the data module.
     data_module = ESMDataModule(
-        train_cluster_path=tmp_path / "train_clusters.parquet",
+        train_cluster_path=train_cluster_path,
         train_database_path=dummy_protein_dataset,
-        valid_cluster_path=tmp_path / "valid_clusters.parquet",
+        valid_cluster_path=valid_cluster_path,
         valid_database_path=dummy_protein_dataset,
     )
     assert data_module is not None
@@ -56,14 +37,14 @@ def test_create_esm_datamodule_raises_without_trainer(tmp_path, dummy_protein_da
         data_module.setup()
 
 
-def test_create_esm_datamodule_raises_without_trainer_max_steps(tmp_path, dummy_protein_dataset):
-    _create_dummy_parquet_inputs(tmp_path)
+def test_create_esm_datamodule_raises_without_trainer_max_steps(dummy_protein_dataset, dummy_parquet_train_val_inputs):
+    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
     # Initialize the data module.
     data_module = ESMDataModule(
-        train_cluster_path=tmp_path / "train_clusters.parquet",
+        train_cluster_path=train_cluster_path,
         train_database_path=dummy_protein_dataset,
-        valid_cluster_path=tmp_path / "valid_clusters.parquet",
+        valid_cluster_path=valid_cluster_path,
         valid_database_path=dummy_protein_dataset,
     )
     assert data_module is not None
@@ -76,14 +57,14 @@ def test_create_esm_datamodule_raises_without_trainer_max_steps(tmp_path, dummy_
         data_module.setup()
 
 
-def test_create_esm_datamodule_creates_valid_dataloaders(tmp_path, dummy_protein_dataset):
-    _create_dummy_parquet_inputs(tmp_path)
+def test_create_esm_datamodule_creates_valid_dataloaders(dummy_protein_dataset, dummy_parquet_train_val_inputs):
+    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
     # Initialize the data module.
     data_module = ESMDataModule(
-        train_cluster_path=tmp_path / "train_clusters.parquet",
+        train_cluster_path=train_cluster_path,
         train_database_path=dummy_protein_dataset,
-        valid_cluster_path=tmp_path / "valid_clusters.parquet",
+        valid_cluster_path=valid_cluster_path,
         valid_database_path=dummy_protein_dataset,
         global_batch_size=8,
         micro_batch_size=4,

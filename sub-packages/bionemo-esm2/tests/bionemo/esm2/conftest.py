@@ -16,6 +16,7 @@
 
 import sqlite3
 
+import pandas as pd
 import pytest
 
 from bionemo.esm2.data.tokenizer import get_tokenizer
@@ -56,3 +57,23 @@ def dummy_protein_dataset(tmp_path):
     conn.close()
 
     return db_file
+
+
+@pytest.fixture
+def dummy_parquet_train_val_inputs(tmp_path):
+    train_cluster_path = tmp_path / "train_clusters.parquet"
+    train_clusters = pd.DataFrame(
+        {
+            "ur90_id": [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]],
+        }
+    )
+    train_clusters.to_parquet(train_cluster_path)
+
+    valid_cluster_path = tmp_path / "valid_clusters.parquet"
+    valid_clusters = pd.DataFrame(
+        {
+            "ur50_id": ["UniRef50_A", "UniRef50_B"],
+        }
+    )
+    valid_clusters.to_parquet(valid_cluster_path)
+    return train_cluster_path, valid_cluster_path
