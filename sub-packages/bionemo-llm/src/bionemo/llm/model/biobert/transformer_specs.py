@@ -159,7 +159,7 @@ def get_biobert_spec(  # noqa: D417
             esm2_bert_layer_local_spec = spec_utils.ModuleSpec(
                 module=TransformerLayer,
                 submodules=TransformerLayerSubmodules(
-                    input_layernorm=FusedLayerNorm,  # TODO: @farhadr bionemo.llm.model.layers.TorchLayerNorm
+                    input_layernorm=FusedLayerNorm,
                     self_attention=spec_utils.ModuleSpec(
                         module=SelfAttention,
                         params={"attn_mask_type": AttnMaskType.padding},
@@ -172,12 +172,12 @@ def get_biobert_spec(  # noqa: D417
                         ),
                     ),
                     self_attn_bda=get_bias_dropout_add,
-                    pre_mlp_layernorm=FusedLayerNorm,  # TODO: @farhadr bionemo.llm.model.layers.TorchLayerNorm
+                    pre_mlp_layernorm=FusedLayerNorm,
                     mlp=spec_utils.ModuleSpec(
                         module=MLP,
                         submodules=MLPSubmodules(
                             linear_fc1=ColumnParallelLinear,
-                            linear_fc2=RowParallelLinear,  # TODO: @farhadr bionemo.llm.model.layers.TorchLinear
+                            linear_fc2=RowParallelLinear,
                         ),
                     ),
                     mlp_bda=get_bias_dropout_add,
