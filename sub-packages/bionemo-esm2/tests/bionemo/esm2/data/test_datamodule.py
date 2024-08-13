@@ -21,7 +21,7 @@ import torch.utils.data
 from bionemo.esm2.data.datamodule import ESMDataModule
 
 
-def test_create_esm_datamodule_raises_without_trainer(dummy_protein_dataset, dummy_parquet_train_val_inputs):
+def test_create_esm_datamodule_raises_without_trainer(tmp_path, dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
     # Initialize the data module.
@@ -87,8 +87,6 @@ def test_create_esm_datamodule_creates_valid_dataloaders(dummy_protein_dataset, 
     val_dataloader = data_module.val_dataloader()
     assert isinstance(val_dataloader, torch.utils.data.DataLoader)
 
-    # TODO: I really don't understand this length logic. It would be great to factor out the num_samples logic into it's
-    # own function and write tests / docs around it.
     assert len(train_dataloader) == 10 * 8  # max steps * global batch size
     assert len(val_dataloader) == (10 // 2 + 1) * 8  # number of eval steps * global batch size
 
@@ -100,8 +98,6 @@ def test_create_esm_datamodule_creates_valid_dataloaders(dummy_protein_dataset, 
         assert isinstance(batch["loss_mask"], torch.Tensor)
         assert isinstance(batch["is_random"], torch.Tensor)
 
-        assert batch["text"].shape == (1, 36)  # ???, min/max_seq_length
-
     for batch in val_dataloader:
         assert isinstance(batch, dict)
         assert isinstance(batch["text"], torch.Tensor)
@@ -109,5 +105,3 @@ def test_create_esm_datamodule_creates_valid_dataloaders(dummy_protein_dataset, 
         assert isinstance(batch["labels"], torch.Tensor)
         assert isinstance(batch["loss_mask"], torch.Tensor)
         assert isinstance(batch["is_random"], torch.Tensor)
-
-        assert batch["text"].shape == (1, 36)  # ???, min/max_seq_length

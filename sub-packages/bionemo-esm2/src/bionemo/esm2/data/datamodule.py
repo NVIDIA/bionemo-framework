@@ -25,6 +25,7 @@ from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 
+from bionemo.core.utils import random_utils
 from bionemo.esm2.data import dataset, tokenizer
 from bionemo.llm.data import collate
 
@@ -79,7 +80,7 @@ class ESMDataModule(pl.LightningDataModule):
         self._train_database_path = train_database_path
         self._valid_cluster_path = valid_cluster_path
         self._valid_database_path = valid_database_path
-        self._seed_sequence = np.random.SeedSequence(seed)
+        self._seed = seed
         self._min_seq_length = min_seq_length
         self._max_seq_length = max_seq_length
         self._mask_prob = mask_prob
@@ -110,6 +111,7 @@ class ESMDataModule(pl.LightningDataModule):
             RuntimeError: If the trainer is not attached, or if the trainer's max_steps is not set.
         """
         del stage  # Unused.
+        rng = np.random.default_rng(self._seed)
 
         if not hasattr(self, "trainer") or self.trainer is None:
             raise RuntimeError("Setup should be completed when trainer and config are attached.")
@@ -136,7 +138,7 @@ class ESMDataModule(pl.LightningDataModule):
             cluster_file=self._train_cluster_path,
             db_path=self._train_database_path,
             total_samples=num_train_samples,
-            seed=_get_seed(self._seed_sequence),
+            seed=random_utils.get_seed_from_rng(rng),
             max_seq_length=self._max_seq_length,
             mask_prob=self._mask_prob,
             mask_token_prob=self._mask_token_prob,
@@ -148,7 +150,7 @@ class ESMDataModule(pl.LightningDataModule):
             cluster_file=self._valid_cluster_path,
             db_path=self._valid_database_path,
             total_samples=num_val_samples,
-            seed=_get_seed(self._seed_sequence),
+            seed=random_utils.get_seed_from_rng(rng),
             max_seq_length=self._max_seq_length,
             mask_prob=self._mask_prob,
             mask_token_prob=self._mask_token_prob,
@@ -185,11 +187,6 @@ class ESMDataModule(pl.LightningDataModule):
         """Returns the dataloader for validation data."""
         return self._create_dataloader(self._valid_ds)
 
-
-def _get_seed(seed_sequence: np.random.SeedSequence) -> int:
-    """Helper function to generate a new seed from a seed sequence.
-
-    By spawning a new seed sequence and generating a new state, we can ensure that each seed generated from the input
-    seed sequence is unique.
-    """
-    return seed_sequence.spawn(1)[0].generate_state(1)[0]
+    def test_dataloader(self) -> EVAL_DATALOADERS:
+        """Raises a not implemented error."""
+        raise NotImplementedError("No test dataset provided for ESM2")
