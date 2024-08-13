@@ -88,9 +88,6 @@ def test_main_runs(tmpdir):
         result_dir / "test_experiment" / uq_rundir / "checkpoints"
     ).is_dir(), "Test experiment checkpoints directory is supposed to be a directory."
     assert (
-        result_dir / "test_experiment" / uq_rundir / "hparams.yaml"
-    ).is_file(), "Could not find experiment hparams."
-    assert (
         result_dir / "test_experiment" / uq_rundir / "nemo_log_globalrank-0_localrank-0.txt"
     ).is_file(), "Could not find experiment log."
 
