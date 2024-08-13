@@ -21,22 +21,21 @@ from pathlib import Path
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 from pretrain import main  # TODO: needs to be refactored to a package and imported!
 
-from bionemo import geneformer
+from bionemo import esm2
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 
 
-# TODO(@jstjohn) use fixtures for pulling down data and checkpoints
 # python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss
 bionemo2_root: Path = (
-    # geneformer module's path is the most dependable --> don't expect this to change!
-    Path(geneformer.__file__)
-    # This gets us from 'sub-packages/bionemo-geneformer/src/bionemo/esm2/__init__.py' to 'sub-packages/bionemo-geneformer'
+    # esm2 module's path is the most dependable --> don't expect this to change!
+    Path(esm2.__file__)
+    # This gets us from 'sub-packages/bionemo-esm2/src/bionemo/esm2/__init__.py' to 'sub-packages/bionemo-esm2'
     .parent.parent.parent.parent
     # From here, we want to get to the root of the repository: _before_ sub-packages/
     .parent.parent
 ).absolute()
 assert bionemo2_root != Path("/")
-data_path: Path = bionemo2_root / "test_data/cellxgene_2023-12-15_small/processed_data"
+data_path: Path = bionemo2_root / "test_data/???"  # TODO: farhadr fix test data
 
 
 def test_bionemo2_rootdir():
@@ -62,14 +61,13 @@ def test_main_runs(tmpdir):
         wandb_project=None,
         wandb_offline=True,
         num_steps=55,
+        warmup_steps=5,
         limit_val_batches=1,
         val_check_interval=1,
         num_dataset_workers=0,
-        biobert_spec_option=BiobertSpecOption.bert_layer_local_spec,
+        biobert_spec_option=BiobertSpecOption.esm2_bert_layer_local_spec,
         lr=1e-4,
         micro_batch_size=2,
-        cosine_rampup_frac=0.01,
-        cosine_hold_frac=0.01,
         precision="bf16-mixed",
         experiment_name="test_experiment",
         resume_if_exists=False,
@@ -100,7 +98,7 @@ def test_pretrain_cli(tmpdir):
     open_port = find_free_network_port()
     # NOTE: if you need to change the following command, please update the README.md example.
     cmd_str = f"""python  \
-    scripts/singlecell/geneformer/pretrain.py     \
+    scripts/protein/esm2/pretrain.py     \
     --data-dir {data_path}     \
     --result-dir {result_dir}     \
     --experiment-name test_experiment     \
