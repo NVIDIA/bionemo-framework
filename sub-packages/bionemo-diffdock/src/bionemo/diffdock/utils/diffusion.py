@@ -1,4 +1,20 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -19,14 +35,14 @@ import torch.nn.functional as F
 from torch import nn
 from torch_geometric.data.hetero_data import HeteroData
 
-from bionemo.contrib.model.molecule.diffdock.utils import so3, torus
-from bionemo.contrib.model.molecule.diffdock.utils.geometry import axis_angle_to_matrix, rigid_transform_Kabsch_3D_torch
-from bionemo.contrib.model.molecule.diffdock.utils.torsion import modify_conformer_torsion_angles
+from bionemo.diffdock.utils import so3, torus
+from bionemo.diffdock.utils.geometry import axis_angle_to_matrix, rigid_transform_Kabsch_3D_torch
+from bionemo.diffdock.utils.torsion import modify_conformer_torsion_angles
 
 
-def t_to_sigma(tr_sigma_min, tr_sigma_max, rot_sigma_min,
-               rot_sigma_max, tor_sigma_min, tor_sigma_max,
-               t_tr, t_rot, t_tor):
+def t_to_sigma(
+    tr_sigma_min, tr_sigma_max, rot_sigma_min, rot_sigma_max, tor_sigma_min, tor_sigma_max, t_tr, t_rot, t_tor
+):
     tr_sigma = tr_sigma_min ** (1 - t_tr) * tr_sigma_max**t_tr
     rot_sigma = rot_sigma_min ** (1 - t_rot) * rot_sigma_max**t_rot
     tor_sigma = tor_sigma_min ** (1 - t_tor) * tor_sigma_max**t_tor
@@ -163,17 +179,19 @@ class GenerateNoise:
         copy_ref_pos (bool): whether or not make a copy of the input ligand position
     """
 
-    def __init__(self, t_to_sigma: Callable[[float, float, float], Tuple[float,
-                                                                         float,
-                                                                         float]],
-                 no_torsion: bool, all_atom: bool, copy_ref_pos: bool = False):
+    def __init__(
+        self,
+        t_to_sigma: Callable[[float, float, float], Tuple[float, float, float]],
+        no_torsion: bool,
+        all_atom: bool,
+        copy_ref_pos: bool = False,
+    ):
         self.t_to_sigma = t_to_sigma
         self.no_torsion = no_torsion
         self.all_atom = all_atom
         self._copy_ref_pos = copy_ref_pos
 
-    def __call__(self, source : Generator[HeteroData, None, None]) \
-            -> Generator[HeteroData, None, None]:
+    def __call__(self, source: Generator[HeteroData, None, None]) -> Generator[HeteroData, None, None]:
         for (data,) in source:
             if self._copy_ref_pos:
                 data["ligand"].aligned_pos = deepcopy(data["ligand"].pos)

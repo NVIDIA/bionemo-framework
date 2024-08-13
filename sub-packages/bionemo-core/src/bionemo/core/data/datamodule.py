@@ -13,16 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from enum import Enum, auto
 import glob
 import random
+from enum import Enum, auto
 from typing import Any, Dict, Iterable, List, Optional, Union
+
 import lightning as L
 import webdataset as wds
 
-from bionemo.contrib.data.molecule.diffdock.utils import (
-    pickles_to_tars
-    )
+from bionemo.core.data.utils import pickles_to_tars
 
 
 class Split(Enum):
@@ -32,7 +31,6 @@ class Split(Enum):
 
 
 class WDSModule(L.LightningDataModule):
-
     """lightning data module for using webdataset tar files to setup dataset and
     dataloader. This data module takes a dictionary: Split -> tar file
     directory. In its setup() function, it creates the webdataset object
@@ -40,18 +38,18 @@ class WDSModule(L.LightningDataModule):
     train/val/test_dataloader(), it creates the WebLoader object chaining up the
     `pipeline_prebatch_wld` workflow"""
 
-    def __init__(self, dirs_tars_wds : Dict[Split, str], n_samples : Dict[Split,
-                                                                          int],
-                 suffix_keys_wds : Iterable[str], global_batch_size : int,
-                 prefix_tars_wds : str = "wdshards",
-                 pipeline_wds : Optional[Dict[Split,
-                                              Union[Iterable[Iterable[Any]],
-                                                    Iterable[Any]]]] =
-                 None, pipeline_prebatch_wld : Optional[Dict[Split,
-                                                             Union[Iterable[Iterable[Any]],
-                                                                   Iterable[Any]]]]
-                 = None, seed_rng_shfl : int = 0,
-                 kwargs_dl : Optional[Dict[Split, Dict[str,  str]]] = None):
+    def __init__(
+        self,
+        dirs_tars_wds: Dict[Split, str],
+        n_samples: Dict[Split, int],
+        suffix_keys_wds: Iterable[str],
+        global_batch_size: int,
+        prefix_tars_wds: str = "wdshards",
+        pipeline_wds: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
+        pipeline_prebatch_wld: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
+        seed_rng_shfl: int = 0,
+        kwargs_dl: Optional[Dict[Split, Dict[str, str]]] = None,
+    ):
         """constructor
 
         Args:
@@ -105,12 +103,11 @@ class WDSModule(L.LightningDataModule):
         keys_subset = self._dirs_tars_wds.keys()
 
         if n_samples.keys() != keys_subset:
-            raise RuntimeError(f"Input n_samples has different keys than "
-                               f"dirs_tars_wds: {n_samples.keys()} vs "
-                               f"{keys_subset}"
-                               )
+            raise RuntimeError(
+                f"Input n_samples has different keys than " f"dirs_tars_wds: {n_samples.keys()} vs " f"{keys_subset}"
+            )
 
-        self._n_samples= n_samples
+        self._n_samples = n_samples
 
         self._global_batch_size = global_batch_size
         self._suffix_keys_wds = suffix_keys_wds
@@ -124,8 +121,7 @@ class WDSModule(L.LightningDataModule):
         self._kwargs_dl = kwargs_dl
 
         # to be created later in setup
-        self._dataset = dict()
-
+        self._dataset = {}
 
     def prepare_data(self) -> None:
         """This is called only by the main process by the Lightning workflow. Do
@@ -136,7 +132,7 @@ class WDSModule(L.LightningDataModule):
         """
         pass
 
-    def _setup_wds(self, split : Split) -> wds.WebDataset:
+    def _setup_wds(self, split: Split) -> wds.WebDataset:
         """setup webdataset and webloader. This is called by setup()
 
         Args:
@@ -145,30 +141,22 @@ class WDSModule(L.LightningDataModule):
         Returns: WebDataset
 
         """
-        if not split in self._dirs_tars_wds.keys():
-            raise RuntimeError(f"_setup_wds() is called with {split} "
-                               f"split that doesn't have the input tar dir")
+        if split not in self._dirs_tars_wds.keys():
+            raise RuntimeError(f"_setup_wds() is called with {split} " f"split that doesn't have the input tar dir")
         is_train = split == Split.train
-        urls = sorted(glob.glob(
-            f"{self._dirs_tars_wds[split]}/{self._prefix_tars_wds}-*.tar")
-            )
+        urls = sorted(glob.glob(f"{self._dirs_tars_wds[split]}/{self._prefix_tars_wds}-*.tar"))
         dataset = (
-            wds.WebDataset(urls, shardshuffle=is_train,
-                           nodesplitter=wds.split_by_node,
-                           seed=self._seed_rng_shfl)
+            wds.WebDataset(urls, shardshuffle=is_train, nodesplitter=wds.split_by_node, seed=self._seed_rng_shfl)
             .decode()
             .extract_keys(f"*.{self._suffix_keys_wds}")
-            )
-        if (self._pipeline_wds is not None and
-                self._pipeline_wds[split] is not None):
-            if isinstance(self._pipeline_wds[split],
-                          Iterable):
+        )
+        if self._pipeline_wds is not None and self._pipeline_wds[split] is not None:
+            if isinstance(self._pipeline_wds[split], Iterable):
                 dataset = dataset.compose(*self._pipeline_wds[split])
             else:
                 dataset = dataset.compose(self._pipeline_wds[split])
         if is_train:
-            dataset = dataset.shuffle(size=16,
-                                      rng=random.Random(self._seed_rng_shfl))
+            dataset = dataset.shuffle(size=16, rng=random.Random(self._seed_rng_shfl))
         return dataset
 
     def setup(self, stage: str) -> None:
@@ -190,10 +178,9 @@ class WDSModule(L.LightningDataModule):
         elif stage == "predict":
             self._dataset[Split.test] = self._setup_wds(Split.test)
         else:
-            raise NotImplementedError(f"Data setup with stage = {stage} "\
-                                      f"is not implmented")
+            raise NotImplementedError(f"Data setup with stage = {stage} " f"is not implmented")
 
-    def _setup_dataloader(self, split : Split) -> wds.WebLoader:
+    def _setup_dataloader(self, split: Split) -> wds.WebLoader:
         """setup the dataloader for the input dataset split
 
         Args:
@@ -203,49 +190,41 @@ class WDSModule(L.LightningDataModule):
 
         """
         if self._dataset[split] is None:
-            raise RuntimeError(f"_setup_dataloader() is called with {split} "
-                               f"split without setting up the corresp. dataset")
+            raise RuntimeError(
+                f"_setup_dataloader() is called with {split} " f"split without setting up the corresp. dataset"
+            )
         dataset = self._dataset[split]
         n_samples = self._n_samples[split]
-        n_batches = ((n_samples + self._global_batch_size - 1)
-                     // self._global_batch_size)
+        n_batches = (n_samples + self._global_batch_size - 1) // self._global_batch_size
         kwargs = self._kwargs_dl[split] if self._kwargs_dl is not None else None
-        loader = wds.WebLoader(dataset, batch_size=None,
-            **(kwargs if kwargs is not None else {})
-            ).shuffle(5000, rng=random.Random(self._seed_rng_shfl))
+        loader = wds.WebLoader(dataset, batch_size=None, **(kwargs if kwargs is not None else {})).shuffle(
+            5000, rng=random.Random(self._seed_rng_shfl)
+        )
 
-        if (self._pipeline_prebatch_wld is not None and
-                self._pipeline_prebatch_wld[split] is not None):
+        if self._pipeline_prebatch_wld is not None and self._pipeline_prebatch_wld[split] is not None:
             if isinstance(self._pipeline_prebatch_wld[split], Iterable):
-                loader = loader.compose(
-                    *self._pipeline_prebatch_wld[split])
+                loader = loader.compose(*self._pipeline_prebatch_wld[split])
             else:
-                loader = loader.compose(
-                    self._pipeline_prebatch_wld[split])
+                loader = loader.compose(self._pipeline_prebatch_wld[split])
 
         loader = loader.with_epoch(n_batches)
 
         return loader
 
-
     def train_dataloader(self) -> wds.WebLoader:
         return self._setup_dataloader(Split.train)
-
 
     def val_dataloader(self) -> wds.WebLoader:
         return self._setup_dataloader(Split.val)
 
-
     def test_dataloader(self) -> wds.WebLoader:
         return self._setup_dataloader(Split.test)
-
 
     def predict_dataloader(self) -> wds.WebLoader:
         return self._setup_dataloader(Split.test)
 
 
 class PickledDataWDS(WDSModule):
-
     """lightning APIs to process pickled data into webdataset tar files and
     setup dataset and dataloader. This data module takes a directory of pickled
     data files, data filename prefixes for train/val/test splits, data filename
@@ -258,9 +237,16 @@ class PickledDataWDS(WDSModule):
     `pipeline_wds` workflow. In its train/val/test_dataloader(), it creates the
     WebLoader object chaining up the `pipeline_prebatch_wld` workflow"""
 
-    def __init__(self, dir_pickled : str, suffix_pickled : str, names_subset :
-                 Dict[Split, List[str]], prefix_dir_tars_wds : str, *args,
-                 n_tars_wds : Optional[int] = None, **kwargs):
+    def __init__(
+        self,
+        dir_pickled: str,
+        suffix_pickled: str,
+        names_subset: Dict[Split, List[str]],
+        prefix_dir_tars_wds: str,
+        *args,
+        n_tars_wds: Optional[int] = None,
+        **kwargs,
+    ):
         """constructor
 
         Args:
@@ -284,18 +270,12 @@ class PickledDataWDS(WDSModule):
 
         """
         super().__init__(
-            {
-                split : f"{prefix_dir_tars_wds}{str(split).split('.')[-1]}"
-                for split in names_subset.keys()
-                },
-            {
-                split : len(names_subset[split]) for split in
-                names_subset.keys()
-            },
+            {split: f"{prefix_dir_tars_wds}{str(split).split('.')[-1]}" for split in names_subset.keys()},
+            {split: len(names_subset[split]) for split in names_subset.keys()},
             suffix_pickled,
             *args,
-             **kwargs
-            )
+            **kwargs,
+        )
 
         self._dir_pickled = dir_pickled
         self._suffix_pickled = suffix_pickled
@@ -318,9 +298,11 @@ class PickledDataWDS(WDSModule):
         """
         for split in self._names_subset.keys():
             # create wds shards (tar files) for train set
-            pickles_to_tars(self._dir_pickled,
-                            self._suffix_pickled,
-                            self._names_subset[split],
-                            self._dirs_tars_wds[split],
-                            self._prefix_tars_wds,
-                            min_num_shards=self._n_tars_wds)
+            pickles_to_tars(
+                self._dir_pickled,
+                self._suffix_pickled,
+                self._names_subset[split],
+                self._dirs_tars_wds[split],
+                self._prefix_tars_wds,
+                min_num_shards=self._n_tars_wds,
+            )

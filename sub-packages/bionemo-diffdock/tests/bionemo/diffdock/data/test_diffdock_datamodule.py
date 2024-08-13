@@ -13,52 +13,50 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from enum import Enum, auto
 import glob
-import pytest
-import torch
+from enum import Enum, auto
 
 import lightning
+import pytest
+import torch
 from torch_geometric.data import Batch, HeteroData
 
-from bionemo.contrib.data.molecule.diffdock.datamodule import Split
+from bionemo.core.data.datamodule import Split
 
 
-@pytest.mark.parametrize("split", [s for s in Split])
+@pytest.mark.parametrize("split", list(Split))
 def test_datamodule_init(split, get_diffdock_heterodata, create_datamodule):
-    name_split = str(split).split('.')[1]
+    name_split = str(split).split(".")[1]
     (_, _, names, model) = get_diffdock_heterodata
     data_module, prefix_dir_tars_wds = create_datamodule
-    assert data_module._n_samples[split] == len(names[split]),\
-        f"Wrong {split}-set size for {model} model: "\
-        f"expected {len(names[split])} "\
+    assert data_module._n_samples[split] == len(names[split]), (
+        f"Wrong {split}-set size for {model} model: "
+        f"expected {len(names[split])} "
         f"but got {data_module._n_samples[split]}"
-    assert data_module._dirs_tars_wds[split] ==\
-        f"{prefix_dir_tars_wds}{name_split}",\
-        f"Wrong tar files directory for {model} model: "\
-        f"expected {prefix_dir_tars_wds}{split} "\
+    )
+    assert data_module._dirs_tars_wds[split] == f"{prefix_dir_tars_wds}{name_split}", (
+        f"Wrong tar files directory for {model} model: "
+        f"expected {prefix_dir_tars_wds}{split} "
         f"but got {data_module._dirs_tars_wds[split]}"
+    )
 
 
-@pytest.mark.parametrize("split", [s for s in Split])
+@pytest.mark.parametrize("split", list(Split))
 def test_datamodule_prepare_data(split, create_datamodule):
     data_module, _ = create_datamodule
     # LightningDataModule.prepare_data() is supposed to be called from the main
     # process in a Lightning-managed multi-process context so we can call it in
     # a single process
     data_module.prepare_data()
-    files_tars = sorted(glob.glob(
-        f"{data_module._dirs_tars_wds[split]}/"\
-        f"{data_module._prefix_tars_wds}-*.tar"))
-    assert len(files_tars) >= data_module._n_tars_wds,\
-        f"Wrong num of {split}-set tar files: "\
-        f"expected {data_module._n_tars_wds} "\
-        f"got {len(files_tars)}"
+    files_tars = sorted(glob.glob(f"{data_module._dirs_tars_wds[split]}/" f"{data_module._prefix_tars_wds}-*.tar"))
+    assert len(files_tars) >= data_module._n_tars_wds, (
+        f"Wrong num of {split}-set tar files: " f"expected {data_module._n_tars_wds} " f"got {len(files_tars)}"
+    )
 
 
-@pytest.mark.parametrize("split", [s for s in Split])
+@pytest.mark.parametrize("split", list(Split))
 def test_datamodule_setup_dataset(split, create_datamodule, create_another_datamodule):
-    data_modules= [create_datamodule[0], create_another_datamodule[0]]
+    data_modules = [create_datamodule[0], create_another_datamodule[0]]
     lists_complex_name = []
     lists_pos_ligand = []
     for m in data_modules:
@@ -71,38 +69,40 @@ def test_datamodule_setup_dataset(split, create_datamodule, create_another_datam
         names = []
         pos_ligand = []
         for sample in m._dataset[split]:
-            assert isinstance(sample, HeteroData),\
-                "Sample yield from dataset is not PyG HeteroData"
+            assert isinstance(sample, HeteroData), "Sample yield from dataset is not PyG HeteroData"
             names.append(sample.name)
             pos_ligand.append(sample["ligand"].pos)
         lists_complex_name.append(names)
         lists_pos_ligand.append(pos_ligand)
 
-    assert len(lists_complex_name[0]) > 0,\
-        "No names in {split} dataset"
-    assert lists_complex_name[0] == lists_complex_name[1],\
-        f"Inconsistent sample name in {split}-set from data module instances: "\
-        f"{lists_complex_name[0]} \n\nvs.\n\n"\
+    assert len(lists_complex_name[0]) > 0, "No names in {split} dataset"
+    assert lists_complex_name[0] == lists_complex_name[1], (
+        f"Inconsistent sample name in {split}-set from data module instances: "
+        f"{lists_complex_name[0]} \n\nvs.\n\n"
         f"{lists_complex_name[1]}"
+    )
 
     assert len(lists_pos_ligand[0]) > 0, "No ligand position found in dataset"
-    assert len(lists_pos_ligand[0]) == len(lists_pos_ligand[1]),\
-        f"Inconsistent number of ligand position in {split}-set from data "\
-        f"module instances: {len(lists_pos_ligand[0])} \n\nvs.\n\n"\
+    assert len(lists_pos_ligand[0]) == len(lists_pos_ligand[1]), (
+        f"Inconsistent number of ligand position in {split}-set from data "
+        f"module instances: {len(lists_pos_ligand[0])} \n\nvs.\n\n"
         f"{len(lists_pos_ligand[1])}"
+    )
     for i in range(len(lists_pos_ligand[0])):
         pos_0 = lists_pos_ligand[0][i]
         pos_1 = lists_pos_ligand[1][i]
-        torch.testing.assert_close(pos_0, pos_1,
-                                   msg=lambda m :
-                                   f"Inconsistent ligand position in the "
-                                   f"{i}'th sample/batch of {split}-set "
-                                   f"between two data module instances:\n\n{m}")
+        torch.testing.assert_close(
+            pos_0,
+            pos_1,
+            msg=lambda m: f"Inconsistent ligand position in the "
+            f"{i}'th sample/batch of {split}-set "
+            f"between two data module instances:\n\n{m}",
+        )
 
 
-@pytest.mark.parametrize("split", [s for s in Split])
+@pytest.mark.parametrize("split", list(Split))
 def test_datamodule_setup_dataloader(split, create_datamodule, create_another_datamodule):
-    data_modules= [create_datamodule[0], create_another_datamodule[0]]
+    data_modules = [create_datamodule[0], create_another_datamodule[0]]
     lists_complex_name = []
     lists_pos_ligand = []
     for m in data_modules:
@@ -126,36 +126,36 @@ def test_datamodule_setup_dataloader(split, create_datamodule, create_another_da
         assert loader is not None, "dataloader not instantated"
         for samples in loader:
             # PyG's HeteroDataBatch is Batch inherited from HeteroData
-            assert isinstance(samples, Batch),\
-                f"Sample object is not PyG Batch"
-            assert isinstance(samples, HeteroData),\
-                f"Sample object is not PyG HeteroData"
+            assert isinstance(samples, Batch), "Sample object is not PyG Batch"
+            assert isinstance(samples, HeteroData), "Sample object is not PyG HeteroData"
             names.append(samples.name)
             pos_ligand.append(samples["ligand"].pos)
         lists_complex_name.append(names)
         lists_pos_ligand.append(pos_ligand)
 
-    assert len(lists_complex_name[0]) > 0,\
-        "No names in {split} dataloader"
-    assert lists_complex_name[0] == lists_complex_name[1],\
-        f"Inconsistent sample name in {split}-set from data module instances: "\
-        f"{lists_complex_name[0]} \n\nvs.\n\n"\
+    assert len(lists_complex_name[0]) > 0, "No names in {split} dataloader"
+    assert lists_complex_name[0] == lists_complex_name[1], (
+        f"Inconsistent sample name in {split}-set from data module instances: "
+        f"{lists_complex_name[0]} \n\nvs.\n\n"
         f"{lists_complex_name[1]}"
+    )
 
-    assert len(lists_pos_ligand[0]) > 0,\
-        "No ligand position found in dataloader"
-    assert len(lists_pos_ligand[0]) == len(lists_pos_ligand[1]),\
-        f"Inconsistent number of ligand position in {split}-set from data "\
-        f"module instances: {len(lists_pos_ligand[0])} \n\nvs.\n\n"\
+    assert len(lists_pos_ligand[0]) > 0, "No ligand position found in dataloader"
+    assert len(lists_pos_ligand[0]) == len(lists_pos_ligand[1]), (
+        f"Inconsistent number of ligand position in {split}-set from data "
+        f"module instances: {len(lists_pos_ligand[0])} \n\nvs.\n\n"
         f"{len(lists_pos_ligand[1])}"
+    )
     for i in range(len(lists_pos_ligand[0])):
         pos_0 = lists_pos_ligand[0][i]
         pos_1 = lists_pos_ligand[1][i]
-        torch.testing.assert_close(pos_0, pos_1,
-                                   msg=lambda m :
-                                   f"Inconsistent ligand position in the "
-                                   f"{i}'th sample/batch of {split}-set "
-                                   f"between two data module instances:\n\n{m}")
+        torch.testing.assert_close(
+            pos_0,
+            pos_1,
+            msg=lambda m: f"Inconsistent ligand position in the "
+            f"{i}'th sample/batch of {split}-set "
+            f"between two data module instances:\n\n{m}",
+        )
 
 
 class Stage(Enum):
@@ -165,11 +165,9 @@ class Stage(Enum):
     predict = auto()
 
 
-@pytest.mark.parametrize("stage", [s for s in Stage])
-def test_datamodule_in_lightning(stage, create_datamodule,
-                                 create_another_datamodule,
-                                 create_trainer_and_model):
-    data_modules= [create_datamodule[0], create_another_datamodule[0]]
+@pytest.mark.parametrize("stage", list(Stage))
+def test_datamodule_in_lightning(stage, create_datamodule, create_another_datamodule, create_trainer_and_model):
+    data_modules = [create_datamodule[0], create_another_datamodule[0]]
     trainer, model = create_trainer_and_model
     # get the list of samples from the loader
     lightning.seed_everything(2823828)
@@ -186,8 +184,7 @@ def test_datamodule_in_lightning(stage, create_datamodule,
     name_stage = str(stage).split(".")[-1]
     data_modules[0].setup(name_stage)
     # get the list of samples from the workflow
-    get_dataloader = getattr(data_modules[0],
-                         f"{str(split).split('.')[-1]}_dataloader")
+    get_dataloader = getattr(data_modules[0], f"{str(split).split('.')[-1]}_dataloader")
     loader = get_dataloader()
     samples = []
     for sample in loader:
