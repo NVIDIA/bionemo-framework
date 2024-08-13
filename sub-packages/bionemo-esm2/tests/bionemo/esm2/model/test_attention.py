@@ -44,7 +44,7 @@ def attention_layer(config):
 
 
 def test_init(attention_layer, config):
-    assert attention_layer.use_esm_attention
+    assert attention_layer.config.use_esm_attention
     assert attention_layer.config == config
 
 
