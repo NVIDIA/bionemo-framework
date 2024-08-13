@@ -308,6 +308,7 @@ def process_item(  # noqa: D417
             labels=labels,
             loss_mask=loss_mask,
             cls_token=tokenizer.token_to_id(tokenizer.cls_token),
+            eos_token=None,
         )
 
     # NeMo megatron assumes this return structure.
