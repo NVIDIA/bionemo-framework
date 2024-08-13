@@ -30,7 +30,7 @@ class Split(Enum):
     test = auto()
 
 
-class WDSModule(L.LightningDataModule):
+class WebDataModule(L.LightningDataModule):
     """lightning data module for using webdataset tar files to setup dataset and
     dataloader. This data module takes a dictionary: Split -> tar file
     directory. In its setup() function, it creates the webdataset object
@@ -224,7 +224,7 @@ class WDSModule(L.LightningDataModule):
         return self._setup_dataloader(Split.test)
 
 
-class PickledDataWDS(WDSModule):
+class PickledDataWDS(WebDataModule):
     """lightning APIs to process pickled data into webdataset tar files and
     setup dataset and dataloader. This data module takes a directory of pickled
     data files, data filename prefixes for train/val/test splits, data filename
@@ -260,12 +260,12 @@ class PickledDataWDS(WDSModule):
                 webdataset tar files. The actual directories storing the train, val
                 and test sets will be suffixed with "train", "val" and "test"
                 respectively.
-            *args: arguments passed to the parent WDSModule
+            *args: arguments passed to the parent WebDataModule
 
         Kwargs:
             n_tars_wds (int): attempt to create at least this number of
                 webdataset shards
-            **kwargs: arguments passed to the parent WDSModule
+            **kwargs: arguments passed to the parent WebDataModule
 
 
         """
