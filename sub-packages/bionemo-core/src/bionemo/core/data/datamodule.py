@@ -16,7 +16,7 @@
 import glob
 import random
 from enum import Enum, auto
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union, get_args
 
 import lightning as L
 import webdataset as wds
@@ -42,7 +42,7 @@ class WebDataModule(L.LightningDataModule):
         self,
         dirs_tars_wds: Dict[Split, str],
         n_samples: Dict[Split, int],
-        suffix_keys_wds: Iterable[str],
+        suffix_keys_wds: Union[str, Iterable[str]],
         global_batch_size: int,
         prefix_tars_wds: str = "wdshards",
         pipeline_wds: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
@@ -57,10 +57,10 @@ class WebDataModule(L.LightningDataModule):
                 directory that contains the webdataset tar files for each split
             n_samples (Dict[Split, int]): input dictionary: Split -> number of
                 data samples for each split
-            suffix_keys_wds (Iterable): a set of keys each corresponding to a
-                data object in the webdataset tar file dictionary. The data
-                objects of these keys will be extracted and tupled for each
-                sample in the tar files
+            suffix_keys_wds (Union[str, Iterable[str]]): a set of keys each
+                corresponding to a data object in the webdataset tar file
+                dictionary. The data objects of these keys will be extracted and
+                tupled for each sample in the tar files
             global_batch_size (int): size of batch summing across nodes in Data
                 Distributed Parallel, i.e., local_batch_size * n_nodes. NOTE:
                 this data module doesn't rely on the input `global_batch_size`
@@ -110,6 +110,12 @@ class WebDataModule(L.LightningDataModule):
         self._n_samples = n_samples
 
         self._global_batch_size = global_batch_size
+
+
+        if not isinstance(suffix_keys_wds,
+                          get_args(Union[str, Iterable[str]])):
+            raise TypeError("suffix_keys_wds can only be str or Iterable[str]")
+
         self._suffix_keys_wds = suffix_keys_wds
 
         self._prefix_tars_wds = prefix_tars_wds
@@ -148,8 +154,13 @@ class WebDataModule(L.LightningDataModule):
         dataset = (
             wds.WebDataset(urls, shardshuffle=is_train, nodesplitter=wds.split_by_node, seed=self._seed_rng_shfl)
             .decode()
-            .extract_keys(f"*.{self._suffix_keys_wds}")
         )
+        if isinstance(self._suffix_keys_wds, str):
+            dataset = dataset.extract_keys(f"*.{self._suffix_keys_wds}")
+        else:
+            dataset = dataset.extract_keys(*[f"*.{key}" for key in
+                                             self._suffix_keys_wds])
+
         if self._pipeline_wds is not None and self._pipeline_wds[split] is not None:
             if isinstance(self._pipeline_wds[split], Iterable):
                 dataset = dataset.compose(*self._pipeline_wds[split])
