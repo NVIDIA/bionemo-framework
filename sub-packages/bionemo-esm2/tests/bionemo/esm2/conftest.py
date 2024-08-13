@@ -61,6 +61,7 @@ def dummy_protein_dataset(tmp_path):
 
 @pytest.fixture
 def dummy_parquet_train_val_inputs(tmp_path):
+    """Create a mock protein train and val cluster parquet."""
     train_cluster_path = tmp_path / "train_clusters.parquet"
     train_clusters = pd.DataFrame(
         {
