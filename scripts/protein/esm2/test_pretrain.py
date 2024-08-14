@@ -18,6 +18,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
+import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 from pretrain import main  # TODO: needs to be refactored to a package and imported!
 
@@ -38,6 +39,7 @@ assert bionemo2_root != Path("/")
 data_path: Path = bionemo2_root / "test_data/???"  # TODO: farhadr fix test data
 
 
+@pytest.mark.skip(reason="We need to store a reasonably sized database on SwiftStack for testing")
 def test_bionemo2_rootdir():
     assert (bionemo2_root / "sub-packages").exists(), "Could not find bionemo2 root directory."
     assert (bionemo2_root / "sub-packages").is_dir(), "sub-packages is supposed to be a directory."
@@ -49,6 +51,7 @@ def test_bionemo2_rootdir():
     assert data_path.is_dir(), f"Test data directory is supposed to be a directory.\n{data_error_str}"
 
 
+@pytest.mark.skip(reason="We need to store a reasonably sized database on SwiftStack for testing")
 def test_main_runs(tmpdir):
     result_dir = Path(tmpdir.mkdir("results"))
 
@@ -93,6 +96,7 @@ def test_main_runs(tmpdir):
     ).is_file(), "Could not find experiment log."
 
 
+@pytest.mark.skip(reason="We need to store a reasonably sized database on SwiftStack for testing")
 def test_pretrain_cli(tmpdir):
     result_dir = Path(tmpdir.mkdir("results"))
     open_port = find_free_network_port()
