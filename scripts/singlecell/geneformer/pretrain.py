@@ -242,7 +242,6 @@ def main(
         save_top_k=save_top_k,
         every_n_train_steps=save_every_n_steps,
         enable_nemo_ckpt_io=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-        async_save=False,  # Tries to save asynchronously, previously led to race conditions.
     )
 
     # Setup the logger and train the model
