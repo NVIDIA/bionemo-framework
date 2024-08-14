@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import importlib.metadata
 import json
 import os
 import shutil
@@ -29,7 +30,6 @@ import scipy
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
-from bionemo.scdl.util.pytoml_utils import get_version_from_pyproject
 
 
 class FileNames(str, Enum):
@@ -207,7 +207,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             num_rows: The number of rows in the data frame
             mode: Whether to read or write from the data_path,
         """
-        self._version: str = get_version_from_pyproject()
+        self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
         self.mode: Mode = mode
 
