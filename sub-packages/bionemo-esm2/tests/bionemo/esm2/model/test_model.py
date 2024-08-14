@@ -114,16 +114,19 @@ def sample_data() -> List[Tuple[str, str]]:
     yield sample_data
 
 
-def _compute_HF_loss(model, dataloader):
+def _compute_loss(model, dataloader, vocab_size=None):
     loss = 0
     n = 0
     limit_batches = 10
     for i, batch in enumerate(dataloader):
         assert isinstance(batch, dict)
-        result = model(
-            input_ids=batch["text"].cuda(), attention_mask=batch["attention_mask"].cuda(), output_hidden_states=True
-        )
-        logits = result.logits * batch["attention_mask"].unsqueeze(-1).cuda()
+        result = model(input_ids=batch["text"].cuda(), attention_mask=batch["attention_mask"].cuda())
+
+        # bionemo ESM2 vocab_size
+        if vocab_size is not None:
+            logits = result["token_logits"][..., :vocab_size]
+        else:
+            logits = result.logits
 
         loss_mask = batch["loss_mask"].cuda()
         target = batch["labels"].cuda()
@@ -133,7 +136,6 @@ def _compute_HF_loss(model, dataloader):
 
         if limit_batches is not None and i + 1 >= limit_batches:
             break
-
     mean_loss: Tensor = loss / n
     return mean_loss
 
@@ -175,7 +177,7 @@ def test_esm2_650m_checkpoint(esm2_model):
 
 def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
     tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
-    tokens = tokenizer.tokenizer([row[1] for row in sample_data], return_tensors="pt", padding=True).cuda()
+    tokens = tokenizer.tokenizer([row[1] for row in sample_data], return_tensors="pt", padding=True).to("cuda")
     input_ids = tokens["input_ids"]
     attention_mask = tokens["attention_mask"]
 
@@ -261,31 +263,16 @@ def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet
         val_dataloader = data_module.val_dataloader()
         assert isinstance(val_dataloader, torch.utils.data.DataLoader)
 
-        loss = 0
-        n = 0
-        limit_batches = 10
-        for i, batch in enumerate(train_dataloader):
-            assert isinstance(batch, dict)
-            result = model(input_ids=batch["text"].cuda(), attention_mask=batch["attention_mask"].cuda())
-            loss_mask = batch["loss_mask"].cuda()
-            logits = result["token_logits"][..., : tokenizer.vocab_size]
-            target = batch["labels"].cuda()
-
-            loss += torch.nn.functional.cross_entropy(logits[loss_mask].float(), target[loss_mask], reduction="sum")
-            n += loss_mask.sum()
-
-            if limit_batches is not None and i + 1 >= limit_batches:
-                break
-        mean_loss: Tensor = loss / n
+        mean_loss = _compute_loss(model, train_dataloader, vocab_size=tokenizer.vocab_size)
 
         if compute_hf_reference:
             # HF model initialized with 650M params
             hf_model = EsmForMaskedLM.from_pretrained(
                 "facebook/esm2_t33_650M_UR50D", torch_dtype=get_autocast_dtype(32)
             ).cuda()
-            hf_mean_loss = _compute_HF_loss(hf_model, train_dataloader)
+            hf_mean_loss = _compute_loss(hf_model, train_dataloader)
             print(f"hf_mean_loss: {hf_mean_loss}")
         else:
-            hf_mean_loss = torch.tensor(3.019122838973999).cuda()
+            hf_mean_loss = torch.tensor(3.198957920074463).cuda()
 
-        torch.testing.assert_close(mean_loss, hf_mean_loss, atol=5e-4, rtol=0.0)
+        torch.testing.assert_close(mean_loss, hf_mean_loss, atol=5e-6, rtol=0.0)
