@@ -134,3 +134,42 @@ def test_webdatamodule_in_lightning(stage, create_webdatamodule,
     workflow = getattr(trainer, name_stage)
     workflow(model, data_modules[1])
     assert model._samples[split] == samples
+
+
+@pytest.mark.parametrize("split", list(Split))
+def test_pickleddatawds_init(split, create_pickleddatawds):
+    data_module, prefix_dir_tars_wds = create_pickleddatawds
+    assert data_module._n_samples[split] == 10, (
+        f"Wrong {split}-set size: "
+        f"expected 10 "
+        f"but got {data_module._n_samples[split]}"
+    )
+    name_split = str(split).split(".")[-1]
+    assert data_module._dirs_tars_wds[split] == f"{prefix_dir_tars_wds}{name_split}", (
+        f"Wrong tar files directory: "
+        f"expected {prefix_dir_tars_wds}{name_split} "
+        f"but got {data_module._dirs_tars_wds[split]}"
+    )
+
+@pytest.mark.parametrize("split", list(Split))
+def test_pickleddatawds_setup_dataset(split, create_pickleddatawds,
+                                      create_another_pickleddatawds):
+    data_modules = [create_pickleddatawds[0], create_another_pickleddatawds[0]]
+    lists_tensors = []
+    for m in data_modules:
+        m.prepare_data()
+        # run through all the possible stages first to setup all the correps.
+        # dataset objects
+        m.setup("fit")
+        m.setup("test")
+        L.seed_everything(2823828)
+        tensors= []
+        for sample in m._dataset[split]:
+            assert isinstance(sample, torch.Tensor),\
+                "Sample yield from dataset is not tensor"
+            tensors.append(sample)
+        lists_tensors.append(tensors)
+
+    assert len(lists_tensors[0]) > 0, "No names in {split} dataset"
+    torch.testing.assert_close(torch.vstack(lists_tensors[0]),
+                               torch.vstack(lists_tensors[1]))
