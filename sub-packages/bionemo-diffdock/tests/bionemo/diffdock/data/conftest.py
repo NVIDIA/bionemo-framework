@@ -16,13 +16,14 @@
 import os
 from enum import Enum, auto
 from functools import partial
+import random
 from typing import Any, Iterable
 
 import lightning as L
 import pytest
 import torch
 from torch_geometric.loader.dataloader import Collater
-from webdataset.filters import batched
+from webdataset.filters import batched, shuffle
 
 from bionemo.core.data.datamodule import PickledDataWDS, Split
 from bionemo.diffdock.utils.data import SelectPoseAndLabelData, SizeAwareBatching, estimate_size
@@ -77,10 +78,6 @@ def get_diffdock_heterodata(get_path, request):
     return (dir_heterodata, suffix_heterodata, names, model)
 
 
-def no_op_gen(it: Iterable[Any]):
-    yield from it
-
-
 def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata, suffix_heterodata, names):
     prefix_dir_tars_wds = tmp_path_factory.mktemp("diffdock_score_model_tars_wds").as_posix()
     tr_sigma_min, tr_sigma_max = (0.1, 19)
@@ -91,9 +88,12 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata, suffix
     sigma_t = partial(
         t_to_sigma, tr_sigma_min, tr_sigma_max, rot_sigma_min, rot_sigma_max, tor_sigma_min, tor_sigma_max
     )
+    seed_rng_shfl = 822782392
     # webdataset pipeline
-    generateNoise = {
-        Split.train: [GenerateNoise(sigma_t, no_torsion, is_all_atom, copy_ref_pos=False), no_op_gen],
+    pipeline_wds = {
+        Split.train: [GenerateNoise(sigma_t, no_torsion, is_all_atom, copy_ref_pos=False),
+                      shuffle(len(names[Split.train]),
+                              rng=random.Random(seed_rng_shfl))],
         Split.val: GenerateNoise(sigma_t, no_torsion, is_all_atom, copy_ref_pos=True),
         Split.test: GenerateNoise(sigma_t, no_torsion, is_all_atom, copy_ref_pos=False),
     }
@@ -103,12 +103,14 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata, suffix
     batch_pyg = batched(local_batch_size, collation_fn=Collater(dataset=[], follow_batch=None, exclude_keys=None))
     # WebLoader pipeline
     pipelines_wdl_batch = {
-        Split.train: SizeAwareBatching(max_total_size=size_cuda_mem, size_fn=estimate_size, no_single_sample=True),
-        Split.val: [batch_pyg, no_op_gen],
+        Split.train: [shuffle(40, rng=random.Random(seed_rng_shfl)),
+                      SizeAwareBatching(max_total_size=size_cuda_mem,
+                                        size_fn=estimate_size,
+                                        no_single_sample=True)],
+        Split.val: batch_pyg,
         Split.test: batch_pyg,
     }
     n_tars_wds = 4
-    seed_rng_shfl = 822782392
     kwargs_dl = {
         Split.train: {"num_workers": 2},
         Split.val: {"num_workers": 2},
@@ -122,7 +124,7 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata, suffix
         global_batch_size,
         n_tars_wds=n_tars_wds,
         prefix_tars_wds="heterographs",
-        pipeline_wds=generateNoise,
+        pipeline_wds=pipeline_wds,
         pipeline_prebatch_wld=pipelines_wdl_batch,
         seed_rng_shfl=seed_rng_shfl,
         kwargs_dl=kwargs_dl,
@@ -142,7 +144,8 @@ def _create_datamodule_confidence_model_impl(tmp_path_factory, dir_heterodata, s
         rmsd_classification_cutoff, samples_per_complex, balance, is_all_atom, seed=seed_rng_shfl
     )
     pipeline_wds = {
-        Split.train: select_pose,
+        Split.train: [select_pose, shuffle(len(names[Split.train]),
+                                           rng=random.Random(seed_rng_shfl))],
         Split.val: select_pose,
         Split.test: select_pose,
     }
@@ -151,7 +154,7 @@ def _create_datamodule_confidence_model_impl(tmp_path_factory, dir_heterodata, s
     batch_pyg = batched(local_batch_size, collation_fn=Collater(dataset=[], follow_batch=None, exclude_keys=None))
     # WebLoader pipeline
     pipelines_wdl_batch = {
-        Split.train: batch_pyg,
+        Split.train: [shuffle(40, rng=random.Random(seed_rng_shfl)), batch_pyg],
         Split.val: batch_pyg,
         Split.test: batch_pyg,
     }

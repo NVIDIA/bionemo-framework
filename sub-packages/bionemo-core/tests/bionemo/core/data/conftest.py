@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import random
 from pathlib import Path
 from enum import Enum, auto
 from functools import partial
@@ -22,7 +23,7 @@ from typing import Any, Iterable
 import lightning as L
 import pytest
 import torch
-from webdataset.filters import batched
+from webdataset.filters import batched, shuffle
 
 from bionemo.core.data.datamodule import WebDataModule, Split
 
@@ -49,13 +50,20 @@ def _create_webdatamodule(dir_tars_wds):
     batch = batched(local_batch_size, collation_fn=lambda
                     list_samples : torch.vstack(list_samples))
 
+    untuple = lambda source : (sample for (sample,) in source)
+
     pipeline_wds = {
-        split : lambda source : (sample for (sample,) in source)
-        for split in Split
+        Split.train : [untuple, shuffle(n_samples[Split.train],
+                                        rng=random.Random(seed_rng_shfl))],
+        Split.val : untuple,
+        Split.test : untuple
         }
 
     pipeline_prebatch_wld = {
-        split : batch for split in Split
+        Split.train: [shuffle(n_samples[Split.train],
+                              rng=random.Random(seed_rng_shfl)), batch],
+        Split.val : batch,
+        Split.test : batch
         }
 
     kwargs_dl = {

@@ -166,8 +166,6 @@ class WebDataModule(L.LightningDataModule):
                 dataset = dataset.compose(*self._pipeline_wds[split])
             else:
                 dataset = dataset.compose(self._pipeline_wds[split])
-        if is_train:
-            dataset = dataset.shuffle(size=16, rng=random.Random(self._seed_rng_shfl))
         return dataset
 
     def setup(self, stage: str) -> None:
@@ -208,9 +206,7 @@ class WebDataModule(L.LightningDataModule):
         n_samples = self._n_samples[split]
         n_batches = (n_samples + self._global_batch_size - 1) // self._global_batch_size
         kwargs = self._kwargs_dl[split] if self._kwargs_dl is not None else None
-        loader = wds.WebLoader(dataset, batch_size=None, **(kwargs if kwargs is not None else {})).shuffle(
-            5000, rng=random.Random(self._seed_rng_shfl)
-        )
+        loader = wds.WebLoader(dataset, batch_size=None, **(kwargs if kwargs is not None else {}))
 
         if self._pipeline_prebatch_wld is not None and self._pipeline_prebatch_wld[split] is not None:
             if isinstance(self._pipeline_prebatch_wld[split], Iterable):
