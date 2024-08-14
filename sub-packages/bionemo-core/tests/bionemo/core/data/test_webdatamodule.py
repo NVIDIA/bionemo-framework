@@ -1,0 +1,136 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from enum import Enum, auto
+
+import pytest
+
+import torch
+import lightning as L
+
+from bionemo.core.data.datamodule import Split
+
+
+@pytest.mark.parametrize("split", list(Split))
+def test_webdatamodule_init(split, create_webdatamodule):
+    data_module, prefix_dir_tars_wds = create_webdatamodule
+    assert data_module._n_samples[split] == 10, (
+        f"Wrong {split}-set size: "
+        f"expected 10 "
+        f"but got {data_module._n_samples[split]}"
+    )
+    assert data_module._dirs_tars_wds[split] == f"{prefix_dir_tars_wds}", (
+        f"Wrong tar files directory: "
+        f"expected {prefix_dir_tars_wds} "
+        f"but got {data_module._dirs_tars_wds[split]}"
+    )
+
+
+@pytest.mark.parametrize("split", list(Split))
+def test_webdatamodule_setup_dataset(split, create_webdatamodule,
+                                     create_another_webdatamodule):
+    data_modules = [create_webdatamodule[0], create_another_webdatamodule[0]]
+    lists_tensors = []
+    for m in data_modules:
+        m.prepare_data()
+        # run through all the possible stages first to setup all the correps.
+        # dataset objects
+        m.setup("fit")
+        m.setup("test")
+        L.seed_everything(2823828)
+        tensors= []
+        for sample in m._dataset[split]:
+            assert isinstance(sample, torch.Tensor),\
+                "Sample yield from dataset is not tensor"
+            tensors.append(sample)
+        lists_tensors.append(tensors)
+
+    assert len(lists_tensors[0]) > 0, "No names in {split} dataset"
+    torch.testing.assert_close(torch.vstack(lists_tensors[0]),
+                               torch.vstack(lists_tensors[1]))
+
+
+@pytest.mark.parametrize("split", list(Split))
+def test_webdatamodule_setup_dataloader(split, create_webdatamodule,
+                                        create_another_webdatamodule):
+    data_modules = [create_webdatamodule[0], create_another_webdatamodule[0]]
+    lists_tensors = []
+    for m in data_modules:
+        m.prepare_data()
+        # run through all the possible stages first to setup all the correps.
+        # dataset objects
+        m.setup("fit")
+        m.setup("test")
+        L.seed_everything(2823828)
+        tensors = []
+        loader = None
+        if split == Split.train:
+            loader = m.train_dataloader()
+        elif split == Split.val:
+            loader = m.val_dataloader()
+        elif split == Split.test:
+            loader = m.test_dataloader()
+        else:
+            raise RuntimeError(f"Test for split {split} not implemented")
+        assert loader is not None, "dataloader not instantated"
+        for samples in loader:
+            # PyG's HeteroDataBatch is Batch inherited from HeteroData
+            assert isinstance(samples, torch.Tensor),\
+                "Sample object is not torch.Tensor"
+            tensors.append(samples)
+        lists_tensors.append(tensors)
+
+    assert len(lists_tensors[0]) > 0, "No names in {split} dataloader"
+    torch.testing.assert_close(torch.vstack(lists_tensors[0]),
+                               torch.vstack(lists_tensors[1]))
+
+
+class Stage(Enum):
+    fit = auto()
+    validate = auto()
+    test = auto()
+    predict = auto()
+
+
+@pytest.mark.parametrize("stage", list(Stage))
+def test_webdatamodule_in_lightning(stage, create_webdatamodule,
+                                 create_another_webdatamodule,
+                                 create_trainer_and_model):
+    data_modules = [create_webdatamodule[0], create_another_webdatamodule[0]]
+    trainer, model = create_trainer_and_model
+    # get the list of samples from the loader
+    L.seed_everything(2823828)
+    data_modules[0].prepare_data()
+    split = None
+    if stage == Stage.fit:
+        split = Split.train
+    elif stage == Stage.validate:
+        split = Split.val
+    elif stage == Stage.test or stage == Stage.predict:
+        split = Split.test
+    else:
+        raise RuntimeError(f"{stage} stage not implemented")
+    name_stage = str(stage).split(".")[-1]
+    data_modules[0].setup(name_stage)
+    # get the list of samples from the workflow
+    get_dataloader = getattr(data_modules[0], f"{str(split).split('.')[-1]}_dataloader")
+    loader = get_dataloader()
+    samples = []
+    for sample in loader:
+        samples.append(sample.name)
+    L.seed_everything(2823828)
+    workflow = getattr(trainer, name_stage)
+    workflow(model, data_modules[1])
+    assert model._samples[split] == samples
