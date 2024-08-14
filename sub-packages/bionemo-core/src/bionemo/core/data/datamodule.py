@@ -48,7 +48,7 @@ class WebDataModule(L.LightningDataModule):
         pipeline_wds: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
         pipeline_prebatch_wld: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
         seed_rng_shfl: int = 0,
-        kwargs_dl: Optional[Dict[Split, Dict[str, str]]] = None,
+        kwargs_wld: Optional[Dict[Split, Dict[str, str]]] = None,
     ):
         """constructor
 
@@ -91,7 +91,7 @@ class WebDataModule(L.LightningDataModule):
                 yield from the WebLoader
             seed_rng_shfl (int): seed to the random number generators used in
                 data loading time for shuffling
-            kwargs_dl (Optional[Dict[Split, Dict[str,  str]]]): kwargs for data
+            kwargs_wld (Optional[Dict[Split, Dict[str,  str]]]): kwargs for data
                 loader, e.g., num_workers, of each split
 
 
@@ -124,7 +124,7 @@ class WebDataModule(L.LightningDataModule):
 
         self._seed_rng_shfl = seed_rng_shfl
 
-        self._kwargs_dl = kwargs_dl
+        self._kwargs_wld = kwargs_wld
 
         # to be created later in setup
         self._dataset = {}
@@ -205,7 +205,7 @@ class WebDataModule(L.LightningDataModule):
         dataset = self._dataset[split]
         n_samples = self._n_samples[split]
         n_batches = (n_samples + self._global_batch_size - 1) // self._global_batch_size
-        kwargs = self._kwargs_dl[split] if self._kwargs_dl is not None else None
+        kwargs = self._kwargs_wld[split] if self._kwargs_wld is not None else None
         loader = wds.WebLoader(dataset, batch_size=None, **(kwargs if kwargs is not None else {}))
 
         if self._pipeline_prebatch_wld is not None and self._pipeline_prebatch_wld[split] is not None:

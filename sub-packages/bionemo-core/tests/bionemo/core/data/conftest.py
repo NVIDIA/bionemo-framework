@@ -66,7 +66,7 @@ def _create_webdatamodule(dir_tars_wds):
         Split.test : batch
         }
 
-    kwargs_dl = {
+    kwargs_wld = {
         split : {"num_workers": 2} for split in Split
         }
 
@@ -75,7 +75,7 @@ def _create_webdatamodule(dir_tars_wds):
                                 prefix_tars_wds=prefix_tars_wds,
                                 pipeline_wds=pipeline_wds,
                                 pipeline_prebatch_wld=pipeline_prebatch_wld,
-                                seed_rng_shfl=seed_rng_shfl, kwargs_dl=kwargs_dl)
+                                seed_rng_shfl=seed_rng_shfl, kwargs_wld=kwargs_wld)
 
     return data_module, dir_tars_wds
 

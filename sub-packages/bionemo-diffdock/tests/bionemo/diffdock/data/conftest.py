@@ -111,7 +111,7 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata, suffix
         Split.test: batch_pyg,
     }
     n_tars_wds = 4
-    kwargs_dl = {
+    kwargs_wld = {
         Split.train: {"num_workers": 2},
         Split.val: {"num_workers": 2},
         Split.test: {"num_workers": 2},
@@ -127,7 +127,7 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata, suffix
         pipeline_wds=pipeline_wds,
         pipeline_prebatch_wld=pipelines_wdl_batch,
         seed_rng_shfl=seed_rng_shfl,
-        kwargs_dl=kwargs_dl,
+        kwargs_wld=kwargs_wld,
     )
     return data_module, prefix_dir_tars_wds
 
@@ -159,7 +159,7 @@ def _create_datamodule_confidence_model_impl(tmp_path_factory, dir_heterodata, s
         Split.test: batch_pyg,
     }
     n_tars_wds = 4
-    kwargs_dl = {
+    kwargs_wld = {
         Split.train: {"num_workers": 2},
         Split.val: {"num_workers": 2},
         Split.test: {"num_workers": 2},
@@ -175,7 +175,7 @@ def _create_datamodule_confidence_model_impl(tmp_path_factory, dir_heterodata, s
         pipeline_wds=pipeline_wds,
         pipeline_prebatch_wld=pipelines_wdl_batch,
         seed_rng_shfl=seed_rng_shfl,
-        kwargs_dl=kwargs_dl,
+        kwargs_wld=kwargs_wld,
     )
     return data_module, prefix_dir_tars_wds
 
