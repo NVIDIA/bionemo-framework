@@ -13,11 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
+from pathlib import Path
 from enum import Enum, auto
 from functools import partial
 import random
-from typing import Any, Iterable
 
 import lightning as L
 import pytest
@@ -33,9 +32,11 @@ from bionemo.diffdock.utils.diffusion import GenerateNoise, t_to_sigma
 
 @pytest.fixture(scope="module")
 def get_path(request):
-    dir_test = os.path.dirname(request.module.__file__)
-    dir_data = f"{dir_test}/test_data"
-    return dir_test, dir_data
+    path_test = Path(request.module.__file__).resolve()
+    dir_test = path_test.parents[0]
+    dir_data = path_test.parents[6] / "test_data" / \
+        "bionemo-diffdock" / "data" / "pyg_heterodata_pickled"
+    return str(dir_test), str(dir_data)
 
 
 class DiffDockModel(Enum):
@@ -48,7 +49,7 @@ def get_diffdock_heterodata(get_path, request):
     _, dir_data = get_path
     model = request.param
     name_model = str(model).split(".")[-1]
-    dir_heterodata = f"{dir_data}/molecule/diffdock/pyg_heterodata_pickled/{name_model}_model"
+    dir_heterodata = f"{dir_data}/{name_model}_model"
     suffix_heterodata = "heterodata.pyd"
     names = {
         Split.train: [

@@ -13,12 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import random
 from pathlib import Path
-from enum import Enum, auto
-from functools import partial
-from typing import Any, Iterable
 
 import lightning as L
 import pytest
@@ -33,7 +29,7 @@ from bionemo.core.data.datamodule import WebDataModule, Split
 def get_path(request):
     path_test = Path(request.module.__file__).resolve()
     dir_test = path_test.parents[0]
-    dir_data = path_test.parents[6] / "test_data" / "bionemo" / "core" / "data" / "webdatamodule"
+    dir_data = path_test.parents[6] / "test_data" / "bionemo-core" / "data" / "webdatamodule"
     return str(dir_test), str(dir_data)
 
 
