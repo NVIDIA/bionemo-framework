@@ -23,6 +23,7 @@ import lightning as L
 import pytest
 import torch
 from torch_geometric.loader.dataloader import Collater
+import webdataset as wds
 from webdataset.filters import batched, shuffle
 
 from bionemo.core.data.datamodule import PickledDataWDS, Split
@@ -111,6 +112,12 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata, suffix
         Split.test: batch_pyg,
     }
     n_tars_wds = 4
+    kwargs_wds = {
+        split : {'shardshuffle' : split == Split.train,
+                 'nodesplitter' : wds.split_by_node,
+                 'seed' : seed_rng_shfl}
+        for split in Split
+        }
     kwargs_wld = {
         Split.train: {"num_workers": 2},
         Split.val: {"num_workers": 2},
@@ -126,7 +133,7 @@ def _create_datamodule_score_model_impl(tmp_path_factory, dir_heterodata, suffix
         prefix_tars_wds="heterographs",
         pipeline_wds=pipeline_wds,
         pipeline_prebatch_wld=pipelines_wdl_batch,
-        seed_rng_shfl=seed_rng_shfl,
+        kwargs_wds=kwargs_wds,
         kwargs_wld=kwargs_wld,
     )
     return data_module, prefix_dir_tars_wds
@@ -159,6 +166,12 @@ def _create_datamodule_confidence_model_impl(tmp_path_factory, dir_heterodata, s
         Split.test: batch_pyg,
     }
     n_tars_wds = 4
+    kwargs_wds = {
+        split : {'shardshuffle' : split == Split.train,
+                 'nodesplitter' : wds.split_by_node,
+                 'seed' : seed_rng_shfl}
+        for split in Split
+        }
     kwargs_wld = {
         Split.train: {"num_workers": 2},
         Split.val: {"num_workers": 2},
@@ -174,7 +187,7 @@ def _create_datamodule_confidence_model_impl(tmp_path_factory, dir_heterodata, s
         prefix_tars_wds="heterographs",
         pipeline_wds=pipeline_wds,
         pipeline_prebatch_wld=pipelines_wdl_batch,
-        seed_rng_shfl=seed_rng_shfl,
+        kwargs_wds=kwargs_wds,
         kwargs_wld=kwargs_wld,
     )
     return data_module, prefix_dir_tars_wds

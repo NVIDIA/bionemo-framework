@@ -23,6 +23,7 @@ from typing import Any, Iterable
 import lightning as L
 import pytest
 import torch
+import webdataset as wds
 from webdataset.filters import batched, shuffle
 
 from bionemo.core.data.datamodule import WebDataModule, Split
@@ -66,6 +67,13 @@ def _create_webdatamodule(dir_tars_wds):
         Split.test : batch
         }
 
+    kwargs_wds = {
+        split : {'shardshuffle' : split == Split.train,
+                 'nodesplitter' : wds.split_by_node,
+                 'seed' : seed_rng_shfl}
+        for split in Split
+        }
+
     kwargs_wld = {
         split : {"num_workers": 2} for split in Split
         }
@@ -75,7 +83,8 @@ def _create_webdatamodule(dir_tars_wds):
                                 prefix_tars_wds=prefix_tars_wds,
                                 pipeline_wds=pipeline_wds,
                                 pipeline_prebatch_wld=pipeline_prebatch_wld,
-                                seed_rng_shfl=seed_rng_shfl, kwargs_wld=kwargs_wld)
+                                kwargs_wds=kwargs_wds,
+                                kwargs_wld=kwargs_wld)
 
     return data_module, dir_tars_wds
 

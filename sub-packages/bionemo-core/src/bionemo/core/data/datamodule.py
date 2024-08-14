@@ -47,8 +47,8 @@ class WebDataModule(L.LightningDataModule):
         prefix_tars_wds: str = "wdshards",
         pipeline_wds: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
         pipeline_prebatch_wld: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
-        seed_rng_shfl: int = 0,
-        kwargs_wld: Optional[Dict[Split, Dict[str, str]]] = None,
+        kwargs_wds: Optional[Dict[Split, Dict[str, Any]]] = None,
+        kwargs_wld: Optional[Dict[Split, Dict[str, Any]]] = None,
     ):
         """constructor
 
@@ -89,10 +89,10 @@ class WebDataModule(L.LightningDataModule):
                 seuqnence of such iterators. For example, this can be used for
                 batching the samples. NOTE: this is applied before batching is
                 yield from the WebLoader
-            seed_rng_shfl (int): seed to the random number generators used in
-                data loading time for shuffling
-            kwargs_wld (Optional[Dict[Split, Dict[str,  str]]]): kwargs for data
-                loader, e.g., num_workers, of each split
+            kwargs_wds (Optional[Dict[Split, Dict[str,  Any]]]): kwargs for the
+                WebDataset.__init__()
+            kwargs_wld (Optional[Dict[Split, Dict[str,  Any]]]): kwargs for the
+                WebLoader.__init__(), e.g., num_workers, of each split
 
 
         """
@@ -122,9 +122,9 @@ class WebDataModule(L.LightningDataModule):
         self._pipeline_wds = pipeline_wds
         self._pipeline_prebatch_wld = pipeline_prebatch_wld
 
-        self._seed_rng_shfl = seed_rng_shfl
-
         self._kwargs_wld = kwargs_wld
+
+        self._kwargs_wds = kwargs_wds
 
         # to be created later in setup
         self._dataset = {}
@@ -151,8 +151,9 @@ class WebDataModule(L.LightningDataModule):
             raise RuntimeError(f"_setup_wds() is called with {split} " f"split that doesn't have the input tar dir")
         is_train = split == Split.train
         urls = sorted(glob.glob(f"{self._dirs_tars_wds[split]}/{self._prefix_tars_wds}-*.tar"))
+        kwargs = self._kwargs_wds[split] if self._kwargs_wds is not None else None
         dataset = (
-            wds.WebDataset(urls, shardshuffle=is_train, nodesplitter=wds.split_by_node, seed=self._seed_rng_shfl)
+            wds.WebDataset(urls, **(kwargs if kwargs is not None else {}))
             .decode()
         )
         if isinstance(self._suffix_keys_wds, str):
