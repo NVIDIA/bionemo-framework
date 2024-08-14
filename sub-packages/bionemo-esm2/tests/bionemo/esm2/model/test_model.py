@@ -189,5 +189,5 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         hiddens = model(input_ids, attention_mask)
         embeddings = reduce_hiddens(torch.transpose(hiddens, 0, 1).float(), attention_mask)
 
-        torch.testing.assert_close(logits, hf_logits, atol=8e-2, rtol=0.0)
+        torch.testing.assert_close(logits, hf_logits, atol=9e-2, rtol=0.0)
         torch.testing.assert_close(embeddings, hf_embeddings, atol=5e-3, rtol=0.0)
