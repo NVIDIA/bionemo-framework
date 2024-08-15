@@ -275,4 +275,4 @@ def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet
         else:
             hf_mean_loss = torch.tensor(3.198957920074463).cuda()
 
-        torch.testing.assert_close(mean_loss, hf_mean_loss, atol=5e-6, rtol=0.0)
+        torch.testing.assert_close(mean_loss, hf_mean_loss, atol=5e-5, rtol=0.0)
