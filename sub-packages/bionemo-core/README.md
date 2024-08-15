@@ -11,10 +11,10 @@ class WebDataModule(L.LightningDataModule)
 ```
 
 A LightningDataModule for using webdataset tar files to setup dataset and
-dataloader. This data module takes a dictionary: Split -> tar file
-directory. In its setup() function, it creates the webdataset object
-chaining up the input `pipeline_wds` workflow. In its
-train/val/test_dataloader(), it creates the WebLoader object chaining up the
+dataloader. This data module takes as input a dictionary: Split -> tar file
+directory and vaiours webdataset config settings. In its setup() function, it
+creates the webdataset object chaining up the input `pipeline_wds` workflow. In
+its train/val/test_dataloader(), it creates the WebLoader object chaining up the
 `pipeline_prebatch_wld` workflow
 
 Examples
