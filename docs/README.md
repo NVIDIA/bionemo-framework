@@ -1,5 +1,9 @@
 # BioNeMo2 Documentation
 
+## Viewing the current documentation on github pages
+
+The documentation should be viewable at https://nvidia.github.io/bionemo-fw-ea/bionemo-framework
+
 ## Previewing the documentation locally
 
 From the repository root:

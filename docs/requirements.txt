@@ -1,0 +1,5 @@
+mkdocs-material
+mkdocs-minify-plugin
+mkdocstrings[python]
+mkdocs-gen-files
+pymdown-extensions
