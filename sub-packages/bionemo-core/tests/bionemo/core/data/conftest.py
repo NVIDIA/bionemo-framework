@@ -29,7 +29,7 @@ from bionemo.core.data.datamodule import WebDataModule, Split, PickledDataWDS
 def get_path(request):
     path_test = Path(request.module.__file__).resolve()
     dir_test = path_test.parents[0]
-    dir_data = path_test.parents[6] / "test_data" / "bionemo-core" / "data"
+    dir_data = path_test.parents[6] / "test_data" / "datamodule"
     return str(dir_test), str(dir_data)
 
 
