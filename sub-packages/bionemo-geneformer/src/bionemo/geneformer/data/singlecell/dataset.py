@@ -294,7 +294,7 @@ def process_item(  # noqa: D417
         tokenized_sequence=torch.from_numpy(token_ids),
         random_seed=random_utils.get_seed_from_rng(rng),
         mask_config=masking.BertMaskConfig(
-            mask_token=tokenizer.token_to_id(tokenizer.mask_token),
+            tokenizer=tokenizer,
             random_tokens=range(5, len(tokenizer.vocab)),
             mask_prob=mask_prob,
             mask_token_prob=mask_token_prob,

@@ -143,6 +143,28 @@ def test_ESMPreTrainingDataset_fails_with_empty_cluster(dummy_protein_dataset):
         dataset[1]
 
 
+def test_ESMPreTrainingDataset_crops_out_start_and_end(dummy_protein_dataset, tokenizer):
+    prot_dataset = ProteinSQLiteDataset(dummy_protein_dataset)
+    clusters = [["UniRef90_A"]]
+
+    dataset = ESMMaskedResidueDataset(
+        protein_dataset=prot_dataset, clusters=clusters, total_samples=10, seed=123, max_seq_length=1024
+    )
+
+    assert len(dataset[0]["text"]) == len(prot_dataset["UniRef90_A"]) + 2
+    assert dataset[0]["text"][0] == tokenizer.cls_token_id
+    assert dataset[0]["text"][-1] == tokenizer.eos_token_id
+
+    dataset = ESMMaskedResidueDataset(
+        protein_dataset=prot_dataset, clusters=clusters, total_samples=10, seed=123, max_seq_length=3
+    )
+
+    assert len(dataset[0]["text"]) == 3
+
+    # With a max length of 3, both the start and end tokens cant be present.
+    assert not ((dataset[0]["text"][0] == tokenizer.cls_token_id) & (dataset[0]["text"][-1] == tokenizer.eos_token_id))
+
+
 def test_ESMPreTrainingDataset_raises_index_error_outside_bounds(dummy_protein_dataset):
     """Test that the ESMPreTrainingDataset's __getitem__ method is deterministic."""
 

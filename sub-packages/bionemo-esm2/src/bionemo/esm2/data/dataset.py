@@ -15,10 +15,9 @@
 
 
 import os
-import random
 import sqlite3
 from pathlib import Path
-from typing import Sequence
+from typing import Sequence, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -117,7 +116,7 @@ class ESMMaskedResidueDataset(Dataset):
             raise ValueError("Tokenizer does not have a mask token.")
 
         self.mask_config = masking.BertMaskConfig(
-            mask_token=tokenizer.mask_token_id,
+            tokenizer=tokenizer,
             random_tokens=range(4, 24),
             mask_prob=mask_prob,
             mask_token_prob=mask_token_prob,
@@ -161,25 +160,15 @@ class ESMMaskedResidueDataset(Dataset):
         sequence_id = rng.choice(self.clusters[cluster_idx])
         sequence = self.protein_dataset[sequence_id]
 
-        # We crop the sequence to a maximum length of max_seq_length - 2 to account for the CLS and EOS tokens.
-        cropped_sequence = _random_crop_string(sequence, self.max_seq_length - 2)
-
         # We don't want special tokens before we pass the input to the masking function; we add these in the collate_fn.
-        tokenized_sequence = self._tokenize(cropped_sequence)
+        tokenized_sequence = self._tokenize(sequence)
+        cropped_sequence = _random_crop(tokenized_sequence, self.max_seq_length, rng)
 
         torch_seed = rng.integers(low=np.iinfo(np.int64).min, high=np.iinfo(np.int64).max)
         masked_sequence, labels, loss_mask = masking.apply_bert_pretraining_mask(
-            tokenized_sequence=tokenized_sequence,  # type: ignore
+            tokenized_sequence=cropped_sequence,  # type: ignore
             random_seed=torch_seed,
             mask_config=self.mask_config,
-        )
-
-        masked_sequence, labels, loss_mask = masking.add_cls_and_eos_tokens(
-            masked_sequence,
-            labels,
-            loss_mask,
-            cls_token=self.tokenizer.cls_token_id,
-            eos_token=self.tokenizer.eos_token_id,
         )
 
         return {
@@ -200,7 +189,7 @@ class ESMMaskedResidueDataset(Dataset):
         Returns:
             The tokenized sequence.
         """
-        tensor = self.tokenizer.encode(sequence, add_special_tokens=False, return_tensors="pt")
+        tensor = self.tokenizer.encode(sequence, add_special_tokens=True, return_tensors="pt")
         return tensor.flatten()  # type: ignore
 
 
@@ -321,11 +310,13 @@ def create_valid_dataset(
     )
 
 
-def _random_crop_string(s: str, crop_length: int):
-    """Randomly crops a string to a maximum length."""
+_T = TypeVar("_T", str, torch.Tensor)
+
+
+def _random_crop(s: _T, crop_length: int, rng: np.random.Generator) -> _T:
+    """Randomly crops a input to a maximum length."""
     if crop_length > len(s):
         return s
 
-    start_index = random.randint(0, len(s) - crop_length)
-    cropped_string = s[start_index : start_index + crop_length]
-    return cropped_string
+    start_index = rng.integers(0, len(s) - crop_length)
+    return s[start_index : start_index + crop_length]
