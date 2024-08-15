@@ -186,9 +186,7 @@ def test_datamodule_in_lightning(stage, create_datamodule, create_another_datamo
     # get the list of samples from the workflow
     get_dataloader = getattr(data_modules[0], f"{str(split).split('.')[-1]}_dataloader")
     loader = get_dataloader()
-    samples = []
-    for sample in loader:
-        samples.append(sample.name)
+    samples = [ sample.name for sample in loader ]
     lightning.seed_everything(2823828)
     workflow = getattr(trainer, name_stage)
     workflow(model, data_modules[1])
