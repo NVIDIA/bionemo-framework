@@ -22,7 +22,7 @@ plugins:
       handlers:
         python:
           paths:
-            - /sub-packages/*/src
+            - ../sub-packages/*/src
 
 markdown_extensions:
   - pymdownx.snippets:

@@ -132,7 +132,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
             directory_path: The path to the directory with the AnnData files
             max_workers: the maximal number of workers to use
             use_processes: If True, use ProcessPoolExecutor; otherwise, use
-            ThreadPoolExecutor
+                ThreadPoolExecutor
         """
         directory_path = Path(directory_path)
         ann_data_paths = sorted(directory_path.rglob("*.h5ad"))
@@ -197,7 +197,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         Returns:
             The total number of elements across dataset
             A list containing the number of variables for each entry in the
-            RowFeatureIndex.
+                RowFeatureIndex.
         """
         return self.number_of_rows(), self.number_of_variables()
 

@@ -1,8 +1,5 @@
 FROM squidfunk/mkdocs-material:latest
 
 # Install plugins.
-RUN pip install \
-    mkdocs-minify-plugin \
-    'mkdocstrings[python]' \
-    mkdocs-gen-files \
-    pymdown-extensions
+COPY requirements.txt /tmp/
+RUN pip install -r /tmp/requirements.txt
