@@ -19,8 +19,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from esm2_pretrain import main  # TODO: needs to be refactored to a package and imported!
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
-from pretrain import main  # TODO: needs to be refactored to a package and imported!
 
 from bionemo import esm2
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
