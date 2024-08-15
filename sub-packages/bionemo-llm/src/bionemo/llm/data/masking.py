@@ -18,6 +18,8 @@ from dataclasses import dataclass
 
 import torch
 
+from bionemo.llm.data.types import Tokenizer
+
 
 @dataclass(frozen=True)
 class BertMaskConfig:
@@ -29,7 +31,7 @@ class BertMaskConfig:
         random_token_prob: Probability of replacing a masked token with a random token.
     """
 
-    mask_token: int
+    tokenizer: Tokenizer
     random_tokens: range
     mask_prob: float = 0.15
     mask_token_prob: float = 0.8
@@ -65,6 +67,9 @@ def apply_bert_pretraining_mask(
             A boolean tensor the same shape as `masked_sequence`, where 'True' indicates which tokens should be included
             in the loss.
     """
+    if mask_config.tokenizer.mask_token_id is None:
+        raise ValueError("Tokenizer must have a mask token.")
+
     if mask_config.random_token_prob + mask_config.mask_token_prob > 1.0:
         raise ValueError("Sum of random_token_prob and mask_token_prob must be less than or equal to 1.0.")
 
@@ -77,20 +82,22 @@ def apply_bert_pretraining_mask(
 
     random_draws = torch.rand(tokenized_sequence.shape)  # Random draws for each token in [0, 1).
 
-    # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is (identity)
-    loss_mask = random_draws < mask_config.mask_prob
+    # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
+    # (identity). We don't want to mask special tokens.
+    loss_mask = ~torch.isin(tokenized_sequence, torch.tensor(mask_config.tokenizer.all_special_ids))
+    loss_mask &= random_draws < mask_config.mask_prob
 
     # The first `mask_token_prob` fraction of the `mask_prob` tokens are replaced with the mask token.
-    mask_token_mask = random_draws < mask_stop_1
+    mask_token_mask = (random_draws < mask_stop_1) & loss_mask
 
     # The next `random_token_prob` fraction of the `mask_prob` tokens are replaced with a random token.
-    random_token_mask = (random_draws >= mask_stop_1) & (random_draws < mask_stop_2)
+    random_token_mask = ((random_draws >= mask_stop_1) & (random_draws < mask_stop_2)) & loss_mask
 
     # The remaining tokens are implicitly left as-is, representing an identity mask.
 
     # Mask the tokens.
     masked_sequence = tokenized_sequence.clone()
-    masked_sequence[mask_token_mask] = mask_config.mask_token
+    masked_sequence[mask_token_mask] = mask_config.tokenizer.mask_token_id
     num_random_tokens: int = random_token_mask.sum().item()  # type: ignore[assignment]
     masked_sequence[random_token_mask] = torch.randint(
         low=mask_config.random_tokens.start,

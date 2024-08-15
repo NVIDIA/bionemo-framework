@@ -20,9 +20,19 @@ import torch
 from bionemo.llm.data.masking import BertMaskConfig, add_cls_and_eos_tokens, apply_bert_pretraining_mask
 
 
+class TestTokenizer:
+    @property
+    def mask_token_id(self):
+        return 32
+
+    @property
+    def all_special_ids(self):
+        return [0, 32]
+
+
 def test_bert_mask_config_raises_with_invalid_probabilities():
     with pytest.raises(ValueError):
-        BertMaskConfig(mask_token=1, random_tokens=range(2, 4), mask_token_prob=0.9, random_token_prob=0.2)
+        BertMaskConfig(tokenizer=1, random_tokens=range(2, 4), mask_token_prob=0.9, random_token_prob=0.2)
 
 
 def test_apply_bert_pretraining_mask():
@@ -40,7 +50,7 @@ def test_apply_bert_pretraining_mask():
     masked_sequence, labels, loss_mask = apply_bert_pretraining_mask(
         tokenized_sequence,
         random_seed,
-        mask_config=BertMaskConfig(mask_token=32, random_tokens=range(4, 24)),
+        mask_config=BertMaskConfig(tokenizer=TestTokenizer(), random_tokens=range(4, 24)),
     )
 
     # Check the unmasked tokens are unchanged.
@@ -68,7 +78,7 @@ def test_apply_bert_pretraining_mask_no_mask_token():
     masked_sequence, labels, loss_mask = apply_bert_pretraining_mask(
         tokenized_sequence,
         random_seed,
-        mask_config=BertMaskConfig(mask_token_prob=0.0, mask_token=32, random_tokens=range(4, 24)),
+        mask_config=BertMaskConfig(mask_token_prob=0.0, tokenizer=TestTokenizer(), random_tokens=range(4, 24)),
     )
 
     # Check the unmasked tokens are unchanged.
@@ -96,7 +106,7 @@ def test_apply_bert_pretraining_mask_changing_mask_prob():
     masked_sequence, labels, loss_mask = apply_bert_pretraining_mask(
         tokenized_sequence,
         random_seed,
-        mask_config=BertMaskConfig(mask_prob=0.0, mask_token=32, random_tokens=range(4, 24)),
+        mask_config=BertMaskConfig(mask_prob=0.0, tokenizer=TestTokenizer(), random_tokens=range(4, 24)),
     )
 
     # All mask values should be False.
@@ -111,7 +121,11 @@ def test_apply_bert_pretraining_mask_converges_to_correct_probability():
         sequence,
         random_seed,
         mask_config=BertMaskConfig(
-            mask_token=2, random_tokens=range(3, 5), mask_prob=0.5, mask_token_prob=0.25, random_token_prob=0.12
+            tokenizer=TestTokenizer(),
+            random_tokens=range(3, 5),
+            mask_prob=0.5,
+            mask_token_prob=0.25,
+            random_token_prob=0.12,
         ),
     )
 
@@ -119,7 +133,7 @@ def test_apply_bert_pretraining_mask_converges_to_correct_probability():
     assert pytest.approx(loss_mask.float().mean(), abs=0.01) == 0.5
 
     # Check that the distribution of masked tokens is correct.
-    assert pytest.approx((masked_sequence == 2).float().mean(), abs=0.01) == 0.5 * 0.25
+    assert pytest.approx((masked_sequence == 32).float().mean(), abs=0.01) == 0.5 * 0.25
 
     # Check that the distribution of random tokens is correct.
     assert (
@@ -139,14 +153,14 @@ def test_apply_bert_pretraining_mask_is_reproducible_with_same_seed():
     masked_sequence, labels, loss_mask = apply_bert_pretraining_mask(
         tokenized_sequence,
         123,
-        mask_config=BertMaskConfig(mask_prob=0.5, mask_token=32, random_tokens=range(4, 24)),
+        mask_config=BertMaskConfig(mask_prob=0.5, tokenizer=TestTokenizer(), random_tokens=range(4, 24)),
     )
 
     for _ in range(10):
         new_seq, new_labels, new_mask = apply_bert_pretraining_mask(
             tokenized_sequence,
             123,
-            mask_config=BertMaskConfig(mask_prob=0.5, mask_token=32, random_tokens=range(4, 24)),
+            mask_config=BertMaskConfig(mask_prob=0.5, tokenizer=TestTokenizer(), random_tokens=range(4, 24)),
         )
 
         assert torch.allclose(masked_sequence, new_seq)
@@ -162,18 +176,30 @@ def test_apply_bert_pretraining_mask_changes_with_new_seed():
     masked_sequence, labels, loss_mask = apply_bert_pretraining_mask(
         tokenized_sequence,
         123,
-        mask_config=BertMaskConfig(mask_prob=0.5, mask_token=32, random_tokens=range(4, 24)),
+        mask_config=BertMaskConfig(mask_prob=0.5, tokenizer=TestTokenizer(), random_tokens=range(4, 24)),
     )
 
     new_seq, new_labels, new_mask = apply_bert_pretraining_mask(
         tokenized_sequence,
         321,
-        mask_config=BertMaskConfig(mask_prob=0.5, mask_token=32, random_tokens=range(4, 24)),
+        mask_config=BertMaskConfig(mask_prob=0.5, tokenizer=TestTokenizer(), random_tokens=range(4, 24)),
     )
 
     assert not torch.allclose(masked_sequence, new_seq)
     assert not torch.allclose(labels, new_labels)
     assert not torch.allclose(loss_mask, new_mask)
+
+
+def test_apply_bert_pretraining_mask_doesnt_mask_special_tokens():
+    tokenized_sequence = torch.zeros(1000, dtype=torch.long)
+    masked_sequence, labels, loss_mask = apply_bert_pretraining_mask(
+        tokenized_sequence,
+        123,
+        mask_config=BertMaskConfig(mask_prob=0.5, tokenizer=TestTokenizer(), random_tokens=range(4, 24)),
+    )
+    assert torch.all(masked_sequence == 0)
+    assert torch.all(labels == -1)
+    assert torch.all(~loss_mask)
 
 
 def test_add_cls_and_eos_tokens_both_tokens():

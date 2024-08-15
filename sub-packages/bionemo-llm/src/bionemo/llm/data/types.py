@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-from typing import TypedDict
+from typing import Protocol, TypedDict
 
 import torch
 
@@ -37,3 +37,15 @@ class BertSample(TypedDict):
     labels: torch.Tensor
     loss_mask: torch.Tensor
     is_random: torch.Tensor
+
+
+class Tokenizer(Protocol):
+    """Required attributes for a tokenizers provided to apply_bert_pretraining_mask."""
+
+    @property
+    def mask_token_id(self) -> int | None:  # noqa: D102
+        ...
+
+    @property
+    def all_special_ids(self) -> list[int]:  # noqa: D102
+        ...

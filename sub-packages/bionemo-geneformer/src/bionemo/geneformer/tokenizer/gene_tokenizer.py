@@ -85,6 +85,14 @@ class GeneTokenizer(Label2IDTokenizer, io.IOMixin):
         return self.token_to_id(self.pad_token)
 
     @property
+    def mask_token_id(self) -> int:  # noqa: D102
+        return self.token_to_id(self.mask_token)
+
+    @property
+    def all_special_ids(self) -> list[int]:  # noqa: D102
+        return [self.token_to_id(tok) for tok in self.special_tokens]
+
+    @property
     def class_id(self) -> int:  # noqa: D102
         return self.token_to_id(self.cls_token)
 
