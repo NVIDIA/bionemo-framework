@@ -41,7 +41,10 @@ __all__: Sequence[str] = ("main",)
 
 
 def main(
-    data_dir: Path,
+    train_cluster_path: Path,
+    train_database_path: Path,
+    valid_cluster_path: Path,
+    valid_database_path: Path,
     num_nodes: int,
     devices: int,
     seq_length: int,
@@ -72,7 +75,10 @@ def main(
     """Train an ESM2 model on UR data.
 
     Args:
-        data_dir (Path): Base directory for the data.
+        train_cluster_path (Path): path to train cluster partquet
+        train_database_path (Path): path to train database
+        valid_cluster_path (Path): path to validation cluster parquet
+        valid_database_path (Path): path to validation database
         num_nodes (int): Number of nodes to run on
         devices (int): number of devices
         seq_length (int): sequence length
@@ -96,12 +102,6 @@ def main(
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
-
-    # Setup train/test/val data paths
-    train_database_path = data_dir / "train_sanity.db"
-    train_cluster_path = data_dir / "train_clusters_sanity.parquet"
-    val_database_path = data_dir / "validation.db"
-    val_cluster_path = data_dir / "valid_clusters.parquet"
 
     # Setup the strategy and trainer
     pipeline_model_parallel_size = 1
@@ -146,8 +146,8 @@ def main(
     data = ESMDataModule(
         train_cluster_path=train_cluster_path,
         train_database_path=train_database_path,
-        valid_cluster_path=val_cluster_path,
-        valid_database_path=val_database_path,
+        valid_cluster_path=valid_cluster_path,
+        valid_database_path=valid_database_path,
         global_batch_size=micro_batch_size * int(num_nodes * devices / pipeline_model_parallel_size),
         micro_batch_size=micro_batch_size,
         min_seq_length=None,
@@ -218,11 +218,28 @@ def main(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pretrain ESM2 with UR data.")
     parser.add_argument(
-        "--data-dir",
+        "--train-cluster-path",
         type=Path,
-        required=False,
-        default="/workspaces/bionemo-fw-ea/data/esm2",
-        help="Path to the data base directory, for example this might be " "/workspaces/bionemo-fw-ea/data",
+        required=True,
+        help="Path to the train cluster data parquet file",
+    )
+    parser.add_argument(
+        "--train-database-path",
+        type=Path,
+        required=True,
+        help="Path to the train sequence database file",
+    )
+    parser.add_argument(
+        "--valid-cluster-path",
+        type=Path,
+        required=True,
+        help="Path to the valid cluster data parquet file",
+    )
+    parser.add_argument(
+        "--valid-database-path",
+        type=Path,
+        required=True,
+        help="Path to the vali sequence database file",
     )
     parser.add_argument(
         "--precision",
@@ -375,7 +392,10 @@ if __name__ == "__main__":
     #   config management system.
     args = parser.parse_args()
     main(
-        data_dir=args.data_dir,
+        train_cluster_path=args.train_cluster_path,
+        train_database_path=args.train_database_path,
+        valid_cluster_path=args.valid_cluster_path,
+        valid_database_path=args.valid_database_path,
         num_nodes=args.num_nodes,
         devices=args.num_gpus,
         seq_length=args.seq_length,

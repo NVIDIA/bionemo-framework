@@ -15,9 +15,11 @@
 
 import os
 import shlex
+import sqlite3
 import subprocess
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from esm2_pretrain import main  # TODO: needs to be refactored to a package and imported!
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
@@ -39,24 +41,73 @@ assert bionemo2_root != Path("/")
 data_path: Path = bionemo2_root / "test_data/???"  # TODO: farhadr fix test data
 
 
-@pytest.mark.skip(reason="We need to store a reasonably sized database on SwiftStack for testing")
+@pytest.fixture
+def dummy_protein_dataset(tmp_path):
+    """Create a mock protein dataset."""
+    db_file = tmp_path / "protein_dataset.db"
+    conn = sqlite3.connect(str(db_file))
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE protein (
+            id TEXT PRIMARY KEY,
+            sequence TEXT
+        )
+    """
+    )
+
+    proteins = [
+        ("UniRef90_A", "ACDEFGHIKLMNPQRSTVWY"),
+        ("UniRef90_B", "DEFGHIKLMNPQRSTVWYAC"),
+        ("UniRef90_C", "MGHIKLMNPQRSTVWYACDE"),
+        ("UniRef50_A", "MKTVRQERLKSIVRI"),
+        ("UniRef50_B", "MRILERSKEPVSGAQLA"),
+    ]
+    cursor.executemany("INSERT INTO protein VALUES (?, ?)", proteins)
+
+    conn.commit()
+    conn.close()
+
+    return db_file
+
+
+@pytest.fixture
+def dummy_parquet_train_val_inputs(tmp_path):
+    """Create a mock protein train and val cluster parquet."""
+    train_cluster_path = tmp_path / "train_clusters.parquet"
+    train_clusters = pd.DataFrame(
+        {
+            "ur90_id": [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]],
+        }
+    )
+    train_clusters.to_parquet(train_cluster_path)
+
+    valid_cluster_path = tmp_path / "valid_clusters.parquet"
+    valid_clusters = pd.DataFrame(
+        {
+            "ur50_id": ["UniRef50_A", "UniRef50_B"],
+        }
+    )
+    valid_clusters.to_parquet(valid_cluster_path)
+    return train_cluster_path, valid_cluster_path
+
+
 def test_bionemo2_rootdir():
     assert (bionemo2_root / "sub-packages").exists(), "Could not find bionemo2 root directory."
     assert (bionemo2_root / "sub-packages").is_dir(), "sub-packages is supposed to be a directory."
-    data_error_str = (
-        "Please download test data with:\n"
-        "`python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss`"
-    )
-    assert data_path.exists(), f"Could not find test data directory.\n{data_error_str}"
-    assert data_path.is_dir(), f"Test data directory is supposed to be a directory.\n{data_error_str}"
 
 
-@pytest.mark.skip(reason="We need to store a reasonably sized database on SwiftStack for testing")
-def test_main_runs(tmpdir):
+def test_main_runs(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs):
+    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
+
     result_dir = Path(tmpdir.mkdir("results"))
 
     main(
-        data_dir=data_path,
+        train_cluster_path=train_cluster_path,
+        train_database_path=dummy_protein_dataset,
+        valid_cluster_path=valid_cluster_path,
+        valid_database_path=dummy_protein_dataset,
         num_nodes=1,
         devices=1,
         seq_length=128,
@@ -67,7 +118,7 @@ def test_main_runs(tmpdir):
         warmup_steps=5,
         limit_val_batches=1,
         val_check_interval=1,
-        num_dataset_workers=0,
+        num_dataset_workers=2,
         biobert_spec_option=BiobertSpecOption.esm2_bert_layer_local_spec,
         lr=1e-4,
         micro_batch_size=2,
@@ -96,14 +147,18 @@ def test_main_runs(tmpdir):
     ).is_file(), "Could not find experiment log."
 
 
-@pytest.mark.skip(reason="We need to store a reasonably sized database on SwiftStack for testing")
-def test_pretrain_cli(tmpdir):
+def test_pretrain_cli(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs):
+    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
+
     result_dir = Path(tmpdir.mkdir("results"))
     open_port = find_free_network_port()
     # NOTE: if you need to change the following command, please update the README.md example.
     cmd_str = f"""python  \
     scripts/protein/esm2/pretrain.py     \
-    --data-dir {data_path}     \
+    --train-cluster-path {train_cluster_path} \
+    --train-database-path {dummy_protein_dataset} \
+    --valid-cluster-path {valid_cluster_path} \
+    --valid-database-path {dummy_protein_dataset} \
     --result-dir {result_dir}     \
     --experiment-name test_experiment     \
     --num-gpus 1  \
