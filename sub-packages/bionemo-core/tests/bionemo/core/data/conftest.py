@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import pickle
 import random
-from pathlib import Path
 
 import lightning as L
 import pytest
@@ -23,26 +24,42 @@ import webdataset as wds
 from webdataset.filters import batched, shuffle
 
 from bionemo.core.data.datamodule import WebDataModule, Split, PickledDataWDS
+from bionemo.core.data.utils import pickles_to_tars
 
 
 @pytest.fixture(scope="module")
-def get_path(request):
-    path_test = Path(request.module.__file__).resolve()
-    dir_test = path_test.parents[0]
-    dir_data = path_test.parents[6] / "test_data" / "datamodule"
-    return str(dir_test), str(dir_data)
+def gen_test_data(tmp_path_factory):
+    dir_pickles = tmp_path_factory.mktemp("pickleddatawds").as_posix()
+    dir_tars = tmp_path_factory.mktemp("webdatamodule").as_posix()
+    prefix_sample = "sample"
+    suffix_sample = "tensor.pyd"
+    prefix_tar = "tensor"
+    n_samples = 10
+    os.makedirs(dir_pickles, exist_ok=True)
+    prefix_subset = []
+    # generate the pickles
+    for i in range(n_samples):
+        prefix = f"{prefix_sample}-{i:04}"
+        prefix_subset.append(prefix)
+        t = torch.tensor(i, dtype=torch.int32)
+        pickle.dump(t, open(f"{dir_pickles}/{prefix}.{suffix_sample}", "wb"))
+    # generate the tars
+    pickles_to_tars(dir_pickles, suffix_sample, prefix_subset, dir_tars,
+                    prefix_tar, min_num_shards=3)
+    return (dir_pickles, dir_tars, prefix_sample, suffix_sample, prefix_tar,
+        n_samples)
 
 
-def _create_webdatamodule(dir_tars_wds):
-    suffix_keys_wds = "tensor.pyd"
+def _create_webdatamodule(gen_test_data):
+    (_, dir_tars_wds, _, suffix_keys_wds, prefix_tars_wds,
+     n_samples_in_tar) = gen_test_data
     local_batch_size = 2
     global_batch_size = 2
-    prefix_tars_wds = "tensor"
     seed_rng_shfl = 82838392
 
     dirs_tars_wds = { split : dir_tars_wds for split in Split }
 
-    n_samples = { split : 10 for split in Split }
+    n_samples = { split : n_samples_in_tar for split in Split }
 
     batch = batched(local_batch_size, collation_fn=lambda
                     list_samples : torch.vstack(list_samples))
@@ -86,17 +103,13 @@ def _create_webdatamodule(dir_tars_wds):
 
 
 @pytest.fixture(scope="module")
-def create_webdatamodule(get_path):
-    _, dir_data = get_path
-    dir_tars_wds = f"{dir_data}/webdatamodule"
-    return _create_webdatamodule(dir_tars_wds)
+def create_webdatamodule(gen_test_data):
+    return _create_webdatamodule(gen_test_data)
 
 
 @pytest.fixture(scope="module")
-def create_another_webdatamodule(get_path):
-    _, dir_data = get_path
-    dir_tars_wds = f"{dir_data}/webdatamodule"
-    return _create_webdatamodule(dir_tars_wds)
+def create_another_webdatamodule(gen_test_data):
+    return _create_webdatamodule(gen_test_data)
 
 
 class ModelTestWebDataModule(L.LightningModule):
@@ -136,21 +149,21 @@ def create_trainer_and_model():
     return trainer, model
 
 
-def _create_pickleddatawds(tmp_path_factory, dir_pickles):
-    suffix_keys_wds = "tensor.pyd"
+def _create_pickleddatawds(tmp_path_factory, gen_test_data):
+    (dir_pickles, _, prefix_sample, suffix_keys_wds, prefix_tars_wds,
+     n_samples_in_tar) = gen_test_data
     local_batch_size = 2
     global_batch_size = 2
-    prefix_tars_wds = "tensor"
     seed_rng_shfl = 82838392
     n_tars_wds = 3
 
     prefix_dir_tars_wds = tmp_path_factory.mktemp("pickleddatawds_tars_wds").as_posix()
 
-    names = { split : [ f"sample-{i:04d}" for i in
-                       range(10) ] for split in Split
+    names = { split : [ f"{prefix_sample}-{i:04d}" for i in
+                       range(n_samples_in_tar) ] for split in Split
         }
 
-    n_samples = { split : 10 for split in Split }
+    n_samples = { split : n_samples_in_tar for split in Split }
 
     batch = batched(local_batch_size, collation_fn=lambda
                     list_samples : torch.vstack(list_samples))
@@ -192,15 +205,12 @@ def _create_pickleddatawds(tmp_path_factory, dir_pickles):
 
     return data_module, prefix_dir_tars_wds
 
+
 @pytest.fixture(scope="module")
-def create_pickleddatawds(tmp_path_factory, get_path):
-    _, dir_data = get_path
-    dir_pickles = f"{dir_data}/pickleddatawds"
-    return _create_pickleddatawds(tmp_path_factory, dir_pickles)
+def create_pickleddatawds(tmp_path_factory, gen_test_data):
+    return _create_pickleddatawds(tmp_path_factory, gen_test_data)
 
 
 @pytest.fixture(scope="module")
-def create_another_pickleddatawds(tmp_path_factory, get_path):
-    _, dir_data = get_path
-    dir_pickles = f"{dir_data}/pickleddatawds"
-    return _create_pickleddatawds(tmp_path_factory, dir_pickles)
+def create_another_pickleddatawds(tmp_path_factory, gen_test_data):
+    return _create_pickleddatawds(tmp_path_factory, gen_test_data)
