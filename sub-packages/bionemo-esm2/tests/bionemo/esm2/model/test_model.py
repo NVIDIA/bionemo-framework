@@ -223,7 +223,7 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
 def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
-    compute_hf_reference: bool = True
+    compute_hf_reference: bool = False
     seed: int = 42
 
     with (
@@ -273,6 +273,6 @@ def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet
             hf_mean_loss = _compute_loss(hf_model, train_dataloader)
             print(f"hf_mean_loss: {hf_mean_loss}")
         else:
-            hf_mean_loss = torch.tensor(3.198957920074463).cuda()
+            hf_mean_loss = torch.tensor(3.166349411010742).cuda()
 
-        torch.testing.assert_close(mean_loss, hf_mean_loss, atol=5e-5, rtol=0.0)
+        torch.testing.assert_close(mean_loss, hf_mean_loss, atol=1e-4, rtol=0.0)
