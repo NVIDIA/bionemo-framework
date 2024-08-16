@@ -16,17 +16,17 @@
 
 import pytest
 import torch
-from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
 
 from bionemo.esm2.api import ESM2Config
+from bionemo.esm2.data.tokenizer import BioNeMoAutoTokenizer, get_tokenizer
 from bionemo.esm2.model.embedding import ESM2_MASK_RATIO_TRAIN, ESM2Embedding
 from bionemo.llm.lightning import get_dtype_device
 from bionemo.testing import megatron_parallel_state_utils
 
 
 @pytest.fixture(scope="module")
-def tokenizer() -> AutoTokenizer:
-    yield AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
+def tokenizer() -> BioNeMoAutoTokenizer:
+    yield get_tokenizer()
 
 
 @pytest.fixture(scope="module")
@@ -41,7 +41,7 @@ def test_init(embedding, tokenizer):
     assert isinstance(embedding, ESM2Embedding)
     assert embedding.token_dropout is True
     assert embedding.use_attention_mask is True
-    assert embedding.mask_token_id == tokenizer.mask_id
+    assert embedding.mask_token_id == tokenizer.mask_token_id
 
 
 def test_forward(embedding):

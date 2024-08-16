@@ -31,6 +31,7 @@ from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.core.utils.random_utils import random_numpy_context
 from bionemo.esm2.api import ESM2Config, ESM2Model
 from bionemo.esm2.data.datamodule import ESMDataModule
+from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.embedding import ESM2Embedding
 from bionemo.llm.model.biobert.model import MegatronBioBertModel
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
@@ -85,7 +86,7 @@ def esm2_650M_config_w_ckpt() -> ESM2Config:
 @pytest.fixture(scope="module")
 def esm2_model(esm2_config) -> ESM2Model:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
+        tokenizer = get_tokenizer()
         model = esm2_config.configure_model(tokenizer)
         yield model
 
@@ -197,7 +198,7 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         torch.cuda.empty_cache()
 
         # configure the model to return logits
-        model = esm2_650M_config_w_ckpt.configure_model(tokenizer).cuda()
+        model = esm2_650M_config_w_ckpt.configure_model(get_tokenizer()).cuda()
         model.eval()
         result = model(input_ids, attention_mask)
         logits = result["token_logits"][..., : tokenizer.vocab_size]
@@ -211,7 +212,7 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         # configure the model to return hiddens
         esm2_650M_config_hiddens = deepcopy(esm2_650M_config_w_ckpt)
         esm2_650M_config_hiddens.return_only_hidden_states = True
-        model = esm2_650M_config_hiddens.configure_model(tokenizer).cuda()
+        model = esm2_650M_config_hiddens.configure_model(get_tokenizer()).cuda()
         model.eval()
         hiddens = model(input_ids, attention_mask)
         embeddings = reduce_hiddens(torch.transpose(hiddens, 0, 1).float(), attention_mask)
@@ -231,7 +232,7 @@ def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet
         megatron_parallel_state_utils.distributed_model_parallel_state(seed),
         random_numpy_context(seed),
     ):
-        tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
+        tokenizer = get_tokenizer()
 
         # ESM2 model initialized with 650M params
         model = esm2_650M_config_w_ckpt.configure_model(tokenizer).cuda()
