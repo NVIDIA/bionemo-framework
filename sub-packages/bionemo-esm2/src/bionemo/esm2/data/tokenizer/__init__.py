@@ -20,9 +20,9 @@ import transformers
 from nemo.lightning.io import IOMixin
 
 
-class BioNeMoAutoTokenizer(transformers.AutoTokenizer, IOMixin):
+class BioNeMoAutoTokenizer(transformers.AutoTokenizer, IOMixin):  # noqa D101
     def __init__(self, pretrained_model_name, use_fast=True):
-        """A wrapper to make AutoTokenizer serializable
+        """A wrapper to make AutoTokenizer serializable.
 
         Args:
             pretrained_model_name: A string, the *model id* of a predefined tokenizer hosted on huggingface
