@@ -51,7 +51,7 @@ class ESMDataModule(pl.LightningDataModule):
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
-        tokenizer: tokenizer.HFTokenizer = tokenizer.get_tokenizer(),
+        tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
     ) -> None:
         """Initialize the ESMDataModule.
 

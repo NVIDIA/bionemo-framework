@@ -82,7 +82,7 @@ class MegatronBioBertModel(LanguageModule):
         transformer_layer_spec: spec_utils.ModuleSpec,
         vocab_size: int,
         max_sequence_length: int,
-        tokrnizer: Optional[AutoTokenizer] = None,
+        tokenizer: Optional[AutoTokenizer] = None,
         pre_process: bool = True,
         post_process: bool = True,
         fp16_lm_cross_entropy: bool = False,

@@ -15,15 +15,20 @@
 
 
 import functools
-from pathlib import Path
 
 import transformers
+from nemo.lightning.io import IOMixin
 
 
-HFTokenizer = transformers.PreTrainedTokenizer | transformers.PreTrainedTokenizerFast
+class BioNeMoAutoTokenizer(transformers.AutoTokenizer, IOMixin):
+    def __init__(self, pretrained_model_name, use_fast=True):
+        other = self.from_pretrained(pretrained_model_name, use_fast=use_fast)
+        for attr in dir(other):
+            if not attr.startswith("_"):
+                setattr(self, attr, getattr(other, attr))
 
 
 @functools.cache
-def get_tokenizer() -> HFTokenizer:
+def get_tokenizer() -> BioNeMoAutoTokenizer:
     """Get the tokenizer for the ESM2 model."""
-    return transformers.AutoTokenizer.from_pretrained(Path(__file__).parent.resolve(), use_fast=True)
+    return BioNeMoAutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D", use_fast=True)

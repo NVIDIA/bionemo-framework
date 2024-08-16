@@ -32,13 +32,14 @@ from megatron.core.transformer.enums import ModelType
 from megatron.core.transformer.transformer_block import TransformerBlock
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import get_linear_layer
-from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
 from nemo.lightning import get_vocab_size
+from nemo.lightning.io import IOMixin
 from nemo.lightning.megatron_parallel import MegatronLossReduction
 from torch import Tensor
 from torch.optim import Optimizer
 
 from bionemo.core.model.config import BionemoModelConfig
+from bionemo.esm2.data.tokenizer import BioNeMoAutoTokenizer
 from bionemo.esm2.model.attention import ESM2DotProductAttention
 from bionemo.esm2.model.embedding import ESM2Embedding
 from bionemo.llm.model.biobert.model import MegatronBioBertModel
@@ -63,7 +64,7 @@ class ESM2Model(MegatronBioBertModel):
         transformer_layer_spec: spec_utils.ModuleSpec,
         vocab_size: int,
         max_sequence_length: int,
-        tokenizer: AutoTokenizer = None,
+        tokenizer: Optional[BioNeMoAutoTokenizer] = None,
         pre_process: bool = True,
         post_process: bool = True,
         fp16_lm_cross_entropy: bool = False,
@@ -220,7 +221,7 @@ def esm_gelu_func(x: Tensor) -> Tensor:
 
 
 @dataclass
-class ESM2Config(BionemoModelConfig[ESM2Model], TransformerConfig):
+class ESM2Config(BionemoModelConfig[ESM2Model], TransformerConfig, IOMixin):
     """Configuration class for ESM2 model.
 
     Attributes:
