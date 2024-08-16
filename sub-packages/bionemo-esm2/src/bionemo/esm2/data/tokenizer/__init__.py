@@ -22,6 +22,13 @@ from nemo.lightning.io import IOMixin
 
 class BioNeMoAutoTokenizer(transformers.AutoTokenizer, IOMixin):
     def __init__(self, pretrained_model_name, use_fast=True):
+        """A wrapper to make AutoTokenizer serializable
+
+        Args:
+            pretrained_model_name: A string, the *model id* of a predefined tokenizer hosted on huggingface
+            use_fast: Use a [fast Rust-based tokenizer](https://huggingface.co/docs/tokenizers/index)
+            if it is supported for a given model. Defaults to True.
+        """
         other = self.from_pretrained(pretrained_model_name, use_fast=use_fast)
         for attr in dir(other):
             if not attr.startswith("_"):
