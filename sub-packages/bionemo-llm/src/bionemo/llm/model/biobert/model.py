@@ -395,7 +395,7 @@ class BioBertConfig(
             num_tokentypes=2 if do_next_sentence else 0,
             vocab_size=get_vocab_size(self, tokenizer.vocab_size, self.make_vocab_size_divisible_by),
             max_sequence_length=self.seq_length,
-            tokrnizer=tokenizer,
+            tokenizer=tokenizer,
             fp16_lm_cross_entropy=self.fp16_lm_cross_entropy,
             parallel_output=self.parallel_output,
             share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
