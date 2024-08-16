@@ -97,7 +97,7 @@ def test_bionemo2_rootdir():
     assert (bionemo2_root / "sub-packages").is_dir(), "sub-packages is supposed to be a directory."
 
 
-# @pytest.mark.skip(reason="We need to store a reasonably sized database on SwiftStack for testing")
+@pytest.mark.skip(reason="We need to store a reasonably sized database on SwiftStack for testing")
 def test_main_runs(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
@@ -147,7 +147,7 @@ def test_main_runs(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs
     ).is_file(), "Could not find experiment log."
 
 
-# @pytest.mark.skip(reason="We need to store a reasonably sized database on SwiftStack for testing")
+@pytest.mark.skip(reason="We need to store a reasonably sized database on SwiftStack for testing")
 def test_pretrain_cli(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
