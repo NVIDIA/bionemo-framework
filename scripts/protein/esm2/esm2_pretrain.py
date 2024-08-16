@@ -21,7 +21,6 @@ from typing import Optional, Sequence, get_args
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
-from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
 from nemo.lightning import io, resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
@@ -30,6 +29,7 @@ from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
+from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.lightning import LossLoggingCallback
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
@@ -140,7 +140,7 @@ def main(
         plugins=nl.MegatronMixedPrecision(precision=precision, amp_O2=False),
     )
 
-    tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
+    tokenizer = get_tokenizer()
 
     # Initialize the data module.
     data = ESMDataModule(

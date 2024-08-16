@@ -136,7 +136,7 @@ class ESM2Model(MegatronBioBertModel):
                 # ESM2 NEW ARGS
                 token_dropout=self.config.token_dropout,
                 use_attention_mask=self.config.use_attention_mask,
-                mask_token_id=tokenizer.mask_id,
+                mask_token_id=tokenizer.mask_token_id,
             )
 
         if self.position_embedding_type == "rope":

@@ -38,7 +38,6 @@ bionemo2_root: Path = (
     .parent.parent
 ).absolute()
 assert bionemo2_root != Path("/")
-data_path: Path = bionemo2_root / "test_data/???"  # TODO: farhadr fix test data
 
 
 @pytest.fixture
