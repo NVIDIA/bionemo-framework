@@ -11,7 +11,7 @@ description = "BioNeMo DiffDock"
 authors = [
     { name = "John St. John", email = "jstjohn@nvidia.com" },
     { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
-    { name = "Dejun Lin", email = "dejun.lin@gmail.com" },
+    { name = "Dejun Lin", email = "dejunl@nvidia.com" },
 ]
 dynamic = ["dependencies"]
 
