@@ -16,7 +16,7 @@ import pytest
 import torch
 import lightning as L
 
-from bionemo.core.data.datamodule import Split
+from bionemo.webdatamodule.datamodule import Split
 
 
 @pytest.mark.parametrize("split", list(Split))

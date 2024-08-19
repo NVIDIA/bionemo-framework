@@ -19,8 +19,8 @@ import torch
 import webdataset as wds
 from webdataset.filters import batched, shuffle
 
-from bionemo.core.data.datamodule import WebDataModule, Split, PickledDataWDS
-from bionemo.core.data.utils import pickles_to_tars
+from bionemo.webdatamodule.datamodule import WebDataModule, Split, PickledDataWDS
+from bionemo.webdatamodule.utils import pickles_to_tars
 
 
 @pytest.fixture(scope="module")

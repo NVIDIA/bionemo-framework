@@ -17,7 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Union, get_args
 import lightning as L
 import webdataset as wds
 
-from bionemo.core.data.utils import pickles_to_tars
+from bionemo.webdatamodule.utils import pickles_to_tars
 
 
 class Split(Enum):
