@@ -9,6 +9,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+# Disclaimer: this file is WIP and should be treated with caution.
 
 # HOWTO build:
 # 1. to build on aarch64 change build() in ./launch to use this file Dockerfile.arm (recommended - much faster)
