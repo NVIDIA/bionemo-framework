@@ -7,6 +7,7 @@
 		"context": "${localWorkspaceFolder}",
 		"dockerfile": "${localWorkspaceFolder}/Dockerfile",
 		"cacheFrom": "nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-latest",
+		"cacheFrom": "gitlab-master.nvidia.com:5005/clara-discovery/bionemo/bionemo-inter:bionemo2-latest-cache",
 		"target": "dev"
 	},
 	"mounts": [
