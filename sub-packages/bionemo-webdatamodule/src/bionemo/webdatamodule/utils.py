@@ -110,7 +110,7 @@ def pickles_to_tars(
                 sample = func_output_data(name.replace(".", "-"), input_suffix, data)
             except ModuleNotFoundError as e:
                 logging.error(
-                    f"Dependency for parsing input pickle data not " f"found: {e}"
+                    f"Dependency for parsing input pickle data not found: {e}"
                 )
                 raise e
             except Exception as e:
