@@ -18,7 +18,7 @@ import sys
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import click
 
@@ -66,7 +66,7 @@ class HeaderNotFound(ValueError):
         return f"{self.pyfile.name} does not have the license header!"
 
 
-LicenseCheckError = Union[IOError, SyntaxError, HeaderNotFound]
+LicenseCheckError = IOError | SyntaxError | HeaderNotFound
 """Errors that can be encountered during the license check process.
 
 Specific errors and their underlying causes:
