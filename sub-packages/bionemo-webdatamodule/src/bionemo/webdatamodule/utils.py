@@ -101,9 +101,10 @@ def pickles_to_tars(
     ) as sink:
         for name in input_prefix_subset:
             try:
-                data = pickle.load(
-                    open(os.path.join(dir_input, f"{name}.{input_suffix}"), "rb")
-                )
+                with open(
+                    os.path.join(dir_input, f"{name}.{input_suffix}"), "rb"
+                ) as fh:
+                    data = pickle.load(fh)
                 # the prefix name shouldn't contain any "." per webdataset's
                 # specification
                 sample = func_output_data(name.replace(".", "-"), input_suffix, data)

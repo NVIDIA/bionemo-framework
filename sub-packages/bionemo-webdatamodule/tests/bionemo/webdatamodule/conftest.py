@@ -43,7 +43,8 @@ def gen_test_data(tmp_path_factory):
         prefix = f"{prefix_sample}-{i:04}"
         prefix_subset.append(prefix)
         t = torch.tensor(i, dtype=torch.int32)
-        pickle.dump(t, open(f"{dir_pickles}/{prefix}.{suffix_sample}", "wb"))
+        with open(f"{dir_pickles}/{prefix}.{suffix_sample}", "wb") as fh:
+            pickle.dump(t, fh)
     # generate the tars
     pickles_to_tars(
         dir_pickles,
