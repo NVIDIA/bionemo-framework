@@ -99,6 +99,8 @@ RUN groupadd --gid $USER_GID $USERNAME \
   && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
 
+RUN find /usr/local/lib/python3.10/dist-packages/ -type f -print0 | xargs -0 -P 0 -n 10000 chown $USERNAME:$USER_GID
+
 ENV PATH="/home/bionemo/.local/bin:${PATH}"
 
 
