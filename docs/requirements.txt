@@ -3,3 +3,4 @@ mkdocs-minify-plugin
 mkdocstrings[python]
 mkdocs-gen-files
 pymdown-extensions
+mkdocs-jupyter

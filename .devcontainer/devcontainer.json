@@ -26,7 +26,8 @@
 				"streetsidesoftware.code-spell-checker",
 				"ms-azuretools.vscode-docker",
 				"charliermarsh.ruff",
-				"njpwerner.autodocstring"
+				"njpwerner.autodocstring",
+				"ms-toolsai.jupyter"
 			],
 			"settings": {
 				"python.analysis.extraPaths": [
