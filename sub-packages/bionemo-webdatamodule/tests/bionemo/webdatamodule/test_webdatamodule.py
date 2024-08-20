@@ -1,20 +1,24 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: LicenseRef-Apache2
 #
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 
 from enum import Enum, auto
 
-import pytest
-
-import torch
 import lightning as L
+import pytest
+import torch
 
 from bionemo.webdatamodule.datamodule import Split
 
@@ -23,9 +27,7 @@ from bionemo.webdatamodule.datamodule import Split
 def test_webdatamodule_init(split, create_webdatamodule):
     data_module, prefix_dir_tars_wds = create_webdatamodule
     assert data_module._n_samples[split] == 10, (
-        f"Wrong {split}-set size: "
-        f"expected 10 "
-        f"but got {data_module._n_samples[split]}"
+        f"Wrong {split}-set size: " f"expected 10 " f"but got {data_module._n_samples[split]}"
     )
     assert data_module._dirs_tars_wds[split] == f"{prefix_dir_tars_wds}", (
         f"Wrong tar files directory: "
@@ -35,8 +37,7 @@ def test_webdatamodule_init(split, create_webdatamodule):
 
 
 @pytest.mark.parametrize("split", list(Split))
-def test_webdatamodule_setup_dataset(split, create_webdatamodule,
-                                     create_another_webdatamodule):
+def test_webdatamodule_setup_dataset(split, create_webdatamodule, create_another_webdatamodule):
     data_modules = [create_webdatamodule[0], create_another_webdatamodule[0]]
     lists_tensors = []
     for m in data_modules:
@@ -46,21 +47,18 @@ def test_webdatamodule_setup_dataset(split, create_webdatamodule,
         m.setup("fit")
         m.setup("test")
         L.seed_everything(2823828)
-        tensors= []
+        tensors = []
         for sample in m._dataset[split]:
-            assert isinstance(sample, torch.Tensor),\
-                "Sample yield from dataset is not tensor"
+            assert isinstance(sample, torch.Tensor), "Sample yield from dataset is not tensor"
             tensors.append(sample)
         lists_tensors.append(tensors)
 
     assert len(lists_tensors[0]) > 0, "No names in {split} dataset"
-    torch.testing.assert_close(torch.vstack(lists_tensors[0]),
-                               torch.vstack(lists_tensors[1]))
+    torch.testing.assert_close(torch.vstack(lists_tensors[0]), torch.vstack(lists_tensors[1]))
 
 
 @pytest.mark.parametrize("split", list(Split))
-def test_webdatamodule_setup_dataloader(split, create_webdatamodule,
-                                        create_another_webdatamodule):
+def test_webdatamodule_setup_dataloader(split, create_webdatamodule, create_another_webdatamodule):
     data_modules = [create_webdatamodule[0], create_another_webdatamodule[0]]
     lists_tensors = []
     for m in data_modules:
@@ -83,14 +81,12 @@ def test_webdatamodule_setup_dataloader(split, create_webdatamodule,
         assert loader is not None, "dataloader not instantated"
         for samples in loader:
             # PyG's HeteroDataBatch is Batch inherited from HeteroData
-            assert isinstance(samples, torch.Tensor),\
-                "Sample object is not torch.Tensor"
+            assert isinstance(samples, torch.Tensor), "Sample object is not torch.Tensor"
             tensors.append(samples)
         lists_tensors.append(tensors)
 
     assert len(lists_tensors[0]) > 0, "No names in {split} dataloader"
-    torch.testing.assert_close(torch.vstack(lists_tensors[0]),
-                               torch.vstack(lists_tensors[1]))
+    torch.testing.assert_close(torch.vstack(lists_tensors[0]), torch.vstack(lists_tensors[1]))
 
 
 class Stage(Enum):
@@ -101,9 +97,9 @@ class Stage(Enum):
 
 
 @pytest.mark.parametrize("stage", list(Stage))
-def test_webdatamodule_in_lightning(stage, create_webdatamodule,
-                                 create_another_webdatamodule,
-                                 create_trainer_and_model):
+def test_webdatamodule_in_lightning(
+    stage, create_webdatamodule, create_another_webdatamodule, create_trainer_and_model
+):
     data_modules = [create_webdatamodule[0], create_another_webdatamodule[0]]
     trainer, model = create_trainer_and_model
     # get the list of samples from the loader
@@ -123,7 +119,7 @@ def test_webdatamodule_in_lightning(stage, create_webdatamodule,
     # get the list of samples from the workflow
     get_dataloader = getattr(data_modules[0], f"{str(split).split('.')[-1]}_dataloader")
     loader = get_dataloader()
-    samples = [ sample.name for sample in loader ]
+    samples = [sample.name for sample in loader]
     L.seed_everything(2823828)
     workflow = getattr(trainer, name_stage)
     workflow(model, data_modules[1])
@@ -134,9 +130,7 @@ def test_webdatamodule_in_lightning(stage, create_webdatamodule,
 def test_pickleddatawds_init(split, create_pickleddatawds):
     data_module, prefix_dir_tars_wds = create_pickleddatawds
     assert data_module._n_samples[split] == 10, (
-        f"Wrong {split}-set size: "
-        f"expected 10 "
-        f"but got {data_module._n_samples[split]}"
+        f"Wrong {split}-set size: " f"expected 10 " f"but got {data_module._n_samples[split]}"
     )
     name_split = str(split).split(".")[-1]
     assert data_module._dirs_tars_wds[split] == f"{prefix_dir_tars_wds}{name_split}", (
@@ -145,9 +139,9 @@ def test_pickleddatawds_init(split, create_pickleddatawds):
         f"but got {data_module._dirs_tars_wds[split]}"
     )
 
+
 @pytest.mark.parametrize("split", list(Split))
-def test_pickleddatawds_setup_dataset(split, create_pickleddatawds,
-                                      create_another_pickleddatawds):
+def test_pickleddatawds_setup_dataset(split, create_pickleddatawds, create_another_pickleddatawds):
     data_modules = [create_pickleddatawds[0], create_another_pickleddatawds[0]]
     lists_tensors = []
     for m in data_modules:
@@ -157,13 +151,11 @@ def test_pickleddatawds_setup_dataset(split, create_pickleddatawds,
         m.setup("fit")
         m.setup("test")
         L.seed_everything(2823828)
-        tensors= []
+        tensors = []
         for sample in m._dataset[split]:
-            assert isinstance(sample, torch.Tensor),\
-                "Sample yield from dataset is not tensor"
+            assert isinstance(sample, torch.Tensor), "Sample yield from dataset is not tensor"
             tensors.append(sample)
         lists_tensors.append(tensors)
 
     assert len(lists_tensors[0]) > 0, "No names in {split} dataset"
-    torch.testing.assert_close(torch.vstack(lists_tensors[0]),
-                               torch.vstack(lists_tensors[1]))
+    torch.testing.assert_close(torch.vstack(lists_tensors[0]), torch.vstack(lists_tensors[1]))

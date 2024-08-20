@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: LicenseRef-Apache2
 #
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 
 import os
@@ -19,7 +24,7 @@ import torch
 import webdataset as wds
 from webdataset.filters import batched, shuffle
 
-from bionemo.webdatamodule.datamodule import WebDataModule, Split, PickledDataWDS
+from bionemo.webdatamodule.datamodule import PickledDataWDS, Split, WebDataModule
 from bionemo.webdatamodule.utils import pickles_to_tars
 
 
@@ -40,60 +45,54 @@ def gen_test_data(tmp_path_factory):
         t = torch.tensor(i, dtype=torch.int32)
         pickle.dump(t, open(f"{dir_pickles}/{prefix}.{suffix_sample}", "wb"))
     # generate the tars
-    pickles_to_tars(dir_pickles, suffix_sample, prefix_subset, dir_tars,
-                    prefix_tar, min_num_shards=3)
-    return (dir_pickles, dir_tars, prefix_sample, suffix_sample, prefix_tar,
-        n_samples)
+    pickles_to_tars(dir_pickles, suffix_sample, prefix_subset, dir_tars, prefix_tar, min_num_shards=3)
+    return (dir_pickles, dir_tars, prefix_sample, suffix_sample, prefix_tar, n_samples)
 
 
 def _create_webdatamodule(gen_test_data):
-    (_, dir_tars_wds, _, suffix_keys_wds, prefix_tars_wds,
-     n_samples_in_tar) = gen_test_data
+    (_, dir_tars_wds, _, suffix_keys_wds, prefix_tars_wds, n_samples_in_tar) = gen_test_data
     local_batch_size = 2
     global_batch_size = 2
     seed_rng_shfl = 82838392
 
-    dirs_tars_wds = { split : dir_tars_wds for split in Split }
+    dirs_tars_wds = {split: dir_tars_wds for split in Split}
 
-    n_samples = { split : n_samples_in_tar for split in Split }
+    n_samples = {split: n_samples_in_tar for split in Split}
 
-    batch = batched(local_batch_size, collation_fn=lambda
-                    list_samples : torch.vstack(list_samples))
+    batch = batched(local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples))
 
-    untuple = lambda source : (sample for (sample,) in source)
+    untuple = lambda source: (sample for (sample,) in source)
 
     pipeline_wds = {
-        Split.train : [untuple, shuffle(n_samples[Split.train],
-                                        rng=random.Random(seed_rng_shfl))],
-        Split.val : untuple,
-        Split.test : untuple
-        }
+        Split.train: [untuple, shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl))],
+        Split.val: untuple,
+        Split.test: untuple,
+    }
 
     pipeline_prebatch_wld = {
-        Split.train: [shuffle(n_samples[Split.train],
-                              rng=random.Random(seed_rng_shfl)), batch],
-        Split.val : batch,
-        Split.test : batch
-        }
+        Split.train: [shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl)), batch],
+        Split.val: batch,
+        Split.test: batch,
+    }
 
     kwargs_wds = {
-        split : {'shardshuffle' : split == Split.train,
-                 'nodesplitter' : wds.split_by_node,
-                 'seed' : seed_rng_shfl}
+        split: {"shardshuffle": split == Split.train, "nodesplitter": wds.split_by_node, "seed": seed_rng_shfl}
         for split in Split
-        }
+    }
 
-    kwargs_wld = {
-        split : {"num_workers": 2} for split in Split
-        }
+    kwargs_wld = {split: {"num_workers": 2} for split in Split}
 
-    data_module = WebDataModule(dirs_tars_wds, n_samples, suffix_keys_wds,
-                                global_batch_size,
-                                prefix_tars_wds=prefix_tars_wds,
-                                pipeline_wds=pipeline_wds,
-                                pipeline_prebatch_wld=pipeline_prebatch_wld,
-                                kwargs_wds=kwargs_wds,
-                                kwargs_wld=kwargs_wld)
+    data_module = WebDataModule(
+        dirs_tars_wds,
+        n_samples,
+        suffix_keys_wds,
+        global_batch_size,
+        prefix_tars_wds=prefix_tars_wds,
+        pipeline_wds=pipeline_wds,
+        pipeline_prebatch_wld=pipeline_prebatch_wld,
+        kwargs_wds=kwargs_wds,
+        kwargs_wld=kwargs_wld,
+    )
 
     return data_module, dir_tars_wds
 
@@ -146,8 +145,7 @@ def create_trainer_and_model():
 
 
 def _create_pickleddatawds(tmp_path_factory, gen_test_data):
-    (dir_pickles, _, prefix_sample, suffix_keys_wds, prefix_tars_wds,
-     n_samples_in_tar) = gen_test_data
+    (dir_pickles, _, prefix_sample, suffix_keys_wds, prefix_tars_wds, n_samples_in_tar) = gen_test_data
     local_batch_size = 2
     global_batch_size = 2
     seed_rng_shfl = 82838392
@@ -155,49 +153,46 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
 
     prefix_dir_tars_wds = tmp_path_factory.mktemp("pickleddatawds_tars_wds").as_posix()
 
-    names = { split : [ f"{prefix_sample}-{i:04d}" for i in
-                       range(n_samples_in_tar) ] for split in Split
-        }
+    names = {split: [f"{prefix_sample}-{i:04d}" for i in range(n_samples_in_tar)] for split in Split}
 
-    n_samples = { split : n_samples_in_tar for split in Split }
+    n_samples = {split: n_samples_in_tar for split in Split}
 
-    batch = batched(local_batch_size, collation_fn=lambda
-                    list_samples : torch.vstack(list_samples))
+    batch = batched(local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples))
 
-    untuple = lambda source : (sample for (sample,) in source)
+    untuple = lambda source: (sample for (sample,) in source)
 
     pipeline_wds = {
-        Split.train : [untuple, shuffle(n_samples[Split.train],
-                                        rng=random.Random(seed_rng_shfl))],
-        Split.val : untuple,
-        Split.test : untuple
-        }
+        Split.train: [untuple, shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl))],
+        Split.val: untuple,
+        Split.test: untuple,
+    }
 
     pipeline_prebatch_wld = {
-        Split.train: [shuffle(n_samples[Split.train],
-                              rng=random.Random(seed_rng_shfl)), batch],
-        Split.val : batch,
-        Split.test : batch
-        }
+        Split.train: [shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl)), batch],
+        Split.val: batch,
+        Split.test: batch,
+    }
 
     kwargs_wds = {
-        split : {'shardshuffle' : split == Split.train,
-                 'nodesplitter' : wds.split_by_node,
-                 'seed' : seed_rng_shfl}
+        split: {"shardshuffle": split == Split.train, "nodesplitter": wds.split_by_node, "seed": seed_rng_shfl}
         for split in Split
-        }
+    }
 
-    kwargs_wld = {
-        split : {"num_workers": 2} for split in Split
-        }
+    kwargs_wld = {split: {"num_workers": 2} for split in Split}
 
-    data_module = PickledDataWDS(dir_pickles, suffix_keys_wds, names,
-                                 prefix_dir_tars_wds, global_batch_size,
-                                 n_tars_wds=n_tars_wds,
-                                 prefix_tars_wds=prefix_tars_wds,
-                                 pipeline_wds=pipeline_wds,
-                                 pipeline_prebatch_wld=pipeline_prebatch_wld,
-                                 kwargs_wds=kwargs_wds, kwargs_wld=kwargs_wld)
+    data_module = PickledDataWDS(
+        dir_pickles,
+        suffix_keys_wds,
+        names,
+        prefix_dir_tars_wds,
+        global_batch_size,
+        n_tars_wds=n_tars_wds,
+        prefix_tars_wds=prefix_tars_wds,
+        pipeline_wds=pipeline_wds,
+        pipeline_prebatch_wld=pipeline_prebatch_wld,
+        kwargs_wds=kwargs_wds,
+        kwargs_wld=kwargs_wld,
+    )
 
     return data_module, prefix_dir_tars_wds
 

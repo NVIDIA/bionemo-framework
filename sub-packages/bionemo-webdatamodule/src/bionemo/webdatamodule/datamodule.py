@@ -1,16 +1,20 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: LicenseRef-Apache2
 #
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 
 import glob
-import random
 from enum import Enum, auto
 from typing import Any, Dict, Iterable, List, Optional, Union, get_args
 
@@ -206,9 +210,7 @@ class WebDataModule(L.LightningDataModule):
 
         self._global_batch_size = global_batch_size
 
-
-        if not isinstance(suffix_keys_wds,
-                          get_args(Union[str, Iterable[str]])):
+        if not isinstance(suffix_keys_wds, get_args(Union[str, Iterable[str]])):
             raise TypeError("suffix_keys_wds can only be str or Iterable[str]")
 
         self._suffix_keys_wds = suffix_keys_wds
@@ -244,18 +246,13 @@ class WebDataModule(L.LightningDataModule):
         """
         if split not in self._dirs_tars_wds.keys():
             raise RuntimeError(f"_setup_wds() is called with {split} " f"split that doesn't have the input tar dir")
-        is_train = split == Split.train
         urls = sorted(glob.glob(f"{self._dirs_tars_wds[split]}/{self._prefix_tars_wds}-*.tar"))
         kwargs = self._kwargs_wds[split] if self._kwargs_wds is not None else None
-        dataset = (
-            wds.WebDataset(urls, **(kwargs if kwargs is not None else {}))
-            .decode()
-        )
+        dataset = wds.WebDataset(urls, **(kwargs if kwargs is not None else {})).decode()
         if isinstance(self._suffix_keys_wds, str):
             dataset = dataset.extract_keys(f"*.{self._suffix_keys_wds}")
         else:
-            dataset = dataset.extract_keys(*[f"*.{key}" for key in
-                                             self._suffix_keys_wds])
+            dataset = dataset.extract_keys(*[f"*.{key}" for key in self._suffix_keys_wds])
 
         if self._pipeline_wds is not None and self._pipeline_wds[split] is not None:
             if isinstance(self._pipeline_wds[split], Iterable):
