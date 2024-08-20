@@ -5,3 +5,4 @@ testbook==0.4.2
 requests_mock==1.11.0
 # For SwiftStack access
 awscli==1.33.33
+nbval==0.11.0
