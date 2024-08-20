@@ -45,12 +45,21 @@ def gen_test_data(tmp_path_factory):
         t = torch.tensor(i, dtype=torch.int32)
         pickle.dump(t, open(f"{dir_pickles}/{prefix}.{suffix_sample}", "wb"))
     # generate the tars
-    pickles_to_tars(dir_pickles, suffix_sample, prefix_subset, dir_tars, prefix_tar, min_num_shards=3)
+    pickles_to_tars(
+        dir_pickles,
+        suffix_sample,
+        prefix_subset,
+        dir_tars,
+        prefix_tar,
+        min_num_shards=3,
+    )
     return (dir_pickles, dir_tars, prefix_sample, suffix_sample, prefix_tar, n_samples)
 
 
 def _create_webdatamodule(gen_test_data):
-    (_, dir_tars_wds, _, suffix_keys_wds, prefix_tars_wds, n_samples_in_tar) = gen_test_data
+    (_, dir_tars_wds, _, suffix_keys_wds, prefix_tars_wds, n_samples_in_tar) = (
+        gen_test_data
+    )
     local_batch_size = 2
     global_batch_size = 2
     seed_rng_shfl = 82838392
@@ -59,24 +68,36 @@ def _create_webdatamodule(gen_test_data):
 
     n_samples = {split: n_samples_in_tar for split in Split}
 
-    batch = batched(local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples))
+    batch = batched(
+        local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples)
+    )
 
     untuple = lambda source: (sample for (sample,) in source)
 
     pipeline_wds = {
-        Split.train: [untuple, shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl))],
+        Split.train: [
+            untuple,
+            shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl)),
+        ],
         Split.val: untuple,
         Split.test: untuple,
     }
 
     pipeline_prebatch_wld = {
-        Split.train: [shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl)), batch],
+        Split.train: [
+            shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl)),
+            batch,
+        ],
         Split.val: batch,
         Split.test: batch,
     }
 
     kwargs_wds = {
-        split: {"shardshuffle": split == Split.train, "nodesplitter": wds.split_by_node, "seed": seed_rng_shfl}
+        split: {
+            "shardshuffle": split == Split.train,
+            "nodesplitter": wds.split_by_node,
+            "seed": seed_rng_shfl,
+        }
         for split in Split
     }
 
@@ -139,13 +160,22 @@ class ModelTestWebDataModule(L.LightningModule):
 
 @pytest.fixture(scope="function")
 def create_trainer_and_model():
-    trainer = L.Trainer(max_epochs=1, accelerator="gpu", devices=1, val_check_interval=1)
+    trainer = L.Trainer(
+        max_epochs=1, accelerator="gpu", devices=1, val_check_interval=1
+    )
     model = ModelTestWebDataModule()
     return trainer, model
 
 
 def _create_pickleddatawds(tmp_path_factory, gen_test_data):
-    (dir_pickles, _, prefix_sample, suffix_keys_wds, prefix_tars_wds, n_samples_in_tar) = gen_test_data
+    (
+        dir_pickles,
+        _,
+        prefix_sample,
+        suffix_keys_wds,
+        prefix_tars_wds,
+        n_samples_in_tar,
+    ) = gen_test_data
     local_batch_size = 2
     global_batch_size = 2
     seed_rng_shfl = 82838392
@@ -153,28 +183,43 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
 
     prefix_dir_tars_wds = tmp_path_factory.mktemp("pickleddatawds_tars_wds").as_posix()
 
-    names = {split: [f"{prefix_sample}-{i:04d}" for i in range(n_samples_in_tar)] for split in Split}
+    names = {
+        split: [f"{prefix_sample}-{i:04d}" for i in range(n_samples_in_tar)]
+        for split in Split
+    }
 
     n_samples = {split: n_samples_in_tar for split in Split}
 
-    batch = batched(local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples))
+    batch = batched(
+        local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples)
+    )
 
     untuple = lambda source: (sample for (sample,) in source)
 
     pipeline_wds = {
-        Split.train: [untuple, shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl))],
+        Split.train: [
+            untuple,
+            shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl)),
+        ],
         Split.val: untuple,
         Split.test: untuple,
     }
 
     pipeline_prebatch_wld = {
-        Split.train: [shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl)), batch],
+        Split.train: [
+            shuffle(n_samples[Split.train], rng=random.Random(seed_rng_shfl)),
+            batch,
+        ],
         Split.val: batch,
         Split.test: batch,
     }
 
     kwargs_wds = {
-        split: {"shardshuffle": split == Split.train, "nodesplitter": wds.split_by_node, "seed": seed_rng_shfl}
+        split: {
+            "shardshuffle": split == Split.train,
+            "nodesplitter": wds.split_by_node,
+            "seed": seed_rng_shfl,
+        }
         for split in Split
     }
 

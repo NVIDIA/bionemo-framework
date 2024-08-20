@@ -27,3 +27,6 @@ test = [
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
+
+[tool.ruff]
+lint.ignore = ["C901", "E741", "E501", "E731"]

@@ -328,7 +328,7 @@ constructor
   and test sets will be suffixed with "train", "val" and "test"
   respectively.
 - `*args` - arguments passed to the parent WebDataModule
-  
+
   Kwargs:
 - `n_tars_wds` _int_ - attempt to create at least this number of
   webdataset shards
@@ -351,4 +351,3 @@ webdataset tar archive with the dict structure: {"__key__" :
 name.replace(".", "-"), suffix_pickles : pickled.dumps(data) }.
 
 Returns: None
-

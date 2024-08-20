@@ -28,7 +28,9 @@ def pickles_to_tars(
     input_prefix_subset: List[str],
     dir_output: str,
     output_prefix: str,
-    func_output_data: Callable[[str, str, Any], Dict[str, Any]] = lambda prefix, suffix, data: {
+    func_output_data: Callable[[str, str, Any], Dict[str, Any]] = lambda prefix,
+    suffix,
+    data: {
         "__key__": prefix,
         suffix: pickle.dumps(data),
     },
@@ -88,19 +90,27 @@ def pickles_to_tars(
         total_size = 0
         for name in input_prefix_subset:
             try:
-                total_size += os.stat(os.path.join(dir_input, f"{name}.{input_suffix}")).st_size
+                total_size += os.stat(
+                    os.path.join(dir_input, f"{name}.{input_suffix}")
+                ).st_size
             except Exception:
                 continue
         maxsize = min(total_size * 0.6 // min_num_shards, maxsize)
-    with wds.ShardWriter(wd_subset_pattern, encoder=False, maxsize=maxsize, compress=False, mode=0o777) as sink:
+    with wds.ShardWriter(
+        wd_subset_pattern, encoder=False, maxsize=maxsize, compress=False, mode=0o777
+    ) as sink:
         for name in input_prefix_subset:
             try:
-                data = pickle.load(open(os.path.join(dir_input, f"{name}.{input_suffix}"), "rb"))
+                data = pickle.load(
+                    open(os.path.join(dir_input, f"{name}.{input_suffix}"), "rb")
+                )
                 # the prefix name shouldn't contain any "." per webdataset's
                 # specification
                 sample = func_output_data(name.replace(".", "-"), input_suffix, data)
             except ModuleNotFoundError as e:
-                logging.error(f"Dependency for parsing input pickle data not " f"found: {e}")
+                logging.error(
+                    f"Dependency for parsing input pickle data not " f"found: {e}"
+                )
                 raise e
             except Exception as e:
                 logging.error(f"Failed to write {name} into tar files due to error {e}")
