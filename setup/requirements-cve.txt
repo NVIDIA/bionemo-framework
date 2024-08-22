@@ -5,8 +5,11 @@ transformers==4.36.0
 triton==2.1.0
 pillow==10.2.0
 jupyterlab==3.6.7
-aiohttp==3.9.0
-setuptools==65.5.1
 mpmath==1.3.0
 GitPython==3.1.41
 certifi==2023.7.22
+onnx>=1.16.0
+setuptools>=70.0.0
+nltk>=3.9.1
+aiohttp>=3.9.4
+Werkzeug>=3.0.3

@@ -5,8 +5,6 @@
 --extra-index-url https://pypi.ngc.nvidia.com
 --extra-index-url https://pypi.nvidia.com
 --extra-index-url https://pypi.python.org/simple
-# https://gitlab-master.nvidia.com/clara-discovery/fw2nim
-fw2nim==0.2.0
 pyfastx==1.1.0
 # matplotlib>=3.4.3
 matplotlib==3.8.0

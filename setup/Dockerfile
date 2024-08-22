@@ -257,6 +257,11 @@ RUN rm -rf /opt/pytorch/pytorch/third_party/onnx \
   && DEBIAN_FRONTEND=noninteractive apt remove -y libslurm37 libpmi2-0 openssh-client \
   && DEBIAN_FRONTEND=noninteractive apt autoremove -y
 
+# Remove lightning-app. Nemo and BioNeMo doesn't use it, and it introduces security vulnerabilities:
+# https://github.com/advisories/GHSA-cgwc-qvrx-rf7f
+# https://github.com/advisories/GHSA-mr7h-w2qc-ffc2
+RUN rm -rf /usr/local/lib/python3.10/dist-packages/lightning/app
+
 ####
 #### NOTE: THIS MUST BE THE ABSOLUTE **LAST** STEP BEFORE ENTRYPOINT !!!!!
 ####       SPECIFICALLY, THE SECTION LABELED "BioNeMo Build"
@@ -300,12 +305,6 @@ COPY bionemo ${BIONEMO_HOME}/bionemo
 WORKDIR ${BIONEMO_HOME}
 # we already install dependencies earlier, directly from the requirements*.txt files
 RUN pip install --no-deps -e .
-
-# Remove lightning-app. Nemo and BioNeMo doesn't use it, and it introduces security vulnerabilities:
-# https://github.com/advisories/GHSA-cgwc-qvrx-rf7f
-# https://github.com/advisories/GHSA-mr7h-w2qc-ffc2
-RUN rm -rf /usr/local/lib/python3.10/dist-packages/lightning/app
-
 
 # FIXME: If BIONEMO_HOME _is not_ /workspace/bionemo, then this ENTRYPOINT is invalid!
 ENTRYPOINT ["/workspace/bionemo/setup/startup.sh"]
