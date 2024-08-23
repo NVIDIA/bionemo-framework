@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import glob
 from enum import Enum, auto
 
 import lightning as L
@@ -142,7 +142,7 @@ def test_webdatamodule_in_lightning(
 
 @pytest.mark.parametrize("split", list(Split))
 def test_pickleddatawds_init(split, create_pickleddatawds):
-    data_module, prefix_dir_tars_wds = create_pickleddatawds
+    data_module, prefix_dir_tars_wds, _ = create_pickleddatawds
     assert data_module._n_samples[split] == 10, (
         f"Wrong {split}-set size: "
         f"expected 10 "
@@ -153,6 +153,19 @@ def test_pickleddatawds_init(split, create_pickleddatawds):
         f"Wrong tar files directory: "
         f"expected {prefix_dir_tars_wds}{name_split} "
         f"but got {data_module._dirs_tars_wds[split]}"
+    )
+
+
+@pytest.mark.parametrize("split", list(Split))
+def test_pickleddatawds_prepare_data(split, create_pickleddatawds):
+    data_module, _, n_tars_min = create_pickleddatawds
+    data_module.prepare_data()
+    dir_tars = f"{data_module._dirs_tars_wds[split]}"
+    tars = glob.glob(f"{dir_tars}/{data_module._prefix_tars_wds}-*.tar")
+    n_tars = len(tars)
+    assert n_tars_min <= n_tars and n_tars <= n_tars_min + 1, (
+        f"Number of tar files: {n_tars} in {dir_tars} is outside the range "
+        f"[{n_tars_min}, {n_tars_min + 1}]"
     )
 
 

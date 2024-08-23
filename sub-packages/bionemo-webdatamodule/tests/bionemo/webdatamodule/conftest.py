@@ -240,7 +240,7 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
         kwargs_wld=kwargs_wld,
     )
 
-    return data_module, prefix_dir_tars_wds
+    return data_module, prefix_dir_tars_wds, n_tars_wds
 
 
 @pytest.fixture(scope="module")

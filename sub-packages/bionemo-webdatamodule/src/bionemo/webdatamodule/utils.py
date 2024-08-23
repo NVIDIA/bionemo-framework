@@ -79,25 +79,17 @@ def pickles_to_tars(
     """
     os.makedirs(dir_output, exist_ok=True)
     wd_subset_pattern = os.path.join(dir_output, f"{output_prefix}-%06d.tar")
-    maxsize = 1e8
-    # Due to a Webdataset bug, number of shards should be >= number of workers
-    # (num. of gpus * num. of workers per gpu)
-    # TODO: this algorithm is not accurate enough because it doesn't take into
-    # account the block structure so I have to multiply the total_size with a
-    # small prefactor to purposely underestimate the size so that it ends up
-    # creating more tar files than min_num_shards
-    if min_num_shards is not None and min_num_shards > 1:
-        total_size = 0
-        for name in input_prefix_subset:
-            try:
-                total_size += os.stat(
-                    os.path.join(dir_input, f"{name}.{input_suffix}")
-                ).st_size
-            except Exception:
-                continue
-        maxsize = min(total_size * 0.6 // min_num_shards, maxsize)
+    n_samples_per_shard_max = 100000
+    if min_num_shards is not None:
+        if min_num_shards <= 0:
+            raise ValueError(f"Invalid min_num_shards = {min_num_shards} <= 0")
+        n_samples_per_shard_max = len(input_prefix_subset) // min_num_shards
     with wds.ShardWriter(
-        wd_subset_pattern, encoder=False, maxsize=maxsize, compress=False, mode=0o777
+        wd_subset_pattern,
+        encoder=False,
+        maxcount=n_samples_per_shard_max,
+        compress=False,
+        mode=0o777,
     ) as sink:
         for name in input_prefix_subset:
             try:
