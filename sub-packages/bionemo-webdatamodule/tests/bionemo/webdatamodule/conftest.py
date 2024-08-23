@@ -31,43 +31,70 @@ from bionemo.webdatamodule.utils import pickles_to_tars
 @pytest.fixture(scope="module")
 def gen_test_data(tmp_path_factory):
     dir_pickles = tmp_path_factory.mktemp("pickleddatawds").as_posix()
-    dir_tars = tmp_path_factory.mktemp("webdatamodule").as_posix()
+    dir_tars_tmp = tmp_path_factory.mktemp("webdatamodule").as_posix()
+    dir_tars = {split: f"{dir_tars_tmp}{str(split).split('.')[-1]}" for split in Split}
     prefix_sample = "sample"
     suffix_sample = "tensor.pyd"
     prefix_tar = "tensor"
-    n_samples = 10
+    n_samples_per_split = 10
+    n_samples = {split: n_samples_per_split for split in Split}
     os.makedirs(dir_pickles, exist_ok=True)
-    prefix_subset = []
-    # generate the pickles
-    for i in range(n_samples):
+    prefixes = []
+    # generate the pickles for train, val, and test
+    for i in range(n_samples_per_split * 3):
         prefix = f"{prefix_sample}-{i:04}"
-        prefix_subset.append(prefix)
+        prefixes.append(prefix)
         t = torch.tensor(i, dtype=torch.int32)
         with open(f"{dir_pickles}/{prefix}.{suffix_sample}", "wb") as fh:
             pickle.dump(t, fh)
+    prefixes_pickle = {
+        Split.train: prefixes[0:n_samples_per_split],
+        Split.val: prefixes[n_samples_per_split : n_samples_per_split * 2],
+        Split.test: prefixes[n_samples_per_split * 2 : n_samples_per_split * 3],
+    }
     # generate the tars
     pickles_to_tars(
         dir_pickles,
         suffix_sample,
-        prefix_subset,
-        dir_tars,
+        prefixes_pickle[Split.train],
+        dir_tars[Split.train],
         prefix_tar,
         min_num_shards=3,
     )
-    return (dir_pickles, dir_tars, prefix_sample, suffix_sample, prefix_tar, n_samples)
+    pickles_to_tars(
+        dir_pickles,
+        suffix_sample,
+        prefixes_pickle[Split.val],
+        dir_tars[Split.val],
+        prefix_tar,
+        min_num_shards=3,
+    )
+    pickles_to_tars(
+        dir_pickles,
+        suffix_sample,
+        prefixes_pickle[Split.test],
+        dir_tars[Split.test],
+        prefix_tar,
+        min_num_shards=3,
+    )
+    return (
+        dir_pickles,
+        dir_tars,
+        prefix_sample,
+        suffix_sample,
+        prefix_tar,
+        n_samples,
+        prefixes_pickle,
+    )
 
 
 def _create_webdatamodule(gen_test_data):
-    (_, dir_tars_wds, _, suffix_keys_wds, prefix_tars_wds, n_samples_in_tar) = (
+    (_, dirs_tars_wds, _, suffix_keys_wds, prefix_tars_wds, n_samples, _) = (
         gen_test_data
     )
     local_batch_size = 2
     global_batch_size = 2
     seed_rng_shfl = 82838392
-
-    dirs_tars_wds = {split: dir_tars_wds for split in Split}
-
-    n_samples = {split: n_samples_in_tar for split in Split}
 
     batch = batched(
         local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples)
@@ -116,7 +143,7 @@ def _create_webdatamodule(gen_test_data):
         kwargs_wld=kwargs_wld,
     )
 
-    return data_module, dir_tars_wds
+    return data_module, dirs_tars_wds
 
 
 @pytest.fixture(scope="module")
@@ -172,10 +199,11 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
     (
         dir_pickles,
         _,
-        prefix_sample,
+        _,
         suffix_keys_wds,
         prefix_tars_wds,
-        n_samples_in_tar,
+        n_samples,
+        names,
     ) = gen_test_data
     local_batch_size = 2
     global_batch_size = 2
@@ -183,13 +211,6 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
     n_tars_wds = 3
 
     prefix_dir_tars_wds = tmp_path_factory.mktemp("pickleddatawds_tars_wds").as_posix()
-
-    names = {
-        split: [f"{prefix_sample}-{i:04d}" for i in range(n_samples_in_tar)]
-        for split in Split
-    }
-
-    n_samples = {split: n_samples_in_tar for split in Split}
 
     batch = batched(
         local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples)

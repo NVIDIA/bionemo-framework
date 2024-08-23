@@ -25,15 +25,15 @@ from bionemo.webdatamodule.datamodule import Split
 
 @pytest.mark.parametrize("split", list(Split))
 def test_webdatamodule_init(split, create_webdatamodule):
-    data_module, prefix_dir_tars_wds = create_webdatamodule
+    data_module, dirs_tars_wds = create_webdatamodule
     assert data_module._n_samples[split] == 10, (
         f"Wrong {split}-set size: "
         f"expected 10 "
         f"but got {data_module._n_samples[split]}"
     )
-    assert data_module._dirs_tars_wds[split] == f"{prefix_dir_tars_wds}", (
+    assert data_module._dirs_tars_wds[split] == f"{dirs_tars_wds[split]}", (
         f"Wrong tar files directory: "
-        f"expected {prefix_dir_tars_wds} "
+        f"expected {dirs_tars_wds[split]} "
         f"but got {data_module._dirs_tars_wds[split]}"
     )
 
@@ -194,3 +194,28 @@ def test_pickleddatawds_setup_dataset(
     torch.testing.assert_close(
         torch.vstack(lists_tensors[0]), torch.vstack(lists_tensors[1])
     )
+
+
+def test_pickleddatawds_sample_overlap(create_pickleddatawds):
+    data_module = create_pickleddatawds[0]
+    # this writes the tar files to disk
+    data_module.prepare_data()
+    # read the data back by setting up the dataset object and loop over it
+    data_module.setup("fit")
+    data_module.setup("test")
+    results = {
+        split: set([sample.item() for sample in data_module._dataset[split]])
+        for split in Split
+    }
+    overlap_train_val = results[Split.train] & results[Split.val]
+    overlap_train_test = results[Split.train] & results[Split.test]
+    overlap_val_test = results[Split.val] & results[Split.test]
+    assert (
+        len(overlap_train_val) == 0
+    ), "Shared samples found between train and val datasets"
+    assert (
+        len(overlap_train_test) == 0
+    ), "Shared samples found between train and test datasets"
+    assert (
+        len(overlap_val_test) == 0
+    ), "Shared samples found between val and test datasets"
