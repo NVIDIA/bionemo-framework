@@ -103,6 +103,51 @@ def test_webdatamodule_setup_dataloader(
     )
 
 
+@pytest.mark.parametrize("split", list(Split))
+def test_webdatamodule_throw_on_many_workers(
+    split, create_webdatamodule_with_5_workers
+):
+    data_module = create_webdatamodule_with_5_workers[0]
+    urls = glob.glob(
+        f"{data_module._dirs_tars_wds[split]}/" f"{data_module._prefix_tars_wds}-*.tar"
+    )
+    n_tars = len(urls)
+    data_module._kwargs_wld[split]["num_workers"] = n_tars + 1
+    data_module.prepare_data()
+    data_module.setup("fit")
+    data_module.setup("test")
+    loader = None
+    if split == Split.train:
+        loader = data_module.train_dataloader()
+    elif split == Split.val:
+        loader = data_module.val_dataloader()
+    elif split == Split.test:
+        loader = data_module.test_dataloader()
+    else:
+        raise RuntimeError(f"Test for split {split} not implemented")
+    assert loader is not None, "dataloader not instantated"
+    try:
+        for _ in loader:
+            pass
+    except ValueError as e:
+        # this is expected
+        assert "have fewer shards than workers" in str(e), (
+            f"'have fewer shards than workers' not found in exception "
+            f"raised from data loading: {e}"
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"WebLoader doesn't raise ValueError with fewer "
+            f"shards than workers but raise this instead: {e}"
+        )
+    else:
+        raise NotImplementedError(
+            "WebLoader doesn't throw error with num_workers > num_shards "
+            "User should report this issue to webdataset and create "
+            "less shards than workers in practice as a workaround"
+        )
+
+
 class Stage(Enum):
     fit = auto()
     validate = auto()

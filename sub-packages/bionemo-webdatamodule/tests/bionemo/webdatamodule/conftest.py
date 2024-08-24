@@ -88,7 +88,7 @@ def gen_test_data(tmp_path_factory):
     )
 
 
-def _create_webdatamodule(gen_test_data):
+def _create_webdatamodule(gen_test_data, num_workers=2):
     (_, dirs_tars_wds, _, suffix_keys_wds, prefix_tars_wds, n_samples, _) = (
         gen_test_data
     )
@@ -129,7 +129,7 @@ def _create_webdatamodule(gen_test_data):
         for split in Split
     }
 
-    kwargs_wld = {split: {"num_workers": 2} for split in Split}
+    kwargs_wld = {split: {"num_workers": num_workers} for split in Split}
 
     data_module = WebDataModule(
         dirs_tars_wds,
@@ -154,6 +154,11 @@ def create_webdatamodule(gen_test_data):
 @pytest.fixture(scope="module")
 def create_another_webdatamodule(gen_test_data):
     return _create_webdatamodule(gen_test_data)
+
+
+@pytest.fixture(scope="module")
+def create_webdatamodule_with_5_workers(gen_test_data):
+    return _create_webdatamodule(gen_test_data, num_workers=5)
 
 
 class ModelTestWebDataModule(L.LightningModule):
