@@ -5,33 +5,37 @@
 #
 
 
-@guoqingz
-@menliu
+# MISSING MEMBERS
+# @menliu
+# @amoradzadeh
+# @sveccham
+# @tshimko
 
 
 #
 ## MAPPING of GitHub USERNAME to PERSON in ALPHABETICAL ORDER on username
 #
+# @DejunL - Dejun Lin
 # @broland-hat - Brian Roland
 # @cye-nvidia - Cory Ye
 # @dorotat-nv - Dorota
+# @farhadrgh - Farhad Ramezanghorbani
+# @guoqing-zhou - Guoqing Zhou
 # @gwarmstrong - George Armstrong
 # @jomitchellnv - Jonathan Mitchell
 # @jstjohn - John St. John
 # @jwilber  - Jared Wilber
 # @kdidiNVIDIA - Kieran Didi
-# @farhadrgh - Farhad Ramezanghorbani
 # @malcolmgreaves - Malcolm Greaves
 # @nv-mcclure - Zachary McClure
-# @DejunL - Dejun Lin
 # @nvdreidenbach - Danny Reidenbach
 # @ohadmo - Ohad Mosafi
 # @polinabinder1 - Polina Binder
 # @pstjohn - Peter St. John
+# @sichu2023 - Simon Chu
 # @skothenhill-nv-nv - Steven Kothen-Hill
 # @trvachov - Timur Rvachov
 # @yzhang123 - Yang Zhang
-# @sichu2023 - Simon Chu
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -64,43 +68,43 @@ CONTRIBUTING.md @broland-hat @cye-nvidia @dorotat-nv @jomitchellnv @jwilber @kdi
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 ##
-## diffdock @guoqingz
+## diffdock @guoqing-zhou
 ##
-bionemo/model/molecule/diffdock @guoqingz @DejunL
-tests/test_diffdock_training.py @guoqingz
-tests/test_diffdock_inference.py @guoqingz
+bionemo/model/molecule/diffdock @guoqing-zhou @DejunL
+tests/test_diffdock_training.py @guoqing-zhou
+tests/test_diffdock_inference.py @guoqing-zhou
 tests/test_diffdock_model.py @DejunL
-tests/test_so3.py @guoqingz
-tests/test_pickles_to_wds_tars.py @guoqingz
-tests/test_size_aware_batching.py @guoqingz
-bionemo/data/diffdock @guoqingz @DejunL
-examples/tests/test_data/molecule/diffdock @guoqingz @DejunL
-examples/molecule/diffdock @guoqingz
-docs/bionemo/preprocessing-bcp-training-diffdock.md @guoqingz
-docs/bionemo/images/diffdock_fw_overview.png @guoqingz @nv-mcclure
-docs/bionemo/images/diffdock_1.png @guoqingz @nv-mcclure
-docs/bionemo/images/diffdock_3.png @guoqingz @nv-mcclure
-docs/bionemo/images/diffdock_2.png @guoqingz @nv-mcclure
-docs/bionemo/images/diffdock_4.png @guoqingz @nv-mcclure
-docs/bionemo/images/diffdock_perf.png @guoqingz @nv-mcclure
-docs/bionemo/models/diffdock.md @guoqingz @nv-mcclure
-docs/bionemo/notebooks/model_training_diffdock.ipynb @guoqingz
-docs/build/html/_sources/preprocessing-bcp-training-diffdock.md @guoqingz
-docs/build/html/_sources/models/diffdock.md @guoqingz @nv-mcclure
-docs/build/html/_sources/notebooks/model_training_diffdock.ipynb @guoqingz
-docs/build/html/models/diffdock.html @guoqingz
-docs/build/html/_images/diffdock_fw_overview.png @guoqingz
-docs/build/html/_images/diffdock_1.png @guoqingz
-docs/build/html/_images/diffdock_3.png @guoqingz
-docs/build/html/_images/diffdock_2.png @guoqingz
-docs/build/html/_images/diffdock_4.png @guoqingz
-docs/build/html/_images/diffdock_perf.png @guoqingz
-docs/build/html/.doctrees/preprocessing-bcp-training-diffdock.doctree @guoqingz
-docs/build/html/.doctrees/models/diffdock.doctree @guoqingz
-docs/build/html/.doctrees/notebooks/model_training_diffdock.doctree @guoqingz
-docs/build/html/preprocessing-bcp-training-diffdock.html @guoqingz
-docs/build/html/notebooks/model_training_diffdock.html @guoqingz
-docs/build/jupyter_execute/notebooks/model_training_diffdock.ipynb @guoqingz
+tests/test_so3.py @guoqing-zhou
+tests/test_pickles_to_wds_tars.py @guoqing-zhou
+tests/test_size_aware_batching.py @guoqing-zhou
+bionemo/data/diffdock @guoqing-zhou @DejunL
+examples/tests/test_data/molecule/diffdock @guoqing-zhou @DejunL
+examples/molecule/diffdock @guoqing-zhou
+docs/bionemo/preprocessing-bcp-training-diffdock.md @guoqing-zhou
+docs/bionemo/images/diffdock_fw_overview.png @guoqing-zhou @nv-mcclure
+docs/bionemo/images/diffdock_1.png @guoqing-zhou @nv-mcclure
+docs/bionemo/images/diffdock_3.png @guoqing-zhou @nv-mcclure
+docs/bionemo/images/diffdock_2.png @guoqing-zhou @nv-mcclure
+docs/bionemo/images/diffdock_4.png @guoqing-zhou @nv-mcclure
+docs/bionemo/images/diffdock_perf.png @guoqing-zhou @nv-mcclure
+docs/bionemo/models/diffdock.md @guoqing-zhou @nv-mcclure
+docs/bionemo/notebooks/model_training_diffdock.ipynb @guoqing-zhou
+docs/build/html/_sources/preprocessing-bcp-training-diffdock.md @guoqing-zhou
+docs/build/html/_sources/models/diffdock.md @guoqing-zhou @nv-mcclure
+docs/build/html/_sources/notebooks/model_training_diffdock.ipynb @guoqing-zhou
+docs/build/html/models/diffdock.html @guoqing-zhou
+docs/build/html/_images/diffdock_fw_overview.png @guoqing-zhou
+docs/build/html/_images/diffdock_1.png @guoqing-zhou
+docs/build/html/_images/diffdock_3.png @guoqing-zhou
+docs/build/html/_images/diffdock_2.png @guoqing-zhou
+docs/build/html/_images/diffdock_4.png @guoqing-zhou
+docs/build/html/_images/diffdock_perf.png @guoqing-zhou
+docs/build/html/.doctrees/preprocessing-bcp-training-diffdock.doctree @guoqing-zhou
+docs/build/html/.doctrees/models/diffdock.doctree @guoqing-zhou
+docs/build/html/.doctrees/notebooks/model_training_diffdock.doctree @guoqing-zhou
+docs/build/html/preprocessing-bcp-training-diffdock.html @guoqing-zhou
+docs/build/html/notebooks/model_training_diffdock.html @guoqing-zhou
+docs/build/jupyter_execute/notebooks/model_training_diffdock.ipynb @guoqing-zhou
 
 ##
 ## dnabert @skothenhill-nv
@@ -285,7 +289,7 @@ tests/test_openfold_inference.py @broland-hat @kdidiNVIDIA
 docs/bionemo/models/openfold.md @broland-hat @kdidiNVIDIA
 
 ##
-## prott5 @mkorshunova (TODO FIXME: requires handoff to member of bionemo team!!)
+## prott5 (TODO FIXME: requires handoff to member of bionemo team!!)
 ##
 #bionemo/model/protein/prott5nv
 #tests/test_prott5nv_inference.py
