@@ -5,11 +5,12 @@
 #
 
 
-# MISSING MEMBERS
-# @menliu
-# @amoradzadeh
-# @sveccham
-# @tshimko
+#
+## MISSING MEMBERS
+#
+# @menliu - DSMBind owner
+# @amoradzadeh - Enformer owner
+# @tshimko - MolMIM owner
 
 
 #
@@ -118,16 +119,16 @@ docs/readme-images/dnabert1xa100.png @skothenhill-nv
 docs/readme-images/dnabert8xa100.png @skothenhill-nv
 
 ##
-## dsmbind @menliu
+## dsmbind @menliu @farhadrgh
 ##
-bionemo/model/molecule/dsmbind @farhadrgh @menliu
-bionemo/data/dsmbind @farhadrgh @menliu
-examples/molecule/dsmbind @farhadrgh @menliu
-examples/tests/test_data/molecule/dsmbind @farhadrgh @menliu
-tests/test_dsmbind_data_utils.py @farhadrgh @menliu
-tests/test_dsmbind_model.py @farhadrgh @menliu
-tests/test_dsmbind_inference.py @farhadrgh @menliu
-docs/bionemo/models/dsmbind.md @farhadrgh @menliu
+bionemo/model/molecule/dsmbind @farhadrgh
+bionemo/data/dsmbind @farhadrgh
+examples/molecule/dsmbind @farhadrgh
+examples/tests/test_data/molecule/dsmbind @farhadrgh
+tests/test_dsmbind_data_utils.py @farhadrgh
+tests/test_dsmbind_model.py @farhadrgh
+tests/test_dsmbind_inference.py @farhadrgh
+docs/bionemo/models/dsmbind.md @farhadrgh
 
 ##
 ## enformer (TODO FIXME: requires handoff to member of bionemo team!!!)
@@ -225,60 +226,60 @@ bionemo/model/protein/downstream/protein_model_finetuning.py @camirr
 ##
 ## equidock @amoradzadeh @farhadrgh
 ##
-bionemo/model/protein/equidock @amoradzadeh @farhadrgh
-tests/test_equidock.py @amoradzadeh @farhadrgh
-tests/test_equidock_inference.py @amoradzadeh @farhadrgh
-tests/equidock_test_data @amoradzadeh @farhadrgh
-bionemo/data/equidock @amoradzadeh @farhadrgh
-examples/protein/equidock @amoradzadeh @farhadrgh
-docs/bionemo/images/equidock_3.png @amoradzadeh @farhadrgh
-docs/bionemo/images/equidock_2.png @amoradzadeh @farhadrgh
-docs/bionemo/images/equidock_1.png @amoradzadeh @farhadrgh
-docs/bionemo/images/equidock_4.png @amoradzadeh @farhadrgh
-docs/bionemo/models/equidock.md @amoradzadeh @farhadrgh
-docs/bionemo/notebooks/model_training_equidock.ipynb @amoradzadeh @farhadrgh
-docs/readme-images/equidock_epoch_per_hour.png @amoradzadeh @farhadrgh
-docs/build/html/_sources/models/equidock.md @amoradzadeh @farhadrgh
-docs/build/html/_sources/notebooks/model_training_equidock.ipynb @amoradzadeh @farhadrgh
-docs/build/html/models/equidock.html @amoradzadeh @farhadrgh
-docs/build/html/_images/equidock_3.png @amoradzadeh @farhadrgh
-docs/build/html/_images/equidock_2.png @amoradzadeh @farhadrgh
-docs/build/html/_images/equidock_1.png @amoradzadeh @farhadrgh
-docs/build/html/_images/equidock_4.png @amoradzadeh @farhadrgh
-docs/build/html/_images/equidock_epoch_per_hour.png @amoradzadeh @farhadrgh
-docs/build/html/.doctrees/models/equidock.doctree @amoradzadeh @farhadrgh
-docs/build/html/.doctrees/notebooks/model_training_equidock.doctree @amoradzadeh @farhadrgh
-docs/build/html/notebooks/model_training_equidock.html @amoradzadeh @farhadrgh
-docs/build/jupyter_execute/notebooks/model_training_equidock.ipynb @amoradzadeh @farhadrgh
+bionemo/model/protein/equidock @farhadrgh
+tests/test_equidock.py @farhadrgh
+tests/test_equidock_inference.py @farhadrgh
+tests/equidock_test_data @farhadrgh
+bionemo/data/equidock @farhadrgh
+examples/protein/equidock @farhadrgh
+docs/bionemo/images/equidock_3.png @farhadrgh
+docs/bionemo/images/equidock_2.png @farhadrgh
+docs/bionemo/images/equidock_1.png @farhadrgh
+docs/bionemo/images/equidock_4.png @farhadrgh
+docs/bionemo/models/equidock.md @farhadrgh
+docs/bionemo/notebooks/model_training_equidock.ipynb @farhadrgh
+docs/readme-images/equidock_epoch_per_hour.png @farhadrgh
+docs/build/html/_sources/models/equidock.md @farhadrgh
+docs/build/html/_sources/notebooks/model_training_equidock.ipynb @farhadrgh
+docs/build/html/models/equidock.html @farhadrgh
+docs/build/html/_images/equidock_3.png @farhadrgh
+docs/build/html/_images/equidock_2.png @farhadrgh
+docs/build/html/_images/equidock_1.png @farhadrgh
+docs/build/html/_images/equidock_4.png @farhadrgh
+docs/build/html/_images/equidock_epoch_per_hour.png @farhadrgh
+docs/build/html/.doctrees/models/equidock.doctree @farhadrgh
+docs/build/html/.doctrees/notebooks/model_training_equidock.doctree @farhadrgh
+docs/build/html/notebooks/model_training_equidock.html @farhadrgh
+docs/build/jupyter_execute/notebooks/model_training_equidock.ipynb @farhadrgh
 
 ##
-## megamolbart @sveccham
+## megamolbart
 ##
-bionemo/model/molecule/megamolbart @sveccham
-tests/test_megamolbart_data_utils.py @sveccham
-tests/test_examples/test_megamolbart_inference_notebook.py @sveccham @malcolmgreaves
-tokenizers/molecule/megamolbart @sveccham
-examples/molecule/megamolbart @sveccham
-docs/bionemo/models/megamolbart.md @sveccham
-docs/build/html/_sources/models/megamolbart.md @sveccham
-docs/build/html/models/megamolbart.html @sveccham
-docs/build/html/.doctrees/models/megamolbart.doctree @sveccham
+bionemo/model/molecule/megamolbart
+tests/test_megamolbart_data_utils.py
+tests/test_examples/test_megamolbart_inference_notebook.py @malcolmgreaves
+tokenizers/molecule/megamolbart
+examples/molecule/megamolbart
+docs/bionemo/models/megamolbart.md
+docs/build/html/_sources/models/megamolbart.md
+docs/build/html/models/megamolbart.html
+docs/build/html/.doctrees/models/megamolbart.doctree
 
 ##
-## molmim @tshimko
+## molmim
 ##
-bionemo/model/molecule/molmim @jstjohn @tshimko
-bionemo/model/molecule/mol_enc_dec_model_base.py @jstjohn @tshimko
-tests/test_triton/test_molmim_triton.py @jstjohn @tshimko
-docs/bionemo/images/molmim_wandb_charts.png @jstjohn @tshimko
-docs/bionemo/images/MolMIM_molecule_generation_1.png @jstjohn @tshimko
-docs/bionemo/images/MolMIM_molecule_generation_2.png @jstjohn @tshimko
-docs/bionemo/models/molmim.md @jstjohn @tshimko
-docs/bionemo/notebooks/MolMIM_GenerativeAI_local_inference_with_examples.ipynb @jstjohn @tshimko
-docs/bionemo/notebooks/cma_es_guided_molecular_optimization_molmim.ipynb @jstjohn @tshimko
-docs/bionemo/notebooks/model_training_molmim.ipynb @tshimko @jstjohn
-docs/readme-images/molmim_training_throughput.png @jstjohn @tshimko
-fw2nim_examples/molmim @malcolmgreaves @tshimko
+bionemo/model/molecule/molmim @jstjohn
+bionemo/model/molecule/mol_enc_dec_model_base.py @jstjohn
+tests/test_triton/test_molmim_triton.py @jstjohn
+docs/bionemo/images/molmim_wandb_charts.png @jstjohn
+docs/bionemo/images/MolMIM_molecule_generation_1.png @jstjohn
+docs/bionemo/images/MolMIM_molecule_generation_2.png @jstjohn
+docs/bionemo/models/molmim.md @jstjohn
+docs/bionemo/notebooks/MolMIM_GenerativeAI_local_inference_with_examples.ipynb @jstjohn
+docs/bionemo/notebooks/cma_es_guided_molecular_optimization_molmim.ipynb @jstjohn
+docs/bionemo/notebooks/model_training_molmim.ipynb @jstjohn
+docs/readme-images/molmim_training_throughput.png @jstjohn
+fw2nim_examples/molmim @malcolmgreaves
 
 ##
 ## openfold @broland-hat @kdidiNVIDIA
