@@ -4,6 +4,25 @@
 #   KEEP THE LISTS OF INDIVIDUAL CODEOWNERS/TEAMS IN ALPHABETICALLY SORTED ORDER
 #
 
+#
+## MAPPING of GitHub USERNAME to PERSON in ALPHABETICAL ORDER on username
+#
+# @broland-hat - Brian Roland
+# @cye-nvidia - Cory Ye
+# @gwarmstrong - George Armstrong
+# @jomitchellnv - Jonathan Mitchell
+# @jstjohn - John St. John
+# @jwilber  - Jared Wilber
+# @kdidiNVIDIA - Kieran Didi
+# @malcolmgreaves - Malcolm Greaves
+# @nv-mcclure - Zachary McClure
+# @nvdreidenbach - Danny Reidenbach
+# @ohadmo - Ohad Mosafi
+# @polinabinder1 - Polina Binder
+# @pstjohn - Peter St. John
+# @skothenhill-nv - Steven Kothen-Hill
+# @trvachov - Timur Rvachov
+# @yzhang123 - Yang Zhang
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -13,7 +32,7 @@
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 # Documentation changes are user-facing
-docs/ @saeep @trvachov @tshimko
+docs/ @trvachov
 
 # Requires bionemo FW team or PM review to change CODEOWNERS or README
 CODEOWNERS @broland-hat @cye @dorotat @jomitchell @jwilber @kdidiNVIDIA @malcolmgreaves @ntadimeti @pbinder @trvachov @yangzhang
