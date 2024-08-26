@@ -27,36 +27,36 @@ second_array_values = [10, 9, 8, 7, 6, 5, 4, 3]
 
 
 @pytest.fixture
-def generate_dataset(tmpdir) -> SingleCellMemMapDataset:
+def generate_dataset(tmp_path, test_directory) -> SingleCellMemMapDataset:
     """
     Create a SingleCellMemMapDataset, save and reload it
 
     Args:
-        tmpdir: temporary directory fixture
+        tmp_path: temporary directory fixture
     Returns:
         A SingleCellMemMapDataset
     """
-    ds = SingleCellMemMapDataset(f"{tmpdir}/scy", h5ad_path="tests/test_data/adata_sample0.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
     ds.save()
     del ds
-    reloaded = SingleCellMemMapDataset(f"{tmpdir}/scy")
+    reloaded = SingleCellMemMapDataset(tmp_path / "scy")
     return reloaded
 
 
 @pytest.fixture
-def create_and_fill_mmap_arrays(tmpdir) -> Tuple[np.memmap, np.memmap]:
+def create_and_fill_mmap_arrays(tmp_path) -> Tuple[np.memmap, np.memmap]:
     """
     Instantiate and fill two np.memmap arrays.
 
     Args:
-        tmpdir: temporary directory fixture
+        tmp_path: temporary directory fixture
     Returns:
         Two instantiated np.memmap arrays.
     """
-    arr1 = np.memmap(f"{tmpdir}/x.npy", dtype="uint32", shape=(len(first_array_values),), mode="w+")
+    arr1 = np.memmap(tmp_path / "x.npy", dtype="uint32", shape=(len(first_array_values),), mode="w+")
     arr1[:] = np.array(first_array_values, dtype="uint32")
 
-    arr2 = np.memmap(f"{tmpdir}/y.npy", dtype="uint32", shape=(len(second_array_values),), mode="w+")
+    arr2 = np.memmap(tmp_path / "y.npy", dtype="uint32", shape=(len(second_array_values),), mode="w+")
     arr2[:] = np.array(second_array_values, dtype="uint32")
     return arr1, arr2
 
@@ -86,11 +86,11 @@ def compare_fn():
     return _compare
 
 
-def test_empty_dataset_save_and_reload(tmpdir):
-    ds = SingleCellMemMapDataset(data_path=f"{tmpdir}/scy", num_rows=2, num_elements=10)
+def test_empty_dataset_save_and_reload(tmp_path):
+    ds = SingleCellMemMapDataset(data_path=tmp_path / "scy", num_rows=2, num_elements=10)
     ds.save()
     del ds
-    reloaded = SingleCellMemMapDataset(f"{tmpdir}/scy")
+    reloaded = SingleCellMemMapDataset(tmp_path / "scy")
     assert reloaded.number_of_rows() == 0
     assert reloaded.number_of_variables() == [0]
     assert reloaded.number_of_values() == 0
@@ -98,15 +98,15 @@ def test_empty_dataset_save_and_reload(tmpdir):
     assert len(reloaded[1][0]) == 0
 
 
-def test_wrong_arguments_for_dataset(tmpdir):
+def test_wrong_arguments_for_dataset(tmp_path):
     with pytest.raises(
         ValueError, match=r"An np.memmap path, an h5ad path, or the number of elements and rows is required"
     ):
-        SingleCellMemMapDataset(data_path=f"{tmpdir}/scy")
+        SingleCellMemMapDataset(data_path=tmp_path / "scy")
 
 
-def test_load_h5ad(tmpdir):
-    ds = SingleCellMemMapDataset(f"{tmpdir}/scy", h5ad_path="tests/test_data/adata_sample0.h5ad")
+def test_load_h5ad(tmp_path, test_directory):
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
     assert ds.number_of_rows() == 8
     assert ds.number_of_variables() == [10]
     assert len(ds) == 8
@@ -116,16 +116,16 @@ def test_load_h5ad(tmpdir):
     assert len(ds) == 8
 
 
-def test_h5ad_no_file(tmpdir):
-    ds = SingleCellMemMapDataset(data_path=f"{tmpdir}/scy", num_rows=2, num_elements=10)
-    with pytest.raises(FileNotFoundError, match=rf"Error: could not find h5ad path {tmpdir}/a"):
-        ds.load_h5ad(anndata_path=f"{tmpdir}/a")
+def test_h5ad_no_file(tmp_path):
+    ds = SingleCellMemMapDataset(data_path=tmp_path / "scy", num_rows=2, num_elements=10)
+    with pytest.raises(FileNotFoundError, match=rf"Error: could not find h5ad path {tmp_path}/a"):
+        ds.load_h5ad(anndata_path=tmp_path / "a")
 
 
-def test_swap_mmap_array_result_has_proper_length(tmpdir, create_and_fill_mmap_arrays):
+def test_swap_mmap_array_result_has_proper_length(tmp_path, create_and_fill_mmap_arrays):
     x_arr, y_arr = create_and_fill_mmap_arrays
-    x_path = f"{tmpdir}/x.npy"
-    y_path = f"{tmpdir}/y.npy"
+    x_path = tmp_path / "x.npy"
+    y_path = tmp_path / "y.npy"
 
     _swap_mmap_array(x_arr, x_path, y_arr, y_path)
 
@@ -138,16 +138,16 @@ def test_swap_mmap_array_result_has_proper_length(tmpdir, create_and_fill_mmap_a
     assert np.array_equal(y_now_x, np.array(second_array_values))
 
 
-def test_swap_mmap_no_file(tmpdir, create_and_fill_mmap_arrays):
+def test_swap_mmap_no_file(tmp_path, create_and_fill_mmap_arrays):
     x_arr, y_arr = create_and_fill_mmap_arrays
-    with pytest.raises(FileNotFoundError, match=rf"The destination file {tmpdir}/z.npy does not exist"):
-        _swap_mmap_array(x_arr, f"{tmpdir}/x.npy", y_arr, f"{tmpdir}/z.npy")
+    with pytest.raises(FileNotFoundError, match=rf"The destination file {tmp_path}/z.npy does not exist"):
+        _swap_mmap_array(x_arr, tmp_path / "x.npy", y_arr, tmp_path / "z.npy")
 
 
-def test_swap_mmap_with_delete_source(tmpdir, create_and_fill_mmap_arrays):
+def test_swap_mmap_with_delete_source(tmp_path, create_and_fill_mmap_arrays):
     x_arr, y_arr = create_and_fill_mmap_arrays
-    x_path = f"{tmpdir}/x.npy"
-    y_path = f"{tmpdir}/y.npy"
+    x_path = tmp_path / "x.npy"
+    y_path = tmp_path / "y.npy"
     _swap_mmap_array(x_arr, x_path, y_arr, y_path, destroy_src=True)
 
     assert not os.path.exists(x_path)
@@ -201,9 +201,9 @@ def test_SingleCellMemMapDataset_get_row_padded(generate_dataset):
     assert len(generate_dataset.get_row_padded(2)[0]) == 10
 
 
-def test_concat_SingleCellMemMapDatasets_same(tmpdir):
-    ds = SingleCellMemMapDataset(f"{tmpdir}/scy", h5ad_path="tests/test_data/adata_sample0.h5ad")
-    dt = SingleCellMemMapDataset(f"{tmpdir}/sct", h5ad_path="tests/test_data/adata_sample0.h5ad")
+def test_concat_SingleCellMemMapDatasets_same(tmp_path, test_directory):
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample0.h5ad")
     dt.concat(ds)
 
     assert dt.number_of_rows() == 2 * ds.number_of_rows()
@@ -211,9 +211,9 @@ def test_concat_SingleCellMemMapDatasets_same(tmpdir):
     assert dt.number_nonzero_values() == 2 * ds.number_nonzero_values()
 
 
-def test_concat_SingleCellMemMapDatasets_diff(tmpdir):
-    ds = SingleCellMemMapDataset(f"{tmpdir}/scy", h5ad_path="tests/test_data/adata_sample0.h5ad")
-    dt = SingleCellMemMapDataset(f"{tmpdir}/sct", h5ad_path="tests/test_data/adata_sample1.h5ad")
+def test_concat_SingleCellMemMapDatasets_diff(tmp_path, test_directory):
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad")
 
     exp_number_of_rows = ds.number_of_rows() + dt.number_of_rows()
     exp_n_val = ds.number_of_values() + dt.number_of_values()
@@ -224,15 +224,15 @@ def test_concat_SingleCellMemMapDatasets_diff(tmpdir):
     assert dt.number_nonzero_values() == exp_nnz
 
 
-def test_concat_SingleCellMemMapDatasets_multi(tmpdir, compare_fn):
-    ds = SingleCellMemMapDataset(f"{tmpdir}/scy", h5ad_path="tests/test_data/adata_sample0.h5ad")
-    dt = SingleCellMemMapDataset(f"{tmpdir}/sct", h5ad_path="tests/test_data/adata_sample1.h5ad")
-    dx = SingleCellMemMapDataset(f"{tmpdir}/sccx", h5ad_path="tests/test_data/adata_sample2.h5ad")
+def test_concat_SingleCellMemMapDatasets_multi(tmp_path, compare_fn, test_directory):
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad")
+    dx = SingleCellMemMapDataset(tmp_path / "sccx", h5ad_path=test_directory / "adata_sample2.h5ad")
     exp_n_obs = ds.number_of_rows() + dt.number_of_rows() + dx.number_of_rows()
     dt.concat(ds)
     dt.concat(dx)
     assert dt.number_of_rows() == exp_n_obs
-    dns = SingleCellMemMapDataset(f"{tmpdir}/scdns", h5ad_path="tests/test_data/adata_sample1.h5ad")
+    dns = SingleCellMemMapDataset(tmp_path / "scdns", h5ad_path=test_directory / "adata_sample1.h5ad")
 
     dns.concat([ds, dx])
     compare_fn(dns, dt)

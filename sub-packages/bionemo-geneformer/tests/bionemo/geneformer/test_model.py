@@ -404,7 +404,7 @@ def test_geneformer_nemo1_v_nemo2_inference_golden_values(
         accelerator="gpu",
         strategy=strategy,
         num_nodes=1,
-        plugins=nl.MegatronMixedPrecision(precision=MODEL_PRECISION, amp_O2=False),
+        plugins=nl.MegatronMixedPrecision(precision=MODEL_PRECISION),
     )
     module = BioBertLightningModule(config=geneformer_config, tokenizer=tokenizer)
 

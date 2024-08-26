@@ -148,7 +148,7 @@ def main(
             io.track_io(RichModelSummary)(max_depth=4),
             io.track_io(LearningRateMonitor)(),
         ],
-        plugins=nl.MegatronMixedPrecision(precision=precision, amp_O2=False),
+        plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
     preprocessor = GeneformerPreprocess(

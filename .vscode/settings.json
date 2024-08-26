@@ -3,6 +3,7 @@
         "allclose",
         "bionemo",
         "dtype",
+        "NBVAL",
         "nemo",
         "pretraining",
         "rampup",

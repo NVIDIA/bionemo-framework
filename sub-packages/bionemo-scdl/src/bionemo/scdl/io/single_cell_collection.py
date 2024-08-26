@@ -99,8 +99,8 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         Path(self.data_path).mkdir(parents=True, exist_ok=True)
 
         # Write the version
-        if not os.path.exists(f"{self.data_path}/{FileNames.VERSION}"):
-            with open(f"{self.data_path}/{FileNames.VERSION}", "w") as vfi:
+        if not os.path.exists(f"{self.data_path}/{FileNames.VERSION.value}"):
+            with open(f"{self.data_path}/{FileNames.VERSION.value}", "w") as vfi:
                 json.dump(self.version(), vfi)
 
     def version(self) -> str:

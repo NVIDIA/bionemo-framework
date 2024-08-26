@@ -51,6 +51,7 @@ plugins:
         python:
           paths:
             - ../sub-packages/*/src
+  - mkdocs-jupyter
 
 markdown_extensions:
   - pymdownx.snippets:

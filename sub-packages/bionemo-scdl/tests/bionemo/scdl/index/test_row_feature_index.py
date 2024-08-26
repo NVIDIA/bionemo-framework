@@ -160,10 +160,12 @@ def test_feature_lookup_too_large(create_first_RowFeatureIndex):
         create_first_RowFeatureIndex.lookup(row=12544)
 
 
-def test_save_reload_row_feature_index_identical(tmpdir, create_first_RowFeatureIndex, create_second_RowFeatureIndex):
+def test_save_reload_row_feature_index_identical(
+    tmp_path, create_first_RowFeatureIndex, create_second_RowFeatureIndex
+):
     create_first_RowFeatureIndex.concat(create_second_RowFeatureIndex)
-    create_first_RowFeatureIndex.save(f"{tmpdir}/features")
-    index_reload = RowFeatureIndex.load(f"{tmpdir}/features")
+    create_first_RowFeatureIndex.save(tmp_path / "features")
+    index_reload = RowFeatureIndex.load(tmp_path / "features")
     assert len(create_first_RowFeatureIndex) == len(index_reload)
     assert create_first_RowFeatureIndex.column_dims() == index_reload.column_dims()
     assert create_first_RowFeatureIndex.number_of_rows() == index_reload.number_of_rows()

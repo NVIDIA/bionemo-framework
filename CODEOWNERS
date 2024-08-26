@@ -1,0 +1,84 @@
+# For documentation, see: https://docs.gitlab.com/ee/user/project/codeowners/
+#
+# *** NOTE ***
+#   KEEP THE LISTS OF INDIVIDUAL CODEOWNERS/TEAMS IN ALPHABETICALLY SORTED ORDER
+#
+
+#
+## MAPPING of GitHub USERNAME to PERSON in ALPHABETICAL ORDER on username
+#
+# @DejunL - Dejun Lin
+# @broland-hat - Brian Roland
+# @cspades - Cory Ye
+# @dorotat-nv - Dorota
+# @farhadrgh - Farhad Ramezanghorbani
+# @guoqing-zhou - Guoqing Zhou
+# @gwarmstrong - George Armstrong
+# @jomitchellnv - Jonathan Mitchell
+# @jstjohn - John St. John
+# @jwilber  - Jared Wilber
+# @kdidiNVIDIA - Kieran Didi
+# @malcolmgreaves - Malcolm Greaves
+# @ntadimeti - Neha Tadimeti
+# @nv-mcclure - Zachary McClure
+# @nvdreidenbach - Danny Reidenbach
+# @ohadmo - Ohad Mosafi
+# @polinabinder1 - Polina Binder
+# @pstjohn - Peter St. John
+# @sichu2023 - Simon Chu
+# @skothenhill-nv-nv - Steven Kothen-Hill
+# @trvachov - Timur Rvachov
+# @yzhang123 - Yang Zhang
+
+#
+## LEGAL
+#
+LICENSE @jstjohn @malcolmgreaves @ntadimeti @trvachov
+license_header @jstjohn @malcolmgreaves @ntadimeti @trvachov
+
+
+#
+## DOCUMENTATION
+#
+README.md @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
+docs @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
+
+
+#
+## INFRASTRUCTURE
+#
+#.gitignore
+#.dockerignore
+.devcontainer @malcolmgreaves @pstjohn
+CODEOWNERS @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @trvachov
+Dockerfile @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+launch.sh  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+3rdparty       @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+pyproject.toml @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+requirements-cve.txt  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+requirements-dev.txt  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+requirements-test.txt @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+tach.yml @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+.secrets.baseline @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+
+
+#
+## LIBRARY CODE
+#
+scripts @jomitchellnv @jstjohn @malcolmgreaves @skothenhill-nv
+
+sub-packages/bionemo-fw @DejunL @farhadrgh @guoqing-zhou @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+
+sub-packages/bionemo-testing @farhadrgh @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+
+sub-packages/bionemo-core @DejunL @farhadrgh @guoqing-zhou @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+
+sub-packages/bionemo-llm @farhadrgh @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+
+sub-packages/bionemo-geometric @DejunL @guoqing-zhou @jstjohn @malcolmgreaves
+
+sub-packages/bionemo-example_model @jomitchellnv @jstjohn @malcolmgreaves @skothenhill-nv
+
+sub-packages/bionemo-geneformer @jstjohn @malcolmgreaves @skothenhill-nv
+
+sub-packages/bionemo-scdl @jomitchellnv @jstjohn @malcolmgreaves @polinabinder1 @skothenhill-nv

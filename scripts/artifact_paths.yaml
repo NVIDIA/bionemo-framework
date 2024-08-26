@@ -70,5 +70,5 @@ data:
         md5sum: 3e9e95b4ff05dfe825d5b850c3de1ee3 # pragma: allowlist secret
     scdl_test:
         pbss: "s3://bionemo-ci/test-data/scdl_sample_test.tar.gz"
-        relative_download_dir: "sub-packages/bionemo-scdl/tests/"
-        md5sum: c258fc181a6e87db80c47692ce12071a # pragma: allowlist secret
+        relative_download_dir: "test_data/"
+        md5sum: 3369923c3f88ec55b1205a516292e986 # pragma: allowlist secret

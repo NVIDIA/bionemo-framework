@@ -27,6 +27,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import scipy
+import torch
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
@@ -150,18 +151,27 @@ def _create_compressed_sparse_row_memmaps(
     # mmap new arrays
     # Records the value at index[i]
     data_arr = np.memmap(
-        f"{memmap_dir_path}/{FileNames.DATA}", dtype=dtypes[f"{FileNames.DATA}"], shape=(num_elements,), mode=mode
+        f"{memmap_dir_path}/{FileNames.DATA.value}",
+        dtype=dtypes[f"{FileNames.DATA.value}"],
+        shape=(num_elements,),
+        mode=mode,
     )
     # Records the column the data resides in at index [i]
     col_arr = np.memmap(
-        f"{memmap_dir_path}/{FileNames.COLPTR}", dtype=dtypes[f"{FileNames.COLPTR}"], shape=(num_elements,), mode=mode
+        f"{memmap_dir_path}/{FileNames.COLPTR.value}",
+        dtype=dtypes[f"{FileNames.COLPTR.value}"],
+        shape=(num_elements,),
+        mode=mode,
     )
     # Records a pointer into the data and column arrays
     # to get the data for a specific row, slice row_idx[idx, idx+1]
     # and then get the elements in data[row_idx[idx]:row_idx[idx+1]]
     # which are in the corresponding columns col_index[row_idx[idx], row_idx[row_idx+1]]
     row_arr = np.memmap(
-        f"{memmap_dir_path}/{FileNames.ROWPTR}", dtype=dtypes[f"{FileNames.ROWPTR}"], shape=(num_rows + 1,), mode=mode
+        f"{memmap_dir_path}/{FileNames.ROWPTR.value}",
+        dtype=dtypes[f"{FileNames.ROWPTR.value}"],
+        shape=(num_rows + 1,),
+        mode=mode,
     )
     return data_arr, col_arr, row_arr
 
@@ -169,7 +179,7 @@ def _create_compressed_sparse_row_memmaps(
 class SingleCellMemMapDataset(SingleCellRowDataset):
     """Represents one or more AnnData matrices.
 
-    Data is stored in a large, memory-mapped array that enables fast access of
+    Data is stored in large, memory-mapped arrays that enables fast access of
     datasets larger than the available amount of RAM on a system. SCMMAP
     implements a consistent API defined in SingleCellRowDataset.
 
@@ -195,7 +205,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         h5ad_path: Optional[str] = None,
         num_elements: Optional[int] = None,
         num_rows: Optional[int] = None,
-        mode: Mode = f"{Mode.READ_APPEND}",
+        mode: Mode = Mode.READ_APPEND.value,
     ) -> None:
         """Instantiate the class.
 
@@ -226,12 +236,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Variables for int packing / reduced precision
         self.dtypes: Dict[FileNames, str] = {
-            f"{FileNames.DATA}": "float32",
-            f"{FileNames.COLPTR}": "uint32",
-            f"{FileNames.ROWPTR}": "uint64",
+            f"{FileNames.DATA.value}": "float32",
+            f"{FileNames.COLPTR.value}": "uint32",
+            f"{FileNames.ROWPTR.value}": "uint64",
         }
 
-        if mode == f"{Mode.CREATE_APPEND}" and os.path.exists(data_path):
+        if mode == Mode.CREATE_APPEND.value and os.path.exists(data_path):
             raise FileExistsError(f"Output directory already exists: {data_path}")
 
         if h5ad_path is not None and (data_path is not None and os.path.exists(data_path)):
@@ -264,12 +274,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         os.makedirs(self.data_path, exist_ok=True)
 
         # Write the version
-        if not os.path.exists(f"{self.data_path}/{FileNames.VERSION}"):
-            with open(f"{self.data_path}/{FileNames.VERSION}", "w") as vfi:
+        if not os.path.exists(f"{self.data_path}/{FileNames.VERSION.value}"):
+            with open(f"{self.data_path}/{FileNames.VERSION.value}", "w") as vfi:
                 json.dump(self.version(), vfi)
 
     def _init_arrs(self, num_elements: int, num_rows: int) -> None:
-        self.mode = f"{Mode.CREATE_APPEND}"
+        self.mode = Mode.CREATE_APPEND.value
         data_arr, col_arr, row_arr = _create_compressed_sparse_row_memmaps(
             num_elements=num_elements,
             num_rows=num_rows,
@@ -391,35 +401,37 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                                     with  SingleCellMemMapDataset(<path to data that will be created>, h5ad_path=<path to h5ad file>"""
             )
         self.data_path = stored_path
-        self.mode = f"{Mode.READ_APPEND}"
+        self.mode = Mode.READ_APPEND.value
 
         # Metadata is required, so we must check if it exists and fail if not.
-        if not os.path.exists(f"{self.data_path}/{FileNames.METADATA}"):
-            raise FileNotFoundError(f"Error: the metadata file {self.data_path}/{FileNames.METADATA} does not exist.")
+        if not os.path.exists(f"{self.data_path}/{FileNames.METADATA.value}"):
+            raise FileNotFoundError(
+                f"Error: the metadata file {self.data_path}/{FileNames.METADATA.value} does not exist."
+            )
 
-        with open(f"{self.data_path}/{FileNames.METADATA}", f"{Mode.READ}") as mfi:
+        with open(f"{self.data_path}/{FileNames.METADATA.value}", Mode.READ_APPEND.value) as mfi:
             self.metadata = json.load(mfi)
 
-        if os.path.exists(f"{self.data_path}/{FileNames.FEATURES}"):
-            self._feature_index = RowFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES}")
+        if os.path.exists(f"{self.data_path}/{FileNames.FEATURES.value}"):
+            self._feature_index = RowFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES.value}")
 
-        if os.path.exists(f"{self.data_path}/{FileNames.DTYPE}"):
-            with open(f"{self.data_path}/{FileNames.DTYPE}") as dfi:
+        if os.path.exists(f"{self.data_path}/{FileNames.DTYPE.value}"):
+            with open(f"{self.data_path}/{FileNames.DTYPE.value}") as dfi:
                 self.dtypes = json.load(dfi)
 
         # mmap the existing arrays
         self.data = self._load_mmap_file_if_exists(
-            f"{self.data_path}/{FileNames.DATA}", self.dtypes[f"{FileNames.DATA}"]
+            f"{self.data_path}/{FileNames.DATA.value}", self.dtypes[f"{FileNames.DATA.value}"]
         )
         self.row_index = self._load_mmap_file_if_exists(
-            f"{self.data_path}/{FileNames.ROWPTR}", dtype=self.dtypes[f"{FileNames.ROWPTR}"]
+            f"{self.data_path}/{FileNames.ROWPTR.value}", dtype=self.dtypes[f"{FileNames.ROWPTR.value}"]
         )
         self.col_index = self._load_mmap_file_if_exists(
-            f"{self.data_path}/{FileNames.COLPTR}", dtype=self.dtypes[f"{FileNames.COLPTR}"]
+            f"{self.data_path}/{FileNames.COLPTR.value}", dtype=self.dtypes[f"{FileNames.COLPTR.value}"]
         )
 
     def _write_metadata(self) -> None:
-        with open(f"{self.data_path}/{FileNames.METADATA}", f"{Mode.CREATE}") as mfi:
+        with open(f"{self.data_path}/{FileNames.METADATA.value}", f"{Mode.CREATE.value}") as mfi:
             json.dump(self.metadata, mfi)
 
     def load_h5ad(
@@ -465,7 +477,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         num_rows = shape[0]
 
         num_elements_stored = count_data.nnz
-        self.dtypes[f"{FileNames.DATA}"] = count_data.dtype
+
+        self.dtypes[f"{FileNames.DATA.value}"] = count_data.dtype
 
         # Collect features and store in FeatureIndex
         features = adata.var
@@ -494,20 +507,20 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Raises:
            NotImplementedError if output_path is not None.
         """
-        if f"{METADATA.NUM_ROWS}" not in self.metadata:
-            self.metadata[f"{METADATA.NUM_ROWS}"] = self.number_of_rows()
+        if f"{METADATA.NUM_ROWS.value}" not in self.metadata:
+            self.metadata[f"{METADATA.NUM_ROWS.value}"] = self.number_of_rows()
 
         self._write_metadata()
         # Write the feature index. This may not exist.
-        self._feature_index.save(f"{self.data_path}/{FileNames.FEATURES}")
+        self._feature_index.save(f"{self.data_path}/{FileNames.FEATURES.value}")
 
         # Ensure the object is in a valid state. These are saved at creation!
         for postfix in [
-            f"{FileNames.VERSION}",
-            f"{FileNames.DATA}",
-            f"{FileNames.COLPTR}",
-            f"{FileNames.ROWPTR}",
-            f"{FileNames.FEATURES}",
+            f"{FileNames.VERSION.value}",
+            f"{FileNames.DATA.value}",
+            f"{FileNames.COLPTR.value}",
+            f"{FileNames.ROWPTR.value}",
+            f"{FileNames.FEATURES.value}",
         ]:
             if not os.path.exists(f"{self.data_path}/{postfix}"):
                 raise FileNotFoundError(f"This file should exist from object creation: {self.data_path}/{postfix}")
@@ -555,9 +568,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """Return the number of rows."""
         return self.number_of_rows()
 
-    def __getitem__(self, idx: int) -> Tuple[np.ndarray, np.ndarray]:
+    def __getitem__(self, idx: int) -> torch.Tensor:
         """Get the row values located and index idx."""
-        return self.get_row(idx)[0]
+        return torch.from_numpy(np.stack(self.get_row(idx)[0]))
 
     def number_of_variables(self) -> List[int]:
         """Get the number of features in every entry in the dataset.
@@ -619,7 +632,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 )
 
         # Set our mode:
-        self.mode: Mode = f"{Mode.READ_APPEND}"
+        self.mode: Mode = Mode.READ_APPEND.value
 
         mmaps = []
         mmaps.extend(other_dataset)
@@ -635,7 +648,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 num_elements=total_num_elements,
                 num_rows=total_num_rows,
                 memmap_dir_path=Path(tmp),
-                mode=f"{Mode.CREATE_APPEND}",
+                mode=Mode.CREATE_APPEND.value,
                 dtypes=self.dtypes,
             )
             # Copy the data from self and other into the new arrays.
@@ -664,40 +677,44 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             # The arrays are swapped to ensure that the data remains stored at self.data_path and
             # not at a temporary filepath.
             _swap_mmap_array(
-                data_arr, f"{tmp}/{FileNames.DATA}", self.data, f"{self.data_path}/{FileNames.DATA}", destroy_src=True
+                data_arr,
+                f"{tmp}/{FileNames.DATA.value}",
+                self.data,
+                f"{self.data_path}/{FileNames.DATA.value}",
+                destroy_src=True,
             )
             _swap_mmap_array(
                 col_arr,
-                f"{tmp}/{FileNames.COLPTR}",
+                f"{tmp}/{FileNames.COLPTR.value}",
                 self.col_index,
-                f"{self.data_path}/{FileNames.COLPTR}",
+                f"{self.data_path}/{FileNames.COLPTR.value}",
                 destroy_src=True,
             )
             _swap_mmap_array(
                 row_arr,
-                f"{tmp}/{FileNames.ROWPTR}",
+                f"{tmp}/{FileNames.ROWPTR.value}",
                 self.row_index,
-                f"{self.data_path}/{FileNames.ROWPTR}",
+                f"{self.data_path}/{FileNames.ROWPTR.value}",
                 destroy_src=True,
             )
             # Reopen the data, colptr, and rowptr arrays
             self.data = np.memmap(
-                f"{self.data_path}/{FileNames.DATA}",
-                dtype=self.dtypes[f"{FileNames.DATA}"],
+                f"{self.data_path}/{FileNames.DATA.value}",
+                dtype=self.dtypes[f"{FileNames.DATA.value}"],
                 shape=(cumulative_elements,),
-                mode=f"{Mode.READ_APPEND}",
+                mode=Mode.READ_APPEND.value,
             )
             self.row_index = np.memmap(
-                f"{self.data_path}/{FileNames.ROWPTR}",
-                dtype=self.dtypes[f"{FileNames.ROWPTR}"],
+                f"{self.data_path}/{FileNames.ROWPTR.value}",
+                dtype=self.dtypes[f"{FileNames.ROWPTR.value}"],
                 shape=(cumulative_rows + 1,),
-                mode=f"{Mode.READ_APPEND}",
+                mode=Mode.READ_APPEND.value,
             )
             self.col_index = np.memmap(
-                f"{self.data_path}/{FileNames.COLPTR}",
-                dtype=self.dtypes[f"{FileNames.COLPTR}"],
+                f"{self.data_path}/{FileNames.COLPTR.value}",
+                dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
                 shape=(cumulative_elements,),
-                mode=f"{Mode.READ_APPEND}",
+                mode=Mode.READ_APPEND.value,
             )
 
         self.save()

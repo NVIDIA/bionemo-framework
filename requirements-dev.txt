@@ -1,8 +1,3 @@
-#--index-url "https://gitlab-ci-token:${GITLAB_TOKEN}@gitlab-master.nvidia.com/api/v4/projects/118589/packages/pypi/simple"
-#--extra-index-url "https://__token__:${GITLAB_TOKEN}@gitlab-master.nvidia.com/api/v4/projects/118589/packages/pypi/simple"
-#--extra-index-url https://pypi.ngc.nvidia.com
-#--extra-index-url https://pypi.nvidia.com
-#--extra-index-url https://pypi.python.org/simple
 ruff==0.0.292
 black==23.1.0
 pre-commit==3.4.0
@@ -10,6 +5,4 @@ virtualenv==20.26.3
 ipdb==0.13.11
 click==8.1.7
 tenacity==8.5.0
-# https://gitlab-master.nvidia.com/clara-discovery/infra-bionemo
-#infra-bionemo==0.3.1
 tach>=0.9.0

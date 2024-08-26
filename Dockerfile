@@ -54,7 +54,7 @@ FROM bionemo2-base AS pip-requirements
 RUN mkdir /tmp/pip-tmp
 WORKDIR /tmp/pip-tmp
 
-COPY requirements-dev.txt requirements-test.txt /tmp/pip-tmp/
+COPY requirements-dev.txt requirements-test.txt requirements-cve.txt /tmp/pip-tmp/
 
 # We want to only copy the requirements.txt, setup.py, and pyproject.toml files for *ALL* sub-packages
 # but we **can't** do COPY sub-packages/**/{requirements.txt,...} /<destination> because this will overwrite!
@@ -75,7 +75,7 @@ WORKDIR /workspace/bionemo2
 # We get the sub-packcages/ top-level structure + requirements.txt files
 COPY --from=pip-requirements /tmp/pip-tmp/ /workspace/bionemo2/
 
-RUN pip install -r requirements-dev.txt -r requirements-test.txt
+RUN pip install -r requirements-dev.txt -r requirements-test.txt -r requirements-cve.txt
 
 # We calculate paths to each requirements.txt file and dynamically construct the pip install command.
 # This command will expand to something like:
@@ -89,6 +89,20 @@ RUN X=""; for sub in $(echo sub-packages/bionemo-*); do X="-r ${sub}/requirement
 # Delete the temporary /build directory.
 WORKDIR /workspace
 RUN rm -rf /build
+
+# Addressing Security Scan Vulnerabilities
+RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
+RUN apt-get update  && \
+    apt-get install -y openssh-client=1:8.9p1-3ubuntu0.10 && \
+    rm -rf /var/lib/apt/lists/*
+RUN apt purge -y libslurm37 libpmi2-0 && \
+    apt autoremove -y
+RUN source /usr/local/nvm/nvm.sh && \
+    NODE_VER=$(nvm current) && \
+    nvm deactivate && \
+    nvm uninstall $NODE_VER && \
+    sed -i "/NVM/d" /root/.bashrc && \
+    sed -i "/nvm.sh/d" /etc/bash.bashrc
 
 # Create a non-root user to use inside a devcontainer.
 ARG USERNAME=bionemo
