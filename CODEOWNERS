@@ -219,9 +219,9 @@ docs/build/jupyter_execute/notebooks/protein-esm1nv-clustering.ipynb @farhadrgh 
 ##
 ## esm-2 + LoRA @camirr
 ##
-bionemo/model/protein/downstream/protein_model_finetuning.py @camirr
+bionemo/model/protein/downstream/protein_model_finetuning.py
 # MISSING TESTS
-./examples/protein/esm2nv/conf/downstream_sec_str_LORA.yaml @camirr
+./examples/protein/esm2nv/conf/downstream_sec_str_LORA.yaml
 # MISSING DOCS
 
 ##
