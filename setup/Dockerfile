@@ -15,10 +15,10 @@
 #   - libstdcxx-ng=11.1.0=h56837e0_8
 #   - pycairo=1.20.1=py38hf61ee4a_0
 
-# Most of the first part is directly copied from NeMo v1.22 Dockerfile https://github.com/NVIDIA/NeMo/blob/v1.22.0/Dockerfile
+# Most of the first part is directly copied from NeMo v1.23 Dockerfile https://github.com/NVIDIA/NeMo/blob/v1.23.0/Dockerfile
 # kept all dependencies necessary for nemo.collections.nlp, nemo.core, nemo.utils, nemo.collections.common
 
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:23.10-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.01-py3
 ARG DGL_IMAGE=gitlab-master.nvidia.com:5005/clara-discovery/bionemo:dgl_builder_v1.1.4
 FROM ${DGL_IMAGE} AS dgl
 # build an image that includes only the nemo dependencies, ensures that dependencies
@@ -40,26 +40,29 @@ WORKDIR /workspace/
 
 # need this otherwise apex or transformer engine crashes since it runs out of host memory
 # c++: fatal error: Killed signal terminated program cc1plus
-ARG MAX_JOBS=4
+ARG MAX_JOBS=2
 ENV MAX_JOBS=${MAX_JOBS}
 
 # Install megatron core, this can be removed once 0.3 pip package is released
-# We leave it here in case we need to work off of a specific commit in main
+# We leave it here in case we need to work off of a specific commit in main,
+# see commit from https://github.com/NVIDIA/NeMo/blob/d2283e3620cd7f99dbe29fdf079757ab9f6cdf01/Dockerfile#L67
 RUN git clone https://github.com/NVIDIA/Megatron-LM.git && \
   cd Megatron-LM && \
-  git checkout e122536b7645edcb7ebf099b5c92a443f7dbf8e7 && \
+  git checkout 240a8ef7a21df201e47b5b2ae33cc5f4c5486849 && \
   pip install .
 
 # Distributed Adam support for multiple dtypes
+# see commit from https://github.com/NVIDIA/NeMo/blob/d2283e3620cd7f99dbe29fdf079757ab9f6cdf01/Dockerfile#L73
 RUN git clone https://github.com/NVIDIA/apex.git && \
   cd apex && \
-  git checkout 52e18c894223800cb611682dce27d88050edf1de && \
+  git checkout f058162b215791b15507bb542f22ccfde49c872d && \
   pip install -v --no-build-isolation --disable-pip-version-check --no-cache-dir --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam" ./
 
 # Transformer Engine used in NeMo v1.22 dockerfile
+# see commit from https://github.com/NVIDIA/NeMo/blob/d2283e3620cd7f99dbe29fdf079757ab9f6cdf01/Dockerfile#L79
 RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
   cd TransformerEngine && \
-  git fetch origin 8eae4ce2b8fdfbbe525fc8bfecb0df5498cc9687 && \
+  git fetch origin da30634a6c9ccdbb6c587b6c93b1860e4b038204 && \
   git checkout FETCH_HEAD && \
   git submodule init && git submodule update && \
   NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=0 MPI_HOME=/usr/local/mpi pip install .
@@ -75,7 +78,7 @@ RUN pip install flash-attn
 # install numba for latest containers
 # ImportError: Numba needs NumPy 1.24 or less
 RUN pip install numba>=0.57.1
-ARG NEMO_VERSION=1.22.0
+ARG NEMO_VERSION=1.23.0
 # Check that NEMO_VERSION is set. Build will fail without this. Expose NEMO and base container
 # version information as runtime environment variable for introspection purposes
 RUN /usr/bin/test -n "$NEMO_VERSION" && \
@@ -91,6 +94,7 @@ RUN git clone -b v$NEMO_VERSION https://github.com/NVIDIA/NeMo.git && \
     sed -i "/torch/d" requirements/requirements.txt && \
     sed -i "/triton/d" requirements/requirements.txt && \
     sed -i "/megatron_core/d" requirements/requirements_nlp.txt && \
+    sed -i "/nltk/d" requirements/requirements_nlp.txt && \
     pip install -r requirements/requirements.txt && \
     pip install -r requirements/requirements_nlp.txt && \
     pip install ".[nlp]"
@@ -176,6 +180,8 @@ RUN ln -s /usr/include/openbabel3 /usr/local/include/openbabel3
 # COPY files first **BEFORE** installing from them => use the layer cache effectively!
 COPY setup/requirements*.txt /tmp/
 COPY setup/install_lmdb.sh /tmp/install_lmdb.sh
+# installing PyG from a seperate requirements file
+RUN pip install --no-cache-dir -r /tmp/requirements-pyg.txt
 RUN --mount=type=secret,id=GITLAB_TOKEN GITLAB_TOKEN=$(cat /run/secrets/GITLAB_TOKEN) pip install -r /tmp/requirements-dev.txt
 RUN pip install -r /tmp/requirements-test.txt
 
@@ -194,7 +200,6 @@ RUN --mount=type=secret,id=GITLAB_TOKEN GITLAB_TOKEN=$(cat /run/secrets/GITLAB_T
 RUN /tmp/install_lmdb.sh
 # requirements-cve.txt *must* be installed last to patch security vulns in pip packages
 RUN pip install -r /tmp/requirements-cve.txt
-
 
 # AWS CLI is inside requirements.txt. Add config file.
 # This config file does not contain access keys.
@@ -216,9 +221,7 @@ RUN NEMO_PATH=$(python -c 'import nemo; print(nemo.__path__[0])') && \
 #       This is exposed through the `iteractive=True` constructor parameter.
 #       In MegaMolBart, specifically, this patch adds support for recongifure_minibatch as a flag
 #       in its decode method.
-# TODO [mgreaves] Upstream nemo-v-1.22-support_interactive_megamolbart_lm-decode_reconfigure_minibatch patch and
-# then remove here when we can upgrade our nemo dependency.
-#                 https://jirasw.nvidia.com/browse/CDISCOVERY-2146
+# TODO [mgreaves] Upstream nemo-v-1.23-support_interactive_megamolbart_lm-decode_reconfigure_minibatch patch and
 # NOTE: hiddens_support_train_v_inf_outputs.patch applies the patch from https://github.com/NVIDIA/NeMo/pull/8466 which fixes an issue
 #        where training uses the same hiddens key for inference (eg always the gaussian noised z rather than z_mean).
 # NOTE: data_sampler_constant_len.patch.patch applies the patch from https://github.com/NVIDIA/NeMo/pull/8576 which fixes an issue
@@ -226,14 +229,14 @@ RUN NEMO_PATH=$(python -c 'import nemo; print(nemo.__path__[0])') && \
 # NOTE: nemo-lr-scheduler.patch adds patch for WarmupAnnealDecayHold NeMo LR Scheduler
 COPY ./setup/*.patch ./
 RUN NEMO_INST_DIR=$(python -c 'import nemo; from pathlib import Path; print(Path(nemo.__path__[0]).parent)') && \
-    patch -p1 -d $NEMO_INST_DIR -i $PWD/nemo-v-1.22-support_interactive_megamolbart_lm-decode_reconfigure_minibatch.patch && \
+    patch -p1 -d $NEMO_INST_DIR -i $PWD/nemo-v-1.23-support_interactive_megamolbart_lm-decode_reconfigure_minibatch.patch && \
     patch -p1 -d $NEMO_INST_DIR -i $PWD/hiddens_support_train_v_inf_outputs.patch && \
     patch -p1 -d $NEMO_INST_DIR -i $PWD/data_sampler_constant_len.patch && \
     patch -p1 -d $NEMO_INST_DIR -i $PWD/nemo-lr-scheduler.patch && \
     rm *.patch
-#
-# Special Handling for Python Package Security Vulnerabilities
-#
+###################################################################################
+# Special Handling for Security Vulnerabilities
+###################################################################################
 
 # Remove nvm as it's not expected users will need this, and it introduces unfixable vulnerabilties:
 # https://nvd.nist.gov/vuln/detail/CVE-2023-32002

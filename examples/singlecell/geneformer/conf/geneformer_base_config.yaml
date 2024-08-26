@@ -45,7 +45,7 @@ model:
   tokenizer:
     vocab_file: ${..data.train_dataset_path}/geneformer.vocab  # By convention the vocab file is preprocessed into the train dataset path.
   micro_batch_size: 16
-  activation:  relu
+  activation:  gelu
   tensor_model_parallel_size: 1
   pipeline_model_parallel_size: 1
   use_flash_attention: True

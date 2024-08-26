@@ -1,5 +1,5 @@
 diff --git a/nemo/core/optim/lr_scheduler.py b/nemo/core/optim/lr_scheduler.py
-index 73ad1e18a..c20d56a01 100644
+index 38ad372f3..3b5f39ab4 100644
 --- a/nemo/core/optim/lr_scheduler.py
 +++ b/nemo/core/optim/lr_scheduler.py
 @@ -216,6 +216,39 @@ class WarmupHoldPolicy(WarmupPolicy):
@@ -42,11 +42,11 @@ index 73ad1e18a..c20d56a01 100644
  class WarmupAnnealHoldPolicy(_LRScheduler):
      """Adds warmup kwargs and warmup logic to lr policy.
      All arguments should be passed as kwargs for clarity,
-@@ -962,6 +995,7 @@ AVAILABLE_SCHEDULERS = {
+@@ -963,6 +996,7 @@ def compute_max_steps(
+ AVAILABLE_SCHEDULERS = {
+     'WarmupPolicy': WarmupPolicy,
+     'WarmupHoldPolicy': WarmupHoldPolicy,
++    'WarmupAnnealDecayHold':WarmupAnnealDecayHold,
+     'SquareAnnealing': SquareAnnealing,
      'CosineAnnealing': CosineAnnealing,
      'NoamAnnealing': NoamAnnealing,
-     'NoamHoldAnnealing': NoamHoldAnnealing,
-+    'WarmupAnnealDecayHold':WarmupAnnealDecayHold,
-     'WarmupAnnealing': WarmupAnnealing,
-     'InverseSquareRootAnnealing': InverseSquareRootAnnealing,
-     'T5InverseSquareRootAnnealing': T5InverseSquareRootAnnealing,

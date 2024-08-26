@@ -42,7 +42,7 @@ model:
   tokenizer:
     vocab_file: ${..data.train_dataset_path}/geneformer.vocab
   micro_batch_size: 8
-  activation: relu
+  activation: gelu
   tensor_model_parallel_size: 1
   pipeline_model_parallel_size: 1
   use_flash_attention: true

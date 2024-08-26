@@ -154,7 +154,7 @@ def get_num_devices(n_devices):
 
 class TrainerBuilder:
     @staticmethod
-    def adjust_config(cfg):
+    def adjust_config(cfg, reset_accumulate_grad_batches: bool = True):
         """Update the contents of cfg
 
         (1) Add key "global_batch_size" to main_cfg.model
@@ -194,8 +194,14 @@ class TrainerBuilder:
             with open_dict(cfg):
                 cfg.model["global_batch_size"] = global_batch_size
 
-        # accumulate_grad_batches must always be 1 for NeMo Megatron
-        with open_dict(cfg):
+        # accumulate_grad_batches must always be 1 for NeMo Megatron but not for ModelPT
+        if acc_grad_batches != 1:
+            logging.warning(
+                "cfg.trainer.accumulate_grad_batches must always be 1 for NeMo Megatron but %s is given",
+                cfg.trainer.accumulate_grad_batches,
+            )
+
+        if reset_accumulate_grad_batches and "accumulate_grad_batches" in cfg.trainer:
             cfg.trainer["accumulate_grad_batches"] = 1
 
     @staticmethod
@@ -269,13 +275,23 @@ class InferenceTrainerBuilder(TrainerBuilder):
         pass
 
 
-def setup_trainer(cfg, builder=None, callbacks=[], adjust_config=True, verbose=True, interactive: bool = False):
+def setup_trainer(
+    cfg,
+    builder=None,
+    callbacks=[],
+    adjust_config=True,
+    verbose=True,
+    interactive: bool = False,
+    reset_accumulate_grad_batches: bool = True,
+):
     """NeMo Trainer setup functions"""
     if builder is None:
         builder = TrainerBuilder
 
     if adjust_config:
-        builder.adjust_config(cfg)  # e.g., compute global_batch_size, set accumulate_grad_batches
+        builder.adjust_config(
+            cfg, reset_accumulate_grad_batches=reset_accumulate_grad_batches
+        )  # e.g., compute global_batch_size, set accumulate_grad_batches if reset_accumulate_grad_batches
     plugins = builder.configure_plugins(cfg)
     mode = "train" if cfg.get("do_training", False) else "test"
     callbacks = builder.configure_callbacks(cfg, callbacks)

@@ -8,6 +8,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+import pytorch_lightning as pl
 from nemo.collections.nlp.parts.nlp_overrides import (
     NLPSaveRestoreConnector,
 )
@@ -46,7 +47,10 @@ def main(cfg) -> None:
     # Load model
     with open_dict(cfg):
         cfg.model.encoder_cfg = cfg
-    trainer = setup_trainer(cfg, builder=None)
+    seed = cfg.seed
+    pl.seed_everything(seed)  # Respect seed set in cfg
+
+    trainer = setup_trainer(cfg, builder=None, reset_accumulate_grad_batches=False)
     if cfg.restore_from_path:
         logging.info("\nRestoring model from .nemo file " + cfg.restore_from_path)
         model = FineTuneMegaMolBART.restore_from(

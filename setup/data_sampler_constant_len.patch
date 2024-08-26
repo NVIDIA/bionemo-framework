@@ -1,5 +1,14 @@
+From 9c5df16a3c1a55250c8355f28e54c2bf5cf1ca5a Mon Sep 17 00:00:00 2001
+From: Dorota Toczydlowska <dorotat@nvidia.com>
+Date: Tue, 23 Jul 2024 13:30:37 +0200
+Subject: [PATCH] updating data_sampler_constant_len.patch
+
+---
+ .../nlp/data/language_modeling/megatron/data_samplers.py        | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
 diff --git a/nemo/collections/nlp/data/language_modeling/megatron/data_samplers.py b/nemo/collections/nlp/data/language_modeling/megatron/data_samplers.py
-index 6818f99d0..6f3150453 100644
+index f97784647..3b5f7f3b2 100644
 --- a/nemo/collections/nlp/data/language_modeling/megatron/data_samplers.py
 +++ b/nemo/collections/nlp/data/language_modeling/megatron/data_samplers.py
 @@ -78,7 +78,7 @@ class BaseMegatronSampler:
@@ -7,7 +16,7 @@ index 6818f99d0..6f3150453 100644
 
      def __len__(self):
 -        num_available_samples: int = self.total_samples - self.consumed_samples
-+        num_available_samples: int = self.total_samples # - self.consumed_samples   # the length should always be the total lenght, even if we restart halfway through.
++        num_available_samples: int = self.total_samples # - self.consumed_samples # the length should always be the total lenght, even if we restart halfway through.
          if self.global_batch_size is not None:
              if self.drop_last:
-                 num_global_batches = num_available_samples // self.global_batch_size
+                 return num_available_samples // self.global_batch_size

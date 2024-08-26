@@ -36,7 +36,6 @@ from nemo.collections.nlp.modules.common.megatron.utils import (
     init_method_normal,
     scaled_init_method_normal,
 )
-from nemo.collections.nlp.parts import utils_funcs
 
 from bionemo.model.protein.esm1nv.transformer import ESMnvParallelTransformer
 
@@ -77,7 +76,6 @@ class ESMnvEmbedding(Embedding):
         embedding_dropout_prob,
         init_method,
         num_tokentypes=0,
-        dtype=torch.float32,
         fp32_residual_connection=False,
         position_embedding_type="learned_absolute",
         transpose_batch_sequence=True,
@@ -97,7 +95,6 @@ class ESMnvEmbedding(Embedding):
             position_embedding_type=position_embedding_type,
             transpose_batch_sequence=transpose_batch_sequence,
             fp32_residual_connection=fp32_residual_connection,
-            dtype=dtype,
         )
         self.token_dropout = token_dropout
         self.use_attention_mask = use_attention_mask
@@ -268,7 +265,6 @@ class ESMnvTransformerLanguageModel(TransformerLanguageModel):
         self.position_embedding_type = position_embedding_type
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.sequence_parallel = config.sequence_parallel
-        self.dtype = utils_funcs.torch_dtype_from_precision(precision, megatron_amp_O2)
         if kv_channels is None:
             assert (
                 hidden_size % num_attention_heads == 0
@@ -289,7 +285,6 @@ class ESMnvTransformerLanguageModel(TransformerLanguageModel):
                 embedding_dropout_prob=self.hidden_dropout,
                 position_embedding_type=position_embedding_type,
                 fp32_residual_connection=fp32_residual_connection,
-                dtype=self.dtype,
                 # BIONEMO: New arguments
                 token_dropout=embedding_token_dropout,
                 use_attention_mask=embedding_use_attention_mask,

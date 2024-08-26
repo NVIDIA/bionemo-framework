@@ -1,0 +1,6 @@
+# note: these must either be built from source
+# OR use the pre-built binaries on gitlab, which are compatible w/ bionemo's cuda version
+torch_cluster==1.6.3
+torch_sparse==0.6.18
+torch-geometric==2.5.0
+torch-scatter==2.1.2

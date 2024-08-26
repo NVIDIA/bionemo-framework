@@ -9,6 +9,7 @@
 # its affiliates is strictly prohibited.
 
 from abc import ABC, abstractmethod
+from typing import List
 
 import torch
 from apex.transformer.pipeline_parallel.utils import _reconfigure_microbatch_calculator
@@ -34,10 +35,6 @@ from bionemo.model.utils import (
 class EncoderFineTuning(ModelPT, Exportable, ABC):
     def __init__(self, cfg, trainer):
         super().__init__(cfg, trainer)
-        if trainer.accumulate_grad_batches != 1:
-            raise ValueError(
-                "Trainer.accumulate_grad_batches currently only supported" " for Trainer.accumulate_grad_batches = 1"
-            )
         self._save_restore_connector = NLPSaveRestoreConnector()
         self.cfg = cfg
 
@@ -49,6 +46,8 @@ class EncoderFineTuning(ModelPT, Exportable, ABC):
         self.task_head = self.build_task_head()
         self.predict_dataset = None
         self.metrics = None
+
+        self._reduced_lm_loss_buffer: List[torch.Tensor] = []  # support gradient accumulation
 
     def list_available_models(self):
         return []
@@ -174,21 +173,27 @@ class EncoderFineTuning(ModelPT, Exportable, ABC):
     def training_step(self, batch, batch_idx):
         loss, _, _ = self._calc_step(batch, batch_idx)
         reduced_loss = average_losses_across_data_parallel_group([loss])
-        self.log("reduced_train_loss", reduced_loss, prog_bar=True)
-        # if we wanted to enable gradient accumulation across batches we could
-        # do something more sophisticated like megatron BERT:
-        # https://github.com/NVIDIA/NeMo/blob/c9811f14fa1e1f990fd29f1aed1ae08e2ff6b014/nemo/collections/nlp/models/language_modeling/megatron_bert_model.py#L132-L154
-        self.log_stats()
+        self._reduced_lm_loss_buffer.append(reduced_loss)
+
+        if (
+            len(self._reduced_lm_loss_buffer) + 1
+        ) % self.trainer.accumulate_grad_batches == 0:  # batch_idx is not the appropriate choice when num_epoch > 1
+            average_reduced_loss = sum(self._reduced_lm_loss_buffer) / len(self._reduced_lm_loss_buffer)
+            self.log("reduced_train_loss", average_reduced_loss, prog_bar=True)
+            self.log_stats()
+            self._reduced_lm_loss_buffer = []
+
         return loss
 
     def log_stats(self):
         lr = self._optimizer.param_groups[0]["lr"]
         self.log("lr", lr)
-        self.log("global_step", self.trainer.global_step, prog_bar=True)
+        self.log("global_step", float(self.trainer.global_step), prog_bar=True, sync_dist=True)
         self.log(
             "consumed_samples",
-            compute_consumed_samples(self, self.trainer.global_step - self.init_global_step + 1),
+            float(compute_consumed_samples(self, self.trainer.global_step - self.init_global_step + 1)),
             prog_bar=True,
+            sync_dist=True,
         )
 
     def build_pretraining_data_loader(self, dataset, consumed_samples):
@@ -247,13 +252,14 @@ class EncoderFineTuning(ModelPT, Exportable, ABC):
 
     def _epoch_end(self, outputs, subset):
         if len(outputs) > 0:
-            for name, value in outputs[0].items():
+            for name in outputs[0].keys():
                 batch_value = [x[name] for x in outputs]
                 averaged_value = torch.stack(batch_value).mean()
-                self.log(name, averaged_value)
+                self.log(name, averaged_value, sync_dist=True)
 
     def on_validation_epoch_end(self):
         self._epoch_end(self.validation_step_outputs, subset="val")
+        self.log("global_step", float(self.trainer.global_step), prog_bar=True)
         self.validation_step_outputs.clear()
 
     def on_test_epoch_end(self):

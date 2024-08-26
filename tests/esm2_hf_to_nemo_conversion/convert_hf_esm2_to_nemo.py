@@ -40,10 +40,8 @@ from typing import Callable, Dict, List, Tuple, Union
 
 import torch
 from hydra import compose, initialize
-from nemo.collections.nlp.models.language_modeling.megatron.bert_model import (
-    bert_extended_attention_mask,
-    build_position_ids,
-)
+from nemo.collections.nlp.models.language_modeling.megatron.bert_model import bert_extended_attention_mask
+from nemo.collections.nlp.modules.common.megatron.utils import build_position_ids
 from nemo.collections.nlp.parts.nlp_overrides import (
     GradScaler,
     MegatronHalfPrecisionPlugin,

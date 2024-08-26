@@ -29,6 +29,9 @@ from bionemo.utils.hydra import load_model_config
 from bionemo.utils.tests import Deterministic, distributed_model_parallel_state
 
 
+UPDATE_GOLDEN_VALUES = os.environ.get("UPDATE_GOLDEN_VALUES", "0") == "1"
+
+
 @pytest.fixture(scope="module")
 def golden_value_prepend_dir(bionemo_home: Path) -> Path:
     yield Path(bionemo_home / "tests" / "data" / "esm1_golden_values")
@@ -192,10 +195,32 @@ def _test_esm1nv_golden_value_json_and_overwrite(
     current_predictions = predictions[0]
     current_hiddens = current_predictions["hiddens"]
     current_embeddings = current_predictions["embeddings"]
+    current_num_parameters = sum(p.numel() for p in model.parameters())
+    if UPDATE_GOLDEN_VALUES:
+        golden_json_filepath.parent.mkdir(exist_ok=True, parents=True)
+        save_json = {
+            "sample": sample1,
+            "predictions": {
+                "sequence": current_predictions["sequence"],
+                "id": current_predictions["id"],
+                "embeddings": current_embeddings.tolist(),
+                "hiddens": current_hiddens.tolist(),
+            },
+            "num_parameters": current_num_parameters,
+        }
+        with open(golden_json_filepath, "w") as f:
+            json.dump(save_json, f)
 
-    # Load golden values
-    with open(golden_json_filepath, "r") as f:
-        golden_values = json.load(f)
+        assert False, f"Updated expected values at {golden_json_filepath}, rerun with UPDATE_GOLDEN_VALUES=0"
+
+    else:
+        assert (
+            golden_json_filepath.exists()
+        ), f"Expected values file not found at {golden_json_filepath}. Rerun with UPDATE_GOLDEN_VALUES=1 to create it."
+
+        # Load golden values
+        with open(golden_json_filepath, "r") as f:
+            golden_values = json.load(f)
 
     # Convert predictions from json to array
     golden_predictions = golden_values["predictions"]
@@ -258,20 +283,8 @@ def _test_esm1nv_golden_value_json_and_overwrite(
     assert current_predictions["id"] == golden_predictions["id"]
 
     # Check num parameters:
-    current_num_parameters = sum(p.numel() for p in model.parameters())
     golden_num_parameters = golden_values["num_parameters"]
     assert current_num_parameters == golden_num_parameters
-
-    save_json = {}
-    save_json["sample"] = sample1
-    save_json["predictions"] = current_predictions
-    save_json["predictions"]["embeddings"] = current_embeddings.tolist()
-    save_json["predictions"]["hiddens"] = current_hiddens.tolist()
-    save_json["num_parameters"] = current_num_parameters
-
-    # Overwrite and save new golden values to json.
-    # with open(golden_json_filepath, 'w') as f:
-    #     json.dump(save_json, f)
 
 
 @pytest.mark.needs_gpu

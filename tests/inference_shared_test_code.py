@@ -111,6 +111,8 @@ def run_seqs_to_hiddens_with_goldens(
         assert False, f"Updated expected values at {expected_vals_path}, rerun with UPDATE_GOLDEN_VALUES=0"
     else:
         expected_vals = {k: v.to(pad_masks.device) for k, v in torch.load(expected_vals_path).items()}
+        # Equation for relative diff
+        # relative_diff = torch.abs(h - e) / torch.max(atol, rtol * torch.max(torch.abs(h), torch.abs(e)))
         torch.testing.assert_close(
             hidden_state, expected_vals["expected_hidden_state"], rtol=None, atol=None, equal_nan=True
         )

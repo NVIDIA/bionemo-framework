@@ -11,6 +11,7 @@ name: geneformer_inference
 desc: Minimum configuration for initializing a Geneformer model for inference.
 
 model:
+  activation: gelu # required by Nemo 1.23 and backward compatibility since relu activation is not supported
   post_process: False # Set to false if you want embeddings and not logits
   downstream_task:
     restore_from_path: "${oc.env:BIONEMO_HOME}/models/singlecell/geneformer/geneformer-qa.nemo"

@@ -1,0 +1,22 @@
+defaults:
+  - downstream_flip_sec_str
+
+hydra:
+  searchpath:
+    - file://${oc.env:BIONEMO_HOME}/examples/protein/esm2nv/conf
+
+trainer:
+  devices: 1
+  num_nodes: 1
+
+model:
+  micro_batch_size: 1
+
+exp_manager:
+  exp_dir: ${oc.env:BIONEMO_HOME}/test_results/nemo_experiments/esm2nv_downstream_flip_sec_str
+  create_wandb_logger: False
+  create_tensorboard_logger: False
+  create_checkpoint_callback: False
+  resume_if_exists: False
+  wandb_logger_kwargs:
+    offline: True

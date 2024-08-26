@@ -13,6 +13,7 @@ trainer:
   precision: bf16-mixed  # This is where the model precision settings come from at inference time, match the model config.
 
 model:
+  activation: gelu # required by Nemo 1.23 and backward compatibility since relu activation is not supported
   post_process: False # Set to false if you want embeddings and not logits
   downstream_task:
     restore_from_path: "${oc.env:BIONEMO_HOME}/models/singlecell/geneformer/geneformer-qa.nemo"

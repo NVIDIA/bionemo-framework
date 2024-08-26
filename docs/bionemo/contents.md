@@ -33,16 +33,19 @@ parallelism-fw
 :maxdepth: 3
 :caption: MODELS
 
-models/esm1-nv
-models/esm2-nv
-models/prott5nv
-models/megamolbart
-models/molmim
-models/equidock
 models/diffdock
 models/dnabert
-models/openfold
+models/dsmbind
+models/equidock
+models/esm1-nv
+models/esm2-nv
 models/geneformer
+models/megamolbart
+models/molmim
+models/openfold
+models/prott5nv
+
+
 models/model-benchmarks
 ```
 

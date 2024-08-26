@@ -34,10 +34,15 @@ def main(cfg) -> None:
         preprocessor = FLIPPreprocess()
         preprocessor.prepare_all_datasets(output_dir=cfg.model.data.preprocessed_data_path)
 
+    if cfg.do_training is False and cfg.do_testing is False:  # finish run without model instantiation
+        return
+
+    trainer = setup_trainer(cfg, builder=None, reset_accumulate_grad_batches=False)
+
     # Load model
-    trainer = setup_trainer(cfg, builder=None)
-    with open_dict(cfg):  # reconfigure after trainer instantiation for gradient accumulation
+    with open_dict(cfg):
         cfg.model.encoder_cfg = cfg
+
     if cfg.restore_from_path:
         logging.info("\nRestoring model from .nemo file " + cfg.restore_from_path)
         model = FineTuneProteinModel.restore_from(

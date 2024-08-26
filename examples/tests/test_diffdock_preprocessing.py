@@ -8,6 +8,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+import hashlib
 import os
 import pickle
 from functools import partial
@@ -43,6 +44,24 @@ torch.backends.cudnn.benchmark = False
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cuda.allow_tf32 = False
 torch.backends.cudnn.enabled = False
+
+
+def sha256_file(file_path: str):
+    """Compute the sha256 checksum of the input file
+
+    Args:
+        file_path (str): path to the input file
+
+    Returns: the file's sha256 (str)
+
+    """
+    f_hash = hashlib.new("sha256")
+
+    with open(file_path, "rb") as file:
+        while chunk := file.read(1024 * 8):
+            f_hash.update(chunk)
+
+    return f_hash.hexdigest()
 
 
 @pytest.fixture(scope="session")
@@ -105,7 +124,9 @@ def test_diffdock_prepare_score_dataset(config_path_for_tests, tmp_path):
     }
 
     for file in os.listdir(cfg.ref_train_graph_file):
-        ref_sample = pickle.load(open(os.path.join(cfg.ref_train_graph_file, file), "rb"))
+        path_file = os.path.join(cfg.ref_train_graph_file, file)
+        hash_file = sha256_file(path_file)
+        ref_sample = pickle.load(open(path_file, "rb"))
         sample = pickle.load(open(os.path.join(cfg.data.cache_path, cfg.ref_train_graph_folder_name, file), "rb"))
 
         assert torch.allclose(torch.tensor(sample.rmsd_matching), torch.tensor(ref_sample.rmsd_matching), atol=0.01)
@@ -113,11 +134,23 @@ def test_diffdock_prepare_score_dataset(config_path_for_tests, tmp_path):
             torch.tensor(sample.original_center), torch.tensor(ref_sample.original_center), atol=0.01
         )
 
+        # DEBUG: print the reference value
+        torch.set_printoptions(precision=15, sci_mode=True, threshold=2000)
         for key in attr_dict:
             for attr in attr_dict[key]:
-                assert torch.allclose(
-                    torch.tensor(getattr(sample[key], attr)), torch.tensor(getattr(ref_sample[key], attr)), atol=0.01
-                ), f"{key}.{attr} is wrong"
+                result = torch.tensor(getattr(sample[key], attr))
+                expected = torch.tensor(getattr(ref_sample[key], attr))
+                torch.testing.assert_close(
+                    result,
+                    expected,
+                    atol=0.01,
+                    rtol=0.01,
+                    msg=lambda msg: f"Wrong {key}.{attr} \
+                        compared with {path_file} whose sha256 is {hash_file} \
+                        and the reference data:\n {expected} \n\n{msg}",
+                )
+        # DEBUG: revert print option
+        torch.set_printoptions(precision=4, sci_mode=None, threshold=1000)
 
 
 @pytest.mark.needs_fork
@@ -145,7 +178,9 @@ def test_diffdock_prepare_confidence_dataset(tmp_path, config_path_for_tests):
     }
 
     for file in os.listdir(cfg.ref_train_graph_file):
-        ref_sample = pickle.load(open(os.path.join(cfg.ref_train_graph_file, file), "rb"))
+        path_file = os.path.join(cfg.ref_train_graph_file, file)
+        hash_file = sha256_file(path_file)
+        ref_sample = pickle.load(open(path_file, "rb"))
         sample = pickle.load(open(os.path.join(cfg.data.cache_path, cfg.ref_train_graph_folder_name, file), "rb"))
 
         assert torch.allclose(torch.tensor(sample.rmsd_matching), torch.tensor(ref_sample.rmsd_matching), atol=0.01)
@@ -153,11 +188,23 @@ def test_diffdock_prepare_confidence_dataset(tmp_path, config_path_for_tests):
             torch.tensor(sample.original_center), torch.tensor(ref_sample.original_center), atol=0.01
         )
 
+        # DEBUG: print the reference value
+        torch.set_printoptions(precision=15, sci_mode=True, threshold=2000)
         for key in attr_dict:
             for attr in attr_dict[key]:
-                assert torch.allclose(
-                    torch.tensor(getattr(sample[key], attr)), torch.tensor(getattr(ref_sample[key], attr)), atol=0.01
-                ), f"{key}.{attr} is wrong"
+                result = torch.tensor(getattr(sample[key], attr))
+                expected = torch.tensor(getattr(ref_sample[key], attr))
+                torch.testing.assert_close(
+                    result,
+                    expected,
+                    atol=0.01,
+                    rtol=0.01,
+                    msg=lambda msg: f"Wrong {key}.{attr} \
+                        compared with {path_file} whose sha256 is {hash_file} \
+                        and the reference data:\n {expected} \n\n{msg}",
+                )
+        # DEBUG: revert print option
+        torch.set_printoptions(precision=4, sci_mode=None, threshold=1000)
 
     score_model = DiffDockModelInference(cfg.score_infer)
     score_model.eval()

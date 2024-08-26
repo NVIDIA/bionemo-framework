@@ -163,8 +163,8 @@ def get_data_overrides(script_or_cfg_path: str) -> str:
         UNIREF_FOLDER = "uniref202104_esm2_qc_test200_val200"
         MAIN = f"{DATA}.train.dataset_path={TEST_DATA_DIR}/%s"
         esm2_overwrites = (
-            MAIN
-            % f"{UNIREF_FOLDER}/uf50"
+            MAIN % f"{UNIREF_FOLDER}/uf50"
+            + " do_preprocessing=False"
             + f"{DATA}.train.cluster_mapping_tsv={TEST_DATA_DIR}/{UNIREF_FOLDER}/mapping.tsv"
             f"{DATA}.train.index_mapping_dir={TEST_DATA_DIR}/{UNIREF_FOLDER}"
             f"{DATA}.train.uf90.uniref90_path={TEST_DATA_DIR}/{UNIREF_FOLDER}/uf90/"

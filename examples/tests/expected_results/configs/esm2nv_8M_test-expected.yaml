@@ -1,4 +1,5 @@
 name: esm2-8M
+do_preprocessing: false
 do_training: true
 do_testing: false
 restore_from_path: null

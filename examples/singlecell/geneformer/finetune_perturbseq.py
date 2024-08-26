@@ -73,7 +73,7 @@ def main(cfg) -> None:
         logging.info("************** Starting Training ***********")
 
         # Set up trainer
-        trainer = setup_trainer(cfg, builder=None)
+        trainer = setup_trainer(cfg, builder=None, reset_accumulate_grad_batches=False)
 
         # Create model
         model = FineTuneGeneformerModel(cfg.model, trainer=trainer)

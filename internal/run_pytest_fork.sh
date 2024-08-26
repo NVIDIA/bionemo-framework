@@ -1,7 +1,6 @@
 #!/bin/bash
-
 test_tag="needs_fork"
-test_files=$(pytest --collect-only -m "${test_tag}" -q |  grep "test_" | awk -F '::' '{print $1}' | sort | uniq)
+test_files=$(pytest --collect-only -m "${test_tag}" | grep '^[[:space:]]*<Module' | sed 's/^[[:space:]]*<Module//'| sed 's/\.py.*$/.py/' | awk '{$1=$1;print}' | sort | uniq)
 n_test_files=$(echo "$test_files" | wc -l)
 counter=1
 # the overall test status collected from all pytest commands with test_tag
@@ -10,7 +9,11 @@ status=0
 for testfile in $test_files; do
   rm -rf ./.pytest_cache/
   set -x
+  if [[ $testfile != examples/* && $testfile != tests/* ]]; then
+    testfile="tests/$testfile"
+  fi
   echo "Running test ${counter} / ${n_test_files} : ${testfile}"
+
   pytest -m "${test_tag}" -vv --durations=0 --cov-append --cov=bionemo ${testfile}
   test_status=$?
   # Exit code 5 means no tests were collected: https://docs.pytest.org/en/stable/reference/exit-codes.html

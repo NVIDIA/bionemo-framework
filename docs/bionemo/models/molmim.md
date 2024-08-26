@@ -54,7 +54,7 @@ MolMIM utilizes a Perceiver encoder architecture which outputs a fixed-size repr
 ## Model Version(s):
 *  MolMIM-70M-24.3
     * Trained with log variance sampling loss, but left out the portion of the encoder that used the sampled log variance as an input to the hiddens -> z_mean transformation. We found that this was not needed to achieve performance on the tasks we are currently measuring, and simplified radius sampling.
-    * See the [molmim model training notebook](../notebooks/model_training_molmim.ipynb) for more information about how the model was trained and which config was used.
+    * The config used for training this model version can be found under `examples/molecule/molmim/conf/molmim_70m_24_3.yaml`
 
 # Training & Evaluation:
 

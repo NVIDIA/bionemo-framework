@@ -40,6 +40,7 @@ model:
     moe_frequency: 1
     moe_dropout: 0.0
     use_flash_attention: false
+    enable_megatron_timers: false
   decoder:
     num_layers: ${model.encoder.num_layers}
     hidden_size: ${model.encoder.hidden_size}
@@ -81,6 +82,7 @@ model:
     moe_frequency: 1
     moe_dropout: 0.0
     use_flash_attention: false
+    enable_megatron_timers: false
   name: ${name}-united-token_head
   micro_batch_size: 9
   global_batch_size: null

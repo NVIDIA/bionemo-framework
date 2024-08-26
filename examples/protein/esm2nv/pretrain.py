@@ -42,19 +42,7 @@ def main(cfg) -> None:
 
     callbacks = setup_dwnstr_task_validation_callbacks(cfg)
 
-    if cfg.do_training:
-        trainer = setup_trainer(cfg, callbacks=callbacks)
-        logging.info("************** Starting Training ***********")
-        if cfg.restore_from_path:
-            logging.info("\nRestoring model from .nemo file " + cfg.restore_from_path)
-            model = esm1nv_model.ESM2nvModel.restore_from(
-                cfg.restore_from_path, cfg.model, trainer=trainer, save_restore_connector=BioNeMoSaveRestoreConnector()
-            )
-        else:
-            model = esm1nv_model.ESM2nvModel(cfg.model, trainer)
-        trainer.fit(model)
-        logging.info("************** Finished Training ***********")
-    else:
+    if cfg.do_preprocessing:
         logging.info("************** Starting Preprocessing ***********")
         use_default_esm_pretraining_strategy = cfg.model.data.train.custom_pretraining_fasta_path is None
 
@@ -123,6 +111,19 @@ def main(cfg) -> None:
             flip_preprocessor.prepare_dataset(
                 output_dir=cfg.model.dwnstr_task_validation.dataset.dataset_path, task_name=task_name
             )
+
+    if cfg.do_training:
+        trainer = setup_trainer(cfg, callbacks=callbacks)
+        logging.info("************** Starting Training ***********")
+        if cfg.restore_from_path:
+            logging.info("\nRestoring model from .nemo file " + cfg.restore_from_path)
+            model = esm1nv_model.ESM2nvModel.restore_from(
+                cfg.restore_from_path, cfg.model, trainer=trainer, save_restore_connector=BioNeMoSaveRestoreConnector()
+            )
+        else:
+            model = esm1nv_model.ESM2nvModel(cfg.model, trainer)
+        trainer.fit(model)
+        logging.info("************** Finished Training ***********")
 
 
 if __name__ == "__main__":

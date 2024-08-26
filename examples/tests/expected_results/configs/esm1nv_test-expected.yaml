@@ -90,6 +90,10 @@ model:
     reset_position_ids: false
     reset_attention_mask: false
     eod_mask_loss: false
+    modify_percent: 0.15
+    perturb_percent: 0.1
+    mask_percent: 0.8
+    identity_percent: 0.1
     skip_lines: 0
     drop_last: false
     pin_memory: false
@@ -112,10 +116,6 @@ model:
       train: x[000..001]
       test: x[000..001]
       val: x[000..001]
-    modify_percent: 0.15
-    perturb_percent: 0.1
-    mask_percent: 0.8
-    identity_percent: 0.1
   optim:
     name: fused_adam
     lr: 0.0002

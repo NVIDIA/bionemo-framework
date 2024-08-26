@@ -2,6 +2,7 @@ defaults:
   - _self_
 
 name: esm2nv
+do_preprocessing: False  # set to true if data preprocessing is needed
 do_training: True # set to false if data preprocessing steps must be completed
 do_testing: False # set to true to run evaluation on test data after training, requires test_dataset section
 restore_from_path: null # used when starting from a .nemo file

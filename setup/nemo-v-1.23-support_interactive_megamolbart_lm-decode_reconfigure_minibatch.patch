@@ -1,8 +1,8 @@
 diff --git a/nemo/collections/nlp/models/language_modeling/megatron_lm_encoder_decoder_model.py b/nemo/collections/nlp/models/language_modeling/megatron_lm_encoder_decoder_model.py
-index f43f4709a..e40eff24d 100644
+index fd0381502..538c18352 100644
 --- a/nemo/collections/nlp/models/language_modeling/megatron_lm_encoder_decoder_model.py
 +++ b/nemo/collections/nlp/models/language_modeling/megatron_lm_encoder_decoder_model.py
-@@ -1130,6 +1130,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
+@@ -1129,6 +1129,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
          batch_data=None,
          sampling_method: str = "greedy-search",
          sampling_kwargs: dict = {},
@@ -10,7 +10,7 @@ index f43f4709a..e40eff24d 100644
      ):
          """
          tokens_enc - a tensor of shape [batch_size, seq_len] that contains the input tokens.
-@@ -1178,13 +1179,14 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
+@@ -1177,13 +1178,14 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
              self.trainer.strategy.setup_environment()
 
              # Reconfigure microbatch sizes here because on model restore, this will contain the micro/global batch configuration used while training.
@@ -32,7 +32,7 @@ index f43f4709a..e40eff24d 100644
 
          # If classes that inherit from this class are using a different tokenizer,
          tokenizer = self.tokenizer if tokenizer is None else tokenizer
-@@ -1202,13 +1204,14 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
+@@ -1201,13 +1203,14 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
          # Reconfigure microbatch calculator here to set num microbatches to 1 while decoding since its not clear how to decode with "grad acc".
          # reconfigure back to how things were before decode
          # TODO: Check if the user is trying to do gradient acc and maybe throw error
@@ -54,7 +54,7 @@ index f43f4709a..e40eff24d 100644
          # TODO: Figure out how to handle bos being either <bos> for NeMo-Megatron and <pad> for Huggingface/Google.
          bos_id = tokenizer.bos_id if bos_id is None else bos_id
          # initial prompt can be given
-@@ -1225,7 +1228,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
+@@ -1224,7 +1227,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
              # Encode returns a tensr of shape [batch, seq_len, hidden]
              # All ranks will call `.encode()`, but only the last rank will have a non-empty output tensor.
              enc_output = self.encode(
@@ -63,7 +63,7 @@ index f43f4709a..e40eff24d 100644
              )
          if enc_output_attn_mask is None:
              enc_output_attn_mask = enc_mask
-@@ -1290,13 +1293,14 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
+@@ -1289,13 +1292,14 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
                          # reconfigure batch size for apex since the tensor have been augmented with beam size
                          global_batch_per_gpu = token_ids.shape[0]
                          tensor_shape[1] = global_batch_per_gpu
@@ -85,7 +85,7 @@ index f43f4709a..e40eff24d 100644
 
                          # collect all predicted tokens and log_probs
                          predicted_tokens_dec = torch.cat(
-@@ -1381,13 +1385,14 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
+@@ -1380,13 +1384,14 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
                  )
 
          # Reset microbatch calculator to what it was before decoding.

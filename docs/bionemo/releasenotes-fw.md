@@ -1,4 +1,19 @@
 # Release Notes
+## BioNeMo Framework v1.8
+### New Features
+* [Documentation] Updated, executable MolMIM notebooks demonstrating: Training on custom data, Inference and downstream prediction, ZINC15 dataset preprocesing, and CMA-ES optimization
+* [Dependencies] Upgraded the framework to [NeMo v1.23](https://github.com/NVIDIA/NeMo/tree/v1.23.0), which updates PyTorch to version 2.2.0a0+81ea7a4 and CUDA to version 12.3.
+
+### Bug fixes and Improvements
+* [ESM2] Fixed a bug in gradient accumulation in encoder fine-tuning
+* [MegaMolBART] Make MegaMolBART encoder finetuning respect random seed set by user
+* [MegaMolBART] Finetuning with val_check_interval=1 bug fix
+
+### Known Issues
+* Minor training speed regression observed for models DNABERT, Geneformer, MolMIM
+* Two known critical CVEs GHSA-cgwc-qvrx-rf7f, GHSA-mr7h-w2qc-ffc2. The vulnerabilities arise within a package that's installed by lightning by default. We do not use that package in bionemo framework container. we are also unable to remove the package in question as it's installed as a side-effect of installing lightning.
+* Two known High CVEs from pytorch : GHSA-pg7h-5qx3-wjr3, GHSA-5pcm-hx3q-hm94.
+
 ## BioNeMo Framework v1.7
 ### New Models
 * [DSMBind](https://www.biorxiv.org/content/10.1101/2023.12.10.570461v1), developed under the BioNeMo framework, is a model which can produce comparative values for ranking protein-ligand binding affinities. This release features the capability to perform inference using a newly trained checkpoint.

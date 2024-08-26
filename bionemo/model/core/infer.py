@@ -8,6 +8,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+import copy
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, TypedDict, TypeVar, Union
 
 import torch
@@ -203,6 +204,14 @@ class BaseEncoderInference(LightningModule):
         if model is None:
             if restore_path is None:
                 restore_path = cfg.model.downstream_task.restore_from_path
+
+            if cfg.trainer.get("accumulate_grad_batches", 1) != 1:
+                logging.warning(
+                    f"Reset cfg.trainer.accumulate_grad_batches from current value of {cfg.trainer.accumulate_grad_batches} to 1 to initialize encoder model"
+                )  # restore NeMo model must have accumulate_grad_batches = 1
+                cfg = copy.deepcopy(cfg)  # update cfg without affecting anything upstream
+                cfg.trainer.accumulate_grad_batches = 1
+
             model = restore_model(
                 restore_path=restore_path,
                 cfg=cfg,

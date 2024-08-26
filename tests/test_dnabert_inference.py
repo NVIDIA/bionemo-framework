@@ -52,9 +52,11 @@ def gv_path_and_pbss_download(
     pbss_key_prefix: str,
     dnabert_expected_vals_path: Path,
 ) -> Path:
-    gv_filename = "inference_test_golden_values.pt"
+    # Remote filename
+    gv_filename = "20240708-inference_test_golden_values.pt"
 
-    gv_file = base_dir / gv_filename
+    # Local filenmae
+    gv_file = dnabert_expected_vals_path
 
     if not gv_file.exists():
         print("GV file not found locally, downloading from PBSS")
@@ -65,7 +67,7 @@ def gv_path_and_pbss_download(
                 "s3",
                 "cp",
                 f"s3://{pbss_bucket}/{pbss_key_prefix}/{gv_filename}",
-                dnabert_expected_vals_path,
+                str(dnabert_expected_vals_path.absolute()),  # local filename
                 "--endpoint-url",
                 "https://pbss.s8k.io",
             ]
