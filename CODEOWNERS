@@ -19,7 +19,7 @@
 # @DejunL - Dejun Lin
 # @broland-hat - Brian Roland
 # @cspades - Cory Ye
-# @dorotat-nv - Dorota
+# @dorotat-nv - Dorota Toczydlowska
 # @farhadrgh - Farhad Ramezanghorbani
 # @guoqing-zhou - Guoqing Zhou
 # @gwarmstrong - George Armstrong
@@ -70,7 +70,7 @@ CONTRIBUTING.md @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiN
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 ##
-## diffdock @guoqing-zhou
+## diffdock @DejunL @guoqing-zhou
 ##
 bionemo/model/molecule/diffdock @guoqing-zhou @DejunL
 tests/test_diffdock_training.py @guoqing-zhou
