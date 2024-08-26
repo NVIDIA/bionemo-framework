@@ -18,7 +18,7 @@
 #
 # @DejunL - Dejun Lin
 # @broland-hat - Brian Roland
-# @cye-nvidia - Cory Ye
+# @cspades - Cory Ye
 # @dorotat-nv - Dorota
 # @farhadrgh - Farhad Ramezanghorbani
 # @guoqing-zhou - Guoqing Zhou
@@ -50,16 +50,16 @@
 docs/ @trvachov
 
 # Requires bionemo FW team or PM review to change CODEOWNERS or README
-CODEOWNERS @broland-hat @cye-nvidia @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @ntadimeti @polinabinder1 @trvachov @yzhang123
-README.md @broland-hat @cye-nvidia @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @ntadimeti @polinabinder1 @trvachov @yzhang123
+CODEOWNERS @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @ntadimeti @polinabinder1 @trvachov @yzhang123
+README.md @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @ntadimeti @polinabinder1 @trvachov @yzhang123
 
 # Requires bionemo FW team review when modifying: environment, internal-only code, CI, interacting with the codebase
-internal/ @broland-hat @cye-nvidia @dorotat-nv @jomitchellnv @kdidiNVIDIA @jwilber @malcolmgreaves @polinabinder1 @trvachov @yzhang123
-setup/Dockerfile* @broland-hat @cye-nvidia @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
-setup/requirements*.txt @broland-hat @cye-nvidia @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
-CONTRIBUTING.md @broland-hat @cye-nvidia @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
-.secrets.baseline @broland-hat @cye-nvidia @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
-.pre-commit-config.yaml @broland-hat @cye-nvidia @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
+internal/ @broland-hat @cspades @dorotat-nv @jomitchellnv @kdidiNVIDIA @jwilber @malcolmgreaves @polinabinder1 @trvachov @yzhang123
+setup/Dockerfile* @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
+setup/requirements*.txt @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
+CONTRIBUTING.md @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
+.secrets.baseline @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
+.pre-commit-config.yaml @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
