@@ -126,8 +126,8 @@ class WebDataModule(L.LightningDataModule):
     >>>     }
     >>>
     >>> # construct the data module
-    >>> data_module = WebDataModule(dirs_of_tar_files, n_samples, suffix_keys_wds,
-                                    global_batch_size,
+    >>> data_module = WebDataModule(n_samples, suffix_keys_wds,
+                                    dirs_of_tar_files, global_batch_size,
                                     prefix_tars_wds=tar_file_prefix,
                                     pipeline_wds=pipeline_wds,
                                     pipeline_prebatch_wld=pipeline_prebatch_wld,
@@ -139,9 +139,9 @@ class WebDataModule(L.LightningDataModule):
 
     def __init__(
         self,
-        dirs_tars_wds: Dict[Split, str],
         n_samples: Dict[Split, int],
         suffix_keys_wds: Union[str, Iterable[str]],
+        dirs_tars_wds: Dict[Split, str],
         global_batch_size: int,
         prefix_tars_wds: str = "wdshards",
         pipeline_wds: Optional[
@@ -156,14 +156,14 @@ class WebDataModule(L.LightningDataModule):
         """constructor
 
         Args:
-            dirs_tars_wds (Dict[Split, str]): input dictionary: Split -> tar file
-                directory that contains the webdataset tar files for each split
             n_samples (Dict[Split, int]): input dictionary: Split -> number of
                 data samples for each split
             suffix_keys_wds (Union[str, Iterable[str]]): a set of keys each
                 corresponding to a data object in the webdataset tar file
                 dictionary. The data objects of these keys will be extracted and
                 tupled for each sample in the tar files
+            dirs_tars_wds (Dict[Split, str]): input dictionary: Split -> tar file
+                directory that contains the webdataset tar files for each split
             global_batch_size (int): size of batch summing across nodes in Data
                 Distributed Parallel, i.e., local_batch_size * n_nodes. NOTE:
                 this data module doesn't rely on the input `global_batch_size`
@@ -391,7 +391,11 @@ class PickledDataWDS(WebDataModule):
 
     >>> n_tars_wds = 5
     >>> prefix_tars_wds = "myshards"
-    >>> output_dir_tar_files = "/path/to/output/tars/dir"
+    >>> output_dir_tar_files = {
+            Split.train : "/path/to/output/tars/dir-train",
+            Split.val : "/path/to/output/tars/dir-val",
+            Split.test : "/path/to/output/tars/dir-test",
+        }
 
     >>> # see the `WebDataModule` API doc for the definition of global_batch_size
     >>> global_batch_size = 16
@@ -412,7 +416,7 @@ class PickledDataWDS(WebDataModule):
     >>>     dir_pickles,
     >>>     suffix_pickles,
     >>>     names_subset,
-    >>>     output_dir_tar_files,
+    >>>     output_dir_tar_files, # `WebDataModule` args
     >>>     global_batch_size, # `WebDataModule` args
     >>>     n_tars_wds=n_tars_wds,
     >>>     prefix_tars_wds=prefix_tars_wds, # `WebDataModule` kwargs
@@ -431,7 +435,6 @@ class PickledDataWDS(WebDataModule):
         dir_pickles: str,
         suffix_pickles: str,
         names_subset: Dict[Split, List[str]],
-        prefix_dir_tars_wds: str,
         *args,
         n_tars_wds: Optional[int] = None,
         **kwargs,
@@ -446,10 +449,6 @@ class PickledDataWDS(WebDataModule):
             names_subset (Dict[Split, List[str]]): list of filename prefix of
                 the data samples to be loaded in the dataset and dataloader for
                 each of the split
-            prefix_dir_tars_wds (str): directory name prefix to store the output
-                webdataset tar files. The actual directories storing the train, val
-                and test sets will be suffixed with "train", "val" and "test"
-                respectively.
             *args: arguments passed to the parent WebDataModule
 
         Kwargs:
@@ -460,10 +459,6 @@ class PickledDataWDS(WebDataModule):
 
         """
         super().__init__(
-            {
-                split: f"{prefix_dir_tars_wds}{str(split).split('.')[-1]}"
-                for split in names_subset.keys()
-            },
             {split: len(names_subset[split]) for split in names_subset.keys()},
             suffix_pickles,
             *args,
@@ -472,7 +467,6 @@ class PickledDataWDS(WebDataModule):
 
         self._dir_pickles = dir_pickles
         self._suffix_pickles = suffix_pickles
-        self._prefix_dir_tars_wds = prefix_dir_tars_wds
 
         self._names_subset = names_subset
 

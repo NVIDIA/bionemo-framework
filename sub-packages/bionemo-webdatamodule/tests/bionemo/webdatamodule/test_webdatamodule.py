@@ -187,16 +187,15 @@ def test_webdatamodule_in_lightning(
 
 @pytest.mark.parametrize("split", list(Split))
 def test_pickleddatawds_init(split, create_pickleddatawds):
-    data_module, prefix_dir_tars_wds, _ = create_pickleddatawds
+    data_module, dirs_tars_wds, _ = create_pickleddatawds
     assert data_module._n_samples[split] == 10, (
         f"Wrong {split}-set size: "
         f"expected 10 "
         f"but got {data_module._n_samples[split]}"
     )
-    name_split = str(split).split(".")[-1]
-    assert data_module._dirs_tars_wds[split] == f"{prefix_dir_tars_wds}{name_split}", (
+    assert data_module._dirs_tars_wds[split] == dirs_tars_wds[split], (
         f"Wrong tar files directory: "
-        f"expected {prefix_dir_tars_wds}{name_split} "
+        f"expected {dirs_tars_wds[split]} "
         f"but got {data_module._dirs_tars_wds[split]}"
     )
 

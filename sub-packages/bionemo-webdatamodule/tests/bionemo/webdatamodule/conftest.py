@@ -132,9 +132,9 @@ def _create_webdatamodule(gen_test_data, num_workers=2):
     kwargs_wld = {split: {"num_workers": num_workers} for split in Split}
 
     data_module = WebDataModule(
-        dirs_tars_wds,
         n_samples,
         suffix_keys_wds,
+        dirs_tars_wds,
         global_batch_size,
         prefix_tars_wds=prefix_tars_wds,
         pipeline_wds=pipeline_wds,
@@ -216,6 +216,7 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
     n_tars_wds = 3
 
     prefix_dir_tars_wds = tmp_path_factory.mktemp("pickleddatawds_tars_wds").as_posix()
+    dirs_tars_wds = {s: f"{prefix_dir_tars_wds}{str(s).split('.')[-1]}" for s in Split}
 
     batch = batched(
         local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples)
@@ -256,7 +257,7 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
         dir_pickles,
         suffix_keys_wds,
         names,
-        prefix_dir_tars_wds,
+        dirs_tars_wds,
         global_batch_size,
         n_tars_wds=n_tars_wds,
         prefix_tars_wds=prefix_tars_wds,
@@ -266,7 +267,7 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
         kwargs_wld=kwargs_wld,
     )
 
-    return data_module, prefix_dir_tars_wds, n_tars_wds
+    return data_module, dirs_tars_wds, n_tars_wds
 
 
 @pytest.fixture(scope="module")
