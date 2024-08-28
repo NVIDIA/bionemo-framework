@@ -55,24 +55,24 @@ def gen_test_data(tmp_path_factory):
     # generate the tars
     pickles_to_tars(
         dir_pickles,
-        suffix_sample,
         prefixes_pickle[Split.train],
+        suffix_sample,
         dir_tars[Split.train],
         prefix_tar,
         min_num_shards=3,
     )
     pickles_to_tars(
         dir_pickles,
-        suffix_sample,
         prefixes_pickle[Split.val],
+        suffix_sample,
         dir_tars[Split.val],
         prefix_tar,
         min_num_shards=3,
     )
     pickles_to_tars(
         dir_pickles,
-        suffix_sample,
         prefixes_pickle[Split.test],
+        suffix_sample,
         dir_tars[Split.test],
         prefix_tar,
         min_num_shards=3,
@@ -255,8 +255,8 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
 
     data_module = PickledDataWDS(
         dir_pickles,
-        suffix_keys_wds,
         names,
+        suffix_keys_wds,
         dirs_tars_wds,
         global_batch_size,
         n_tars_wds=n_tars_wds,

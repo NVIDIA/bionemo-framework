@@ -16,7 +16,8 @@
 
 import os
 import pickle
-from typing import Any, Callable, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union, get_args
 
 import webdataset as wds
 from nemo.utils import logging
@@ -24,21 +25,22 @@ from nemo.utils import logging
 
 def pickles_to_tars(
     dir_input: str,
-    input_suffix: str,
     input_prefix_subset: List[str],
+    input_suffix: Union[str, Iterable[str]],
     dir_output: str,
     output_prefix: str,
-    func_output_data: Callable[[str, str, Any], Dict[str, Any]] = lambda prefix,
-    suffix,
-    data: {
-        "__key__": prefix,
-        suffix: pickle.dumps(data),
-    },
+    func_output_data: Callable[[str, Dict[str, Any]], Dict[str, Any]] = lambda prefix,
+    suffix_to_data: {"__key__": prefix, **suffix_to_data},
     min_num_shards: Optional[int] = None,
 ) -> None:
     """Convert a subset of pickle files from a directory to Webdataset tar files
-    Input path and name pattern:
-    f"{dir_input}/{input_prefix_subset}.{input_suffix}"
+    Input path and name pattern for sample 0:
+    f"{dir_input}/{input_prefix_subset[0]}.{input_suffix[0]}"
+    f"{dir_input}/{input_prefix_subset[0]}.{input_suffix[1]}"
+    Input path and name pattern for sample 1:
+    f"{dir_input}/{input_prefix_subset[1]}.{input_suffix[0]}"
+    f"{dir_input}/{input_prefix_subset[1]}.{input_suffix[1]}"
+    ...
     Output path and name pattern:
     f"{dir_output}/{output_prefix}-%06d.tar"
 
@@ -52,21 +54,21 @@ def pickles_to_tars(
     so that parsing the tar archive is equivalent of reading
     {sample_filename_preifx}.{sample_filename_suffix_1} etc.
 
-    Here, the assumption is that there is only one sample data file, whose name
-    prefix is given in each of the elements of `input_prefix_subset` and whose
-    name suffix is given by `input_suffix`. Per the webdataset file format
-    specification, the `sample_filename_preifx` can't contain dots '.' so this
-    function removes it for the user by calling .replace(".", "-") on the
-    elements of `input_prefix_subset`
+    Here, each sample data get its name prefix from one element of
+    `input_prefix_subset` and its name suffixes from the list `input_suffix`.
+    Per the webdataset file format specification, the `sample_filename_preifx`
+    can't contain dots '.' so this function removes it for the user by calling
+    .replace(".", "-") on the elements of `input_prefix_subset`
 
     Args:
         dir_input (str): Input directory
-        input_suffix (str): Input pickle file name suffix
         input_prefix_subset (List[str]): Input subset of pickle files' prefix
+        input_suffix (Union[str, Iterable[str]]): Input pickle file name
+            suffixes, each for one type of data object, for all the samples
         dir_output (str): Output directory
         output_prefix (str): Output tar file name prefix
-        func_output_data (Callable[[str, str, Any], Dict[str, Any]]) : function
-            that maps the name prefix, name suffix and data object to a
+        func_output_data (Callable[[str, Dict[str, Any]], Dict[str, Any]]) :
+            function that maps the name prefix, name suffix and data object to a
             webdataset tar archive dictionary. Refer to the webdataset github
             repo for the archive file format specification.
         min_num_shards (int) : create at least this number of tar files.
@@ -77,6 +79,8 @@ def pickles_to_tars(
     Returns: None
 
     """
+    if not isinstance(input_suffix, get_args(Union[str, Iterable])):
+        raise TypeError("input_suffix can only be str or Iterable[str]")
     os.makedirs(dir_output, exist_ok=True)
     wd_subset_pattern = os.path.join(dir_output, f"{output_prefix}-%06d.tar")
     n_samples_per_shard_max = 100000
@@ -93,13 +97,29 @@ def pickles_to_tars(
     ) as sink:
         for name in input_prefix_subset:
             try:
-                with open(
-                    os.path.join(dir_input, f"{name}.{input_suffix}"), "rb"
-                ) as fh:
-                    data = pickle.load(fh)
+                if isinstance(input_suffix, str):
+                    suffix_to_data = {
+                        input_suffix: pickle.dumps(
+                            pickle.loads(
+                                (
+                                    Path(dir_input) / f"{name}.{input_suffix}"
+                                ).read_bytes()
+                            )
+                        )
+                    }
+                else:
+                    suffix_to_data = {
+                        suffix: pickle.dumps(
+                            pickle.loads(
+                                (Path(dir_input) / f"{name}.{suffix}").read_bytes()
+                            )
+                        )
+                        for suffix in input_suffix
+                    }
                 # the prefix name shouldn't contain any "." per webdataset's
                 # specification
-                sample = func_output_data(name.replace(".", "-"), input_suffix, data)
+                sample = func_output_data(name.replace(".", "-"), suffix_to_data)
+                sink.write(sample)
             except ModuleNotFoundError as e:
                 logging.error(
                     f"Dependency for parsing input pickle data not found: {e}"
@@ -108,5 +128,3 @@ def pickles_to_tars(
             except Exception as e:
                 logging.error(f"Failed to write {name} into tar files due to error {e}")
                 raise e
-
-            sink.write(sample)

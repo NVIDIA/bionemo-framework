@@ -216,7 +216,7 @@ class WebDataModule(L.LightningDataModule):
 
         self._global_batch_size = global_batch_size
 
-        if not isinstance(suffix_keys_wds, get_args(Union[str, Iterable[str]])):
+        if not isinstance(suffix_keys_wds, get_args(Union[str, Iterable])):
             raise TypeError("suffix_keys_wds can only be str or Iterable[str]")
 
         self._suffix_keys_wds = suffix_keys_wds
@@ -414,8 +414,8 @@ class PickledDataWDS(WebDataModule):
     >>> # create the data module
     >>> data_module = PickledDataWDS(
     >>>     dir_pickles,
-    >>>     suffix_pickles,
     >>>     names_subset,
+    >>>     suffix_pickles, # `WebDataModule` args
     >>>     output_dir_tar_files, # `WebDataModule` args
     >>>     global_batch_size, # `WebDataModule` args
     >>>     n_tars_wds=n_tars_wds,
@@ -433,7 +433,6 @@ class PickledDataWDS(WebDataModule):
     def __init__(
         self,
         dir_pickles: str,
-        suffix_pickles: str,
         names_subset: Dict[Split, List[str]],
         *args,
         n_tars_wds: Optional[int] = None,
@@ -443,13 +442,12 @@ class PickledDataWDS(WebDataModule):
 
         Args:
             dir_pickles (str): input directory of pickled data files
-            suffix_pickles (str): filename suffix of the input data in
-                dir_pickles. This is also used as the key mapped to the
-                tarballed pickled object in the webdataset
             names_subset (Dict[Split, List[str]]): list of filename prefix of
                 the data samples to be loaded in the dataset and dataloader for
                 each of the split
-            *args: arguments passed to the parent WebDataModule
+            *args: arguments passed to the parent WebDataModule after its
+            `n_samples` args (where `n_samples` is deduced from the length of
+            `names_subset` arg of this class)
 
         Kwargs:
             n_tars_wds (int): attempt to create at least this number of
@@ -460,13 +458,11 @@ class PickledDataWDS(WebDataModule):
         """
         super().__init__(
             {split: len(names_subset[split]) for split in names_subset.keys()},
-            suffix_pickles,
             *args,
             **kwargs,
         )
 
         self._dir_pickles = dir_pickles
-        self._suffix_pickles = suffix_pickles
 
         self._names_subset = names_subset
 
@@ -487,8 +483,8 @@ class PickledDataWDS(WebDataModule):
             # create wds shards (tar files) for train set
             pickles_to_tars(
                 self._dir_pickles,
-                self._suffix_pickles,
                 self._names_subset[split],
+                self._suffix_keys_wds,
                 self._dirs_tars_wds[split],
                 self._prefix_tars_wds,
                 min_num_shards=self._n_tars_wds,
