@@ -14,7 +14,6 @@
 # limitations under the License.
 
 
-import os
 import pickle
 import random
 
@@ -29,16 +28,11 @@ from bionemo.webdatamodule.utils import pickles_to_tars
 
 
 @pytest.fixture(scope="module")
-def gen_test_data(tmp_path_factory):
+def gen_pickle_files(tmp_path_factory):
     dir_pickles = tmp_path_factory.mktemp("pickleddatawds").as_posix()
-    dir_tars_tmp = tmp_path_factory.mktemp("webdatamodule").as_posix()
-    dir_tars = {split: f"{dir_tars_tmp}{str(split).split('.')[-1]}" for split in Split}
     prefix_sample = "sample"
     suffix_sample = "tensor.pyd"
-    prefix_tar = "tensor"
     n_samples_per_split = 10
-    n_samples = {split: n_samples_per_split for split in Split}
-    os.makedirs(dir_pickles, exist_ok=True)
     prefixes = []
     # generate the pickles for train, val, and test
     for i in range(n_samples_per_split * 3):
@@ -52,6 +46,24 @@ def gen_test_data(tmp_path_factory):
         Split.val: prefixes[n_samples_per_split : n_samples_per_split * 2],
         Split.test: prefixes[n_samples_per_split * 2 : n_samples_per_split * 3],
     }
+    return (
+        dir_pickles,
+        prefix_sample,
+        suffix_sample,
+        prefixes_pickle,
+        n_samples_per_split,
+    )
+
+
+@pytest.fixture(scope="module")
+def gen_test_data(tmp_path_factory, gen_pickle_files):
+    dir_pickles, prefix_sample, suffix_sample, prefixes_pickle, n_samples_per_split = (
+        gen_pickle_files
+    )
+    dir_tars_tmp = tmp_path_factory.mktemp("webdatamodule").as_posix()
+    dir_tars = {split: f"{dir_tars_tmp}{str(split).split('.')[-1]}" for split in Split}
+    prefix_tar = "tensor"
+    n_samples = {split: n_samples_per_split for split in Split}
     # generate the tars
     pickles_to_tars(
         dir_pickles,
