@@ -178,11 +178,14 @@ def test_webdatamodule_in_lightning(
     # get the list of samples from the workflow
     get_dataloader = getattr(data_modules[0], f"{str(split).split('.')[-1]}_dataloader")
     loader = get_dataloader()
-    samples = [sample.name for sample in loader]
     L.seed_everything(2823828)
     workflow = getattr(trainer, name_stage)
     workflow(model, data_modules[1])
-    assert model._samples[split] == samples
+    device = model._samples[split][0].device
+    samples = [sample.to(device=device) for sample in loader]
+    torch.testing.assert_close(
+        torch.stack(model._samples[split], dim=0), torch.stack(samples, dim=0)
+    )
 
 
 @pytest.mark.parametrize("split", list(Split))
