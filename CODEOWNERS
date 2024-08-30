@@ -1,16 +1,6 @@
-# For documentation, see: https://docs.gitlab.com/ee/user/project/codeowners/
-#
 # *** NOTE ***
 #   KEEP THE LISTS OF INDIVIDUAL CODEOWNERS/TEAMS IN ALPHABETICALLY SORTED ORDER
 #
-
-
-#
-## MISSING MEMBERS
-#
-# @menliu - DSMBind owner
-# @amoradzadeh - Enformer owner
-
 
 #
 ## MAPPING of GitHub USERNAME to PERSON in ALPHABETICAL ORDER on username
@@ -29,6 +19,7 @@
 # @kdidiNVIDIA - Kieran Didi
 # @malcolmgreaves - Malcolm Greaves
 # @mengliu-nvidia - Meng Liu
+# @moradza - Alireza Moradzadeh
 # @ntadimeti - Neha Tadimeti
 # @nv-mcclure - Zachary McClure
 # @nvdreidenbach - Danny Reidenbach
@@ -134,7 +125,7 @@ tests/test_dsmbind_inference.py @farhadrgh
 docs/bionemo/models/dsmbind.md @farhadrgh
 
 ##
-## enformer (TODO FIXME: requires handoff to member of bionemo team!!!)
+## Enformer (TODO FIXME: requires handoff to member of bionemo team!!!)
 ##
 #bionemo/model/dna/enformer
 # MISSING TESTS
@@ -227,33 +218,33 @@ bionemo/model/protein/downstream/protein_model_finetuning.py @camirr-nv
 # MISSING DOCS
 
 ##
-## equidock @amoradzadeh @farhadrgh
+## equidock - Model PiC: @moradza
 ##
-bionemo/model/protein/equidock @farhadrgh
-tests/test_equidock.py @farhadrgh
-tests/test_equidock_inference.py @farhadrgh
-tests/equidock_test_data @farhadrgh
-bionemo/data/equidock @farhadrgh
-examples/protein/equidock @farhadrgh
-docs/bionemo/images/equidock_3.png @farhadrgh
-docs/bionemo/images/equidock_2.png @farhadrgh
-docs/bionemo/images/equidock_1.png @farhadrgh
-docs/bionemo/images/equidock_4.png @farhadrgh
-docs/bionemo/models/equidock.md @farhadrgh
-docs/bionemo/notebooks/model_training_equidock.ipynb @farhadrgh
-docs/readme-images/equidock_epoch_per_hour.png @farhadrgh
-docs/build/html/_sources/models/equidock.md @farhadrgh
-docs/build/html/_sources/notebooks/model_training_equidock.ipynb @farhadrgh
-docs/build/html/models/equidock.html @farhadrgh
-docs/build/html/_images/equidock_3.png @farhadrgh
-docs/build/html/_images/equidock_2.png @farhadrgh
-docs/build/html/_images/equidock_1.png @farhadrgh
-docs/build/html/_images/equidock_4.png @farhadrgh
-docs/build/html/_images/equidock_epoch_per_hour.png @farhadrgh
-docs/build/html/.doctrees/models/equidock.doctree @farhadrgh
-docs/build/html/.doctrees/notebooks/model_training_equidock.doctree @farhadrgh
-docs/build/html/notebooks/model_training_equidock.html @farhadrgh
-docs/build/jupyter_execute/notebooks/model_training_equidock.ipynb @farhadrgh
+bionemo/model/protein/equidock @moradza
+tests/test_equidock.py @moradza
+tests/test_equidock_inference.py @moradza
+tests/equidock_test_data @moradza
+bionemo/data/equidock @moradza
+examples/protein/equidock @moradza
+docs/bionemo/images/equidock_3.png @moradza
+docs/bionemo/images/equidock_2.png @moradza
+docs/bionemo/images/equidock_1.png @moradza
+docs/bionemo/images/equidock_4.png @moradza
+docs/bionemo/models/equidock.md @moradza
+docs/bionemo/notebooks/model_training_equidock.ipynb @moradza
+docs/readme-images/equidock_epoch_per_hour.png @moradza
+docs/build/html/_sources/models/equidock.md @moradza
+docs/build/html/_sources/notebooks/model_training_equidock.ipynb @moradza
+docs/build/html/models/equidock.html @moradza
+docs/build/html/_images/equidock_3.png @moradza
+docs/build/html/_images/equidock_2.png @moradza
+docs/build/html/_images/equidock_1.png @moradza
+docs/build/html/_images/equidock_4.png @moradza
+docs/build/html/_images/equidock_epoch_per_hour.png @moradza
+docs/build/html/.doctrees/models/equidock.doctree @moradza
+docs/build/html/.doctrees/notebooks/model_training_equidock.doctree @moradza
+docs/build/html/notebooks/model_training_equidock.html @moradza
+docs/build/jupyter_execute/notebooks/model_training_equidock.ipynb @moradza
 
 ##
 ## megamolbart - Model Pic: @sveccham
@@ -304,7 +295,6 @@ docs/bionemo/models/openfold.md @broland-hat @kdidiNVIDIA
 #docs/build/html/_sources/models/prott5nv.md
 #docs/build/html/models/prott5nv.html
 #docs/build/html/.doctrees/models/prott5nv.doctree
-
 
 ##
 ## DSMBind - Model Pic: Meng Liu
