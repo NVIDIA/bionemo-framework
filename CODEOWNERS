@@ -10,7 +10,6 @@
 #
 # @menliu - DSMBind owner
 # @amoradzadeh - Enformer owner
-# @tshimko - MolMIM owner
 
 
 #
@@ -18,6 +17,7 @@
 #
 # @DejunL - Dejun Lin
 # @broland-hat - Brian Roland
+@ @camirr-nv - Camir Ricketts
 # @cspades - Cory Ye
 # @dorotat-nv - Dorota Toczydlowska
 # @farhadrgh - Farhad Ramezanghorbani
@@ -28,6 +28,7 @@
 # @jwilber  - Jared Wilber
 # @kdidiNVIDIA - Kieran Didi
 # @malcolmgreaves - Malcolm Greaves
+# @mengliu-nvidia - Meng Liu
 # @ntadimeti - Neha Tadimeti
 # @nv-mcclure - Zachary McClure
 # @nvdreidenbach - Danny Reidenbach
@@ -37,6 +38,7 @@
 # @sichu2023 - Simon Chu
 # @skothenhill-nv-nv - Steven Kothen-Hill
 # @trvachov - Timur Rvachov
+# @tshimko-nv - Tyler Shimko
 # @yzhang123 - Yang Zhang
 
 
@@ -217,11 +219,11 @@ docs/build/jupyter_execute/notebooks/protein-esm2nv-clustering.ipynb @farhadrgh 
 docs/build/jupyter_execute/notebooks/protein-esm1nv-clustering.ipynb @farhadrgh @jomitchellnv
 
 ##
-## esm-2 + LoRA @camirr
+## esm-2 + LoRA @camirr-nv
 ##
-bionemo/model/protein/downstream/protein_model_finetuning.py
+bionemo/model/protein/downstream/protein_model_finetuning.py @camirr-nv
 # MISSING TESTS
-./examples/protein/esm2nv/conf/downstream_sec_str_LORA.yaml
+./examples/protein/esm2nv/conf/downstream_sec_str_LORA.yaml @camirr-nv
 # MISSING DOCS
 
 ##
@@ -254,33 +256,33 @@ docs/build/html/notebooks/model_training_equidock.html @farhadrgh
 docs/build/jupyter_execute/notebooks/model_training_equidock.ipynb @farhadrgh
 
 ##
-## megamolbart
+## megamolbart - Model Pic: @sveccham
 ##
-bionemo/model/molecule/megamolbart
-tests/test_megamolbart_data_utils.py
-tests/test_examples/test_megamolbart_inference_notebook.py @malcolmgreaves
-tokenizers/molecule/megamolbart
-examples/molecule/megamolbart
-docs/bionemo/models/megamolbart.md
-docs/build/html/_sources/models/megamolbart.md
-docs/build/html/models/megamolbart.html
-docs/build/html/.doctrees/models/megamolbart.doctree
+bionemo/model/molecule/megamolbart @sveccham
+tests/test_megamolbart_data_utils.py @sveccham
+tests/test_examples/test_megamolbart_inference_notebook.py @sveccham
+tokenizers/molecule/megamolbart @sveccham
+examples/molecule/megamolbart @sveccham
+docs/bionemo/models/megamolbart.md @sveccham
+docs/build/html/_sources/models/megamolbart.md @sveccham
+docs/build/html/models/megamolbart.html @sveccham
+docs/build/html/.doctrees/models/megamolbart.doctree @sveccham
 
 ##
-## molmim
+## molmim - Model PiC: @tshimko-nv
 ##
-bionemo/model/molecule/molmim @jstjohn
-bionemo/model/molecule/mol_enc_dec_model_base.py @jstjohn
-tests/test_triton/test_molmim_triton.py @jstjohn
-docs/bionemo/images/molmim_wandb_charts.png @jstjohn
-docs/bionemo/images/MolMIM_molecule_generation_1.png @jstjohn
-docs/bionemo/images/MolMIM_molecule_generation_2.png @jstjohn
-docs/bionemo/models/molmim.md @jstjohn
-docs/bionemo/notebooks/MolMIM_GenerativeAI_local_inference_with_examples.ipynb @jstjohn
-docs/bionemo/notebooks/cma_es_guided_molecular_optimization_molmim.ipynb @jstjohn
-docs/bionemo/notebooks/model_training_molmim.ipynb @jstjohn
-docs/readme-images/molmim_training_throughput.png @jstjohn
-fw2nim_examples/molmim @malcolmgreaves
+bionemo/model/molecule/molmim @tshimko-nv
+bionemo/model/molecule/mol_enc_dec_model_base.py @tshimko-nv
+tests/test_triton/test_molmim_triton.py @tshimko-nv
+docs/bionemo/images/molmim_wandb_charts.png @tshimko-nv
+docs/bionemo/images/MolMIM_molecule_generation_1.png @tshimko-nv
+docs/bionemo/images/MolMIM_molecule_generation_2.png @tshimko-nv
+docs/bionemo/models/molmim.md @tshimko-nv
+docs/bionemo/notebooks/MolMIM_GenerativeAI_local_inference_with_examples.ipynb @tshimko-nv
+docs/bionemo/notebooks/cma_es_guided_molecular_optimization_molmim.ipynb @tshimko-nv
+docs/bionemo/notebooks/model_training_molmim.ipynb @tshimko-nv
+docs/readme-images/molmim_training_throughput.png @tshimko-nv
+fw2nim_examples/molmim @tshimko-nv
 
 ##
 ## openfold @broland-hat @kdidiNVIDIA
@@ -302,3 +304,13 @@ docs/bionemo/models/openfold.md @broland-hat @kdidiNVIDIA
 #docs/build/html/_sources/models/prott5nv.md
 #docs/build/html/models/prott5nv.html
 #docs/build/html/.doctrees/models/prott5nv.doctree
+
+
+##
+## DSMBind - Model Pic: Meng Liu
+##
+bionemo/model/molecule/dsmbind/ @mengliu-nvidia
+docs/bionemo/models/dsmbind.md @mengliu-nvidia
+tests/test_dsmbind_data_utils.py @mengliu-nvidia
+tests/test_dsmbind_inference.py @mengliu-nvidia
+tests/test_dsmbind_model.py @mengliu-nvidia
