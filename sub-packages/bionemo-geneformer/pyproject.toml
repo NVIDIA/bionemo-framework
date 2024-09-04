@@ -4,7 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bionemo-geneformer"
-version = "2.0.0"
 license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo Geneformer"
@@ -12,11 +11,7 @@ authors = [
     { name = "John St. John", email = "jstjohn@nvidia.com" },
     { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
 ]
-dynamic = ["dependencies"]
-
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
-# TODO: how to specify bionemo-{feature packages} & bionemo-core ???
+dynamic = ["dependencies", "version"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -4,7 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bionemo-core"
-version = "2.0.0"
 license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo core interfaces and PyTorch-related code."
@@ -12,7 +11,7 @@ authors = [
     { name = "John St. John", email = "jstjohn@nvidia.com" },
     { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
 ]
-dynamic = ["dependencies"]
+dynamic = ["version", "dependencies"]
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}

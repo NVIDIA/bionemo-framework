@@ -4,7 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bionemo-fw"
-version = "2.0.0"
 license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo Framework (FW): Production grade framework for AI-enabled Drug Discovery. Consists of all independently installable bionemo feature packages too."
@@ -17,12 +16,7 @@ authors = [
     { name = "Farhad Ramezanghorbani", email = "farhadr@nvidia.com" },
     { name = "Timur Rvachov", email = "trvachov@nvidia.com" },
 ]
-dynamic = ["dependencies"]
-
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
-# TODO: how to specify bionemo-{feature packages} & bionemo-core ???
-
+dynamic = ["dependencies", "version"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

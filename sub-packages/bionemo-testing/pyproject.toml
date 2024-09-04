@@ -8,7 +8,6 @@ include_package_data = true
 
 [project]
 name = "bionemo-testing"
-version = "2.0.0"
 license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo testing: utilities aiding test creation for bionemo packages. Do Not Distriburte on PyPI !!"
@@ -16,14 +15,10 @@ authors = [
     { name = "John St. John", email = "jstjohn@nvidia.com" },
     { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
 ]
-dynamic = ["dependencies"]
+dynamic = ["dependencies", "version"]
 
 [project.scripts]
 bionemo_test_data_path = "bionemo.testing.data.load:main_cli"
-
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
-# TODO: how to specify bionemo-{feature packages} & bionemo-core ???
 
 [tool.setuptools.packages.find]
 where = ["src"]

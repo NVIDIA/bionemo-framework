@@ -13,9 +13,6 @@ authors = [
 ]
 dynamic = ["dependencies", "version"]
 
-#[tool.setuptools.dynamic]
-#dependencies = {file = ["requirements.txt"]}
-
 [tool.setuptools.packages.find]
 where = ["src"]
 include=["bionemo.*"]
