@@ -19,9 +19,9 @@ from setuptools import setup
 
 
 # LOCAL_REQS for bionemo-fw is defined as **all** sub-packages,
-# __with__ a few exceptions. The exceptions are staticly known,
+# __with__ a few exceptions. The exceptions are statically known,
 # so we list them globally.
-NOT_PUBLISHABLE: list[str] = [
+NOT_FW_DEPENDENCY: list[str] = [
     "bionemo-example_model",
     "bionemo-testing",
 ]
@@ -67,7 +67,12 @@ if __name__ == "__main__":
     reqs = read_reqs(str(_reqs_file))
 
     LOCAL_REQS: list[str] = [
-        x.name for x in (repo_root / "sub-packages").iterdir() if x.is_dir() and x.name not in NOT_PUBLISHABLE
+        x.name
+        for x in (repo_root / "sub-packages").iterdir()
+        if x.is_dir()
+        and x.name not in NOT_FW_DEPENDENCY
+        and (x / "pyproject.toml").is_file()
+        and x.name != "bionemo-fw"
     ]
 
     if BIONEMO_PUBLISH_MODE:
