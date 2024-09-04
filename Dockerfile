@@ -133,6 +133,7 @@ RUN rm -rf /build
 
 # Install bionemo2 submodules
 WORKDIR /workspace/bionemo2/
+COPY VERSION .
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 # Dynamically install the code for each bionemo namespace package.
 RUN for sub in sub-packages/bionemo-*; do pushd ${sub} && pip install --no-build-isolation --no-cache-dir --disable-pip-version-check --no-deps -e . && popd; done
