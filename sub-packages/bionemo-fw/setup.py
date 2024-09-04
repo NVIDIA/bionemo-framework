@@ -55,11 +55,15 @@ def read_reqs(f: str) -> list[str]:
 
 if __name__ == "__main__":
     if REPO_ROOT is not None:
-        repo_root = Path(REPO_ROOT).absolute()
+        repo_root = Path(REPO_ROOT).expanduser().resolve(strict=True).absolute()
         if not repo_root.is_dir():
-            raise ValueError(f"REPO_ROOT override used but it is not a directory! {REPO_ROOT=}")
+            raise ValueError(f"REPO_ROOT override used but it is not a directory! {REPO_ROOT=} --> {repo_root=}")
         if repo_root.name != "bionemo-fw-ea":
-            raise ValueError(f"REPO_ROOT override used but it is not bionemo-fw-ea! {REPO_ROOT=}")
+            raise ValueError(
+                "REPO_ROOT override used but it is not bionemo-fw-ea! " f"{REPO_ROOT=} --> {repo_root.name=}"
+            )
+        if not BIONEMO_PUBLISH_MODE:
+            raise ValueError("REPO_ROOT override **MUST** be used with BIONEMO_PUBLISH_MODE enabled!")
     else:
         repo_root = Path(__file__).absolute().parent.parent.parent
 
