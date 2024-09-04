@@ -4,10 +4,13 @@ To get started, please build the docker container using
 ./launch.sh build
 ```
 
+Launch a container from the build image by executing
+```bash
+./launch.sh dev
+```
+
 All `bionemo2` code is partitioned into independently installable namespace packages. These live under the `sub-packages/` directory.
 
-
-# TODO: Finish this.
 
 ## Downloading artifacts
 Set the AWS access info in your `.env` in the host container prior to running docker:
@@ -57,6 +60,7 @@ git commit -m "updating NeMo commit"
 Inside the development container, run `./ci/scripts/static_checks.sh` to validate that code changes will pass the code
 formatting and license checks run during CI. In addition, run the longer `./ci/scripts/pr_test.sh` script to run unit
 tests for all sub-packages.
+
 
 ## Publishing Packages
 
