@@ -60,11 +60,15 @@ tests for all sub-packages.
 
 ## Publishing Packages
 
-### Set `BIONEMO_PUBLISH_MODE=1`
+### Set `BIONEMO_PUBLISH_MODE=1` and `REPO_ROOT`
 To publish a bionemo namespace package, you must set the `BIONEMO_PUBLISH_MODE` environment variable to a true value:
 one of `"true"`, `"y"`, `"yes"`, or `1` suffices. This will enable the build step to list any dependent bionemo
 subpackages by their PyPI-compatible package name. Otherwise, the default is to use local _path_ based dependencies
 to reference other bionemo `sub-packages/`.
+
+Additionally, when building, you must manually set the `REPO_ROOT` environment variable to point to the repository's
+root on your filesystem. This must be an absolute path. Or, it may be a relative path that starts from the user's home
+directory (i.e. `~/` is acceptable).
 
 ### Increment `VERSION` File
 Make sure that the [`VERSION`](./VERSION) file is incremented appropriately. Bionemo packages follow
@@ -86,8 +90,8 @@ After building, the wheel file can be uploaded to PyPI (or a compatible package 
 ```bash
 echo "Updated version: $(cat VERSION)"
 pushd sub-package/bionemo-<project name>
-BIONEMO_PUBLISH_MODE=1 python -m build
-TWINE_PASSWORD="<pypi pass>" TWINE_USERNAME="<pypi user>" python -m twine upload  dist/*
+REPO_ROOT="<path to bionemo-fw-ea>" BIONEMO_PUBLISH_MODE=1 python -m build
+TWINE_PASSWORD="<pypi pass>" TWINE_USERNAME="<pypi user>" python -m twine upload dist/*
 ```
 
 ## Models
