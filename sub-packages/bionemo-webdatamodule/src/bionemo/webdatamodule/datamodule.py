@@ -54,7 +54,7 @@ class WebDataModule(L.LightningDataModule):
 
     Here is an example of constructing the data module for `Trainer.fit()`:
     ```
-    >>> from bionemo.core.data.datamodule import Split, WebDataModule
+    >>> from bionemo.webdatamodule.datamodule import Split, WebDataModule
     >>>
     >>> tar_file_prefix = "shards"
     >>>
@@ -144,12 +144,8 @@ class WebDataModule(L.LightningDataModule):
         dirs_tars_wds: Dict[Split, str],
         global_batch_size: int,
         prefix_tars_wds: str = "wdshards",
-        pipeline_wds: Optional[
-            Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]
-        ] = None,
-        pipeline_prebatch_wld: Optional[
-            Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]
-        ] = None,
+        pipeline_wds: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
+        pipeline_prebatch_wld: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
         kwargs_wds: Optional[Dict[Split, Dict[str, Any]]] = None,
         kwargs_wld: Optional[Dict[Split, Dict[str, Any]]] = None,
     ):
@@ -207,9 +203,7 @@ class WebDataModule(L.LightningDataModule):
 
         if n_samples.keys() != keys_subset:
             raise RuntimeError(
-                f"Input n_samples has different keys than "
-                f"dirs_tars_wds: {n_samples.keys()} vs "
-                f"{keys_subset}"
+                f"Input n_samples has different keys than " f"dirs_tars_wds: {n_samples.keys()} vs " f"{keys_subset}"
             )
 
         self._n_samples = n_samples
@@ -251,23 +245,14 @@ class WebDataModule(L.LightningDataModule):
 
         """
         if split not in self._dirs_tars_wds.keys():
-            raise RuntimeError(
-                f"_setup_wds() is called with {split} "
-                f"split that doesn't have the input tar dir"
-            )
-        urls = sorted(
-            glob.glob(f"{self._dirs_tars_wds[split]}/{self._prefix_tars_wds}-*.tar")
-        )
+            raise RuntimeError(f"_setup_wds() is called with {split} " f"split that doesn't have the input tar dir")
+        urls = sorted(glob.glob(f"{self._dirs_tars_wds[split]}/{self._prefix_tars_wds}-*.tar"))
         kwargs = self._kwargs_wds[split] if self._kwargs_wds is not None else None
-        dataset = wds.WebDataset(
-            urls, **(kwargs if kwargs is not None else {})
-        ).decode()
+        dataset = wds.WebDataset(urls, **(kwargs if kwargs is not None else {})).decode()
         if isinstance(self._suffix_keys_wds, str):
             dataset = dataset.extract_keys(f"*.{self._suffix_keys_wds}")
         else:
-            dataset = dataset.extract_keys(
-                *[f"*.{key}" for key in self._suffix_keys_wds]
-            )
+            dataset = dataset.extract_keys(*[f"*.{key}" for key in self._suffix_keys_wds])
 
         if self._pipeline_wds is not None and self._pipeline_wds[split] is not None:
             if isinstance(self._pipeline_wds[split], Iterable):
@@ -295,9 +280,7 @@ class WebDataModule(L.LightningDataModule):
         elif stage == "predict":
             self._dataset[Split.test] = self._setup_wds(Split.test)
         else:
-            raise NotImplementedError(
-                f"Data setup with stage = {stage} " f"is not implmented"
-            )
+            raise NotImplementedError(f"Data setup with stage = {stage} " f"is not implmented")
 
     def _setup_dataloader(self, split: Split) -> wds.WebLoader:
         """setup the dataloader for the input dataset split
@@ -310,21 +293,15 @@ class WebDataModule(L.LightningDataModule):
         """
         if self._dataset[split] is None:
             raise RuntimeError(
-                f"_setup_dataloader() is called with {split} "
-                f"split without setting up the corresp. dataset"
+                f"_setup_dataloader() is called with {split} " f"split without setting up the corresp. dataset"
             )
         dataset = self._dataset[split]
         n_samples = self._n_samples[split]
         n_batches = (n_samples + self._global_batch_size - 1) // self._global_batch_size
         kwargs = self._kwargs_wld[split] if self._kwargs_wld is not None else None
-        loader = wds.WebLoader(
-            dataset, batch_size=None, **(kwargs if kwargs is not None else {})
-        )
+        loader = wds.WebLoader(dataset, batch_size=None, **(kwargs if kwargs is not None else {}))
 
-        if (
-            self._pipeline_prebatch_wld is not None
-            and self._pipeline_prebatch_wld[split] is not None
-        ):
+        if self._pipeline_prebatch_wld is not None and self._pipeline_prebatch_wld[split] is not None:
             if isinstance(self._pipeline_prebatch_wld[split], Iterable):
                 loader = loader.compose(*self._pipeline_prebatch_wld[split])
             else:

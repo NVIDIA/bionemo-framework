@@ -20,6 +20,7 @@ from setuptools import setup
 
 LOCAL_REQS: list[str] = [
     "bionemo-core",
+    "bionemo-llm",
 ]
 
 
@@ -54,9 +55,7 @@ if __name__ == "__main__":
     with open(str(_version_file), "rt") as rt:
         BIONEMO_VERSION: str = rt.read().strip()
     if len(BIONEMO_VERSION) == 0:
-        raise ValueError(
-            f"ERROR: no version specified in VERSION file! {str(_version_file)}"
-        )
+        raise ValueError(f"ERROR: no version specified in VERSION file! {str(_version_file)}")
 
     _reqs_file = Path(__file__).absolute().parent / "requirements.txt"
     if not _reqs_file.is_file():
@@ -70,9 +69,7 @@ if __name__ == "__main__":
         for x in LOCAL_REQS:
             sub_package_root = repo_root / "sub-packages" / x
             if not sub_package_root.is_dir():
-                raise ValueError(
-                    f'ERROR: sub-package "{x}" does not exist locally! ({sub_package_root})'
-                )
+                raise ValueError(f'ERROR: sub-package "{x}" does not exist locally! ({sub_package_root})')
             reqs.append(f"{x} @ {sub_package_root.as_uri()}")
 
     setup(
