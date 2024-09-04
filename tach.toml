@@ -13,6 +13,7 @@ source_roots = [
     "sub-packages/bionemo-geneformer/src",
     "sub-packages/bionemo-llm/src",
     "sub-packages/bionemo-testing/src",
+    "sub-packages/bionemo-webdatamodule/src",
 ]
 
 [[modules]]
@@ -37,9 +38,10 @@ depends_on = [
 path = "bionemo.fw"
 depends_on = [
     { path = "bionemo.core" },
+    { path = "bionemo.llm" },
     { path = "bionemo.esm2" },
     { path = "bionemo.geneformer" },
-    { path = "bionemo.llm" },
+    { path = "bionemo.webdatamodule" },
 ]
 
 [[modules]]
@@ -57,8 +59,14 @@ depends_on = [
 
 [[modules]]
 path = "bionemo.testing"
-depends_on = []
+depends_on = [
+    { path = "bionemo.core" },
+    { path = "bionemo.llm" },
+]
 
 [[modules]]
-path = "<root>"
-depends_on = []
+path = "bionemo.webdatamodule"
+depends_on = [
+    { path = "bionemo.core" },
+    { path = "bionemo.llm" },
+]
