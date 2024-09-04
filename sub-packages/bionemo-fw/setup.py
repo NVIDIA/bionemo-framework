@@ -52,13 +52,26 @@ def read_reqs(f: str) -> list[str]:
 if __name__ == "__main__":
     repo_root = Path(__file__).absolute().parent.parent.parent
 
-    _version_file = repo_root / "VERSION"
-    if not _version_file.is_file():
-        raise ValueError(f"ERROR: cannot find VERSION file! {str(_version_file)}")
-    with open(str(_version_file), "rt") as rt:
-        BIONEMO_VERSION: str = rt.read().strip()
-    if len(BIONEMO_VERSION) == 0:
-        raise ValueError(f"ERROR: no version specified in VERSION file! {str(_version_file)}")
+    version_override = False
+    if v := os.environ.get("BIONEMO_VERSION") is not None:
+        if not BIONEMO_PUBLISH_MODE:
+            raise ValueError(
+                "ERROR: cannot use BIONEMO_VERSION override if BIONEMO_PUBLISH_MODE is not enabled"
+                f" ({BIONEMO_PUBLISH_MODE=})"
+            )
+        v = v.strip()
+        if len(v) == 0:
+            raise ValueError("ERROR: using BIONEMO_VERSION env var override but it was empty!")
+        BIONEMO_VERSION: str = v.strip()
+        version_override = True
+    else:
+        _version_file = repo_root / "VERSION"
+        if not _version_file.is_file():
+            raise ValueError(f"ERROR: cannot find VERSION file! {str(_version_file)}")
+        with open(str(_version_file), "rt") as rt:
+            BIONEMO_VERSION = rt.read().strip()
+        if len(BIONEMO_VERSION) == 0:
+            raise ValueError(f"ERROR: no version specified in VERSION file! {str(_version_file)}")
 
     _reqs_file = Path(__file__).absolute().parent / "requirements.txt"
     if not _reqs_file.is_file():
