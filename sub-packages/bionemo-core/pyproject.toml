@@ -12,10 +12,10 @@ authors = [
     { name = "John St. John", email = "jstjohn@nvidia.com" },
     { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
 ]
-dynamic = ["dependencies"]
+dynamic = ["dependencies", "version"]
 
 [tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
+#dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools.packages.find]
 where = ["src"]

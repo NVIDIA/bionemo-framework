@@ -1,0 +1,46 @@
+globals()=
+	__name__ (<class 'str'>):  (<class 'str'>) __main__
+--------------------------------------------------------------------------------
+	__doc__ (<class 'str'>):  (<class 'NoneType'>) None
+--------------------------------------------------------------------------------
+	__package__ (<class 'str'>):  (<class 'NoneType'>) None
+--------------------------------------------------------------------------------
+	__loader__ (<class 'str'>):  (<class '_frozen_importlib_external.SourceFileLoader'>) <_frozen_importlib_external.SourceFileLoader object at 0x7f7b7804d450>
+--------------------------------------------------------------------------------
+	__spec__ (<class 'str'>):  (<class 'NoneType'>) None
+--------------------------------------------------------------------------------
+	__annotations__ (<class 'str'>):  (<class 'dict'>) {}
+--------------------------------------------------------------------------------
+	__builtins__ (<class 'str'>):  (<class 'module'>) <module 'builtins' (built-in)>
+--------------------------------------------------------------------------------
+	__file__ (<class 'str'>):  (<class 'str'>) /Users/mgreaves/dev/oss/nvidia/bionemo-fw-ea/sub-packages/bionemo-core/setup.py
+--------------------------------------------------------------------------------
+	__cached__ (<class 'str'>):  (<class 'NoneType'>) None
+--------------------------------------------------------------------------------
+	setup (<class 'str'>):  (<class 'function'>) <function setup at 0x7f7b688ad510>
+--------------------------------------------------------------------------------
+	L (<class 'str'>):  (<class 'dict'>) {'__name__': '__main__', '__doc__': None, '__package__': None, '__loader__': <_frozen_importlib_external.SourceFileLoader object at 0x7f7b7804d450>, '__spec__': None, '__annotations__': {}, '__builtins__': <module 'builtins' (built-in)>, '__file__': '/Users/mgreaves/dev/oss/nvidia/bionemo-fw-ea/sub-packages/bionemo-core/setup.py', '__cached__': None, 'setup': <function setup at 0x7f7b688ad510>}
+--------------------------------------------------------------------------------
+
+
+locals()=
+	__name__ (<class 'str'>):  (<class 'str'>) __main__
+--------------------------------------------------------------------------------
+	__doc__ (<class 'str'>):  (<class 'NoneType'>) None
+--------------------------------------------------------------------------------
+	__package__ (<class 'str'>):  (<class 'NoneType'>) None
+--------------------------------------------------------------------------------
+	__loader__ (<class 'str'>):  (<class '_frozen_importlib_external.SourceFileLoader'>) <_frozen_importlib_external.SourceFileLoader object at 0x7f7b7804d450>
+--------------------------------------------------------------------------------
+	__spec__ (<class 'str'>):  (<class 'NoneType'>) None
+--------------------------------------------------------------------------------
+	__annotations__ (<class 'str'>):  (<class 'dict'>) {}
+--------------------------------------------------------------------------------
+	__builtins__ (<class 'str'>):  (<class 'module'>) <module 'builtins' (built-in)>
+--------------------------------------------------------------------------------
+	__file__ (<class 'str'>):  (<class 'str'>) /Users/mgreaves/dev/oss/nvidia/bionemo-fw-ea/sub-packages/bionemo-core/setup.py
+--------------------------------------------------------------------------------
+	__cached__ (<class 'str'>):  (<class 'NoneType'>) None
+--------------------------------------------------------------------------------
+	setup (<class 'str'>):  (<class 'function'>) <function setup at 0x7f7b688ad510>
+--------------------------------------------------------------------------------

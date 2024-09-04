@@ -17,5 +17,60 @@
 from setuptools import setup
 
 
+from pathlib import Path
+from setuptools import setup
+
+
+_version_file = Path(__file__).absolute().parent.parent.parent / 'VERSION'
+if not _version_file.is_file():
+    raise ValueError(f"ERROR: cannot find VERSION file! {str(_version_file)}")
+with open(str(_version_file), 'rt') as rt:
+    BIONEMO_VERSION: str = rt.read().strip()
+if len(BIONEMO_VERSION) == 0:
+    raise ValueError(f"ERROR: no verison specified in VERSION file! {str(_version_file)}")
+
+_reqs_file = Path(__file__).absolute().parent / 'requirements.txt'
+if not _reqs_file.is_file():
+    raise ValueError(f"ERROR: no requirements.txt file present! {str(_reqs_file)}")
+
+
+def read_reqs(f: str) -> list[str]:
+    lines = []
+    with open(f, 'rt') as rt:
+        for l in rt:
+            l = l.strip()
+            if len(l) == 0 or l.startswith("#"):
+                continue
+            lines.append(l)
+    return lines
+
+
+LOCAL_REQS: list[str] = [
+    'bionemo-core',
+]
+
+
 if __name__ == "__main__":
-    setup()
+    # L = dict(**locals())
+    # G = dict(**globals())
+    #
+    # def write(wt, mapping):
+    #     for k, v in mapping.items():
+    #         wt.write(f"\t{k} ({type(k)}):  ({type(v)}) {v}\n")
+    #         wt.write('-'*80)
+    #         wt.write("\n")
+    #
+    # with open('here.txt', 'wt') as wt:
+    #     wt.write("globals()=\n")
+    #     write(wt, G)
+    #
+    #     wt.write("\n\nlocals()=\n")
+    #     write(wt, L)
+    # import ipdb
+    #
+    # ipdb.set_trace()
+
+    setup(
+        version=BIONEMO_VERSION,
+        install_requires=LOCAL_REQS + read_reqs(str(_reqs_file)),
+    )
