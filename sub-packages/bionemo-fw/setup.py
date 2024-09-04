@@ -18,8 +18,12 @@ from pathlib import Path
 from setuptools import setup
 
 
-LOCAL_REQS: list[str] = [
-    "bionemo-core",
+# LOCAL_REQS for bionemo-fw is defined as **all** sub-packages,
+# __with__ a few exceptions. The exceptions are staticly known,
+# so we list them globally.
+NOT_PUBLISHABLE: list[str] = [
+    "bionemo-example_model",
+    "bionemo-testing",
 ]
 
 
@@ -61,6 +65,11 @@ if __name__ == "__main__":
         raise ValueError(f"ERROR: no requirements.txt file present! {str(_reqs_file)}")
 
     reqs = read_reqs(str(_reqs_file))
+
+    LOCAL_REQS: list[str] = [
+        x.name for x in (repo_root / "sub-packages").iterdir() if x.is_dir() and x.name not in NOT_PUBLISHABLE
+    ]
+
     if BIONEMO_PUBLISH_MODE:
         for x in LOCAL_REQS:
             reqs.append(f"{x}=={BIONEMO_VERSION}")
