@@ -4,6 +4,8 @@ exclude = [
     "docs",
     "tests",
     "venv",
+    "LICENSE",
+    "build",
 ]
 source_roots = [
     "sub-packages/bionemo-core/src",
@@ -21,6 +23,12 @@ path = "bionemo.core"
 depends_on = []
 
 [[modules]]
+path = "bionemo.llm"
+depends_on = [
+    { path = "bionemo.core" },
+]
+
+[[modules]]
 path = "bionemo.esm2"
 depends_on = [
     { path = "bionemo.core" },
@@ -28,7 +36,14 @@ depends_on = [
 ]
 
 [[modules]]
-path = "bionemo.example_model"
+path = "bionemo.geneformer"
+depends_on = [
+    { path = "bionemo.core" },
+    { path = "bionemo.llm" },
+]
+
+[[modules]]
+path = "bionemo.webdatamodule"
 depends_on = [
     { path = "bionemo.core" },
     { path = "bionemo.llm" },
@@ -45,19 +60,6 @@ depends_on = [
 ]
 
 [[modules]]
-path = "bionemo.geneformer"
-depends_on = [
-    { path = "bionemo.core" },
-    { path = "bionemo.llm" },
-]
-
-[[modules]]
-path = "bionemo.llm"
-depends_on = [
-    { path = "bionemo.core" },
-]
-
-[[modules]]
 path = "bionemo.testing"
 depends_on = [
     { path = "bionemo.core" },
@@ -65,7 +67,7 @@ depends_on = [
 ]
 
 [[modules]]
-path = "bionemo.webdatamodule"
+path = "bionemo.example_model"
 depends_on = [
     { path = "bionemo.core" },
     { path = "bionemo.llm" },
