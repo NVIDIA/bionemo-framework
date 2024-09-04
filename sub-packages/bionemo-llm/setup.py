@@ -18,10 +18,15 @@ from pathlib import Path
 from setuptools import setup
 
 
+LOCAL_REQS: list[str] = [
+    "bionemo-core",
+]
+
+
 def is_true(x) -> bool:
     if isinstance(x, str):
         x = x.strip().lower()
-        return x == "true" or x == "yes" or x == "y"
+        return x == "true" or x == "yes" or x == "y" or x == "1"
     else:
         return x is True
 
@@ -38,11 +43,6 @@ def read_reqs(f: str) -> list[str]:
                 continue
             lines.append(l)
     return lines
-
-
-LOCAL_REQS: list[str] = [
-    "bionemo-core",
-]
 
 
 if __name__ == "__main__":
@@ -69,7 +69,7 @@ if __name__ == "__main__":
             sub_package_root = repo_root / "sub-packages" / x
             if not sub_package_root.is_dir():
                 raise ValueError(f'ERROR: sub-package "{x}" does not exist locally! ({sub_package_root})')
-            reqs.append(f"{x} @ {str(sub_package_root)}")
+            reqs.append(f"{x} @ {sub_package_root.as_uri()}")
 
     setup(
         version=BIONEMO_VERSION,
