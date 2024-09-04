@@ -58,10 +58,52 @@ Inside the development container, run `./ci/scripts/static_checks.sh` to validat
 formatting and license checks run during CI. In addition, run the longer `./ci/scripts/pr_test.sh` script to run unit
 tests for all sub-packages.
 
-## Running
-The following command runs a very small example of geneformer pretraining, as well as using our test data loading
-mechanism to grab the example data files and return the local path.
+## Publishing Packages
 
+### Set `BIONEMO_PUBLISH_MODE=1`
+To publish a bionemo namespace package, you must set the `BIONEMO_PUBLISH_MODE` environment variable to a true value:
+one of `"true"`, `"y"`, `"yes"`, or `1` suffices. This will enable the build step to list any dependent bionemo
+subpackages by their PyPI-compatible package name. Otherwise, the default is to use local _path_ based dependencies
+to reference other bionemo `sub-packages/`.
+
+### Increment `VERSION` File
+Make sure that the [`VERSION`](./VERSION) file is incremented appropriately. Bionemo packages follow
+[semantic versioning 2.0](https://semver.org/) rules: API-breaking changes are `MAJOR`, new features
+are `MINOR`, and bug-fixes and refactors are `PATCH` in `MAJOR.MINOR.PATCH` version string format.
+
+### `python -m build`
+Build the bionemo sub-package project by executing the following at the sub-package's root level:
+```shell
+BIONEMO_PUBLISH_MODE=1 python -m build
+```
+This will produce a wheel file for the sub-package's code and its dependencies.
+
+### `python -m twine upload`
+After building, the wheel file can be uploaded to PyPI (or a compatible package registry) by executing
+`python -m twine upload dist/*`.
+
+### All steps together
+```bash
+echo "Updated version: $(cat VERSION)"
+pushd sub-package/bionemo-<project name>
+BIONEMO_PUBLISH_MODE=1 python -m build
+TWINE_PASSWORD="<pypi pass>" TWINE_USERNAME="<pypi user>" python -m twine upload  dist/*
+```
+
+## Models
+### Geneformer
+#### Get test data for geneformer
+```bash
+mkdir -p /workspace/bionemo2/data
+aws s3 cp \
+  s3://general-purpose/cellxgene_2023-12-15_small \
+  /workspace/bionemo2/data/cellxgene_2023-12-15_small \
+  --recursive \
+  --endpoint-url https://pbss.s8k.io
+```
+#### Running
+
+The following command runs a very small example of geneformer:
 ```bash
 TEST_DATA_DIR=$(bionemo_test_data_path single_cell/testdata-20240506 --source pbss); \
 python  \
