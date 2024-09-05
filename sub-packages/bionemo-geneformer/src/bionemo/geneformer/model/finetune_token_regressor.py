@@ -173,9 +173,7 @@ class FineTuneSeqLenBioBertConfig(
     model_cls: Type[MegatronBioBertFineTuneSeqLengthModel] = MegatronBioBertFineTuneSeqLengthModel
     # typical case is fine-tune the base biobert that doesn't have this head. If you are instead loading a checkpoint
     # that has this new head and want to keep using these weights, please drop this next line or set to []
-    initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(
-        default_factory=lambda: ["regression_head", "optimizer"]
-    )
+    initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=lambda: ["regression_head"])
 
     def get_loss_reduction_class(self) -> Type[MegatronLossReduction]:
         return SequenceLengthRMSEPlusBERTMLMLossWithReduction
