@@ -76,12 +76,12 @@ aws s3 cp \
 ```
 #### Running
 
-The following command runs a very small example of geneformer.
+The following command runs a very small example of geneformer pretraining.
 
 ```bash
 python  \
-    scripts/singlecell/geneformer/pretrain.py     \
-    --data-dir data/cellxgene_2023-12-15_small/processed_data    \
+    scripts/singlecell/geneformer/train.py     \
+    --data-dir test_data/cellxgene_2023-12-15_small/processed_data    \
     --result-dir ./results     \
     --experiment-name test_experiment     \
     --num-gpus 1  \
@@ -92,6 +92,34 @@ python  \
     --seq-length 128 \
     --limit-val-batches 2 \
     --micro-batch-size 2
+```
+
+To fine-tune, you just need to specify a different combination of model and loss (TODO also data class). To do that you
+pass the path to the config output by the previous step as the `--restore-from-checkpoint-path`, and also change the
+`--training-model-config-class` to the new one. 
+
+Eventually we will also add CLI options to hot swap in different data modules and processing functions so you could
+pass new information into your model for fine-tuning or new targets, but if you want that functionality _now_ you could
+copy the `scripts/singlecell/geneformer/train.py` and modify the DataModule class that gets initialized.
+
+Simple fine-tuning example (NOTE: please change `--restore-from-checkpoint-path` to be the one that was output last
+by the previous train run)
+```bash
+python  \
+    scripts/singlecell/geneformer/train.py     \
+    --data-dir test_data/cellxgene_2023-12-15_small/processed_data    \
+    --result-dir ./results     \
+    --experiment-name test_finettune_experiment     \
+    --num-gpus 1  \
+    --num-nodes 1 \
+    --val-check-interval 10 \
+    --num-dataset-workers 0 \
+    --num-steps 55 \
+    --seq-length 128 \
+    --limit-val-batches 2 \
+    --micro-batch-size 2 \
+    --training-model-config-class FineTuneSeqLenBioBertConfig \
+    --restore-from-checkpoint-path results/test_experiment/dev/checkpoints/test_experiment--val_loss=10.2042-epoch=0
 ```
 
 #### Updating License Header on Python Files

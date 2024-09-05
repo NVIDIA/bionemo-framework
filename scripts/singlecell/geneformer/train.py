@@ -459,18 +459,22 @@ config_class_options: Dict[str, Type[BioBertGenericConfig]] = {
 
 
 def config_class_type(desc: str) -> Type[BioBertGenericConfig]:
-    return config_class_options[desc]
-
+    try:
+        return config_class_options[desc]
+    except KeyError:
+        raise argparse.ArgumentTypeError(
+            f"Do not recognize key {desc}, valid options are: {config_class_options.keys()}"
+        )
 
 parser.add_argument(
     "--training-model-config-class",
     type=config_class_type,
-    choices=config_class_options.keys(),
+    default="GeneformerConfig",
     help="Model configs link model classes with losses, and handle model initialization (including from a prior "
     "checkpoint). This is how you can fine-tune a model. First train with one config class that points to one model "
     "class and loss, then implement and provide an alternative config class that points to a variant of that model "
     "and alternative loss. In the future this script should also provide similar support for picking different data "
-    "modules for fine-tuning with different data types.",
+    f"modules for fine-tuning with different data types. Choices: {config_class_options.keys()}",
 )
 
 if __name__ == "__main__":
@@ -500,6 +504,7 @@ if __name__ == "__main__":
         resume_if_exists=args.resume_if_exists,
         nemo1_init_path=args.nemo1_init_path,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
+        config_class=args.training_model_config_class,
         save_best_checkpoint=args.save_best_checkpoint,
         save_last_checkpoint=args.save_last_checkpoint,
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
