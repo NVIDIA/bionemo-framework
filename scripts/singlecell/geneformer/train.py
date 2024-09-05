@@ -276,7 +276,9 @@ def main(
         trainer=trainer,
         log=nemo_logger,
         resume=resume.AutoResume(
-            # path=restore_from_checkpoint_path,  # Overrides the path found by resume_if_exists when set. Let the config handle this.
+            # TODO: uncomment this once nemo2 supports our fine-tuning workflow
+            #  for now this happens inside of our config file in the configure_model step.
+            # path=restore_from_checkpoint_path,
             resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
