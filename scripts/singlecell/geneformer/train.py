@@ -221,7 +221,9 @@ def main(
         share_embeddings_and_output_weights=True,
         enable_autocast=False,  # This has to be set to True if we use the mixed precision plugin
         biobert_spec_option=biobert_spec_option,
-        nemo1_ckpt_path=nemo1_init_path,
+        nemo1_ckpt_path=str(nemo1_init_path),
+        # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
+        initial_ckpt_path=str(restore_from_checkpoint_path),
     )
 
     # The lightning class owns a copy of the actual model, and a loss function, both of which are configured
@@ -274,7 +276,7 @@ def main(
         trainer=trainer,
         log=nemo_logger,
         resume=resume.AutoResume(
-            path=restore_from_checkpoint_path,  # Overrides the path found by resume_if_exists when set.
+            # path=restore_from_checkpoint_path,  # Overrides the path found by resume_if_exists when set. Let the config handle this.
             resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
@@ -465,6 +467,7 @@ def config_class_type(desc: str) -> Type[BioBertGenericConfig]:
         raise argparse.ArgumentTypeError(
             f"Do not recognize key {desc}, valid options are: {config_class_options.keys()}"
         )
+
 
 parser.add_argument(
     "--training-model-config-class",
