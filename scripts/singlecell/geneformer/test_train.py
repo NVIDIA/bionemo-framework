@@ -21,7 +21,7 @@ from typing import Dict
 
 import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
-from pretrain import main, parser  # TODO: needs to be refactored to a package and imported!
+from train import main, parser  # TODO: needs to be refactored to a package and imported!
 
 from bionemo import geneformer
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
@@ -100,7 +100,7 @@ def test_main_runs(tmpdir):
     ).is_file(), "Could not find experiment log."
 
 
-@pytest.mark.skip("duplicate unittest")
+# @pytest.mark.skip("duplicate unittest")
 def test_pretrain_cli(tmpdir):
     result_dir = Path(tmpdir.mkdir("results"))
     open_port = find_free_network_port()

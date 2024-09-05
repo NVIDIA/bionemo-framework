@@ -23,12 +23,12 @@
 import argparse
 import math
 from pathlib import Path
-from typing import Optional, Sequence, get_args
+from typing import Dict, Optional, Sequence, Type, get_args
 
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
-from nemo.lightning import io, resume
+from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
@@ -37,12 +37,12 @@ from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 from torch.nn import functional as F
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
-from bionemo.geneformer.api import GeneformerConfig
+from bionemo.geneformer.api import FineTuneSeqLenBioBertConfig, GeneformerConfig
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.llm.lightning import LossLoggingCallback
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
-from bionemo.llm.model.biobert.model import BiobertSpecOption
+from bionemo.llm.model.biobert.model import BioBertGenericConfig, BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
 
@@ -73,13 +73,15 @@ def main(
     precision: PrecisionTypes,
     wandb_entity: str = "clara-discovery",
     create_tensorboard_logger: bool = False,
-    nemo1_init_path: Optional[Path] = None,
-    restore_from_checkpoint_path: Optional[str] = None,
+    nemo1_init_path: Path | None = None,
+    restore_from_checkpoint_path: Path | None = None,
     save_best_checkpoint: bool = True,
     save_last_checkpoint: bool = True,
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
     save_every_n_steps: int = 100,
+    config_class: Type[BioBertGenericConfig] = GeneformerConfig,
+    # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
     """Train a Geneformer model on single cell data.
 
@@ -155,10 +157,9 @@ def main(
         val_check_interval=val_check_interval,  # TODO(@jstjohn) Checkpoint saving is currently broken, fix and change this.
         num_nodes=num_nodes,
         callbacks=[
-            # TODO(@skothenhill-nv) these need to be cleaned up when we have the automatic addition of track_io
-            io.track_io(LossLoggingCallback)(),
-            io.track_io(RichModelSummary)(max_depth=4),
-            io.track_io(LearningRateMonitor)(),
+            LossLoggingCallback(),
+            RichModelSummary(max_depth=4),
+            LearningRateMonitor(),
         ],
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
@@ -178,9 +179,9 @@ def main(
     data = SingleCellDataModule(
         seq_length=seq_length,
         tokenizer=tokenizer,
-        train_dataset_path=train_data_path,
-        val_dataset_path=val_data_path,
-        test_dataset_path=test_data_path,
+        train_dataset_path=str(train_data_path),
+        val_dataset_path=str(val_data_path),
+        test_dataset_path=str(test_data_path),
         random_token_prob=0.02,  # changed to represent the incorrect setting we originally used.
         median_dict=median_dict,
         micro_batch_size=micro_batch_size,
@@ -190,7 +191,7 @@ def main(
         pin_memory=False,
         num_workers=num_dataset_workers,
     )
-    geneformer_config = GeneformerConfig(
+    geneformer_config = config_class(
         num_layers=6,
         hidden_size=256,
         ffn_hidden_size=512,
@@ -448,6 +449,28 @@ parser.add_argument(
     required=False,
     default=None,
     help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
+)
+
+# TODO consider whether nemo.run or some other method can simplify this config class lookup.
+config_class_options: Dict[str, Type[BioBertGenericConfig]] = {
+    "GeneformerConfig": GeneformerConfig,
+    "FineTuneSeqLenBioBertConfig": FineTuneSeqLenBioBertConfig,
+}
+
+
+def config_class_type(desc: str) -> Type[BioBertGenericConfig]:
+    return config_class_options[desc]
+
+
+parser.add_argument(
+    "--training-model-config-class",
+    type=config_class_type,
+    choices=config_class_options.keys(),
+    help="Model configs link model classes with losses, and handle model initialization (including from a prior "
+    "checkpoint). This is how you can fine-tune a model. First train with one config class that points to one model "
+    "class and loss, then implement and provide an alternative config class that points to a variant of that model "
+    "and alternative loss. In the future this script should also provide similar support for picking different data "
+    "modules for fine-tuning with different data types.",
 )
 
 if __name__ == "__main__":
