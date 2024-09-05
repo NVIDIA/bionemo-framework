@@ -44,7 +44,7 @@ def pickles_to_tars(
     f"{dir_input}/{input_prefix_subset[1]}.{input_suffix[1]}"
     ...
     Output path and name pattern:
-    f"{dir_output}/{output_prefix}-%06d.tar"
+    f"{dir_output}/{output_prefix}-%06d.tar".
 
     The webdataset tar archive is specified by the dictionary:
     {

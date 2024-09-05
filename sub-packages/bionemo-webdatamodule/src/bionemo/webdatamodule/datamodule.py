@@ -36,11 +36,10 @@ class WebDataModule(L.LightningDataModule):
     directory and vaiours webdataset config settings. In its setup() function,
     it creates the webdataset object chaining up the input `pipeline_wds`
     workflow. In its train/val/test_dataloader(), it creates the WebLoader
-    object chaining up the `pipeline_prebatch_wld` workflow
+    object chaining up the `pipeline_prebatch_wld` workflow.
 
-    Examples
+    Examples:
     --------
-
     1. create the data module with input directory to webdataset tar files.
     Depending on which of the downstream Lightning.Trainer methods are called,
     e.g., `Trainer.fit()`, `Trainer.validate()`, `Trainer.test()` or
@@ -149,7 +148,7 @@ class WebDataModule(L.LightningDataModule):
         kwargs_wds: Optional[Dict[Split, Dict[str, Any]]] = None,
         kwargs_wld: Optional[Dict[Split, Dict[str, Any]]] = None,
     ):
-        """constructor
+        """constructor.
 
         Args:
             n_samples (Dict[Split, int]): input dictionary: Split -> number of
@@ -236,7 +235,7 @@ class WebDataModule(L.LightningDataModule):
         pass
 
     def _setup_wds(self, split: Split) -> wds.WebDataset:
-        """setup webdataset and webloader. This is called by setup()
+        """Setup webdataset and webloader. This is called by setup().
 
         Args:
             split (Split): train, val or test split
@@ -263,7 +262,7 @@ class WebDataModule(L.LightningDataModule):
 
     def setup(self, stage: str) -> None:
         """This is called on all Lightning-managed nodes in a multi-node
-        training session
+        training session.
 
 
         Args:
@@ -283,7 +282,7 @@ class WebDataModule(L.LightningDataModule):
             raise NotImplementedError(f"Data setup with stage = {stage} " f"is not implmented")
 
     def _setup_dataloader(self, split: Split) -> wds.WebLoader:
-        """setup the dataloader for the input dataset split
+        """Setup the dataloader for the input dataset split.
 
         Args:
             split (Split): input split type
@@ -341,9 +340,8 @@ class PickledDataWDS(WebDataModule):
     `pipeline_wds` workflow. In its train/val/test_dataloader(), it creates the
     WebLoader object chaining up the `pipeline_prebatch_wld` workflow.
 
-    Examples
+    Examples:
     --------
-
     1. create the data module with a directory of pickle files and the file name
     prefix thereof for different splits to used by `Lightning.Trainer.fit()`
 
@@ -415,7 +413,7 @@ class PickledDataWDS(WebDataModule):
         n_tars_wds: Optional[int] = None,
         **kwargs,
     ):
-        """constructor
+        """constructor.
 
         Args:
             dir_pickles (str): input directory of pickled data files
