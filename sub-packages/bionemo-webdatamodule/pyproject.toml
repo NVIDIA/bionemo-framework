@@ -9,6 +9,7 @@ readme = "README.md"
 description = "PyTorch dataloader for webdataset files."
 authors = [
     { name = "Dejun Lin", email = "dejunl@nvidia.com" },
+    { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
 ]
 dynamic = ["dependencies", "version"]
 

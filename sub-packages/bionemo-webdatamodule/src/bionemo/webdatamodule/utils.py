@@ -35,7 +35,8 @@ def pickles_to_tars(
     },
     min_num_shards: Optional[int] = None,
 ) -> None:
-    """Convert a subset of pickle files from a directory to Webdataset tar files
+    """Convert a subset of pickle files from a directory to Webdataset tar files.
+
     Input path and name pattern for sample 0:
     f"{dir_input}/{input_prefix_subset[0]}.{input_suffix[0]}"
     f"{dir_input}/{input_prefix_subset[0]}.{input_suffix[1]}"
@@ -63,23 +64,19 @@ def pickles_to_tars(
     .replace(".", "-") on the elements of `input_prefix_subset`
 
     Args:
-        dir_input (str): Input directory
-        input_prefix_subset (List[str]): Input subset of pickle files' prefix
-        input_suffix (Union[str, Iterable[str]]): Input pickle file name
+        dir_input: Input directory
+        input_prefix_subset: Input subset of pickle files' prefix
+        input_suffix: Input pickle file name
             suffixes, each for one type of data object, for all the samples
-        dir_output (str): Output directory
-        output_prefix (str): Output tar file name prefix
-        func_output_data (Callable[[str, Dict[str, Any]], Dict[str, Any]]) :
-            function that maps the name prefix, name suffix and data object to a
-            webdataset tar archive dictionary. Refer to the webdataset github
-            repo for the archive file format specification.
-        min_num_shards (int) : create at least this number of tar files.
+        dir_output: Output directory
+        output_prefix: Output tar file name prefix
+        func_output_data: function that maps the name prefix, name suffix and
+            data object to a webdataset tar archive dictionary. Refer to the webdataset
+            github repo for the archive file format specification.
+        min_num_shards : create at least this number of tar files.
             WebDataset has bugs when reading small number of tar files in a
             multi-node lightening + DDP setting so this option can be used to
             guarantee the tar file counts
-
-    Returns: None
-
     """
     if not isinstance(input_suffix, get_args(Union[str, Iterable])):
         raise TypeError("input_suffix can only be str or Iterable[str]")
@@ -114,9 +111,9 @@ def pickles_to_tars(
                 # specification
                 sample = func_output_data(name.replace(".", "-"), suffix_to_data)
                 sink.write(sample)
-            except ModuleNotFoundError as e:
-                logging.error(f"Dependency for parsing input pickle data not found: {e}")
-                raise e
-            except Exception as e:
-                logging.error(f"Failed to write {name} into tar files due to error {e}")
-                raise e
+            except ModuleNotFoundError:
+                logging.exception("Dependency for parsing input pickle data not found.")
+                raise
+            except Exception:
+                logging.exception(f"Failed to write {name} into tar files.")
+                raise
