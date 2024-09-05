@@ -96,7 +96,7 @@ python  \
 
 To fine-tune, you just need to specify a different combination of model and loss (TODO also data class). To do that you
 pass the path to the config output by the previous step as the `--restore-from-checkpoint-path`, and also change the
-`--training-model-config-class` to the new one. 
+`--training-model-config-class` to the new one.
 
 Eventually we will also add CLI options to hot swap in different data modules and processing functions so you could
 pass new information into your model for fine-tuning or new targets, but if you want that functionality _now_ you could
