@@ -58,9 +58,7 @@ def gen_pickle_files(tmp_path_factory):
 
 @pytest.fixture(scope="module", params=[1, 2])
 def gen_test_data(tmp_path_factory, gen_pickle_files, request):
-    dir_pickles, prefix_sample, suffixes, prefixes_pickle, n_samples_per_split = (
-        gen_pickle_files
-    )
+    dir_pickles, prefix_sample, suffixes, prefixes_pickle, n_samples_per_split = gen_pickle_files
     n_suffixes = request.param
     if n_suffixes <= 1:
         suffix_sample = suffixes[0]
@@ -107,21 +105,17 @@ def gen_test_data(tmp_path_factory, gen_pickle_files, request):
 
 
 def _create_webdatamodule(gen_test_data, num_workers=2):
-    (_, dirs_tars_wds, _, suffix_keys_wds, prefix_tars_wds, n_samples, _) = (
-        gen_test_data
-    )
+    (_, dirs_tars_wds, _, suffix_keys_wds, prefix_tars_wds, n_samples, _) = gen_test_data
     local_batch_size = 2
     global_batch_size = 2
     seed_rng_shfl = 82838392
 
-    batch = batched(
-        local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples)
-    )
+    batch = batched(local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples))
 
     if isinstance(suffix_keys_wds, str):
-        untuple = lambda source: (sample[0] for sample in source)
+        untuple = lambda source: (sample[0] for sample in source)  # noqa: E731
     elif isinstance(suffix_keys_wds, list):
-        untuple = lambda source: (torch.vstack(sample) for sample in source)
+        untuple = lambda source: (torch.vstack(sample) for sample in source)  # noqa: E731
 
     pipeline_wds = {
         Split.train: [
@@ -214,9 +208,7 @@ class ModelTestWebDataModule(L.LightningModule):
 
 @pytest.fixture(scope="function")
 def create_trainer_and_model():
-    trainer = L.Trainer(
-        max_epochs=1, accelerator="gpu", devices=1, val_check_interval=1
-    )
+    trainer = L.Trainer(max_epochs=1, accelerator="gpu", devices=1, val_check_interval=1)
     model = ModelTestWebDataModule()
     return trainer, model
 
@@ -239,11 +231,9 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
     prefix_dir_tars_wds = tmp_path_factory.mktemp("pickleddatawds_tars_wds").as_posix()
     dirs_tars_wds = {s: f"{prefix_dir_tars_wds}{str(s).split('.')[-1]}" for s in Split}
 
-    batch = batched(
-        local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples)
-    )
+    batch = batched(local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples))
 
-    untuple = lambda source: (sample[0] for sample in source)
+    untuple = lambda source: (sample[0] for sample in source)  # noqa: E731
 
     pipeline_wds = {
         Split.train: [

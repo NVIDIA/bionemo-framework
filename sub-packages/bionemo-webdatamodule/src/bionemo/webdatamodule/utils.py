@@ -29,8 +29,10 @@ def pickles_to_tars(
     input_suffix: Union[str, Iterable[str]],
     dir_output: str,
     output_prefix: str,
-    func_output_data: Callable[[str, Dict[str, Any]], Dict[str, Any]] = lambda prefix,
-    suffix_to_data: {"__key__": prefix, **suffix_to_data},
+    func_output_data: Callable[[str, Dict[str, Any]], Dict[str, Any]] = lambda prefix, suffix_to_data: {
+        "__key__": prefix,
+        **suffix_to_data,
+    },
     min_num_shards: Optional[int] = None,
 ) -> None:
     """Convert a subset of pickle files from a directory to Webdataset tar files
@@ -100,20 +102,12 @@ def pickles_to_tars(
                 if isinstance(input_suffix, str):
                     suffix_to_data = {
                         input_suffix: pickle.dumps(
-                            pickle.loads(
-                                (
-                                    Path(dir_input) / f"{name}.{input_suffix}"
-                                ).read_bytes()
-                            )
+                            pickle.loads((Path(dir_input) / f"{name}.{input_suffix}").read_bytes())
                         )
                     }
                 else:
                     suffix_to_data = {
-                        suffix: pickle.dumps(
-                            pickle.loads(
-                                (Path(dir_input) / f"{name}.{suffix}").read_bytes()
-                            )
-                        )
+                        suffix: pickle.dumps(pickle.loads((Path(dir_input) / f"{name}.{suffix}").read_bytes()))
                         for suffix in input_suffix
                     }
                 # the prefix name shouldn't contain any "." per webdataset's
@@ -121,9 +115,7 @@ def pickles_to_tars(
                 sample = func_output_data(name.replace(".", "-"), suffix_to_data)
                 sink.write(sample)
             except ModuleNotFoundError as e:
-                logging.error(
-                    f"Dependency for parsing input pickle data not found: {e}"
-                )
+                logging.error(f"Dependency for parsing input pickle data not found: {e}")
                 raise e
             except Exception as e:
                 logging.error(f"Failed to write {name} into tar files due to error {e}")

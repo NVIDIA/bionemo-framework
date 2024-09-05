@@ -27,9 +27,7 @@ from bionemo.webdatamodule.datamodule import Split
 def test_webdatamodule_init(split, create_webdatamodule):
     data_module, dirs_tars_wds = create_webdatamodule
     assert data_module._n_samples[split] == 10, (
-        f"Wrong {split}-set size: "
-        f"expected 10 "
-        f"but got {data_module._n_samples[split]}"
+        f"Wrong {split}-set size: " f"expected 10 " f"but got {data_module._n_samples[split]}"
     )
     assert data_module._dirs_tars_wds[split] == f"{dirs_tars_wds[split]}", (
         f"Wrong tar files directory: "
@@ -39,9 +37,7 @@ def test_webdatamodule_init(split, create_webdatamodule):
 
 
 @pytest.mark.parametrize("split", list(Split))
-def test_webdatamodule_setup_dataset(
-    split, create_webdatamodule, create_another_webdatamodule
-):
+def test_webdatamodule_setup_dataset(split, create_webdatamodule, create_another_webdatamodule):
     data_modules = [create_webdatamodule[0], create_another_webdatamodule[0]]
     lists_tensors = []
     for m in data_modules:
@@ -53,22 +49,16 @@ def test_webdatamodule_setup_dataset(
         L.seed_everything(2823828)
         tensors = []
         for sample in m._dataset[split]:
-            assert isinstance(
-                sample, torch.Tensor
-            ), "Sample yield from dataset is not tensor"
+            assert isinstance(sample, torch.Tensor), "Sample yield from dataset is not tensor"
             tensors.append(sample)
         lists_tensors.append(tensors)
 
     assert len(lists_tensors[0]) > 0, "No names in {split} dataset"
-    torch.testing.assert_close(
-        torch.vstack(lists_tensors[0]), torch.vstack(lists_tensors[1])
-    )
+    torch.testing.assert_close(torch.vstack(lists_tensors[0]), torch.vstack(lists_tensors[1]))
 
 
 @pytest.mark.parametrize("split", list(Split))
-def test_webdatamodule_setup_dataloader(
-    split, create_webdatamodule, create_another_webdatamodule
-):
+def test_webdatamodule_setup_dataloader(split, create_webdatamodule, create_another_webdatamodule):
     data_modules = [create_webdatamodule[0], create_another_webdatamodule[0]]
     lists_tensors = []
     for m in data_modules:
@@ -91,26 +81,18 @@ def test_webdatamodule_setup_dataloader(
         assert loader is not None, "dataloader not instantated"
         for samples in loader:
             # PyG's HeteroDataBatch is Batch inherited from HeteroData
-            assert isinstance(
-                samples, torch.Tensor
-            ), "Sample object is not torch.Tensor"
+            assert isinstance(samples, torch.Tensor), "Sample object is not torch.Tensor"
             tensors.append(samples)
         lists_tensors.append(tensors)
 
     assert len(lists_tensors[0]) > 0, "No names in {split} dataloader"
-    torch.testing.assert_close(
-        torch.vstack(lists_tensors[0]), torch.vstack(lists_tensors[1])
-    )
+    torch.testing.assert_close(torch.vstack(lists_tensors[0]), torch.vstack(lists_tensors[1]))
 
 
 @pytest.mark.parametrize("split", list(Split))
-def test_webdatamodule_throw_on_many_workers(
-    split, create_webdatamodule_with_5_workers
-):
+def test_webdatamodule_throw_on_many_workers(split, create_webdatamodule_with_5_workers):
     data_module = create_webdatamodule_with_5_workers[0]
-    urls = glob.glob(
-        f"{data_module._dirs_tars_wds[split]}/" f"{data_module._prefix_tars_wds}-*.tar"
-    )
+    urls = glob.glob(f"{data_module._dirs_tars_wds[split]}/" f"{data_module._prefix_tars_wds}-*.tar")
     n_tars = len(urls)
     data_module._kwargs_wld[split]["num_workers"] = n_tars + 1
     data_module.prepare_data()
@@ -132,13 +114,11 @@ def test_webdatamodule_throw_on_many_workers(
     except ValueError as e:
         # this is expected
         assert "have fewer shards than workers" in str(e), (
-            f"'have fewer shards than workers' not found in exception "
-            f"raised from data loading: {e}"
+            f"'have fewer shards than workers' not found in exception " f"raised from data loading: {e}"
         )
     except Exception as e:
         raise RuntimeError(
-            f"WebLoader doesn't raise ValueError with fewer "
-            f"shards than workers but raise this instead: {e}"
+            f"WebLoader doesn't raise ValueError with fewer " f"shards than workers but raise this instead: {e}"
         )
     else:
         raise NotImplementedError(
@@ -183,18 +163,14 @@ def test_webdatamodule_in_lightning(
     workflow(model, data_modules[1])
     device = model._samples[split][0].device
     samples = [sample.to(device=device) for sample in loader]
-    torch.testing.assert_close(
-        torch.stack(model._samples[split], dim=0), torch.stack(samples, dim=0)
-    )
+    torch.testing.assert_close(torch.stack(model._samples[split], dim=0), torch.stack(samples, dim=0))
 
 
 @pytest.mark.parametrize("split", list(Split))
 def test_pickleddatawds_init(split, create_pickleddatawds):
     data_module, dirs_tars_wds, _ = create_pickleddatawds
     assert data_module._n_samples[split] == 10, (
-        f"Wrong {split}-set size: "
-        f"expected 10 "
-        f"but got {data_module._n_samples[split]}"
+        f"Wrong {split}-set size: " f"expected 10 " f"but got {data_module._n_samples[split]}"
     )
     assert data_module._dirs_tars_wds[split] == dirs_tars_wds[split], (
         f"Wrong tar files directory: "
@@ -211,15 +187,12 @@ def test_pickleddatawds_prepare_data(split, create_pickleddatawds):
     tars = glob.glob(f"{dir_tars}/{data_module._prefix_tars_wds}-*.tar")
     n_tars = len(tars)
     assert n_tars_min <= n_tars and n_tars <= n_tars_min + 1, (
-        f"Number of tar files: {n_tars} in {dir_tars} is outside the range "
-        f"[{n_tars_min}, {n_tars_min + 1}]"
+        f"Number of tar files: {n_tars} in {dir_tars} is outside the range " f"[{n_tars_min}, {n_tars_min + 1}]"
     )
 
 
 @pytest.mark.parametrize("split", list(Split))
-def test_pickleddatawds_setup_dataset(
-    split, create_pickleddatawds, create_another_pickleddatawds
-):
+def test_pickleddatawds_setup_dataset(split, create_pickleddatawds, create_another_pickleddatawds):
     data_modules = [create_pickleddatawds[0], create_another_pickleddatawds[0]]
     lists_tensors = []
     for m in data_modules:
@@ -231,16 +204,12 @@ def test_pickleddatawds_setup_dataset(
         L.seed_everything(2823828)
         tensors = []
         for sample in m._dataset[split]:
-            assert isinstance(
-                sample, torch.Tensor
-            ), "Sample yield from dataset is not tensor"
+            assert isinstance(sample, torch.Tensor), "Sample yield from dataset is not tensor"
             tensors.append(sample)
         lists_tensors.append(tensors)
 
     assert len(lists_tensors[0]) > 0, "No names in {split} dataset"
-    torch.testing.assert_close(
-        torch.vstack(lists_tensors[0]), torch.vstack(lists_tensors[1])
-    )
+    torch.testing.assert_close(torch.vstack(lists_tensors[0]), torch.vstack(lists_tensors[1]))
 
 
 def test_pickleddatawds_sample_overlap(create_pickleddatawds):
@@ -250,19 +219,10 @@ def test_pickleddatawds_sample_overlap(create_pickleddatawds):
     # read the data back by setting up the dataset object and loop over it
     data_module.setup("fit")
     data_module.setup("test")
-    results = {
-        split: set([sample.item() for sample in data_module._dataset[split]])
-        for split in Split
-    }
+    results = {split: {sample.item() for sample in data_module._dataset[split]} for split in Split}
     overlap_train_val = results[Split.train] & results[Split.val]
     overlap_train_test = results[Split.train] & results[Split.test]
     overlap_val_test = results[Split.val] & results[Split.test]
-    assert (
-        len(overlap_train_val) == 0
-    ), "Shared samples found between train and val datasets"
-    assert (
-        len(overlap_train_test) == 0
-    ), "Shared samples found between train and test datasets"
-    assert (
-        len(overlap_val_test) == 0
-    ), "Shared samples found between val and test datasets"
+    assert len(overlap_train_val) == 0, "Shared samples found between train and val datasets"
+    assert len(overlap_train_test) == 0, "Shared samples found between train and test datasets"
+    assert len(overlap_val_test) == 0, "Shared samples found between val and test datasets"
