@@ -25,18 +25,21 @@ from bionemo.webdatamodule.utils import pickles_to_tars
 
 
 class Split(Enum):
+    """Names for each data split."""
+
     train = auto()
     val = auto()
     test = auto()
 
 
 class WebDataModule(L.LightningDataModule):
-    """A LightningDataModule for using webdataset tar files to setup dataset and
-    dataloader. This data module takes as input a dictionary: Split -> tar file
-    directory and vaiours webdataset config settings. In its setup() function,
-    it creates the webdataset object chaining up the input `pipeline_wds`
-    workflow. In its train/val/test_dataloader(), it creates the WebLoader
-    object chaining up the `pipeline_prebatch_wld` workflow.
+    """A LightningDataModule for using webdataset tar files.
+
+    `WebDataModule` is a `LightningDataModule` for using webdataset tar files to setup PyTorch
+    datasets and dataloaders. This data module takes as input a dictionary: Split -> tar file
+    directory and vaiours webdataset config settings. In its setup() function, it creates the
+    webdataset object chaining up the input `pipeline_wds` workflow. In its train/val/test_dataloader(),
+    it creates the WebLoader object chaining up the `pipeline_prebatch_wld` workflow.
 
     Examples:
     --------
@@ -148,18 +151,17 @@ class WebDataModule(L.LightningDataModule):
         kwargs_wds: Optional[Dict[Split, Dict[str, Any]]] = None,
         kwargs_wld: Optional[Dict[Split, Dict[str, Any]]] = None,
     ):
-        """constructor.
+        """Constructor.
 
         Args:
-            n_samples (Dict[Split, int]): input dictionary: Split -> number of
-                data samples for each split
-            suffix_keys_wds (Union[str, Iterable[str]]): a set of keys each
+            n_samples: input dictionary: Split -> number of data samples for each split
+            suffix_keys_wds: a set of keys each
                 corresponding to a data object in the webdataset tar file
                 dictionary. The data objects of these keys will be extracted and
                 tupled for each sample in the tar files
-            dirs_tars_wds (Dict[Split, str]): input dictionary: Split -> tar file
+            dirs_tars_wds: input dictionary: Split -> tar file
                 directory that contains the webdataset tar files for each split
-            global_batch_size (int): size of batch summing across nodes in Data
+            global_batch_size: size of batch summing across nodes in Data
                 Distributed Parallel, i.e., local_batch_size * n_nodes. NOTE:
                 this data module doesn't rely on the input `global_batch_size`
                 for batching the samples. The batching is supposed to be done as
@@ -168,31 +170,25 @@ class WebDataModule(L.LightningDataModule):
                 loader so that the loader yield approximately n_samples //
                 global_batch_size batches
         Kwargs:
-            prefix_tars_wds (str): name prefix of the input webdataset tar
+            prefix_tars_wds: name prefix of the input webdataset tar
                 files. The input tar files are globbed by
                 "{dirs_tars_wds[split]}/{prefix_tars_wds}-*.tar"
-            pipeline_wds (Optional[Dict[Split, Union[Iterable[Iterable[Any]],
-                Iterable[Any]]]]): a dictionary of webdatast composable, i.e.,
+            pipeline_wds: a dictionary of webdatast composable, i.e.,
                 functor that maps a iterator to another iterator that
                 transforms the data sample yield from the dataset object, for
                 different splits, or an iterable to such a sequence of such
                 iterators. For example, this can be used to transform the
                 sample in the worker before sending it to the main process of
                 the dataloader
-            pipeline_prebatch_wld (Optional[Dict[Split,
-                Union[Iterable[Iterable[Any]], Iterable[Any]]]]): a dictionary
+            pipeline_prebatch_wld: a dictionary
                 of webloader composable, i.e., functor that maps a iterator to
                 another iterator that transforms the data sample yield from the
                 WebLoader object, for different splits, or an iterable to a
                 seuqnence of such iterators. For example, this can be used for
                 batching the samples. NOTE: this is applied before batching is
                 yield from the WebLoader
-            kwargs_wds (Optional[Dict[Split, Dict[str,  Any]]]): kwargs for the
-                WebDataset.__init__()
-            kwargs_wld (Optional[Dict[Split, Dict[str,  Any]]]): kwargs for the
-                WebLoader.__init__(), e.g., num_workers, of each split
-
-
+            kwargs_wds: kwargs for the WebDataset.__init__()
+            kwargs_wld : kwargs for the WebLoader.__init__(), e.g., num_workers, of each split
         """
         super().__init__()
 
@@ -226,11 +222,10 @@ class WebDataModule(L.LightningDataModule):
         self._dataset = {}
 
     def prepare_data(self) -> None:
-        """This is called only by the main process by the Lightning workflow. Do
-        not rely on this data module object's state update here as there is no
-        way to communicate the state update to other subprocesses.
+        """This is called only by the main process by the Lightning workflow.
 
-        Returns: None
+        Do not rely on this data module object's state update here as there is no
+        way to communicate the state update to other subprocesses. Is a **no-op**.
         """
         pass
 
@@ -240,7 +235,8 @@ class WebDataModule(L.LightningDataModule):
         Args:
             split (Split): train, val or test split
 
-        Returns: WebDataset
+        Returns:
+            WebDataset
 
         """
         if split not in self._dirs_tars_wds.keys():
@@ -261,13 +257,10 @@ class WebDataModule(L.LightningDataModule):
         return dataset
 
     def setup(self, stage: str) -> None:
-        """This is called on all Lightning-managed nodes in a multi-node
-        training session.
-
+        """This is called on all Lightning-managed nodes in a multi-node training session.
 
         Args:
-            stage (str): "fit", "test" or "predict"
-        Returns: None
+            stage: "fit", "test" or "predict"
         """
         if stage == "fit":
             self._dataset[Split.train] = self._setup_wds(Split.train)
@@ -279,7 +272,7 @@ class WebDataModule(L.LightningDataModule):
         elif stage == "predict":
             self._dataset[Split.test] = self._setup_wds(Split.test)
         else:
-            raise NotImplementedError(f"Data setup with stage = {stage} " f"is not implmented")
+            raise NotImplementedError(f"Data setup with {stage=} is not implemented.")
 
     def _setup_dataloader(self, split: Split) -> wds.WebLoader:
         """Setup the dataloader for the input dataset split.
@@ -287,12 +280,15 @@ class WebDataModule(L.LightningDataModule):
         Args:
             split (Split): input split type
 
-        Returns: WebLoader object
+        Returns:
+             WebLoader object
 
+        Raises:
+            ValueError if `split` doesn't correspond to a known dataset.
         """
         if self._dataset[split] is None:
-            raise RuntimeError(
-                f"_setup_dataloader() is called with {split} " f"split without setting up the corresp. dataset"
+            raise ValueError(
+                f"_setup_dataloader() is called with {split} split without setting up the corresponding dataset."
             )
         dataset = self._dataset[split]
         n_samples = self._n_samples[split]
@@ -311,26 +307,31 @@ class WebDataModule(L.LightningDataModule):
         return loader
 
     def train_dataloader(self) -> wds.WebLoader:
+        """Webdataset for the training data."""
         return self._setup_dataloader(Split.train)
 
     def val_dataloader(self) -> wds.WebLoader:
+        """Webdataset for the validation data."""
         return self._setup_dataloader(Split.val)
 
     def test_dataloader(self) -> wds.WebLoader:
+        """Webdataset for the test data."""
         return self._setup_dataloader(Split.test)
 
     def predict_dataloader(self) -> wds.WebLoader:
+        """Alias for :func:`test_dataloader`."""
         return self._setup_dataloader(Split.test)
 
 
 class PickledDataWDS(WebDataModule):
-    """A LightningDataModule to process pickled data into webdataset tar files
-    and setup dataset and dataloader. This inherits the webdataset setup from
-    its parent module `WebDataModule`. This data module takes a directory of
-    pickled data files, data filename prefixes for train/val/test splits, data
-    filename suffixes and prepare webdataset tar files by globbing the specific
-    pickle data files `{dir_pickles}/{name_subset[split]}.{suffix_pickles}` and
-    outputing to webdataset tar file with the dict structure:
+    """A LightningDataModule to process pickled data into webdataset tar files.
+
+    `PickledDataWDS` is a LightningDataModule to process pickled data into webdataset tar files
+    and setup dataset and dataloader. This inherits the webdataset setup from its parent module
+    `WebDataModule`. This data module takes a directory of pickled data files, data filename
+    prefixes for train/val/test splits, data filename suffixes and prepare webdataset tar files
+    by globbing the specific pickle data files `{dir_pickles}/{name_subset[split]}.{suffix_pickles}`
+    and outputing to webdataset tar file with the dict structure:
     ```
         {"__key__" : name.replace(".", "-"),
          suffix_pickles : pickled.dumps(data) }
@@ -400,9 +401,7 @@ class PickledDataWDS(WebDataModule):
     >>>     kwargs_wds=kwargs_wds, # `WebDataModule` kwargs
     >>>     kwargs_wld=kwargs_wld, # `WebDataModule` kwargs
     >>> )
-
     ```
-
     """
 
     def __init__(
@@ -412,24 +411,20 @@ class PickledDataWDS(WebDataModule):
         *args,
         n_tars_wds: Optional[int] = None,
         **kwargs,
-    ):
-        """constructor.
+    ) -> None:
+        """Constructor.
 
         Args:
-            dir_pickles (str): input directory of pickled data files
-            names_subset (Dict[Split, List[str]]): list of filename prefix of
+            dir_pickles: input directory of pickled data files
+            names_subset: list of filename prefix of
                 the data samples to be loaded in the dataset and dataloader for
                 each of the split
             *args: arguments passed to the parent WebDataModule after its
             `n_samples` args (where `n_samples` is deduced from the length of
             `names_subset` arg of this class)
-
-        Kwargs:
-            n_tars_wds (int): attempt to create at least this number of
+            n_tars_wds: attempt to create at least this number of
                 webdataset shards
             **kwargs: arguments passed to the parent WebDataModule
-
-
         """
         super().__init__(
             {split: len(names_subset[split]) for split in names_subset.keys()},
@@ -444,15 +439,14 @@ class PickledDataWDS(WebDataModule):
         self._n_tars_wds = n_tars_wds
 
     def prepare_data(self) -> None:
-        """This is called only by the main process by the Lightning workflow. Do
-        not rely on this data module object's state update here as there is no
+        """This is called only by the main process by the Lightning workflow.
+
+        Do not rely on this data module object's state update here as there is no
         way to communicate the state update to other subprocesses. The nesting
         `pickles_to_tars` function goes through the data name prefixes in the
         different splits, read the corresponding pickled file and output a
         webdataset tar archive with the dict structure: {"__key__" :
         name.replace(".", "-"), suffix_pickles : pickled.dumps(data) }.
-
-        Returns: None
         """
         for split in self._names_subset.keys():
             # create wds shards (tar files) for train set
