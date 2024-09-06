@@ -65,23 +65,16 @@ The above will make a `.env` file that you can edit as needed to get more variab
 
 ## Models
 ### Geneformer
-#### Get test data for geneformer
-```bash
-mkdir -p /workspace/bionemo2/data
-aws s3 cp \
-  s3://general-purpose/cellxgene_2023-12-15_small \
-  /workspace/bionemo2/data/cellxgene_2023-12-15_small \
-  --recursive \
-  --endpoint-url https://pbss.s8k.io
-```
 #### Running
 
-The following command runs a very small example of geneformer pretraining.
+The following command runs a very small example of geneformer pretraining, as well as using our test data loading
+mechanism to grab the example data files and return the local path.
 
 ```bash
+TEST_DATA_DIR=$(bionemo_test_data_path single_cell/testdata-20240506 --source pbss); \
 python  \
     scripts/singlecell/geneformer/train.py     \
-    --data-dir test_data/cellxgene_2023-12-15_small/processed_data    \
+    --data-dir ${TEST_DATA_DIR}/cellxgene_2023-12-15_small/processed_data    \
     --result-dir ./results     \
     --experiment-name test_experiment     \
     --num-gpus 1  \
@@ -105,9 +98,10 @@ copy the `scripts/singlecell/geneformer/train.py` and modify the DataModule clas
 Simple fine-tuning example (NOTE: please change `--restore-from-checkpoint-path` to be the one that was output last
 by the previous train run)
 ```bash
+TEST_DATA_DIR=$(bionemo_test_data_path single_cell/testdata-20240506 --source pbss); \
 python  \
     scripts/singlecell/geneformer/train.py     \
-    --data-dir test_data/cellxgene_2023-12-15_small/processed_data    \
+    --data-dir ${TEST_DATA_DIR}/cellxgene_2023-12-15_small/processed_data    \
     --result-dir ./results     \
     --experiment-name test_finettune_experiment     \
     --num-gpus 1  \
