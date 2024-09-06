@@ -2,6 +2,10 @@
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[options]
+zip_safe = true
+include_package_data = true
+
 [project]
 name = "bionemo-testing"
 version = "2.0.0"

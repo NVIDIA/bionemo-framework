@@ -42,7 +42,7 @@ def _get_cache_dir() -> Path:
 
 
 BIONEMO_CACHE_DIR = _get_cache_dir()
-BIONEMO_CACHE_DIR.mkdir(exist_ok=True)
+BIONEMO_CACHE_DIR.mkdir(exist_ok=True, parents=True)
 
 
 def default_pbss_client():

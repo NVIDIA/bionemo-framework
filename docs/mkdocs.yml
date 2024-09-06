@@ -8,6 +8,7 @@ theme:
   features:
     - content.code.annotate
     - navigation.tabs
+    - navigation.sections
     - navigation.indexes
     - navigation.instant
     - navigation.instant.prefetch
