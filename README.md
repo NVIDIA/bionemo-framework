@@ -54,19 +54,11 @@ git commit -m "updating NeMo commit"
 ```
 
 ## Testing Locally
-
-<<<<<<< HEAD
-## Models
-### Geneformer
-#### Running
-=======
 Inside the development container, run `./ci/scripts/static_checks.sh` to validate that code changes will pass the code
 formatting and license checks run during CI. In addition, run the longer `./ci/scripts/pr_test.sh` script to run unit
 tests for all sub-packages.
 
 ## Running
->>>>>>> f2c637fa6157338446e729ae1251cefb585d1c4a
-
 The following command runs a very small example of geneformer pretraining, as well as using our test data loading
 mechanism to grab the example data files and return the local path.
 
@@ -87,7 +79,6 @@ python  \
     --micro-batch-size 2
 ```
 
-<<<<<<< HEAD
 To fine-tune, you just need to specify a different combination of model and loss (TODO also data class). To do that you
 pass the path to the config output by the previous step as the `--restore-from-checkpoint-path`, and also change the
 `--training-model-config-class` to the new one.
@@ -118,9 +109,6 @@ python  \
 ```
 
 #### Updating License Header on Python Files
-=======
-## Updating License Header on Python Files
->>>>>>> f2c637fa6157338446e729ae1251cefb585d1c4a
 Make sure you have installed [`license-check`](https://gitlab-master.nvidia.com/clara-discovery/infra-bionemo),
 which is defined in the development dependencies. If you add new Python (`.py`) files, be sure to run as:
 ```bash
