@@ -4,6 +4,7 @@
 #   KEEP THE LISTS OF INDIVIDUAL CODEOWNERS/TEAMS IN ALPHABETICALLY SORTED ORDER
 #
 
+
 #
 ## MAPPING of GitHub USERNAME to PERSON in ALPHABETICAL ORDER on username
 #
@@ -30,18 +31,21 @@
 # @trvachov - Timur Rvachov
 # @yzhang123 - Yang Zhang
 
+
 #
 ## LEGAL
 #
-LICENSE @jstjohn @malcolmgreaves @ntadimeti @trvachov
-license_header @jstjohn @malcolmgreaves @ntadimeti @trvachov
+LICENSE @dorotat-nv @jstjohn @malcolmgreaves @ntadimeti @trvachov
+license_header @dorotat-nv @jstjohn @malcolmgreaves @ntadimeti @trvachov
 
 
 #
 ## DOCUMENTATION
 #
-README.md @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
-docs @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
+README.md @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
+docs @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
+CODE-REVIEW.md @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
+CONTRIBUTING.md @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn @trvachov
 
 
 #
@@ -49,17 +53,17 @@ docs @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
 #
 #.gitignore
 #.dockerignore
-.devcontainer @malcolmgreaves @pstjohn
-CODEOWNERS @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @trvachov
-Dockerfile @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-launch.sh  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+.devcontainer @dorotat-nv @malcolmgreaves @pstjohn
+CODEOWNERS @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @trvachov
+Dockerfile @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+launch.sh  @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 3rdparty       @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 pyproject.toml @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-requirements-cve.txt  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-requirements-dev.txt  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-requirements-test.txt @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-tach.yml @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-.secrets.baseline @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+requirements-cve.txt @dorotat-nv  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+requirements-dev.txt @dorotat-nv  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+requirements-test.txt @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+tach.yml @jomitchellnv @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+.secrets.baseline @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 
 
 #
@@ -67,13 +71,13 @@ tach.yml @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 #
 scripts @jomitchellnv @jstjohn @malcolmgreaves @skothenhill-nv
 
-sub-packages/bionemo-fw @DejunL @farhadrgh @guoqing-zhou @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+sub-packages/bionemo-fw @DejunL @dorotat-nv @farhadrgh @guoqing-zhou @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
 
-sub-packages/bionemo-testing @farhadrgh @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+sub-packages/bionemo-testing @dorotat-nv @farhadrgh @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
 
-sub-packages/bionemo-core @DejunL @farhadrgh @guoqing-zhou @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+sub-packages/bionemo-core @DejunL @dorotat-nv @farhadrgh @guoqing-zhou @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
 
-sub-packages/bionemo-llm @farhadrgh @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+sub-packages/bionemo-llm @farhadrgh @dorotat-nv @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
 
 sub-packages/bionemo-geometric @DejunL @guoqing-zhou @jstjohn @malcolmgreaves
 
