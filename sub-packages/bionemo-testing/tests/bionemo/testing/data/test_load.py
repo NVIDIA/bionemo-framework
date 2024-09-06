@@ -53,6 +53,18 @@ def test_load_cli():
     assert path.is_dir()
 
 
+def test_get_resources_cli():
+    result = subprocess.run(
+        ["bionemo_test_data_path", "--list-resources"],
+        stdout=subprocess.PIPE,  # Capture stdout
+        stderr=subprocess.PIPE,  # Capture stderr (optional)
+        text=True,  # Return output as string rather than bytes
+    )
+    resources = result.stdout.strip()
+    result.check_returncode()
+    assert resources
+
+
 def test_load_raises_with_invalid_source(tmp_path):
     (tmp_path / "foo.yaml").write_text(
         """
