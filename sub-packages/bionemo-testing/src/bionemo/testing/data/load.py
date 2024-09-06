@@ -240,8 +240,14 @@ def main_cli():
     args = parser.parse_args()
 
     if args.list_resources:
-        resources = get_all_resources()
-        print(resources)
+        print("#resource_name\tsource_options")
+        for resource_name, resource in sorted(get_all_resources().items()):
+            sources = []
+            if resource.ngc is not None:
+                sources.append("ngc")
+            if resource.pbss is not None:
+                sources.append("pbss")
+            print(f"{resource_name}\t{','.join(sources)}")
         sys.exit(0)  # Successful exit
 
     if args.artifact_name:
