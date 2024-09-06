@@ -30,8 +30,6 @@ from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.data.load import load
 
 
-# TODO(@jstjohn) use fixtures for pulling down data and checkpoints
-# python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss
 bionemo2_root: Path = (
     # geneformer module's path is the most dependable --> don't expect this to change!
     Path(geneformer.__file__)
