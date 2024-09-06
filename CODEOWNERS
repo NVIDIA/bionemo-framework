@@ -44,8 +44,11 @@ license_header @dorotat-nv @jstjohn @malcolmgreaves @ntadimeti @trvachov
 #
 README.md @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
 docs @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
-CODE-REVIEW.md @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
-CONTRIBUTING.md @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn @trvachov
+# These 2 are symlinks: actual content is under docs/
+CODE-REVIEW.md @jstjohn @malcolmgreaves @pstjohn @trvachov
+CONTRIBUTING.md @jstjohn @malcolmgreaves @pstjohn @trvachov
+docs/CODE-REVIEW.md  @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn @trvachov
+docs/CONTRIBUTING.md @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn @trvachov
 
 
 #
