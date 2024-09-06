@@ -108,7 +108,7 @@ python  \
     --restore-from-checkpoint-path results/test_experiment/dev/checkpoints/test_experiment--val_loss=10.2042-epoch=0
 ```
 
-#### Updating License Header on Python Files
+## Updating License Header on Python Files
 Make sure you have installed [`license-check`](https://gitlab-master.nvidia.com/clara-discovery/infra-bionemo),
 which is defined in the development dependencies. If you add new Python (`.py`) files, be sure to run as:
 ```bash
