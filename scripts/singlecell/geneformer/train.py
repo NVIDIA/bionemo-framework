@@ -221,9 +221,9 @@ def main(
         share_embeddings_and_output_weights=True,
         enable_autocast=False,  # This has to be set to True if we use the mixed precision plugin
         biobert_spec_option=biobert_spec_option,
-        nemo1_ckpt_path=str(nemo1_init_path),
+        nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
         # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
-        initial_ckpt_path=str(restore_from_checkpoint_path),
+        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
     )
 
     # The lightning class owns a copy of the actual model, and a loss function, both of which are configured

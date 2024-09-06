@@ -118,7 +118,6 @@ This page contains the Python coding standards for the BioNeMo repository. They 
 
 You should always carefully test your changes. Run `pytest ...` in-container locally. All tests are done via `pytest`.
 
-To run **all** tests, you must first download all models and datasets to your machine. Run the `scripts/download_artifacts.py` file to do this. Note that you only need to do this once per machine. Reruns are necessary only when new models and datasets are added.
 Changes that affect model training accuracy or compute performance should be tested on SLURM.
 
 

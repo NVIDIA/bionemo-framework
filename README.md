@@ -18,10 +18,8 @@ AWS_SECRET_ACCESS_KEY=$(grep aws_secret_access_key ~/.aws/config | cut -d' ' -f 
 AWS_REGION="us-east-1"
 AWS_ENDPOINT_URL="https://pbss.s8k.io"
 ```
-then
-```bash
-python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss
-```
+then, running tests should download the test data to a cache location when first invoked.
+
 
 ## Initializing 3rd-party dependencies as git submodules
 
@@ -55,17 +53,19 @@ git add '3rdparty/NeMo/'
 git commit -m "updating NeMo commit"
 ```
 
-### Devloping with nemo+megatron+bionemo (deprecated)
-```
-export NEMO_HOME=path/to/local/nemo
-export MEGATRON_HOME=path/to/local/megatron
-./launch.sh dev
-```
-The above will make a `.env` file that you can edit as needed to get more variables into the container.
+## Testing Locally
 
+<<<<<<< HEAD
 ## Models
 ### Geneformer
 #### Running
+=======
+Inside the development container, run `./ci/scripts/static_checks.sh` to validate that code changes will pass the code
+formatting and license checks run during CI. In addition, run the longer `./ci/scripts/pr_test.sh` script to run unit
+tests for all sub-packages.
+
+## Running
+>>>>>>> f2c637fa6157338446e729ae1251cefb585d1c4a
 
 The following command runs a very small example of geneformer pretraining, as well as using our test data loading
 mechanism to grab the example data files and return the local path.
@@ -87,6 +87,7 @@ python  \
     --micro-batch-size 2
 ```
 
+<<<<<<< HEAD
 To fine-tune, you just need to specify a different combination of model and loss (TODO also data class). To do that you
 pass the path to the config output by the previous step as the `--restore-from-checkpoint-path`, and also change the
 `--training-model-config-class` to the new one.
@@ -117,6 +118,9 @@ python  \
 ```
 
 #### Updating License Header on Python Files
+=======
+## Updating License Header on Python Files
+>>>>>>> f2c637fa6157338446e729ae1251cefb585d1c4a
 Make sure you have installed [`license-check`](https://gitlab-master.nvidia.com/clara-discovery/infra-bionemo),
 which is defined in the development dependencies. If you add new Python (`.py`) files, be sure to run as:
 ```bash
