@@ -100,43 +100,90 @@ def collect_cuda_peak_alloc(
     return features, alloc_peaks
 
 
-def polynomial_regression(degree: int, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+class PolynomialRegression(torch.nn.Module):
     """
-    Performs polynomial regression on the given data points.
+    A class for performing polynomial regression using PyTorch.
 
-    This function takes in a 1D tensor of input values `x`, a 1D tensor of output values `y`,
-    and an integer degree for the polynomial. It returns a tensor of coefficients
-    that represent the best-fit polynomial of the specified degree.
-
-    The function uses least squares regression to fit the polynomial.
-
-    Args:
-        degree (int): The degree of the polynomial.
-        x (torch.Tensor): A 1D tensor of features, where the dimension is along the sample.
-        y (torch.Tensor): A 1D tensor of labels, where the dimension is along the sample.
-
-    Returns:
-        torch.Tensor: A tensor of coefficients representing the best-fit polynomial.
-
-    Raises:
-        TypeError: If `x` or `y` is not a 1D tensor or if `x` and `y` do not have the same length.
-        ValueError: If `x` and `y` are not floating point tensors.
+    This class allows users to create a model that fits data points
+    with a polynomial of a specified degree. It also provides methods
+    to evaluate the fitted polynomial and fit it to new data.
     """
-    if degree < 0:
-        raise ValueError("The degree of the polynomial must be non-negative.")
-    if not torch.is_floating_point(x):
-        raise TypeError("x must be a floating point tensor.")
-    if not torch.is_floating_point(y):
-        raise TypeError("y must be a floating point tensor.")
-    if x.ndim != 1:
-        raise TypeError("x must be a 1D tensor.")
-    if y.ndim != 1:
-        raise TypeError("y must be a 1D tensor.")
-    n_samples = x.shape[0]
-    if y.shape[0] != n_samples:
-        raise ValueError("The number of samples in x and y must be equal.")
-    polynomials = x.unsqueeze(-1).repeat(1, degree + 1)
-    polynomials[:, 0] = 1
-    polynomials = torch.cumprod(polynomials, dim=-1)
-    coeffs = torch.linalg.lstsq(polynomials, y).solution
-    return coeffs
+
+    def __init__(self, degree: int):
+        """
+        Initializes a PolynomialRegression object.
+
+        Args:
+            degree (int): The degree of the polynomial regression model.
+                Must be a non-negative integer.
+
+        Raises:
+            ValueError: If degree is not a non-negative integer.
+        """
+        if not isinstance(degree, int) or degree < 0:
+            raise ValueError("degree must be a non-negative integer")
+        self.degree = degree
+        self.coeffs = torch.zeros(degree + 1, dtype=torch.float32)
+        super().__init__()
+
+    def _polynomial(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Evaluates the polynomial at point(s) x.
+
+        Args:
+            x (torch.Tensor): A 1D tensor containing the points to evaluate
+                the polynomial at.
+
+        Returns:
+            torch.Tensor: A 2D tensor where each row corresponds to a data
+                point and each column corresponds to a term in the polynomial.
+        """
+        if x.ndim != 1:
+            raise TypeError("x must be a 1D tensor.")
+        ans = x.unsqueeze(-1).repeat(1, self.degree + 1)
+        ans[:, 0] = 1
+        ans = torch.cumprod(ans, dim=-1)
+        return ans
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Evaluates the polynomial at point(s) x.
+
+        Args:
+            x (torch.Tensor): A 1D tensor containing the points to evaluate
+                the polynomial at.
+
+        Returns:
+            torch.Tensor: The value of the polynomial at each data point.
+        """
+        if x.ndim != 1:
+            raise TypeError("x must be a 1D tensor.")
+        polynomial = self._polynomial(x)
+        return polynomial @ self.coeffs
+
+    def fit(self, x: torch.Tensor, y: torch.Tensor) -> None:
+        """
+        Fits the polynomial regression model to data points (x, y).
+
+        Args:
+            x (torch.Tensor): A 1D tensor containing the input data points.
+            y (torch.Tensor): A 1D tensor containing the output data points.
+
+        Raises:
+            TypeError: If x or y is not a 1D tensor.
+            ValueError: If the number of samples in x and y are not equal.
+            TypeError: If x or y is not a floating point tensor.
+        """
+        if not torch.is_floating_point(x):
+            raise TypeError("x must be a floating point tensor.")
+        if not torch.is_floating_point(y):
+            raise TypeError("y must be a floating point tensor.")
+        if x.ndim != 1:
+            raise TypeError("x must be a 1D tensor.")
+        if y.ndim != 1:
+            raise TypeError("y must be a 1D tensor.")
+        n_samples = x.shape[0]
+        if y.shape[0] != n_samples:
+            raise ValueError("The number of samples in x and y must be equal.")
+        polynomial = self._polynomial(x)
+        self.coeffs = torch.linalg.lstsq(polynomial, y).solution
