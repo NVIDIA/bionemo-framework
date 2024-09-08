@@ -27,18 +27,24 @@ def fbwd(model, data):
 
 
 def workflow(model, dataset):
+    yield None
     n_warmup = 2
     for i, data in enumerate(dataset):
         if i >= n_warmup:
             break
         fbwd(model, data)
+    cleanup = yield None
+    if callable(cleanup):
+        del data
+        model.zero_grad(set_to_none=True)
+        cleanup()
     for data in dataset:
         fbwd(model, data)
-        do_cleanup = yield data.to(torch.device("cpu"))
-        if do_cleanup:
+        cleanup = yield data.to(torch.device("cpu"))
+        if callable(cleanup):
             del data
             model.zero_grad(set_to_none=True)
-            yield None
+            cleanup()
 
 
 def test_collect_cuda_peak_alloc(dataset, model):
