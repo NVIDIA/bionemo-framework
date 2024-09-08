@@ -30,7 +30,7 @@ class MyDataset(Dataset):
     def __getitem__(self, index):
         if index >= self.size or index < 0:
             raise IndexError("Index out of range")
-        data = torch.ones(self.dim, dtype=torch.float32, device=self.device)
+        data = torch.ones(self.dim, dtype=torch.float32, device=self.device) * index
         return data
 
 
