@@ -18,7 +18,8 @@ from math import isclose
 import pytest
 import torch
 
-from bionemo.size_aware_batching.memory_model import PolynomialRegression, collect_cuda_peak_alloc
+from bionemo.size_aware_batching.memory_model import PolynomialRegression
+from bionemo.size_aware_batching.utils import collect_cuda_peak_alloc
 
 
 def get_work_fn(model: torch.nn.Module, data: torch.Tensor):
