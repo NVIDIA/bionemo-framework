@@ -15,7 +15,7 @@
 
 import gc
 import sys
-from typing import Any, Generator, List, Tuple, TypeVar
+from typing import Any, Generator, List, Optional, Tuple, TypeVar
 
 import torch
 
@@ -24,7 +24,7 @@ Feature = TypeVar("Feature")
 
 
 def collect_cuda_peak_alloc(
-    workflow: Generator[Feature, bool, Any],
+    workflow: Generator[Optional[Feature], bool, Any],
     device: torch.device,
 ) -> Tuple[List[Feature], List[int]]:
     """
@@ -44,13 +44,23 @@ def collect_cuda_peak_alloc(
     Returns:
         Tuple[List[Feature], List[int]]: A tuple containing the collected features and memory usage statistics.
     """
+    if device.type != "cuda":
+        raise ValueError("This function is intended for CUDA devices only.")
+
+    def cleanup():
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats(device)
+
     features = []
     alloc_peaks = []
-    torch.cuda.reset_peak_memory_stats(device)
+    next(workflow)
+    workflow.send(cleanup)
+
     try:
         while True:
             try:
-                data = workflow.send(None)
+                data = workflow.send(cleanup)
                 alloc_peak = torch.cuda.memory_stats(device)["allocated_bytes.all.peak"]
                 alloc_peaks.append(alloc_peak)
                 features.append(data)
@@ -60,11 +70,7 @@ def collect_cuda_peak_alloc(
             except Exception as e:
                 raise e
             finally:
-                # signal a clean-up step
-                workflow.send(True)
-                gc.collect()
-                torch.cuda.empty_cache()
-                torch.cuda.reset_peak_memory_stats(device)
+                pass
     except StopIteration:
         pass
     except Exception as e:
