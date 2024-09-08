@@ -34,7 +34,7 @@ def workflow(model, dataset):
         fbwd(model, data)
     for data in dataset:
         fbwd(model, data)
-        do_cleanup = yield data
+        do_cleanup = yield data.to(torch.device("cpu"))
         if do_cleanup:
             del data
             model.zero_grad(set_to_none=True)
