@@ -15,88 +15,59 @@
 
 import gc
 import sys
-from typing import Callable, Iterable, List, Optional, Tuple, TypeVar
+from typing import Any, Generator, List, Tuple, TypeVar
 
 import torch
 
 
-Data = TypeVar("Data")
 Feature = TypeVar("Feature")
 
 
 def collect_cuda_peak_alloc(
-    model: torch.nn.Module,
-    dataset: Iterable[Data],
+    workflow: Generator[Feature, bool, Any],
     device: torch.device,
-    feature_fn: Optional[Callable[[Data], Feature]] = None,
 ) -> Tuple[List[Feature], List[int]]:
     """
-    Collects CUDA peak memory allocation statistics for a given model and dataset.
-    This function iterates through the dataset, runs the model's forward and backward
-    on each data sample, and records the peak CUDA memory allocation during this process.
+    Collects CUDA peak memory allocation statistics for a given workflow.
+    This function iterates through the workflow, runs each iteration to completion,
+    and records the peak CUDA memory allocation during this process.
 
     Args:
-        model (torch.nn.Module): The PyTorch model to collect memory usage for.
-        dataset (Iterable[Data]): The dataset to iterate over.
-        device (torch.device): The device to run the model on (e.g. GPU or CPU).
-        feature_fn (Optional[Callable[[Data], Any]], optional):
-            A function that takes a data point and returns a feature representation
-            to be used in modelling the memory allocation for that data point.
-            Its return must not consume significant amount of GPU memory to avoid
-            contaminating memory samples.
-            If None, the original data points will be used. Defaults to None.
+        workflow: A generator that performs the work whose CUDA memory
+            allocation is to be monitored and collected. It should yield features
+            that can be used to fit a memory consumption model.
+        device: The target Torch device (e.g., GPU) where the workflow will run.
+        device (torch.device): The device to run the workflow on (e.g. GPU or CPU).
 
     Returns:
-        Tuple[List[Any], List[int]]: A tuple containing the collected memory features and memory usage statistics.
+        Tuple[List[Feature], List[int]]: A tuple containing the collected features and memory usage statistics.
     """
-    model = model.to(device)
-    # warm up a few rounds before collecting stats
-    n_warmup = 2
-    for i_warmup, data in enumerate(dataset):
-        try:
-            y = model(data.to(device))
-            y.backward()
-        except torch.cuda.OutOfMemoryError:
-            print("Encounter CUDA out-of-memory error. Skipping sample", file=sys.stderr, flush=True)
-            continue
-        except Exception as e:
-            raise e
-        finally:
-            del data
-            if "y" in locals():
-                del y
-            model.zero_grad(set_to_none=True)
-            gc.collect()
-            torch.cuda.empty_cache()
-            torch.cuda.reset_peak_memory_stats(device)
-            if i_warmup == n_warmup - 1:
-                break
-    torch.cuda.reset_peak_memory_stats(device)
     features = []
     alloc_peaks = []
-    for data in dataset:
-        try:
-            torch.cuda.reset_peak_memory_stats(device)
-            y = model(data.to(device))
-            y.backward()
-            alloc_peak = torch.cuda.memory_stats(device)["allocated_bytes.all.peak"]
-            alloc_peaks.append(alloc_peak)
-            if feature_fn is None:
-                features.append(data.to(torch.device("cpu")))
-            else:
-                features.append(feature_fn(data))
-        except torch.cuda.OutOfMemoryError:
-            print("Encounter CUDA out-of-memory error. Skipping sample", file=sys.stderr, flush=True)
-            continue
-        except Exception as e:
-            raise e
-        finally:
-            del data
-            if "y" in locals():
-                del y
-            model.zero_grad(set_to_none=True)
-            gc.collect()
-            torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats(device)
+    try:
+        while True:
+            try:
+                data = workflow.send(None)
+                alloc_peak = torch.cuda.memory_stats(device)["allocated_bytes.all.peak"]
+                alloc_peaks.append(alloc_peak)
+                features.append(data)
+            except torch.cuda.OutOfMemoryError:
+                print("Encounter CUDA out-of-memory error. Skipping sample", file=sys.stderr, flush=True)
+                continue
+            except Exception as e:
+                raise e
+            finally:
+                # signal a clean-up step
+                workflow.send(True)
+                del data
+                gc.collect()
+                torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats(device)
+    except StopIteration:
+        pass
+    except Exception as e:
+        raise e
     return features, alloc_peaks
 
 

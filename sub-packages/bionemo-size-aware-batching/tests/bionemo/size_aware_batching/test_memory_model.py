@@ -21,10 +21,29 @@ import torch
 from bionemo.size_aware_batching.memory_model import PolynomialRegression, collect_cuda_peak_alloc
 
 
-@pytest.mark.parametrize("feature_fn", [None, lambda x: x.sum()])
-def test_collect_cuda_peak_alloc(dataset, model, feature_fn):
+def fbwd(model, data):
+    y = model(data)
+    y.backward()
+
+
+def workflow(model, dataset):
+    n_warmup = 2
+    for i, data in enumerate(dataset):
+        if i >= n_warmup:
+            break
+        fbwd(model, data)
+    for data in dataset:
+        fbwd(model, data)
+        do_cleanup = yield data
+        if do_cleanup:
+            del data
+            model.zero_grad(set_to_none=True)
+            yield None
+
+
+def test_collect_cuda_peak_alloc(dataset, model):
     model, alloc_peak_expected = model
-    features, alloc_peaks = collect_cuda_peak_alloc(model, dataset, dataset.device, feature_fn=feature_fn)
+    features, alloc_peaks = collect_cuda_peak_alloc(workflow(model, dataset), dataset.device)
     assert len(features) == len(dataset)
     assert len(alloc_peaks) == len(dataset)
     alloc_peaks_tensor = torch.tensor(alloc_peaks)
@@ -53,7 +72,7 @@ def test_collect_cuda_peak_alloc(dataset, model, feature_fn):
 
 
 def test_collect_cuda_peak_alloc_skip_oom(dataset, model_huge):
-    features, alloc_peaks = collect_cuda_peak_alloc(model_huge, dataset, dataset.device)
+    features, alloc_peaks = collect_cuda_peak_alloc(workflow(model_huge, dataset), dataset.device)
     assert len(features) == 0
     assert len(alloc_peaks) == 0
 
