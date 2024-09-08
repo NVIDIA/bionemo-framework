@@ -35,7 +35,9 @@ def collect_cuda_peak_alloc(
     Args:
         workflow: A generator that performs the work whose CUDA memory
             allocation is to be monitored and collected. It should yield features
-            that can be used to fit a memory consumption model.
+            that can be used to fit a memory consumption model. The features yield
+            from it should not consume significant amount of GPU memory to avoid
+            bias in peak allocation measurement.
         device: The target Torch device (e.g., GPU) where the workflow will run.
         device (torch.device): The device to run the workflow on (e.g. GPU or CPU).
 
@@ -60,7 +62,6 @@ def collect_cuda_peak_alloc(
             finally:
                 # signal a clean-up step
                 workflow.send(True)
-                del data
                 gc.collect()
                 torch.cuda.empty_cache()
                 torch.cuda.reset_peak_memory_stats(device)
