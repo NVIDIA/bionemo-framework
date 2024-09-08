@@ -32,17 +32,23 @@ def collect_cuda_peak_alloc(
     This function iterates through the workflow, runs each iteration to completion,
     and records the peak CUDA memory allocation during this process.
 
+    Note: the first iteration of the workflow might result in smaller memory
+    allocation due to uninitialized data, .e.g,  those internal to Pytorch, so the
+    user might want to skip the first few resulting data points
+
     Args:
         workflow: A generator that performs the work whose CUDA memory
             allocation is to be monitored and collected. It should yield features
             that can be used to fit a memory consumption model. The features yield
             from it should not consume significant amount of GPU memory to avoid
             bias in peak allocation measurement.
-        device: The target Torch device (e.g., GPU) where the workflow will run.
-        device (torch.device): The device to run the workflow on (e.g. GPU or CPU).
+        device: The target Torch CUDA device
 
     Returns:
         Tuple[List[Feature], List[int]]: A tuple containing the collected features and memory usage statistics.
+
+    Raises:
+        ValueError: If the provided device is not a CUDA device.
     """
     if device.type != "cuda":
         raise ValueError("This function is intended for CUDA devices only.")
@@ -54,13 +60,15 @@ def collect_cuda_peak_alloc(
 
     features = []
     alloc_peaks = []
-    next(workflow)
-    workflow.send(cleanup)
 
+    # prime the generator with None
+    do_cleanup = None
     try:
         while True:
             try:
-                data = workflow.send(cleanup)
+                data = workflow.send(do_cleanup)
+                if do_cleanup is None:
+                    do_cleanup = cleanup
                 alloc_peak = torch.cuda.memory_stats(device)["allocated_bytes.all.peak"]
                 alloc_peaks.append(alloc_peak)
                 features.append(data)
@@ -69,12 +77,10 @@ def collect_cuda_peak_alloc(
                 continue
             except Exception as e:
                 raise e
-            finally:
-                pass
     except StopIteration:
         pass
     except Exception as e:
-        raise e
+        raise RuntimeError("An error occurred during CUDA memory collection.") from e
     return features, alloc_peaks
 
 
