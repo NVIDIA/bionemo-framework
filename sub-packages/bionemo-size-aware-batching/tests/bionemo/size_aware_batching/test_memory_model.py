@@ -27,17 +27,6 @@ def fbwd(model, data):
 
 
 def workflow(model, dataset):
-    yield None
-    n_warmup = 2
-    for i, data in enumerate(dataset):
-        if i >= n_warmup:
-            break
-        fbwd(model, data)
-    cleanup = yield None
-    if callable(cleanup):
-        del data
-        model.zero_grad(set_to_none=True)
-        cleanup()
     for data in dataset:
         fbwd(model, data)
         cleanup = yield data.to(torch.device("cpu"))
@@ -75,6 +64,11 @@ def test_collect_cuda_peak_alloc(dataset, model):
             f"Peak CUDA memory allocation is {alloc_peaks[0] / (1024**2)} MB, "
             f"which is not within {rtol} of the expected {alloc_peak_expected / (1024**2)} MB"
         )
+
+
+def test_collect_cuda_peak_alloc_skip_cpu(dataset, model):
+    with pytest.raises(ValueError):
+        collect_cuda_peak_alloc(workflow(model, dataset), torch.device("cpu"))
 
 
 def test_collect_cuda_peak_alloc_skip_oom(dataset, model_huge):
