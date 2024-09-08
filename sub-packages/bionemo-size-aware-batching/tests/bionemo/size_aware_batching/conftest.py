@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import List, Optional
+
 import pytest
 import torch
 from torch.utils.data import Dataset
@@ -35,20 +37,36 @@ class MyDataset(Dataset):
 
 
 class MyModel(torch.nn.Module):
-    def __init__(self, dim_io: int, dim_hidden: int):
+    def __init__(
+        self,
+        dim_io: int,
+        dim_hidden: int,
+        dim_hidden_large: Optional[int] = None,
+        ids_do_hidden_large: Optional[List[int]] = None,
+    ):
         if not isinstance(dim_io, int) or dim_io <= 0:
             raise ValueError("dim_io must be a positive integer")
         if not isinstance(dim_hidden, int) or dim_hidden <= 0:
             raise ValueError("dim_hidden must be a positive integer")
+        if ids_do_hidden_large is not None and dim_hidden_large is None:
+            raise ValueError("dim_hidden_large must be provided if ids_do_hidden_large is not None")
         super().__init__()
         self.dim_io = dim_io
         self.dim_hidden = dim_hidden
+        self.dim_hidden_large = dim_hidden_large
+        self.ids_do_hidden_large = ids_do_hidden_large
         self.layer = torch.nn.Linear(self.dim_io, self.dim_io)
 
     def forward(self, x: torch.Tensor):
         update = self.layer(x)
-        update = update.unsqueeze(-1).repeat(1, self.dim_hidden)
-        # update.numel == torch.prod(x.shape[:-1]) * self.dim_io * self.dim_hidden
+        idx = int(x[0].item())
+        use_large_dim = (
+            self.ids_do_hidden_large is not None
+            and self.dim_hidden_large is not None
+            and idx in self.ids_do_hidden_large
+        )
+        repeat_dim = self.dim_hidden_large if use_large_dim else self.dim_hidden
+        update = update.unsqueeze(-1).repeat(1, repeat_dim)
         ans = (x + update.sum(dim=-1)).sum()
         return ans
 
@@ -59,7 +77,7 @@ def dataset():
 
 
 @pytest.fixture(scope="module")
-def model(dataset):
+def model_and_alloc_peak(dataset):
     device = dataset.device
     dim_io = dataset.dim
     alloc_peak = 2**9 * 1024**2  # ~512MB
@@ -68,9 +86,12 @@ def model(dataset):
 
 
 @pytest.fixture(scope="module")
-def model_huge(dataset):
+def model_huge_sample02(dataset):
     device = dataset.device
     dim_io = dataset.dim
+    alloc_peak = 2**9 * 1024**2  # ~512MB
+    dim_hidden = alloc_peak // (4 * dim_io)
     mem_total = torch.cuda.get_device_properties(device).total_memory
-    dim_hidden = mem_total // (4 * dim_io) * 2
-    return MyModel(dim_io, dim_hidden).to(device)
+    dim_hidden_large = mem_total // (4 * dim_io) * 2
+    ids_do_hidden_large = [0, 2]
+    return MyModel(dim_io, dim_hidden, dim_hidden_large, ids_do_hidden_large).to(device)

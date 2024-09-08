@@ -21,24 +21,27 @@ import torch
 from bionemo.size_aware_batching.memory_model import PolynomialRegression, collect_cuda_peak_alloc
 
 
-def fbwd(model, data):
-    y = model(data)
-    y.backward()
+def get_work_fn(model: torch.nn.Module, data: torch.Tensor):
+    def fbwd_and_sum(data):
+        y = model(data)
+        y.backward()
+        return data.sum().item()
+
+    return fbwd_and_sum
 
 
-def workflow(model, dataset):
-    for data in dataset:
-        fbwd(model, data)
-        cleanup = yield data.to(torch.device("cpu"))
-        if callable(cleanup):
-            del data
-            model.zero_grad(set_to_none=True)
-            cleanup()
+def get_cleanup_fn(model: torch.nn.Module):
+    def cleanup():
+        model.zero_grad(set_to_none=True)
+
+    return cleanup
 
 
-def test_collect_cuda_peak_alloc(dataset, model):
-    model, alloc_peak_expected = model
-    features, alloc_peaks = collect_cuda_peak_alloc(workflow(model, dataset), dataset.device)
+def test_collect_cuda_peak_alloc(dataset, model_and_alloc_peak):
+    model, alloc_peak_expected = model_and_alloc_peak
+    features, alloc_peaks = collect_cuda_peak_alloc(
+        dataset, get_work_fn(model, dataset), dataset.device, cleanup=get_cleanup_fn(model)
+    )
     assert len(features) == len(dataset)
     assert len(alloc_peaks) == len(dataset)
     alloc_peaks_tensor = torch.tensor(alloc_peaks)
@@ -66,15 +69,24 @@ def test_collect_cuda_peak_alloc(dataset, model):
         )
 
 
-def test_collect_cuda_peak_alloc_skip_cpu(dataset, model):
+def test_collect_cuda_peak_alloc_skip_cpu(dataset, model_and_alloc_peak):
+    model, _ = model_and_alloc_peak
     with pytest.raises(ValueError):
-        collect_cuda_peak_alloc(workflow(model, dataset), torch.device("cpu"))
+        collect_cuda_peak_alloc(dataset, get_work_fn(model, dataset), torch.device("cpu"))
 
 
-def test_collect_cuda_peak_alloc_skip_oom(dataset, model_huge):
-    features, alloc_peaks = collect_cuda_peak_alloc(workflow(model_huge, dataset), dataset.device)
-    assert len(features) == 0
-    assert len(alloc_peaks) == 0
+def test_collect_cuda_peak_alloc_skip_oom(dataset, model_and_alloc_peak, model_huge_sample02):
+    model, _ = model_and_alloc_peak
+    features, alloc_peaks = collect_cuda_peak_alloc(
+        dataset, get_work_fn(model, dataset), dataset.device, cleanup=get_cleanup_fn(model)
+    )
+    features_wo02, alloc_peaks_wo02 = collect_cuda_peak_alloc(
+        dataset, get_work_fn(model_huge_sample02, dataset), dataset.device, cleanup=get_cleanup_fn(model_huge_sample02)
+    )
+    features_expected = [features[i] for i in range(len(features)) if not (i == 0 or i == 2)]
+    alloc_peaks_expected = [alloc_peaks[i] for i in range(len(alloc_peaks)) if not (i == 0 or i == 2)]
+    assert features_wo02 == features_expected
+    assert alloc_peaks_wo02 == alloc_peaks_expected
 
 
 @pytest.mark.parametrize("degree", [-1, 0, 1, 2, 3])
