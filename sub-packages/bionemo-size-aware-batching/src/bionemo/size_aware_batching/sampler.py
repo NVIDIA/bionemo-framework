@@ -25,17 +25,16 @@ Data = TypeVar("Data")
 
 
 class SizeAwareBatchSampler(Sampler[List[int]]):
-    r"""Wraps another sampler to yield a mini-batch of indices. Keeps track of
-    the some total size of the mini-batch (eg number of nodes in
-    the resulting graph), rather than the number of elements in the mini-batch.
+    """
+    A sampler that batches elements of varying sizes while ensuring
+    that the total size of each batch does not exceed a specified maximum.
 
-    Args:
-        sampler (Sampler or Iterable): Base sampler. Can be any iterable object
-        max_total_size (int or float): Max total size of the resulting mini-batch
-          calculated as a sum of per-element sizeof, will be disobeyed if only one element in a batch
-        sizeof (Iterable or Callable): sizeof[i] should be a size of i'th element in the dataset (eg number of nodes in the graph)
-            if callable, will take a sample, and return the size
-        batch_size_mean (int, optional): average number of samples in one batch. Default to be None.
+    This is useful when dealing with datasets where each element has a
+    different size, such as graphs or sequences of varying lengths.
+    The sampler uses a provided `sizeof` function to determine the size
+    of each element in the dataset and ensures that the total size of
+    each batch does not exceed the specified `max_total_size`.
+
     """
 
     def __init__(
@@ -46,6 +45,25 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         do_caching: bool = False,
         dataset: Sequence[Data] = None,
     ) -> None:
+        """
+        Initializes the SizeAwareBatchSampler.
+
+        Args:
+            sampler (Union[Sampler[List[int]], Iterable[int]]): The underlying sampler.
+            max_total_size (Union[int, float]): The maximum total size of a mini-batch.
+            sizeof (Union[Dict[int, Union[int, float]], Sequence[int], Callable[[Data], Union[int, float]]]):
+                A function or data structure that returns the size of each element in the dataset.
+            do_caching (bool): Whether to cache the sizes of elements. Defaults to False.
+            dataset (Sequence[Data]): The dataset. Required if sizeof is a callable.
+
+        Raises:
+            TypeError: If sampler is not an instance of Sampler or Iterable, or if sizeof is not a callable, dictionary, or sequence container.
+            ValueError: If max_total_size is not a positive number, or if caching is enabled and sizeof is not a callable.
+
+        Note:
+            When using a predefined dict or sequence container for sizeof, dataset should not be provided.
+            When using a callable sizeof, dataset must be provided.
+        """
         if not (isinstance(sampler, Sampler) or (isinstance(sampler, Iterable) and not isinstance(sampler, str))):
             raise TypeError("sampler should be an instance of torch.utils.data.Sampler or Iterable")
 
@@ -118,6 +136,16 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         self._sizeof = sizeof
 
     def __iter__(self) -> Generator[List[int], None, None]:
+        """
+        Iterate over batches of indices.
+
+        This function yields batches of indices that do not exceed the maximum total size.
+        It uses a caching mechanism to store the sizes of elements in the dataset, which can speed up
+        the iteration process if the sizeof function is expensive to compute.
+
+        Yields:
+            List[int]: A batch of indices that do not exceed the maximum total size.
+        """
         batch_total_size = 0
         batch = []
 
