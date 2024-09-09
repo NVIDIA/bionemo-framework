@@ -56,6 +56,7 @@ git add '3rdparty/NeMo/'
 git commit -m "updating NeMo commit"
 ```
 
+
 ## Testing Locally
 Inside the development container, run `./ci/scripts/static_checks.sh` to validate that code changes will pass the code
 formatting and license checks run during CI. In addition, run the longer `./ci/scripts/pr_test.sh` script to run unit
@@ -97,6 +98,7 @@ pushd sub-package/bionemo-<project name>
 REPO_ROOT="<path to bionemo-fw-ea>" BIONEMO_PUBLISH_MODE=1 python -m build
 TWINE_PASSWORD="<pypi pass>" TWINE_USERNAME="<pypi user>" python -m twine upload dist/*
 ```
+
 
 ## Models
 ### Geneformer
@@ -157,6 +159,7 @@ python  \
     --training-model-config-class FineTuneSeqLenBioBertConfig \
     --restore-from-checkpoint-path results/test_experiment/dev/checkpoints/test_experiment--val_loss=10.2042-epoch=0
 ```
+
 
 ## Updating License Header on Python Files
 Make sure you have installed [`license-check`](https://gitlab-master.nvidia.com/clara-discovery/infra-bionemo),
