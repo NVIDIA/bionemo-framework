@@ -57,8 +57,6 @@ from bionemo.testing.data.load import load
 from bionemo.testing.utils import assert_matrix_correlation_above_value, assert_matrix_mape_below_value
 
 
-# TODO(@jstjohn) use fixtures for pulling down data and checkpoints
-# python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss
 bionemo2_root: Path = (
     # geneformer module's path is the most dependable --> don't expect this to change!
     Path(geneformer.__file__)
@@ -180,13 +178,12 @@ def test_bionemo2_rootdir():
 
 
 def test_nemo1_nemo2_weight_shapes_match(geneformer_config, seed: int = 42):
-    data_error_str = "Please download test data with:\n`python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss`"
     data_dir = Path(data_path)
     train_data_path = data_dir / "train"
     if not nemo1_checkpoint_path.exists():
-        raise FileNotFoundError(f"Could not find checkpoint at {nemo1_checkpoint_path}. {data_error_str}")
+        raise FileNotFoundError(f"Could not find checkpoint at {nemo1_checkpoint_path}. {data_dir}")
     if not train_data_path.exists():
-        raise FileNotFoundError(f"Could not find train data at {train_data_path}. {data_error_str}")
+        raise FileNotFoundError(f"Could not find train data at {train_data_path}. {data_dir}")
 
     with (
         tarfile.open(nemo1_checkpoint_path, "r") as old_ckpt,
@@ -382,13 +379,12 @@ def test_geneformer_nemo1_v_nemo2_inference_golden_values(
 
     assert nemo_1_expected_values_path.exists(), f"Could not find expected values at {nemo_1_expected_values_path}."
 
-    data_error_str = "Please download test data with:\n`python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss`"
     data_dir = Path(data_path)
     train_data_path = data_dir / "train"
     if not nemo1_checkpoint_path.exists():
-        raise FileNotFoundError(f"Could not find checkpoint at {nemo1_checkpoint_path}. {data_error_str}")
+        raise FileNotFoundError(f"Could not find checkpoint at {nemo1_checkpoint_path}. {data_dir}")
     if not train_data_path.exists():
-        raise FileNotFoundError(f"Could not find train data at {train_data_path}. {data_error_str}")
+        raise FileNotFoundError(f"Could not find train data at {train_data_path}. {data_dir}")
 
     preprocessor = GeneformerPreprocess(
         download_directory=train_data_path,
@@ -462,13 +458,12 @@ def test_geneformer_inference_nemo1_v_nemo2_golden_values_by_layer(
     assert (
         nemo_1_per_layer_outputs_path.exists()
     ), f"Could not find per-layer expected values at {nemo_1_per_layer_outputs_path}."
-    data_error_str = "Please download test data with:\n`python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss`"
     data_dir = Path(data_path)
     train_data_path = data_dir / "train"
     if not nemo1_checkpoint_path.exists():
-        raise FileNotFoundError(f"Could not find checkpoint at {nemo1_checkpoint_path}. {data_error_str}")
+        raise FileNotFoundError(f"Could not find checkpoint at {nemo1_checkpoint_path}. {data_dir}")
     if not train_data_path.exists():
-        raise FileNotFoundError(f"Could not find train data at {train_data_path}. {data_error_str}")
+        raise FileNotFoundError(f"Could not find train data at {train_data_path}. {data_dir}")
 
     with (
         tarfile.open(nemo1_checkpoint_path, "r") as old_ckpt,

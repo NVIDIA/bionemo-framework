@@ -21,7 +21,7 @@ from typing import Dict
 
 import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
-from pretrain import main, parser  # TODO: needs to be refactored to a package and imported!
+from train import main, parser  # TODO: needs to be refactored to a package and imported!
 
 from bionemo import geneformer
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
@@ -30,8 +30,6 @@ from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.data.load import load
 
 
-# TODO(@jstjohn) use fixtures for pulling down data and checkpoints
-# python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss
 bionemo2_root: Path = (
     # geneformer module's path is the most dependable --> don't expect this to change!
     Path(geneformer.__file__)
@@ -100,13 +98,12 @@ def test_main_runs(tmpdir):
     ).is_file(), "Could not find experiment log."
 
 
-@pytest.mark.skip("duplicate unittest")
 def test_pretrain_cli(tmpdir):
     result_dir = Path(tmpdir.mkdir("results"))
     open_port = find_free_network_port()
     # NOTE: if you need to change the following command, please update the README.md example.
     cmd_str = f"""python  \
-    {bionemo2_root}/scripts/singlecell/geneformer/pretrain.py     \
+    {bionemo2_root}/scripts/singlecell/geneformer/train.py     \
     --data-dir {data_path}     \
     --result-dir {result_dir}     \
     --experiment-name test_experiment     \

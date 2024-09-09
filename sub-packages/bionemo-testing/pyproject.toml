@@ -18,6 +18,9 @@ authors = [
 ]
 dynamic = ["dependencies"]
 
+[project.scripts]
+bionemo_test_data_path = "bionemo.testing.data.load:main_cli"
+
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
 # TODO: how to specify bionemo-{feature packages} & bionemo-core ???

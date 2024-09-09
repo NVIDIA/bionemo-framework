@@ -16,6 +16,7 @@
 from dataclasses import dataclass
 from typing import Sequence, Type
 
+from bionemo.geneformer.model.finetune_token_regressor import FineTuneSeqLenBioBertConfig
 from bionemo.llm.model.biobert.model import BioBertGenericConfig, MegatronBioBertModel
 from bionemo.llm.utils import iomixin_utils as iom
 
@@ -23,6 +24,7 @@ from bionemo.llm.utils import iomixin_utils as iom
 __all__: Sequence[str] = (
     "GeneformerModel",
     "GeneformerConfig",
+    "FineTuneSeqLenBioBertConfig",
 )
 
 GeneformerModel = MegatronBioBertModel

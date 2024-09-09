@@ -12,42 +12,128 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Generate the code reference pages and copy Jupyter notebooks and README files."""
 
-
-"""Generate the code reference pages."""
-
+import logging
 from pathlib import Path
 
 import mkdocs_gen_files
 
 
-root = Path(__file__).parent.parent.parent
-sub_package_srcs = (root / "sub-packages").rglob("src")
+# log stuff
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
-for src in sub_package_srcs:
-    for path in sorted(src.rglob("*.py")):
-        module_path = path.relative_to(src).with_suffix("")
-        doc_path = path.relative_to(src).with_suffix(".md")
-        full_doc_path = Path("API_reference", doc_path)
 
-        parts = tuple(module_path.parts)
+def generate_api_reference() -> None:
+    """Generate API reference documentation for a given source directory.
 
-        if parts[-1] == "__init__":
-            # parts = parts[:-1]
-            continue  # Don't generate ref pages for __init__.py
-        elif parts[-1] == "__main__":
-            continue  # Don't generate ref pages for __main__.py
+    This function iterates through all 'src' directories in the sub-packages,
+    generating API reference documentation for Python files and copying Markdown files.
 
-        with mkdocs_gen_files.open(full_doc_path, "w") as fd:
-            identifier = ".".join(parts)
-            print("::: " + identifier, file=fd)
+    Returns:
+        None
+    """
+    root = Path(__file__).parent.parent.parent
+    sub_package_srcs = (root / "sub-packages").rglob("src")
 
-        mkdocs_gen_files.set_edit_path(full_doc_path, path.relative_to(root))
+    for src in sub_package_srcs:
+        # Process Python files
+        for path in sorted(src.rglob("*.py")):
+            module_path = path.relative_to(src).with_suffix("")
+            doc_path = path.relative_to(src).with_suffix(".md")
+            full_doc_path = Path("API_reference") / doc_path
+            parts = tuple(module_path.parts)
 
-    for path in sorted(src.rglob("*.md")):
-        doc_path = path.relative_to(src)
-        full_doc_path = Path("API_reference", doc_path)
-        with mkdocs_gen_files.open(full_doc_path, "w") as fd:
-            fd.write(path.read_text())
-        print(full_doc_path)
-        mkdocs_gen_files.set_edit_path(full_doc_path, path.relative_to(root))
+            if parts[-1] == "__init__":
+                continue  # Don't generate ref pages for __init__.py
+            elif parts[-1] == "__main__":
+                continue  # Don't generate ref pages for __main__.py
+
+            with mkdocs_gen_files.open(full_doc_path, "w") as fd:
+                identifier = ".".join(parts)
+                print("::: " + identifier, file=fd)
+
+            mkdocs_gen_files.set_edit_path(full_doc_path, path.relative_to(root))
+
+        # Process Markdown files
+        for path in sorted(src.rglob("*.md")):
+            doc_path = path.relative_to(src)
+            full_doc_path = Path("API_reference") / doc_path
+            with mkdocs_gen_files.open(full_doc_path, "w") as fd:
+                fd.write(path.read_text())
+            logger.info(f"Added Markdown file: {full_doc_path}")
+            mkdocs_gen_files.set_edit_path(full_doc_path, path.relative_to(root))
+
+
+def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
+    """Copy Jupyter notebooks from a sub-package to the examples directory.
+
+    Args:
+        sub_package (Path): The path to the sub-package directory.
+        root (Path): The root directory of the project.
+
+    Returns:
+        None
+    """
+    examples_dir = sub_package / "examples"
+    if examples_dir.exists():
+        for notebook in examples_dir.glob("*.ipynb"):
+            dest_dir = Path("examples") / sub_package.name
+            dest_file = dest_dir / notebook.name
+
+            dest_dir.mkdir(parents=True, exist_ok=True)
+
+            with mkdocs_gen_files.open(dest_file, "wb") as fd:
+                fd.write(notebook.read_bytes())
+            logger.info(f"Added notebook: {dest_file}")
+            mkdocs_gen_files.set_edit_path(dest_file, notebook.relative_to(root))
+
+
+def get_subpackage_readmes(sub_package: Path, root: Path) -> None:
+    """Copy README file from a sub-package to the developer guide directory.
+
+    Args:
+        sub_package (Path): The path to the sub-package directory.
+        root (Path): The root directory of the project.
+
+    Returns:
+        None
+    """
+    readme_file = sub_package / "README.md"
+    if readme_file.exists():
+        dest_dir = Path("developer-guide") / sub_package.name
+        dest_file = dest_dir / f"{sub_package.name} Overview.md"
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        with mkdocs_gen_files.open(dest_file, "w") as fd:
+            fd.write(readme_file.read_text())
+        logger.info(f"Added README: {dest_file}")
+        mkdocs_gen_files.set_edit_path(dest_file, readme_file.relative_to(root))
+
+
+def generate_pages() -> None:
+    """Generate pages for documentation.
+
+    This function orchestrates the entire process of generating API references,
+    copying notebooks, and copying README files for all sub-packages.
+
+    Returns:
+        None
+    """
+    root = Path(__file__).parent.parent.parent
+    sub_packages_dir = root / "sub-packages"
+
+    # generate api docs
+    generate_api_reference()
+
+    for sub_package in sub_packages_dir.glob("bionemo-*"):
+        if sub_package.is_dir():
+            get_subpackage_notebooks(sub_package, root)
+            get_subpackage_readmes(sub_package, root)
+
+
+if __name__ in {"__main__", "<run_path>"}:
+    # Check if name is either '__main__', or the equivalent default in `runpy.run_path(...)`, which is '<run_path>'
+    generate_pages()

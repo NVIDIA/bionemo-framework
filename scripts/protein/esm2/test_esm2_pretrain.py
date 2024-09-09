@@ -31,7 +31,6 @@ from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
 
 
-# python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss
 bionemo2_root: Path = (
     # esm2 module's path is the most dependable --> don't expect this to change!
     Path(esm2.__file__)

@@ -17,6 +17,7 @@
 import contextlib
 import os
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -205,3 +206,58 @@ def _get_processor(extension: str, unpack: bool | None, decompress: bool | None)
 
     else:
         return None
+
+
+def main_cli():
+    """Allows a user to get a specific artifact from the command line."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Retrieve the local path to the requested artifact name or list resources."
+    )
+
+    # Create mutually exclusive group
+    group = parser.add_mutually_exclusive_group(required=True)
+
+    # Add the argument for artifact name, which is required if --list-resources is not used
+    group.add_argument("artifact_name", type=str, nargs="?", help="Name of the artifact")
+
+    # Add the --list-resources option
+    group.add_argument(
+        "--list-resources", action="store_true", default=False, help="List all available artifacts and then exit."
+    )
+
+    # Add the --source option
+    parser.add_argument(
+        "--source",
+        type=str,
+        choices=["pbss", "ngc"],
+        default="ngc",
+        help='Backend to use, NVIDIA users should set this to "pbss".',
+    )
+
+    # Parse the command line arguments
+    args = parser.parse_args()
+
+    if args.list_resources:
+        print("#resource_name\tsource_options")
+        for resource_name, resource in sorted(get_all_resources().items()):
+            sources = []
+            if resource.ngc is not None:
+                sources.append("ngc")
+            if resource.pbss is not None:
+                sources.append("pbss")
+            print(f"{resource_name}\t{','.join(sources)}")
+        sys.exit(0)  # Successful exit
+
+    if args.artifact_name:
+        # Get the local path for the provided artifact name
+        local_path = load(args.artifact_name, source=args.source)
+        # Print the result
+        print(local_path)
+    else:
+        parser.error("You must provide an artifact name if --list-resources is not set.")
+
+
+if __name__ == "__main__":
+    main_cli()

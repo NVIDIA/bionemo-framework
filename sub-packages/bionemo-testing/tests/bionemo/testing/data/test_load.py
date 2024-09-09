@@ -16,6 +16,7 @@
 
 import gzip
 import io
+import subprocess
 import tarfile
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -38,6 +39,30 @@ def test_load_raises_error_on_invalid_tag(tmp_path):
 
     with pytest.raises(ValueError, match="Resource 'invalid/tag' not found."):
         load("invalid/tag", resources=get_all_resources(tmp_path), cache_dir=tmp_path)
+
+
+def test_load_cli():
+    result = subprocess.run(
+        ["bionemo_test_data_path", "--source", "pbss", "single_cell/testdata-20240506"],
+        stdout=subprocess.PIPE,  # Capture stdout
+        stderr=subprocess.PIPE,  # Capture stderr (optional)
+        text=True,  # Return output as string rather than bytes
+    )
+    path = Path(result.stdout.strip())
+    assert path.exists()
+    assert path.is_dir()
+
+
+def test_get_resources_cli():
+    result = subprocess.run(
+        ["bionemo_test_data_path", "--list-resources"],
+        stdout=subprocess.PIPE,  # Capture stdout
+        stderr=subprocess.PIPE,  # Capture stderr (optional)
+        text=True,  # Return output as string rather than bytes
+    )
+    resources = result.stdout.strip()
+    result.check_returncode()
+    assert resources
 
 
 def test_load_raises_with_invalid_source(tmp_path):
