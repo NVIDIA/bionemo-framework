@@ -13,11 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from enum import Enum, auto
 from typing import List, Optional
 
 import pytest
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, SequentialSampler
 
 
 class MyDataset(Dataset):
@@ -73,7 +74,7 @@ class MyModel(torch.nn.Module):
 
 @pytest.fixture(scope="module")
 def size_and_dim():
-    size = 4
+    size = 5
     dim_hidden = 4
     return (size, dim_hidden)
 
@@ -86,6 +87,31 @@ def device():
 @pytest.fixture(scope="module")
 def dataset(size_and_dim, device):
     return MyDataset(*size_and_dim, device)
+
+
+@pytest.fixture(scope="module")
+def sampler(dataset):
+    return SequentialSampler(dataset)
+
+
+class TypeSizeOf(Enum):
+    Dict = auto()
+    Seq = auto()
+    Callable = auto()
+
+
+@pytest.fixture(scope="module", params=list(TypeSizeOf))
+def sizeof_dataset(request, dataset):
+    t = request.param
+    s = [i * 10 for i in range(len(dataset))]
+    if t == TypeSizeOf.Dict:
+        return {i: s[i] for i in range(len(s))}, None
+    elif t == TypeSizeOf.Seq:
+        return s, None
+    elif t == TypeSizeOf.Callable:
+        return lambda i: s[i], dataset
+    else:
+        raise ValueError("Unknown TypeSizeOf type")
 
 
 @pytest.fixture(scope="module")
