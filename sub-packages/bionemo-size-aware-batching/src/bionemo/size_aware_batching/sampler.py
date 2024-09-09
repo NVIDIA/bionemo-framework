@@ -46,15 +46,18 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         do_caching: bool = False,
         dataset: Sequence[Data] = None,
     ) -> None:
+        if not (isinstance(sampler, Sampler) or (isinstance(sampler, Iterable) and not isinstance(sampler, str))):
+            raise TypeError("sampler should be an instance of torch.utils.data.Sampler or Iterable")
+
         if not isinstance(max_total_size, (int, float)) or max_total_size <= 0:
             raise ValueError(f"max_total_size should be a positive number, but got max_total_size={max_total_size}")
 
         self._is_sizeof_callable = callable(sizeof)
         self._is_sizeof_dict = isinstance(sizeof, dict)
-        self._is_sizeof_seq = isinstance(sizeof, Sequence)
+        self._is_sizeof_seq = isinstance(sizeof, Sequence) and not isinstance(sizeof, str)
 
         if not (self._is_sizeof_callable or self._is_sizeof_dict or self._is_sizeof_seq):
-            raise ValueError("sizeof can only be a callable, a dictionary or a sequence container")
+            raise TypeError("sizeof can only be a callable, a dictionary or a sequence container")
 
         if do_caching and (self._is_sizeof_dict or self._is_sizeof_seq):
             raise ValueError("Caching is only supported for callable sizeof")
@@ -104,7 +107,7 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
                     f"{max_total_size}. Such elements will be skipped. max(sizeof) = {max_size}"
                 )
             if min_size > max_total_size:
-                raise RuntimeError(
+                raise ValueError(
                     f"Minimum element size in the dataset exceeds "
                     f"requested max_total_size ({min_size} > {max_total_size}). "
                     f"No samples can be generated."
