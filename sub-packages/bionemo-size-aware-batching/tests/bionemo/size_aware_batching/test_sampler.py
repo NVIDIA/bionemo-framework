@@ -13,80 +13,95 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
+
 import pytest
-from torch.utils.data import Sampler
 
 from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
 
 
-@pytest.fixture
-def sampler():
-    return Sampler([1, 2, 3])
+def test_init_valid_input(sampler, sizeof_dataset):
+    sizeof, dataset = sizeof_dataset
+    max_total_size = 60
+    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, dataset=dataset)
+    assert batch_sampler._sampler == sampler
+    assert batch_sampler._max_total_size == max_total_size
+    assert batch_sampler._sizeof == sizeof
+    assert batch_sampler._dataset == dataset
 
 
-@pytest.mark.parametrize(
-    "max_total_size, idx_to_size",
-    [
-        (100, {1: 10, 2: 20, 3: 30}),
-    ],
-)
-def test_initialization_valid_inputs(sampler, max_total_size, idx_to_size):
-    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size=max_total_size, idx_to_size=idx_to_size)
-    assert batch_sampler.num_batches == 3
-
-
-@pytest.mark.parametrize(
-    "sampler",
-    [
-        "not a sampler",
-    ],
-)
-def test_initialization_invalid_inputs(sampler):
+def test_init_invalid_max_total_size(sampler):
+    max_total_size = -1
     with pytest.raises(ValueError):
-        SizeAwareBatchSampler(sampler, max_total_size=100, idx_to_size={1: 10})
+        SizeAwareBatchSampler(sampler, max_total_size, {})
 
 
-def test_edge_case_empty_dataset():
-    with pytest.raises(RuntimeError):
-        SizeAwareBatchSampler(Sampler([]), max_total_size=100, idx_to_size={})
+def test_init_invalid_sampler_type():
+    max_total_size = 60
+    sampler = "not a sampler"
+    with pytest.raises(TypeError):
+        SizeAwareBatchSampler(sampler, max_total_size, {})
 
 
-def test_edge_case_single_element_dataset():
-    sampler = Sampler([1])
-    idx_to_size = {1: 10}
-    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size=100, idx_to_size=idx_to_size)
-    batches = list(batch_sampler)
-    assert len(batches) == 1
-    assert batches[0] == [1]
+def test_init_invalid_sizeof_type(sampler):
+    max_total_size = 60
+    sizeof = " invalid type"
+    with pytest.raises(TypeError):
+        SizeAwareBatchSampler(sampler, max_total_size, sizeof)
 
 
-def test_edge_case_large_batch_size():
-    sampler = Sampler([1, 2, 3, 4, 5])
-    idx_to_size = {1: 10, 2: 20, 3: 30, 4: 40, 5: 50}
-    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size=200, idx_to_size=idx_to_size)
-    batches = list(batch_sampler)
-    assert len(batches) == 2
-    assert batches[0] == [1, 2]
-    assert batches[1] == [3, 4, 5]
+def test_init_callable_sizeof_without_dataset(sampler):
+    max_total_size = 60
+
+    with pytest.raises(ValueError):
+        SizeAwareBatchSampler(sampler, max_total_size, lambda i: 10)
 
 
-def test_edge_case_max_total_size_exceeded():
-    sampler = Sampler([1, 2, 3])
-    idx_to_size = {1: 10, 2: 200, 3: 30}
-    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size=100, idx_to_size=idx_to_size)
-    batches = list(batch_sampler)
-    assert len(batches) == 2
-    assert batches[0] == [1]
-    assert batches[1] == [3]
+def test_init_predefined_sizeof_with_dataset(sampler):
+    max_total_size = 60
+    dataset = [None] * len(sampler)  # dummy dataset
+
+    with pytest.raises(ValueError):
+        SizeAwareBatchSampler(sampler, max_total_size, {}, dataset=dataset)
+        SizeAwareBatchSampler(sampler, max_total_size, [], dataset=dataset)
 
 
-def test_iteration():
-    sampler = Sampler([1, 2, 3])
-    idx_to_size = {1: 10, 2: 20, 3: 30}
-    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size=100, idx_to_size=idx_to_size)
-    for _ in range(3):
-        batches = list(batch_sampler)
-        assert len(batches) == 3
-        assert batches[0] == [1]
-        assert batches[1] == [2]
-        assert batches[2] == [3]
+def test_init_caching_with_predefined_sizeof(sampler):
+    max_total_size = 60
+    with pytest.raises(ValueError):
+        SizeAwareBatchSampler(sampler, max_total_size, {}, do_caching=True)
+        SizeAwareBatchSampler(sampler, max_total_size, [], do_caching=True)
+
+
+def test_init_sizeof_seq_bounds_check(sampler):
+    max_total_size = 60
+    sizeof = [10] * (len(sampler) - 1)  # invalid length
+
+    sys.gettrace = lambda: True
+
+    with pytest.raises(ValueError):
+        SizeAwareBatchSampler(sampler, max_total_size, sizeof)
+
+    sys.gettrace = lambda: None
+
+
+def test_init_max_size_exceeds_max_total_size(sampler):
+    max_total_size = 100
+    sizeof = {i: (1000 if i == 0 else 1) for i in sampler}
+
+    sys.gettrace = lambda: True
+    with pytest.warns(UserWarning):
+        SizeAwareBatchSampler(sampler, max_total_size, sizeof)
+    sys.gettrace = lambda: None
+
+
+def test_init_min_size_exceeds_max_total_size(sampler):
+    max_total_size = 60
+    sizeof = {i: max_total_size + 1 for i in range(len(sampler))}  # invalid value
+
+    sys.gettrace = lambda: True
+
+    with pytest.raises(ValueError), pytest.warns(UserWarning):
+        SizeAwareBatchSampler(sampler, max_total_size, sizeof)
+
+    sys.gettrace = lambda: None
