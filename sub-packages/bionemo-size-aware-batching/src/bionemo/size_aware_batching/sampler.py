@@ -43,16 +43,11 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         sampler: Union[Sampler[List[int]], Iterable[int]],
         max_total_size: Union[int, float],
         sizeof: Union[Dict[int, Union[int, float]], Sequence[int], Callable[[Data], Union[int, float]]],
-        batch_size_mean: int,
         do_caching: bool = False,
         dataset: Sequence[Data] = None,
     ) -> None:
         if not isinstance(max_total_size, (int, float)) or max_total_size <= 0:
             raise ValueError(f"max_total_size should be a positive number, but got max_total_size={max_total_size}")
-        if not isinstance(batch_size_mean, int) or batch_size_mean <= 0:
-            raise ValueError(f"batch_size_mean should be a positive integer, but got batch_size_mean={batch_size_mean}")
-        self._batch_size_mean = batch_size_mean
-        self._num_batches = (len(sampler) + self._batch_size_mean - 1) // self._batch_size_mean
 
         self._is_sizeof_callable = callable(sizeof)
         self._is_sizeof_dict = isinstance(sizeof, dict)
@@ -119,71 +114,32 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         self._max_total_size = max_total_size
         self._sizeof = sizeof
 
-    def __len__(self):
-        return self._num_batches
-
     def __iter__(self) -> Generator[List[int], None, None]:
         batch_total_size = 0
-        yield_num_batches = 0
         batch = []
-        n_exhaustion = 1
-        num_samples = 0
-        while yield_num_batches < self._num_batches:
-            # TODO: triage the necessity of this check
-            if n_exhaustion > 1:
+
+        for idx in self._sampler:
+            if self._sizes_cache is not None and idx in self._sizes_cache:
+                new_size = self._sizes_cache[idx]
+            elif self._is_sizeof_callable:
+                new_size = self._sizeof(self._dataset[idx])
+                if self._sizes_cache is not None:
+                    self._sizes_cache[idx] = new_size
+            else:
+                # self._sizeof is dict or sequence
+                new_size = self._sizeof[idx]
+            if new_size > self._max_total_size:
                 warn(
-                    f"Sampler is being exhausted more than once ({n_exhaustion} times) in one epoch, "
-                    f"try increasing batch_size_mean = {self._batch_size_mean}, "
-                    f"yield_num_batches = {yield_num_batches}, num_batches = {self._num_batches}"
+                    f"Size of element {idx} exceeds max_total_size" f" ({new_size} > {self._max_total_size}), skipping"
                 )
-            for idx in self._sampler:
-                if self._sizes_cache is not None and idx in self._sizes_cache:
-                    new_size = self._sizes_cache[idx]
-                elif self._is_sizeof_callable:
-                    new_size = self._sizeof(self._dataset[idx])
-                    if self._sizes_cache is not None:
-                        self._sizes_cache[idx] = new_size
-                else:
-                    # self._sizeof is dict or sequence
-                    new_size = self._sizeof[idx]
-                if new_size > self._max_total_size:
-                    warn(
-                        f"Size of element {idx} exceeds max_total_size"
-                        f" ({new_size} > {self._max_total_size}), skipping"
-                    )
-                    num_samples += 1
-                    continue
-                if new_size + batch_total_size > self._max_total_size:
-                    num_samples += len(batch)
-                    yield_num_batches += 1
-                    yield batch
-                    batch_total_size = 0
-                    batch = []
-                batch.append(idx)
-                batch_total_size += new_size
-                if yield_num_batches >= self._num_batches:
-                    if num_samples < len(self._sampler):
-                        warn(
-                            f"Only {num_samples} out of {len(self._sampler)} samples are used in one epoch, "
-                            f"try to increase num_batches = {self._num_batches} or reduce batch_size = {self._batch_size_mean}"
-                        )
-                    break
-            n_exhaustion += 1
-            if num_samples == 0:
-                raise RuntimeError(
-                    f"The underlying sampler has been exhausted once but no samples were generated. This could be due to "
-                    f"the minimal size of elements exceeding the requested max_total_size {self._max_total_size}."
-                )
+                continue
+            if new_size + batch_total_size > self._max_total_size:
+                yield batch
+                batch_total_size = 0
+                batch = []
+            batch.append(idx)
+            batch_total_size += new_size
 
-        # return the last one
-        if len(batch) > 0 and yield_num_batches < self._num_batches:
-            num_samples += len(batch)
+        # return the remaining batch if there is
+        if len(batch) > 0:
             yield batch
-            yield_num_batches += 1
-
-        if num_samples < len(self._sampler):
-            warn(
-                f"Only {num_samples} out of {len(self._sampler)} samples are used "
-                f"try to increase max_total_size from {self._max_total_size} or "
-                f"reduce batch_size_mean from {self._batch_size_mean}"
-            )
