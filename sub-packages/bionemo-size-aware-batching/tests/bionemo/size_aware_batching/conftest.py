@@ -72,23 +72,33 @@ class MyModel(torch.nn.Module):
 
 
 @pytest.fixture(scope="module")
-def dataset():
-    return MyDataset(4, 4, torch.device("cuda:0"))
+def size_and_dim():
+    size = 4
+    dim_hidden = 4
+    return (size, dim_hidden)
 
 
 @pytest.fixture(scope="module")
-def model_and_alloc_peak(dataset):
-    device = dataset.device
-    dim_io = dataset.dim
+def device():
+    return torch.device("cuda:0")
+
+
+@pytest.fixture(scope="module")
+def dataset(size_and_dim, device):
+    return MyDataset(*size_and_dim, device)
+
+
+@pytest.fixture(scope="module")
+def model_and_alloc_peak(size_and_dim, device):
+    dim_io = size_and_dim[1]
     alloc_peak = 2**9 * 1024**2  # ~512MB
     dim_hidden = alloc_peak // (4 * dim_io)
     return MyModel(dim_io, dim_hidden).to(device), alloc_peak
 
 
 @pytest.fixture(scope="module")
-def model_huge_sample02(dataset):
-    device = dataset.device
-    dim_io = dataset.dim
+def model_huge_sample02(size_and_dim, device):
+    dim_io = size_and_dim[1]
     alloc_peak = 2**9 * 1024**2  # ~512MB
     dim_hidden = alloc_peak // (4 * dim_io)
     mem_total = torch.cuda.get_device_properties(device).total_memory
