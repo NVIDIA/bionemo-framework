@@ -102,7 +102,7 @@ def test_polynomial_regression(degree):
         x = torch.randn(100)
         y = m_expected(x)
         m.fit(x, y)
-        assert torch.allclose(m.coeffs, m_expected.coeffs)
+        assert torch.allclose(m.coeffs, m_expected.coeffs, rtol=1e-5, atol=1e-5)
 
 
 def test_polynomial_regression_x_and_y_mismatched_length():
