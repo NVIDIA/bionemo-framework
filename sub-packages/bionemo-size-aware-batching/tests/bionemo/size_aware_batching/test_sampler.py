@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import sys
+from warnings import warn
 
 import pytest
 import torch
@@ -22,14 +24,22 @@ from torch.utils.data import SequentialSampler, default_collate
 from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler, size_aware_batching
 
 
-@pytest.mark.parametrize("collate_fn", [None, default_collate])
-def test_sabs_iter(dataset, collate_fn):
-    max_total_size = 31
-
+@pytest.mark.parametrize(
+    "collate_fn, max_total_size, warn_logger", itertools.product([None, default_collate], [0, 15, 31], [None, warn])
+)
+def test_sabs_iter(dataset, collate_fn, max_total_size, warn_logger):
     def sizeof(data: torch.Tensor):
         return ((data[0].item() + 1) % 3) * 10
 
-    meta_batch_ids = list(size_aware_batching(dataset, sizeof, max_total_size, collate_fn=collate_fn))
+    if warn_logger is not None and (max_total_size == 0 or max_total_size == 15):
+        with pytest.warns(UserWarning):
+            meta_batch_ids = list(
+                size_aware_batching(dataset, sizeof, max_total_size, collate_fn=collate_fn, warn_logger=warn_logger)
+            )
+    else:
+        meta_batch_ids = list(
+            size_aware_batching(dataset, sizeof, max_total_size, collate_fn=collate_fn, warn_logger=warn_logger)
+        )
 
     meta_batch_ids_expected = []
     ids_batch = []
@@ -125,47 +135,66 @@ def test_SABS_init_min_size_exceeds_max_total_size(sampler):
     sys.gettrace = lambda: None
 
 
-def test_SABS_iter(sampler, get_sizeof_dataset):
+@pytest.mark.parametrize("max_total_size, warn_logger", itertools.product([0, 31, 60], [None, warn]))
+def test_SABS_iter(sampler, get_sizeof_dataset, max_total_size, warn_logger):
     sizeof = get_sizeof_dataset
-    max_total_size = 29
 
-    size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size)
-
-    meta_batch_ids = list(size_aware_sampler)
-
-    def fn_sizeof(i: int):
-        if callable(sizeof):
-            return sizeof(i)
+    if max_total_size == 0 and not callable(sizeof):
+        sys.gettrace = lambda: True
+        if warn_logger is not None:
+            with pytest.raises(ValueError, match=r"exceeds max_total_size"), pytest.warns(UserWarning):
+                size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size, warn_logger=warn_logger)
         else:
-            return sizeof[i]
+            with pytest.raises(ValueError):
+                size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size, warn_logger=warn_logger)
+        sys.gettrace = lambda: None
+    else:
+        # construction should always succeed
+        size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size, warn_logger=warn_logger)
 
-    # Check that the batches are correctly sized
-    for ids_batch in meta_batch_ids:
-        size_batch = sum(fn_sizeof(idx) for idx in ids_batch)
-        assert size_batch <= max_total_size
+        if max_total_size == 0 and warn_logger is not None:
+            with pytest.warns(UserWarning):
+                meta_batch_ids = list(size_aware_sampler)
+        else:
+            meta_batch_ids = list(size_aware_sampler)
 
-    meta_batch_ids_expected = []
-    ids_batch = []
-    s_all = 0
-    for idx in sampler:
-        s = fn_sizeof(idx)
-        if s > max_total_size:
-            continue
-        if s + s_all > max_total_size:
+        def fn_sizeof(i: int):
+            if callable(sizeof):
+                return sizeof(i)
+            else:
+                return sizeof[i]
+
+        # Check that the batches are correctly sized
+        for ids_batch in meta_batch_ids:
+            size_batch = sum(fn_sizeof(idx) for idx in ids_batch)
+            assert size_batch <= max_total_size
+
+        meta_batch_ids_expected = []
+        ids_batch = []
+        s_all = 0
+        for idx in sampler:
+            s = fn_sizeof(idx)
+            if s > max_total_size:
+                continue
+            if s + s_all > max_total_size:
+                meta_batch_ids_expected.append(ids_batch)
+                s_all = s
+                ids_batch = [idx]
+                continue
+            s_all += s
+            ids_batch.append(idx)
+        if len(ids_batch) > 0:
             meta_batch_ids_expected.append(ids_batch)
-            s_all = s
-            ids_batch = [idx]
-            continue
-        s_all += s
-        ids_batch.append(idx)
-    if len(ids_batch) > 0:
-        meta_batch_ids_expected.append(ids_batch)
 
-    assert meta_batch_ids == meta_batch_ids_expected
+        assert meta_batch_ids == meta_batch_ids_expected
 
-    # the 2nd pass should return the same result
-    meta_batch_ids_2nd_pass = list(size_aware_sampler)
-    assert meta_batch_ids == meta_batch_ids_2nd_pass
+        # the 2nd pass should return the same result
+        if max_total_size == 0 and warn_logger is not None:
+            with pytest.warns(UserWarning):
+                meta_batch_ids_2nd_pass = list(size_aware_sampler)
+        else:
+            meta_batch_ids_2nd_pass = list(size_aware_sampler)
+        assert meta_batch_ids == meta_batch_ids_2nd_pass
 
 
 def test_SABS_iter_no_samples():
@@ -181,5 +210,5 @@ def test_SABS_iter_no_samples():
 def test_SABS_iter_empty_sizeof(sampler):
     size_aware_sampler = SizeAwareBatchSampler(sampler, {}, 1)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="sizeof raises error at data"):
         list(size_aware_sampler)
