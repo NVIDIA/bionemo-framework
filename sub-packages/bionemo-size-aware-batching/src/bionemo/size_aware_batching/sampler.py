@@ -27,8 +27,8 @@ Real = Union[int, float]
 
 
 def size_aware_batching(
-    data: Iterable[Data],
-    sizeof: Union[Dict[int, Real], Sequence[int], Callable[[int], Real]],
+    dataset: Iterable[Data],
+    sizeof: Callable[[Data], Real],
     max_total_size: int,
     collate_fn: Optional[Callable[[Iterable[Data]], Any]] = None,
 ) -> Generator[Any, None, None]:
@@ -37,39 +37,33 @@ def size_aware_batching(
     total size of each batch does not exceed a specified maximum.
 
     Args:
-        data (Iterable[Data]): The input iterable.
+        dataset (Iterable[Data]): The input iterable.
         max_total_size (int): The maximum total size of each batch.
-        sizeof (Union[Dict[int, Real], Sequence[int], Callable[[int], Real]]):
-            A function or mapping that returns the size of each element in `data`.
+        sizeof (Callable[[int], Real]):
+            A function or mapping that returns the size of each element in `dataset`.
         collate_fn (Optional[Callable[[Iterable[Data]], Any]], optional):
             An optional function to collate batches. Defaults to None.
 
     Yields:
-        Generator[Any, None, None]: A generator that yields batches from `data`.
+        Generator[Any, None, None]: A generator that yields batches from `dataset`.
     """
     is_sizeof_callable = callable(sizeof)
-    is_sizeof_dict = isinstance(sizeof, dict)
-    is_sizeof_seq = isinstance(sizeof, Sequence) and not isinstance(sizeof, str)
     has_collate_fn = collate_fn is not None and callable(collate_fn)
 
-    if not (is_sizeof_callable or is_sizeof_dict or is_sizeof_seq):
-        raise TypeError("sizeof can only be a callable, a dictionary or a sequence container")
+    if not is_sizeof_callable:
+        raise TypeError("sizeof can only be a callable")
 
     batch_total_size = 0
     batch = []
-    for idx in data:
+    for data in dataset:
         try:
-            if is_sizeof_callable:
-                new_size = sizeof(idx)
-            else:
-                # sizeof is dict or sequence
-                new_size = sizeof[idx]
+            new_size = sizeof(data)
         except Exception as e:
-            raise RuntimeError(f"sizeof raises error at idx={idx}: {e}") from e
+            raise RuntimeError(f"sizeof raises error at data={data}: {e}") from e
         if not isinstance(new_size, Real):
-            raise TypeError(f"Size of element is not int or float at index {idx}")
+            raise TypeError(f"Size of element is not int or float at index {data}")
         if new_size > max_total_size:
-            warn(f"Size of element {idx} exceeds max_total_size" f" ({new_size} > {max_total_size}), skipping")
+            warn(f"Size of element {data} exceeds max_total_size" f" ({new_size} > {max_total_size}), skipping")
             continue
         if new_size + batch_total_size > max_total_size:
             if has_collate_fn:
@@ -78,7 +72,7 @@ def size_aware_batching(
                 yield batch
             batch_total_size = 0
             batch = []
-        batch.append(idx)
+        batch.append(data)
         batch_total_size += new_size
 
     # return the remaining batch if there is
@@ -105,7 +99,7 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
     def __init__(
         self,
         sampler: Union[Sampler[List[int]], Iterable[int]],
-        sizeof: Union[Dict[int, Real], Sequence[int], Callable[[int], Real]],
+        sizeof: Union[Dict[int, Real], Sequence[Real], Callable[[int], Real]],
         max_total_size: Real,
     ) -> None:
         """
@@ -113,7 +107,7 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
 
         Args:
             sampler (Union[Sampler[List[int]], Iterable[int]]): The underlying sampler.
-            sizeof (Union[Dict[int, Real], Sequence[int], Callable[[int], Real]]):
+            sizeof (Union[Dict[int, Real], Sequence[Real], Callable[[int], Real]]):
                 A function or data structure that returns the size at each index.
             max_total_size (Real): The maximum total size of a mini-batch.
 
@@ -170,7 +164,10 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
                 )
 
         self._sampler = sampler
-        self._sizeof = sizeof
+        if not self._is_sizeof_callable:
+            self._sizeof = lambda i: sizeof[i]
+        else:
+            self._sizeof = sizeof
         self._max_total_size = max_total_size
 
     def __iter__(self) -> Generator[List[int], None, None]:
