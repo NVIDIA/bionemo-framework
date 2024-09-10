@@ -24,7 +24,7 @@ from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
 def test_SABS_init_valid_input(sampler, get_sizeof_dataset):
     sizeof = get_sizeof_dataset
     max_total_size = 60
-    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof)
+    batch_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size)
     assert batch_sampler._sampler == sampler
     assert batch_sampler._max_total_size == max_total_size
     assert batch_sampler._sizeof == sizeof
@@ -49,7 +49,7 @@ def test_SABS_init_invalid_sizeof_type(sampler):
     max_total_size = 60
     sizeof = " invalid type"
     with pytest.raises(TypeError):
-        SizeAwareBatchSampler(sampler, max_total_size, sizeof)
+        SizeAwareBatchSampler(sampler, sizeof, max_total_size)
 
 
 def test_SABS_init_sizeof_seq_bounds_check(sampler):
@@ -59,7 +59,7 @@ def test_SABS_init_sizeof_seq_bounds_check(sampler):
     sys.gettrace = lambda: True
 
     with pytest.raises(ValueError):
-        SizeAwareBatchSampler(sampler, max_total_size, sizeof)
+        SizeAwareBatchSampler(sampler, sizeof, max_total_size)
 
     sys.gettrace = lambda: None
 
@@ -70,7 +70,7 @@ def test_SABS_init_max_size_exceeds_max_total_size(sampler):
 
     sys.gettrace = lambda: True
     with pytest.warns(UserWarning):
-        SizeAwareBatchSampler(sampler, max_total_size, sizeof)
+        SizeAwareBatchSampler(sampler, sizeof, max_total_size)
     sys.gettrace = lambda: None
 
 
@@ -81,7 +81,7 @@ def test_SABS_init_min_size_exceeds_max_total_size(sampler):
     sys.gettrace = lambda: True
 
     with pytest.raises(ValueError), pytest.warns(UserWarning):
-        SizeAwareBatchSampler(sampler, max_total_size, sizeof)
+        SizeAwareBatchSampler(sampler, sizeof, max_total_size)
 
     sys.gettrace = lambda: None
 
@@ -90,7 +90,7 @@ def test_SABS_iter(sampler, get_sizeof_dataset):
     sizeof = get_sizeof_dataset
     max_total_size = 29
 
-    size_aware_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof)
+    size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size)
 
     meta_batch_ids = list(size_aware_sampler)
 
@@ -132,7 +132,7 @@ def test_SABS_iter(sampler, get_sizeof_dataset):
 def test_SABS_iter_no_samples():
     # Test iterating over a batch of indices with no samples
     sampler = SequentialSampler([])
-    size_aware_sampler = SizeAwareBatchSampler(sampler, 100, {})
+    size_aware_sampler = SizeAwareBatchSampler(sampler, {}, 100)
 
     batched_indices = list(size_aware_sampler)
 
@@ -140,7 +140,7 @@ def test_SABS_iter_no_samples():
 
 
 def test_SABS_iter_empty_sizeof(sampler):
-    size_aware_sampler = SizeAwareBatchSampler(sampler, 1, {})
+    size_aware_sampler = SizeAwareBatchSampler(sampler, {}, 1)
 
     with pytest.raises(RuntimeError):
         list(size_aware_sampler)

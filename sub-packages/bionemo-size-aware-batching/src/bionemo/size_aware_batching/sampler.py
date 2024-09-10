@@ -15,13 +15,78 @@
 
 import sys
 from collections.abc import Sequence
-from typing import Callable, Dict, Generator, Iterable, List, TypeVar, Union
+from typing import Any, Callable, Dict, Generator, Iterable, List, TypeVar, Union
 from warnings import warn
 
+from git import Optional
 from torch.utils.data import Sampler
 
 
 Data = TypeVar("Data")
+Real = Union[int, float]
+
+
+def size_aware_batching(
+    data: Iterable[Data],
+    sizeof: Union[Dict[int, Real], Sequence[int], Callable[[int], Real]],
+    max_total_size: int,
+    collate_fn: Optional[Callable[[Iterable[Data]], Any]] = None,
+) -> Generator[Any, None, None]:
+    """
+    A generator that batches elements from an iterable while ensuring that the
+    total size of each batch does not exceed a specified maximum.
+
+    Args:
+        data (Iterable[Data]): The input iterable.
+        max_total_size (int): The maximum total size of each batch.
+        sizeof (Union[Dict[int, Real], Sequence[int], Callable[[int], Real]]):
+            A function or mapping that returns the size of each element in `data`.
+        collate_fn (Optional[Callable[[Iterable[Data]], Any]], optional):
+            An optional function to collate batches. Defaults to None.
+
+    Yields:
+        Generator[Any, None, None]: A generator that yields batches from `data`.
+    """
+    is_sizeof_callable = callable(sizeof)
+    is_sizeof_dict = isinstance(sizeof, dict)
+    is_sizeof_seq = isinstance(sizeof, Sequence) and not isinstance(sizeof, str)
+    has_collate_fn = collate_fn is not None and callable(collate_fn)
+
+    if not (is_sizeof_callable or is_sizeof_dict or is_sizeof_seq):
+        raise TypeError("sizeof can only be a callable, a dictionary or a sequence container")
+
+    batch_total_size = 0
+    batch = []
+    for idx in data:
+        try:
+            if is_sizeof_callable:
+                new_size = sizeof(idx)
+            else:
+                # sizeof is dict or sequence
+                new_size = sizeof[idx]
+        except Exception as e:
+            raise RuntimeError(f"sizeof raises error at idx={idx}: {e}") from e
+        if not isinstance(new_size, Real):
+            raise TypeError(f"Size of element is not int or float at index {idx}")
+        if new_size > max_total_size:
+            warn(f"Size of element {idx} exceeds max_total_size" f" ({new_size} > {max_total_size}), skipping")
+            continue
+        if new_size + batch_total_size > max_total_size:
+            if has_collate_fn:
+                yield collate_fn(batch)
+            else:
+                yield batch
+            batch_total_size = 0
+            batch = []
+        batch.append(idx)
+        batch_total_size += new_size
+
+    # return the remaining batch if there is
+    if len(batch) > 0:
+        if has_collate_fn:
+            yield collate_fn(batch)
+        else:
+            yield batch
 
 
 class SizeAwareBatchSampler(Sampler[List[int]]):
@@ -40,17 +105,17 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
     def __init__(
         self,
         sampler: Union[Sampler[List[int]], Iterable[int]],
-        max_total_size: Union[int, float],
-        sizeof: Union[Dict[int, Union[int, float]], Sequence[int], Callable[[int], Union[int, float]]],
+        sizeof: Union[Dict[int, Real], Sequence[int], Callable[[int], Real]],
+        max_total_size: Real,
     ) -> None:
         """
         Initializes the SizeAwareBatchSampler.
 
         Args:
             sampler (Union[Sampler[List[int]], Iterable[int]]): The underlying sampler.
-            max_total_size (Union[int, float]): The maximum total size of a mini-batch.
-            sizeof (Union[Dict[int, Union[int, float]], Sequence[int], Callable[[int], Union[int, float]]]):
+            sizeof (Union[Dict[int, Real], Sequence[int], Callable[[int], Real]]):
                 A function or data structure that returns the size at each index.
+            max_total_size (Real): The maximum total size of a mini-batch.
 
         Raises:
             TypeError: If sampler is not an instance of Sampler or Iterable, or if sizeof is not a callable, dictionary, or sequence container.
@@ -105,8 +170,8 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
                 )
 
         self._sampler = sampler
-        self._max_total_size = max_total_size
         self._sizeof = sizeof
+        self._max_total_size = max_total_size
 
     def __iter__(self) -> Generator[List[int], None, None]:
         """
@@ -117,32 +182,4 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         Yields:
             List[int]: A batch of indices that do not exceed the maximum total size.
         """
-        batch_total_size = 0
-        batch = []
-
-        for idx in self._sampler:
-            try:
-                if self._is_sizeof_callable:
-                    new_size = self._sizeof(idx)
-                else:
-                    # self._sizeof is dict or sequence
-                    new_size = self._sizeof[idx]
-            except Exception as e:
-                raise RuntimeError(f"sizeof raises error at idx={idx}: {e}") from e
-            if not isinstance(new_size, int) and not isinstance(new_size, float):
-                raise TypeError(f"Size of element is not int or float at index {idx}")
-            if new_size > self._max_total_size:
-                warn(
-                    f"Size of element {idx} exceeds max_total_size" f" ({new_size} > {self._max_total_size}), skipping"
-                )
-                continue
-            if new_size + batch_total_size > self._max_total_size:
-                yield batch
-                batch_total_size = 0
-                batch = []
-            batch.append(idx)
-            batch_total_size += new_size
-
-        # return the remaining batch if there is
-        if len(batch) > 0:
-            yield batch
+        return size_aware_batching(self._sampler, self._sizeof, self._max_total_size)
