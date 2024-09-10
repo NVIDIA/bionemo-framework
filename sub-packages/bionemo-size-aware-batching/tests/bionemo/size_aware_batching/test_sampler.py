@@ -16,9 +16,43 @@
 import sys
 
 import pytest
-from torch.utils.data import SequentialSampler
+import torch
+from torch.utils.data import SequentialSampler, default_collate
 
-from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
+from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler, size_aware_batching
+
+
+@pytest.mark.parametrize("collate_fn", [None, default_collate])
+def test_sabs_iter(dataset, collate_fn):
+    max_total_size = 31
+
+    def sizeof(data: torch.Tensor):
+        return ((data[0].item() + 1) % 3) * 10
+
+    meta_batch_ids = list(size_aware_batching(dataset, sizeof, max_total_size, collate_fn=collate_fn))
+
+    meta_batch_ids_expected = []
+    ids_batch = []
+    s_all = 0
+    for data in dataset:
+        s = sizeof(data)
+        if s > max_total_size:
+            continue
+        if s + s_all > max_total_size:
+            meta_batch_ids_expected.append(ids_batch)
+            s_all = s
+            ids_batch = [data]
+            continue
+        s_all += s
+        ids_batch.append(data)
+    if len(ids_batch) > 0:
+        meta_batch_ids_expected.append(ids_batch)
+
+    if collate_fn is not None:
+        meta_batch_ids_expected = [collate_fn(batch) for batch in meta_batch_ids_expected]
+
+    for i in range(len(meta_batch_ids)):
+        torch.testing.assert_close(meta_batch_ids[i], meta_batch_ids_expected[i])
 
 
 def test_SABS_init_valid_input(sampler, get_sizeof_dataset):
@@ -27,7 +61,12 @@ def test_SABS_init_valid_input(sampler, get_sizeof_dataset):
     batch_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size)
     assert batch_sampler._sampler == sampler
     assert batch_sampler._max_total_size == max_total_size
-    assert batch_sampler._sizeof == sizeof
+
+    for idx in sampler:
+        if callable(sizeof):
+            assert batch_sampler._sizeof(idx) == sizeof(idx)
+        else:
+            assert batch_sampler._sizeof(idx) == sizeof[idx]
 
 
 def test_SABS_init_invalid_max_total_size(sampler):
