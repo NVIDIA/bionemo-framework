@@ -101,15 +101,15 @@ class TypeSizeOf(Enum):
 
 
 @pytest.fixture(scope="module", params=list(TypeSizeOf))
-def get_sizeof_caching_dataset(request, dataset):
+def get_sizeof_dataset(request, dataset):
     t = request.param
     s = [((i % 3) + 1) * 10 for i in range(len(dataset))]
     if t == TypeSizeOf.Dict:
-        return {i: s[i] for i in range(len(s))}, False, None
+        return {i: s[i] for i in range(len(s))}, None
     elif t == TypeSizeOf.Seq:
-        return s, False, None
+        return s, None
     elif t == TypeSizeOf.Callable:
-        return lambda data: s[int(data[0].item())], True, dataset
+        return lambda data: s[int(data[0].item())], dataset
     else:
         raise ValueError("Unknown TypeSizeOf type")
 
