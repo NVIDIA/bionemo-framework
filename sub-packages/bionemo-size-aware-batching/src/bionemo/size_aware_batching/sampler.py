@@ -42,7 +42,6 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         sampler: Union[Sampler[List[int]], Iterable[int]],
         max_total_size: Union[int, float],
         sizeof: Union[Dict[int, Union[int, float]], Sequence[int], Callable[[Data], Union[int, float]]],
-        do_caching: bool = False,
         dataset: Sequence[Data] = None,
     ) -> None:
         """
@@ -53,7 +52,6 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
             max_total_size (Union[int, float]): The maximum total size of a mini-batch.
             sizeof (Union[Dict[int, Union[int, float]], Sequence[int], Callable[[Data], Union[int, float]]]):
                 A function or data structure that returns the size of each element in the dataset.
-            do_caching (bool): Whether to cache the sizes of elements. Defaults to False.
             dataset (Sequence[Data]): The dataset. Required if sizeof is a callable.
 
         Raises:
@@ -76,16 +74,6 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
 
         if not (self._is_sizeof_callable or self._is_sizeof_dict or self._is_sizeof_seq):
             raise TypeError("sizeof can only be a callable, a dictionary or a sequence container")
-
-        if do_caching and (self._is_sizeof_dict or self._is_sizeof_seq):
-            raise ValueError("Caching is only supported for callable sizeof")
-
-        self._do_caching = do_caching
-
-        if self._do_caching:
-            self._sizes_cache = {}
-        else:
-            self._sizes_cache = None
 
         if self._is_sizeof_callable and dataset is None:
             raise ValueError("dataset should be provided when using callable sizeof")
@@ -150,12 +138,8 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         batch = []
 
         for idx in self._sampler:
-            if self._sizes_cache is not None and idx in self._sizes_cache:
-                new_size = self._sizes_cache[idx]
-            elif self._is_sizeof_callable:
+            if self._is_sizeof_callable:
                 new_size = self._sizeof(self._dataset[idx])
-                if self._sizes_cache is not None:
-                    self._sizes_cache[idx] = new_size
             else:
                 # self._sizeof is dict or sequence
                 try:
