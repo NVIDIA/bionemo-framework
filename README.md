@@ -42,6 +42,19 @@ To download the pinned versions of these submodules within an existing git repos
 git submodule update --init --recursive
 ```
 
+Different branches of the repo can have different pinned versions of these third-party submodules. To update submodules
+after switching branches (or pulling recent changes), run
+
+```bash
+git submodule update
+```
+
+To configure git to automatically update submodules when switching branches, run
+
+```bash
+git config submodule.recurse true
+```
+
 ### Updating pinned versions of NeMo / Megatron-LM
 
 To update the pinned commits of NeMo or Megatron-LM, checkout that commit in the submodule folder, and then commit the
