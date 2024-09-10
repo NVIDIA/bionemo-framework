@@ -21,7 +21,7 @@ from torch.utils.data import SequentialSampler
 from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
 
 
-def test_init_valid_input(sampler, get_sizeof_caching_dataset):
+def test_SABS_init_valid_input(sampler, get_sizeof_caching_dataset):
     sizeof, do_caching, dataset = get_sizeof_caching_dataset
     max_total_size = 60
     batch_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, do_caching=do_caching, dataset=dataset)
@@ -32,7 +32,7 @@ def test_init_valid_input(sampler, get_sizeof_caching_dataset):
     assert batch_sampler._do_caching == do_caching
 
 
-def test_init_invalid_max_total_size(sampler):
+def test_SABS_init_invalid_max_total_size(sampler):
     with pytest.raises(ValueError):
         SizeAwareBatchSampler(sampler, -1, {})
 
@@ -40,28 +40,28 @@ def test_init_invalid_max_total_size(sampler):
         SizeAwareBatchSampler(sampler, 0, {})
 
 
-def test_init_invalid_sampler_type():
+def test_SABS_init_invalid_sampler_type():
     max_total_size = 60
     sampler = "not a sampler"
     with pytest.raises(TypeError):
         SizeAwareBatchSampler(sampler, max_total_size, {})
 
 
-def test_init_invalid_sizeof_type(sampler):
+def test_SABS_init_invalid_sizeof_type(sampler):
     max_total_size = 60
     sizeof = " invalid type"
     with pytest.raises(TypeError):
         SizeAwareBatchSampler(sampler, max_total_size, sizeof)
 
 
-def test_init_callable_sizeof_without_dataset(sampler):
+def test_SABS_init_callable_sizeof_without_dataset(sampler):
     max_total_size = 60
 
     with pytest.raises(ValueError):
         SizeAwareBatchSampler(sampler, max_total_size, lambda i: 10)
 
 
-def test_init_predefined_sizeof_with_dataset(sampler):
+def test_SABS_init_predefined_sizeof_with_dataset(sampler):
     max_total_size = 60
     dataset = [None] * len(sampler)  # dummy dataset
 
@@ -70,14 +70,14 @@ def test_init_predefined_sizeof_with_dataset(sampler):
         SizeAwareBatchSampler(sampler, max_total_size, [], dataset=dataset)
 
 
-def test_init_caching_with_predefined_sizeof(sampler):
+def test_SABS_init_caching_with_predefined_sizeof(sampler):
     max_total_size = 60
     with pytest.raises(ValueError):
         SizeAwareBatchSampler(sampler, max_total_size, {}, do_caching=True)
         SizeAwareBatchSampler(sampler, max_total_size, [], do_caching=True)
 
 
-def test_init_sizeof_seq_bounds_check(sampler):
+def test_SABS_init_sizeof_seq_bounds_check(sampler):
     max_total_size = 60
     sizeof = [10] * (len(sampler) - 1)  # invalid length
 
@@ -89,7 +89,7 @@ def test_init_sizeof_seq_bounds_check(sampler):
     sys.gettrace = lambda: None
 
 
-def test_init_max_size_exceeds_max_total_size(sampler):
+def test_SABS_init_max_size_exceeds_max_total_size(sampler):
     max_total_size = 100
     sizeof = {i: (1000 if i == 0 else 1) for i in sampler}
 
@@ -99,7 +99,7 @@ def test_init_max_size_exceeds_max_total_size(sampler):
     sys.gettrace = lambda: None
 
 
-def test_init_min_size_exceeds_max_total_size(sampler):
+def test_SABS_init_min_size_exceeds_max_total_size(sampler):
     max_total_size = 60
     sizeof = {i: max_total_size + 1 for i in range(len(sampler))}  # invalid value
 
@@ -111,7 +111,7 @@ def test_init_min_size_exceeds_max_total_size(sampler):
     sys.gettrace = lambda: None
 
 
-def test_size_aware_batch_sampler_iter(sampler, get_sizeof_caching_dataset):
+def test_SABS_iter(sampler, get_sizeof_caching_dataset):
     sizeof, do_caching, dataset = get_sizeof_caching_dataset
     max_total_size = 29
 
@@ -154,7 +154,7 @@ def test_size_aware_batch_sampler_iter(sampler, get_sizeof_caching_dataset):
         assert size_aware_sampler._sizes_cache == sizes_cache_expected
 
 
-def test_size_aware_batch_sampler_iter_no_samples():
+def test_SABS_iter_no_samples():
     # Test iterating over a batch of indices with no samples
     sampler = SequentialSampler([])
     size_aware_sampler = SizeAwareBatchSampler(sampler, 100, {})
@@ -164,7 +164,7 @@ def test_size_aware_batch_sampler_iter_no_samples():
     assert not batched_indices
 
 
-def test_size_aware_batch_sampler_iter_empty_sizeof(sampler):
+def test_SABS_iter_empty_sizeof(sampler):
     size_aware_sampler = SizeAwareBatchSampler(sampler, 1, {})
 
     with pytest.raises(RuntimeError):
