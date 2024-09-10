@@ -153,6 +153,10 @@ def test_SABS_iter(sampler, get_sizeof_caching_dataset):
         sizes_cache_expected = {idx: fn_sizeof(idx) for idx in range(len(dataset))}
         assert size_aware_sampler._sizes_cache == sizes_cache_expected
 
+        # the 2nd pass should use the cache and return the same result
+        meta_batch_ids_2nd_pass = list(size_aware_sampler)
+        assert meta_batch_ids == meta_batch_ids_2nd_pass
+
 
 def test_SABS_iter_no_samples():
     # Test iterating over a batch of indices with no samples
