@@ -105,11 +105,11 @@ def get_sizeof_dataset(request, dataset):
     t = request.param
     s = [((i % 3) + 1) * 10 for i in range(len(dataset))]
     if t == TypeSizeOf.Dict:
-        return {i: s[i] for i in range(len(s))}, None
+        return {i: s[i] for i in range(len(s))}
     elif t == TypeSizeOf.Seq:
-        return s, None
+        return s
     elif t == TypeSizeOf.Callable:
-        return lambda data: s[int(data[0].item())], dataset
+        return lambda i: s[i]
     else:
         raise ValueError("Unknown TypeSizeOf type")
 
