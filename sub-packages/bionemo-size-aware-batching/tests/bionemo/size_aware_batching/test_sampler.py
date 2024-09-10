@@ -16,24 +16,28 @@
 import sys
 
 import pytest
+from torch.utils.data import SequentialSampler
 
 from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
 
 
-def test_init_valid_input(sampler, sizeof_dataset):
-    sizeof, dataset = sizeof_dataset
+def test_init_valid_input(sampler, get_sizeof_caching_dataset):
+    sizeof, do_caching, dataset = get_sizeof_caching_dataset
     max_total_size = 60
-    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, dataset=dataset)
+    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, do_caching=do_caching, dataset=dataset)
     assert batch_sampler._sampler == sampler
     assert batch_sampler._max_total_size == max_total_size
     assert batch_sampler._sizeof == sizeof
     assert batch_sampler._dataset == dataset
+    assert batch_sampler._do_caching == do_caching
 
 
 def test_init_invalid_max_total_size(sampler):
-    max_total_size = -1
     with pytest.raises(ValueError):
-        SizeAwareBatchSampler(sampler, max_total_size, {})
+        SizeAwareBatchSampler(sampler, -1, {})
+
+    with pytest.raises(ValueError):
+        SizeAwareBatchSampler(sampler, 0, {})
 
 
 def test_init_invalid_sampler_type():
@@ -105,3 +109,63 @@ def test_init_min_size_exceeds_max_total_size(sampler):
         SizeAwareBatchSampler(sampler, max_total_size, sizeof)
 
     sys.gettrace = lambda: None
+
+
+def test_size_aware_batch_sampler_iter(sampler, get_sizeof_caching_dataset):
+    sizeof, do_caching, dataset = get_sizeof_caching_dataset
+    max_total_size = 29
+
+    size_aware_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, do_caching=do_caching, dataset=dataset)
+
+    meta_batch_ids = list(size_aware_sampler)
+
+    def fn_sizeof(i: int):
+        if callable(sizeof):
+            return sizeof(dataset[i])
+        else:
+            return sizeof[i]
+
+    # Check that the batches are correctly sized
+    for ids_batch in meta_batch_ids:
+        size_batch = sum(fn_sizeof(idx) for idx in ids_batch)
+        assert size_batch <= max_total_size
+
+    meta_batch_ids_expected = []
+    ids_batch = []
+    s_all = 0
+    for idx in sampler:
+        s = fn_sizeof(idx)
+        if s > max_total_size:
+            continue
+        if s + s_all > max_total_size:
+            meta_batch_ids_expected.append(ids_batch)
+            s_all = s
+            ids_batch = [idx]
+            continue
+        s_all += s
+        ids_batch.append(idx)
+    if len(ids_batch) > 0:
+        meta_batch_ids_expected.append(ids_batch)
+
+    assert meta_batch_ids == meta_batch_ids_expected
+
+    if do_caching:
+        sizes_cache_expected = {idx: fn_sizeof(idx) for idx in range(len(dataset))}
+        assert size_aware_sampler._sizes_cache == sizes_cache_expected
+
+
+def test_size_aware_batch_sampler_iter_no_samples():
+    # Test iterating over a batch of indices with no samples
+    sampler = SequentialSampler([])
+    size_aware_sampler = SizeAwareBatchSampler(sampler, 100, {})
+
+    batched_indices = list(size_aware_sampler)
+
+    assert not batched_indices
+
+
+def test_size_aware_batch_sampler_iter_empty_sizeof(sampler):
+    size_aware_sampler = SizeAwareBatchSampler(sampler, 1, {})
+
+    with pytest.raises(RuntimeError):
+        list(size_aware_sampler)

@@ -158,7 +158,14 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
                     self._sizes_cache[idx] = new_size
             else:
                 # self._sizeof is dict or sequence
-                new_size = self._sizeof[idx]
+                try:
+                    new_size = self._sizeof[idx]
+                except Exception as e:
+                    raise RuntimeError(f"sizeof must support indexing. Got error for idx={idx}: {e}") from e
+                if not isinstance(new_size, int) and not isinstance(new_size, float):
+                    raise ValueError(
+                        f"Size of element is not int or float at index {idx}. This could be due to empty input sizeof"
+                    )
             if new_size > self._max_total_size:
                 warn(
                     f"Size of element {idx} exceeds max_total_size" f" ({new_size} > {self._max_total_size}), skipping"
