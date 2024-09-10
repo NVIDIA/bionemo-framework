@@ -41,8 +41,7 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         self,
         sampler: Union[Sampler[List[int]], Iterable[int]],
         max_total_size: Union[int, float],
-        sizeof: Union[Dict[int, Union[int, float]], Sequence[int], Callable[[Data], Union[int, float]]],
-        dataset: Sequence[Data] = None,
+        sizeof: Union[Dict[int, Union[int, float]], Sequence[int], Callable[[int], Union[int, float]]],
     ) -> None:
         """
         Initializes the SizeAwareBatchSampler.
@@ -50,17 +49,13 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         Args:
             sampler (Union[Sampler[List[int]], Iterable[int]]): The underlying sampler.
             max_total_size (Union[int, float]): The maximum total size of a mini-batch.
-            sizeof (Union[Dict[int, Union[int, float]], Sequence[int], Callable[[Data], Union[int, float]]]):
-                A function or data structure that returns the size of each element in the dataset.
-            dataset (Sequence[Data]): The dataset. Required if sizeof is a callable.
+            sizeof (Union[Dict[int, Union[int, float]], Sequence[int], Callable[[int], Union[int, float]]]):
+                A function or data structure that returns the size at each index.
 
         Raises:
             TypeError: If sampler is not an instance of Sampler or Iterable, or if sizeof is not a callable, dictionary, or sequence container.
-            ValueError: If max_total_size is not a positive number, or if caching is enabled and sizeof is not a callable.
+            ValueError: If max_total_size is not a positive number.
 
-        Note:
-            When using a predefined dict or sequence container for sizeof, dataset should not be provided.
-            When using a callable sizeof, dataset must be provided.
         """
         if not (isinstance(sampler, Sampler) or (isinstance(sampler, Iterable) and not isinstance(sampler, str))):
             raise TypeError("sampler should be an instance of torch.utils.data.Sampler or Iterable")
@@ -74,16 +69,6 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
 
         if not (self._is_sizeof_callable or self._is_sizeof_dict or self._is_sizeof_seq):
             raise TypeError("sizeof can only be a callable, a dictionary or a sequence container")
-
-        if self._is_sizeof_callable and dataset is None:
-            raise ValueError("dataset should be provided when using callable sizeof")
-
-        if not self._is_sizeof_callable and dataset is not None:
-            raise ValueError(
-                "When using a predefined dict or sequenct container sizeof, dataset should not be provided"
-            )
-
-        self._dataset = dataset
 
         is_debug = hasattr(sys, "gettrace") and sys.gettrace() is not None
 
@@ -109,12 +94,12 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
 
             if max_size > max_total_size:
                 warn(
-                    "Sizes of some elements in the dataset exceed max_total_size "
+                    "Sizes of some elements in the `sizeof` data structure exceed max_total_size "
                     f"{max_total_size}. Such elements will be skipped. max(sizeof) = {max_size}"
                 )
             if min_size > max_total_size:
                 raise ValueError(
-                    f"Minimum element size in the dataset exceeds "
+                    f"Minimum element size in the `sizeof` data structure exceeds "
                     f"requested max_total_size ({min_size} > {max_total_size}). "
                     f"No samples can be generated."
                 )
@@ -128,8 +113,6 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         Iterate over batches of indices.
 
         This function yields batches of indices that do not exceed the maximum total size.
-        It uses a caching mechanism to store the sizes of elements in the dataset, which can speed up
-        the iteration process if the sizeof function is expensive to compute.
 
         Yields:
             List[int]: A batch of indices that do not exceed the maximum total size.
@@ -138,16 +121,16 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         batch = []
 
         for idx in self._sampler:
-            if self._is_sizeof_callable:
-                new_size = self._sizeof(self._dataset[idx])
-            else:
-                # self._sizeof is dict or sequence
-                try:
+            try:
+                if self._is_sizeof_callable:
+                    new_size = self._sizeof(idx)
+                else:
+                    # self._sizeof is dict or sequence
                     new_size = self._sizeof[idx]
-                except Exception as e:
-                    raise RuntimeError(f"sizeof must support indexing. Got error for idx={idx}: {e}") from e
-                if not isinstance(new_size, int) and not isinstance(new_size, float):
-                    raise TypeError(f"Size of element is not int or float at index {idx}")
+            except Exception as e:
+                raise RuntimeError(f"sizeof raises error at idx={idx}: {e}") from e
+            if not isinstance(new_size, int) and not isinstance(new_size, float):
+                raise TypeError(f"Size of element is not int or float at index {idx}")
             if new_size > self._max_total_size:
                 warn(
                     f"Size of element {idx} exceeds max_total_size" f" ({new_size} > {self._max_total_size}), skipping"
