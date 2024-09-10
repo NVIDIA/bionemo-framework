@@ -22,13 +22,12 @@ from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
 
 
 def test_SABS_init_valid_input(sampler, get_sizeof_dataset):
-    sizeof, dataset = get_sizeof_dataset
+    sizeof = get_sizeof_dataset
     max_total_size = 60
-    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, dataset=dataset)
+    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof)
     assert batch_sampler._sampler == sampler
     assert batch_sampler._max_total_size == max_total_size
     assert batch_sampler._sizeof == sizeof
-    assert batch_sampler._dataset == dataset
 
 
 def test_SABS_init_invalid_max_total_size(sampler):
@@ -51,22 +50,6 @@ def test_SABS_init_invalid_sizeof_type(sampler):
     sizeof = " invalid type"
     with pytest.raises(TypeError):
         SizeAwareBatchSampler(sampler, max_total_size, sizeof)
-
-
-def test_SABS_init_callable_sizeof_without_dataset(sampler):
-    max_total_size = 60
-
-    with pytest.raises(ValueError):
-        SizeAwareBatchSampler(sampler, max_total_size, lambda i: 10)
-
-
-def test_SABS_init_predefined_sizeof_with_dataset(sampler):
-    max_total_size = 60
-    dataset = [None] * len(sampler)  # dummy dataset
-
-    with pytest.raises(ValueError):
-        SizeAwareBatchSampler(sampler, max_total_size, {}, dataset=dataset)
-        SizeAwareBatchSampler(sampler, max_total_size, [], dataset=dataset)
 
 
 def test_SABS_init_sizeof_seq_bounds_check(sampler):
@@ -104,16 +87,16 @@ def test_SABS_init_min_size_exceeds_max_total_size(sampler):
 
 
 def test_SABS_iter(sampler, get_sizeof_dataset):
-    sizeof, dataset = get_sizeof_dataset
+    sizeof = get_sizeof_dataset
     max_total_size = 29
 
-    size_aware_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, dataset=dataset)
+    size_aware_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof)
 
     meta_batch_ids = list(size_aware_sampler)
 
     def fn_sizeof(i: int):
         if callable(sizeof):
-            return sizeof(dataset[i])
+            return sizeof(i)
         else:
             return sizeof[i]
 
