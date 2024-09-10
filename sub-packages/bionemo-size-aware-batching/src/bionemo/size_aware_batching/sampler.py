@@ -31,6 +31,8 @@ def size_aware_batching(
     sizeof: Callable[[Data], Real],
     max_total_size: int,
     collate_fn: Optional[Callable[[Iterable[Data]], Any]] = None,
+    info_logger: Optional[Callable[[str], None]] = None,
+    warn_logger: Optional[Callable[[str], None]] = None,
 ) -> Generator[Any, None, None]:
     """
     A generator that batches elements from an iterable while ensuring that the
@@ -43,6 +45,10 @@ def size_aware_batching(
             A function or mapping that returns the size of each element in `dataset`.
         collate_fn (Optional[Callable[[Iterable[Data]], Any]], optional):
             An optional function to collate batches. Defaults to None.
+        info_logger (Optional[Callable[[str], None]], optional): A function to log info.
+            Defaults to None.
+        warn_logger (Optional[Callable[[str], None]], optional): A function to log warnings.
+            Defaults to None.
 
     Yields:
         Generator[Any, None, None]: A generator that yields batches from `dataset`.
@@ -55,7 +61,11 @@ def size_aware_batching(
 
     batch_total_size = 0
     batch = []
+    n_samples = 0
+    n_samples_batched = 0
+    n_batches = 0
     for data in dataset:
+        n_samples += 1
         try:
             new_size = sizeof(data)
         except Exception as e:
@@ -63,9 +73,13 @@ def size_aware_batching(
         if not isinstance(new_size, Real):
             raise TypeError(f"Size of element is not int or float at index {data}")
         if new_size > max_total_size:
-            warn(f"Size of element {data} exceeds max_total_size" f" ({new_size} > {max_total_size}), skipping")
+            if warn_logger is not None:
+                warn_logger(
+                    f"Size of element {data} exceeds max_total_size" f" ({new_size} > {max_total_size}), skipping"
+                )
             continue
         if new_size + batch_total_size > max_total_size:
+            n_batches += 1
             if has_collate_fn:
                 yield collate_fn(batch)
             else:
@@ -73,14 +87,29 @@ def size_aware_batching(
             batch_total_size = 0
             batch = []
         batch.append(data)
+        n_samples_batched += 1
         batch_total_size += new_size
 
     # return the remaining batch if there is
     if len(batch) > 0:
+        n_batches += 1
         if has_collate_fn:
             yield collate_fn(batch)
         else:
             yield batch
+
+    if warn_logger is not None and n_samples_batched < n_samples:
+        warn_logger(
+            f"{n_samples_batched} samples were batched from {n_samples} "
+            f"of the input data. Missing samples are due to exceeding max_total_size={max_total_size})"
+        )
+
+    if info_logger is not None:
+        info_logger(
+            f"Batched {n_samples_batched} samples into {n_batches} batches. "
+            f"If this doesn't match the your expectation, consider adjusting "
+            f"max_total_size or the sizeof functor"
+        )
 
 
 class SizeAwareBatchSampler(Sampler[List[int]]):
@@ -101,6 +130,8 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         sampler: Union[Sampler[List[int]], Iterable[int]],
         sizeof: Union[Dict[int, Real], Sequence[Real], Callable[[int], Real]],
         max_total_size: Real,
+        info_logger: Optional[Callable[[str], None]] = lambda msg: print(msg),
+        warn_logger: Optional[Callable[[str], None]] = lambda msg: warn(msg),
     ) -> None:
         """
         Initializes the SizeAwareBatchSampler.
@@ -110,6 +141,10 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
             sizeof (Union[Dict[int, Real], Sequence[Real], Callable[[int], Real]]):
                 A function or data structure that returns the size at each index.
             max_total_size (Real): The maximum total size of a mini-batch.
+            info_logger (Optional[Callable[[str], None]], optional): A function to log info.
+                Defaults to a lambda function that print.
+            warn_logger (Optional[Callable[[str], None]], optional): A function to log warnings.
+                Defaults to a lambda function that warns.
 
         Raises:
             TypeError: If sampler is not an instance of Sampler or Iterable, or if sizeof is not a callable, dictionary, or sequence container.
@@ -119,8 +154,11 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         if not (isinstance(sampler, Sampler) or (isinstance(sampler, Iterable) and not isinstance(sampler, str))):
             raise TypeError("sampler should be an instance of torch.utils.data.Sampler or Iterable")
 
-        if not isinstance(max_total_size, (int, float)) or max_total_size <= 0:
-            raise ValueError(f"max_total_size should be a positive number, but got max_total_size={max_total_size}")
+        if not isinstance(max_total_size, Real):
+            raise ValueError(f"max_total_size should be int or float but got {type(max_total_size)}")
+
+        self._info_logger = info_logger
+        self._warn_logger = warn_logger
 
         self._is_sizeof_callable = callable(sizeof)
         self._is_sizeof_dict = isinstance(sizeof, dict)
@@ -151,15 +189,15 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
                 max_size = max(sizeof)
                 min_size = min(sizeof)
 
-            if max_size > max_total_size:
-                warn(
+            if self._warn_logger is not None and max_size > max_total_size:
+                self._warn_logger(
                     "Sizes of some elements in the `sizeof` data structure exceed max_total_size "
                     f"{max_total_size}. Such elements will be skipped. max(sizeof) = {max_size}"
                 )
             if min_size > max_total_size:
                 raise ValueError(
                     f"Minimum element size in the `sizeof` data structure exceeds "
-                    f"requested max_total_size ({min_size} > {max_total_size}). "
+                    f"max_total_size ({min_size} > {max_total_size}). "
                     f"No samples can be generated."
                 )
 
@@ -179,4 +217,11 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         Yields:
             List[int]: A batch of indices that do not exceed the maximum total size.
         """
-        return size_aware_batching(self._sampler, self._sizeof, self._max_total_size)
+        return size_aware_batching(
+            self._sampler,
+            self._sizeof,
+            self._max_total_size,
+            collate_fn=None,
+            info_logger=self._info_logger,
+            warn_logger=self._warn_logger,
+        )
