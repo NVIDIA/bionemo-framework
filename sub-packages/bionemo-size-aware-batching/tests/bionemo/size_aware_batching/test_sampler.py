@@ -21,15 +21,14 @@ from torch.utils.data import SequentialSampler
 from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
 
 
-def test_SABS_init_valid_input(sampler, get_sizeof_caching_dataset):
-    sizeof, do_caching, dataset = get_sizeof_caching_dataset
+def test_SABS_init_valid_input(sampler, get_sizeof_dataset):
+    sizeof, dataset = get_sizeof_dataset
     max_total_size = 60
-    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, do_caching=do_caching, dataset=dataset)
+    batch_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, dataset=dataset)
     assert batch_sampler._sampler == sampler
     assert batch_sampler._max_total_size == max_total_size
     assert batch_sampler._sizeof == sizeof
     assert batch_sampler._dataset == dataset
-    assert batch_sampler._do_caching == do_caching
 
 
 def test_SABS_init_invalid_max_total_size(sampler):
@@ -70,13 +69,6 @@ def test_SABS_init_predefined_sizeof_with_dataset(sampler):
         SizeAwareBatchSampler(sampler, max_total_size, [], dataset=dataset)
 
 
-def test_SABS_init_caching_with_predefined_sizeof(sampler):
-    max_total_size = 60
-    with pytest.raises(ValueError):
-        SizeAwareBatchSampler(sampler, max_total_size, {}, do_caching=True)
-        SizeAwareBatchSampler(sampler, max_total_size, [], do_caching=True)
-
-
 def test_SABS_init_sizeof_seq_bounds_check(sampler):
     max_total_size = 60
     sizeof = [10] * (len(sampler) - 1)  # invalid length
@@ -111,11 +103,11 @@ def test_SABS_init_min_size_exceeds_max_total_size(sampler):
     sys.gettrace = lambda: None
 
 
-def test_SABS_iter(sampler, get_sizeof_caching_dataset):
-    sizeof, do_caching, dataset = get_sizeof_caching_dataset
+def test_SABS_iter(sampler, get_sizeof_dataset):
+    sizeof, dataset = get_sizeof_dataset
     max_total_size = 29
 
-    size_aware_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, do_caching=do_caching, dataset=dataset)
+    size_aware_sampler = SizeAwareBatchSampler(sampler, max_total_size, sizeof, dataset=dataset)
 
     meta_batch_ids = list(size_aware_sampler)
 
@@ -149,13 +141,9 @@ def test_SABS_iter(sampler, get_sizeof_caching_dataset):
 
     assert meta_batch_ids == meta_batch_ids_expected
 
-    if do_caching:
-        sizes_cache_expected = {idx: fn_sizeof(idx) for idx in range(len(dataset))}
-        assert size_aware_sampler._sizes_cache == sizes_cache_expected
-
-        # the 2nd pass should use the cache and return the same result
-        meta_batch_ids_2nd_pass = list(size_aware_sampler)
-        assert meta_batch_ids == meta_batch_ids_2nd_pass
+    # the 2nd pass should return the same result
+    meta_batch_ids_2nd_pass = list(size_aware_sampler)
+    assert meta_batch_ids == meta_batch_ids_2nd_pass
 
 
 def test_SABS_iter_no_samples():
