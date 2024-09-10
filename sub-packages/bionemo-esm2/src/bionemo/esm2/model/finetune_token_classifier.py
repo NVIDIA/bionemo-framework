@@ -24,6 +24,7 @@ from nemo.collections.common.tokenizers import TokenizerSpec
 from nemo.lightning.megatron_parallel import MegatronLossReduction, ReductionT
 
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
+from bionemo.llm.model.loss import BERTMLMLossWithReduction
 from bionemo.llm.utils import iomixin_utils as iom
 
 
@@ -34,7 +35,7 @@ token to output cell type predictions.
 __all__ = []
 
 
-class ClassifierLossReduction(MegatronLossReduction):
+class ClassifierLossReduction(BERTMLMLossWithReduction):
     """A class used for calculating the loss, and for logging the reduced loss across micro batches."""
 
     def forward(self, batch: Dict[str, torch.Tensor], forward_out: torch.Tensor) -> Tuple[torch.Tensor, ReductionT]:
@@ -150,7 +151,7 @@ class ESM2FineTuneSeqLenBioBertConfig(ESM2GenericConfig[ESM2FineTuneSeqLengthMod
     cnn_dropout: float = 0.25
     cnn_hidden_dim: int = 32  # The number of output channels in the bottleneck layer of the convolution.
 
-    def get_loss_reduction_class(self) -> Type[ClassifierLossReduction]:
+    def get_loss_reduction_class(self) -> Type[MegatronLossReduction]:
         return ClassifierLossReduction
 
 
