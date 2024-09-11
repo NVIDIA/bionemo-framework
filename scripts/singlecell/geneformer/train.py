@@ -75,7 +75,6 @@ def main(
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Path | None = None,
     restore_from_checkpoint_path: Path | None = None,
-    save_best_checkpoint: bool = True,
     save_last_checkpoint: bool = True,
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
@@ -254,7 +253,6 @@ def main(
     )
     # Configure our custom Checkpointer
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_best_model=save_best_checkpoint,
         save_last=save_last_checkpoint,
         monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
         save_top_k=save_top_k,
@@ -510,7 +508,6 @@ if __name__ == "__main__":
         nemo1_init_path=args.nemo1_init_path,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
         config_class=args.training_model_config_class,
-        save_best_checkpoint=args.save_best_checkpoint,
         save_last_checkpoint=args.save_last_checkpoint,
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
