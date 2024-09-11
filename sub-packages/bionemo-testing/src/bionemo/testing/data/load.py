@@ -15,7 +15,6 @@
 
 
 import contextlib
-import os
 import shutil
 import sys
 import tempfile
@@ -25,24 +24,12 @@ from typing import Literal
 
 import boto3
 import ngcsdk
-import platformdirs
 import pooch
 from botocore.config import Config
 from tqdm import tqdm
 
+from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.testing.data.resource import Resource, get_all_resources
-
-
-def _get_cache_dir() -> Path:
-    """Get the cache directory for downloaded resources."""
-    if cache_dir := os.getenv("BIONEMO_CACHE_DIR"):
-        return Path(cache_dir)
-
-    return Path(platformdirs.user_cache_dir(appname="bionemo", appauthor="nvidia"))
-
-
-BIONEMO_CACHE_DIR = _get_cache_dir()
-BIONEMO_CACHE_DIR.mkdir(exist_ok=True, parents=True)
 
 
 def default_pbss_client():

@@ -24,6 +24,7 @@ from nemo.collections import llm
 from nemo.lightning import nemo_logger, resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 
+from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.testing import testing_callbacks
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 
@@ -104,7 +105,7 @@ class StopAndGoHarness(ABC):
 
     def __init__(
         self,
-        root_dir: pathlib.Path | str = pathlib.Path("./"),
+        root_dir: pathlib.Path | str = BIONEMO_CACHE_DIR,
         val_check_interval=2,
         exp_name="stop_and_go_harness",
         extra_metrics_dict: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]] | None = None,

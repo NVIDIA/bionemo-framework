@@ -23,28 +23,16 @@ import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 from train import main, parser  # TODO: needs to be refactored to a package and imported!
 
-from bionemo import geneformer
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.data.load import load
 
 
-bionemo2_root: Path = (
-    # geneformer module's path is the most dependable --> don't expect this to change!
-    Path(geneformer.__file__)
-    # This gets us from 'sub-packages/bionemo-geneformer/src/bionemo/esm2/__init__.py' to 'sub-packages/bionemo-geneformer'
-    .parent.parent.parent.parent
-    # From here, we want to get to the root of the repository: _before_ sub-packages/
-    .parent.parent
-).absolute()
-assert bionemo2_root != Path("/")
 data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
 
 
 def test_bionemo2_rootdir():
-    assert (bionemo2_root / "sub-packages").exists(), "Could not find bionemo2 root directory."
-    assert (bionemo2_root / "sub-packages").is_dir(), "sub-packages is supposed to be a directory."
     data_error_str = (
         "Please download test data with:\n"
         "`python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss`"
@@ -102,8 +90,9 @@ def test_pretrain_cli(tmpdir):
     result_dir = Path(tmpdir.mkdir("results"))
     open_port = find_free_network_port()
     # NOTE: if you need to change the following command, please update the README.md example.
+    script_dir = Path(__file__).parent
     cmd_str = f"""python  \
-    {bionemo2_root}/scripts/singlecell/geneformer/train.py     \
+    {script_dir}/train.py     \
     --data-dir {data_path}     \
     --result-dir {result_dir}     \
     --experiment-name test_experiment     \

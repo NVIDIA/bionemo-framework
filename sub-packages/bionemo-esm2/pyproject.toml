@@ -19,3 +19,6 @@ where = ["src"]
 include=["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
+
+[tool.setuptools.package-data]
+"*" = ["**"]

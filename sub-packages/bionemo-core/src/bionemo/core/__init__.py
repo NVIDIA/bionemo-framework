@@ -12,3 +12,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+import os
+from pathlib import Path
+
+import platformdirs
+
+
+def _get_cache_dir() -> Path:
+    """Get the cache directory for downloaded resources."""
+    if cache_dir := os.getenv("BIONEMO_CACHE_DIR"):
+        return Path(cache_dir)
+
+    return Path(platformdirs.user_cache_dir(appname="bionemo", appauthor="nvidia"))
+
+
+BIONEMO_CACHE_DIR = _get_cache_dir()
+BIONEMO_CACHE_DIR.mkdir(exist_ok=True, parents=True)
