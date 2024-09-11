@@ -65,8 +65,15 @@ def test_sabs_iter(dataset, collate_fn, max_total_size, warn_logger):
         torch.testing.assert_close(meta_batch_ids[i], meta_batch_ids_expected[i])
 
 
-def test_SABS_init_valid_input(sampler, get_sizeof_dataset):
-    sizeof = get_sizeof_dataset
+def test_sabs_init_invalid_sizeof_type(sampler):
+    max_total_size = 60
+    sizeof = " invalid type"
+    with pytest.raises(TypeError, match="sizeof must be a callable"):
+        list(size_aware_batching(sampler, sizeof, max_total_size))
+
+
+def test_SABS_init_valid_input(sampler, get_sizeof):
+    sizeof = get_sizeof
     max_total_size = 60
     batch_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size)
     assert batch_sampler._sampler == sampler
@@ -97,47 +104,13 @@ def test_SABS_init_invalid_sampler_type():
 def test_SABS_init_invalid_sizeof_type(sampler):
     max_total_size = 60
     sizeof = " invalid type"
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="sizeof must be a callable"):
         SizeAwareBatchSampler(sampler, sizeof, max_total_size)
-
-
-def test_SABS_init_sizeof_seq_bounds_check(sampler):
-    max_total_size = 60
-    sizeof = [10] * (len(sampler) - 1)  # invalid length
-
-    sys.gettrace = lambda: True
-
-    with pytest.raises(ValueError):
-        SizeAwareBatchSampler(sampler, sizeof, max_total_size)
-
-    sys.gettrace = lambda: None
-
-
-def test_SABS_init_max_size_exceeds_max_total_size(sampler):
-    max_total_size = 100
-    sizeof = {i: (1000 if i == 0 else 1) for i in sampler}
-
-    sys.gettrace = lambda: True
-    with pytest.warns(UserWarning):
-        SizeAwareBatchSampler(sampler, sizeof, max_total_size)
-    sys.gettrace = lambda: None
-
-
-def test_SABS_init_min_size_exceeds_max_total_size(sampler):
-    max_total_size = 60
-    sizeof = {i: max_total_size + 1 for i in range(len(sampler))}  # invalid value
-
-    sys.gettrace = lambda: True
-
-    with pytest.raises(ValueError), pytest.warns(UserWarning):
-        SizeAwareBatchSampler(sampler, sizeof, max_total_size)
-
-    sys.gettrace = lambda: None
 
 
 @pytest.mark.parametrize("max_total_size, warn_logger", itertools.product([0, 31, 60], [None, warn]))
-def test_SABS_iter(sampler, get_sizeof_dataset, max_total_size, warn_logger):
-    sizeof = get_sizeof_dataset
+def test_SABS_iter(sampler, get_sizeof, max_total_size, warn_logger):
+    sizeof = get_sizeof
 
     if max_total_size == 0 and not callable(sizeof):
         sys.gettrace = lambda: True
@@ -197,18 +170,32 @@ def test_SABS_iter(sampler, get_sizeof_dataset, max_total_size, warn_logger):
         assert meta_batch_ids == meta_batch_ids_2nd_pass
 
 
-def test_SABS_iter_no_samples():
+def test_SABS_iter_no_samples(get_sizeof):
     # Test iterating over a batch of indices with no samples
     sampler = SequentialSampler([])
-    size_aware_sampler = SizeAwareBatchSampler(sampler, {}, 100)
+    sizeof = get_sizeof
+    size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, 100)
 
     batched_indices = list(size_aware_sampler)
 
     assert not batched_indices
 
 
-def test_SABS_iter_empty_sizeof(sampler):
-    size_aware_sampler = SizeAwareBatchSampler(sampler, {}, 1)
+def test_SABS_iter_sizeof_raises(sampler):
+    def sizeof(i: int):
+        raise RuntimeError("error at data")
+
+    size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, 1)
 
     with pytest.raises(RuntimeError, match="sizeof raises error at data"):
+        list(size_aware_sampler)
+
+
+def test_SABS_iter_sizeof_invalid_return_type(sampler):
+    def sizeof(i: int):
+        return str(i)
+
+    size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, 1)
+
+    with pytest.raises(TypeError, match="Size of element is not int or float"):
         list(size_aware_sampler)
