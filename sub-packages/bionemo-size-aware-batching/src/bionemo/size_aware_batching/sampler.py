@@ -13,9 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-from collections.abc import Sequence
-from typing import Any, Callable, Dict, Generator, Iterable, List, TypeVar, Union
+from typing import Any, Callable, Generator, Iterable, List, TypeVar, Union
 from warnings import warn
 
 from git import Optional
@@ -36,12 +34,13 @@ def size_aware_batching(
 ) -> Generator[Any, None, None]:
     """
     A generator that batches elements from an iterable while ensuring that the
-    total size of each batch does not exceed a specified maximum.
+    total size of each batch does not exceed a specified maximum. This can be
+    useful for both indexible data or non-indexible but iterable data.
 
     Args:
         dataset (Iterable[Data]): The input iterable.
         max_total_size (int): The maximum total size of each batch.
-        sizeof (Callable[[int], Real]):
+        sizeof (Callable[[Data], Real]):
             A function or mapping that returns the size of each element in `dataset`.
         collate_fn (Optional[Callable[[Iterable[Data]], Any]], optional):
             An optional function to collate batches. Defaults to None.
@@ -57,7 +56,7 @@ def size_aware_batching(
     has_collate_fn = collate_fn is not None and callable(collate_fn)
 
     if not is_sizeof_callable:
-        raise TypeError("sizeof can only be a callable")
+        raise TypeError("sizeof must be a callable")
 
     batch_total_size = 0
     batch = []
@@ -128,7 +127,7 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
     def __init__(
         self,
         sampler: Union[Sampler[List[int]], Iterable[int]],
-        sizeof: Union[Dict[int, Real], Sequence[Real], Callable[[int], Real]],
+        sizeof: Callable[[int], Real],
         max_total_size: Real,
         info_logger: Optional[Callable[[str], None]] = lambda msg: print(msg),
         warn_logger: Optional[Callable[[str], None]] = lambda msg: warn(msg),
@@ -138,8 +137,7 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
 
         Args:
             sampler (Union[Sampler[List[int]], Iterable[int]]): The underlying sampler.
-            sizeof (Union[Dict[int, Real], Sequence[Real], Callable[[int], Real]]):
-                A function or data structure that returns the size at each index.
+            sizeof (Callable[[int], Real]): A function that returns the size at each index.
             max_total_size (Real): The maximum total size of a mini-batch.
             info_logger (Optional[Callable[[str], None]], optional): A function to log info.
                 Defaults to a lambda function that print.
@@ -161,51 +159,12 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         self._warn_logger = warn_logger
 
         self._is_sizeof_callable = callable(sizeof)
-        self._is_sizeof_dict = isinstance(sizeof, dict)
-        self._is_sizeof_seq = isinstance(sizeof, Sequence) and not isinstance(sizeof, str)
 
-        if not (self._is_sizeof_callable or self._is_sizeof_dict or self._is_sizeof_seq):
-            raise TypeError("sizeof can only be a callable, a dictionary or a sequence container")
-
-        is_debug = hasattr(sys, "gettrace") and sys.gettrace() is not None
-
-        if is_debug and self._is_sizeof_seq:
-            # O(n) expensive check
-            # check the bounds for the sample indices
-            idx_min = min(sampler)
-            idx_max = max(sampler)
-            size_idx = len(sizeof)
-            if idx_min < 0 or idx_min >= size_idx or idx_max < 0 or idx_max >= size_idx:
-                raise ValueError(
-                    f"The index range of sampler [{idx_min}, {idx_max}] exceeds the index bounds of the sequence container [{0}, {size_idx-1}]"
-                )
-
-        if is_debug and (self._is_sizeof_dict or self._is_sizeof_seq):
-            # O(n) expensive check
-            if self._is_sizeof_dict:
-                max_size = max(sizeof.values())
-                min_size = min(sizeof.values())
-            else:
-                max_size = max(sizeof)
-                min_size = min(sizeof)
-
-            if self._warn_logger is not None and max_size > max_total_size:
-                self._warn_logger(
-                    "Sizes of some elements in the `sizeof` data structure exceed max_total_size "
-                    f"{max_total_size}. Such elements will be skipped. max(sizeof) = {max_size}"
-                )
-            if min_size > max_total_size:
-                raise ValueError(
-                    f"Minimum element size in the `sizeof` data structure exceeds "
-                    f"max_total_size ({min_size} > {max_total_size}). "
-                    f"No samples can be generated."
-                )
+        if not self._is_sizeof_callable:
+            raise TypeError("sizeof must be a callable")
 
         self._sampler = sampler
-        if not self._is_sizeof_callable:
-            self._sizeof = lambda i: sizeof[i]
-        else:
-            self._sizeof = sizeof
+        self._sizeof = sizeof
         self._max_total_size = max_total_size
 
     def __iter__(self) -> Generator[List[int], None, None]:
