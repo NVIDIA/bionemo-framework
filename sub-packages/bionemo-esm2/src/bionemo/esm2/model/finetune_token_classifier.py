@@ -87,7 +87,7 @@ class MegatronConvNetHead(MegatronModule):
         # These are used for producing logits scores of varying sizes as specified in `output_sizes`.
         self.class_heads = torch.nn.Conv2d(32, config.cnn_num_classes, kernel_size=(7, 1), padding=(3, 0))
 
-    def forward(self, hidden_states: torch.Tensor) -> List[torch.Tensor]:
+    def forward(self, hidden_states: torch.Tensor) -> List[torch.Tensor]:  # torch.Size([4, 1280])
         # [b, s, h] -> [b, h, s, 1]
         hidden_states = hidden_states.permute(0, 2, 1).unsqueeze(dim=-1)
         hidden_states = self.finetune_model(hidden_states)  # [b, 32, s, 1]
@@ -123,9 +123,7 @@ class ESM2FineTuneSeqLengthModel(ESM2Model):
                 "Make sure include_hiddens=True in the call to super().__init__"
             )
         # Get the hidden state from the parent output, and pull out the [CLS] token for this task
-        hidden_states: torch.Tensor = output["hidden_states"][
-            :, 0
-        ]  # [b s h] => [b h], use [CLS] (first) token for reg
+        hidden_states: torch.Tensor = output["hidden_states"]
         # Predict our 1d regression target
         classification_output = self.classification_head(hidden_states)
         if not self.include_hiddens_finetuning:

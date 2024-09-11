@@ -133,13 +133,13 @@ class PerTokenValueDataset(Dataset):
         sequence = self.data[idx][1]
         tokenized_sequence = self._tokenize(sequence)
         label_ids = torch.tensor(self.label_tokenizer.text_to_ids(self.data[idx][2]))
-        labels = torch.nn.functional.one_hot(label_ids, num_classes=3)
+        label = torch.nn.functional.one_hot(label_ids, num_classes=3)
 
         return {
             "text": tokenized_sequence,
             "types": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
             "attention_mask": torch.ones_like(tokenized_sequence, dtype=torch.int64),
-            "labels": labels,
+            "label": label,
             "loss_mask": torch.ones_like(tokenized_sequence, dtype=torch.bool),
             "is_random": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
         }
