@@ -22,5 +22,6 @@ include=["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
 
+# Make sure that the resource yaml files are being packaged alongside the python files.
 [tool.setuptools.package-data]
 "*" = ["**"]

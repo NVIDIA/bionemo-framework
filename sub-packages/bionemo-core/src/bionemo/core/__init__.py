@@ -15,8 +15,12 @@
 
 import os
 from pathlib import Path
+from typing import Sequence
 
 import platformdirs
+
+
+__all__: Sequence[str] = ("BIONEMO_CACHE_DIR",)
 
 
 def _get_cache_dir() -> Path:
@@ -24,8 +28,16 @@ def _get_cache_dir() -> Path:
     if cache_dir := os.getenv("BIONEMO_CACHE_DIR"):
         return Path(cache_dir)
 
-    return Path(platformdirs.user_cache_dir(appname="bionemo", appauthor="nvidia"))
+    cache_dir = Path(platformdirs.user_cache_dir(appname="bionemo", appauthor="nvidia"))
+
+    try:
+        cache_dir.mkdir(exist_ok=True, parents=True)
+    except PermissionError:
+        raise PermissionError(
+            f"Permission denied creating a cache directory at {cache_dir}. Please set BIONEMO_CACHE_DIR to a directory "
+            "you have write access to."
+        )
+    return cache_dir
 
 
 BIONEMO_CACHE_DIR = _get_cache_dir()
-BIONEMO_CACHE_DIR.mkdir(exist_ok=True, parents=True)
