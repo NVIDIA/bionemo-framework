@@ -18,7 +18,8 @@
         "resamplers",
         "singlecell",
         "tqdm",
-        "uniref"
+        "uniref",
+        "upsampling"
     ],
     "editor.rulers": [
         120

@@ -14,6 +14,8 @@
 # limitations under the License.
 
 
+from unittest import mock
+
 import pandas as pd
 import pytest
 import torch
@@ -41,8 +43,6 @@ def test_protein_sqlite_dataset(dummy_protein_dataset):
 
 
 def test_ESMPreTrainingDataset_getitem_has_expected_structure(dummy_protein_dataset, tokenizer):
-    """Test that the ESMPreTrainingDataset's __getitem__ method is deterministic."""
-
     protein_dataset = ProteinSQLiteDataset(dummy_protein_dataset)
     clusters = [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]]
     esm_dataset = ESMMaskedResidueDataset(
@@ -64,8 +64,6 @@ def test_ESMPreTrainingDataset_getitem_has_expected_structure(dummy_protein_data
 
 
 def test_ESMPreTrainingDataset_getitem_match_for_identical_seeds(dummy_protein_dataset):
-    """Test that the ESMPreTrainingDataset's __getitem__ method is deterministic."""
-
     dataset = ProteinSQLiteDataset(dummy_protein_dataset)
     clusters = [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]]
 
@@ -82,8 +80,6 @@ def test_ESMPreTrainingDataset_getitem_match_for_identical_seeds(dummy_protein_d
 
 
 def test_ESMPreTrainingDataset_getitem_is_deterministic(dummy_protein_dataset):
-    """Test that the ESMPreTrainingDataset's __getitem__ method is deterministic."""
-
     dataset = ProteinSQLiteDataset(dummy_protein_dataset)
     clusters = [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]]
 
@@ -98,8 +94,6 @@ def test_ESMPreTrainingDataset_getitem_is_deterministic(dummy_protein_dataset):
 
 
 def test_ESMPreTrainingDataset_getitem_differs_with_different_seeds(dummy_protein_dataset):
-    """Test that the ESMPreTrainingDataset's __getitem__ method is deterministic."""
-
     dataset = ProteinSQLiteDataset(dummy_protein_dataset)
     clusters = [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]]
 
@@ -113,8 +107,6 @@ def test_ESMPreTrainingDataset_getitem_differs_with_different_seeds(dummy_protei
 
 
 def test_ESMPreTrainingDataset_getitem_changes_each_epoch(dummy_protein_dataset):
-    """Test that the ESMPreTrainingDataset's __getitem__ method is deterministic."""
-
     dataset = ProteinSQLiteDataset(dummy_protein_dataset)
     clusters = [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]]
 
@@ -132,15 +124,14 @@ def test_ESMPreTrainingDataset_getitem_changes_each_epoch(dummy_protein_dataset)
 
 
 def test_ESMPreTrainingDataset_fails_with_empty_cluster(dummy_protein_dataset):
-    """Test that the ESMPreTrainingDataset's __getitem__ method is deterministic."""
-
     dataset = ProteinSQLiteDataset(dummy_protein_dataset)
     clusters = [["UniRef90_A"], [], ["UniRef90_B", "UniRef90_C"]]
 
-    dataset = ESMMaskedResidueDataset(protein_dataset=dataset, clusters=clusters, total_samples=10, seed=123)
+    dataset = ESMMaskedResidueDataset(protein_dataset=dataset, clusters=clusters, total_samples=4, seed=123)
 
     with pytest.raises(ValueError, match="Cluster 1 is empty."):
-        dataset[1]
+        for i in range(4):
+            dataset[i]
 
 
 def test_ESMPreTrainingDataset_crops_out_start_and_end(dummy_protein_dataset, tokenizer):
@@ -166,8 +157,6 @@ def test_ESMPreTrainingDataset_crops_out_start_and_end(dummy_protein_dataset, to
 
 
 def test_ESMPreTrainingDataset_raises_index_error_outside_bounds(dummy_protein_dataset):
-    """Test that the ESMPreTrainingDataset's __getitem__ method is deterministic."""
-
     dataset = ProteinSQLiteDataset(dummy_protein_dataset)
     clusters = [["UniRef90_A"], [], ["UniRef90_B", "UniRef90_C"]]
 
@@ -178,6 +167,50 @@ def test_ESMPreTrainingDataset_raises_index_error_outside_bounds(dummy_protein_d
 
     with pytest.raises(IndexError, match="Index -1 out of range \\[0, 10\\)."):
         dataset[-1]
+
+
+def test_ESMPreTrainingDataset_shuffles_each_epoch():
+    mock_dataset = mock.MagicMock()
+    mock_dataset.__getitem__.return_value = "ACDEFGHIKLMNPQRSTVWY"
+
+    clusters = ["UniRef90_A"], ["UniRef90_B"], ["UniRef90_C"], ["UniRef90_D"], ["UniRef90_E"]
+    epoch_len = len(clusters)
+
+    dataset = ESMMaskedResidueDataset(
+        protein_dataset=mock_dataset, clusters=clusters, total_samples=3 * epoch_len, seed=123
+    )
+
+    previous_calls = set()
+    for epoch in range(3):
+        mock_dataset.__getitem__.reset_mock()
+        for i in range(epoch_len):
+            dataset[i + epoch * epoch_len]
+        # Check that the dataset was called with all clusters
+        assert mock_dataset.__getitem__.call_count == epoch_len
+        mock_dataset.__getitem__.assert_has_calls([mock.call(cluster[0]) for cluster in clusters], any_order=True)
+
+        call_order = tuple([call.args[0] for call in mock_dataset.__getitem__.call_args_list])
+        assert call_order not in previous_calls
+        previous_calls.add(call_order)
+
+
+def test_ESMPreTrainingDataset_shuffling_is_deterministic(dummy_protein_dataset):
+    protein_dataset = ProteinSQLiteDataset(dummy_protein_dataset)
+    clusters = [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]]
+    epoch_len = len(clusters)
+
+    dataset1 = ESMMaskedResidueDataset(
+        protein_dataset=protein_dataset, clusters=clusters, total_samples=3 * epoch_len, seed=123
+    )
+    dataset2 = ESMMaskedResidueDataset(
+        protein_dataset=protein_dataset, clusters=clusters, total_samples=3 * epoch_len, seed=123
+    )
+
+    for i in range(3 * epoch_len):
+        sample1 = dataset1[i]
+        sample2 = dataset2[i]
+        for key in sample1:
+            torch.testing.assert_close(sample1[key], sample2[key])
 
 
 def test_create_train_dataset(dummy_protein_dataset, tmp_path):
