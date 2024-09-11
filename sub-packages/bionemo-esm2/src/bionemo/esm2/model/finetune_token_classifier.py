@@ -24,7 +24,7 @@ from nemo.collections.common.tokenizers import TokenizerSpec
 from nemo.lightning.megatron_parallel import MegatronLossReduction, ReductionT
 
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
-from bionemo.llm.model.loss import BERTMLMLossWithReduction
+from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
 from bionemo.llm.utils import iomixin_utils as iom
 
 
@@ -38,7 +38,9 @@ __all__ = []
 class ClassifierLossReduction(BERTMLMLossWithReduction):
     """A class used for calculating the loss, and for logging the reduced loss across micro batches."""
 
-    def forward(self, batch: Dict[str, torch.Tensor], forward_out: torch.Tensor) -> Tuple[torch.Tensor, ReductionT]:
+    def forward(
+        self, batch: Dict[str, torch.Tensor], forward_out: Dict[str, torch.Tensor]
+    ) -> Tuple[torch.Tensor, Union[PerTokenLossDict, SameSizeLossDict]]:
         """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
 
         Args:
@@ -50,9 +52,10 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
                 backpropagation and the ReductionT will be passed to the reduce method
                 (which currently only works for logging.).
         """
-        digits = batch["label"]
-        digit_logits = forward_out["classification_output"]
-        loss = torch.nn.functional.cross_entropy(digit_logits, digits)  # TODO: @farhadr what happens to loss_mask?
+        targets = batch["labels"].permute(0, 2, 1)
+        classification_output = forward_out["classification_output"].permute(0, 2, 1)
+        # TODO: @farhadr apply masking
+        loss = torch.nn.functional.cross_entropy(targets, classification_output)
         return loss, {"avg": loss}
 
     def reduce(self, losses_reduced_per_micro_batch: Sequence[ReductionT]) -> torch.Tensor:
