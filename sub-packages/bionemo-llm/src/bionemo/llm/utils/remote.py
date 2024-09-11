@@ -79,12 +79,12 @@ class RemoteResource:
     checksum: Optional[str]
     dest_filename: str
     dest_directory: str
-    root_directory: Path = BIONEMO_CACHE_DIR
+    root_directory: str | os.PathLike = BIONEMO_CACHE_DIR
     url: Optional[str] = None
 
     @property
     def fully_qualified_dest_folder(self):  # noqa: D102
-        return self.root_directory / self.dest_directory
+        return Path(self.root_directory) / self.dest_directory
 
     @property
     def fully_qualified_dest_filename(self):
