@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from enum import Enum, auto
 from typing import List, Optional
 
 import pytest
@@ -94,24 +93,12 @@ def sampler(dataset):
     return SequentialSampler(dataset)
 
 
-class TypeSizeOf(Enum):
-    Dict = auto()
-    Seq = auto()
-    Callable = auto()
+@pytest.fixture(scope="module")
+def get_sizeof(request):
+    def sizeof(i: int) -> int:
+        return ((i % 3) + 1) * 10
 
-
-@pytest.fixture(scope="module", params=list(TypeSizeOf))
-def get_sizeof_dataset(request, dataset):
-    t = request.param
-    s = [((i % 3) + 1) * 10 for i in range(len(dataset))]
-    if t == TypeSizeOf.Dict:
-        return {i: s[i] for i in range(len(s))}
-    elif t == TypeSizeOf.Seq:
-        return s
-    elif t == TypeSizeOf.Callable:
-        return lambda i: s[i]
-    else:
-        raise ValueError("Unknown TypeSizeOf type")
+    return sizeof
 
 
 @pytest.fixture(scope="module")
