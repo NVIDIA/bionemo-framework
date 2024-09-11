@@ -79,7 +79,7 @@ class MegatronBioNeMoTrainableModelConfig(MegatronBioNeMoModelConfig[Model], Bio
         logger.warn(f"Loading {self.initial_ckpt_path}")
         # 1. get the config
         # TODO type(self) is probably not correct, maybe make the class name of the config to load an argument?
-        cfg_trainer_ctx: TrainerContext = io.load(Path(initial_ckpt_path), TrainerContext)
+        cfg_trainer_ctx: TrainerContext = io.load_context(Path(initial_ckpt_path) / "context")
         initial_config: MegatronBioNeMoTrainableModelConfig = cfg_trainer_ctx.model.config
         initial_fields = {f.name for f in fields(initial_config)}
         my_fields = [f.name for f in fields(self)]
