@@ -52,6 +52,56 @@ def collect_cuda_peak_alloc(
 
     Raises:
         ValueError: If the provided device is not a CUDA device.
+
+    -------
+    Examples:
+
+    ```python
+    >>> import torch
+    >>> from bionemo.size_aware_batching.utils import collect_cuda_peak_alloc
+
+
+    >>> # prepare dataset, model and other components of a workflow
+    >>> # for which the user want to collect CUDA peak memory allocation statistics
+    >>> dataset, model, optimizer = ...
+    >>> # Set the target Torch CUDA device.
+    >>> device = torch.device("cuda:0")
+    >>> model = model.to(device)
+
+    >>> # Define a function that takes an element of the dataset as input and
+    >>> # do a training step
+    >>> def work(data):
+    ...     # example body of a training loop
+    ...     optimizer.zero_grad()
+    ...     output = model(data.to(device))
+    ...     loss = compute_loss(output)
+    ...     loss.backward()
+    ...     optimizer.step()
+    ...     # extract the feature for later to be modeled or analyzed
+    ...     return featurize(data)
+
+    >>> # can optionally use a cleanup function to release the references
+    >>> # holded during the work(). This cleanup function will be called
+    >>> # at the end of each step before garbage collection and memory allocations measurement
+    >>> def cleanup():
+    ...     model.zero_grad(set_to_none=True)
+
+    >>> # Collect features (i.e., model outputs) and memory usage statistics for the workflow.
+    >>> features, alloc_peaks = collect_cuda_peak_alloc(
+    ...     dataset=batches,
+    ...     work=work,
+    ...     device=device,
+    ...     cleanup=cleanup,
+    ... )
+
+
+    >>> # use features and alloc_peaks as needed, e.g., fit a model
+    >>> # that can use these statistics to predict memory usage
+    >>> memory_model = ...
+    >>> memory_model.fit(features, alloc_peaks)
+    ```
+
+
     """
     if device.type != "cuda":
         raise ValueError("This function is intended for CUDA devices only.")
