@@ -51,6 +51,30 @@ def size_aware_batching(
 
     Yields:
         Generator[Any, None, None]: A generator that yields batches from `dataset`.
+
+    -------
+    Example
+
+    ```python
+    >>> import torch
+    >>> from torch.utils.data import default_collate
+    >>> from bionemo.size_aware_batching.sampler import size_aware_batching
+
+    >>> # Define a sample dataset with torch.tensor
+    >>> dataset = [torch.tensor([1, 2]), torch.tensor([3, 4]), torch.tensor([5, 6]),
+    ...            torch.tensor([7, 8]), torch.tensor([9, 10])]
+
+    >>> # Define a sizeof function that returns the size of each tensor
+    >>> def sizeof(x):
+    ...     return x.numel()
+
+    >>> # Create a generator with max_total_size=4 and default_collate_fn
+    >>> gen = size_aware_batching(dataset, sizeof, 4, collate_fn=default_collate)
+    >>> batches = list(gen)
+    >>> print(batches)
+        [tensor([[1, 2], [3, 4]]), tensor([[5, 6], [7, 8]]), tensor([[9, 10]])]
+    ```
+
     """
     is_sizeof_callable = callable(sizeof)
     has_collate_fn = collate_fn is not None and callable(collate_fn)
@@ -122,6 +146,36 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
     of each element in the dataset and ensures that the total size of
     each batch does not exceed the specified `max_total_size`.
 
+    ---------
+    Examples:
+
+    ```python
+    >>> import torch
+    >>> from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
+
+
+    >>> # Define a sample dataset with torch.tensor
+    >>> dataset = [torch.tensor([1, 2]), torch.tensor([3, 4]), torch.tensor([5, 6]),
+    ...            torch.tensor([7, 8]), torch.tensor([9, 10])]
+
+
+    >>> # Define a function that returns the size of each element in the dataset.
+    >>> def sizeof(index):
+    ...     return dataset[index].numel()
+
+
+    >>> # Create a SizeAwareBatchSampler with a maximum total batch size of 10.
+    >>> batch_sampler = SizeAwareBatchSampler(
+    ...     sampler=torch.utils.data.SequentialSampler(dataset),
+    ...     sizeof=sizeof,
+    ...     max_total_size=4
+    ... )
+
+
+    >>> # Iterate over batches of indices that do not exceed the maximum total size.
+    >>> print(list(batch_sampler))
+        [[0, 1], [2, 3], [4]]
+    ```
     """
 
     def __init__(
