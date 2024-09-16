@@ -173,7 +173,7 @@ class PerTokenValueDataset(Dataset):
         return tensor.flatten()  # type: ignore
 
 
-class PerTokenValueDataModule(pl.LightningDataModule):  # noqa: D101
+class PerTokenValueDataModule(pl.LightningDataModule):
     def __init__(
         self,
         seed: int | None = 42,

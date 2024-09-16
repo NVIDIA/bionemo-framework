@@ -37,7 +37,9 @@ __all__ = []
 
 class ClassifierLossReduction(BERTMLMLossWithReduction):
     """A class for calculating the cross entropy loss of classification output.
-    This class used for calculating the loss, and for logging the reduced loss across micro batches."""
+
+    This class used for calculating the loss, and for logging the reduced loss across micro batches.
+    """
 
     def forward(
         self, batch: Dict[str, torch.Tensor], forward_out: Dict[str, torch.Tensor]
@@ -79,9 +81,7 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
 
 
 class MegatronConvNetHead(MegatronModule):
-    """
-    A convolutional neural network class for residue-level classification.
-    """
+    """A convolutional neural network class for residue-level classification."""
 
     def __init__(self, config: TransformerConfig):
         super().__init__(config)
@@ -162,16 +162,15 @@ class ESM2FineTuneSeqLenBioBertConfig(ESM2GenericConfig[ESM2FineTuneSeqLengthMod
 
 
 class Label2IDTokenizer(TokenizerSpec):
-    """Initializes simple Char Tokenizer.
-    Intended to be used for extracting class labels
-    for classification models such as secondary
-    structure prediction model, where each class is
-    encoded with a character (ex. "C", "H", "E")
+    """Char Tokenizer for sequence labels.
 
-        Examples:
-            >>> tokenizer = Label2IDTokenizer()
-            >>> seqs = ['CHE', 'CCC', 'EHH']
-            >>> tokenizer = tokenizer.build_vocab(s)
+    Intended to be used for extracting class labels for classification models such as secondary structure prediction
+    model, where each class is encoded with a character (ex. "C", "H", "E").
+
+    Examples:
+        >>> tokenizer = Label2IDTokenizer()
+        >>> seqs = ['CHE', 'CCC', 'EHH']
+        >>> tokenizer = tokenizer.build_vocab(s)
     """
 
     def __init__(self):
@@ -179,9 +178,7 @@ class Label2IDTokenizer(TokenizerSpec):
         self._update_index()
 
     def _update_index(self):
-        """
-        Updates the id_to_vocab index based on the current vocab
-        """
+        """Updates the id_to_vocab index based on the current vocab."""
         self.decode_vocab = {id_: token for token, id_ in self.vocab.items()}
 
     @property
@@ -196,7 +193,8 @@ class Label2IDTokenizer(TokenizerSpec):
         return "".join(tokens)
 
     def tokens_to_ids(self, tokens: List[str]) -> List[int]:
-        """Convert tokens to indexes/ids
+        """Convert tokens to indexes/ids.
+
         Args:
             tokens (List[str]):  Containing tokens
         Returns:
@@ -212,11 +210,12 @@ class Label2IDTokenizer(TokenizerSpec):
         return ids
 
     def ids_to_tokens(self, ids: List[int]) -> List[str]:
-        """Convert Ids to tokens
+        """Convert Ids to tokens.
+
         Args:
-            ids (List[int]): Containg ids for each token
+            ids (List[int]): Contains ids for each token
         Returns:
-            (List[str]): Containing tokens
+            (List[str]): Contains tokens
         """
         tokens = []
         for id_ in ids:
@@ -227,7 +226,8 @@ class Label2IDTokenizer(TokenizerSpec):
         return tokens
 
     def text_to_ids(self, text: str) -> List[int]:
-        """Converts text to ids
+        """Converts text to ids.
+
         Args:
             text (str): String containing text to convert
         Returns:
@@ -242,7 +242,8 @@ class Label2IDTokenizer(TokenizerSpec):
         return self.tokens_to_text(tokens)
 
     def build_vocab(self, strings: Union[str, Iterable[str]]):
-        """Builds the vocabulary of the tokenizer from strings
+        """Builds the vocabulary of the tokenizer from strings.
+
         Args:
             strings: (Union[str, Iterable[str]]): Strings to
                 build the vocabulary with. If a string is supplied,
@@ -250,7 +251,6 @@ class Label2IDTokenizer(TokenizerSpec):
                 Otherwise, the vocabulary is progressively built
                 from all of the strings in `strings`.
         """
-
         if isinstance(strings, str):
             strings = [strings]
 
