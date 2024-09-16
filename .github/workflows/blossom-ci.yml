@@ -87,7 +87,7 @@ jobs:
       #       echo detect.maven.included.scopes=compile >> application.properties
 
       - name: Run blossom action
-        uses: NVIDIA/blossom-action@main
+        uses: NVIDIA/blossom-action@bionemo1
         env:
           REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_KEY_DATA: ${{ secrets.BLOSSOM_KEY }}

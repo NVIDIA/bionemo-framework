@@ -5,7 +5,7 @@ updates:
     schedule:
         interval: "weekly"
     directory: "/"
-    target-branch: "v2-main"
+    target-branch: "main"
     open-pull-requests-limit: 1
     reviewers:
       - "pstjohn"
