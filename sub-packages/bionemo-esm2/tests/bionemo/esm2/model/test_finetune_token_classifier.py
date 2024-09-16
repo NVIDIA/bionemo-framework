@@ -132,18 +132,33 @@ class PerTokenValueDataset(Dataset):
     def __getitem__(self, idx):
         sequence = self.data[idx][1]
         tokenized_sequence = self._tokenize(sequence)
+        # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
         loss_mask = ~torch.isin(tokenized_sequence, torch.tensor(self.tokenizer.all_special_ids))
-        label_ids = torch.tensor(self.label_tokenizer.text_to_ids(self.data[idx][2]))
-        label = torch.nn.functional.one_hot(label_ids, num_classes=3)
+        labels = self._tokenize_labels(self.data[idx][2])
 
         return {
             "text": tokenized_sequence,
             "types": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
             "attention_mask": torch.ones_like(tokenized_sequence, dtype=torch.int64),
-            "labels": label,
+            "labels": labels,
             "loss_mask": loss_mask,
             "is_random": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
         }
+
+    def _tokenize_labels(self, labels_sequence: str) -> torch.Tensor:
+        label_ids = torch.tensor(self.label_tokenizer.text_to_ids(labels_sequence))
+
+        # # for multi-label classification with BCEWithLogitsLoss
+        # tokenized_labels = torch.nn.functional.one_hot(label_ids, num_classes=self.label_tokenizer.vocab_size)
+        # cls_eos = torch.full((1, self.label_tokenizer.vocab_size), -1, dtype=tokenized_labels.dtype)
+
+        # for multi-class (mutually exclusive) classification with CrossEntropyLoss
+        tokenized_labels = label_ids
+        cls_eos = torch.tensor([-1], dtype=tokenized_labels.dtype)
+
+        # add cls / eos labels with padding value -1 to have the same shape as tokenized_sequence
+        labels = torch.cat((cls_eos, tokenized_labels, cls_eos))
+        return labels
 
     def _tokenize(self, sequence: str) -> torch.Tensor:
         """Tokenize a protein sequence.

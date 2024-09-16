@@ -36,7 +36,8 @@ __all__ = []
 
 
 class ClassifierLossReduction(BERTMLMLossWithReduction):
-    """A class used for calculating the loss, and for logging the reduced loss across micro batches."""
+    """A class for calculating the cross entropy loss of classification output.
+    This class used for calculating the loss, and for logging the reduced loss across micro batches."""
 
     def forward(
         self, batch: Dict[str, torch.Tensor], forward_out: Dict[str, torch.Tensor]
@@ -52,10 +53,14 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
                 backpropagation and the ReductionT will be passed to the reduce method
                 (which currently only works for logging.).
         """
-        targets = batch["labels"].permute(0, 2, 1)
+        targets = batch["labels"]
         classification_output = forward_out["classification_output"].permute(0, 2, 1)
-        # TODO: @farhadr apply masking
-        loss = torch.nn.functional.cross_entropy(targets, classification_output)
+        loss_mask = batch["loss_mask"]
+
+        losses = torch.nn.functional.cross_entropy(classification_output, targets, reduction="none")
+        masked_loss = losses * loss_mask
+        loss = masked_loss.sum() / loss_mask.sum()
+
         return loss, {"avg": loss}
 
     def reduce(self, losses_reduced_per_micro_batch: Sequence[ReductionT]) -> torch.Tensor:
