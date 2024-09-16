@@ -313,6 +313,13 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
 
 @dataclass
 class ESM2Config(ESM2GenericConfig[ESM2Model], iom.IOMixinWithGettersSetters):
+    """Configuration class for ESM2 model.
+
+    model_cls: Type[ESM2Model] = ESM2Model
+    num_layers: int = 33  # 650M
+    hidden_size: int = 1280  # 650M
+    """
+
     model_cls: Type[ESM2Model] = ESM2Model
     num_layers: int = 33  # 650M
     hidden_size: int = 1280  # 650M
