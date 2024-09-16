@@ -16,6 +16,7 @@
 
 import functools
 import os
+from typing import Literal
 
 import numpy as np
 import pytorch_lightning as pl
@@ -25,7 +26,6 @@ from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 
-from bionemo.core.data.resamplers import PRNGResampleDataset
 from bionemo.core.utils import random_utils
 from bionemo.esm2.data import dataset, tokenizer
 from bionemo.llm.data import collate
@@ -54,6 +54,7 @@ class ESMDataModule(pl.LightningDataModule):
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
         tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
+        dataloader_type: Literal["single", "cyclic"] = "single",
     ) -> None:
         """Initialize the ESMDataModule.
 
@@ -76,6 +77,7 @@ class ESMDataModule(pl.LightningDataModule):
             mask_token_prob: Percentage of masked tokens that get assigned the <MASK> id. Defaults to 0.8.
             mask_random_prob: Percentage of masked tokens assigned to a random amino acid. Defaults to 0.1.
             tokenizer: The ESM2 tokenizer. Defaults to the one returned by `tokenizer.get_tokenizer()`.
+            dataloader_type: The type of dataloader to use. Defaults to "single".
         """
         super().__init__()
         self._train_cluster_path = train_cluster_path
@@ -99,7 +101,7 @@ class ESMDataModule(pl.LightningDataModule):
             seq_len=max_seq_length,
             micro_batch_size=micro_batch_size,
             global_batch_size=global_batch_size,
-            dataloader_type="single",  # `MegatronPretrainingRandomSampler` from "cyclic" is failing.
+            dataloader_type=dataloader_type,  # `MegatronPretrainingRandomSampler` from "cyclic" is failing.
             rampup_batch_size=rampup_batch_size,
         )
 
@@ -132,7 +134,7 @@ class ESMDataModule(pl.LightningDataModule):
         num_train_samples = int(
             max_train_steps * self.data_sampler.global_batch_size
         )  # training data requires upsampling (multiply by max_train_steps) on single MegatronPretrainingRandomSampler
-        _train_ds = dataset.create_train_dataset(
+        self._train_ds = dataset.create_train_dataset(
             cluster_file=self._train_cluster_path,
             db_path=self._train_database_path,
             total_samples=num_train_samples,
@@ -143,9 +145,6 @@ class ESMDataModule(pl.LightningDataModule):
             mask_random_prob=self._mask_random_prob,
             tokenizer=self._tokenizer,
         )
-        self._train_ds = self._sample_and_shuffle_dataset(
-            _train_ds, None, "train"
-        )  # shuffle manually without cyclic MegatronPretrainingRandomSampler
 
         # Create validation dataset
         val_clusters = dataset.create_valid_clusters(self._valid_cluster_path)
@@ -155,7 +154,7 @@ class ESMDataModule(pl.LightningDataModule):
             global_batch_size=self.data_sampler.global_batch_size,
             stage="val",
         )
-        _valid_ds = dataset.create_valid_dataset(
+        self._valid_ds = dataset.create_valid_dataset(
             clusters=self._valid_cluster_path,
             db_path=self._valid_database_path,
             total_samples=num_val_samples,
@@ -166,9 +165,6 @@ class ESMDataModule(pl.LightningDataModule):
             mask_random_prob=self._mask_random_prob,
             tokenizer=self._tokenizer,
         )
-        self._valid_ds = self._sample_and_shuffle_dataset(
-            _valid_ds, None, "val"
-        )  # shuffle manually without cyclic MegatronPretrainingRandomSampler
 
         assert (
             hasattr(self, "trainer") and self.trainer is not None
@@ -202,20 +198,3 @@ class ESMDataModule(pl.LightningDataModule):
     def test_dataloader(self) -> EVAL_DATALOADERS:
         """Raises a not implemented error."""
         raise NotImplementedError("No test dataset provided for ESM2")
-
-    def _sample_and_shuffle_dataset(self, dataset: dataset.ESMMaskedResidueDataset, num_samples: int, stage: str):  # noqa: D417
-        """Sample the training dataset.
-
-        Args:
-            dataset (torch.utils.data.Dataset): The dataset to sample from
-
-        Returns:
-            ResamplingMappedDataset: Resampled dataset
-
-        """
-        # This is where re-sampling occurs.
-        return PRNGResampleDataset(
-            dataset,
-            num_samples=num_samples,
-            seed=self._seed + len(stage),
-        )

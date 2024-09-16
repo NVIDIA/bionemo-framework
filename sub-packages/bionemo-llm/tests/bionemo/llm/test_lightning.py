@@ -171,7 +171,7 @@ def test_mixin_strategy_contract_get_loss_reduction():
             pipeline_model_parallel_size=1,
             ddp="megatron",
             find_unused_parameters=True,
-            enable_nemo_ckpt_io=False,
+            always_save_context=False,
         )
         strategy.connect(bnptl.LightningPassthroughPredictionMixin())
         mixin = bnptl.LightningPassthroughPredictionMixin()

@@ -51,12 +51,11 @@ def _train_model_get_ckpt(
         extra_args = {}
 
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_best_model=False,
         save_last=True,
         save_on_train_epoch_end=True,
         monitor="reduced_train_loss",  # TODO find out how to get val_loss logged and use "val_loss",
         every_n_train_steps=5,
-        enable_nemo_ckpt_io=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
         # async_save=False,  # Tries to save asynchronously, previously led to race conditions.
     )
     save_dir = root_dir / name
@@ -93,7 +92,7 @@ def _train_model_get_ckpt(
         pipeline_model_parallel_size=1,
         ddp="megatron",
         find_unused_parameters=True,
-        enable_nemo_ckpt_io=True,
+        always_save_context=True,
     )
     metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
     trainer = nl.Trainer(
@@ -115,7 +114,6 @@ def _train_model_get_ckpt(
         trainer=trainer,
         log=nemo_logger,
         resume=resume.AutoResume(
-            path=None,  # Overrides the path found by resume_if_exists when set.
             resume_if_exists=True,  # Looks for the -last checkpoint to continue training.
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
@@ -136,9 +134,10 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
             skip_weight_prefixes=set(),
             precision=precision,
         )
-        assert ckpt_path.exists()
-        assert ckpt_path.is_dir()
-        assert io.is_distributed_ckpt(ckpt_path)
+        weights_ckpt = ckpt_path / "weights"
+        assert weights_ckpt.exists()
+        assert weights_ckpt.is_dir()
+        assert io.is_distributed_ckpt(weights_ckpt)
         assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         simple_ft_checkpoint, simple_ft_metrics = _train_model_get_ckpt(
@@ -149,9 +148,10 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
             skip_weight_prefixes=set(),  # no new weights in this model need skipping
             precision=precision,
         )
-        assert simple_ft_checkpoint.exists()
-        assert simple_ft_checkpoint.is_dir()
-        assert io.is_distributed_ckpt(simple_ft_checkpoint)
+        weights_ckpt = simple_ft_checkpoint / "weights"
+        assert weights_ckpt.exists()
+        assert weights_ckpt.is_dir()
+        assert io.is_distributed_ckpt(weights_ckpt)
         assert initial_metrics.collection_train["loss"][-1] > simple_ft_metrics.collection_train["loss"][0]
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         add_head_checkpoint, add_head_ft_metrics = _train_model_get_ckpt(
@@ -162,9 +162,10 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
             skip_weight_prefixes={"digit_classifier"},  # The new head weights are not in the ckpt so need skipping.
             precision=precision,
         )
-        assert add_head_checkpoint.exists()
-        assert add_head_checkpoint.is_dir()
-        assert io.is_distributed_ckpt(add_head_checkpoint)
+        weights_ckpt = add_head_checkpoint / "weights"
+        assert weights_ckpt.exists()
+        assert weights_ckpt.is_dir()
+        assert io.is_distributed_ckpt(weights_ckpt)
         assert add_head_ft_metrics.collection_train["loss"][0] > add_head_ft_metrics.collection_train["loss"][-1]
         # We're adding a new loss, so the loss should be worse initially at least.
         assert add_head_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
@@ -178,9 +179,10 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
             skip_weight_prefixes=set(),  # no new parameters vs prior cfg, will continue training cls head by itself
             precision=precision,
         )
-        assert drop_head_checkpoint.exists()
-        assert drop_head_checkpoint.is_dir()
-        assert io.is_distributed_ckpt(drop_head_checkpoint)
+        weights_ckpt = drop_head_checkpoint / "weights"
+        assert weights_ckpt.exists()
+        assert weights_ckpt.is_dir()
+        assert io.is_distributed_ckpt(weights_ckpt)
         # We're dropping a loss, so initially we should be better than before
         assert drop_head_ft_metrics.collection_train["loss"][0] > drop_head_ft_metrics.collection_train["loss"][-1]
         assert add_head_ft_metrics.collection_train["loss"][-1] > drop_head_ft_metrics.collection_train["loss"][0]

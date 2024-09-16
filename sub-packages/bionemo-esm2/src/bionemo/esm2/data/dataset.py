@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import math
 import os
 import sqlite3
 from pathlib import Path
@@ -78,11 +79,22 @@ class ESMMaskedResidueDataset(Dataset):
 
     Here, the getitem(i) returns a randomly sampled UniRef90 sequence from the i % len(dataset) UniRef50 cluster, with i
     controlling the random seed used for selecting the UniRef90 sequence and performing the masking.
+
+    !!! note "Multi-epoch training"
+
+        Currently, this class owns the logic for upsampling proteins for multi-epoch training by directly passing a
+        total_samples that's larger than the number of clusters provided. This is done because megatron training assumes
+        that `dataset[i]` will always return the exact same tensors in distributed training. Because the we want to vary
+        mask patterns and cluster sampling each time a given cluster is sampled, we create our own psuedo-epochs inside
+        the dataset itself. Eventually we'd like to move away from this paradigm and allow multi-epoch training to vary
+        the dataset's random state through a callback, and allow megatron samplers to handle the epoch-to-epoch
+        shuffling of sample order.
+
     """
 
     def __init__(
         self,
-        protein_dataset: ProteinSQLiteDataset,
+        protein_dataset: Dataset,
         clusters: Sequence[Sequence[str]],
         total_samples: int,
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
@@ -128,6 +140,17 @@ class ESMMaskedResidueDataset(Dataset):
 
         self.tokenizer = tokenizer
 
+        # Pre-initialize the index-to-cluster sample map to create pseudo-epochs inside the dataset.
+        num_epochs = math.ceil(total_samples / len(clusters))
+        self._samples = []
+        for i in range(num_epochs):
+            rng = np.random.default_rng([self.seed, i])
+            epoch_samples = np.arange(len(clusters))
+            rng.shuffle(epoch_samples)
+            self._samples.extend(epoch_samples)
+
+        self._samples = np.array(self._samples)[:total_samples]
+
     def __len__(self) -> int:
         """Returns the total number of samples to be drawn.
 
@@ -156,7 +179,7 @@ class ESMMaskedResidueDataset(Dataset):
 
         # Initialize a random number generator with a seed that is a combination of the dataset seed and the index.
         rng = np.random.default_rng([self.seed, idx])
-        cluster_idx = idx % len(self.clusters)
+        cluster_idx = self._samples[idx]
         if not len(self.clusters[cluster_idx]):
             raise ValueError(f"Cluster {cluster_idx} is empty.")
 

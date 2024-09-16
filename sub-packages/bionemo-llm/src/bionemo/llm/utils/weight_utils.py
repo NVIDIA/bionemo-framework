@@ -148,6 +148,6 @@ def load_weights_sharded_inplace_nemo2_to_mcore(
     }
     dist_checkpointing.load(
         sharded_state_dict=sharded_state_dict,
-        checkpoint_dir=str(distributed_checkpoint_dir),
+        checkpoint_dir=str(Path(distributed_checkpoint_dir) / "weights"),
         strict=dist_checkpointing.serialization.StrictHandling.ASSUME_OK_UNEXPECTED,
     )

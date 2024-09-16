@@ -75,7 +75,6 @@ def main(
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Path | None = None,
     restore_from_checkpoint_path: Path | None = None,
-    save_best_checkpoint: bool = True,
     save_last_checkpoint: bool = True,
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
@@ -108,7 +107,7 @@ def main(
         wandb_entity (str): the group to use for the wandb run, sometimes called a team, could also be your username
         create_tensorboard_logger (bool): create the tensorboard logger
         restore_from_checkpoint_path (path): If set, restores the model from the directory passed in. Expects the
-            checkpoint to be created by using the ModelCheckpoint class and enable_nemo_ckpt_io=True.
+            checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -254,12 +253,11 @@ def main(
     )
     # Configure our custom Checkpointer
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_best_model=save_best_checkpoint,
         save_last=save_last_checkpoint,
         monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
         save_top_k=save_top_k,
         every_n_train_steps=save_every_n_steps,
-        enable_nemo_ckpt_io=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
     )
 
     # Setup the logger and train the model
@@ -510,7 +508,6 @@ if __name__ == "__main__":
         nemo1_init_path=args.nemo1_init_path,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
         config_class=args.training_model_config_class,
-        save_best_checkpoint=args.save_best_checkpoint,
         save_last_checkpoint=args.save_last_checkpoint,
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
