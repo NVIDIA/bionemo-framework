@@ -32,11 +32,11 @@ def _get_cache_dir() -> Path:
 
     try:
         cache_dir.mkdir(exist_ok=True, parents=True)
-    except PermissionError:
+    except PermissionError as ex:
         raise PermissionError(
             f"Permission denied creating a cache directory at {cache_dir}. Please set BIONEMO_CACHE_DIR to a directory "
             "you have write access to."
-        )
+        ) from ex
     return cache_dir
 
 
