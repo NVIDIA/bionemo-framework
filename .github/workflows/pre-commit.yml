@@ -2,9 +2,9 @@ name: pre-commit
 
 on:
   pull_request:
-    branches: [v2-main]
+    branches: [main]
   push:
-    branches: [v2-main]
+    branches: [main]
   merge_group:
     types: [checks_requested]
 jobs:
