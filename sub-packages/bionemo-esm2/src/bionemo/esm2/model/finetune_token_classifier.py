@@ -476,7 +476,7 @@ class PerTokenValueDataModule(pl.LightningDataModule):
 
         Args:
             dataset (torch.utils.data.Dataset): The dataset to sample from
-            num_sample (int): number of samples to generate
+            num_samples (int): number of samples to generate
 
         Returns:
             ResamplingMappedDataset: Resampled dataset
