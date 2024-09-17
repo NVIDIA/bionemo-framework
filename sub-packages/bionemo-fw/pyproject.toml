@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools-scm>=8", "setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,13 +7,33 @@ name = "bionemo-fw"
 license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo Framework (FW): Production grade framework for AI-enabled Drug Discovery. Consists of all independently installable bionemo feature packages too."
-authors = [
-    { name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+dynamic = ["version"]
+dependencies = [
+    'bionemo-core',
+    'bionemo-esm2',
+    'bionemo-geneformer',
+    'bionemo-llm',
+    'bionemo-scdl',
+    'bionemo-webdatamodule',
+    'lightning>=2.2.1',
+    'nltk',
+    'numba>=0.57.1',
+    'pytorch-lightning>=2.2.1',
+    'tensorstore==0.1.45',
+    'zarr',
 ]
-dynamic = ["dependencies", "version"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include=["bionemo.*"]
+include = ["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
+
+[tool.setuptools_scm]
+root = '../..'
+version_scheme = "post-release"
+local_scheme = "no-local-version"
+
+[tool.uv]
+cache-keys = [{ git = true }]

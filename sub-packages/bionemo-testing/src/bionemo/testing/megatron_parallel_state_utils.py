@@ -33,10 +33,10 @@ def my_test():
 import os
 from contextlib import contextmanager
 from typing import Any, Iterator, Optional, Sequence
+from unittest import mock
 from unittest.mock import MagicMock
 
 import megatron.core.num_microbatches_calculator
-import mock
 import pytorch_lightning as pl
 import torch
 import torch.distributed

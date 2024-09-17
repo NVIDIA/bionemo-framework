@@ -1,8 +1,0 @@
-boto3
-email-validator
-pooch
-pydantic>=2.7.0
-pytest
-pyyaml
-ngcsdk
-tqdm

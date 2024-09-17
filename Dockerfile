@@ -51,43 +51,9 @@ RUN pip install hatchling   # needed to install nemo-run
 ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
 RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG}
 
-FROM bionemo2-base AS pip-requirements
-
-# Copy and install pypi depedencies.
-RUN mkdir /tmp/pip-tmp
-WORKDIR /tmp/pip-tmp
-
-COPY requirements-dev.txt requirements-test.txt requirements-cve.txt /tmp/pip-tmp/
-
-# We want to only copy the requirements.txt, setup.py, and pyproject.toml files for *ALL* sub-packages
-# but we **can't** do COPY sub-packages/**/{requirements.txt,...} /<destination> because this will overwrite!
-# So....we copy everything into a temporary image and remove everything else!
-# Later, we can copy the result from the temporary image and get what we want
-# **WITHOUT** invalidating the cache for successive layers!
-COPY sub-packages/ /tmp/pip-tmp/sub-packages
-# remove all directories that aren't the top-level sub-packages/bionemo-{xyz}
-RUN find sub-packages/ -type d | grep "bionemo-[a-zA-Z0-9\-]*/" | xargs rm -rf && \
-    # only keep the requirements-related files
-    find sub-packages/ -type f | grep -v -E "requirements.txt|pyproject.toml|setup.py" | xargs rm
-
 FROM bionemo2-base AS dev
 
 RUN mkdir -p /workspace/bionemo2/
-WORKDIR /workspace/bionemo2
-
-# We get the sub-packcages/ top-level structure + requirements.txt files
-COPY --from=pip-requirements /tmp/pip-tmp/ /workspace/bionemo2/
-
-RUN pip install -r requirements-dev.txt -r requirements-test.txt -r requirements-cve.txt
-
-# We calculate paths to each requirements.txt file and dynamically construct the pip install command.
-# This command will expand to something like:
-#   pip install --disable-pip-version-check --no-cache-dir \
-#      -r bionemo-core/requirements.txt \
-#      -r bionemo-pytorch/requirements.txt \
-#      -r bionemo-lmm/requirements.txt \
-#      (etc.)
-RUN X=""; for sub in $(echo sub-packages/bionemo-*); do X="-r ${sub}/requirements.txt ${X}"; done; eval "pip install --disable-pip-version-check --no-cache-dir ${X}"
 
 # Delete the temporary /build directory.
 WORKDIR /workspace
@@ -120,26 +86,23 @@ RUN find /usr/local/lib/python3.10/dist-packages/ -type f -print0 | xargs -0 -P 
 
 ENV PATH="/home/bionemo/.local/bin:${PATH}"
 
-
 # Create a release image with bionemo2 installed.
 FROM dev AS release
 
-# Install 3rd-party deps
-COPY ./3rdparty /build
-WORKDIR /build/Megatron-LM
-RUN pip install --disable-pip-version-check --no-cache-dir .
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-WORKDIR /build/NeMo
-RUN pip install --disable-pip-version-check --no-cache-dir .[all]
-WORKDIR /workspace
-RUN rm -rf /build
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_SYSTEM_PYTHON=true
 
-# Install bionemo2 submodules
-WORKDIR /workspace/bionemo2/
-COPY VERSION .
-COPY ./sub-packages /workspace/bionemo2/sub-packages
-# Dynamically install the code for each bionemo namespace package.
-RUN for sub in sub-packages/bionemo-*; do pushd ${sub} && pip install --no-build-isolation --no-cache-dir --disable-pip-version-check --no-deps -e . && popd; done
+# Install 3rd-party deps and bionemo submodules.
+COPY 3rdparty /src/3rdparty
+COPY sub-packages /src/sub-packages
+RUN --mount=type=bind,source=./.git,target=/src/.git <<EOT
+uv pip install --no-build-isolation -v /src/3rdparty/* /src/sub-packages/bionemo-*
+rm -rf /src/3rdparty /src/sub-packages
+EOT
 
 WORKDIR /workspace/bionemo2/
 COPY ./scripts ./scripts
