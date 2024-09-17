@@ -48,7 +48,7 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
 
         Args:
             batch: A batch of data that gets passed to the original forward inside LitAutoEncoder.
-            forward_out: the output of the forward method inside LitAutoEncoder.
+            forward_out: the output of the forward method inside classification head.
 
         Returns:
             A tuple containing [<loss_tensor>, ReductionT] where the loss tensor will be used for
