@@ -28,6 +28,8 @@ from nemo.collections import llm as nllm
 from nemo.lightning import io, resume
 from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks.model_transform import ModelTransform
+from nemo.lightning.pytorch.callbacks.peft import PEFT
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.nn import functional as F
@@ -44,6 +46,7 @@ from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.model.finetune_token_regressor import (
     FineTuneSeqLenBioBertConfig,
+    LoRAForGeneFormerTokenRegressor,
 )
 from bionemo.llm.data import collate
 from bionemo.llm.lightning import LossLoggingCallback
@@ -773,6 +776,7 @@ def _train_model_get_ckpt(
     config: GeneformerConfig,
     n_steps_train: int,
     batch_size: int,
+    peft: PEFT | None = None,
 ) -> Tuple[Path, MetricTracker, nl.Trainer]:
     data_error_str = "Please download test data with:\n`python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss`"
     data_dir = Path(data_path)
@@ -833,7 +837,7 @@ def _train_model_get_ckpt(
             bf16=config.bf16,
         )
     )
-    module = BioBertLightningModule(config=config, tokenizer=tokenizer, optimizer=optimizer)
+    module = BioBertLightningModule(config=config, tokenizer=tokenizer, optimizer=optimizer, model_transform=peft)
 
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=1,
@@ -843,6 +847,9 @@ def _train_model_get_ckpt(
         always_save_context=True,
     )
     metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
+    callbacks = [LossLoggingCallback(), metric_tracker]
+    if peft is not None:
+        callbacks.append(ModelTransform())
     trainer = nl.Trainer(
         accelerator="gpu",
         devices=1,
@@ -852,7 +859,7 @@ def _train_model_get_ckpt(
         max_steps=n_steps_train,
         num_nodes=1,
         log_every_n_steps=n_steps_train // 2,
-        callbacks=[LossLoggingCallback(), metric_tracker],
+        callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(precision=MODEL_PRECISION),
     )
     nllm.train(
@@ -972,3 +979,63 @@ def test_finetune_geneformer(
         assert io.is_distributed_ckpt(weights_ckpt)
         assert ft_trainer.model.config.num_layers == n_layers_test
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
+
+
+@pytest.mark.needs_gpu
+def test_finetune_geneformer_with_peft(
+    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 50, batch_size: int = 16
+):
+    base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
+
+    # Modify both the variable and associated saved init hyper-param by calling config.mutate(...)
+    base_geneformer_config.set_hparam("return_only_hidden_states", False)
+    base_geneformer_config.set_hparam("nemo1_ckpt_path", None)
+    base_geneformer_config.set_hparam("num_layers", n_layers_test)  # set to 3 layers
+    base_geneformer_config.set_hparam("hidden_size", 128)
+    base_geneformer_config.set_hparam("ffn_hidden_size", 256)
+    # Re-initialize after manually updating hidden_size/ffn_hidden_size since so many other parameters
+    #  are based off of these parameters and modified in post_init of the transformer config.
+    base_geneformer_config = io.reinit(base_geneformer_config)
+    assert base_geneformer_config.num_layers == n_layers_test
+    assert base_geneformer_config.nemo1_ckpt_path is None
+    assert not base_geneformer_config.return_only_hidden_states
+    with megatron_parallel_state_utils.distributed_model_parallel_state(32):
+        ckpt_path, initial_metrics, initial_trainer = _train_model_get_ckpt(
+            name="test_experiment",
+            root_dir=tmpdir / "pretrain",
+            config=base_geneformer_config,
+            n_steps_train=n_steps_train,
+            batch_size=batch_size,
+        )
+        weights_ckpt = ckpt_path / "weights"
+        assert weights_ckpt.exists()
+        assert weights_ckpt.is_dir()
+        assert io.is_distributed_ckpt(weights_ckpt)
+        assert initial_trainer.model.config.num_layers == n_layers_test
+        assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
+    with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+        ft_geneformer_config = FineTuneSeqLenBioBertConfig(
+            # All other hparams will be pulled from this checkpoint, aside from those in `override_parent_fields``
+            initial_ckpt_path=str(ckpt_path),
+        )
+        peft = LoRAForGeneFormerTokenRegressor()
+        simple_ft_checkpoint, simple_ft_metrics, ft_trainer = _train_model_get_ckpt(
+            name="finetune_new_head",
+            root_dir=tmpdir / "finetune_new_head",  # new checkpoint will land in a subdir of this
+            config=ft_geneformer_config,  # same config as before since we are just continuing training
+            n_steps_train=n_steps_train,
+            batch_size=batch_size,
+            peft=peft,
+        )
+        weights_ckpt = simple_ft_checkpoint / "weights"
+        assert weights_ckpt.exists()
+        assert weights_ckpt.is_dir()
+        assert io.is_distributed_ckpt(weights_ckpt)
+        assert ft_trainer.model.config.num_layers == n_layers_test
+        assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
+
+        model = ft_trainer.model[0].module.module.module
+        assert all(not p.requires_grad for p in model.embedding.parameters())
+        assert all(not p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" not in name)
+        assert all(p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" in name)
+        assert all(p.requires_grad for p in model.regression_head.parameters())
