@@ -21,7 +21,7 @@ from typing import Any, Dict, Generic, List, Optional, Sequence, Tuple, Type, Ty
 import pytorch_lightning as pl
 import torch
 from megatron.core import ModelParallelConfig
-from megatron.core.optimizer import OptimizerConfig
+from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from megatron.core.transformer.enums import ModelType
 from megatron.core.transformer.module import MegatronModule
 from nemo.lightning import io
