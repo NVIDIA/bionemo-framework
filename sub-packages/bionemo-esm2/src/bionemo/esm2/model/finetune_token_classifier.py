@@ -274,39 +274,14 @@ class Label2IDTokenizer(TokenizerSpec):
 
 
 class PerTokenValueDataset(Dataset):
-    def __init__(self, tokenizer):
-        self.data = [
-            (
-                "seq_0",
-                "KIAIAVGDNLEMNLKLVLVKRESQSSISAEERVVAGRLSIVLVCSDAIIEQSKGFDLDGKAAVDDGGRLR",
-                "CEHECHCCHECEHCHCCCHECEECCEEHECHHCEECCCCHCCCHCCCHHHHHCHCHCHCCHHECECCCHE",
-            ),
-            (
-                "seq_1",
-                "ISIYNAQEDGWSQGNVLKNGGSKAIVGYNNLAWRAFGVANLTAKYPKPVYIAGI",
-                "HCCEHHHHCCHHHHCHCCCHHHHHCHHCHHCHCCCHHCCCHHCHHHCCCHHHHH",
-            ),
-            (
-                "seq_2",
-                "EVLEESLDFMYRVDWVEDALGNRRLVELSHGPLTFPDLWLRGVNLLSRKAFIEILLVPKKISRSMHNRKG",
-                "ECHHHCHCHHCHCHHCHCHCCHCHCEHCCECCHCEHHCHCHCCHHCHHHCHCCCHCEECHCCHHEECHCH",
-            ),
-            (
-                "seq_3",
-                "SHKCGAVDEPREATAKDTVESCTSQVEADHCGCVGPAPPSSRDCSTQDKCSTSQTYSL",
-                "CECCHECCCCCCCECCHCHCCCCEECCCHCCCCEHCCCCCHHCCCCCECCCCCCCECC",
-            ),
-            (
-                "seq_4",
-                "VKLWEGTTKNETQYGKPHYVIDATFYFDEGHDTTGLMTHANNKTHDTAAHATATVDVVTTE",
-                "CHCECEHECEECCHCECCCECEECHHEHCECCEHCHCCEEEEEECHEECHEEHEHEEECCC",
-            ),
-            (
-                "seq_5",
-                "CGYEGGPIRSVRKVIRPSKEDMSGRVGVVIIHKSAFARAPDGIICTIKGFLYRWELVNLVYEHALPFLRH",
-                "HCHHCHHCEHCHCHHCHHCHCEHCHHHCHCCCCCCEHEHHHHHEECCHCCHCHCHEHHCHHCCCEHCHCC",
-            ),
-        ]
+    def __init__(self, data, tokenizer):
+        """Initializes the class.
+
+        Args:
+            data (list[Tuple]): The data to be used. List of tuples (id, sequence, label_sequence)
+            tokenizer (tokenizer.BioNeMoAutoTokenizer): The tokenizer to be used.
+        """
+        self.data = data
         self._len = len(self.data)
         self.tokenizer = tokenizer
         label_tokenizer = Label2IDTokenizer()
@@ -362,6 +337,8 @@ class PerTokenValueDataset(Dataset):
 class PerTokenValueDataModule(pl.LightningDataModule):
     def __init__(
         self,
+        train_dataset: PerTokenValueDataset,
+        valid_dataset: PerTokenValueDataset,
         seed: int | None = 42,
         min_seq_length: int | None = None,
         max_seq_length: int = 1024,
@@ -377,6 +354,8 @@ class PerTokenValueDataModule(pl.LightningDataModule):
         tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
     ) -> None:
         super().__init__()
+        self.train_dataset = train_dataset
+        self.valid_dataset = valid_dataset
         self._seed = seed
         self._min_seq_length = min_seq_length
         self._max_seq_length = max_seq_length
@@ -423,7 +402,7 @@ class PerTokenValueDataModule(pl.LightningDataModule):
             raise RuntimeError("Please specify trainer.max_steps")
 
         # Create training dataset
-        _train_ds = PerTokenValueDataset(tokenizer=self._tokenizer)
+        _train_ds = self.train_dataset
         num_train_samples = int(max_train_steps * self.data_sampler.global_batch_size)
 
         self._train_ds = self._sample_and_shuffle_dataset(
@@ -431,7 +410,7 @@ class PerTokenValueDataModule(pl.LightningDataModule):
         )  # shuffle manually without cyclic MegatronPretrainingRandomSampler
 
         # Create validation dataset
-        _valid_ds = PerTokenValueDataset(tokenizer=self._tokenizer)
+        _valid_ds = self.valid_dataset
         num_val_samples = infer_num_samples(
             limit_batches=self.trainer.limit_val_batches,
             num_samples_in_dataset=len(_valid_ds),

@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 
 from bionemo.esm2.data.tokenizer import get_tokenizer
+from bionemo.esm2.model.finetune_token_classifier import PerTokenValueDataset
 
 
 @pytest.fixture
@@ -78,3 +79,45 @@ def dummy_parquet_train_val_inputs(tmp_path):
     )
     valid_clusters.to_parquet(valid_cluster_path)
     return train_cluster_path, valid_cluster_path
+
+
+@pytest.fixture
+def dummy_finetune_token_label_dataset():
+    """Returns a dummy dataset for fine-tuning token label tests.
+
+    This fixture provides a list of tuples containing dummy data for testing
+    fine-tuning token label functionality.
+    """
+    data = [
+        (
+            "seq_0",
+            "KIAIAVGDNLEMNLKLVLVKRESQSSISAEERVVAGRLSIVLVCSDAIIEQSKGFDLDGKAAVDDGGRLR",
+            "CEHECHCCHECEHCHCCCHECEECCEEHECHHCEECCCCHCCCHCCCHHHHHCHCHCHCCHHECECCCHE",
+        ),
+        (
+            "seq_1",
+            "ISIYNAQEDGWSQGNVLKNGGSKAIVGYNNLAWRAFGVANLTAKYPKPVYIAGI",
+            "HCCEHHHHCCHHHHCHCCCHHHHHCHHCHHCHCCCHHCCCHHCHHHCCCHHHHH",
+        ),
+        (
+            "seq_2",
+            "EVLEESLDFMYRVDWVEDALGNRRLVELSHGPLTFPDLWLRGVNLLSRKAFIEILLVPKKISRSMHNRKG",
+            "ECHHHCHCHHCHCHHCHCHCCHCHCEHCCECCHCEHHCHCHCCHHCHHHCHCCCHCEECHCCHHEECHCH",
+        ),
+        (
+            "seq_3",
+            "SHKCGAVDEPREATAKDTVESCTSQVEADHCGCVGPAPPSSRDCSTQDKCSTSQTYSL",
+            "CECCHECCCCCCCECCHCHCCCCEECCCHCCCCEHCCCCCHHCCCCCECCCCCCCECC",
+        ),
+        (
+            "seq_4",
+            "VKLWEGTTKNETQYGKPHYVIDATFYFDEGHDTTGLMTHANNKTHDTAAHATATVDVVTTE",
+            "CHCECEHECEECCHCECCCECEECHHEHCECCEHCHCCEEEEEECHEECHEEHEHEEECCC",
+        ),
+        (
+            "seq_5",
+            "CGYEGGPIRSVRKVIRPSKEDMSGRVGVVIIHKSAFARAPDGIICTIKGFLYRWELVNLVYEHALPFLRH",
+            "HCHHCHHCEHCHCHHCHHCHCEHCHHHCHCCCCCCEHEHHHHHEECCHCCHCHCHEHHCHHCCCEHCHCC",
+        ),
+    ]
+    return PerTokenValueDataset(data, tokenizer)

@@ -145,7 +145,13 @@ def _train_model(
 
 @pytest.mark.needs_gpu
 def test_esm2_finetune_token_classifier(
-    tmpdir, esm2_config, tokenizer, pretrain_data_module, n_steps_train: int = 50, seed: int = 42
+    tmpdir,
+    esm2_config,
+    tokenizer,
+    pretrain_data_module,
+    dummy_finetune_token_label_dataset,
+    n_steps_train: int = 50,
+    seed: int = 42,
 ):
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
         ckpt_path, initial_metrics, _ = _train_model(
@@ -164,7 +170,9 @@ def test_esm2_finetune_token_classifier(
 
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
         esm2_finetune_config = ESM2FineTuneSeqLenBioBertConfig(initial_ckpt_path=str(ckpt_path))
-        finetune_data_module = PerTokenValueDataModule()
+        finetune_data_module = PerTokenValueDataModule(
+            dummy_finetune_token_label_dataset, dummy_finetune_token_label_dataset
+        )
         simple_ft_checkpoint, simple_ft_metrics, _ = _train_model(
             name="finetune_new_head",
             root_dir=tmpdir / "finetune_new_head",  # new checkpoint will land in a subdir of this
