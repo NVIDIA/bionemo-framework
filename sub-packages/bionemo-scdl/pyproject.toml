@@ -8,10 +8,7 @@ license.file = "LICENSE"
 readme = "README.md"
 description = "SCDL, a Dataset class for Single Cell data."
 authors = [
-    { name = "John St. John", email = "jstjohn@nvidia.com" },
-    { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
-    { name = "Polina Binder", email = "pbinder@nvidia.com" },
-    { name = "Eric Dawson", email = "edawson@nvidia.com" },
+    { name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }
 ]
 dynamic = ["dependencies", "version"]
 

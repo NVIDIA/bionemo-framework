@@ -8,13 +8,7 @@ license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo Framework (FW): Production grade framework for AI-enabled Drug Discovery. Consists of all independently installable bionemo feature packages too."
 authors = [
-    { name = "Eric Dawson", email = "edawson@nvidia.com" },
-    { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
-    { name = "John St. John", email = "jstjohn@nvidia.com" },
-    { name = "Steven Kothen-Hill", email = "skothenhill@nvidia.com" },
-    { name = "Jonathan Mitchell", email = "jomitchell@nvidia.com" },
-    { name = "Farhad Ramezanghorbani", email = "farhadr@nvidia.com" },
-    { name = "Timur Rvachov", email = "trvachov@nvidia.com" },
+    { name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }
 ]
 dynamic = ["dependencies", "version"]
 
