@@ -10,9 +10,31 @@ To run unit tests, execute:
 pytest -v .
 ```
 
-<a id="utils"></a>
+# **Summary of Python Modules**
 
-# utils
+The `collect_cuda_peak_alloc` function can be used to collect CUDA peak memory allocation statistics for a user-defined workflow. Models from `memory_model` can be fitted to the collected memory allocation to predict future memory usage based on input data.
+The `SizeAwareBatchSampler` and `size_aware_batching` can use the memory model prediction to build batch of data indices so that the resulting mini-batches do not exceed a specified maximum total memory size, making it useful for tasks like training models on datasets with varying memory requirements.
+
+### utils Module
+---------------
+
+*   **collect_cuda_peak_alloc**: A function that collects CUDA peak memory allocation statistics for a given workflow.
+
+### sampler Module
+-----------------
+
+*   **size_aware_batching**: A generator that batches elements from an iterable while ensuring that the total size of each batch does not exceed a specified maximum.
+*   **SizeAwareBatchSampler**: A class that batches elements of varying sizes while ensuring that the total size of each batch does not exceed a specified maximum.
+
+### memory_model Module
+-----------------
+
+This module contains a `torch.nn.Module` for performing polynomial regression using PyTorch. The `PolynomialRegression` class allows users to create a model that fits data points with a polynomial of a specified degree.
+
+
+# API reference and examples
+
+## utils
 
 <a id="utils.collect_cuda_peak_alloc"></a>
 
@@ -106,7 +128,7 @@ data (e.g., internal PyTorch buffers). Therefore, users may want to skip these i
 
 <a id="sampler"></a>
 
-# sampler
+## sampler
 
 <a id="sampler.size_aware_batching"></a>
 
@@ -170,7 +192,7 @@ useful for both indexible data or non-indexible but iterable data.
 
 <a id="sampler.SizeAwareBatchSampler"></a>
 
-## SizeAwareBatchSampler Objects
+## SizeAwareBatchSampler
 
 ```python
 class SizeAwareBatchSampler(Sampler[List[int]])
@@ -265,3 +287,83 @@ This function yields batches of indices that do not exceed the maximum total siz
 **Yields**:
 
 - `List[int]` - A batch of indices that do not exceed the maximum total size.
+
+<a id="memory_model"></a>
+
+## memory\_model
+
+<a id="memory_model.PolynomialRegression"></a>
+
+## PolynomialRegression
+
+```python
+class PolynomialRegression(torch.nn.Module)
+```
+
+A class for performing polynomial regression using PyTorch.
+
+This class allows users to create a model that fits data points
+with a polynomial of a specified degree. It also provides methods
+to evaluate the fitted polynomial and fit it to new data.
+
+<a id="memory_model.PolynomialRegression.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(degree: int)
+```
+
+Initializes a PolynomialRegression object.
+
+**Arguments**:
+
+- `degree` _int_ - The degree of the polynomial regression model.
+  Must be a non-negative integer.
+
+
+**Raises**:
+
+- `ValueError` - If degree is not a non-negative integer.
+
+<a id="memory_model.PolynomialRegression.forward"></a>
+
+#### forward
+
+```python
+def forward(x: torch.Tensor) -> torch.Tensor
+```
+
+Evaluates the polynomial at point(s) x.
+
+**Arguments**:
+
+- `x` _torch.Tensor_ - A 1D tensor containing the points to evaluate
+  the polynomial at.
+
+
+**Returns**:
+
+- `torch.Tensor` - The value of the polynomial at each data point.
+
+<a id="memory_model.PolynomialRegression.fit"></a>
+
+#### fit
+
+```python
+def fit(x: torch.Tensor, y: torch.Tensor) -> None
+```
+
+Fits the polynomial regression model to data points (x, y).
+
+**Arguments**:
+
+- `x` _torch.Tensor_ - A 1D tensor containing the input data points.
+- `y` _torch.Tensor_ - A 1D tensor containing the output data points.
+
+
+**Raises**:
+
+- `TypeError` - If x or y is not a 1D tensor.
+- `ValueError` - If the number of samples in x and y are not equal.
+- `TypeError` - If x or y is not a floating point tensor.
