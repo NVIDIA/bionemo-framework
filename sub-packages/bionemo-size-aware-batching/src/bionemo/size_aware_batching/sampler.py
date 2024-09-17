@@ -27,7 +27,7 @@ Real = Union[int, float]
 def size_aware_batching(
     dataset: Iterable[Data],
     sizeof: Callable[[Data], Real],
-    max_total_size: int,
+    max_total_size: Real,
     collate_fn: Optional[Callable[[Iterable[Data]], Any]] = None,
     info_logger: Optional[Callable[[str], None]] = None,
     warn_logger: Optional[Callable[[str], None]] = None,
@@ -39,7 +39,7 @@ def size_aware_batching(
 
     Args:
         dataset (Iterable[Data]): The input iterable.
-        max_total_size (int): The maximum total size of each batch.
+        max_total_size (Real): The maximum total size of each batch.
         sizeof (Callable[[Data], Real]):
             A function or mapping that returns the size of each element in `dataset`.
         collate_fn (Optional[Callable[[Iterable[Data]], Any]], optional):
@@ -51,6 +51,29 @@ def size_aware_batching(
 
     Yields:
         Generator[Any, None, None]: A generator that yields batches from `dataset`.
+
+    -----------
+    Assumptions
+    1. Linear complexity. This function consumes the given Iterable of data (`dataset`) once,
+       by going over the data item one by one to build a batch and yield it as soon as the
+       addition of the next data item to the batch would exceed `max_total_size` or if the
+       batch is the last one (end of iteration)
+    2. Additive size measurement. For the general usage case of building mini-batches by
+       thresholding the batch's memory consumption, it assumes that the size of the batch is
+       the sum of all elements in the batch (additive property).
+    3. Comparable type of `max_total_size` and `sizeof`'s return. `sizeof`'s return values
+       must be compared with `max_total_size` to threshold the size of batches
+
+
+    ------
+    Caveat
+    1: The generated batch sizes may have large variance
+       - how to workaround: filter the output of this generator using a batch size threshold
+    2: The number of batches may vary a lot across different epochs.
+       - how to workaround: increase the number of steps that compose an epoch,
+         e.g., in the Lightning training/valiation loop, which effectively increases the input
+         dataset size per epoch
+
 
     -------
     Example
@@ -94,7 +117,7 @@ def size_aware_batching(
         except Exception as e:
             raise RuntimeError(f"sizeof raises error at data={data}: {e}") from e
         if not isinstance(new_size, Real):
-            raise TypeError(f"Size of element is not int or float at index {data}")
+            raise TypeError(f"Size of element {data} is not int or float")
         if new_size > max_total_size:
             if warn_logger is not None:
                 warn_logger(
