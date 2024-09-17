@@ -2,9 +2,9 @@ name: pre-commit
 
 on:
   pull_request:
-    branches: [main]
+    branches: [bionemo1]
   push:
-    branches: [main]
+    branches: [bionemo1]
   merge_group:
     types: [checks_requested]
 jobs:

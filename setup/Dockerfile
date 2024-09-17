@@ -146,7 +146,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y \
         python3-setuptools python3-dev libboost-all-dev swig \
-        wget git unzip tmux vim emacs-nox tree xterm \
+        git unzip tmux vim emacs-nox tree xterm \
         liblmdb-dev libopenbabel-dev python3-openbabel openbabel libopenbabel7
 
 ## libboost-all-dev is required by vina==1.2.5 for its compilation
