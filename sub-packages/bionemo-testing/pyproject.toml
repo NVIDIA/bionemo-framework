@@ -8,8 +8,7 @@ license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo testing: utilities aiding test creation for bionemo packages. Do Not Distriburte on PyPI !!"
 authors = [
-    { name = "John St. John", email = "jstjohn@nvidia.com" },
-    { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
+    { name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }
 ]
 dynamic = ["dependencies", "version"]
 
