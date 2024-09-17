@@ -13,13 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import functools
 from pathlib import Path
 from typing import Tuple
 
 import pytest
 import pytorch_lightning as pl
-import torch
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm as nllm
@@ -27,22 +25,15 @@ from nemo.lightning import io, resume
 from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
-from nemo.lightning.pytorch.plugins import MegatronDataSampler
-from nemo.utils import logging
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
-from torch.utils.data import Dataset
 
 from bionemo import esm2
-from bionemo.core.data.resamplers import PRNGResampleDataset
 from bionemo.esm2.api import ESM2Config, ESM2GenericConfig
 from bionemo.esm2.data import tokenizer
 from bionemo.esm2.data.datamodule import ESMDataModule
-from bionemo.esm2.model.finetune_token_classifier import ESM2FineTuneSeqLenBioBertConfig, Label2IDTokenizer
-from bionemo.llm.data import collate
+from bionemo.esm2.model.finetune_token_classifier import ESM2FineTuneSeqLenBioBertConfig, PerTokenValueDataModule
 from bionemo.llm.lightning import LossLoggingCallback
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
-from bionemo.llm.utils.datamodule_utils import infer_num_samples
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
 from bionemo.testing.data.load import load
@@ -80,222 +71,6 @@ def pretrain_data_module(dummy_protein_dataset, dummy_parquet_train_val_inputs):
         max_seq_length=1024,
     )
     yield data_module
-
-
-class PerTokenValueDataset(Dataset):
-    def __init__(self, tokenizer):
-        self.data = [
-            (
-                "seq_0",
-                "KIAIAVGDNLEMNLKLVLVKRESQSSISAEERVVAGRLSIVLVCSDAIIEQSKGFDLDGKAAVDDGGRLR",
-                "CEHECHCCHECEHCHCCCHECEECCEEHECHHCEECCCCHCCCHCCCHHHHHCHCHCHCCHHECECCCHE",
-            ),
-            (
-                "seq_1",
-                "ISIYNAQEDGWSQGNVLKNGGSKAIVGYNNLAWRAFGVANLTAKYPKPVYIAGI",
-                "HCCEHHHHCCHHHHCHCCCHHHHHCHHCHHCHCCCHHCCCHHCHHHCCCHHHHH",
-            ),
-            (
-                "seq_2",
-                "EVLEESLDFMYRVDWVEDALGNRRLVELSHGPLTFPDLWLRGVNLLSRKAFIEILLVPKKISRSMHNRKG",
-                "ECHHHCHCHHCHCHHCHCHCCHCHCEHCCECCHCEHHCHCHCCHHCHHHCHCCCHCEECHCCHHEECHCH",
-            ),
-            (
-                "seq_3",
-                "SHKCGAVDEPREATAKDTVESCTSQVEADHCGCVGPAPPSSRDCSTQDKCSTSQTYSL",
-                "CECCHECCCCCCCECCHCHCCCCEECCCHCCCCEHCCCCCHHCCCCCECCCCCCCECC",
-            ),
-            (
-                "seq_4",
-                "VKLWEGTTKNETQYGKPHYVIDATFYFDEGHDTTGLMTHANNKTHDTAAHATATVDVVTTE",
-                "CHCECEHECEECCHCECCCECEECHHEHCECCEHCHCCEEEEEECHEECHEEHEHEEECCC",
-            ),
-            (
-                "seq_5",
-                "CGYEGGPIRSVRKVIRPSKEDMSGRVGVVIIHKSAFARAPDGIICTIKGFLYRWELVNLVYEHALPFLRH",
-                "HCHHCHHCEHCHCHHCHHCHCEHCHHHCHCCCCCCEHEHHHHHEECCHCCHCHCHEHHCHHCCCEHCHCC",
-            ),
-        ]
-        self._len = len(self.data)
-        self.tokenizer = tokenizer
-        label_tokenizer = Label2IDTokenizer()
-        self.label_tokenizer = label_tokenizer.build_vocab("CHE")
-
-    def __len__(self):
-        return self._len
-
-    def __getitem__(self, idx):
-        sequence = self.data[idx][1]
-        tokenized_sequence = self._tokenize(sequence)
-        # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
-        loss_mask = ~torch.isin(tokenized_sequence, torch.tensor(self.tokenizer.all_special_ids))
-        labels = self._tokenize_labels(self.data[idx][2])
-
-        return {
-            "text": tokenized_sequence,
-            "types": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
-            "attention_mask": torch.ones_like(tokenized_sequence, dtype=torch.int64),
-            "labels": labels,
-            "loss_mask": loss_mask,
-            "is_random": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
-        }
-
-    def _tokenize_labels(self, labels_sequence: str) -> torch.Tensor:
-        label_ids = torch.tensor(self.label_tokenizer.text_to_ids(labels_sequence))
-
-        # # for multi-label classification with BCEWithLogitsLoss
-        # tokenized_labels = torch.nn.functional.one_hot(label_ids, num_classes=self.label_tokenizer.vocab_size)
-        # cls_eos = torch.full((1, self.label_tokenizer.vocab_size), -1, dtype=tokenized_labels.dtype)
-
-        # for multi-class (mutually exclusive) classification with CrossEntropyLoss
-        tokenized_labels = label_ids
-        cls_eos = torch.tensor([-1], dtype=tokenized_labels.dtype)
-
-        # add cls / eos labels with padding value -1 to have the same shape as tokenized_sequence
-        labels = torch.cat((cls_eos, tokenized_labels, cls_eos))
-        return labels
-
-    def _tokenize(self, sequence: str) -> torch.Tensor:
-        """Tokenize a protein sequence.
-
-        Args:
-            sequence: The protein sequence.
-
-        Returns:
-            The tokenized sequence.
-        """
-        tensor = self.tokenizer.encode(sequence, add_special_tokens=True, return_tensors="pt")
-        return tensor.flatten()  # type: ignore
-
-
-class PerTokenValueDataModule(pl.LightningDataModule):
-    def __init__(
-        self,
-        seed: int | None = 42,
-        min_seq_length: int | None = None,
-        max_seq_length: int = 1024,
-        micro_batch_size: int = 4,
-        global_batch_size: int = 8,
-        num_workers: int = 10,
-        persistent_workers: bool = True,
-        pin_memory: bool = True,
-        rampup_batch_size: list[int] | None = None,
-        mask_prob: float = 0.15,
-        mask_token_prob: float = 0.8,
-        mask_random_prob: float = 0.1,
-        tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
-    ) -> None:
-        super().__init__()
-        self._seed = seed
-        self._min_seq_length = min_seq_length
-        self._max_seq_length = max_seq_length
-        self._mask_prob = mask_prob
-        self._mask_token_prob = mask_token_prob
-        self._mask_random_prob = mask_random_prob
-        self._tokenizer = tokenizer
-
-        self._micro_batch_size = micro_batch_size
-        self._num_workers = num_workers
-        self._persistent_workers = persistent_workers
-        self._pin_memory = pin_memory
-
-        self.data_sampler = MegatronDataSampler(
-            seq_len=max_seq_length,
-            micro_batch_size=micro_batch_size,
-            global_batch_size=global_batch_size,
-            dataloader_type="single",  # `MegatronPretrainingRandomSampler` from "cyclic" is failing.
-            rampup_batch_size=rampup_batch_size,
-        )
-
-    def setup(self, stage: str) -> None:
-        """Setup the ESMDataModule.
-
-        Args:
-            stage: Unused.
-
-        Raises:
-            RuntimeError: If the trainer is not attached, or if the trainer's max_steps is not set.
-        """
-        del stage  # Unused.
-
-        if not hasattr(self, "trainer") or self.trainer is None:
-            raise RuntimeError("Setup should be completed when trainer and config are attached.")
-
-        if self.trainer.max_epochs is not None and self.trainer.max_epochs > 1:
-            logging.warning(
-                "Trainer is set to run for multiple epochs. This is not recommended due to the same shuffle being used "
-                "in each. Instead set max_epochs to 1 and increase the number of max_steps."
-            )
-
-        max_train_steps = self.trainer.max_steps
-        if max_train_steps <= 0:
-            raise RuntimeError("Please specify trainer.max_steps")
-
-        # Create training dataset
-        _train_ds = PerTokenValueDataset(tokenizer=self._tokenizer)
-        num_train_samples = int(max_train_steps * self.data_sampler.global_batch_size)
-
-        self._train_ds = self._sample_and_shuffle_dataset(
-            _train_ds, num_train_samples, "train"
-        )  # shuffle manually without cyclic MegatronPretrainingRandomSampler
-
-        # Create validation dataset
-        _valid_ds = PerTokenValueDataset(tokenizer=self._tokenizer)
-        num_val_samples = infer_num_samples(
-            limit_batches=self.trainer.limit_val_batches,
-            num_samples_in_dataset=len(_valid_ds),
-            global_batch_size=self.data_sampler.global_batch_size,
-            stage="val",
-        )
-        self._valid_ds = self._sample_and_shuffle_dataset(
-            _valid_ds, num_val_samples, "val"
-        )  # shuffle manually without cyclic MegatronPretrainingRandomSampler
-
-        assert (
-            hasattr(self, "trainer") and self.trainer is not None
-        ), "Setup should be completed when trainer and config are attached."
-
-    def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
-        assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
-
-        return torch.utils.data.DataLoader(
-            dataset,
-            num_workers=self._num_workers,
-            pin_memory=self._pin_memory,
-            persistent_workers=self._persistent_workers,
-            collate_fn=functools.partial(
-                collate.bert_padding_collate_fn,
-                padding_value=self._tokenizer.pad_token_id,
-                min_length=self._min_seq_length,
-                max_length=self._max_seq_length,
-            ),
-            **kwargs,
-        )
-
-    def train_dataloader(self) -> TRAIN_DATALOADERS:
-        """Returns the dataloader for training data."""
-        return self._create_dataloader(self._train_ds)
-
-    def val_dataloader(self) -> EVAL_DATALOADERS:
-        """Returns the dataloader for validation data."""
-        return self._create_dataloader(self._valid_ds)
-
-    def _sample_and_shuffle_dataset(self, dataset: Dataset, num_samples: int, stage: str):
-        """Sample the training dataset.
-
-        Args:
-            dataset (torch.utils.data.Dataset): The dataset to sample from
-
-        Returns:
-            ResamplingMappedDataset: Resampled dataset
-
-        """
-        # This is where re-sampling occurs.
-        return PRNGResampleDataset(
-            dataset,
-            num_samples=num_samples,
-            seed=self._seed + len(stage),
-        )
 
 
 def _train_model(
