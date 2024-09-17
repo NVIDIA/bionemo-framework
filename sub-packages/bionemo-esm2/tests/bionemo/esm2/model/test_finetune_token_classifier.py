@@ -312,12 +312,11 @@ def _train_model(
     tokenizer: tokenizer.BioNeMoAutoTokenizer,
 ) -> Tuple[Path, MetricTracker, nl.Trainer]:
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_best_model=False,
         save_last=True,
         save_on_train_epoch_end=True,
         monitor="reduced_train_loss",  # TODO find out how to get val_loss logged and use "val_loss",
         every_n_train_steps=n_steps_train // 2,
-        enable_nemo_ckpt_io=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
     )
 
     # Setup the logger and train the model
@@ -366,7 +365,6 @@ def _train_model(
         trainer=trainer,
         log=nemo_logger,
         resume=resume.AutoResume(
-            path=None,  # Overrides the path found by resume_if_exists when set.
             resume_if_exists=True,  # Looks for the -last checkpoint to continue training.
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
@@ -388,9 +386,10 @@ def test_esm2_finetune_token_classifier(
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
         )
-        assert ckpt_path.exists()
-        assert ckpt_path.is_dir()
-        assert io.is_distributed_ckpt(ckpt_path)
+        weights_ckpt = ckpt_path / "weights"
+        assert weights_ckpt.exists()
+        assert weights_ckpt.is_dir()
+        assert io.is_distributed_ckpt(weights_ckpt)
         assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
 
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
@@ -404,7 +403,8 @@ def test_esm2_finetune_token_classifier(
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
         )
-        assert simple_ft_checkpoint.exists()
-        assert simple_ft_checkpoint.is_dir()
-        assert io.is_distributed_ckpt(simple_ft_checkpoint)
+        weights_ckpt = simple_ft_checkpoint / "weights"
+        assert weights_ckpt.exists()
+        assert weights_ckpt.is_dir()
+        assert io.is_distributed_ckpt(weights_ckpt)
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
