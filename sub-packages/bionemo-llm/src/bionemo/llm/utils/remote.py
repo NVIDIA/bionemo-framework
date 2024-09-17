@@ -17,11 +17,14 @@
 import os
 from dataclasses import dataclass
 from hashlib import md5
+from pathlib import Path
 from typing import Optional, Sequence
 from urllib import request
 
 import requests
 from nemo.utils import logging
+
+from bionemo.core import BIONEMO_CACHE_DIR
 
 
 __all__: Sequence[str] = (
@@ -76,12 +79,12 @@ class RemoteResource:
     checksum: Optional[str]
     dest_filename: str
     dest_directory: str
-    root_directory: str = "/tmp"
+    root_directory: str | os.PathLike = BIONEMO_CACHE_DIR
     url: Optional[str] = None
 
     @property
     def fully_qualified_dest_folder(self):  # noqa: D102
-        return os.path.join(self.root_directory, self.dest_directory)
+        return Path(self.root_directory) / self.dest_directory
 
     @property
     def fully_qualified_dest_filename(self):

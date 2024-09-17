@@ -34,7 +34,6 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from bionemo import geneformer
 from bionemo.core.data.resamplers import PRNGResampleDataset
 from bionemo.core.utils.batching_utils import pad_token_ids
 from bionemo.core.utils.dtypes import get_autocast_dtype
@@ -57,15 +56,6 @@ from bionemo.testing.data.load import load
 from bionemo.testing.utils import assert_matrix_correlation_above_value, assert_matrix_mape_below_value
 
 
-bionemo2_root: Path = (
-    # geneformer module's path is the most dependable --> don't expect this to change!
-    Path(geneformer.__file__)
-    # This gets us from 'sub-packages/bionemo-geneformer/src/bionemo/geneformer/__init__.py' to 'sub-packages/bionemo-geneformer'
-    .parent.parent.parent.parent
-    # From here, we want to get to the root of the repository: _before_ sub-packages/
-    .parent.parent
-).absolute()
-assert bionemo2_root != Path("/")
 nemo1_checkpoint_path: Path = load("geneformer/qa")
 nemo1_release_checkpoint_path: Path = load("geneformer/10M_240530")
 nemo_1_per_layer_outputs_path: Path = load("single_cell/nemo1-geneformer-per-layer-outputs")
@@ -170,11 +160,6 @@ def geneformer_config():
         nemo1_ckpt_path=str(nemo1_checkpoint_path),
         return_only_hidden_states=True,  # This is what we did in nemo1 for inference
     )
-
-
-def test_bionemo2_rootdir():
-    assert (bionemo2_root / "sub-packages").exists(), "Could not find bionemo2 root directory."
-    assert (bionemo2_root / "sub-packages").is_dir(), "sub-packages is supposed to be a directory."
 
 
 def test_nemo1_nemo2_weight_shapes_match(geneformer_config, seed: int = 42):

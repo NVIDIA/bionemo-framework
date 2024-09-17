@@ -36,27 +36,17 @@ from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from torch.nn import functional as F
 
-from bionemo import geneformer
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
 from bionemo.llm.model.biobert.testing_utils import compute_biobert_loss_singlegpu
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
+from bionemo.testing.data.load import load
 from bionemo.testing.harnesses import stop_and_go
 
 
-bionemo2_root: pathlib.Path = (
-    # geneformer module's path is the most dependable --> don't expect this to change!
-    pathlib.Path(geneformer.__file__)
-    # This gets us from 'sub-packages/bionemo-geneformer/src/bionemo/geneformer/__init__.py' to 'sub-packages/bionemo-geneformer'
-    .parent.parent.parent.parent
-    # From here, we want to get to the root of the repository: _before_ sub-packages/
-    .parent.parent
-).absolute()
-
-assert bionemo2_root != pathlib.Path("/")
-data_path: pathlib.Path = bionemo2_root / "test_data/cellxgene_2023-12-15_small/processed_data"
+data_path: pathlib.Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
 
 MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
 USE_TE: bool = False  # TODO use this for high level decisions around whether we're ready to switch to TE
@@ -128,16 +118,14 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
         self,
         val_check_interval=2,
         exp_name="geneformer_stop_and_go",
-        root_dir: pathlib.Path = bionemo2_root,
     ):
         extra_metrics_dict = {"val_loss": compute_biobert_loss_singlegpu}
         super().__init__(
             extra_metrics_dict=extra_metrics_dict,
             val_check_interval=val_check_interval,
             exp_name=exp_name,
-            root_dir=root_dir,
         )
-        self.data_dir: pathlib.Path = self.root_dir / "test_data/cellxgene_2023-12-15_small/processed_data"
+        self.data_dir: pathlib.Path = data_path
         train_data_path = self.data_dir / "train"
         preprocessor = GeneformerPreprocess(
             download_directory=train_data_path,

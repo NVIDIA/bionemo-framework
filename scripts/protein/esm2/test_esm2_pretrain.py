@@ -25,20 +25,9 @@ import pytest
 from esm2_pretrain import main, parser  # TODO: needs to be refactored to a package and imported!
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 
-from bionemo import esm2
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
-
-
-bionemo2_root: Path = (
-    # esm2 module's path is the most dependable --> don't expect this to change!
-    Path(esm2.__file__)
-    # This gets us from 'sub-packages/bionemo-esm2/src/bionemo/esm2/__init__.py' to 'sub-packages/bionemo-esm2'
-    .parent.parent.parent.parent
-    # From here, we want to get to the root of the repository: _before_ sub-packages/
-    .parent.parent
-).absolute()
 
 
 @pytest.mark.skip("duplicate unittest")
@@ -93,11 +82,6 @@ def dummy_parquet_train_val_inputs(tmp_path):
     )
     valid_clusters.to_parquet(valid_cluster_path)
     return train_cluster_path, valid_cluster_path
-
-
-def test_bionemo2_rootdir():
-    assert (bionemo2_root / "sub-packages").exists(), "Could not find bionemo2 root directory."
-    assert (bionemo2_root / "sub-packages").is_dir(), "sub-packages is supposed to be a directory."
 
 
 @pytest.mark.skip("duplicate with argparse, model and data unittests")
@@ -223,8 +207,9 @@ def test_pretrain_cli(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inp
     result_dir = Path(tmpdir.mkdir("results"))
     open_port = find_free_network_port()
     # NOTE: if you need to change the following command, please update the README.md example.
+    script_dir = Path(__file__).parent
     cmd_str = f"""python  \
-    {bionemo2_root}/scripts/protein/esm2/esm2_pretrain.py     \
+    {script_dir}/esm2_pretrain.py     \
     --train-cluster-path {train_cluster_path} \
     --train-database-path {dummy_protein_dataset} \
     --valid-cluster-path {valid_cluster_path} \

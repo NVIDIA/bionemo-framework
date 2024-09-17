@@ -26,7 +26,6 @@ from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTo
 from torch import Tensor
 from transformers import EsmForMaskedLM
 
-from bionemo import esm2
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.core.utils.random_utils import random_numpy_context
 from bionemo.esm2.api import ESM2Config, ESM2Model
@@ -39,15 +38,6 @@ from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.data.load import load
 
 
-bionemo2_root: Path = (
-    # esm2 module's path is the most dependable --> don't expect this to change!
-    Path(esm2.__file__)
-    # This gets us from 'sub-packages/bionemo-esm2/src/bionemo/esm2/__init__.py' to 'sub-packages/bionemo-esm2'
-    .parent.parent.parent.parent
-    # From here, we want to get to the root of the repository: _before_ sub-packages/
-    .parent.parent
-).absolute()
-assert bionemo2_root != Path("/")
 nemo1_checkpoint_path: Path = load("esm2/nv_650m:1.0")
 
 

@@ -2,10 +2,6 @@
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[options]
-zip_safe = true
-include_package_data = true
-
 [project]
 name = "bionemo-testing"
 license.file = "LICENSE"
@@ -25,3 +21,7 @@ where = ["src"]
 include=["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
+
+# Make sure that the resource yaml files are being packaged alongside the python files.
+[tool.setuptools.package-data]
+"bionemo.testing" = ["**/*.yaml"]

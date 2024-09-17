@@ -19,3 +19,7 @@ where = ["src"]
 include=["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
+
+# Make sure that the tokenizer files are included along with the python files during installation.
+[tool.setuptools.package-data]
+"bionemo.esm2" = ["data/tokenizer/*.json", "data/tokenizer/*.txt"]

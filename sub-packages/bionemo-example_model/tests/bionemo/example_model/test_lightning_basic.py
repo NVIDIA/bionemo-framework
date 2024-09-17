@@ -26,13 +26,13 @@ from nemo.lightning import NeMoLogger, io, resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from pytorch_lightning.loggers import TensorBoardLogger
 
+from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.example_model import lightning_basic as lb
 from bionemo.llm.lightning import LossLoggingCallback
 from bionemo.llm.model.config import MegatronBioNeMoTrainableModelConfig
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
-from bionemo.testing.data.load import BIONEMO_CACHE_DIR
 
 
 def _train_model_get_ckpt(
