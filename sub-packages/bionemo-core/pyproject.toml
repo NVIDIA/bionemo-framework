@@ -8,8 +8,7 @@ license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo core interfaces and PyTorch-related code."
 authors = [
-    { name = "John St. John", email = "jstjohn@nvidia.com" },
-    { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
+    { name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }
 ]
 dynamic = ["version", "dependencies"]
 
