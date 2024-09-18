@@ -38,8 +38,8 @@ from bionemo.llm.utils import iomixin_utils as iom
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
-"""This package demonstrates how you can take a pretrained geneformer module and fine-tune the classifier
-token to output cell type predictions.
+"""This package demonstrates how you can take a pretrained ESM2 module and fine-tune the classifier
+token to output secondary structure predictions.
 """
 
 __all__ = []
@@ -106,7 +106,7 @@ class MegatronConvNetHead(MegatronModule):
         # These are used for producing logits scores of varying sizes as specified in `output_sizes`.
         self.class_heads = torch.nn.Conv2d(32, config.cnn_num_classes, kernel_size=(7, 1), padding=(3, 0))
 
-    def forward(self, hidden_states: torch.Tensor) -> List[torch.Tensor]:  # torch.Size([4, 1280])
+    def forward(self, hidden_states: torch.Tensor) -> List[torch.Tensor]:
         # [b, s, h] -> [b, h, s, 1]
         hidden_states = hidden_states.permute(0, 2, 1).unsqueeze(dim=-1)
         hidden_states = self.finetune_model(hidden_states)  # [b, 32, s, 1]
