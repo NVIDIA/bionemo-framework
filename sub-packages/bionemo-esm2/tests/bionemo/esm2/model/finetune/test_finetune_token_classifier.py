@@ -32,9 +32,10 @@ from bionemo import esm2
 from bionemo.esm2.api import ESM2Config, ESM2GenericConfig
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.tokenizer import BioNeMoAutoTokenizer
+from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
 from bionemo.esm2.model.finetune.finetune_token_classifier import (
     ESM2FineTuneSeqLenBioBertConfig,
-    PerTokenValueDataModule,
+    PerTokenValueDataset,
 )
 from bionemo.llm.lightning import LossLoggingCallback
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
@@ -174,9 +175,8 @@ def test_esm2_finetune_token_classifier(
 
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
         esm2_finetune_config = ESM2FineTuneSeqLenBioBertConfig(initial_ckpt_path=str(ckpt_path))
-        finetune_data_module = PerTokenValueDataModule(
-            dummy_data_per_token_classification_ft, dummy_data_per_token_classification_ft
-        )
+        dataset = PerTokenValueDataset(dummy_data_per_token_classification_ft)
+        finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
         simple_ft_checkpoint, simple_ft_metrics, _ = _train_model(
             name="finetune_new_head",
             root_dir=tmpdir / "finetune_new_head",  # new checkpoint will land in a subdir of this
