@@ -127,7 +127,7 @@ class StopAndGoHarness(ABC):
         self.metrics_getter.update(extra_metrics_dict or {})
         self.val_check_interval = val_check_interval
         self.nemo_logger: nemo_logger.NeMoLogger = nemo_logger.NeMoLogger(
-            dir=str(self.root_dir),
+            log_dir=str(self.root_dir),
             name=self.exp_name,
             use_datetime_version=False,
             version=None,

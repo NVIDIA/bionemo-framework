@@ -62,7 +62,7 @@ def _train_model_get_ckpt(
     tb_logger = TensorBoardLogger(save_dir=save_dir, name=name)
     # Setup the logger and train the model
     nemo_logger = NeMoLogger(
-        dir=str(root_dir),
+        log_dir=str(root_dir),
         name=name,
         tensorboard=tb_logger,
         ckpt=checkpoint_callback,
