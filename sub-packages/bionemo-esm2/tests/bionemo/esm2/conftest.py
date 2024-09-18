@@ -78,3 +78,49 @@ def dummy_parquet_train_val_inputs(tmp_path):
     )
     valid_clusters.to_parquet(valid_cluster_path)
     return train_cluster_path, valid_cluster_path
+
+
+@pytest.fixture
+def dummy_data_per_token_classification_ft():
+    """Fixture providing dummy data for per-token classification fine-tuning.
+
+    Returns:
+        list: A list of dummy data for per-token classification fine-tuning.
+    """
+    data = [
+        (
+            "seq_0",
+            "TLILGWSDKLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
+            "EEEECCCCCHHHHHHHHHHHHHHHCCCEEEEEECCCHHHHHHHHHCCCCCCCCCEEE",
+        ),
+        ("seq_1", "LYSGDHSTQGARFLRDLAENTGRAEYELLSLF", "CCCCCHHHHHHHHHHHHHHCCCCCHHHHHHCC"),
+        ("seq_2", "GRFNVWLGGNESKIRQVLKAVKEIGVSPTLFAVYEKN", "HHHHHCCCCCHHHHHHHHHHHHHHCCCHHHHHHHHHH"),
+        (
+            "seq_3",
+            "DELTALGGLLHDIGKPVQRAGLYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
+            "HHHHHHHHHHCCCHHHHHCCCCCCCCHHHHHHHHHHHHHHCCCCCHHHHHHCC",
+        ),
+        (
+            "seq_4",
+            "KLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
+            "CHHHHHHHHHHHHHHHCCCEEEEEECCCHHHHHHHHHCCCCCCCCCEEE",
+        ),
+        (
+            "seq_5",
+            "LFGAIGNAISAIHGQSAVEELVDAFVGGARISSAFPYSGDTYYLPKP",
+            "HHHHHHHHHHHHHCHHHHHHHHHHHHCCCEECCCEEEECCEEEEECC",
+        ),
+        (
+            "seq_6",
+            "LGGLLHDIGKPVQRAGLYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
+            "HHHHHCCCHHHHHCCCCCCCCHHHHHHHHHHHHHHCCCCCHHHHHHCC",
+        ),
+        ("seq_7", "LYSGDHSTQGARFLRDLAENTGRAEYELLSLF", "CCCCCHHHHHHHHHHHHHHCCCCCHHHHHHCC"),
+        ("seq_8", "ISAIHGQSAVEELVDAFVGGARISSAFPYSGDTYYLPKP", "HHHHHCHHHHHHHHHHHHCCCEECCCEEEECCEEEEECC"),
+        (
+            "seq_9",
+            "SGSKASSDSQDANQCCTSCEDNAPATSYCVECSEPLCETCVEAHQRVKYTKDHTVRSTGPAKT",
+            "CCCCCCCCCCCCCCCCCCCCCCCCCCEEECCCCEEECHHHHHHHHHCCCCCCCCEEECCCCCC",
+        ),
+    ]
+    return data
