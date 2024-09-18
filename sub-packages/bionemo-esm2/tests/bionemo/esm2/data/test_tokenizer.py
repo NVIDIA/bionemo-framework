@@ -17,6 +17,7 @@
 # Example proteins taken from the https://github.com/facebookresearch/esm main README.
 import pytest
 import torch
+from nemo.lightning import io
 
 from bionemo.esm2.data.tokenizer import get_tokenizer
 
@@ -94,3 +95,12 @@ def test_tokenize_with_invalid_token(tokenizer):
 
 def test_tokenize_with_empty_string(tokenizer):
     assert tokenizer.encode("", add_special_tokens=True) == [0, 2]
+
+
+def test_tokenizer_serialization(tokenizer, tmp_path):
+    tokenizer.io_dump(tmp_path / "tokenizer")
+    deserialized_tokenizer = io.load(tmp_path / "tokenizer", tokenizer.__class__)
+
+    our_tokens = deserialized_tokenizer.encode("K A <mask> I S Q", add_special_tokens=False)
+    esm_tokens = torch.tensor([15, 5, 32, 12, 8, 16])
+    torch.testing.assert_close(torch.tensor(our_tokens), esm_tokens)
