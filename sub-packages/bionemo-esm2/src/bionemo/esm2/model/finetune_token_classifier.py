@@ -274,15 +274,16 @@ class Label2IDTokenizer(TokenizerSpec):
 
 
 class PerTokenValueDataset(Dataset):
-    def __init__(self, data):
+    def __init__(self, data, tokenizer):
         """Initializes the class.
 
         Args:
             data (list[Tuple]): The data to be used. List of tuples (id, sequence, label_sequence)
+            tokenizer (tokenizer.BioNeMoAutoTokenizer): The tokenizer to be used.
         """
         self.data = data
         self._len = len(self.data)
-        self.tokenizer = tokenizer.get_tokenizer()
+        self.tokenizer = tokenizer
         label_tokenizer = Label2IDTokenizer()
         self.label_tokenizer = label_tokenizer.build_vocab("CHE")
 

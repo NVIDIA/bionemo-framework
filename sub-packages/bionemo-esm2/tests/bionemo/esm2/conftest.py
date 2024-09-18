@@ -120,4 +120,4 @@ def dummy_finetune_token_label_dataset():
             "HCHHCHHCEHCHCHHCHHCHCEHCHHHCHCCCCCCEHEHHHHHEECCHCCHCHCHEHHCHHCCCEHCHCC",
         ),
     ]
-    return PerTokenValueDataset(data)
+    return PerTokenValueDataset(data, tokenizer)
