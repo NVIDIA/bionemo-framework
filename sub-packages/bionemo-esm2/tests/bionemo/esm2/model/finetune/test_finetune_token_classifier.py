@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 from pathlib import Path
 from typing import Tuple
 
@@ -31,7 +32,10 @@ from bionemo import esm2
 from bionemo.esm2.api import ESM2Config, ESM2GenericConfig
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.tokenizer import BioNeMoAutoTokenizer
-from bionemo.esm2.model.finetune_token_classifier import ESM2FineTuneSeqLenBioBertConfig, PerTokenValueDataModule
+from bionemo.esm2.model.finetune.finetune_token_classifier import (
+    ESM2FineTuneSeqLenBioBertConfig,
+    PerTokenValueDataModule,
+)
 from bionemo.llm.lightning import LossLoggingCallback
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
 from bionemo.testing import megatron_parallel_state_utils
