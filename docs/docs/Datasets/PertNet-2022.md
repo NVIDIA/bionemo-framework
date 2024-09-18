@@ -1,0 +1,2 @@
+# PertNet 2022
+[PertNet 2022 v7](https://doi.org/10.7910/DVN/Q2ZV3E) was originally described in the [GEARS publication](https://www.nature.com/articles/s41587-023-01905-6). This dataset comprises Single Cell data that has undergone various perturbations, including targeted CRISPR knockdowns. We specifically utilize the [Adamson et al.](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE90546) subset of the dataset. This paper employed Perturb-seq to study the mammalian unfolded protein response process and involves human-derived cells.
