@@ -471,7 +471,7 @@ class PerTokenValueDataModule(pl.LightningDataModule):
         """Returns the dataloader for validation data."""
         return self._create_dataloader(self._valid_ds)
 
-    def _sample_and_shuffle_dataset(self, dataset: Dataset, num_samples: int):
+    def _sample_and_shuffle_dataset(self, dataset: Dataset, num_samples: int, stage: str):
         """Sample the training dataset.
 
         Args:
@@ -486,5 +486,5 @@ class PerTokenValueDataModule(pl.LightningDataModule):
         return PRNGResampleDataset(
             dataset,
             num_samples=num_samples,
-            seed=self._seed,
+            seed=self._seed + len(stage),
         )
