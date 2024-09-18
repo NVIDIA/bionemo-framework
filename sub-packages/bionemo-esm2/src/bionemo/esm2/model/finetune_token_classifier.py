@@ -65,9 +65,10 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
                 backpropagation and the ReductionT will be passed to the reduce method
                 (which currently only works for logging.).
         """
-        targets = batch["labels"]
+        targets = batch["labels"]  # [b, s]
+        # [b, s, num_class] -> [b, num_class, s] to satisfy input dims for cross_entropy loss
         classification_output = forward_out["classification_output"].permute(0, 2, 1)
-        loss_mask = batch["loss_mask"]
+        loss_mask = batch["loss_mask"]  # [b, s]
 
         losses = torch.nn.functional.cross_entropy(classification_output, targets, reduction="none")
         masked_loss = losses * loss_mask
