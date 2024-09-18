@@ -1,0 +1,2 @@
+# OpenProteinSet
+[OpenProteinSet](https://arxiv.org/abs/2308.05326v1) {cite:p}`ahdritz2023openproteinset` is a collection of mulitple sequence alignments (MSAs) on every unique sequences in PDB dataset and every cluster at Uniclust30. This amounts a total of 140,000 MSAs for PDB sequences, 270,000 MSAs for Uniclust30 structures predicted by AlphaFold-2, and 16 million MSAs in the unfiltered Uniclust30 to facilitate model development in protein design, structure and function predictions, and research in multimodal learning.
