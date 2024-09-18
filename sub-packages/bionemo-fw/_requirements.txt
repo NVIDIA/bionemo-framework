@@ -1,7 +1,0 @@
-# component packages
--e ../bionemo-core
--e ../bionemo-pytorch
--e ../bionemo-llm
-# batteries included packages
--e ../bionemo-geneformer
--e ../bionemo-esm2

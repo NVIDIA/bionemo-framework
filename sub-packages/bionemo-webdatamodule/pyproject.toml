@@ -8,8 +8,7 @@ license.file = "LICENSE"
 readme = "README.md"
 description = "PyTorch Lightning Data Module for WebDataset files."
 authors = [
-    { name = "Dejun Lin", email = "dejunl@nvidia.com" },
-    { name = "Malcolm Greaves", email = "mgreaves@nvidia.com" },
+    { name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }
 ]
 dynamic = ["dependencies", "version"]
 

@@ -25,8 +25,6 @@ on:
           args:
             description: 'argument'
             required: false
-  merge_group:
-    types: [checks_requested]
 jobs:
   Authorization:
     name: Authorization
@@ -40,6 +38,7 @@ jobs:
          (github.actor == 'ohadmo' ||
           github.actor == 'trvachov' ||
           github.actor == 'jstjohn' ||
+          github.actor == 'pstjohn' ||
           github.actor == 'malcolmgreaves' ||
           github.actor == 'gwarmstrong' ||
           github.actor == 'farhadrgh' ||
@@ -50,7 +49,10 @@ jobs:
           github.actor == 'ntadimeti' ||
           github.actor == 'broland-hat' ||
           github.actor == 'polinabinder1' ||
-          github.actor == 'camirr-nv')
+          github.actor == 'camirr-nv' ||
+          github.actor == 'sichu2023' ||
+          github.actor == 'jwilber' ||
+          github.actor == 'DejunL')
     steps:
       - name: Check if comment is issued by authorized person
         run: blossom-ci

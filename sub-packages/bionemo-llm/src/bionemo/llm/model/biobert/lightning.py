@@ -190,12 +190,21 @@ class BioBertLightningModule(  # noqa: D101
         ),
         data_step_function: DataStepFunction = biobert_data_step,
         forward_step_function: ForwardStepFunction = bert_forward_step,
+        model_transform: Callable | None = None,
     ):
         """A pytorch lightning module for BioBert-derived models. This module is designed to be used with the Megatron-LM strategy and nemo 2.0 conventions.
         To change the your loss, pass in a different config object that returns a different loss reduction class. To change your model and what it outputs,
         pass in a different config object that returns a different model. Do not modify this function unless you need to change higher level logic. You may
         need to modify the various step and forward functions towards the bottom of this file to handle new/different keys in the batch. In the future some of
         those functions may need to be refactored out into the config object or a different place so that they live closer to the model definition.
+
+        Args:
+            config (MegatronBioNeMoTrainableModelConfig): The model configuration object.
+            tokenizer (Optional[TokenizerSpec], optional): The tokenizer object. Defaults to None.
+            optimizer (MegatronOptimizerModule, optional): The optimizer object. Defaults to MegatronOptimizerModule(config=OptimizerConfig(lr=1e-4, optimizer="adam", use_distributed_optimizer=True)).
+            data_step_function (DataStepFunction, optional): The data step function. Defaults to biobert_data_step.
+            forward_step_function (ForwardStepFunction, optional): The forward step function. Defaults to bert_forward_step.
+            model_transform (Callable, optional): The model transform function. Defaults to None.
         """  # noqa: D205
         super().__init__()
         self.config = config
@@ -208,6 +217,8 @@ class BioBertLightningModule(  # noqa: D101
         self.optim.connect(self)  # This will bind the `configure_optimizers` method
         self.data_step_function: DataStepFunction = data_step_function
         self.forward_step_function: ForwardStepFunction = forward_step_function
+        if model_transform is not None:
+            self.model_transform = model_transform
 
     def configure_model(self) -> None:  # noqa: D102
         self.module = self.config.configure_model(self.tokenizer)
