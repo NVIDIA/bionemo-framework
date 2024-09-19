@@ -420,7 +420,7 @@ parser.add_argument(
     "--restore-hf-masking-strategy",
     action="store_true",
     default=False,
-    help="Restore the HuggingFace masking strategy.",
+    help="Restore the HuggingFace masking strategy, where masked amino acid tokens can be replaced with non-amino acid tokens",
 )
 parser.add_argument(
     "--num-layers",
