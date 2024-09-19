@@ -102,6 +102,7 @@ class ESMMaskedResidueDataset(Dataset):
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
+        restore_hf_masking_strategy: bool = False,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
     ) -> None:
         """Initializes the dataset.
@@ -119,6 +120,7 @@ class ESMMaskedResidueDataset(Dataset):
             mask_prob: The overall probability a token is included in the loss function. Defaults to 0.15.
             mask_token_prob: Proportion of masked tokens that get assigned the <MASK> id. Defaults to 0.8.
             mask_random_prob: Proportion of tokens that get assigned a random natural amino acid. Defaults to 0.1.
+            restore_hf_masking_strategy: Restore HF masking strategy. Defaults to False.
             tokenizer: The input ESM tokenizer. Defaults to the standard ESM tokenizer.
         """
         self.protein_dataset = protein_dataset
@@ -126,13 +128,14 @@ class ESMMaskedResidueDataset(Dataset):
         self.total_samples = total_samples
         self.seed = seed
         self.max_seq_length = max_seq_length
+        self.restore_hf_masking_strategy = restore_hf_masking_strategy
 
         if tokenizer.mask_token_id is None:
             raise ValueError("Tokenizer does not have a mask token.")
 
         self.mask_config = masking.BertMaskConfig(
             tokenizer=tokenizer,
-            random_tokens=range(4, 24),
+            random_tokens=range(0, len(tokenizer)) if self.restore_hf_masking_strategy else range(4, 24),
             mask_prob=mask_prob,
             mask_token_prob=mask_token_prob,
             random_token_prob=mask_random_prob,
@@ -228,6 +231,7 @@ def create_train_dataset(
     mask_prob: float = 0.15,
     mask_token_prob: float = 0.8,
     mask_random_prob: float = 0.1,
+    restore_hf_masking_strategy: bool = False,
     tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
 ):
     """Creates a training dataset for ESM pretraining.
@@ -242,6 +246,7 @@ def create_train_dataset(
         mask_prob: The overall probability a token is included in the loss function. Defaults to 0.15.
         mask_token_prob: Proportion of masked tokens that get assigned the <MASK> id. Defaults to 0.8.
         mask_random_prob: Proportion of tokens that get assigned a random natural amino acid. Defaults to 0.1.
+        restore_hf_masking_strategy: Restore HF masking strategy. Defaults to False.
         tokenizer: The input ESM tokenizer. Defaults to the standard ESM tokenizer.
 
     Returns:
@@ -271,6 +276,7 @@ def create_train_dataset(
         mask_prob=mask_prob,
         mask_token_prob=mask_token_prob,
         mask_random_prob=mask_random_prob,
+        restore_hf_masking_strategy=restore_hf_masking_strategy,
         tokenizer=tokenizer,
     )
 
@@ -306,6 +312,7 @@ def create_valid_dataset(  # noqa: D417
     mask_prob: float = 0.15,
     mask_token_prob: float = 0.8,
     mask_random_prob: float = 0.1,
+    restore_hf_masking_strategy: bool = False,
     tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
 ):
     """Creates a validation dataset for ESM pretraining.
@@ -320,6 +327,7 @@ def create_valid_dataset(  # noqa: D417
         mask_prob: The overall probability a token is included in the loss function. Defaults to 0.15.
         mask_token_prob: Proportion of masked tokens that get assigned the <MASK> id. Defaults to 0.8.
         mask_random_prob: Proportion of tokens that get assigned a random natural amino acid. Defaults to 0.1.
+        restore_hf_masking_strategy: Restore HF masking strategy. Defaults to False.
         tokenizer: The input ESM tokenizer. Defaults to the standard ESM tokenizer.
 
     Returns:
@@ -349,6 +357,7 @@ def create_valid_dataset(  # noqa: D417
         mask_prob=mask_prob,
         mask_token_prob=mask_token_prob,
         mask_random_prob=mask_random_prob,
+        restore_hf_masking_strategy=restore_hf_masking_strategy,
         tokenizer=tokenizer,
     )
 

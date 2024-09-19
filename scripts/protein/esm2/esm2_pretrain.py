@@ -73,6 +73,7 @@ def main(
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
     save_every_n_steps: int = 100,
+    restore_hf_masking_strategy: bool = False,
     num_layers: int = 33,
     hidden_size: int = 1280,
     num_attention_heads: int = 20,
@@ -168,6 +169,7 @@ def main(
         min_seq_length=None,
         max_seq_length=seq_length,
         num_workers=num_dataset_workers,
+        restore_hf_masking_strategy=restore_hf_masking_strategy,
     )
 
     # Configure the model
@@ -415,6 +417,12 @@ parser.add_argument(
 
 # ESM2 specific configuration (default: 650M)
 parser.add_argument(
+    "--restore-hf-masking-strategy",
+    action="store_true",
+    default=False,
+    help="Restore the HuggingFace masking strategy.",
+)
+parser.add_argument(
     "--num-layers",
     type=int,
     required=False,
@@ -475,6 +483,7 @@ if __name__ == "__main__":
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
         save_every_n_steps=args.val_check_interval,
+        restore_hf_masking_strategy=args.restore_hf_masking_strategy,
         num_layers=args.num_layers,
         hidden_size=args.hidden_size,
         num_attention_heads=args.num_attention_heads,
