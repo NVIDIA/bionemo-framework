@@ -75,8 +75,8 @@ def setup_nemo_lightning_logger(
         tb_logger = None
         logging.warning("User-set tensorboard is currently turned off. Internally one may still be set by NeMo2.")
     logger: NeMoLogger = NeMoLogger(
-        dir=str(root_dir),
         name=name,
+        log_dir=str(root_dir),
         tensorboard=tb_logger,
         wandb=wandb_logger,
         ckpt=ckpt_callback,
