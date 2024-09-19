@@ -102,7 +102,7 @@ class ESMMaskedResidueDataset(Dataset):
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
-        tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
+        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
     ) -> None:
         """Initializes the dataset.
 
@@ -228,7 +228,7 @@ def create_train_dataset(
     mask_prob: float = 0.15,
     mask_token_prob: float = 0.8,
     mask_random_prob: float = 0.1,
-    tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
+    tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
 ):
     """Creates a training dataset for ESM pretraining.
 
@@ -306,7 +306,7 @@ def create_valid_dataset(  # noqa: D417
     mask_prob: float = 0.15,
     mask_token_prob: float = 0.8,
     mask_random_prob: float = 0.1,
-    tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
+    tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
 ):
     """Creates a validation dataset for ESM pretraining.
 

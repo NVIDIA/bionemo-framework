@@ -32,7 +32,7 @@ from megatron.core.transformer.utils import get_linear_layer
 from torch import Tensor
 from torch.optim import Optimizer
 
-from bionemo.esm2.data.tokenizer import BioNeMoAutoTokenizer
+from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
 from bionemo.esm2.model.attention import ESM2DotProductAttention
 from bionemo.esm2.model.embedding import ESM2Embedding
 from bionemo.llm.model.biobert.model import BioBertGenericConfig, MegatronBioBertModel
@@ -56,7 +56,7 @@ class ESM2Model(MegatronBioBertModel):
         transformer_layer_spec: spec_utils.ModuleSpec,
         vocab_size: int,
         max_sequence_length: int,
-        tokenizer: Optional[BioNeMoAutoTokenizer] = None,
+        tokenizer: Optional[BioNeMoESMTokenizer] = None,
         pre_process: bool = True,
         post_process: bool = True,
         fp16_lm_cross_entropy: bool = False,
