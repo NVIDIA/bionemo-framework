@@ -25,6 +25,7 @@ from torch.utils.data import Dataset
 
 from bionemo.core.data.resamplers import PRNGResampleDataset
 from bionemo.esm2.data import tokenizer
+from bionemo.esm2.model.finetune.finetune_regressor import SingleValueDataset
 from bionemo.esm2.model.finetune.finetune_token_classifier import PerTokenValueDataset
 from bionemo.llm.data import collate
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
@@ -39,8 +40,8 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
 
     def __init__(
         self,
-        train_dataset: PerTokenValueDataset,
-        valid_dataset: PerTokenValueDataset,
+        train_dataset: PerTokenValueDataset | SingleValueDataset,
+        valid_dataset: PerTokenValueDataset | SingleValueDataset,
         seed: int | None = 42,
         min_seq_length: int | None = None,
         max_seq_length: int = 1024,

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Sequence, Tuple, Type, Union
 
 import torch
+from megatron.core import parallel_state
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
 from nemo.collections.common.tokenizers import TokenizerSpec
@@ -62,9 +63,13 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
         classification_output = forward_out["classification_output"].permute(0, 2, 1)
         loss_mask = batch["loss_mask"]  # [b, s]
 
-        losses = torch.nn.functional.cross_entropy(classification_output, targets, reduction="none")
-        masked_loss = losses * loss_mask
-        loss = masked_loss.sum() / loss_mask.sum()
+        cp_size = parallel_state.get_context_parallel_world_size()
+        if cp_size == 1:
+            losses = torch.nn.functional.cross_entropy(classification_output, targets, reduction="none")
+            masked_loss = losses * loss_mask
+            loss = masked_loss.sum() / loss_mask.sum()
+        else:  # TODO: support CP with masked_token_loss_context_parallel
+            raise NotImplementedError("Context Parallel support is not implemented for this loss")
 
         return loss, {"avg": loss}
 
