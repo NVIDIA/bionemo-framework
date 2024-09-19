@@ -53,13 +53,8 @@ class ESMDataModule(pl.LightningDataModule):
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
-<<<<<<< HEAD
-        restore_hf_masking_strategy: bool = False,
-        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
-=======
         random_mask_strategy: dataset.RandomMaskStrategy = dataset.RandomMaskStrategy.AMINO_ACIDS_ONLY,
-        tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
->>>>>>> e0ad07d42 (update option to enum class)
+        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         dataloader_type: Literal["single", "cyclic"] = "single",
     ) -> None:
         """Initialize the ESMDataModule.
