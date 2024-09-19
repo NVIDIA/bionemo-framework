@@ -139,9 +139,8 @@ class MegatronBioBertModel(LanguageModule):
         super(MegatronBioBertModel, self).__init__(config=config)
         self.post_process = post_process
         self.add_binary_head = add_binary_head
-        self.include_hiddens = include_hiddens
         if return_embeddings:
-            assert self.post_process and self.add_binary_head
+            assert self.post_process, "only return embeddings on the last pipeline stage"
         # `b` = batch, `s` = sequence.
         # The old flash attention mechanism apparently wants you to use a b x 1 x s x s attention mask while
         #  the new one wants a b x 1 x 1 x s attention mask. This is a hack to allow us to switch between the two.
@@ -351,7 +350,7 @@ class MegatronBioBertModel(LanguageModule):
             # Collect masked embeddings.
             output = torch.zeros(
                 size=(embeddings.shape[0], embeddings.shape[2]),
-                dtype=torch.float32,
+                dtype=embeddings.dtype,
                 device=torch.cuda.current_device(),
             )
             for i, (embedding, mask) in enumerate(zip(embeddings, masks)):
@@ -425,6 +424,7 @@ class BioBertGenericConfig(
     # Used if initializing from a checkpoint, set this to any fields you want to override rather than re-set.
     #  by default all fields will be overridden.
     override_parent_fields: List[str] = field(default_factory=lambda: _OVERRIDE_BIOBERT_CONFIG_DEFAULTS)
+    return_embeddings: bool = False
     return_only_hidden_states: bool = False
     include_hiddens: bool = False  # Include hidden layers in the output of the model
     core_attention_override: Type[torch.nn.Module] | None = None
@@ -471,7 +471,7 @@ class BioBertGenericConfig(
             position_embedding_type=self.position_embedding_type,
             rotary_percent=self.rotary_percent,
             seq_len_interpolation_factor=self.seq_len_interpolation_factor,
-            return_embeddings=False,
+            return_embeddings=self.return_embeddings,
             pre_process=parallel_state.is_pipeline_first_stage(),
             post_process=parallel_state.is_pipeline_last_stage(),  # set to False for inference
             add_binary_head=do_next_sentence,

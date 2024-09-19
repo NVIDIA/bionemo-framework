@@ -66,9 +66,9 @@ class ESM2Model(MegatronBioBertModel):
         position_embedding_type: Literal["learned_absolute", "rope"] = "learned_absolute",
         rotary_percent: float = 1.0,
         seq_len_interpolation_factor: Optional[float] = None,
-        add_binary_head=True,
-        return_embeddings=False,
-        use_full_attention_mask=False,
+        add_binary_head: bool = True,
+        return_embeddings: bool = False,
+        use_full_attention_mask: bool = False,
         include_hiddens: bool = False,
     ) -> None:
         """Initialize the ESM2 model.
@@ -99,7 +99,7 @@ class ESM2Model(MegatronBioBertModel):
         self.post_process = post_process
         self.add_binary_head = add_binary_head
         if return_embeddings:
-            assert self.post_process and self.add_binary_head
+            assert self.post_process, "only return embeddings on the last pipeline stage"
         # `b` = batch, `s` = sequence.
         # The old flash attention mechanism apparently wants you to use a b x 1 x s x s attention mask while
         #  the new one wants a b x 1 x 1 x s attention mask. This is a hack to allow us to switch between the two.
@@ -124,6 +124,8 @@ class ESM2Model(MegatronBioBertModel):
         # Embeddings.
         if self.pre_process:
             # ESM2 Customization: ESM2Embedding instead of LanguageModelEmbedding
+            # TODO: call super, overwrite the self.embedding, and setup_embeddings_and_output_layer in constructor.
+            # Note: need to avoid calling setup twice: skip with super (super(skip_setup=True))
             self.embedding = ESM2Embedding(
                 config=self.config,
                 vocab_size=self.vocab_size,
@@ -307,6 +309,7 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
     initial_ckpt_path: str | None = None
     # TODO (@jstjohn) come up with a cleaner way in the biobert module to return user requested
     #  things as part of the workflow for inference and fine-tuning.
+    return_embeddings: bool = False
     return_only_hidden_states: bool = False  # return logits
     core_attention_override: Type[torch.nn.Module] | None = ESM2DotProductAttention
 
