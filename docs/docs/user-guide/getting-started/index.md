@@ -9,6 +9,7 @@ own projects. By structuring code like this ourselves we ensure that bionemo dev
 end users.
 
 Each model is stored in its own `sub-packages`. Some examples of models include:
+
 * `sub-packages/bionemo-esm2`: ESM2 model
 * `sub-packages/bionemo-geneformer`: Geneformer
 * `sub-packages/bionemo-example_model`: A minimal example MNIST model that demonstrates how you can write a lightweight
@@ -16,25 +17,28 @@ Each model is stored in its own `sub-packages`. Some examples of models include:
     data parallelism to train.
 
 There are also useful utility packages, for example:
+
 * `sub-packages/bionemo-scdl`: Single Cell Dataloader (SCDL) provides a dataset implementation that can be used by downstream
     single-cell models in the bionemo package.
 * `sub-packages/bionemo-testing`: a suite of utilities that are useful in testing, think `torch.testing` or `np.testing`.
 
 Finally some of the packages represent common functions and abstract base classes that expose APIs that are useful for
 interacting with `NeMo2`. Some examples of these include:
+
 * `sub-packages/bionemo-core`: mostly just high level APIs
 * `sub-packages/bionemo-llm`: ABCs for code that multiple large language models (eg BERT variants) share.
 
 Documentation source is stored in `docs/`
 
 The script for building a local docker container is `./launch.sh` which has some useful commands including:
+
 * `./launch.sh build` to build the container
 * `./launch.sh run` to get into a running container with reasonable settings for data/code mounts etc.
 
 
 ### More detailed structure notes
 ```
-tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_experiment" -I __pycache__ -I "*.egg-info" -I lightning_logs -I results -I data -I MNIST* -I 3rdparty
+$ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_experiment" -I __pycache__ -I "*.egg-info" -I lightning_logs -I results -I data -I MNIST* -I 3rdparty
 .
 ├── CODE-REVIEW.md -> docs/CODE-REVIEW.md
 ├── CODEOWNERS

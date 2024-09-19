@@ -17,7 +17,7 @@ You can now view the BioNeMo Framework container [here](https://catalog.ngc.nvid
 
 # Startup Instructions
 
-Now that you can access the BioNeMo Framework container, it is time to get up and running. BioNeMo is compatible across a variety of computing environments, keeping in mind users with local workstations and data centers, users of major CSPs (e.g., AWS, Azure, GCP, and OCI), and users of NVIDIA’s DGX Cloud infrastructure.
+Now that you can access the BioNeMo Framework container, it is time to get up and running. BioNeMo is compatible across a variety of computing environments, keeping in mind users with local workstations and data centers, users of major Cloud Service Providers (CSPs) such as AWS, Azure, GCP, and OCI, and users of NVIDIA’s DGX Cloud infrastructure.
 
 ## Running the Container on a Local Machine
 
@@ -53,6 +53,7 @@ docker run --rm -d --gpus all -p 8888:8888 \
 ```
 
 Explanation:
+
 * **Docker**: The first line runs a Docker container in detached mode (`-d`), uses all available GPUs for the container (``--gpus all``), and maps it to port 8888.
 * **Volume Mapping**: Maps host directory into the home directory of the container.
 * **JupyterLab Command**: Customizable command line which allows root access (``--allow-root``), binding to all IP addresses on the specified port (``--ip=* --port=8888``), disables browser launch (``--no-browser``) and token authentication requirements (``--NotebookApp.token``), shows hidden files by setting (``.allow_hidden=True``), and sets the starting working directory to ``/workspace/bionemo``.
@@ -80,6 +81,7 @@ For DGX Cloud users, NVIDIA Base Command Platform (BCP) includes a central user 
 NVIDIA NGC Command Line Interface (CLI) is a command-line tool for managing Docker containers in NGC. You can download it on your local machine as per the instructions [here](https://org.ngc.nvidia.com/setup/installers/cli).
 
 Once installed, run `ngc config set` to establish NGC credentials:
+
 * **API key**: Enter your API Key
 * **CLI output**: Accept the default (ascii format) by pressing `Enter`
 * **org**: Choose from the list which org you have access to
@@ -112,6 +114,7 @@ ngc batch run \
 ```
 
 Explanation:
+
 * `--name`: Name of your job
 * `--team`: Team that you are assigned in NGC org
 * `--ace`: ACE that you are assigned
