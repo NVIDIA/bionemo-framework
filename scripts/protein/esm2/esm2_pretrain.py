@@ -29,6 +29,7 @@ from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
+from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.lightning import LossLoggingCallback
@@ -73,7 +74,7 @@ def main(
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
     save_every_n_steps: int = 100,
-    restore_hf_masking_strategy: bool = False,
+    random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.AMINO_ACIDS_ONLY,
     num_layers: int = 33,
     hidden_size: int = 1280,
     num_attention_heads: int = 20,
@@ -169,7 +170,7 @@ def main(
         min_seq_length=None,
         max_seq_length=seq_length,
         num_workers=num_dataset_workers,
-        restore_hf_masking_strategy=restore_hf_masking_strategy,
+        random_mask_strategy=random_mask_strategy,
     )
 
     # Configure the model
@@ -417,10 +418,11 @@ parser.add_argument(
 
 # ESM2 specific configuration (default: 650M)
 parser.add_argument(
-    "--restore-hf-masking-strategy",
-    action="store_true",
-    default=False,
-    help="Restore the HuggingFace masking strategy, where masked amino acid tokens can be replaced with non-amino acid tokens",
+    "--random-mask-strategy",
+    type=RandomMaskStrategy,
+    choices=list(RandomMaskStrategy),
+    default=RandomMaskStrategy.AMINO_ACIDS_ONLY,
+    help="In ESM2 pretraining, 15%% of all tokens are masked and among which 10%% are replaced with a random token. This class controls the set of random tokens to choose from 'all_tokens' or 'amino_acids_only'.",
 )
 parser.add_argument(
     "--num-layers",
@@ -483,7 +485,7 @@ if __name__ == "__main__":
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
         save_every_n_steps=args.val_check_interval,
-        restore_hf_masking_strategy=args.restore_hf_masking_strategy,
+        random_mask_strategy=args.random_mask_strategy,
         num_layers=args.num_layers,
         hidden_size=args.hidden_size,
         num_attention_heads=args.num_attention_heads,

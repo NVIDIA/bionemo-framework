@@ -53,8 +53,13 @@ class ESMDataModule(pl.LightningDataModule):
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
+<<<<<<< HEAD
         restore_hf_masking_strategy: bool = False,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
+=======
+        random_mask_strategy: dataset.RandomMaskStrategy = dataset.RandomMaskStrategy.AMINO_ACIDS_ONLY,
+        tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
+>>>>>>> e0ad07d42 (update option to enum class)
         dataloader_type: Literal["single", "cyclic"] = "single",
     ) -> None:
         """Initialize the ESMDataModule.
@@ -77,7 +82,7 @@ class ESMDataModule(pl.LightningDataModule):
             mask_prob: The overall chance of masking a token and having it appear in the loss fn. Defaults to 0.15.
             mask_token_prob: Percentage of masked tokens that get assigned the <MASK> id. Defaults to 0.8.
             mask_random_prob: Percentage of masked tokens assigned to a random amino acid. Defaults to 0.1.
-            restore_hf_masking_strategy: Restore HF masking strategy. Defaults to False.
+            random_mask_strategy: Whether to replace random masked tokens with all tokens or amino acids only. Defaults to RandomMaskStrategy.AMINO_ACIDS_ONLY.
             tokenizer: The ESM2 tokenizer. Defaults to the one returned by `tokenizer.get_tokenizer()`.
             dataloader_type: The type of dataloader to use. Defaults to "single".
         """
@@ -92,7 +97,7 @@ class ESMDataModule(pl.LightningDataModule):
         self._mask_prob = mask_prob
         self._mask_token_prob = mask_token_prob
         self._mask_random_prob = mask_random_prob
-        self._restore_hf_masking_strategy = restore_hf_masking_strategy
+        self._random_mask_strategy = random_mask_strategy
         self._tokenizer = tokenizer
 
         self._micro_batch_size = micro_batch_size
@@ -146,7 +151,7 @@ class ESMDataModule(pl.LightningDataModule):
             mask_prob=self._mask_prob,
             mask_token_prob=self._mask_token_prob,
             mask_random_prob=self._mask_random_prob,
-            restore_hf_masking_strategy=self._restore_hf_masking_strategy,
+            random_mask_strategy=self._random_mask_strategy,
             tokenizer=self._tokenizer,
         )
 
@@ -167,7 +172,7 @@ class ESMDataModule(pl.LightningDataModule):
             mask_prob=self._mask_prob,
             mask_token_prob=self._mask_token_prob,
             mask_random_prob=self._mask_random_prob,
-            restore_hf_masking_strategy=self._restore_hf_masking_strategy,
+            random_mask_strategy=self._random_mask_strategy,
             tokenizer=self._tokenizer,
         )
 
