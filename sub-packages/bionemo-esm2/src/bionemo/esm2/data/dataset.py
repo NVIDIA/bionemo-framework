@@ -116,13 +116,8 @@ class ESMMaskedResidueDataset(Dataset):
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
-<<<<<<< HEAD
-        random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.AMINO_ACIDS_ONLY,
-        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
-=======
         random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
-        tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
->>>>>>> c8a9fb79f (switch default to ALL_TOKENS)
+        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
     ) -> None:
         """Initializes the dataset.
 
