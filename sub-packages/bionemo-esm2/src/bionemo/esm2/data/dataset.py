@@ -36,7 +36,8 @@ class RandomMaskStrategy(Enum):
 
     In ESM2 pretraining, 15% of all tokens are masked and among which 10% are replaced with a random token. This class controls the set of random tokens to choose from.
 
-   """
+    """
+
     AMINO_ACIDS_ONLY = "amino_acids_only"
     """Mask only with amino acid tokens."""
 
