@@ -23,6 +23,8 @@ AWS_ENDPOINT_URL="https://pbss.s8k.io"
 ```
 then, running tests should download the test data to a cache location when first invoked.
 
+For more information on adding new test artifacts, see the documentation in [bionemo.testing.data.load](sub-packages/bionemo-testing/src/bionemo/testing/data/README.md)
+
 
 ## Initializing 3rd-party dependencies as git submodules
 
