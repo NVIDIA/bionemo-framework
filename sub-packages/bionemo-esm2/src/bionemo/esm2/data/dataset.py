@@ -149,7 +149,7 @@ class ESMMaskedResidueDataset(Dataset):
 
         self.mask_config = masking.BertMaskConfig(
             tokenizer=tokenizer,
-            random_tokens=range(0, len(tokenizer.all_tokens))
+            random_tokens=range(len(tokenizer.all_tokens))
             if self.random_mask_strategy == RandomMaskStrategy.ALL_TOKENS
             else range(4, 24),
             mask_prob=mask_prob,
