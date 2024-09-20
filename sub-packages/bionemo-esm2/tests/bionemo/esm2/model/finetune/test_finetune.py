@@ -100,7 +100,7 @@ def _train_model(
 
     # Setup the logger and train the model
     nemo_logger = NeMoLogger(
-        dir=str(root_dir),
+        log_dir=str(root_dir),
         name=name,
         tensorboard=TensorBoardLogger(save_dir=root_dir, name=name),
         ckpt=checkpoint_callback,
