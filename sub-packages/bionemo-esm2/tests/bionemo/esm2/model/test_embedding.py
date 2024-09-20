@@ -18,14 +18,14 @@ import pytest
 import torch
 
 from bionemo.esm2.api import ESM2Config
-from bionemo.esm2.data.tokenizer import BioNeMoAutoTokenizer, get_tokenizer
+from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.embedding import ESM2_MASK_RATIO_TRAIN, ESM2Embedding
 from bionemo.llm.lightning import get_dtype_device
 from bionemo.testing import megatron_parallel_state_utils
 
 
 @pytest.fixture(scope="module")
-def tokenizer() -> BioNeMoAutoTokenizer:
+def tokenizer() -> BioNeMoESMTokenizer:
     yield get_tokenizer()
 
 

@@ -14,28 +14,20 @@
 # limitations under the License.
 
 import functools
-from pathlib import Path
+from importlib.resources import files
 
 import transformers
 from nemo.lightning.io import IOMixin
 
 
-class BioNeMoAutoTokenizer(transformers.AutoTokenizer, IOMixin):  # noqa D101
-    def __init__(self, pretrained_model_name, use_fast=True):
-        """A wrapper to make AutoTokenizer serializable.
-
-        Args:
-            pretrained_model_name: A string, the *model id* of a predefined tokenizer hosted on huggingface
-            use_fast: Use a [fast Rust-based tokenizer](https://huggingface.co/docs/tokenizers/index)
-            if it is supported for a given model. Defaults to True.
-        """
-        other = self.from_pretrained(pretrained_model_name, use_fast=use_fast)
-        for attr in dir(other):
-            if not attr.startswith("_"):
-                setattr(self, attr, getattr(other, attr))
+class BioNeMoESMTokenizer(transformers.EsmTokenizer, IOMixin):  # noqa D101
+    def __init__(self):
+        """A wrapper to make AutoTokenizer serializable for the ESM2 tokenizer."""
+        other = transformers.AutoTokenizer.from_pretrained(str(files("bionemo.esm2.data.tokenizer")), use_fast=True)
+        self.__dict__.update(dict(other.__dict__))
 
 
 @functools.cache
-def get_tokenizer() -> BioNeMoAutoTokenizer:
+def get_tokenizer() -> BioNeMoESMTokenizer:
     """Get the tokenizer for the ESM2 model."""
-    return BioNeMoAutoTokenizer(Path(__file__).parent.resolve().as_posix(), use_fast=True)
+    return BioNeMoESMTokenizer()

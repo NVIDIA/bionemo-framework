@@ -17,6 +17,7 @@
 import functools
 import itertools
 from collections import Counter
+from importlib.resources import files
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -75,7 +76,7 @@ class Resource(pydantic.BaseModel):
 def get_all_resources(resource_path: Path | None = None) -> dict[str, Resource]:
     """Return a dictionary of all resources."""
     if not resource_path:
-        resource_path = Path(__file__).parent / "resources"
+        resource_path = Path(files("bionemo.testing.data").joinpath("resources"))  # type: ignore
 
     resources_files = itertools.chain(resource_path.glob("*.yaml"), resource_path.glob("*.yml"))
 
