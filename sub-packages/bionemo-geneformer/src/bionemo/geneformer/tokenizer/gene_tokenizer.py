@@ -21,7 +21,7 @@ from typing import Dict, List, Sequence, Tuple, TypeVar, Union
 
 from nemo.lightning import io
 
-from bionemo.geneformer.tokenizer.label2id_tokenizer import Label2IDTokenizer
+from bionemo.llm.data.label2id_tokenizer import Label2IDTokenizer
 
 
 __all__: Sequence[str] = ("GeneTokenizer",)

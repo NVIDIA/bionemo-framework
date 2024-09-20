@@ -41,12 +41,6 @@ class Label2IDTokenizer(TokenizerSpec):
         super().__init__()
         self.vocab: Dict[str, int] = {}
         self.decode_vocab: Dict[int, str] = {id_: token for token, id_ in self.vocab.items()}
-        # self.decode_vocab: Optional[Dict[int, str]] = None
-        # self._update_index()
-
-    # def _update_index(self) -> None:
-    #     """Updates the id_to_vocab index based on the current vocab"""
-    #     self.decode_vocab = {id_: token for token, id_ in self.vocab.items()}
 
     @property
     def vocab_size(self) -> int:
