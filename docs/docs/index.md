@@ -29,7 +29,7 @@ hide:
 
     ---
 
-    Explore detailed instructions and best practices for using BioNeMo in your research.
+    Explore detailed instructions and best practices for using BioNeMo models in your research.
 
     [Explore Models](models){ .md-button .md-button }
 
@@ -39,7 +39,7 @@ hide:
 
     ---
 
-    Join the BioNeMo community and learn how to contribute to this open-source project.
+    Explore biomolecular datasets that come pre-packaged with the BioNeMo Framework.
 
     [Explore Datasets](datasets){ .md-button .md-button }
 
