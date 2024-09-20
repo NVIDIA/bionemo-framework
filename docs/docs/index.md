@@ -4,7 +4,7 @@ hide:
 ---
 
 
-**BioNeMo Framework** is a free-to-use collection of Python modules that offer access to optimized, pre-trained biomolecular models and enable workflows training and fine-tuning your own custom models. Capabilities span various workloads and therapeutic modalities, such as molecular generation and representation learning, protein structure prediction and representation learning, protein-ligand and protein-protein docking, and DNA/RNA/single-cell embedding.
+**BioNeMo Framework** is a free-to-use collection of Python modules that offers access to optimized, pre-trained biomolecular models and enables workflows training and fine-tuning your own custom models.
 
 
 <div class="grid cards" markdown>
