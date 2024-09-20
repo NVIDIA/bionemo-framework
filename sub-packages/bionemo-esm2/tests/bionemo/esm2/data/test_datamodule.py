@@ -68,7 +68,7 @@ def test_create_esm_datamodule_creates_valid_dataloaders(dummy_protein_dataset, 
         train_database_path=dummy_protein_dataset,
         valid_cluster_path=valid_cluster_path,
         valid_database_path=dummy_protein_dataset,
-        global_batch_size=8,
+        global_batch_size=2,
         micro_batch_size=4,
         min_seq_length=36,
         max_seq_length=36,
@@ -89,8 +89,8 @@ def test_create_esm_datamodule_creates_valid_dataloaders(dummy_protein_dataset, 
     val_dataloader = data_module.val_dataloader()
     assert isinstance(val_dataloader, torch.utils.data.DataLoader)
 
-    assert len(train_dataloader) == 10 * 8  # max steps * global batch size
-    assert len(val_dataloader) == 8  # global batch size; index reset every val epoch
+    assert len(train_dataloader) == 10 * 2  # max steps * global batch size
+    assert len(val_dataloader) == 2  # global batch size; index reset every val epoch
 
     for batch in train_dataloader:
         assert isinstance(batch, dict)
@@ -120,7 +120,7 @@ def test_create_esm_datamodule_creates_valid_dataloaders_with_fractional_limit_v
         train_database_path=dummy_protein_dataset,
         valid_cluster_path=valid_cluster_path,
         valid_database_path=dummy_protein_dataset,
-        global_batch_size=1,
+        global_batch_size=2,
         micro_batch_size=1,
         min_seq_length=36,
         max_seq_length=36,
@@ -141,8 +141,8 @@ def test_create_esm_datamodule_creates_valid_dataloaders_with_fractional_limit_v
     val_dataloader = data_module.val_dataloader()
     assert isinstance(val_dataloader, torch.utils.data.DataLoader)
 
-    assert len(train_dataloader) == 10 * 1  # max steps * global batch size
-    assert len(val_dataloader) == int(2 * 0.5) // 1  # number of validation clusters // global batch size
+    assert len(train_dataloader) == 10 * 2  # max steps * global batch size
+    assert len(val_dataloader) == int(4 * 0.5) // 1  # number of validation clusters // global batch size
 
 
 def test_create_esm_datamodule_creates_valid_dataloaders_fractional_limit_val_batches_smaller_than_global_batch_size(
@@ -169,8 +169,8 @@ def test_create_esm_datamodule_creates_valid_dataloaders_fractional_limit_val_ba
     data_module.trainer.val_check_interval = 2
     data_module.trainer.limit_val_batches = 0.5  # fractional value
 
-    # num_val_cluster * limit_val_batches = 2 * 0.5 = 1 < global_batch_size
-    with pytest.raises(ValueError, match="The limited number of val samples 1 is less than the global batch size 8"):
+    # num_val_cluster * limit_val_batches = 4 * 0.5 = 1 < global_batch_size
+    with pytest.raises(ValueError, match="The limited number of val samples 2 is less than the global batch size 8"):
         data_module.setup()
 
 
@@ -236,7 +236,7 @@ def test_create_esm_datamodule_creates_valid_dataloaders_fractional_limit_val_ba
     assert isinstance(val_dataloader, torch.utils.data.DataLoader)
 
     assert len(train_dataloader) == 10 * 1  # max steps * global batch size
-    assert len(val_dataloader) == int(2 * 0.7) // 1  # number of validation clusters // global batch size
+    assert len(val_dataloader) == int(4 * 0.7) // 1  # number of validation clusters // global batch size
 
 
 def test_create_esm_datamodule_creates_valid_dataloaders_fractional_limit_val_batches_1p0(
@@ -272,7 +272,7 @@ def test_create_esm_datamodule_creates_valid_dataloaders_fractional_limit_val_ba
     assert isinstance(val_dataloader, torch.utils.data.DataLoader)
 
     assert len(train_dataloader) == 10 * 1  # max steps * global batch size
-    assert len(val_dataloader) == 2 // 1  # number of validation clusters // global batch size
+    assert len(val_dataloader) == 4 // 1  # number of validation clusters // global batch size
 
 
 def test_create_esm_datamodule_limit_val_batches_none_equals_limit_val_batches_1p0(
