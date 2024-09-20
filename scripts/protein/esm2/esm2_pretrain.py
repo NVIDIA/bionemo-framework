@@ -422,7 +422,7 @@ parser.add_argument(
     type=RandomMaskStrategy,
     choices=list(RandomMaskStrategy),
     default=RandomMaskStrategy.ALL_TOKENS,
-    help="In ESM2 pretraining, 15%% of all tokens are masked and among which 10%% are replaced with a random token. This class controls the set of random tokens to choose from 'all_tokens' or 'amino_acids_only'. Note that 'all_token' will introduce non-canonical amino acid tokens as effective mask tokens, and the resultant loss will appear lower than that from 'amino_acids_only'.",
+    help=f"""In ESM2 pretraining, 15%% of all tokens are masked and among which 10%% are replaced with a random token. This class controls the set of random tokens to choose from. Options are: '{"', '".join([e.value for e in RandomMaskStrategy])}'. Note that 'all_token' will introduce non-canonical amino acid tokens as effective mask tokens, and the resultant loss will appear lower than that from 'amino_acids_only'. Note that 'all_token' is the method used in hugging face as well as portions of fairseq.""",
 )
 parser.add_argument(
     "--num-layers",
