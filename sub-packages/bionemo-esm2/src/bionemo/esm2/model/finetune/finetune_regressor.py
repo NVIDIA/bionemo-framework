@@ -108,6 +108,12 @@ class MegatronMLPHead(MegatronModule):
 class ESM2FineTuneSeqModel(ESM2Model):
     def __init__(self, config, *args, post_process: bool = True, return_embeddings: bool = False, **kwargs):
         super().__init__(config, *args, post_process=post_process, return_embeddings=True, **kwargs)
+
+        # freeze encoder parameters
+        if config.encoder_frozen:
+            for param in self.encoder.parameters():
+                param.requires_grad = False
+
         # If post_process is True that means that we are at the last megatron parallelism stage and we can
         #   apply the head.
         if post_process:
@@ -144,8 +150,9 @@ class ESM2FineTuneSeqBioBertConfig(ESM2GenericConfig[ESM2FineTuneSeqModel], iom.
     # typical case is fine-tune the base biobert that doesn't have this head. If you are instead loading a checkpoint
     # that has this new head and want to keep using these weights, please drop this next line or set to []
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=lambda: ["regression_head"])
+
+    encoder_frozen: bool = True  # freeze encoder parameters
     ft_dropout: float = 0.25  # MLP layer dropout
-    # return_embeddings: bool = True
 
     def get_loss_reduction_class(self) -> Type[MegatronLossReduction]:
         return RegressorLossReduction

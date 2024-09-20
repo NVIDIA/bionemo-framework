@@ -114,6 +114,12 @@ class MegatronConvNetHead(MegatronModule):
 class ESM2FineTuneSeqLengthModel(ESM2Model):
     def __init__(self, config, *args, include_hiddens: bool = False, post_process: bool = True, **kwargs):
         super().__init__(config, *args, include_hiddens=True, post_process=post_process, **kwargs)
+
+        # freeze encoder parameters
+        if config.encoder_frozen:
+            for param in self.encoder.parameters():
+                param.requires_grad = False
+
         self.include_hiddens_finetuning = (
             include_hiddens  # this include_hiddens is for the final output of fine-tuning
         )
@@ -160,7 +166,7 @@ class ESM2FineTuneSeqLenBioBertConfig(ESM2GenericConfig[ESM2FineTuneSeqLengthMod
     # that has this new head and want to keep using these weights, please drop this next line or set to []
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=lambda: ["classification_head"])
 
-    # A list of integers where each integer represents the output size for each class head.
+    encoder_frozen: bool = True  # freeze encoder parameters
     cnn_num_classes: int = 3  # number of classes in each label
     cnn_dropout: float = 0.25
     cnn_hidden_dim: int = 32  # The number of output channels in the bottleneck layer of the convolution.
