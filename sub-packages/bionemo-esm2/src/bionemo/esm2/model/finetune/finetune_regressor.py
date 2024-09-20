@@ -155,13 +155,13 @@ class SingleValueDataset(Dataset):
     def __init__(
         self,
         data: Sequence[Tuple[str, str, str]],
-        tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
+        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
     ):
         """Initializes a dataset for single-value regression fine-tuining.
 
         Args:
             data (Sequence[Tuple[str, str, float]]): A sequence of tuples containing the data.
-            tokenizer (tokenizer.BioNeMoAutoTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
+            tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
         """
         self.data = data
         self._len = len(self.data)

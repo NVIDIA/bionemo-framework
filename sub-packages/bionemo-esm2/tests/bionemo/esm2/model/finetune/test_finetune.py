@@ -31,7 +31,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from bionemo import esm2
 from bionemo.esm2.api import ESM2Config, ESM2GenericConfig
 from bionemo.esm2.data.datamodule import ESMDataModule
-from bionemo.esm2.data.tokenizer import BioNeMoAutoTokenizer
+from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
 from bionemo.esm2.model.finetune.finetune_regressor import (
     ESM2FineTuneSeqBioBertConfig,
@@ -88,7 +88,7 @@ def _train_model(
     config: ESM2GenericConfig,
     data_module: pl.LightningDataModule,
     n_steps_train: int,
-    tokenizer: BioNeMoAutoTokenizer,
+    tokenizer: BioNeMoESMTokenizer,
 ) -> Tuple[Path, MetricTracker, nl.Trainer]:
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
         save_last=True,

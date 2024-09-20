@@ -275,13 +275,13 @@ class PerTokenValueDataset(Dataset):
     def __init__(
         self,
         data: Sequence[Tuple[str, str, str]],
-        tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
+        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
     ):
         """Initializes a dataset for per-token classification fine-tuining.
 
         Args:
             data (Sequence[Tuple[str, str, str]]): A sequence of tuples containing the data.
-            tokenizer (tokenizer.BioNeMoAutoTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
+            tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
         """
         self.data = data
         self._len = len(self.data)

@@ -54,7 +54,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
-        tokenizer: tokenizer.BioNeMoAutoTokenizer = tokenizer.get_tokenizer(),
+        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
     ) -> None:
         """Initialize the ESM2FineTuneDataModule.
 
@@ -73,7 +73,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             mask_prob: The probability of masking a token. Defaults to 0.15.
             mask_token_prob: The probability of replacing a masked token with a [MASK] token. Defaults to 0.8.
             mask_random_prob: The probability of replacing a masked token with a random token. Defaults to 0.1.
-            tokenizer: The tokenizer to use for tokenization. Defaults to the BioNeMoAutoTokenizer.
+            tokenizer: The tokenizer to use for tokenization. Defaults to the BioNeMoESMTokenizer.
 
         Returns:
             None
