@@ -1,10 +1,14 @@
-# Next Steps
+# Initialization Guide
 
-Now that you have successfully launched the Docker container and entered it, this section will guide you through the container, initial steps to take within the container (such as configuration, downloading pre-trained model weights, and so on), and where to find tutorials.
+!!! note
+
+    Prior to beginning this section, you must confirm that your computing platform meets or exceeds the prerequisites outlined in the Hardware and Software Prerequisites page.
+
+At this point, you have successfully launched and entered the Docker container. This section will guide you through the container, initial steps such as configuration and downloading pre-trained model weights, and where to find tutorials.
 
 ## NGC CLI Configuration
 
-NVIDIA NGC Command Line Interface (CLI) is a command-line tool for managing Docker containers in NGC. If NGC is not already installed in the container, download it as per the instructions [here](https://org.ngc.nvidia.com/setup/installers/cli) (note that within the container, the AMD64 Linux version should be installed.)
+NVIDIA NGC Command Line Interface (CLI) is a command-line tool for managing Docker containers in NGC. If NGC is not already installed in the container, download it as per the instructions on the [CLI Installation Page](https://org.ngc.nvidia.com/setup/installers/cli) (note that within the container, the AMD64 Linux version should be installed.)
 
 Once installed, run `ngc config set` to establish NGC credentials within the container.
 
@@ -31,7 +35,8 @@ You may now download all pre-trained model checkpoints from NGC through the foll
 ```bash
 ./launch.sh download
 ```
-This will download all models to the `workspace/bionemo/models` directory. Optionally, you may persist the models by copying them to your mounted workspace, so that they need not be redownloaded each time.
+
+This command will download all models to the `workspace/bionemo/models` directory. Optionally, you may persist the models by copying them to your mounted workspace, so that they need not be re-downloaded each time.
 
 ## Directory Structure
 
