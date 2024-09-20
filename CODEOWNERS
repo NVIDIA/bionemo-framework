@@ -67,6 +67,7 @@ requirements-dev.txt @dorotat-nv  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo
 requirements-test.txt @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 tach.yml @jomitchellnv @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 .secrets.baseline @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+ci/ @dorotat-nv @pstjohn
 
 
 #
