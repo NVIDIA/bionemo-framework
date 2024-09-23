@@ -46,7 +46,8 @@
 					"./sub-packages/bionemo-testing/src",
 					"./sub-packages/bionemo-example_model/src",
 					"./3rdparty/NeMo",
-					"./3rdparty/Megatron-LM"
+					"./3rdparty/Megatron-LM",
+					"./3rdparty/NeMo-Run"
 				],
 				"python.pythonPath": "/bin/python3",
 				"python.testing.pytestEnabled": true,
