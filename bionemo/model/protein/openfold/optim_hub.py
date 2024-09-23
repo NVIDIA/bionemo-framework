@@ -22,7 +22,6 @@ class OptimHub:
         "layernorm_inductor": False,
         "inductor_global": False,
         "dataloader_pq": False,
-        "FusedAdamSWA": False,
     }
 
     @staticmethod

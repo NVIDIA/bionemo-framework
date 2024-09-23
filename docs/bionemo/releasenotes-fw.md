@@ -1,4 +1,13 @@
 # Release Notes
+## BioNeMo Framework v1.9
+### New Features
+* [Documentation] Updated, executable ESM-2nv notebooks demonstrating: Data preprocessing and model training with custom datasets, Fine-tuning on FLIP data, Inference on OAS sequences, Pre-training from scratch and continuing training
+* [Documentation] New notebook demonstrating Zero-Shot Protein Design Using ESM-2nv. Thank you to [@awlange](https://github.com/awlange) from A-Alpha Bio for contributing the original version of this recipe!
+
+### Bug fixes and Improvements
+* [Geneformer] Fixed bug in preprocessing due to a relocation of dependent artifacts.
+* [Geneformer] Fixes bug in finetuning to use the newer preprocessing constructor.
+
 ## BioNeMo Framework v1.8
 ### New Features
 * [Documentation] Updated, executable MolMIM notebooks demonstrating: Training on custom data, Inference and downstream prediction, ZINC15 dataset preprocesing, and CMA-ES optimization

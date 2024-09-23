@@ -83,9 +83,9 @@ def download_anndata(
     if not os.path.exists(folder_path):
         os.makedirs(folder_path, exist_ok=True)
 
-    file_name_i = f"sidx_{idxs[0]}_{len(idxs)}_0"
-    file_path_i = folder_path / f"{file_name_i}.h5ad"
-    if os.path.exists(file_path_i):
+    file_name0 = f"sidx_{idxs[0]}_{len(idxs)}_0"
+    file_path0 = folder_path / f"{file_name0}.h5ad"
+    if os.path.exists(file_path0):
         # Unsafe but check if only the first exists for now, since we don't yet know how many
         #  there will be, and the query is the slow part.
         return 0
@@ -99,14 +99,14 @@ def download_anndata(
                 )
             n_cells = adata.shape[0]
             for i in range(int(math.ceil(n_cells / cells_per_file))):
-                file_name_i = f"sidx_{idxs[0]}_{len(idxs)}_{i}"
-                file_path_i = folder_path / f"{file_name_i}.h5ad"
+                file_name = f"sidx_{idxs[0]}_{len(idxs)}_{i}"
+                file_path = folder_path / f"{file_name}.h5ad"
                 start = i * cells_per_file
                 stop = min((i + 1) * cells_per_file, n_cells)
-                adata[start:stop].copy().write_h5ad(file_path_i)
+                adata[start:stop].copy().write_h5ad(file_path)
             return 0
         except Exception as e:
-            print(f"Could not download: {folder_name} - {file_name_i}. Caught exception {e}")
+            print(f"Could not download: {folder_name} - {file_name}. Caught exception {e}")
             return -1
 
 

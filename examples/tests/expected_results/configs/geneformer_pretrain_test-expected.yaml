@@ -74,6 +74,9 @@ model:
   onnx_safe: false
   activations_checkpoint_method: null
   activations_checkpoint_num_layers: 1
+  next_cell_prediction: false
+  no_neighbor_policy: null
+  filter_no_neighbors: false
   data:
     data_impl: geneformer
     probabilistic_dirichlet_sampling_train: false
@@ -85,6 +88,7 @@ model:
     data_prefix: ''
     shuffle: true
     medians_file: ${.train_dataset_path}/medians.json
+    compute_medians: paper
     index_mapping_dir: ${exp_manager.exp_dir}/index_mapping
     skip_warmup: true
     index_mapping_type: memmap
@@ -93,6 +97,9 @@ model:
     seq_length: ${model.seq_length}
     seed: ${model.seed}
     dynamic_padding: false
+    random_token_prob: 0.1
+    mask_prob: 0.15
+    mask_token_prob: 0.8
     micro_batch_size: ${model.micro_batch_size}
   optim:
     name: fused_adam

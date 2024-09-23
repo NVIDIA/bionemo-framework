@@ -1,0 +1,55 @@
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# model files
+**/*.nemo
+**/*.version
+./models/
+
+.Python
+.env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+./.vscode-server
+.pytest_cache
+.gnupg
+
+# data file indexes
+**/*.idx
+**/*.idx.npy
+**/*.idx.info
+**/*_indexmap_*.npy
+**/openfold_data
+
+# experiments artifacts
+**/nemo_experiments/
+**/navigator_workspace/
+**/tap_results/
+**/.ipynb_checkpoints/
+**/.ipython
+./outputs
+.jupyter
+**/lightning_logs
+**/*.npy
+
+# internal bionemo development: not for public release
+.gitlab-ci.yaml
+
+# configs
+.config/
+.local/
+.ngc
+.bash_history
+.ssh
+.gitconfig

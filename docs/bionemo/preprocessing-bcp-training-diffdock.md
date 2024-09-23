@@ -108,7 +108,7 @@ $ head -n 2 ~/diffdock_data/data/splits/split_train
 
 This script performs pre-processing of train data for diffdock score model.
 
-If you followed the [Next Steps](./next-steps.md) section, you may already have a .env file in your root path. If so, run `source .env` to export all the necessary variables.
+If you followed the [Initialization Guide](./initialization-guide.md) section, you may already have a .env file in your root path. If so, run `source .env` to export all the necessary variables.
 If you don't have a .env file in your path, update and run the following commands to export necessary variables before running the commands below.
 
 ```

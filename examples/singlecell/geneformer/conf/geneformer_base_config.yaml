@@ -77,6 +77,9 @@ model:
   onnx_safe: False
   activations_checkpoint_method: null
   activations_checkpoint_num_layers: 1
+  next_cell_prediction: False
+  no_neighbor_policy: null
+  filter_no_neighbors: False
 
   data:
     data_impl: "geneformer"
@@ -89,6 +92,7 @@ model:
     data_prefix: ''
     shuffle: true
     medians_file: ${.train_dataset_path}/medians.json  # by convention the medians file is preprocessed into the train dataset path.
+    compute_medians: paper
     index_mapping_dir: ${exp_manager.exp_dir}/index_mapping
     skip_warmup: True
     # NOTE: we encountered bugs with 'online' mapping when called how we call it in geneformer.
@@ -105,6 +109,9 @@ model:
     seq_length: ${model.seq_length}
     seed: ${model.seed}
     dynamic_padding: true  # output a different length if you call with more/fewer genes.
+    random_token_prob: 0.1
+    mask_prob: 0.15
+    mask_token_prob: 0.8
 
   optim:
     name: fused_adam

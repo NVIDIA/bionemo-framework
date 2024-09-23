@@ -18,7 +18,7 @@
 # Most of the first part is directly copied from NeMo v1.23 Dockerfile https://github.com/NVIDIA/NeMo/blob/v1.23.0/Dockerfile
 # kept all dependencies necessary for nemo.collections.nlp, nemo.core, nemo.utils, nemo.collections.common
 
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.01-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.07-py3
 ARG DGL_IMAGE=gitlab-master.nvidia.com:5005/clara-discovery/bionemo:dgl_builder_v1.1.4
 FROM ${DGL_IMAGE} AS dgl
 # build an image that includes only the nemo dependencies, ensures that dependencies
@@ -147,6 +147,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
     apt-get install -y \
         python3-setuptools python3-dev libboost-all-dev swig \
         git unzip tmux vim emacs-nox tree xterm \
+        wget git unzip tmux vim emacs-nox tree xterm \
         liblmdb-dev libopenbabel-dev python3-openbabel openbabel libopenbabel7
 
 ## libboost-all-dev is required by vina==1.2.5 for its compilation
@@ -201,6 +202,7 @@ RUN /tmp/install_lmdb.sh
 # requirements-cve.txt *must* be installed last to patch security vulns in pip packages
 RUN pip install -r /tmp/requirements-cve.txt
 
+
 # AWS CLI is inside requirements.txt. Add config file.
 # This config file does not contain access keys.
 RUN mkdir -p $HOME/.aws
@@ -233,6 +235,7 @@ RUN NEMO_INST_DIR=$(python -c 'import nemo; from pathlib import Path; print(Path
     patch -p1 -d $NEMO_INST_DIR -i $PWD/hiddens_support_train_v_inf_outputs.patch && \
     patch -p1 -d $NEMO_INST_DIR -i $PWD/data_sampler_constant_len.patch && \
     patch -p1 -d $NEMO_INST_DIR -i $PWD/nemo-lr-scheduler.patch && \
+    patch -p1 -d $NEMO_INST_DIR -i $PWD/nemo-v-1.23-import_except_torch_amp_grad_scaler.patch && \
     rm *.patch
 ###################################################################################
 # Special Handling for Security Vulnerabilities
