@@ -275,7 +275,7 @@ def create_train_dataset(
         tokenizer=tokenizer,
     )
 
-    return MultiEpochDatasetResampler(masked_cluster_dataset, num_samples=total_samples, shuffle=True)
+    return MultiEpochDatasetResampler(masked_cluster_dataset, num_samples=total_samples, shuffle=True, seed=seed)
 
 
 def create_valid_clusters(cluster_file: str | os.PathLike) -> pd.Series:
@@ -356,7 +356,7 @@ def create_valid_dataset(  # noqa: D417
         tokenizer=tokenizer,
     )
 
-    return MultiEpochDatasetResampler(masked_dataset, num_samples=total_samples, shuffle=True)
+    return MultiEpochDatasetResampler(masked_dataset, num_samples=total_samples, shuffle=True, seed=seed)
 
 
 _T = TypeVar("_T", str, torch.Tensor)
