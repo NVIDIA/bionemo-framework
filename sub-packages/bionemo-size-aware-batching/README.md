@@ -14,19 +14,29 @@ pytest -v .
 
 This package provides a simple way to create mini-batches in a memory consumption-aware (or size-aware) manner, making it useful for tasks like training models on datasets with varying memory requirements. The usage typically consists of the following steps:
 
-1. Use the `collect_cuda_peak_alloc` function to collect CUDA peak memory allocation statistics for a user-defined workflow.
-2. Models from `memory_model` can be fitted to the collected memory allocation to predict future memory usage based on input data.
-   The user is also free to define their own custom models and fitting procedures as desired. The end goal of this step is
-   to create a prediction function that returns the expected memory usage incurred by passing a data sample through the said workflow in the previous step.
-3. Use `SizeAwareBatchSampler` or `size_aware_batching` with the memory model prediction (from the previous step) to build batch
-   of data so that the resulting mini-batches do not exceed a specified maximum total memory size.
+1. Use the `collect_cuda_peak_alloc` function to collect CUDA peak memory
+   allocation statistics for a user-defined workflow. It's expected that the
+   user-defined workflow will return a list of features extracted from the data
+   so that the `memory_model` in the following step can use these features to
+   predict the memory allocation.
+2. Models from `memory_model` can be fitted to the collected memory allocation
+   to predict future memory usage based on input data. The user is also free to
+   define their own custom models and fitting procedures as desired. The end
+   goal of this step is to create a prediction function that returns the
+   expected memory usage incurred by passing a data sample through the said
+   workflow in the previous step.
+3. Use `SizeAwareBatchSampler` or `size_aware_batching` with the memory model
+   prediction (from the previous step) to build batch of data so that the
+   resulting mini-batches do not exceed a specified maximum total memory size.
 
 Refer to the later sections for the API documentation and examples on how to achieve each of the steps above.
 
 ### utils Module
 ---------------
 
-*   [**collect_cuda_peak_alloc**](#collect_cuda_peak_alloc): A function that collects CUDA peak memory allocation statistics for a given workflow.
+*   [**collect_cuda_peak_alloc**](#collect_cuda_peak_alloc): A function that
+    collects CUDA peak memory allocation statistics and features to be used for
+    memory usage prediction for a given workflow.
 
 ### sampler Module
 -----------------
@@ -69,7 +79,7 @@ data (e.g., internal PyTorch buffers). Therefore, users may want to skip these i
 **Arguments**:
 
 - `dataset` _Iterable[Data]_ - An iterable containing the input data.
-- `work` _Callable[[Data], Feature]_ - A function that takes a data point and returns its corresponding feature. This is where
+- `work` _Callable[[Data], Feature]_ - A function that takes a data point and returns its corresponding features to be use for memory allocation prediction. This is where
   the main computation happens and memory allocations are tracked.
 - `device` _torch.device_ - The target Torch CUDA device.
 - `cleanup` _Optional[Callable[[], None]]_ - A function that is called after each iteration to perform any necessary cleanup.
