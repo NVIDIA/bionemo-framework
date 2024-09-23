@@ -163,7 +163,7 @@ def test_esm2_finetune_token_classifier(
     seed: int = 42,
 ):
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        ckpt_path, initial_metrics, _ = _train_model(
+        ckpt_path, initial_metrics, trainer = _train_model(
             name="test_experiment",
             root_dir=tmpdir / "pretrain",
             config=esm2_config,
@@ -171,6 +171,8 @@ def test_esm2_finetune_token_classifier(
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
         )
+        pretrained_params_count = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+
         weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
@@ -181,7 +183,7 @@ def test_esm2_finetune_token_classifier(
         esm2_finetune_config = ESM2FineTuneSeqLenBioBertConfig(initial_ckpt_path=str(ckpt_path))
         dataset = PerTokenValueDataset(dummy_data_per_token_classification_ft)
         finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
-        simple_ft_checkpoint, simple_ft_metrics, _ = _train_model(
+        simple_ft_checkpoint, simple_ft_metrics, trainer = _train_model(
             name="finetune_new_head",
             root_dir=tmpdir / "finetune_new_head",  # new checkpoint will land in a subdir of this
             config=esm2_finetune_config,  # same config as before since we are just continuing training
@@ -189,6 +191,9 @@ def test_esm2_finetune_token_classifier(
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
         )
+        finetuned_params_count = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+        assert finetuned_params_count < pretrained_params_count
+
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
@@ -197,7 +202,7 @@ def test_esm2_finetune_token_classifier(
 
 
 @pytest.mark.needs_gpu
-def test_esm2_finetune_token_regressor(
+def test_esm2_finetune_regressor(
     tmpdir,
     esm2_config,
     tokenizer,
@@ -207,7 +212,7 @@ def test_esm2_finetune_token_regressor(
     seed: int = 42,
 ):
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        ckpt_path, initial_metrics, _ = _train_model(
+        ckpt_path, initial_metrics, trainer = _train_model(
             name="test_experiment",
             root_dir=tmpdir / "pretrain",
             config=esm2_config,
@@ -215,6 +220,8 @@ def test_esm2_finetune_token_regressor(
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
         )
+        pretrained_params_count = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+
         weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
@@ -225,7 +232,7 @@ def test_esm2_finetune_token_regressor(
         esm2_regression_finetune_config = ESM2FineTuneSeqBioBertConfig(initial_ckpt_path=str(ckpt_path))
         dataset = SingleValueDataset(dummy_data_single_value_regression_ft)
         finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
-        simple_ft_checkpoint, simple_ft_metrics, _ = _train_model(
+        simple_ft_checkpoint, simple_ft_metrics, trainer = _train_model(
             name="finetune_new_head_regression",
             root_dir=tmpdir / "finetune_new_head_regression",  # new checkpoint will land in a subdir of this
             config=esm2_regression_finetune_config,  # same config as before since we are just continuing training
@@ -233,6 +240,9 @@ def test_esm2_finetune_token_regressor(
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
         )
+        finetuned_params_count = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+        assert finetuned_params_count < pretrained_params_count
+
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
