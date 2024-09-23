@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 from math import isclose
 
 import pytest
@@ -90,15 +91,15 @@ def test_collect_cuda_peak_alloc_skip_oom(dataset, model_and_alloc_peak, model_h
     assert alloc_peaks_wo02 == alloc_peaks_expected
 
 
-@pytest.mark.parametrize("degree", [-1, 0, 1, 2, 3])
-def test_polynomial_regression(degree):
+@pytest.mark.parametrize("degree, has_degree0", itertools.product([-1, 0, 1, 2, 3], [True, False]))
+def test_polynomial_regression(degree, has_degree0):
     if degree < 0:
         with pytest.raises(ValueError):
             PolynomialRegression(degree)
     else:
-        m = PolynomialRegression(degree)
-        m_expected = PolynomialRegression(degree)
-        m_expected.coeffs = torch.randn(degree + 1)
+        m = PolynomialRegression(degree, has_degree0=has_degree0)
+        m_expected = PolynomialRegression(degree, has_degree0=has_degree0)
+        m_expected.coeffs = torch.randn(m_expected.n_degrees)
         x = torch.randn(100)
         y = m_expected(x)
         m.fit(x, y)
@@ -109,7 +110,7 @@ def test_polynomial_regression_x_and_y_mismatched_length():
     m = PolynomialRegression(2)
     x = torch.linspace(-1, 1, 100)
     y = torch.linspace(-1, 1, 50)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="number of samples.*equal"):
         m.fit(x, y)
 
 
