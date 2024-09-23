@@ -16,7 +16,7 @@
 import torch
 
 
-class PolynomialRegression(torch.nn.Module):
+class PolynomialRegression:
     """
     A class for performing polynomial regression using PyTorch.
 
@@ -25,13 +25,14 @@ class PolynomialRegression(torch.nn.Module):
     to evaluate the fitted polynomial and fit it to new data.
     """
 
-    def __init__(self, degree: int):
+    def __init__(self, degree: int, has_degree0: bool = True):
         """
         Initializes a PolynomialRegression object.
 
         Args:
             degree (int): The degree of the polynomial regression model.
                 Must be a non-negative integer.
+            has_degree0 (bool): Whether to include the zero-degree monomial
 
         Raises:
             ValueError: If degree is not a non-negative integer.
@@ -39,7 +40,9 @@ class PolynomialRegression(torch.nn.Module):
         if not isinstance(degree, int) or degree < 0:
             raise ValueError("degree must be a non-negative integer")
         self.degree = degree
-        self.coeffs = torch.zeros(degree + 1, dtype=torch.float32)
+        self.has_degree0 = has_degree0
+        self.n_degrees = self.degree + self.has_degree0
+        self.coeffs = torch.zeros(self.n_degrees, dtype=torch.float32)
         super().__init__()
 
     def _polynomial(self, x: torch.Tensor) -> torch.Tensor:
@@ -56,12 +59,13 @@ class PolynomialRegression(torch.nn.Module):
         """
         if x.ndim != 1:
             raise TypeError("x must be a 1D tensor.")
-        ans = x.unsqueeze(-1).repeat(1, self.degree + 1)
-        ans[:, 0] = 1
+        ans = x.unsqueeze(-1).repeat(1, self.n_degrees)
+        if self.has_degree0:
+            ans[:, 0] = 1
         ans = torch.cumprod(ans, dim=-1)
         return ans
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluates the polynomial at point(s) x.
 
