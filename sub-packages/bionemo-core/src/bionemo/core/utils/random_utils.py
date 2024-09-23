@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from contextlib import contextmanager
-from typing import Iterator, Sequence
+from typing import Iterator, Sequence, Type
 
 import numpy as np
 
@@ -46,9 +46,9 @@ def random_numpy_context(seed: int = 42) -> Iterator[None]:
         np.random.set_state(state)
 
 
-def get_seed_from_rng(rng: np.random.Generator) -> int:
+def get_seed_from_rng(rng: np.random.Generator, dtype: Type[np.signedinteger] = np.int64) -> int:
     """Generates a deterministic random seed from an existing random generator.
 
     Used to seed a torch random generator from a numpy random generator.
     """
-    return rng.integers(np.iinfo(np.int64).max)
+    return rng.integers(np.iinfo(dtype).max)

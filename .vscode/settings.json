@@ -15,6 +15,7 @@
         "pretraining",
         "pydantic",
         "rampup",
+        "Resampler",
         "resamplers",
         "singlecell",
         "tqdm",

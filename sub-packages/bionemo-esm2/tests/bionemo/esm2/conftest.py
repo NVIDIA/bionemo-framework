@@ -73,7 +73,7 @@ def dummy_parquet_train_val_inputs(tmp_path):
     valid_cluster_path = tmp_path / "valid_clusters.parquet"
     valid_clusters = pd.DataFrame(
         {
-            "ur50_id": ["UniRef50_A", "UniRef50_B"],
+            "ur50_id": ["UniRef50_A", "UniRef50_B", "UniRef90_A", "UniRef90_B"],
         }
     )
     valid_clusters.to_parquet(valid_cluster_path)

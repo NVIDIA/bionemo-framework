@@ -29,6 +29,7 @@ from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
+from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.lightning import LossLoggingCallback
@@ -73,6 +74,7 @@ def main(
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
     save_every_n_steps: int = 100,
+    random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
     num_layers: int = 33,
     hidden_size: int = 1280,
     num_attention_heads: int = 20,
@@ -168,6 +170,7 @@ def main(
         min_seq_length=None,
         max_seq_length=seq_length,
         num_workers=num_dataset_workers,
+        random_mask_strategy=random_mask_strategy,
     )
 
     # Configure the model
@@ -415,6 +418,13 @@ parser.add_argument(
 
 # ESM2 specific configuration (default: 650M)
 parser.add_argument(
+    "--random-mask-strategy",
+    type=RandomMaskStrategy,
+    choices=list(RandomMaskStrategy),
+    default=RandomMaskStrategy.ALL_TOKENS,
+    help=f"""In ESM2 pretraining, 15%% of all tokens are masked and among which 10%% are replaced with a random token. This class controls the set of random tokens to choose from. Options are: '{"', '".join([e.value for e in RandomMaskStrategy])}'. Note that 'all_token' will introduce non-canonical amino acid tokens as effective mask tokens, and the resultant loss will appear lower than that from 'amino_acids_only'. Note that 'all_token' is the method used in hugging face as well as portions of fairseq.""",
+)
+parser.add_argument(
     "--num-layers",
     type=int,
     required=False,
@@ -475,6 +485,7 @@ if __name__ == "__main__":
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
         save_every_n_steps=args.val_check_interval,
+        random_mask_strategy=args.random_mask_strategy,
         num_layers=args.num_layers,
         hidden_size=args.hidden_size,
         num_attention_heads=args.num_attention_heads,

@@ -14,9 +14,9 @@
 # limitations under the License.
 
 
-import math
 import os
 import sqlite3
+from enum import Enum
 from pathlib import Path
 from typing import Sequence, TypeVar
 
@@ -25,9 +25,24 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
+from bionemo.core.data.multi_epoch_dataset import EpochIndex, MultiEpochDatasetResampler
 from bionemo.esm2.data import tokenizer
 from bionemo.llm.data import masking
 from bionemo.llm.data.types import BertSample
+
+
+class RandomMaskStrategy(Enum):
+    """Enum for different random masking strategies.
+
+    In ESM2 pretraining, 15% of all tokens are masked and among which 10% are replaced with a random token. This class controls the set of random tokens to choose from.
+
+    """
+
+    AMINO_ACIDS_ONLY = "amino_acids_only"
+    """Mask only with amino acid tokens."""
+
+    ALL_TOKENS = "all_tokens"
+    """Mask with all tokens in the tokenizer, including special tokens, padding and non-canonical amino acid tokens."""
 
 
 class ProteinSQLiteDataset(Dataset):
@@ -66,6 +81,9 @@ class ProteinSQLiteDataset(Dataset):
         Returns:
             The protein sequence as a string.
         """
+        if not isinstance(idx, str):
+            raise TypeError(f"Expected string, got {type(idx)}: {idx}.")
+
         self.cursor.execute("SELECT sequence FROM protein WHERE id = ?", (idx,))
         return self.cursor.fetchone()[0]
 
@@ -85,7 +103,7 @@ class ESMMaskedResidueDataset(Dataset):
         Currently, this class owns the logic for upsampling proteins for multi-epoch training by directly passing a
         total_samples that's larger than the number of clusters provided. This is done because megatron training assumes
         that `dataset[i]` will always return the exact same tensors in distributed training. Because the we want to vary
-        mask patterns and cluster sampling each time a given cluster is sampled, we create our own psuedo-epochs inside
+        mask patterns and cluster sampling each time a given cluster is sampled, we create our own pseudo-epochs inside
         the dataset itself. Eventually we'd like to move away from this paradigm and allow multi-epoch training to vary
         the dataset's random state through a callback, and allow megatron samplers to handle the epoch-to-epoch
         shuffling of sample order.
@@ -96,12 +114,12 @@ class ESMMaskedResidueDataset(Dataset):
         self,
         protein_dataset: Dataset,
         clusters: Sequence[Sequence[str]],
-        total_samples: int,
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
         max_seq_length: int = 1024,
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
+        random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
     ) -> None:
         """Initializes the dataset.
@@ -119,20 +137,23 @@ class ESMMaskedResidueDataset(Dataset):
             mask_prob: The overall probability a token is included in the loss function. Defaults to 0.15.
             mask_token_prob: Proportion of masked tokens that get assigned the <MASK> id. Defaults to 0.8.
             mask_random_prob: Proportion of tokens that get assigned a random natural amino acid. Defaults to 0.1.
+            random_mask_strategy: Whether to replace random masked tokens with all tokens or amino acids only. Defaults to RandomMaskStrategy.ALL_TOKENS.
             tokenizer: The input ESM tokenizer. Defaults to the standard ESM tokenizer.
         """
         self.protein_dataset = protein_dataset
         self.clusters = clusters
-        self.total_samples = total_samples
         self.seed = seed
         self.max_seq_length = max_seq_length
+        self.random_mask_strategy = random_mask_strategy
 
         if tokenizer.mask_token_id is None:
             raise ValueError("Tokenizer does not have a mask token.")
 
         self.mask_config = masking.BertMaskConfig(
             tokenizer=tokenizer,
-            random_tokens=range(4, 24),
+            random_tokens=range(len(tokenizer.all_tokens))
+            if self.random_mask_strategy == RandomMaskStrategy.ALL_TOKENS
+            else range(4, 24),
             mask_prob=mask_prob,
             mask_token_prob=mask_token_prob,
             random_token_prob=mask_random_prob,
@@ -140,50 +161,28 @@ class ESMMaskedResidueDataset(Dataset):
 
         self.tokenizer = tokenizer
 
-        # Pre-initialize the index-to-cluster sample map to create pseudo-epochs inside the dataset.
-        num_epochs = math.ceil(total_samples / len(clusters))
-        self._samples = []
-        for i in range(num_epochs):
-            rng = np.random.default_rng([self.seed, i])
-            epoch_samples = np.arange(len(clusters))
-            rng.shuffle(epoch_samples)
-            self._samples.extend(epoch_samples)
-
-        self._samples = np.array(self._samples)[:total_samples]
-
     def __len__(self) -> int:
-        """Returns the total number of samples to be drawn.
+        """Returns the number of clusters, which constitutes a single epoch."""
+        return len(self.clusters)
 
-        !!! note
-
-            This is neither the actual number of clusters in the dataset nor the number of total sequences; since
-            dataset[i] draws from the i % (num_clusters) cluster.
-
-        """
-        return self.total_samples
-
-    def __getitem__(self, idx: int) -> BertSample:
+    def __getitem__(self, index: EpochIndex) -> BertSample:
         """Deterministically masks and returns a protein sequence from the dataset.
 
         This method samples from the i % len(dataset) cluster from the input clusters list. Random draws of the same
         cluster can be achieved by calling this method with i + len(dataset), i.e., wrapping around the dataset length.
 
         Args:
-            idx: Index of the sample to retrieve.
+            index: The current epoch and the index of the cluster to sample.
 
         Returns:
             A (possibly-truncated), masked protein sequence with CLS and EOS tokens and associated mask fields.
         """
-        if idx not in range(len(self)):
-            raise IndexError(f"Index {idx} out of range [0, {len(self)}).")
+        # Initialize a random number generator with a seed that is a combination of the dataset seed, epoch, and index.
+        rng = np.random.default_rng([self.seed, index.epoch, index.idx])
+        if not len(self.clusters[index.idx]):
+            raise ValueError(f"Cluster {index.idx} is empty.")
 
-        # Initialize a random number generator with a seed that is a combination of the dataset seed and the index.
-        rng = np.random.default_rng([self.seed, idx])
-        cluster_idx = self._samples[idx]
-        if not len(self.clusters[cluster_idx]):
-            raise ValueError(f"Cluster {cluster_idx} is empty.")
-
-        sequence_id = rng.choice(self.clusters[cluster_idx])
+        sequence_id = rng.choice(self.clusters[index.idx])
         sequence = self.protein_dataset[sequence_id]
 
         # We don't want special tokens before we pass the input to the masking function; we add these in the collate_fn.
@@ -228,6 +227,7 @@ def create_train_dataset(
     mask_prob: float = 0.15,
     mask_token_prob: float = 0.8,
     mask_random_prob: float = 0.1,
+    random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
     tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
 ):
     """Creates a training dataset for ESM pretraining.
@@ -242,6 +242,7 @@ def create_train_dataset(
         mask_prob: The overall probability a token is included in the loss function. Defaults to 0.15.
         mask_token_prob: Proportion of masked tokens that get assigned the <MASK> id. Defaults to 0.8.
         mask_random_prob: Proportion of tokens that get assigned a random natural amino acid. Defaults to 0.1.
+        random_mask_strategy: Whether to replace random masked tokens with all tokens or amino acids only. Defaults to RandomMaskStrategy.ALL_TOKENS.
         tokenizer: The input ESM tokenizer. Defaults to the standard ESM tokenizer.
 
     Returns:
@@ -262,17 +263,19 @@ def create_train_dataset(
         raise ValueError(f"Training cluster file must contain a 'ur90_id' column. Found columns {cluster_df.columns}.")
 
     protein_dataset = ProteinSQLiteDataset(db_path)
-    return ESMMaskedResidueDataset(
+    masked_cluster_dataset = ESMMaskedResidueDataset(
         protein_dataset=protein_dataset,
         clusters=cluster_df["ur90_id"],
-        total_samples=total_samples,
         seed=seed,
         max_seq_length=max_seq_length,
         mask_prob=mask_prob,
         mask_token_prob=mask_token_prob,
         mask_random_prob=mask_random_prob,
+        random_mask_strategy=random_mask_strategy,
         tokenizer=tokenizer,
     )
+
+    return MultiEpochDatasetResampler(masked_cluster_dataset, num_samples=total_samples, shuffle=True)
 
 
 def create_valid_clusters(cluster_file: str | os.PathLike) -> pd.Series:
@@ -300,12 +303,13 @@ def create_valid_clusters(cluster_file: str | os.PathLike) -> pd.Series:
 def create_valid_dataset(  # noqa: D417
     clusters: pd.Series | str | os.PathLike,
     db_path: str | os.PathLike,
-    total_samples: int,
     seed: int,
+    total_samples: int | None = None,
     max_seq_length: int = 1024,
     mask_prob: float = 0.15,
     mask_token_prob: float = 0.8,
     mask_random_prob: float = 0.1,
+    random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
     tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
 ):
     """Creates a validation dataset for ESM pretraining.
@@ -320,6 +324,7 @@ def create_valid_dataset(  # noqa: D417
         mask_prob: The overall probability a token is included in the loss function. Defaults to 0.15.
         mask_token_prob: Proportion of masked tokens that get assigned the <MASK> id. Defaults to 0.8.
         mask_random_prob: Proportion of tokens that get assigned a random natural amino acid. Defaults to 0.1.
+        random_masking_strategy: Whether to replace random masked tokens with all tokens or amino acids only. Defaults to RandomMaskStrategy.ALL_TOKENS.
         tokenizer: The input ESM tokenizer. Defaults to the standard ESM tokenizer.
 
     Returns:
@@ -331,6 +336,7 @@ def create_valid_dataset(  # noqa: D417
     """
     if isinstance(clusters, (str, os.PathLike)):
         clusters = create_valid_clusters(clusters)
+
     elif not isinstance(clusters, pd.Series):
         raise ValueError(f"Clusters must be a pandas Series. Got {type(clusters)}.")
 
@@ -338,19 +344,19 @@ def create_valid_dataset(  # noqa: D417
         raise ValueError(f"Database file {db_path} not found.")
 
     protein_dataset = ProteinSQLiteDataset(db_path)
-
-    # Create a single bucket for each UniRef50 cluster.
-    return ESMMaskedResidueDataset(
+    masked_dataset = ESMMaskedResidueDataset(
         protein_dataset=protein_dataset,
         clusters=clusters,
-        total_samples=total_samples,
         seed=seed,
         max_seq_length=max_seq_length,
         mask_prob=mask_prob,
         mask_token_prob=mask_token_prob,
         mask_random_prob=mask_random_prob,
+        random_mask_strategy=random_mask_strategy,
         tokenizer=tokenizer,
     )
+
+    return MultiEpochDatasetResampler(masked_dataset, num_samples=total_samples, shuffle=True)
 
 
 _T = TypeVar("_T", str, torch.Tensor)

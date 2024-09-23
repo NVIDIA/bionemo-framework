@@ -235,8 +235,8 @@ def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet
             train_database_path=dummy_protein_dataset,
             valid_cluster_path=valid_cluster_path,
             valid_database_path=dummy_protein_dataset,
-            global_batch_size=8,
-            micro_batch_size=4,
+            global_batch_size=4,
+            micro_batch_size=2,
             min_seq_length=None,
             max_seq_length=1024,
             seed=seed,
@@ -266,6 +266,6 @@ def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet
             hf_mean_loss = _compute_loss(hf_model, train_dataloader)
             print(f"hf_mean_loss: {hf_mean_loss}")
         else:
-            hf_mean_loss = torch.tensor(3.214346170425415).cuda()
+            hf_mean_loss = torch.tensor(3.030426025390625).cuda()
 
         torch.testing.assert_close(mean_loss, hf_mean_loss, atol=1e-4, rtol=0.0)
