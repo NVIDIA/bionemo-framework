@@ -2,7 +2,7 @@
 
 !!! note
 
-    Prior to beginning this section, you must confirm that your computing platform meets or exceeds the prerequisites outlined in the Hardware and Software Prerequisites page.
+    Prior to beginning this section, you must confirm that your computing platform meets or exceeds the prerequisites outlined in the [Hardware and Software Prerequisites](./pre-reqs.md) page.
 
 At this point, you have successfully launched and entered the Docker container. This section will guide you through the container, initial steps such as configuration and downloading pre-trained model weights, and where to find tutorials.
 
