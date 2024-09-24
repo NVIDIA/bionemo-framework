@@ -89,6 +89,9 @@ ENV PATH="/home/bionemo/.local/bin:${PATH}"
 # Create a release image with bionemo2 installed.
 FROM dev AS release
 
+WORKDIR /workspace/bionemo2/
+COPY VERSION .
+
 # Use UV to install python packages from the workspace. This just installs packages into the system's python
 # environment, and does not use the current uv.lock file.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -98,14 +101,14 @@ ENV UV_LINK_MODE=copy \
     UV_SYSTEM_PYTHON=true
 
 # Install 3rd-party deps and bionemo submodules.
-COPY 3rdparty /src/3rdparty
-COPY sub-packages /src/sub-packages
+COPY ./3rdparty /workspace/bionemo2/3rdparty
+COPY ./sub-packages /workspace/bionemo2/sub-packages
+
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
-RUN --mount=type=bind,source=./.git,target=/src/.git <<EOT
-uv pip install --no-build-isolation -v /src/3rdparty/* /src/sub-packages/bionemo-*
-rm -rf /src/3rdparty /src/sub-packages
+RUN --mount=type=bind,source=./.git,target=./.git <<EOT
+uv pip install --no-build-isolation -v ./3rdparty/* ./bionemo-*
+rm -rf ./3rdparty
 EOT
 
-WORKDIR /workspace/bionemo2/
 COPY ./scripts ./scripts
 COPY ./README.md ./
