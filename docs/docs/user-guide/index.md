@@ -8,8 +8,6 @@ BioNeMo is a software ecosystem produced by NVIDIA for the development and deplo
 
 When choosing between the BioNeMo Framework and BioNeMo NIMs, consider your project's specific requirements. The Framework is ideal for scenarios that require model training, fine-tuning, or customization, offering a comprehensive suite of tools and packages. In contrast, NIMs are optimized for inference-only workflows, providing easy-to-use, enterprise-ready microservices with built-in API endpoints. As a rule, use the Framework for custom model development or high-control modeling, and NIMs for inference against existing models.
 
-![](assets/old_images/bionemo_overview_2.png)
-
 ## BioNeMo User Success Stories
 
 [Enhancing Biologics Discovery and Development With Generative AI](https://www.nvidia.com/en-us/case-studies/amgen-biologics-discovery-and-development/) - Amgen leverages BioNeMo and DGX Cloud to train large language models (LLMs) on proprietary protein sequence data, predicting protein properties and designing biologics with enhanced capabilities. By using BioNeMo, Amgen achieved faster training and up to 100X faster post-training analysis, accelerating the drug discovery process.
@@ -23,8 +21,6 @@ Find more user stories on NVIDIA's [Customer Stories](https://www.nvidia.com/en-
 ## BioNeMo Framework: Fundamentals
 
 BioNeMo Framework provides versatile functionalities for developing and training large-scale biology-based models. BioNeMo allows users to build and train biomolecular models by providing access to pre-trained models and common model components for accelerating drug discovery workflows. Built for supercomputing scale, the framework allows developers to easily configure and train distributed multi-node jobs with minimal code.
-
-![](assets/old_images/bionemo_overview_1.png)
 
 BioNeMo is built on [NeMo](https://docs.nvidia.com/deeplearning/nemo/user-guide/docs/en/stable/starthere/intro.html), a scalable and cloud-native generative AI framework for researchers to create, customize, and deploy large language models (LLMs). NeMo provides a robust environment for working with large learning models, including [NVIDIA Megatron](https://docs.nvidia.com/deeplearning/nemo/user-guide/docs/en/stable/nlp/megatron.html) models. The BioNeMo Framework provides enhancements to PyTorch Lighting, such as hyperparameter configurability with YAML files and checkpoint management. Users can conveniently and quickly train models using these features, test them for desired tasks, and integrate them alongside existing applications.
 
