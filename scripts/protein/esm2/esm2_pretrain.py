@@ -364,10 +364,10 @@ parser.add_argument(
 )
 parser.add_argument(
     "--pipeline-model-parallel-size",
-     type=int,
-     required=False,
-     default=1,
-     help="Pipeline model parallel size. Default is 1.",
+    type=int,
+    required=False,
+    default=1,
+    help="Pipeline model parallel size. Default is 1.",
 )
 parser.add_argument(
     "--tensor-model-parallel-size",

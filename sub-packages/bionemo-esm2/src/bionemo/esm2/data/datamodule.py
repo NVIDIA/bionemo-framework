@@ -18,7 +18,6 @@ import functools
 import os
 from typing import Literal
 
-import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.utils.data
@@ -26,7 +25,6 @@ from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 
-from bionemo.core.utils import random_utils
 from bionemo.esm2.data import dataset, tokenizer
 from bionemo.llm.data import collate
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
