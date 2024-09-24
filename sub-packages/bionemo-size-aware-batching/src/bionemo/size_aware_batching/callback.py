@@ -16,7 +16,7 @@
 import os
 import warnings
 from collections import defaultdict
-from typing import Callable, Dict, List, Path, TypeVar
+from typing import Callable, Dict, List, TypeVar, Union
 
 import torch
 from lightning import pytorch as pl
@@ -47,7 +47,7 @@ class MeasureMemoryCallback(pl.Callback):
 
     def __init__(
         self,
-        output_filepath: str | Path,
+        output_filepath: Union[str, bytes, os.PathLike],
         extract_sizes_on_batch_start: Callable[[Batch], Dict] = None,
         extract_sizes_on_batch_end: Callable[[Batch], Dict] = None,
         measure_allocated: bool = True,
@@ -58,7 +58,7 @@ class MeasureMemoryCallback(pl.Callback):
         Initializes the callback.
 
         Args:
-            output_filepath (str | Path): The file path to write the memory usage logs in CSV format.
+            output_filepath (Union[str, bytes, os.PathLike]): The file path to write the memory usage logs in CSV format.
             extract_sizes_on_batch_start (Callable, optional): A callable that takes a batch as input on train/validation
                 batch start and returns a dictionary of sizes to log. Defaults to None.
             extract_sizes_on_batch_end (Callable, optional): A callable that takes a batch as input on train/validation
