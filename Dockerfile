@@ -106,7 +106,7 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
 RUN --mount=type=bind,source=./.git,target=./.git <<EOT
-uv pip install --no-build-isolation -v ./3rdparty/* ./bionemo-*
+uv pip install --no-build-isolation -v ./3rdparty/* ./sub-packages/bionemo-*
 rm -rf ./3rdparty
 EOT
 
