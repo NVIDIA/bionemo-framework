@@ -66,6 +66,8 @@ def main(
     resume_if_exists: bool,
     precision: PrecisionTypes,
     wandb_entity: str = "clara-discovery",
+    pipeline_model_parallel_size: int = 1,
+    tensor_model_parallel_size: int = 1,
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Optional[Path] = None,
     restore_from_checkpoint_path: Optional[str] = None,
@@ -112,8 +114,6 @@ def main(
     result_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup the strategy and trainer
-    pipeline_model_parallel_size = 1
-    tensor_model_parallel_size = 1
     global_batch_size = infer_global_batch_size(
         micro_batch_size=micro_batch_size,
         num_nodes=num_nodes,
@@ -185,6 +185,8 @@ def main(
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
         biobert_spec_option=biobert_spec_option,
         nemo1_ckpt_path=nemo1_init_path,
+        variable_seq_lengths=pipeline_model_parallel_size * tensor_model_parallel_size
+        > 1,  # essential for pipeline/tensor parallel
     )
 
     model = BioBertLightningModule(
@@ -362,6 +364,20 @@ parser.add_argument(
     help="Micro-batch size. Global batch size is inferred from this.",
 )
 parser.add_argument(
+    "--pipeline-model-parallel-size",
+    type=int,
+    required=False,
+    default=1,
+    help="Pipeline model parallel size. Default is 1.",
+)
+parser.add_argument(
+    "--tensor-model-parallel-size",
+    type=int,
+    required=False,
+    default=1,
+    help="Tensor model parallel size. Default is 1.",
+)
+parser.add_argument(
     "--accumulate-grad-batches",
     type=int,
     required=False,
@@ -474,6 +490,8 @@ if __name__ == "__main__":
         biobert_spec_option=args.biobert_spec_option,
         lr=args.lr,
         micro_batch_size=args.micro_batch_size,
+        pipeline_model_parallel_size=args.pipeline_model_parallel_size,
+        tensor_model_parallel_size=args.tensor_model_parallel_size,
         accumulate_grad_batches=args.accumulate_grad_batches,
         precision=args.precision,
         experiment_name=args.experiment_name,
