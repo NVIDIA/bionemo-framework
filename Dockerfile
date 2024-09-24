@@ -129,7 +129,7 @@ WORKDIR /build/NeMo
 RUN pip install --disable-pip-version-check --no-cache-dir .[all]
 
 WORKDIR /build/NeMo-Run
-RUN pip install --disable-pip-version-check --no-cache-dir .
+RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0.dev1 pip install --disable-pip-version-check --no-cache-dir .
 
 WORKDIR /workspace
 RUN rm -rf /build
