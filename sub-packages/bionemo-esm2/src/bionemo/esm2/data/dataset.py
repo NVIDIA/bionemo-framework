@@ -189,7 +189,7 @@ class ESMMaskedResidueDataset(Dataset):
         tokenized_sequence = self._tokenize(sequence)
         cropped_sequence = _random_crop(tokenized_sequence, self.max_seq_length, rng)
 
-        torch_seed = rng.integers(low=np.iinfo(np.int64).min, high=np.iinfo(np.int64).max)
+        torch_seed = int(rng.integers(low=np.iinfo(np.int64).min, high=np.iinfo(np.int64).max))
         masked_sequence, labels, loss_mask = masking.apply_bert_pretraining_mask(
             tokenized_sequence=cropped_sequence,  # type: ignore
             random_seed=torch_seed,

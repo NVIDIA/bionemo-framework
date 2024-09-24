@@ -75,12 +75,12 @@ def apply_bert_pretraining_mask(
 
     # Set the seed so that __getitem__(idx) is always deterministic.
     # This is required by Megatron-LM's parallel strategies.
-    torch.manual_seed(random_seed)
+    generator = torch.Generator().manual_seed(random_seed)
 
     mask_stop_1 = mask_config.mask_prob * mask_config.mask_token_prob
     mask_stop_2 = mask_config.mask_prob * (mask_config.mask_token_prob + mask_config.random_token_prob)
 
-    random_draws = torch.rand(tokenized_sequence.shape)  # Random draws for each token in [0, 1).
+    random_draws = torch.rand(tokenized_sequence.shape, generator=generator)  # Random draws for each token in [0, 1).
 
     # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
     # (identity). We don't want to mask special tokens.
@@ -104,6 +104,7 @@ def apply_bert_pretraining_mask(
         high=mask_config.random_tokens.stop,
         size=(num_random_tokens,),
         dtype=masked_sequence.dtype,
+        generator=generator,
     )
 
     # Create the labels for the masked tokens.

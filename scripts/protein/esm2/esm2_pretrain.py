@@ -185,6 +185,7 @@ def main(
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
         biobert_spec_option=biobert_spec_option,
         nemo1_ckpt_path=nemo1_init_path,
+        variable_seq_lengths=True,  # essential for pipeline parallel
     )
 
     model = BioBertLightningModule(
