@@ -4,10 +4,13 @@ To get started, please build the docker container using
 ./launch.sh build
 ```
 
+Launch a container from the build image by executing
+```bash
+./launch.sh dev
+```
+
 All `bionemo2` code is partitioned into independently installable namespace packages. These live under the `sub-packages/` directory.
 
-
-# TODO: Finish this.
 
 ## Downloading artifacts
 Set the AWS access info in your `.env` in the host container prior to running docker:
@@ -68,15 +71,81 @@ git add '3rdparty/NeMo/'
 git commit -m "updating NeMo commit"
 ```
 
+
 ## Testing Locally
 Inside the development container, run `./ci/scripts/static_checks.sh` to validate that code changes will pass the code
 formatting and license checks run during CI. In addition, run the longer `./ci/scripts/pr_test.sh` script to run unit
 tests for all sub-packages.
 
-## Running
-The following command runs a very small example of geneformer pretraining, as well as using our test data loading
-mechanism to grab the example data files and return the local path.
 
+## Publishing Packages
+
+*Note*: Once we have a pypi deployment strategy, we should automate the following commands to run automatically via
+github actions on new git tags. We can therefore trigger wheel building and pypi deployment by minting new releases as
+part of the github.com CI.
+
+### Add a new git tag
+
+We use [setuptools-scm](https://setuptools-scm.readthedocs.io/en/latest/) to dynamically determine the library version
+from git tags. As an example:
+
+```bash
+$ git tag 2.0.0a1
+$ docker build . -t bionemo-uv
+$ docker run --rm -it bionemo-uv:latest python -c "from importlib.metadata import version; print(version('bionemo.esm2'))"
+2.0.0a1
+```
+
+Bionemo packages follow [semantic versioning 2.0](https://semver.org/) rules: API-breaking changes are `MAJOR`, new
+features are `MINOR`, and bug-fixes and refactors are `PATCH` in `MAJOR.MINOR.PATCH` version string format.
+
+If subsequent commits are added after a git tag, the version string will reflect the additional commits (e.g.
+`2.0.0a1.post1`). Note, we don't consider uncommitted changes in determining the version string.
+
+### Building a python wheel
+
+An overview for publishing packages with `uv` can be found here: https://docs.astral.sh/uv/guides/publish/
+
+Build the bionemo sub-package project by executing the following for the desired package:
+```shell
+uv build sub-packages/bionemo-core/
+```
+
+This will produce a wheel file for the sub-package's code and its dependencies:
+```shell
+$ ls sub-packages/bionemo-core/dist/
+bionemo_core-2.0.0a1.post0-py3-none-any.whl  bionemo_core-2.0.0a1.post0.tar.gz
+```
+
+### Uploading a python wheel
+
+After building, the wheel file can be uploaded to PyPI (or a compatible package registry) by executing
+`uvx twine upload sub-packages/bionemo-core/dist/*`.
+
+### All steps together
+
+Assumes we're building a wheel for `bionemo-core`.
+```bash
+git tag MY-VERSION-TAG
+uv build /sub-packages/bionemo-core
+TWINE_PASSWORD="<pypi pass>" TWINE_USERNAME="<pypi user>" uvx twine upload /sub-packages/bionemo-core/dist/*
+```
+
+
+## Models
+### Geneformer
+#### Get test data for geneformer
+```bash
+mkdir -p /workspace/bionemo2/data
+aws s3 cp \
+  s3://general-purpose/cellxgene_2023-12-15_small \
+  /workspace/bionemo2/data/cellxgene_2023-12-15_small \
+  --recursive \
+  --endpoint-url https://pbss.s8k.io
+```
+#### Running
+
+The following command runs a very small example of geneformer:
 ```bash
 TEST_DATA_DIR=$(bionemo_test_data_path single_cell/testdata-20240506 --source pbss); \
 python  \
@@ -123,6 +192,7 @@ python  \
     --restore-from-checkpoint-path results/test_experiment/dev/checkpoints/test_experiment--val_loss=10.2042-epoch=0
 ```
 
+
 ## Updating License Header on Python Files
 Make sure you have installed [`license-check`](https://gitlab-master.nvidia.com/clara-discovery/infra-bionemo),
 which is defined in the development dependencies. If you add new Python (`.py`) files, be sure to run as:
@@ -131,37 +201,48 @@ license-check --license-header ./license_header --check . --modify --replace
 ```
 
 
-# UV notes
+# UV-based python packaging
+
+We've begun migrating to use `uv` (https://docs.astral.sh/uv/) to handle python packaging inside our docker containers.
+In addition to streamlining how we specify intra-repo dependencies, it will allow us to create a uv lockfile to pin our
+dependencies for our bionemo docker container.
+
+We'll likely maintain two images going forward:
+
+1. An image that derives from `nvcr.io/nvidia/pytorch` that will be our performance baseline. The advantage of this
+   image base is that the performance of pytorch is validated by the NVIDIA pytorch team, but the downsides are that (1)
+   the overall image size is quite large, and (2) using `uv sync` to install a pinned virtual environment is not
+   possible with the existing python environment in the ngc image.
+
+2. An image that derives from `nvcr.io/nvidia/cuda`, where we use uv to create the python environment from scratch. This
+   image uses pytorch wheels from https://download.pytorch.org.
+
+Currently, the devcontainer derives from the cuda-based image above, while the release image derives from the pytorch
+image.
 
 ## Generating uv.lock
 
 The current `uv.lock` file was generated by running
 
 ```bash
-uv lock --extra-index-url https://download.pytorch.org/whl/cu124 --index-strategy unsafe-best-match --refresh --no-cache
+uv lock --refresh --no-cache
 ```
 
-For cuda 12.1, we can just do
+For cuda 12.4, we can run
 
 ```bash
-uv lock --refresh --no-cache
+uv lock --extra-index-url https://download.pytorch.org/whl/cu124 --index-strategy unsafe-best-match --refresh --no-cache
 ```
 
 (to match https://pytorch.org/get-started/locally/#start-locally)
 
-Updating dependency locks can be done via
-
-```bash
-uv lock --upgrade --extra-index-url https://download.pytorch.org/whl/cu124 --index-strategy unsafe-best-match
-```
-
-## Building the image
+## Building the CUDA image
 
 ```bash
 docker build -f Dockerfile.uv . -t bionemo-uv
 ```
 
-## Runnings tests
+## Runnings tests inside the CUDA image.
 
 ```bash
 docker run --rm -it \
@@ -175,18 +256,3 @@ docker run --rm -it \
     bionemo-uv:latest \
     py.test sub-packages/ scripts/
 ```
-
-## Setting library versions
-
-We use [setuptools-scm](https://setuptools-scm.readthedocs.io/en/latest/) to dynamically determine the library version
-from git tags. As an example:
-
-```bash
-$ git tag 2.0.0a1
-$ docker build . -t bionemo-uv
-$ docker run --rm -it bionemo-uv:latest python -c "from importlib.metadata import version; print(version('bionemo.esm2'))"
-2.0.0a1
-```
-
-If subsequent commits are added after a git tag, the version string will reflect the additional commits (e.g.
-`2.0.0a2.dev1+g4d62638a9`). Note, we don't consider uncommitted changes in determining the version string.
