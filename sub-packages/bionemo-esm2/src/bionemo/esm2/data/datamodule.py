@@ -118,7 +118,6 @@ class ESMDataModule(pl.LightningDataModule):
             RuntimeError: If the trainer is not attached, or if the trainer's max_steps is not set.
         """
         del stage  # Unused.
-        rng = np.random.default_rng(self._seed)
 
         if not hasattr(self, "trainer") or self.trainer is None:
             raise RuntimeError("Setup should be completed when trainer and config are attached.")
