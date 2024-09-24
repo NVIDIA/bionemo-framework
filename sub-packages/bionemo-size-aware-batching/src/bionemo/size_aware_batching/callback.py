@@ -74,10 +74,10 @@ class MeasureMemoryCallback(pl.Callback):
         self.measure_allocated = measure_allocated
         self.measure_max_allocated = measure_max_allocated
         self.extract_sizes_on_batch_start = (
-            extract_sizes_on_batch_start if extract_sizes_on_batch_start is not None else lambda _: {}
+            extract_sizes_on_batch_start if callable(extract_sizes_on_batch_start) else lambda _: {}
         )
         self.extract_sizes_on_batch_end = (
-            extract_sizes_on_batch_end if extract_sizes_on_batch_end is not None else lambda _: {}
+            extract_sizes_on_batch_end if callable(extract_sizes_on_batch_end) else lambda _: {}
         )
         self.warmup = warmup
 
