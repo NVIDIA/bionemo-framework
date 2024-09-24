@@ -15,9 +15,9 @@ hide:
 
     Install BioNeMo and set up your environment to start accelerating your bioinformatics workflows.
 
-    [Get Started](user-guide/getting-started){ .md-button .md-button }
+    [Get Started](user-guide){ .md-button .md-button }
 
--   :material-code-greater-than:{ .lg .middle } __API Reference__
+-   :material-code-greater-than:{ .lg } __API Reference__
 
     ---
 
@@ -25,7 +25,7 @@ hide:
 
     [API Reference](API_reference/bionemo/core/api/){ .md-button .md-button }
 
--   :material-robot-outline:{ .lg } __Models__
+-   :material-cube-outline:{ .lg } __Models__
 
     ---
 
@@ -35,7 +35,7 @@ hide:
 
 
 
--   :material-database-outline:{ .lg .middle } __Datasets__
+-   :material-database-outline:{ .lg } __Datasets__
 
     ---
 
