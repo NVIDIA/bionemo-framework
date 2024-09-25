@@ -117,7 +117,7 @@ class ESM2FineTuneTokenModel(ESM2Model):
 
         # freeze encoder parameters
         if config.encoder_frozen:
-            for param in self.encoder.parameters():
+            for _, param in self.named_parameters():
                 param.requires_grad = False
 
         self.include_hiddens_finetuning = (

@@ -171,7 +171,8 @@ def test_esm2_finetune_token_classifier(
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
         )
-        pretrained_params_count = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+        pretrain_requires_grad = [p.requires_grad for _, p in trainer.model.named_parameters()]
+        assert all(pretrain_requires_grad), "Frozen parameters in pretraining"
 
         weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
@@ -191,8 +192,10 @@ def test_esm2_finetune_token_classifier(
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
         )
-        finetuned_params_count = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
-        assert finetuned_params_count < pretrained_params_count
+        encoder_requires_grad = [
+            p.requires_grad for name, p in trainer.model.named_parameters() if "classification_head" not in name
+        ]
+        assert not all(encoder_requires_grad), "Pretrained model is not fully frozen during fine-tuning"
 
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
@@ -220,7 +223,8 @@ def test_esm2_finetune_regressor(
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
         )
-        pretrained_params_count = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+        pretrain_requires_grad = [p.requires_grad for _, p in trainer.model.named_parameters()]
+        assert all(pretrain_requires_grad), "Frozen parameters in pretraining"
 
         weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
@@ -240,8 +244,10 @@ def test_esm2_finetune_regressor(
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
         )
-        finetuned_params_count = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
-        assert finetuned_params_count < pretrained_params_count
+        encoder_requires_grad = [
+            p.requires_grad for name, p in trainer.model.named_parameters() if "regression_head" not in name
+        ]
+        assert not all(encoder_requires_grad), "Pretrained model is not fully frozen during fine-tuning"
 
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()

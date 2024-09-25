@@ -111,7 +111,7 @@ class ESM2FineTuneSeqModel(ESM2Model):
 
         # freeze encoder parameters
         if config.encoder_frozen:
-            for param in self.encoder.parameters():
+            for _, param in self.named_parameters():
                 param.requires_grad = False
 
         # If post_process is True that means that we are at the last megatron parallelism stage and we can
