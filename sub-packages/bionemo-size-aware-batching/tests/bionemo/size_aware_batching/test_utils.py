@@ -13,13 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import itertools
 from math import isclose
 
 import pytest
 import torch
 
-from bionemo.size_aware_batching.memory_model import PolynomialRegression
 from bionemo.size_aware_batching.utils import collect_cuda_peak_alloc
 
 
@@ -89,34 +87,3 @@ def test_collect_cuda_peak_alloc_skip_oom(dataset, model_and_alloc_peak, model_h
     alloc_peaks_expected = [alloc_peaks[i] for i in range(len(alloc_peaks)) if not (i == 0 or i == 2)]
     assert features_wo02 == features_expected
     assert alloc_peaks_wo02 == alloc_peaks_expected
-
-
-@pytest.mark.parametrize("degree, has_degree0", itertools.product([-1, 0, 1, 2, 3], [True, False]))
-def test_polynomial_regression(degree, has_degree0):
-    if degree < 0:
-        with pytest.raises(ValueError):
-            PolynomialRegression(degree)
-    else:
-        m = PolynomialRegression(degree, has_degree0=has_degree0)
-        m_expected = PolynomialRegression(degree, has_degree0=has_degree0)
-        m_expected.coeffs = torch.randn(m_expected.n_degrees)
-        x = torch.randn(100)
-        y = m_expected(x)
-        m.fit(x, y)
-        assert torch.allclose(m.coeffs, m_expected.coeffs, rtol=1e-5, atol=1e-5)
-
-
-def test_polynomial_regression_x_and_y_mismatched_length():
-    m = PolynomialRegression(2)
-    x = torch.linspace(-1, 1, 100)
-    y = torch.linspace(-1, 1, 50)
-    with pytest.raises(ValueError, match="number of samples.*equal"):
-        m.fit(x, y)
-
-
-def test_polynomial_regression_invalid_input_type():
-    x = "hello"
-    y = [1, 2, 3]
-    m = PolynomialRegression(2)
-    with pytest.raises(TypeError):
-        m.fit(x, y)
