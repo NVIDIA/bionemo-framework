@@ -62,16 +62,16 @@ RUN rm -rf /build
 # Addressing Security Scan Vulnerabilities
 RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
 RUN apt-get update  && \
-    apt-get install -y openssh-client=1:8.9p1-3ubuntu0.10 && \
-    rm -rf /var/lib/apt/lists/*
+  apt-get install -y openssh-client=1:8.9p1-3ubuntu0.10 && \
+  rm -rf /var/lib/apt/lists/*
 RUN apt purge -y libslurm37 libpmi2-0 && \
-    apt autoremove -y
+  apt autoremove -y
 RUN source /usr/local/nvm/nvm.sh && \
-    NODE_VER=$(nvm current) && \
-    nvm deactivate && \
-    nvm uninstall $NODE_VER && \
-    sed -i "/NVM/d" /root/.bashrc && \
-    sed -i "/nvm.sh/d" /etc/bash.bashrc
+  NODE_VER=$(nvm current) && \
+  nvm deactivate && \
+  nvm uninstall $NODE_VER && \
+  sed -i "/NVM/d" /root/.bashrc && \
+  sed -i "/nvm.sh/d" /etc/bash.bashrc
 
 # Create a non-root user to use inside a devcontainer.
 ARG USERNAME=bionemo
@@ -96,9 +96,9 @@ COPY VERSION .
 # environment, and does not use the current uv.lock file.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
-    UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON_DOWNLOADS=never \
-    UV_SYSTEM_PYTHON=true
+  UV_COMPILE_BYTECODE=1 \
+  UV_PYTHON_DOWNLOADS=never \
+  UV_SYSTEM_PYTHON=true
 
 # Install 3rd-party deps and bionemo submodules.
 COPY ./3rdparty /workspace/bionemo2/3rdparty

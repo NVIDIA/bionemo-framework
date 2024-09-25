@@ -2,8 +2,8 @@
 # get smaller image sizes (compared with the NGC pytorch base image) and test our package using "off-the-shelf" pytorch
 # wheels.
 
-ARG BUILD_IMAGE=nvcr.io/nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
-ARG RUNTIME_IMAGE=nvcr.io/nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+ARG BUILD_IMAGE=nvcr.io/nvidia/cuda:12.1.0-cudnn8-devel-ubuntu20.04
+ARG RUNTIME_IMAGE=nvcr.io/nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu20.04
 
 # Build image, note the -devel tag which gives us nvcc and other build-time tools. In this image we'll install uv and
 # create a python virtual environment containing all our dependencies and an installed version of our bionemo library.
