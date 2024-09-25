@@ -15,7 +15,7 @@
 
 
 from pathlib import Path
-from typing import Tuple
+from typing import Generator, Tuple
 
 import pytest
 import pytorch_lightning as pl
@@ -34,12 +34,12 @@ from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
 from bionemo.esm2.model.finetune.finetune_regressor import (
-    ESM2FineTuneSeqBioBertConfig,
-    SingleValueDataset,
+    ESM2FineTuneSeqConfig,
+    InMemorySingleValueDataset,
 )
 from bionemo.esm2.model.finetune.finetune_token_classifier import (
-    ESM2FineTuneSeqLenBioBertConfig,
-    PerTokenValueDataset,
+    ESM2FineTuneTokenConfig,
+    InMemoryPerTokenValueDataset,
 )
 from bionemo.llm.lightning import LossLoggingCallback
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
@@ -61,9 +61,9 @@ nemo1_checkpoint_path: Path = load("esm2/nv_650m:1.0")
 
 
 @pytest.fixture(scope="module")
-def esm2_config() -> ESM2Config:
+def esm2_8M_config() -> Generator[ESM2Config, None, None]:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        yield ESM2Config()
+        yield ESM2Config(num_layers=6, hidden_size=320)
 
 
 @pytest.fixture
@@ -155,7 +155,7 @@ def _train_model(
 @pytest.mark.needs_gpu
 def test_esm2_finetune_token_classifier(
     tmpdir,
-    esm2_config,
+    esm2_8M_config,
     tokenizer,
     pretrain_data_module,
     dummy_data_per_token_classification_ft,
@@ -166,7 +166,7 @@ def test_esm2_finetune_token_classifier(
         ckpt_path, initial_metrics, trainer = _train_model(
             name="test_experiment",
             root_dir=tmpdir / "pretrain",
-            config=esm2_config,
+            config=esm2_8M_config,
             data_module=pretrain_data_module,
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
@@ -180,8 +180,8 @@ def test_esm2_finetune_token_classifier(
         assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
 
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        esm2_finetune_config = ESM2FineTuneSeqLenBioBertConfig(initial_ckpt_path=str(ckpt_path))
-        dataset = PerTokenValueDataset(dummy_data_per_token_classification_ft)
+        esm2_finetune_config = ESM2FineTuneTokenConfig(initial_ckpt_path=str(ckpt_path))
+        dataset = InMemoryPerTokenValueDataset(dummy_data_per_token_classification_ft)
         finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
         simple_ft_checkpoint, simple_ft_metrics, trainer = _train_model(
             name="finetune_new_head",
@@ -204,7 +204,7 @@ def test_esm2_finetune_token_classifier(
 @pytest.mark.needs_gpu
 def test_esm2_finetune_regressor(
     tmpdir,
-    esm2_config,
+    esm2_8M_config,
     tokenizer,
     pretrain_data_module,
     dummy_data_single_value_regression_ft,
@@ -215,7 +215,7 @@ def test_esm2_finetune_regressor(
         ckpt_path, initial_metrics, trainer = _train_model(
             name="test_experiment",
             root_dir=tmpdir / "pretrain",
-            config=esm2_config,
+            config=esm2_8M_config,
             data_module=pretrain_data_module,
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
@@ -229,8 +229,8 @@ def test_esm2_finetune_regressor(
         assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
 
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        esm2_regression_finetune_config = ESM2FineTuneSeqBioBertConfig(initial_ckpt_path=str(ckpt_path))
-        dataset = SingleValueDataset(dummy_data_single_value_regression_ft)
+        esm2_regression_finetune_config = ESM2FineTuneSeqConfig(initial_ckpt_path=str(ckpt_path))
+        dataset = InMemorySingleValueDataset(dummy_data_single_value_regression_ft)
         finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
         simple_ft_checkpoint, simple_ft_metrics, trainer = _train_model(
             name="finetune_new_head_regression",
