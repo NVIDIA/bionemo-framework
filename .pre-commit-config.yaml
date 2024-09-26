@@ -10,8 +10,8 @@ repos:
     rev: v0.5.1
     hooks:
       - id: ruff
-        # Don't fail on docstring checks in pre-commit, and don't remove these unused noqa flags.
-        args: ["--fix", "--ignore", "D", "--ignore", "RUF100"]
+        # 1. Attempt to automatically fix any lint issues.
+        args: ["--fix"]
       - id: ruff-format
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
