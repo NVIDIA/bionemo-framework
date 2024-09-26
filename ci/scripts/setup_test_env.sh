@@ -36,22 +36,21 @@ done
 set -xueo pipefail
 
 if [ -z "$BIONEMO_HOME" ]; then
-    echo "\$BIONEMO_HOME is unset. Exiting."
-    exit 1
+    echo "\$BIONEMO_HOME is unset. Setting \$BIONEMO_HOME to repository root "
+    REPOSITORY_ROOT=$(git rev-parse --show-toplevel)
+    BIONEMO_HOME="${REPOSITORY_ROOT}"
 fi
 cd "${BIONEMO_HOME}" || exit 1
 
-MODEL_PATH=${BIONEMO_HOME}/models
 
 examples/protein/openfold/scripts/install_third_party.sh
-
+MODEL_PATH=${BIONEMO_HOME}/models
 MODELS="openfold_finetuning_inhouse esm2nv_3b esm2nv_8m_lora esm2nv_8m_untrained esm2nv_650m esm2_650m_huggingface esm2_3b_huggingface diffdock_confidence diffdock_score equidock_db5 equidock_dips megamolbart molmim_70m_24_3 prott5nv esm1nv dnabert geneformer geneformer_10M_240530 dsmbind"
-CMD="python download_artifacts.py --models ${MODELS} --model_dir ${MODEL_PATH} --data all --data_dir ${REPOSITORY_ROOT} --verbose"
+CMD="python download_artifacts.py --models ${MODELS} --model_dir ${MODEL_PATH} --data all --data_dir ${BIONEMO_HOME} --verbose"
 
 if [ -n "$PBSS" ]; then
   CMD="${CMD} --source pbss"
 fi
-
 $CMD
 
 unzip examples/tests/test_data/uniref202104_esm2_qc_test200_val200.zip -d examples/tests/test_data/

@@ -1,8 +1,11 @@
 #!/bin/bash
 
+export PYTHONDONTWRITEBYTECODE=1
+
 if [ -z "$BIONEMO_HOME" ]; then
-    echo "\$BIONEMO_HOME is unset. Exiting."
-    exit 1
+    echo "\$BIONEMO_HOME is unset. Setting \$BIONEMO_HOME to repository root "
+    REPOSITORY_ROOT=$(git rev-parse --show-toplevel)
+    BIONEMO_HOME="${REPOSITORY_ROOT}"
 fi
 cd "${BIONEMO_HOME}" || exit 1
 
