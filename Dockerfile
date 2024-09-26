@@ -95,9 +95,12 @@ ENV UV_LINK_MODE=copy \
 # The dependencies for the bionemo-geometric submodule are installed in a separate step since these require some
 # explicit compilation. Otherwise the devcontainer builds (which don't include our pip dependencies) will take a long
 # time.
-RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/tmp/requirements.txt \
+RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements.txt \
   --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
-  uv pip install --no-build-isolation -r /tmp/requirements.txt
+  <<EOT
+  uv pip install --no-build-isolation -r /requirements.txt
+  rm -rf /tmp/*
+EOT
 
 # Create a release image with bionemo2 installed.
 FROM dev AS release
@@ -115,6 +118,7 @@ RUN --mount=type=bind,source=./.git,target=./.git \
   <<EOT
 uv pip install --no-build-isolation -v ./3rdparty/* ./sub-packages/bionemo-*
 rm -rf ./3rdparty
+rm -rf /tmp/*
 EOT
 
 COPY ./scripts ./scripts
