@@ -15,15 +15,16 @@
 
 
 import functools
+from typing import Literal
 
 import pytorch_lightning as pl
 import torch
+import torch.utils.data
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
-from torch.utils.data import Dataset
 
-from bionemo.core.data.resamplers import PRNGResampleDataset
+from bionemo.core.data.multi_epoch_dataset import MultiEpochDatasetResampler
 from bionemo.esm2.data import tokenizer
 from bionemo.esm2.model.finetune.finetune_regressor import InMemorySingleValueDataset
 from bionemo.esm2.model.finetune.finetune_token_classifier import InMemoryPerTokenValueDataset
@@ -42,7 +43,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         self,
         train_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset,
         valid_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset,
-        seed: int | None = 42,
+        seed: int = 42,
         min_seq_length: int | None = None,
         max_seq_length: int = 1024,
         micro_batch_size: int = 4,
@@ -55,6 +56,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
+        dataloader_type: Literal["single", "cyclic"] = "single",
     ) -> None:
         """Initialize the ESM2FineTuneDataModule.
 
@@ -74,6 +76,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             mask_token_prob: The probability of replacing a masked token with a [MASK] token. Defaults to 0.8.
             mask_random_prob: The probability of replacing a masked token with a random token. Defaults to 0.1.
             tokenizer: The tokenizer to use for tokenization. Defaults to the BioNeMoESMTokenizer.
+            dataloader_type: The type of dataloader to use. Defaults to "single".
 
         Returns:
             None
@@ -98,7 +101,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             seq_len=max_seq_length,
             micro_batch_size=micro_batch_size,
             global_batch_size=global_batch_size,
-            dataloader_type="single",  # `MegatronPretrainingRandomSampler` from "cyclic" is failing.
+            dataloader_type=dataloader_type,  # `MegatronPretrainingRandomSampler` from "cyclic" is failing.
             rampup_batch_size=rampup_batch_size,
         )
 
@@ -128,10 +131,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
 
         # Create training dataset
         num_train_samples = int(max_train_steps * self.data_sampler.global_batch_size)
-
-        self._train_ds = self._sample_and_shuffle_dataset(
-            self.train_dataset, num_train_samples
-        )  # shuffle manually without cyclic MegatronPretrainingRandomSampler
+        self._train_ds = self._create_epoch_based_dataset(self.train_dataset, num_train_samples)
 
         # Create validation dataset
         num_val_samples = infer_num_samples(
@@ -140,14 +140,18 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             global_batch_size=self.data_sampler.global_batch_size,
             stage="val",
         )
-        self._valid_ds = self._sample_and_shuffle_dataset(
-            self.valid_dataset,
-            num_val_samples,
-        )  # shuffle manually without cyclic MegatronPretrainingRandomSampler
+        self._valid_ds = self._create_epoch_based_dataset(self.valid_dataset, num_val_samples)
 
         assert (
             hasattr(self, "trainer") and self.trainer is not None
         ), "Setup should be completed when trainer and config are attached."
+
+    def _create_epoch_based_dataset(
+        self,
+        dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset,
+        total_samples: int,
+    ):
+        return MultiEpochDatasetResampler(dataset, num_samples=total_samples, shuffle=True, seed=self._seed)
 
     def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
@@ -174,20 +178,6 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         """Returns the dataloader for validation data."""
         return self._create_dataloader(self._valid_ds)
 
-    def _sample_and_shuffle_dataset(self, dataset: Dataset, num_samples: int):
-        """Sample the training dataset.
-
-        Args:
-            dataset (torch.utils.data.Dataset): The dataset to sample from
-            num_samples (int): number of samples to generate
-
-        Returns:
-            ResamplingMappedDataset: Resampled dataset
-
-        """
-        # This is where re-sampling occurs.
-        return PRNGResampleDataset(
-            dataset,
-            num_samples=num_samples,
-            seed=self._seed,
-        )
+    def test_dataloader(self) -> EVAL_DATALOADERS:
+        """Raises a not implemented error."""
+        raise NotImplementedError("No test dataset provided for ESM2")
