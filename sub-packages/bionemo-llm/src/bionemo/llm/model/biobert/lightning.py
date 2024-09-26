@@ -67,14 +67,20 @@ ForwardStepFunction = Callable[[pl.LightningModule, DataStepOutput], DataT]
 
 
 class BertBatch(BertBatchCore, total=False):
+    """Input datatype for inference with BERT-like models."""
+
     cu_seqlens: Tensor
 
 
 class SequenceBatchCore(TypedDict):
+    """Input datatype for inference with BERT-like models."""
+
     cu_seqlens: Tensor
 
 
 class SequenceBatch(SequenceBatchCore, total=False):
+    """Input datatype for inference with BERT-like models."""
+
     cu_seqlens_argmin: Tensor
     max_seqlen: Tensor
 
