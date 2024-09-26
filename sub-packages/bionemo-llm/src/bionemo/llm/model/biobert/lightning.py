@@ -38,7 +38,6 @@ __all__: Sequence[str] = (
     "BertModel",
     "BertBatch",
     "SequenceBatch",
-    # ???
     "get_packed_seq_params",
     "get_batch_on_this_context_parallel_rank",
 )
@@ -55,7 +54,6 @@ class BertBatchCore(TypedDict):
     attention_mask: Tensor
 
 
-# ???
 DataStepOutput = Dict[str, torch.Tensor | PackedSeqParams]
 DataStepFunction = Callable[[Iterable], DataStepOutput]
 ForwardStepFunction = Callable[[pl.LightningModule, DataStepOutput], DataT]
@@ -113,8 +111,6 @@ def biobert_data_step(dataloader_iter) -> Dict[str, Tensor]:
     return output
 
 
-# ???
-# def bert_forward_step(model: pl.LightningModule, batch: DataStepOutput) -> DataT:
 def bert_forward_step(model: BertModel[DataT], batch: BertBatch) -> DataT:
     """Performs the model's orward pass using the batch, for Megatron compatability.
 
