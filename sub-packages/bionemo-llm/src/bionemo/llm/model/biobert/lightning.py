@@ -44,12 +44,19 @@ __all__: Sequence[str] = (
 
 
 class BertModel(Protocol[DataT]):
-    def forward(
-        self, input_ids: Tensor, attention_mask: Tensor, packed_seq_params: Optional[Tensor] = None
-    ) -> DataT: ...
+    """Interface for BERT-like models."""
+
+    def forward(self, input_ids: Tensor, attention_mask: Tensor, packed_seq_params: Optional[Tensor] = None) -> DataT:
+        """Inference for BERT-like models.
+
+        Inference for BERT-like models require their tokenized inputs by IDs, an attention mask over the input,
+        and the original sequence lengths if the sequences are packed into a dense batch.
+        """
 
 
 class BertBatchCore(TypedDict):
+    """Input datatype for inference with BERT-like models."""
+
     text: Tensor
     attention_mask: Tensor
 
@@ -187,7 +194,6 @@ def get_batch_on_this_context_parallel_rank(batch: Dict[str, Tensor], in_place: 
     Returns:
         dict: The modified batch data based on the context parallel rank.
     """
-
     if not in_place:
         batch = dict(**batch)
 

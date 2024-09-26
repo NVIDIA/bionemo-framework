@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from abc import ABC
-from typing import Any, Callable, Generic, Iterable, Iterator, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Any, Dict, Callable, Generic, Iterable, Iterator, List, Optional, Sequence, Tuple, TypeVar, Union
 from typing_extensions import override
 
 import pytorch_lightning as pl
@@ -439,3 +439,139 @@ class PerplexityLoggingCallback(pl.Callback, CallbackMethods):
                 avg_test_loss = torch.stack(self.test_losses).mean()
                 pl_module.log("test_loss", avg_test_loss, prog_bar=True, logger=True, rank_zero_only=True)
                 self.test_losses.clear()
+
+
+
+ForwardStep = Callable[[BionemoMegatronModel, dict[str, Tensor]], DataT]
+"""Megatron-compatible forward pass function.
+"""
+
+DataStep = Callable[[Iterator[DataT]], DataT]
+"""Batches together an iterator of individual examples.
+
+Necessary for compatability with Megatron. This function type is similiar to the collate function of PyTorch.
+
+A `DataStep` function takes an iterator over individual examples. Each example may be a tensor, sequence of tensors,
+or a set of named tensors (provided as a `dict` mapping `str` names to each `torch.Tensor`). Each iteration must
+yield the same type.
+
+The output of this function will mirror the same structure of each yielded example. It will be a concatenation of all
+of the examples in the iterator.
+"""
+
+
+class BionemoLightningModule(
+    pl.LightningModule,
+    nlio.IOMixin,
+    nlio.ConnectorMixin,
+    LightningPassthroughPredictionMixin,
+    Generic[Model, Loss],
+    ABC,
+):
+    """Reusable PyTorch Lightning module for Megatron models that is compatible with NeMo's conventions."""
+
+    def __init__(
+        self,
+        config: BionemoTrainableModelConfig[Model, Loss],
+        forward_step: ForwardStep,
+        data_step: DataStep,
+        # TODO: Add transformer_layer_spec when we update mcore
+        optimizer: MegatronOptimizerModule,
+        **model_construct_args,
+    ) -> None:
+        """Constructor.
+
+        Args:
+            config: Serializable configuration object that allows one to construct a new model instance and loss function.
+                    Necessary for Megatron-based training as the model itself cannot be serialized and distributed to nodes.
+                    Instead, we serialize the procedure for making the model and distribute that.
+            forward_step: Performs forward pass using the model and a batch of data.
+            data_step: Custom batch-creating function for the model.
+            optimizer: Megatron-compatible distributed optimizer instance. Defaults to using ADAM with a 1e-4 learning rate.
+            model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s `configure_model` method.
+        """
+        super().__init__()
+        self.config = config
+        self.model_construct_args: Optional[dict[str, Any]] = model_construct_args
+        self.model: Optional[Model] = None  # set up in configure_model()
+        self.loss_reduction_class: type[Loss] = config.get_loss_reduction_class()
+        # TODO replace the self.configure_optimizer call with the optimizer below
+        #  once it all works. This is the future direction for how things are going.
+        self.optim = optimizer
+        self.optim.connect(self)  # This will bind the `configure_optimizers` method
+        self._data_step = data_step
+        self._forward_step = forward_step
+
+    def configure_model(self) -> None:
+        """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
+
+        NOTE: this method is idempotent; successive calls have no effect. The model is only initialized once.
+
+        Raises:
+            ValueError iff the internal config's configure_model method returns None.
+        """
+        if self.model is None:
+            self.model = self.config.configure_model(**self.model_construct_args)
+        if self.model is None:
+            raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
+
+    # This is now replaced by the init hook on self.optimizer
+    # def configure_optimizers(self) -> Optimizer:
+    #     return bert_default_optimizer(self)
+
+    def forward(self, *args, **kwargs) -> DataT:
+        """Call the forward method of the underlying model, and return whatever it outputs."""
+        # safe to do because configure_model is idempotent
+        self.configure_model()
+        assert self.model is not None
+        prediction = self.model(*args, **kwargs)  # for now just pass through to the underlying model
+        return prediction
+
+    def data_step(self, dataloader_iter: Iterator[DataT]) -> DataT:  # noqa: D102
+        return self._data_step(dataloader_iter)
+
+    def forward_step(self, batch) -> Tensor:
+        """Megatron-required: the training forward step for the model, which is required to produce the loss.
+
+        Normally, the forward pass of a model means its inference. Loss is computed using the predictions
+        from the forward pass against labels. Megatron unfortunately conflates these two different concepts
+        and instead has models "forward" method produce the loss. See the Megatron docs for details:
+        https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/pipeline_parallel/schedules.py#L170
+
+        To get actual predictions, use the :func:`forward` method instead.
+        """
+        # safe to do because configure_model is idempotent
+        self.configure_model()
+        assert self.model is not None
+        return self._forward_step(self.model, batch)
+
+    def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:  # noqa: D102
+        # In mcore the loss-function is part of the forward-pass (when labels are provided)
+        return self.forward_step(batch)
+
+    def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:  # noqa: D102
+        # In mcore the loss-function is part of the forward-pass (when labels are provided)
+        return self.forward_step(batch)
+
+    def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:  # noqa: D102
+        return self.forward_step(batch)
+
+    def training_loss_reduction(self) -> Loss:  # noqa: D102
+        # This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss
+        #  This function will
+        return self.loss_reduction_class()
+
+    # The predict step comes from the LightningPassthroughPredictionMixin
+
+    def validation_loss_reduction(self) -> Loss:  # noqa: D102
+        return self.loss_reduction_class(validation_step=True)
+
+    def test_loss_reduction(self) -> Loss:  # noqa: D102
+        return self.loss_reduction_class(validation_step=True)
+
+
+def default_megatron_optimizer() -> MegatronOptimizerModule:
+    """Default distributed optimizer uses Adam with a 1e-4 learning rate."""
+    return MegatronOptimizerModule(
+        config=OptimizerConfig(lr=1e-4, optimizer="adam", use_distributed_optimizer=True),
+    )
