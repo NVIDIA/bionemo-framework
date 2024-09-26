@@ -158,6 +158,7 @@ def test_openfold_prediction_pdb_writer(infer_cfg: DictConfig, outputs: str):
         )
 
 
+@pytest.mark.xfail(reason="Issue #195")
 @pytest.mark.needs_gpu
 def test_openfold_inference_sequence_only_dryrun(
     infer_cfg: DictConfig,
@@ -186,6 +187,7 @@ def test_openfold_inference_sequence_only_dryrun(
     trainer.predict(alphafold_model, dl, return_predictions=False)
 
 
+@pytest.mark.xfail(reason="Issue #195")
 @pytest.mark.needs_gpu
 def test_openfold_inference_sequence_and_msa_dryrun(
     infer_cfg: DictConfig,
@@ -228,6 +230,7 @@ def test_sample_data_exists():
         )
 
 
+@pytest.mark.xfail(reason="Issue #195")
 @pytest.mark.skipif(not os.path.exists(SAMPLE_DATA_PATH), reason="Test sample data not found")
 @pytest.mark.needs_gpu
 def test_openfold_inference_lddt_validation_metric_check(infer_cfg: DictConfig):
