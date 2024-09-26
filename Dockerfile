@@ -84,14 +84,6 @@ RUN groupadd --gid $USER_GID $USERNAME \
 
 RUN find /usr/local/lib/python3.10/dist-packages/ -type f -print0 | xargs -0 -P 0 -n 10000 chown $USERNAME:$USER_GID
 
-ENV PATH="/home/bionemo/.local/bin:${PATH}"
-
-# Create a release image with bionemo2 installed.
-FROM dev AS release
-
-WORKDIR /workspace/bionemo2/
-COPY VERSION .
-
 # Use UV to install python packages from the workspace. This just installs packages into the system's python
 # environment, and does not use the current uv.lock file.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -100,12 +92,27 @@ ENV UV_LINK_MODE=copy \
   UV_PYTHON_DOWNLOADS=never \
   UV_SYSTEM_PYTHON=true
 
+# The dependencies for the bionemo-geometric submodule are installed in a separate step since these require some
+# explicit compilation. Otherwise the devcontainer builds (which don't include our pip dependencies) will take a long
+# time.
+RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/tmp/requirements.txt \
+  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
+  uv pip install --no-build-isolation -r /tmp/requirements.txt
+
+# Create a release image with bionemo2 installed.
+FROM dev AS release
+
+WORKDIR /workspace/bionemo2
+COPY VERSION .
+
 # Install 3rd-party deps and bionemo submodules.
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
-RUN --mount=type=bind,source=./.git,target=./.git <<EOT
+RUN --mount=type=bind,source=./.git,target=./.git \
+  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
+  <<EOT
 uv pip install --no-build-isolation -v ./3rdparty/* ./sub-packages/bionemo-*
 rm -rf ./3rdparty
 EOT

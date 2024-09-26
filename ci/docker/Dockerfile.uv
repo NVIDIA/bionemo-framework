@@ -180,8 +180,8 @@ WORKDIR /home/${USERNAME}
 
 # Note that we don't use a USER command to switch to the non-root user, and instead use this entrypoint script that
 # mocks the user's UID and GID and runs the provided command as `bionemo`.
-# COPY ci/docker/entrypoint.sh /usr/local/bin/
-# ENTRYPOINT ["entrypoint.sh"]
+COPY ci/docker/entrypoint.sh /usr/local/bin/
+ENTRYPOINT ["entrypoint.sh"]
 
 FROM pre-release AS dev
 # In the development container, we don't want the virtual environment with our dependencies installed, since we want to
