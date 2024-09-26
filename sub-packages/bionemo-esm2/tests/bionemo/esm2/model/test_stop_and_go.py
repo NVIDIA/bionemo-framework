@@ -96,12 +96,15 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
             ),
         )
 
-        # Build lightning module
+        # light ESM2 config
         config = ESM2Config(
+            num_layers=3,
+            hidden_size=128,
             params_dtype=self.autocast_dtype,
             pipeline_dtype=self.autocast_dtype,
             autocast_dtype=self.autocast_dtype,
         )
+        # Build lightning module
         module = BioBertLightningModule(config=config, tokenizer=self.tokenizer, optimizer=optimizer)
 
         return module, data, optimizer
