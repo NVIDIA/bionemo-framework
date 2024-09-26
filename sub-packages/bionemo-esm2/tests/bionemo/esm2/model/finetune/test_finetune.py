@@ -61,9 +61,9 @@ nemo1_checkpoint_path: Path = load("esm2/nv_650m:1.0")
 
 
 @pytest.fixture(scope="module")
-def esm2_8M_config() -> Generator[ESM2Config, None, None]:
+def esm2_2layer_config() -> Generator[ESM2Config, None, None]:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        yield ESM2Config(num_layers=6, hidden_size=320)
+        yield ESM2Config(num_layers=2, hidden_size=128)
 
 
 @pytest.fixture
@@ -155,7 +155,7 @@ def _train_model(
 @pytest.mark.needs_gpu
 def test_esm2_finetune_token_classifier(
     tmpdir,
-    esm2_8M_config,
+    esm2_2layer_config,
     tokenizer,
     pretrain_data_module,
     dummy_data_per_token_classification_ft,
@@ -166,7 +166,7 @@ def test_esm2_finetune_token_classifier(
         ckpt_path, initial_metrics, trainer = _train_model(
             name="test_experiment",
             root_dir=tmpdir / "pretrain",
-            config=esm2_8M_config,
+            config=esm2_2layer_config,
             data_module=pretrain_data_module,
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
@@ -207,7 +207,7 @@ def test_esm2_finetune_token_classifier(
 @pytest.mark.needs_gpu
 def test_esm2_finetune_regressor(
     tmpdir,
-    esm2_8M_config,
+    esm2_2layer_config,
     tokenizer,
     pretrain_data_module,
     dummy_data_single_value_regression_ft,
@@ -218,7 +218,7 @@ def test_esm2_finetune_regressor(
         ckpt_path, initial_metrics, trainer = _train_model(
             name="test_experiment",
             root_dir=tmpdir / "pretrain",
-            config=esm2_8M_config,
+            config=esm2_2layer_config,
             data_module=pretrain_data_module,
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
