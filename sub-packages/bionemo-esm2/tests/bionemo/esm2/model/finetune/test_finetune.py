@@ -63,7 +63,7 @@ nemo1_checkpoint_path: Path = load("esm2/nv_650m:1.0")
 @pytest.fixture(scope="module")
 def esm2_2layer_config() -> Generator[ESM2Config, None, None]:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        yield ESM2Config(num_layers=2, hidden_size=128)
+        yield ESM2Config(num_layers=3, hidden_size=128)
 
 
 @pytest.fixture
