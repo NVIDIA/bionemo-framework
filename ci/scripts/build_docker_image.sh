@@ -28,6 +28,12 @@ Examples:
   To print only the default docker image name specific to the repository state:
     ./ci/scripts/build_docker_image.sh -container-registry-path <CONTAINER_REGISTRY_PATH> -print-image-name
 
+Warning:
+  This script assumes that Docker is logged into the registry specified by CONTAINER_REGISTRY_PATH, using the following command:
+    docker login CONTAINER_REGISTRY_URL --username <USERNAME> --password <ACCESS_TOKEN>
+  If Docker's caching mechanism is enabled and the default configuration is used, ensure you are also logged into nvcr.io by running:
+    docker login nvcr.io --username <USERNAME> --password $NGC_CLI_API_KEY
+
 EOF
     exit 1
 }
