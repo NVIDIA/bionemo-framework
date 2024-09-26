@@ -25,12 +25,8 @@ from bionemo.core.model.config import Model
 
 __all__: Sequence[str] = (
     "BionemoMegatronModel",
-    "Loss",
+    "MegatronLossReduction",  # re-export Megatron's loss definition as it's a core part of the bionemo-llm API
 )
-
-Loss = MegatronLossReduction
-"""Loss functions that interact with Megatron need to either be or inherit from `MegatronLossReduction`.
-"""
 
 
 class BionemoMegatronModel(MegatronModule, Generic[DataT], ABC):
