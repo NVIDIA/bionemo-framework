@@ -36,16 +36,6 @@ from bionemo.testing.harnesses import stop_and_go
 MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
 
 
-def esm2_config():
-    """Setups the default geneformer config taken from pretrain.py. Update as needed."""
-    autocast_dtype = get_autocast_dtype(MODEL_PRECISION)
-    return ESM2Config(
-        params_dtype=autocast_dtype,
-        pipeline_dtype=autocast_dtype,
-        autocast_dtype=autocast_dtype,
-    )
-
-
 class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
     def __init__(
         self,
