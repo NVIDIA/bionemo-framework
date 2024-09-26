@@ -111,7 +111,7 @@ class ESM2FineTuneSeqModel(ESM2Model):
 
         # freeze encoder parameters
         if config.encoder_frozen:
-            for param in self.encoder.parameters():
+            for _, param in self.named_parameters():
                 param.requires_grad = False
 
         # If post_process is True that means that we are at the last megatron parallelism stage and we can
@@ -140,7 +140,7 @@ class ESM2FineTuneSeqModel(ESM2Model):
 
 
 @dataclass
-class ESM2FineTuneSeqBioBertConfig(ESM2GenericConfig[ESM2FineTuneSeqModel], iom.IOMixinWithGettersSetters):
+class ESM2FineTuneSeqConfig(ESM2GenericConfig[ESM2FineTuneSeqModel], iom.IOMixinWithGettersSetters):
     """ExampleConfig is a dataclass that is used to configure the model.
 
     Timers from ModelParallelConfig are required for megatron forward compatibility.
@@ -158,16 +158,16 @@ class ESM2FineTuneSeqBioBertConfig(ESM2GenericConfig[ESM2FineTuneSeqModel], iom.
         return RegressorLossReduction
 
 
-class SingleValueDataset(Dataset):
+class InMemorySingleValueDataset(Dataset):
     def __init__(
         self,
-        data: Sequence[Tuple[str, str, str]],
+        data: Sequence[Tuple[str, float]],
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
     ):
         """Initializes a dataset for single-value regression fine-tuining.
 
         Args:
-            data (Sequence[Tuple[str, str, float]]): A sequence of tuples containing the data.
+            data (Sequence[Tuple[str, float]]): A sequence of tuples containing the sequence and target data.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
         """
         self.data = data
@@ -178,11 +178,11 @@ class SingleValueDataset(Dataset):
         return self._len
 
     def __getitem__(self, idx):
-        sequence = self.data[idx][1]
+        sequence = self.data[idx][0]
         tokenized_sequence = self._tokenize(sequence)
         # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
         loss_mask = ~torch.isin(tokenized_sequence, torch.tensor(self.tokenizer.all_special_ids))
-        labels = self.data[idx][2]
+        labels = self.data[idx][1]
 
         return {
             "text": tokenized_sequence,

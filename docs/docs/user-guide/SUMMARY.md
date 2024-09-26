@@ -1,3 +1,4 @@
+- [What is BioNeMo?](index.md)
 - [Getting Started](getting-started/)
 - [Best Practices](best-practices/)
 - [BioNeMo Core](bionemo-core/)

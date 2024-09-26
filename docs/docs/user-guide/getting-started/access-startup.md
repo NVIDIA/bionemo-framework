@@ -17,7 +17,7 @@ You can now view the BioNeMo Framework container [here](https://catalog.ngc.nvid
 
 # Startup Instructions
 
-Now that you can access the BioNeMo Framework container, it is time to get up and running. BioNeMo is compatible across a variety of computing environments, keeping in mind users with local workstations and data centers, users of major CSPs (e.g., AWS, Azure, GCP, and OCI), and users of NVIDIA’s DGX Cloud infrastructure.
+Now that you can access the BioNeMo Framework container, it is time to get up and running. BioNeMo is compatible across a variety of computing environments, keeping in mind users with local workstations and data centers, users of major Cloud Service Providers (CSPs) such as AWS, Azure, GCP, and OCI, and users of NVIDIA’s DGX Cloud infrastructure.
 
 ## Running the Container on a Local Machine
 
@@ -53,15 +53,16 @@ docker run --rm -d --gpus all -p 8888:8888 \
 ```
 
 Explanation:
+
 * **Docker**: The first line runs a Docker container in detached mode (`-d`), uses all available GPUs for the container (``--gpus all``), and maps it to port 8888.
-* **Volume Mapping**: Maps host directory into the home directory of the container.
-* **JupyterLab Command**: Customizable command line which allows root access (``--allow-root``), binding to all IP addresses on the specified port (``--ip=* --port=8888``), disables browser launch (``--no-browser``) and token authentication requirements (``--NotebookApp.token``), shows hidden files by setting (``.allow_hidden=True``), and sets the starting working directory to ``/workspace/bionemo``.
+* **Volume Mapping**: The second line (`-v`) mounts the host directory into the home directory of the container.
+* **JupyterLab Command**: The third, fourth, and fifth lines contain a customizable command to launch JupyterLab inside the container. The command shown here allows root access (``--allow-root``), allows binding to all IP addresses on the specified port (``--ip=* --port=8888``), disables browser launch (``--no-browser``) and token authentication requirements (``--NotebookApp.token``), shows hidden files by setting (``.allow_hidden=True``), and sets the starting working directory to ``/workspace/bionemo``.
 
 ## Running the Container in the Cloud through Major CSPs
 
 ### Launch Instance Through NVIDIA VMI
 
-The BioNeMo Framework container is supported on cloud-based GPU instances through the **NVIDIA GPU-Optimized Virtual Machine Image (VMI)**, available for [AWS](https://aws.amazon.com/marketplace/pp/prodview-7ikjtg3um26wq#pdp-pricing), [GCP](https://console.cloud.google.com/marketplace/product/nvidia-ngc-public/nvidia-gpu-optimized-vmi), [Azure](https://azuremarketplace.microsoft.com/en-us/marketplace/apps/nvidia.ngc_azure_17_11?tab=overview), and [OCI](https://cloudmarketplace.oracle.com/marketplace/en_US/listing/165104541). NVIDIA VMIs are built on Ubuntu and provide a standardized operating system environment across clouds for running NVIDIA GPU-accelerated software. They are pre-configured with software dependencies such as NVIDIA GPU drivers, Docker, and the NVIDIA Container Toolkit. More details about NVIDIA VMIs can be found [here](https://catalog.ngc.nvidia.com/orgs/nvidia/collections/nvidia_vmi).
+The BioNeMo Framework container is supported on cloud-based GPU instances through the **NVIDIA GPU-Optimized Virtual Machine Image (VMI)**, available for [AWS](https://aws.amazon.com/marketplace/pp/prodview-7ikjtg3um26wq#pdp-pricing), [GCP](https://console.cloud.google.com/marketplace/product/nvidia-ngc-public/nvidia-gpu-optimized-vmi), [Azure](https://azuremarketplace.microsoft.com/en-us/marketplace/apps/nvidia.ngc_azure_17_11?tab=overview), and [OCI](https://cloudmarketplace.oracle.com/marketplace/en_US/listing/165104541). NVIDIA VMIs are built on Ubuntu and provide a standardized operating system environment across clouds for running NVIDIA GPU-accelerated software. They are pre-configured with software dependencies such as NVIDIA GPU drivers, Docker, and the NVIDIA Container Toolkit. More details about NVIDIA VMIs can be found in the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/collections/nvidia_vmi).
 
 The general steps below should be adapted according to the CSP:
 1. Launch a GPU instance running the NVIDIA GPU-Optimized VMI (e.g. AWS EC2).
@@ -80,6 +81,7 @@ For DGX Cloud users, NVIDIA Base Command Platform (BCP) includes a central user 
 NVIDIA NGC Command Line Interface (CLI) is a command-line tool for managing Docker containers in NGC. You can download it on your local machine as per the instructions [here](https://org.ngc.nvidia.com/setup/installers/cli).
 
 Once installed, run `ngc config set` to establish NGC credentials:
+
 * **API key**: Enter your API Key
 * **CLI output**: Accept the default (ascii format) by pressing `Enter`
 * **org**: Choose from the list which org you have access to
@@ -112,6 +114,7 @@ ngc batch run \
 ```
 
 Explanation:
+
 * `--name`: Name of your job
 * `--team`: Team that you are assigned in NGC org
 * `--ace`: ACE that you are assigned

@@ -52,7 +52,8 @@ jobs:
           github.actor == 'camirr-nv' ||
           github.actor == 'sichu2023' ||
           github.actor == 'jwilber' ||
-          github.actor == 'DejunL')
+          github.actor == 'DejunL'||
+          github.actor == 'tshimko-nv')
     steps:
       - name: Check if comment is issued by authorized person
         run: blossom-ci
