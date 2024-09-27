@@ -34,6 +34,7 @@ from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo import lightning as nl
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
+from nemo.lightning.pytorch.strategies import MegatronStrategy
 from torch.nn import functional as F
 
 from bionemo.core.utils.dtypes import get_autocast_dtype
@@ -173,7 +174,7 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
 
     def setup_trainer_and_strategy(self, mode: Literal["stop", "go"], metrics):
         devices, tp_size, pp_size = 1, 1, 1
-        strategy = nl.MegatronStrategy(
+        strategy = MegatronStrategy(
             tensor_model_parallel_size=tp_size,
             pipeline_model_parallel_size=pp_size,
             ddp="megatron",

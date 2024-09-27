@@ -33,10 +33,10 @@ def my_test():
 import os
 from contextlib import contextmanager
 from typing import Any, Iterator, Optional, Sequence
+from unittest import mock
 from unittest.mock import MagicMock
 
 import megatron.core.num_microbatches_calculator
-import mock
 import pytorch_lightning as pl
 import torch
 import torch.distributed
@@ -75,17 +75,18 @@ def _teardown_apex_megatron_cuda():
 
 
 def _initialize_distributed_parallel_state(
-    local_rank: int = 0,
+    devices: int = 1,
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
     pipeline_model_parallel_split_rank: int = 0,
+    context_parallel_size: int = 1,
     interactive: bool = False,
 ) -> None:
     # initialize pytorch DDP
     # if not interactive and not torch.distributed.is_initialized():
     if not torch.distributed.is_initialized():
         logging.info("pytorch DDP is not initialized. Initializing with pytorch-lightening...")
-        trainer = pl.Trainer(devices=1, strategy="ddp" if not interactive else "auto", num_nodes=1)
+        trainer = pl.Trainer(devices=devices, strategy="ddp" if not interactive else "auto", num_nodes=1)
 
         if trainer.strategy.launcher is not None:
             trainer.strategy.launcher.launch(_dummy, trainer=trainer)
@@ -97,6 +98,7 @@ def _initialize_distributed_parallel_state(
             tensor_model_parallel_size=tensor_model_parallel_size,
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             pipeline_model_parallel_split_rank=pipeline_model_parallel_split_rank,
+            context_parallel_size=context_parallel_size,
         )
 
 
@@ -114,7 +116,15 @@ def clean_parallel_state_context() -> Iterator[None]:
 
 
 @contextmanager
-def distributed_model_parallel_state(seed: Optional[int] = 42) -> Iterator[None]:
+def distributed_model_parallel_state(
+    seed: Optional[int] = 42,
+    devices: int = 1,
+    tensor_model_parallel_size: int = 1,
+    pipeline_model_parallel_size: int = 1,
+    pipeline_model_parallel_split_rank: int = 0,
+    context_parallel_size: int = 1,
+    interactive: bool = False,
+) -> Iterator[None]:
     """Context manager for handling creating and cleaning up distributed model parallel state for tests.
     Use like:
     with distributed_model_parallel_state():
@@ -125,7 +135,14 @@ def distributed_model_parallel_state(seed: Optional[int] = 42) -> Iterator[None]
 
     try:
         _teardown_apex_megatron_cuda()
-        _initialize_distributed_parallel_state()
+        _initialize_distributed_parallel_state(
+            devices=devices,
+            tensor_model_parallel_size=tensor_model_parallel_size,
+            pipeline_model_parallel_size=pipeline_model_parallel_size,
+            pipeline_model_parallel_split_rank=pipeline_model_parallel_split_rank,
+            context_parallel_size=context_parallel_size,
+            interactive=interactive,
+        )
         # Our goal is to set required state on entry, and then restore current state on exit for the RNGs.
         #  there are two possibilities that are handled below:
         # 1. If the RNG state is not initialized, we need to set it up and then

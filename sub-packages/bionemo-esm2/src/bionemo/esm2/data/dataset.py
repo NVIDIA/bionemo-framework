@@ -325,10 +325,6 @@ def create_valid_dataset(  # noqa: D417
         mask_token_prob: Proportion of masked tokens that get assigned the <MASK> id. Defaults to 0.8.
         mask_random_prob: Proportion of tokens that get assigned a random natural amino acid. Defaults to 0.1.
         random_masking_strategy: Whether to replace random masked tokens with all tokens or amino acids only. Defaults to RandomMaskStrategy.ALL_TOKENS.
-        tokenizer: The input ESM tokenizer. Defaults to the standard ESM tokenizer.
-
-    Returns:
-        A dataset for ESM pretraining.
 
     Raises:
         ValueError: If the cluster file does not exist, the database file does not exist, or the cluster file does not

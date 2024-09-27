@@ -31,7 +31,12 @@ from nemo.lightning.megatron_parallel import (
 from torch import nn
 
 from bionemo.llm.model.biobert.model import BioBertGenericConfig, MegatronBioBertModel
-from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
+from bionemo.llm.model.loss import (
+    BERTMLMLossWithReduction,
+    PerTokenLossDict,
+    SameSizeLossDict,
+    unreduced_token_loss_fn,
+)
 from bionemo.llm.utils import iomixin_utils as iom
 
 
@@ -61,7 +66,7 @@ class SequenceLengthRMSEPlusBERTMLMLossWithReduction(BERTMLMLossWithReduction):
         if "labels" not in batch:
             raise ValueError("Labels not provided in the batch. These are required for this loss computation.")
 
-        unreduced_token_loss = self.unreduced_token_loss_fn(forward_out["token_logits"], batch["labels"])
+        unreduced_token_loss = unreduced_token_loss_fn(forward_out["token_logits"], batch["labels"])
         regression_output = forward_out["regression_output"]
         n_tokens = batch["attention_mask"].sum(dim=-1, keepdim=True).to(dtype=regression_output.dtype)
         assert len(n_tokens.shape) == 2
@@ -113,7 +118,10 @@ class SequenceLengthRMSEPlusBERTMLMLossWithReduction(BERTMLMLossWithReduction):
         loss_for_microbatch = loss_for_microbatch + rmse_loss  # add in the RMSE loss after reducing the logit loss
         # average the losses across the data parallel group, but also return the unreduced loss
         reduced_loss = average_losses_across_data_parallel_group([loss_for_microbatch])
-        return loss_for_microbatch * cp_size, {"avg": reduced_loss}
+        if (self.validation_step and self.send_val_output) or (not self.validation_step and self.send_train_output):
+            return loss_for_microbatch * cp_size, {"avg": reduced_loss, "batch": batch, "forward_out": forward_out}
+        else:
+            return loss_for_microbatch * cp_size, {"avg": reduced_loss}
 
 
 class MegatronRegressionMLPHead(MegatronModule):

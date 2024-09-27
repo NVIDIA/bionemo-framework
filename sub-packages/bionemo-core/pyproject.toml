@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools-scm>=8", "setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,16 +7,23 @@ name = "bionemo-core"
 license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo core interfaces and PyTorch-related code."
-authors = [
-    { name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }
-]
-dynamic = ["version", "dependencies"]
-
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+dependencies = ["numpy", "platformdirs", "pytorch-lightning", "torch>=2.2.1"]
+dynamic = ["version"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include=["bionemo.*"]
+include = ["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
+
+[tool.setuptools_scm]
+root = '../..'  # Pull version information from the root directory.
+# Increment versions with `.postN` suffixes, e.g., 0.0.1.post1, 0.0.1.post2, etc., where N is the number of commits
+# between the current commit and the tag.
+version_scheme = "post-release"
+# Ignore 'dirty' repository state, e.g., uncommitted changes, since these are not reliable inside the docker container.
+local_scheme = "no-local-version"
+
+[tool.uv]
+cache-keys = [{ git = true }]

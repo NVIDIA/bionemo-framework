@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools-scm>=8", "setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,13 +7,27 @@ name = "bionemo-llm"
 license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo Large Language Model Components using NeMo and Megatron"
-authors = [
-    { name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+dynamic = ["version"]
+dependencies = [
+    'bionemo-core',
+    'lightning>=2.2.1',
+    'megatron-core',
+    'nemo_toolkit[all]',  # We need [all] over [nlp] for the megatron-energon dependency.
+    'pytorch-lightning>=2.2.1',
+    # TODO: Figure out how (or whether) to include apex & TE as part of the dependencies.
 ]
-dynamic = ["dependencies", "version"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include=["bionemo.*"]
+include = ["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
+
+[tool.setuptools_scm]
+root = '../..'
+version_scheme = "post-release"
+local_scheme = "no-local-version"
+
+[tool.uv]
+cache-keys = [{ git = true }]
