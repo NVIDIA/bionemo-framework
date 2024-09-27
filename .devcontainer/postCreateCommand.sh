@@ -1,3 +1,3 @@
 #!/bin/bash
 
-uv pip install --editable ./3rdparty/* ./sub-packages/bionemo-*
+sudo pip install --no-deps --editable ./3rdparty/* ./sub-packages/bionemo-*

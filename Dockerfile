@@ -51,8 +51,6 @@ RUN pip install hatchling   # needed to install nemo-run
 ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
 RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG}
 
-FROM bionemo2-base AS dev
-
 RUN mkdir -p /workspace/bionemo2/
 
 # Delete the temporary /build directory.
@@ -73,17 +71,6 @@ RUN source /usr/local/nvm/nvm.sh && \
   sed -i "/NVM/d" /root/.bashrc && \
   sed -i "/nvm.sh/d" /etc/bash.bashrc
 
-# Create a non-root user to use inside a devcontainer.
-ARG USERNAME=bionemo
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-RUN groupadd --gid $USER_GID $USERNAME \
-  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
-  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
-  && chmod 0440 /etc/sudoers.d/$USERNAME
-
-RUN find /usr/local/lib/python3.10/dist-packages/ -type f -print0 | xargs -0 -P 0 -n 10000 chown $USERNAME:$USER_GID
-
 # Use UV to install python packages from the workspace. This just installs packages into the system's python
 # environment, and does not use the current uv.lock file.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -92,21 +79,7 @@ ENV UV_LINK_MODE=copy \
   UV_PYTHON_DOWNLOADS=never \
   UV_SYSTEM_PYTHON=true
 
-# The dependencies for the bionemo-geometric submodule are installed in a separate step since these require some
-# explicit compilation. Otherwise the devcontainer builds (which don't include our pip dependencies) will take a long
-# time.
-RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements.txt \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
-  <<EOT
-  uv pip install --no-build-isolation -r /requirements.txt
-  rm -rf /tmp/*
-EOT
-
-# Create a release image with bionemo2 installed.
-FROM dev AS release
-
 WORKDIR /workspace/bionemo2
-COPY VERSION .
 
 # Install 3rd-party deps and bionemo submodules.
 COPY ./3rdparty /workspace/bionemo2/3rdparty
@@ -121,5 +94,44 @@ rm -rf ./3rdparty
 rm -rf /tmp/*
 EOT
 
+# In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
+# base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
+# they can be installed in an editable fashion from the workspace directory. This lets us install all the package
+# dependencies in a cached fashion, so they don't have to be built from scratch every time the devcontainer is rebuilt.
+FROM ${BASE_IMAGE} AS dev
+
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+  <<EOT
+apt-get update -qy
+apt-get install -qyy \
+  sudo
+rm -rf /tmp/* /var/tmp/*
+EOT
+
+# Create a non-root user to use inside a devcontainer.
+ARG USERNAME=bionemo
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+RUN groupadd --gid $USER_GID $USERNAME \
+  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+  && chmod 0440 /etc/sudoers.d/$USERNAME
+
+RUN rm -rf /usr/local/lib/python3.10/dist-packages
+COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
+  /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+RUN <<EOT
+  rm -rf /usr/local/lib/python3.10/dist-packages/bionemo*
+  pip uninstall -y nemo_toolkit megatron_core
+EOT
+
+# The 'release' target needs to be last so that it's the default build target. In the future, we could consider a setup
+# similar to the devcontainer above, where we copy the dist-packages folder from the build image into the release image.
+# This would reduce the overall image size by reducing the number of intermediate layers. In the meantime, we match the
+# existing release image build by copying over remaining files from the repo into the container.
+FROM bionemo2-base AS release
+
+COPY VERSION .
 COPY ./scripts ./scripts
 COPY ./README.md ./

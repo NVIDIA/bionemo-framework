@@ -49,7 +49,7 @@
 					"./3rdparty/NeMo",
 					"./3rdparty/Megatron-LM"
 				],
-				"python.defaultInterpreterPath": "/venv/bin/python",
+				"python.defaultInterpreterPath": "/usr/bin/python",
 				"python.testing.pytestEnabled": true,
 				"python.testing.pytestArgs": [
 					"sub-packages/",
