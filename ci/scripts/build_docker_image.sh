@@ -46,7 +46,7 @@ check_git_repository() {
         else
             echo "ERROR: Repository is dirty! Commit all changes before building the image!" >&2
         fi
-        exit 1
+        return 1
     fi
 }
 
