@@ -258,6 +258,7 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
         get_attention_mask_from_fusion: Whether to get attention mask from fusion.
         nemo1_ckpt_path: Path to NEMO1 checkpoint.
         return_only_hidden_states: Whether to return only hidden states.
+        loss_reduction_class: Loss reduction class for the model. Default to BERTMLMLossWithReduction.
     """
 
     # When overriding fields in a dataclass _always_ declare types: https://github.com/python/cpython/issues/123269

@@ -53,8 +53,8 @@ def test_ESMPreTrainingDataset_getitem_has_expected_structure(dummy_protein_data
     for token in sample["labels"][sample["loss_mask"]].tolist():
         assert token in range(4, 24)
 
-    # Make sure non-masked tokens are -1.
-    assert torch.all(sample["labels"][~sample["loss_mask"]] == -1)
+    # Make sure non-masked tokens are -100.
+    assert torch.all(sample["labels"][~sample["loss_mask"]] == -100)
 
     assert sample["text"][0] == tokenizer.cls_token_id
     assert sample["text"][-1] == tokenizer.eos_token_id

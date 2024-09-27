@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import pytest
 import torch
 import torch.nn.functional as F
 from megatron.core.models.common.language_module import language_module
@@ -21,7 +21,9 @@ from megatron.core.transformer import transformer_config
 from nemo.lightning import megatron_parallel
 
 from bionemo.llm.model import loss as bionemo_loss
+from bionemo.llm.model.loss import unreduced_token_loss_fn
 from bionemo.testing import megatron_parallel_state_utils
+from bionemo.testing.lightning import get_random_microbatch
 
 
 def test_loss_equivalency_nemo_vs_pytorch():
@@ -121,3 +123,52 @@ def test_loss_equivalency_bionemo_vs_pytorch():
         )
         final_bionemo_loss = bionemo_loss_fn.reduce([forward_bionemo_loss[1]])
         torch.testing.assert_close(expected_loss, final_bionemo_loss)
+
+
+def test_vocab_parallel_cross_entropy_golden_value(seed: int = 42):
+    """Test tensor_parallel.vocab_parallel_cross_entropy"""
+    with megatron_parallel_state_utils.distributed_model_parallel_state(seed=seed):
+        # setup test input
+        microbatch_size, max_sequence_length, vocab_size = 1, 1024, 2
+        microbatch_outputs = [get_random_microbatch(microbatch_size, max_sequence_length, vocab_size, seed=seed)]
+
+        # 1. torch.nn.functional
+        loss = torch.nn.functional.cross_entropy(
+            input=microbatch_outputs[0]["forward_out"]["token_logits"].permute(1, 2, 0),
+            target=microbatch_outputs[0]["batch"]["labels"].permute(1, 0),
+            reduction="none",
+            ignore_index=-100,
+        ).transpose(0, 1)
+
+        # 2. tensor_parallel.vocab_parallel_cross_entropy
+        unreduced_token_loss = unreduced_token_loss_fn(
+            logits=microbatch_outputs[0]["forward_out"]["token_logits"].clone(),
+            labels=microbatch_outputs[0]["batch"]["labels"].clone(),
+        )
+
+        torch.testing.assert_close(
+            unreduced_token_loss,
+            loss,
+        )
+
+
+@pytest.mark.xfail(reason="tensor_parallel.vocab_parallel_cross_entropy modifies input token_logits")
+def test_vocab_parallel_cross_entropy_inplace_operation(seed: int = 42):
+    """Test inplace operation on input in tensor_parallel.vocab_parallel_cross_entropy"""
+    with megatron_parallel_state_utils.distributed_model_parallel_state(seed=seed):
+        # setup test input
+        microbatch_size, max_sequence_length, vocab_size = 1, 1024, 2
+        microbatch_outputs = [get_random_microbatch(microbatch_size, max_sequence_length, vocab_size, seed=seed)]
+
+        token_logits_clone = microbatch_outputs[0]["forward_out"]["token_logits"].clone()
+        labels_clone = microbatch_outputs[0]["batch"]["labels"].clone()
+
+        _ = unreduced_token_loss_fn(
+            logits=microbatch_outputs[0]["forward_out"]["token_logits"],
+            labels=microbatch_outputs[0]["batch"]["labels"],
+        )
+
+        torch.testing.assert_allclose(microbatch_outputs[0]["batch"]["labels"], labels_clone)  # pass
+        torch.testing.assert_allclose(
+            microbatch_outputs[0]["forward_out"]["token_logits"], token_logits_clone
+        )  # xfail

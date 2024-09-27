@@ -41,7 +41,6 @@ from bionemo.esm2.model.finetune.finetune_token_classifier import (
     ESM2FineTuneTokenConfig,
     InMemoryPerTokenValueDataset,
 )
-from bionemo.llm.lightning import LossLoggingCallback
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
@@ -135,7 +134,7 @@ def _train_model(
         max_steps=n_steps_train,
         num_nodes=1,
         log_every_n_steps=n_steps_train // 2,
-        callbacks=[LossLoggingCallback(), metric_tracker],
+        callbacks=[metric_tracker],
         plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
     )
     nllm.train(

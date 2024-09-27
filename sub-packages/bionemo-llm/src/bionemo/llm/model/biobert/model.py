@@ -429,6 +429,9 @@ class BioBertGenericConfig(
     include_hiddens: bool = False  # Include hidden layers in the output of the model
     core_attention_override: Type[torch.nn.Module] | None = None
 
+    # loss reduction class
+    loss_reduction_class: Type[MegatronLossReduction] = BERTMLMLossWithReduction
+
     def configure_model(self, tokenizer) -> MegatronBioBertModelT:  # noqa: D102
         vp_size = self.virtual_pipeline_model_parallel_size
         if vp_size:
@@ -517,4 +520,4 @@ class BioBertGenericConfig(
 
     def get_loss_reduction_class(self) -> Type[MegatronLossReduction]:  # noqa: D102
         # You could optionally return a different loss reduction class here based on the config settings.
-        return BERTMLMLossWithReduction
+        return self.loss_reduction_class

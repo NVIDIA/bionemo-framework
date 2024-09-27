@@ -1,0 +1,218 @@
+# Dockerfile for building a bionemo image with locked python dependencies on top of a CUDA base image. This allows us to
+# get smaller image sizes (compared with the NGC pytorch base image) and test our package using "off-the-shelf" pytorch
+# wheels.
+
+ARG BUILD_IMAGE=nvcr.io/nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
+ARG RUNTIME_IMAGE=nvcr.io/nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+
+# Build image, note the -devel tag which gives us nvcc and other build-time tools. In this image we'll install uv and
+# create a python virtual environment containing all our dependencies and an installed version of our bionemo library.
+# (Later, we can split that final step out into a separate image for an easier devcontainer setup.)
+FROM ${BUILD_IMAGE} AS pre-build
+
+# Build-time dependencies. We install and link against the ubuntu-provided version of python rather than uv, since it's
+# easier to get a consistent version of python in the runtime image without needing to install UV there as well.
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+    <<EOT
+apt-get update -qy
+apt-get install -qyy \
+    -o APT::Install-Recommends=false \
+    -o APT::Install-Suggests=false \
+    build-essential \
+    ca-certificates \
+    curl \
+    software-properties-common \
+    git \
+    ninja-build \
+    cmake \
+    openmpi-bin \
+    libopenmpi-dev \
+
+add-apt-repository ppa:deadsnakes/ppa
+apt-get update -qy
+apt-get install -qyy \
+    python3.10 \
+    python3.10-dev
+EOT
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# - Silence uv complaining about not being able to use hard links,
+# - tell uv to byte-compile packages for faster application startups,
+# - prevent uv from accidentally downloading isolated Python builds,
+# - pick a Python,
+# - and finally declare `/venv` as the target for `uv sync`.
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PYTHON=python3.10 \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/venv
+
+COPY uv.lock /_lock/
+COPY pyproject.toml /_lock/
+
+# If we don't use a `package=` option, we only install top-level dependencies, i.e., we don't install everything we'll
+# need recursively. Hopefully https://github.com/astral-sh/uv/issues/6935 will lead to a cleaner way of installing all
+# non-package dependencies before having to copy in all our source code. Once we copy in our source code, we're
+# essentially giving up on these dependency installs being cached between builds.
+#
+# We have to do this in two steps in order to ensure that `flash-attn` (and later, any other packages with build-time
+# requirements) are installed after we have created a base environment with torch & numpy.
+RUN --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOT
+cd /_lock
+uv sync \
+    --frozen \
+    --no-install-workspace \
+    --no-dev -v \
+    --package bionemo-meta
+
+uv sync \
+    --frozen \
+    --no-install-workspace \
+    --no-dev -v \
+    --package bionemo-meta \
+    --extra build
+EOT
+
+# TODO: figure out if & how we can include apex and transformer-engine in the uv build system. `uv pip install` works,
+# but including them in the uv.lock file (with these build-time arguments) doesn't seem to work.
+RUN --mount=type=cache,id=apex-cache-cu121-torch-231,target=/root/.cache,sharing=locked <<EOT
+uv pip install --python=$UV_PROJECT_ENVIRONMENT --no-deps \
+    git+https://github.com/NVIDIA/apex.git@810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c \
+    -v --no-build-isolation \
+    --config-settings "\
+    --build-option=--cpp_ext \
+    --cuda_ext \
+    --fast_layer_norm \
+    --distributed_adam \
+    --deprecated_fused_adam \
+    --group_norm \
+    "
+EOT
+
+# TODO(pstjohn): We currently have a tricky dependency matrix between pytorch, cuda, and transformer-engine. Transformer
+# engine 1.7 won't compile with CUDA 12.1. We're seeing errors with pytorch 2.4, and pytorch doesn't ship wheels for
+# pytorch 2.3 for any CUDA version more recent than 12.1. If we try to install the pytorch wheels from 12.1 in a newer
+# CUDA container, we see compilation errors when we build apex. Long-term, we should ensure that we can run with TOT
+# pytorch and transformer-engine. In the meantime, we'll bump transformer-engine and run with the older CUDA container.
+RUN --mount=type=cache,id=te-cache-cu121-torch-231,target=/root/.cache,sharing=locked <<EOT
+NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/lib/x86_64-linux-gnu/openmpi/ \
+uv pip install --python=$UV_PROJECT_ENVIRONMENT --no-deps \
+    git+https://github.com/NVIDIA/TransformerEngine.git@v1.9 \
+    -v --no-build-isolation
+EOT
+
+# Transformer engine before 1.9 seems to have issues installing directly from the git url.
+# Transformer Engine pre-1.7.0. 1.7 standardizes the meaning of bits in the attention mask to match.
+# ARG TE_COMMIT=7d576ed25266a17a7b651f2c12e8498f67e0baea
+# RUN <<EOT
+# cd /tmp
+# git clone https://github.com/NVIDIA/TransformerEngine.git
+# cd TransformerEngine
+# git fetch origin ${TE_COMMIT}
+# git checkout FETCH_HEAD
+# git submodule init && git submodule update
+# NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/lib/x86_64-linux-gnu/openmpi \
+# uv pip install --python=$UV_PROJECT_ENVIRONMENT --no-deps -v --no-build-isolation .
+# cd
+# EOT
+
+FROM pre-build AS build
+# Just copy over the 3rdparty/ and sub-packages/ directories to limit the radius of file changes that trigger a cache
+# miss. Then we install these (in a non-editable way) into the virtual environment without dependencies (since these
+# were installed above).
+COPY 3rdparty /src/3rdparty/
+COPY sub-packages /src/sub-packages/
+# Mount the local .git directory in /src/ so that setuptools-scm can use it to determine the version number.
+RUN --mount=type=bind,source=./.git,target=/src/.git <<EOT
+uv pip install --python=$UV_PROJECT_ENVIRONMENT --no-deps /src/3rdparty/* /src/sub-packages/bionemo-*
+EOT
+
+
+FROM ${RUNTIME_IMAGE} AS pre-release
+# Note the -release tag, which gives us a smaller image without the build-time tools.
+
+SHELL ["/bin/bash", "-xc"]
+
+# Make sure the eventual virtualenv is in the runtim path.
+ENV PATH=/venv/bin:$PATH \
+    TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1 \
+    CUDNN_V8_API_ENABLED=1
+
+# Runtime dependencies only. We need python-dev and build-essential for torch.compile.
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+    <<EOT
+apt-get update -qy
+apt-get install -qyy \
+    -o APT::Install-Recommends=false \
+    -o APT::Install-Suggests=false \
+    gosu \
+    build-essential \
+    software-properties-common \
+    openmpi-bin
+
+add-apt-repository ppa:deadsnakes/ppa
+apt-get update -qy
+apt-get install -qyy \
+    python3.10 \
+    python3.10-dev
+
+rm -rf /tmp/* /var/tmp/*
+EOT
+
+
+# Create a non-root user. In ubuntu 24.04 containers, we just rename the default user and group.
+ARG USERNAME=bionemo
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+RUN <<EOT
+groupadd --gid $USER_GID $USERNAME
+useradd --uid $USER_UID --gid $USER_GID -m $USERNAME -d /home/bionemo -s /bin/bash
+EOT
+# RUN <<EOT
+# usermod -l ${USERNAME} ubuntu
+# usermod -d /home/${USERNAME} -m ${USERNAME}
+# groupmod -n ${USERNAME} ubuntu
+# EOT
+WORKDIR /home/${USERNAME}
+
+# Note that we don't use a USER command to switch to the non-root user, and instead use this entrypoint script that
+# mocks the user's UID and GID and runs the provided command as `bionemo`.
+COPY ci/docker/entrypoint.sh /usr/local/bin/
+ENTRYPOINT ["entrypoint.sh"]
+
+FROM pre-release AS dev
+# In the development container, we don't want the virtual environment with our dependencies installed, since we want to
+# let uv install them as editable packages from the workspace. We'll also need UV and the associated environment
+# variables set as well.
+
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+    <<EOT
+apt-get update -qy
+apt-get install -qyy \
+    git \
+    bash-completion
+
+rm -rf /tmp/* /var/tmp/*
+EOT
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PYTHON=python3.10 \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/venv
+
+# This pre-build venv doesn't include the bionemo library, so we can install it as an editable package from the
+# workspace.
+COPY --from=pre-build --chown=$USERNAME:$USERNAME --chmod=777 /venv /venv
+
+# This should be the final target in the dockerfile so that it's the default build target.
+FROM pre-release AS release
+# Copy the virtual environment from the build image; this is how we get the build libraries above into the runtime
+# container.
+COPY --from=build --chown=$USERNAME:$USERNAME /venv /venv
