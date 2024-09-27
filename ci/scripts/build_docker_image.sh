@@ -1,5 +1,5 @@
 #!/bin/bash
-
+set -e
 # Display help message
 display_help() {
     cat <<EOF

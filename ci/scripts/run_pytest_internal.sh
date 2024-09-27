@@ -1,5 +1,5 @@
 #!/bin/bash
-
+set -e
 export PYTHONDONTWRITEBYTECODE=1
 
 if [ -z "$BIONEMO_HOME" ]; then
