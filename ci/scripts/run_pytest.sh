@@ -2,6 +2,8 @@
 set -xueo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 
+source "$(dirname "$0")/utils.sh"
+
 if ! set_bionemo_home; then
     exit 1
 fi
