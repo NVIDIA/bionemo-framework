@@ -75,3 +75,4 @@ It is convenient to first launch the BioNeMo Framework container and copy the tu
 | Custom Datasets    | [Adding the OAS Dataset: Downloading and Preprocessing](./notebooks/custom-dataset-preprocessing-fw.ipynb) |
 | Custom Datasets    | [Adding the OAS Dataset: Modifying the Dataset Class](./notebooks/custom-dataset-class-fw.ipynb) |
 | Custom DataLoaders | [Creating a Custom Dataloader](./notebooks/custom-dataset-dataloader.ipynb) |
+| Model Pre-Training| [Training DNABERT on a Custom Dataset](./notebooks/dnabert_pretrain_custom.ipynb) | 
