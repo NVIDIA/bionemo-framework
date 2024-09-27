@@ -14,9 +14,12 @@ repos:
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:
-    -   id: detect-secrets
+    - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
         exclude: package.lock.json
+    - id: detect-secrets
+        name: detect-secrets (notebooks only)
+        args: ['--baseline', '.secrets-nb.baseline', '--exclude-files', '^.(?!.*\.ipynb)', '--exclude-lines', '"(hash|id|image/\w+)":.*', ]
   - repo: local
     hooks:
       - id: license-header-check
