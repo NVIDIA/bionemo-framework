@@ -1,7 +1,6 @@
 #!/bin/bash
 
 set -e
-set +u
 
 source "$(dirname "$0")/utils.sh"
 
@@ -42,7 +41,10 @@ Warning:
 EOF
     exit 1
 }
-
+USE_CACHE=false
+ONLY_IMAGE_NAME=false
+SET_SECRET=false
+PUSH_IMAGE=false
 
 # Parse command-line options
 while [[ "$#" -gt 0 ]]; do
@@ -74,10 +76,10 @@ if [[ "$SET_SECRET" = true && ( -z "$SECRET_VAR_NAME" || -z "$SECRET_VAR_VALUE" 
   exit 1
 fi
 
-# Ensure repository is clean
-if ! set_bionemo_home; then
-    exit 1
-fi
+## Ensure repository is clean
+#if ! set_bionemo_home; then
+#    exit 1
+#fi
 
 # Get Git commit SHA and sanitized branch name
 COMMIT_SHA=$(git rev-parse HEAD)
@@ -85,8 +87,8 @@ BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 SANITIZED_BRANCH_NAME=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-128)
 
 # Set default image tag if not provided
-IMAGE_TAG="${IMAGE_TAG:-${SANITIZED_BRANCH_NAME}--${COMMIT_SHA}}"
-IMAGE_NAME="${CONTAINER_REGISTRY_PATH}:${IMAGE_TAG}"
+IMAGE_TAG="${IMAGE_TAG:-${SANITIZED_BRANCH_NAME}}"
+IMAGE_NAME="${CONTAINER_REGISTRY_PATH}:${IMAGE_TAG}--${COMMIT_SHA}"
 echo "Docker image name: ${IMAGE_NAME}"
 
 if [ "$ONLY_IMAGE_NAME" = true ]; then
@@ -120,11 +122,10 @@ fi
 if [ -z "$LABELS_ARGS" ]; then
     current_date=$(date +%Y-%m-%d)
     LABELS_ARGS="--label com.nvidia.bionemo.branch=${BRANCH_NAME} \
-                 --label com.nvidia.bionemo.git_sha=${COMMIT_SHA} \
-                 --label com.nvidia.bionemo.created_at=${current_date}"
-else
-    LABELS_ARGS=""
+    --label com.nvidia.bionemo.git_sha=${COMMIT_SHA} \
+    --label com.nvidia.bionemo.created_at=${current_date}"
 fi
+echo "Using docker labels with configuration: ${LABELS_ARGS}"
 
 SECRET_ARGS=""
 if [ "$SET_SECRET" = true ]; then
@@ -139,13 +140,16 @@ if [ "$PUSH_IMAGE" = true ]; then
     PUSH_OPTION="--push"
 fi
 
+## Ensure the requirements of docker and docker buildx versions are satisfied
+if ! verify_required_docker_version; then
+    exit 1
+fi
+
+set +x
 # Build the Docker image
-docker buildx build \
-  --allow security.insecure \
-  --provenance=false \
-  --progress plain \
-  "${LABELS_ARGS}" \
+docker buildx build --allow security.insecure --provenance=false --progress plain \
   "${CACHE_ARGS}" \
+  "${LABELS_ARGS}" \
   "${SECRET_ARGS}" \
   "${PUSH_OPTION}" \
   -t "${IMAGE_NAME}" \
