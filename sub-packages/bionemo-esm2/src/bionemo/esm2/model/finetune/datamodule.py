@@ -15,7 +15,6 @@
 
 
 import functools
-from typing import Literal
 
 import pytorch_lightning as pl
 import torch
@@ -56,7 +55,6 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
-        dataloader_type: Literal["single", "cyclic"] = "single",
     ) -> None:
         """Initialize the ESM2FineTuneDataModule.
 
@@ -76,7 +74,6 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             mask_token_prob: The probability of replacing a masked token with a [MASK] token. Defaults to 0.8.
             mask_random_prob: The probability of replacing a masked token with a random token. Defaults to 0.1.
             tokenizer: The tokenizer to use for tokenization. Defaults to the BioNeMoESMTokenizer.
-            dataloader_type: The type of dataloader to use. Defaults to "single".
 
         Returns:
             None
@@ -101,7 +98,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             seq_len=max_seq_length,
             micro_batch_size=micro_batch_size,
             global_batch_size=global_batch_size,
-            dataloader_type=dataloader_type,  # `MegatronPretrainingRandomSampler` from "cyclic" is failing.
+            dataloader_type="single",  # `MegatronPretrainingRandomSampler` from "cyclic" is failing.
             rampup_batch_size=rampup_batch_size,
         )
 
