@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+set +u
 
 source "$(dirname "$0")/utils.sh"
 
