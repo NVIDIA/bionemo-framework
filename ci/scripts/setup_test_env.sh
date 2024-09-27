@@ -9,6 +9,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 set -xueo pipefail
+source "$(dirname "$0")/utils.sh"
 
 display_help() {
     echo "Usage: $0 [-pbss <value>] [-help]"
@@ -35,7 +36,6 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 if ! set_bionemo_home; then
-    echo "Exiting script due to error in set_root_directory."
     exit 1
 fi
 

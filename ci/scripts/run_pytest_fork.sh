@@ -3,7 +3,6 @@
 export PYTHONDONTWRITEBYTECODE=1
 
 if ! set_bionemo_home; then
-    echo "Exiting script due to error in set_bionemo_home."
     exit 1
 fi
 

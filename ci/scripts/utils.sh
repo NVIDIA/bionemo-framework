@@ -13,6 +13,7 @@ check_git_repository() {
 }
 
 set_bionemo_home() {
+    set +u
     if [ -z "$BIONEMO_HOME" ]; then
         echo "\$BIONEMO_HOME is unset. Setting \$BIONEMO_HOME to repository root."
 
@@ -31,6 +32,7 @@ set_bionemo_home() {
         BIONEMO_HOME="${REPOSITORY_ROOT}"
         echo "Setting \$BIONEMO_HOME to: $BIONEMO_HOME"
     fi
+    set -u
 
     # Change directory to BIONEMO_HOME or exit if failed
     cd "${BIONEMO_HOME}" || { echo "ERROR: Could not change directory to \$BIONEMO_HOME: $BIONEMO_HOME" >&2; return 1; }

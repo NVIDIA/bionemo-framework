@@ -74,7 +74,7 @@ if [[ "$SET_SECRET" = true && ( -z "$SECRET_VAR_NAME" || -z "$SECRET_VAR_VALUE" 
 fi
 
 # Ensure repository is clean
-if ! check_git_repository; then
+if ! set_bionemo_home; then
     exit 1
 fi
 
