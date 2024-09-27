@@ -68,6 +68,7 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
+
 # Ensure required parameters are set
 if [ -z "$CONTAINER_REGISTRY_PATH" ]; then
     echo "Error: The container registry path is required. Use -container-registry-path <path>. Run 'ci/scripts/build_docker_image.sh -help' for more details."
@@ -80,7 +81,9 @@ if [[ "$SET_SECRET" = true && ( -z "$SECRET_VAR_NAME" || -z "$SECRET_VAR_VALUE" 
 fi
 
 # Ensure repository is clean
-check_git_repository
+if ! check_git_repository; then
+    exit 1
+fi
 
 # Get Git commit SHA and sanitized branch name
 COMMIT_SHA=$(git rev-parse HEAD)
