@@ -25,7 +25,6 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from nemo.lightning.megatron_parallel import MegatronLossReduction, ReductionT
 from torch.utils.data import Dataset
 
-from bionemo.core.data.multi_epoch_dataset import EpochIndex
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
 from bionemo.esm2.data import tokenizer
 from bionemo.llm.data.label2id_tokenizer import Label2IDTokenizer
@@ -206,8 +205,8 @@ class InMemoryPerTokenValueDataset(Dataset):
     def __len__(self):
         return self._len
 
-    def __getitem__(self, index: EpochIndex) -> BertSample:
-        sequence, target = self.data[index.idx]
+    def __getitem__(self, index: int) -> BertSample:
+        sequence, target = self.data[index]
         tokenized_sequence = self._tokenize(sequence)
         # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
         loss_mask = ~torch.isin(tokenized_sequence, torch.tensor(self.tokenizer.all_special_ids))

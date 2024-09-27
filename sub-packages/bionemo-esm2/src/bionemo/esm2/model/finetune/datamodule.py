@@ -23,7 +23,7 @@ from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 
-from bionemo.core.data.multi_epoch_dataset import MultiEpochDatasetResampler
+from bionemo.core.data.multi_epoch_dataset import IdentityMultiEpochDatasetWrapper, MultiEpochDatasetResampler
 from bionemo.esm2.data import tokenizer
 from bionemo.esm2.model.finetune.finetune_regressor import InMemorySingleValueDataset
 from bionemo.esm2.model.finetune.finetune_token_classifier import InMemoryPerTokenValueDataset
@@ -148,7 +148,9 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset,
         total_samples: int,
     ):
-        return MultiEpochDatasetResampler(dataset, num_samples=total_samples, shuffle=True, seed=self._seed)
+        return MultiEpochDatasetResampler(
+            IdentityMultiEpochDatasetWrapper(dataset), num_samples=total_samples, shuffle=True, seed=self._seed
+        )
 
     def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
