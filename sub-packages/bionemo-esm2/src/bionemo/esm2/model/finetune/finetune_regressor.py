@@ -82,8 +82,8 @@ class RegressorLossReduction(BERTMLMLossWithReduction):
         Returns:
             A tensor that is the mean of the losses. (used for logging).
         """
-        mse_losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
-        return mse_losses.mean()
+        losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
+        return losses.mean()
 
 
 class MegatronMLPHead(MegatronModule):
