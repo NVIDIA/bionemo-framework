@@ -8,7 +8,7 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
-set -e
+set -xueo pipefail
 
 display_help() {
     echo "Usage: $0 [-pbss <value>] [-help]"
@@ -34,17 +34,13 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-set -xueo pipefail
-
-if [ -z "$BIONEMO_HOME" ]; then
-    echo "\$BIONEMO_HOME is unset. Setting \$BIONEMO_HOME to repository root "
-    REPOSITORY_ROOT=$(git rev-parse --show-toplevel)
-    BIONEMO_HOME="${REPOSITORY_ROOT}"
+if ! set_bionemo_home; then
+    echo "Exiting script due to error in set_root_directory."
+    exit 1
 fi
-cd "${BIONEMO_HOME}" || exit 1
-
 
 examples/protein/openfold/scripts/install_third_party.sh
+
 MODEL_PATH=${BIONEMO_HOME}/models
 MODELS="openfold_finetuning_inhouse esm2nv_3b esm2nv_8m_lora esm2nv_8m_untrained esm2nv_650m esm2_650m_huggingface esm2_3b_huggingface diffdock_confidence diffdock_score equidock_db5 equidock_dips megamolbart molmim_70m_24_3 prott5nv esm1nv dnabert geneformer geneformer_10M_240530 dsmbind"
 CMD="python download_artifacts.py --models ${MODELS} --model_dir ${MODEL_PATH} --data all --data_dir ${BIONEMO_HOME} --verbose"

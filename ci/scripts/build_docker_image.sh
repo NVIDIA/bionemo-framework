@@ -1,5 +1,9 @@
 #!/bin/bash
+
 set -e
+
+source "$(dirname "$0")/utils.sh"
+
 # Display help message
 display_help() {
     cat <<EOF
@@ -11,7 +15,7 @@ Options:
   -use-cache                        Enable Docker image caching for faster builds.
   -image-tag <string>               Optional. Custom image tag in the format CONTAINER_REGISTRY_PATH:IMAGE_TAG. Default: <GIT_BRANCH_NAME>--<GIT_COMMIT_SHA>.
   -push                             Push the built Docker image to the registry.
-  -print-image-name                 Print only the image name associated with the repository state.
+  -print-image-name-only            Print only the image name associated with the repository state.
   -cache-args <string>              Optional. Custom cache arguments for building the image.
   -label-args <string>              Optional. Custom label arguments for the Docker image.
   -set-secret                       Optional. Set Docker build secret during image construction. Requires SECRET_VAR_NAME and SECRET_VAR_VALUE to be set.
@@ -26,7 +30,7 @@ Examples:
     ./ci/scripts/build_docker_image.sh --container-registry-path <CONTAINER_REGISTRY_PATH> -image-tag <IMAGE_TAG>
 
   To print only the default docker image name specific to the repository state:
-    ./ci/scripts/build_docker_image.sh -container-registry-path <CONTAINER_REGISTRY_PATH> -print-image-name
+    ./ci/scripts/build_docker_image.sh -container-registry-path <CONTAINER_REGISTRY_PATH> -print-image-name-only
 
 Warning:
   This script assumes that Docker is logged into the registry specified by CONTAINER_REGISTRY_PATH, using the following command:
@@ -38,17 +42,6 @@ EOF
     exit 1
 }
 
-# Function to check if Git repository is clean
-check_git_repository() {
-    if ! git diff-index --quiet HEAD --; then
-        if [ $? -eq 128 ]; then
-            echo "ERROR: Not in a git repository!" >&2
-        else
-            echo "ERROR: Repository is dirty! Commit all changes before building the image!" >&2
-        fi
-        return 1
-    fi
-}
 
 # Parse command-line options
 while [[ "$#" -gt 0 ]]; do

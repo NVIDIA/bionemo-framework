@@ -2,12 +2,10 @@
 
 export PYTHONDONTWRITEBYTECODE=1
 
-if [ -z "$BIONEMO_HOME" ]; then
-    echo "\$BIONEMO_HOME is unset. Setting \$BIONEMO_HOME to repository root "
-    REPOSITORY_ROOT=$(git rev-parse --show-toplevel)
-    BIONEMO_HOME="${REPOSITORY_ROOT}"
+if ! set_bionemo_home; then
+    echo "Exiting script due to error in set_bionemo_home."
+    exit 1
 fi
-cd "${BIONEMO_HOME}" || exit 1
 
 test_tag="needs_fork"
 test_dirs="tests/|examples/"  # (Py)Test directories separated by | for extended `grep`.
