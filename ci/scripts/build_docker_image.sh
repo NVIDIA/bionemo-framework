@@ -28,7 +28,7 @@ Options:
   -print-image-name-only            Print only the image name associated with the repository state.
   -cache-args <string>              Optional. Custom cache arguments for building the image.
   -label-args <string>              Optional. Custom label arguments for the Docker image.
-  -set-secret                       Optional. Set Docker build secret during image construction. Requires SECRET_VAR_NAME and SECRET_VAR_VALUE to be set.
+  -extra-args <string>              Optional. Extra arguments passed to the docker buildx build method.
   -nightly-cache                    Optional. Use bionemo1--nightly docker image as cache tag of BioNeMo FW to build docker image from. Dy default using the latest released docker image.
   -help                             Display this help message.
 
@@ -43,8 +43,11 @@ Examples:
     ./ci/scripts/build_docker_image.sh -container-registry-path <CONTAINER_REGISTRY_PATH> -print-image-name-only
 
 Warning:
+  This script requires GITLAB_TOKEN to be setup.
+
   This script assumes that Docker is logged into the registry specified by CONTAINER_REGISTRY_PATH, using the following command:
     docker login CONTAINER_REGISTRY_URL --username <USERNAME> --password <ACCESS_TOKEN>
+
   If Docker's caching mechanism is enabled and the default configuration is used, ensure you are also logged into nvcr.io by running:
     docker login nvcr.io --username <USERNAME> --password $NGC_CLI_API_KEY
 
@@ -53,7 +56,6 @@ EOF
 }
 USE_CACHE=false
 ONLY_IMAGE_NAME=false
-SET_SECRET=false
 PUSH_IMAGE=false
 
 # Parse command-line options
@@ -66,9 +68,9 @@ while [[ "$#" -gt 0 ]]; do
         -image-tag) IMAGE_TAG="$2"; shift 2 ;;
         -cache-args) CACHE_ARGS="$2"; shift 2 ;;
         -label-args) LABELS_ARGS="$2"; shift 2 ;;
+        -extra-args) EXTRA_ARGS="$2"; shift 2 ;;
         -push) PUSH_IMAGE=true; shift ;;
         -print-image-name) ONLY_IMAGE_NAME=true; shift ;;
-        -set-secret) SET_SECRET=true; shift ;;
         -help) display_help ;;
         *) echo "Unknown parameter: $1"; display_help ;;
     esac
@@ -81,8 +83,8 @@ if [ -z "$CONTAINER_REGISTRY_PATH" ]; then
     exit 1
 fi
 
-if [[ "$SET_SECRET" = true && ( -z "$SECRET_VAR_NAME" || -z "$SECRET_VAR_VALUE" ) ]]; then
-  echo "Error: The -set-secret flag requires both SECRET_VAR_NAME and SECRET_VAR_VALUE to be defined. Run 'ci/scripts/build_docker_image.sh -help' for more details."
+if [ -z "$GITLAB_TOKEN" ]; then
+  echo "Error: The docker build requires GITLAB_TOKEN to be set up. Run 'ci/scripts/build_docker_image.sh -help' for more details."
   exit 1
 fi
 
@@ -137,10 +139,9 @@ if [ -z "$LABELS_ARGS" ]; then
 fi
 echo "Using docker labels with configuration: ${LABELS_ARGS}"
 
-SECRET_ARGS=""
-if [ "$SET_SECRET" = true ]; then
-    echo "Adding GitLab token secret to the build"
-    SECRET_ARGS="--secret id=${SECRET_VAR_NAME},env=${SECRET_VAR_VALUE}"
+
+if [ -z "$EXTRA_ARGS" ]; then
+  EXTRA_ARGS=""
 fi
 
 # Push option
@@ -155,14 +156,11 @@ if ! verify_required_docker_version; then
     exit 1
 fi
 
-set +x
+set -x
 # Build the Docker image
-docker buildx build --allow security.insecure --provenance=false --progress plain \
-  "${CACHE_ARGS}" \
-  "${LABELS_ARGS}" \
-  "${SECRET_ARGS}" \
-  "${PUSH_OPTION}" \
+GITLAB_TOKEN=$GITLAB_TOKEN docker buildx build $EXTRA_ARGS\
+  --secret id=GITLAB_TOKEN,env=GITLAB_TOKEN $LABELS_ARGS $CACHE_ARGS $PUSH_OPTION \
   -t "${IMAGE_NAME}" \
   -f "${DOCKERFILE_PATH}" .
-
+set +x
 echo "Docker build completed. Image name: ${IMAGE_NAME}"

@@ -18,6 +18,7 @@ display_help() {
     exit 1
 }
 
+PBSS=false
 # Parse command line options
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -52,5 +53,4 @@ $CMD
 
 unzip examples/tests/test_data/uniref202104_esm2_qc_test200_val200.zip -d examples/tests/test_data/
 ls examples/tests/test_data/uniref202104_esm2_qc_test200_val200
-#examples/singlecell/geneformer/scripts/download_sample_data.sh -data_path $BIONEMO_HOME/examples/tests/test_data
 #examples/singlecell/geneformer/scripts/get_pt_neighbors_data.py
