@@ -121,6 +121,20 @@ RUN groupadd --gid $USER_GID $USERNAME \
 RUN rm -rf /usr/local/lib/python3.10/dist-packages
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
   /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_LINK_MODE=copy \
+  UV_COMPILE_BYTECODE=1 \
+  UV_PYTHON_DOWNLOADS=never \
+  UV_SYSTEM_PYTHON=true
+
+RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
+  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOT
+  uv pip install -r /workspace/bionemo2/requirements-dev.txt
+  rm -rf /tmp/*
+  chmod -R 777 /usr/local/lib/python3.10/dist-packages
+EOT
+
 RUN <<EOT
   rm -rf /usr/local/lib/python3.10/dist-packages/bionemo*
   pip uninstall -y nemo_toolkit megatron_core
