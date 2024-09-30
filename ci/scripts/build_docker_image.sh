@@ -94,11 +94,6 @@ else
     CONTAINER_REGISTRY_PATH=""
 fi
 
-if [ -z "$GITLAB_TOKEN" ]; then
-  echo "Error: The docker build requires GITLAB_TOKEN to be set up. Run 'ci/scripts/build_docker_image.sh -help' for more details."
-  exit 1
-fi
-
 # Ensure repository is clean
 git config --global --add safe.directory $(pwd)
 if ! set_bionemo_home; then
@@ -175,7 +170,7 @@ docker context ls
 
 set -u
 # Build the Docker image
-GITLAB_TOKEN=$GITLAB_TOKEN docker buildx build $EXTRA_ARGS \
+docker buildx build $EXTRA_ARGS \
   --provenance=false $LABELS_ARGS $CACHE_ARGS $PUSH_OPTION \
   -t "${IMAGE_NAME}" \
   -f "${DOCKERFILE_PATH}" .
