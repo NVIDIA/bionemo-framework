@@ -68,6 +68,8 @@ LABELS_ARGS=""
 EXTRA_ARGS=""
 CACHE_ARGS=""
 
+DEFAULT_BRANCH_NAME="bionemo1"
+DEFAULT_DOCKERFILE_PATH="setup/Dockerfile"
 # Parse command-line options
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -112,7 +114,7 @@ COMMIT_SHA=$(git rev-parse HEAD)
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 SANITIZED_BRANCH_NAME=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-128)
 # Set defaults if not provided
-DOCKERFILE_PATH="${DOCKERFILE_PATH:-setup/Dockerfile}"
+DOCKERFILE_PATH="${DOCKERFILE_PATH:-${DEFAULT_DOCKERFILE_PATH}}"
 # Set default image tag if not provided
 IMAGE_TAG="${IMAGE_TAG:-${SANITIZED_BRANCH_NAME}}"
 IMAGE_NAME="${IMAGE_NAME:-${CONTAINER_REGISTRY_PATH}:${IMAGE_TAG}--${COMMIT_SHA}}"
@@ -127,7 +129,7 @@ fi
 if [ "$USE_CACHE" = true ]; then
     if [ -z "$CACHE_ARGS" ]; then
         if [ "$USE_NIGHTLY_CACHE" = true ]; then
-          IMAGE_TAG_BIONEMO_CACHE="bionemo1--nightly"
+          IMAGE_TAG_BIONEMO_CACHE="${DEFAULT_BRANCH_NAME}--nightly"
         else
           BIONEMO_VERSION=$(awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); printf "%s", $0}' ./VERSION)
           IMAGE_TAG_BIONEMO_CACHE="${BIONEMO_VERSION}"
