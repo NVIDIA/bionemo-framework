@@ -170,7 +170,7 @@ docker context ls
 set -u
 # Build the Docker image
 GITLAB_TOKEN=$GITLAB_TOKEN docker buildx build $EXTRA_ARGS \
-  --allow security.insecure --provenance=false --progress plain
+  --allow security.insecure --provenance=false --progress plain \
   --secret id=GITLAB_TOKEN,env=GITLAB_TOKEN $LABELS_ARGS $CACHE_ARGS $PUSH_OPTION \
   -t "${IMAGE_NAME}" \
   -f "${DOCKERFILE_PATH}" .
