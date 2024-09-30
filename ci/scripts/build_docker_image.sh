@@ -24,6 +24,7 @@ Options:
   -dockerfile-path <path>           Optional. Path to the Dockerfile. Default: setup/Dockerfile.
   -use-cache                        Enable Docker image caching for faster builds.
   -image-tag <string>               Optional. Custom image tag in the format CONTAINER_REGISTRY_PATH:IMAGE_TAG. Default: <GIT_BRANCH_NAME>--<GIT_COMMIT_SHA>.
+  -image-name <string>              Optional. Custom image name in the format CONTAINER_REGISTRY_PATH:IMAGE_TAG. Default: <CONTAINER_REGISTRY_PATH>:<GIT_BRANCH_NAME>--<GIT_COMMIT_SHA>.
   -push                             Push the built Docker image to the registry.
   -print-image-name-only            Print only the image name associated with the repository state.
   -cache-args <string>              Optional. Custom cache arguments for building the image.
@@ -66,6 +67,7 @@ while [[ "$#" -gt 0 ]]; do
         -use-cache) USE_CACHE=true; shift ;;
         -nightly-cache) USE_NIGHTLY_CACHE=true; shift ;;
         -image-tag) IMAGE_TAG="$2"; shift 2 ;;
+        -image-name) IMAGE_NAME="$2"; shift 2 ;;
         -cache-args) CACHE_ARGS="$2"; shift 2 ;;
         -label-args) LABELS_ARGS="$2"; shift 2 ;;
         -extra-args) EXTRA_ARGS="$2"; shift 2 ;;
@@ -100,7 +102,7 @@ SANITIZED_BRANCH_NAME=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed -
 
 # Set default image tag if not provided
 IMAGE_TAG="${IMAGE_TAG:-${SANITIZED_BRANCH_NAME}}"
-IMAGE_NAME="${CONTAINER_REGISTRY_PATH}:${IMAGE_TAG}--${COMMIT_SHA}"
+IMAGE_NAME="${IMAGE_NAME:-CONTAINER_REGISTRY_PATH}:${IMAGE_TAG}--${COMMIT_SHA}"
 echo "Docker image name: ${IMAGE_NAME}"
 
 if [ "$ONLY_IMAGE_NAME" = true ]; then
@@ -173,4 +175,5 @@ GITLAB_TOKEN=$GITLAB_TOKEN docker buildx build $EXTRA_ARGS \
   -f "${DOCKERFILE_PATH}" .
 set +x
 echo "Docker build completed. Image name: "
+# Printing standalone image name is required by CI since docker image name is captured by IMAGE_NAME=$(ci/scripts/build_docker_image.sh)
 echo "${IMAGE_NAME}"
