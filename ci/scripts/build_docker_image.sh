@@ -78,7 +78,7 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-
+set +u
 # Ensure required parameters are set
 if [ -z "$CONTAINER_REGISTRY_PATH" ] && { [ -z "$IMAGE_NAME" ] || { [ "$USE_CACHE" = true ] && [ -z "$CACHE_ARGS" ]; }; }; then
     echo "Error: The container registry path is required. Use -container-registry-path <path>. Run 'ci/scripts/build_docker_image.sh -help' for more details."
@@ -104,7 +104,7 @@ SANITIZED_BRANCH_NAME=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed -
 
 # Set default image tag if not provided
 IMAGE_TAG="${IMAGE_TAG:-${SANITIZED_BRANCH_NAME}}"
-IMAGE_NAME="${IMAGE_NAME:-CONTAINER_REGISTRY_PATH}:${IMAGE_TAG}--${COMMIT_SHA}"
+IMAGE_NAME="${IMAGE_NAME:-${CONTAINER_REGISTRY_PATH}:${IMAGE_TAG}--${COMMIT_SHA}}"
 echo "Docker image name: ${IMAGE_NAME}"
 
 if [ "$ONLY_IMAGE_NAME" = true ]; then
@@ -169,6 +169,7 @@ docker buildx create --use \
     --buildkitd-flags '--allow-insecure-entitlement security.insecure'
 docker context ls
 
+set -u
 # Build the Docker image
 GITLAB_TOKEN=$GITLAB_TOKEN docker buildx build $EXTRA_ARGS \
   --allow security.insecure --provenance=false --progress plain
