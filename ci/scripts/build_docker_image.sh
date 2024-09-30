@@ -97,6 +97,7 @@ if [ -z "$GITLAB_TOKEN" ]; then
 fi
 
 # Ensure repository is clean
+git config --global --add safe.directory $(pwd)
 if ! set_bionemo_home; then
     exit 1
 fi
@@ -160,7 +161,6 @@ fi
 
 set -x
 # Setup docker build buildx
-git config --global --add safe.directory $(pwd)
 docker buildx version
 docker buildx create --use \
     --name insecure-builder --driver-opt network=host \
