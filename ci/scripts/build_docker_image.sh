@@ -80,9 +80,11 @@ done
 
 
 # Ensure required parameters are set
-if [ -z "$CONTAINER_REGISTRY_PATH" ]; then
+if [ -z "$CONTAINER_REGISTRY_PATH" ] && { [ -z "$IMAGE_NAME" ] || { [ "$USE_CACHE" = true ] && [ -z "$CACHE_ARGS" ]; }; }; then
     echo "Error: The container registry path is required. Use -container-registry-path <path>. Run 'ci/scripts/build_docker_image.sh -help' for more details."
     exit 1
+else
+    CONTAINER_REGISTRY_PATH=""
 fi
 
 if [ -z "$GITLAB_TOKEN" ]; then
