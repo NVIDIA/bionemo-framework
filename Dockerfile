@@ -135,3 +135,4 @@ FROM bionemo2-base AS release
 COPY VERSION .
 COPY ./scripts ./scripts
 COPY ./README.md ./
+COPY ./ci/scripts ./ci/scripts
