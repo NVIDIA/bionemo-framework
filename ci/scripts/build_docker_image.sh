@@ -88,10 +88,10 @@ if [ -z "$GITLAB_TOKEN" ]; then
   exit 1
 fi
 
-## Ensure repository is clean
-#if ! set_bionemo_home; then
-#    exit 1
-#fi
+# Ensure repository is clean
+if ! set_bionemo_home; then
+    exit 1
+fi
 
 # Get Git commit SHA and sanitized branch name
 COMMIT_SHA=$(git rev-parse HEAD)
@@ -157,10 +157,20 @@ if ! verify_required_docker_version; then
 fi
 
 set -x
+# Setup docker build buildx
+git config --global --add safe.directory \$(pwd)
+docker buildx version
+docker buildx create --use \
+    --name insecure-builder --driver-opt network=host \
+    --buildkitd-flags '--allow-insecure-entitlement security.insecure'
+docker context ls
+
 # Build the Docker image
-GITLAB_TOKEN=$GITLAB_TOKEN docker buildx build $EXTRA_ARGS\
+GITLAB_TOKEN=$GITLAB_TOKEN docker buildx build $EXTRA_ARGS \
+  --allow security.insecure --provenance=false --progress plain
   --secret id=GITLAB_TOKEN,env=GITLAB_TOKEN $LABELS_ARGS $CACHE_ARGS $PUSH_OPTION \
   -t "${IMAGE_NAME}" \
   -f "${DOCKERFILE_PATH}" .
 set +x
-echo "Docker build completed. Image name: ${IMAGE_NAME}"
+echo "Docker build completed. Image name: "
+echo "${IMAGE_NAME}"
