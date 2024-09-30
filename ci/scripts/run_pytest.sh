@@ -21,3 +21,4 @@ fi
 
 echo "Running pytest tests"
 pytest -v scripts/ sub-packages/bionemo-*
+pytest -v --nbval-lax docs/ scripts/ sub-packages/bionemo-*
