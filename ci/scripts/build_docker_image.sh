@@ -31,6 +31,9 @@ Options:
   -label-args <string>              Optional. Custom label arguments for the Docker image.
   -extra-args <string>              Optional. Extra arguments passed to the docker buildx build method.
   -nightly-cache                    Optional. Use bionemo1--nightly docker image as cache tag of BioNeMo FW to build docker image from. Dy default using the latest released docker image.
+  -regular-docker-builder           Optional. By default the docker image is built using insecure-builder - a tool for Docker that allows you to build images with additional features like multi-platform builds, better caching mechanisms,
+                                    and advanced configurations. It uses BuildKit under the hood, which is a modern build engine with improved performance and flexibility but requires more a flexible security policy.
+                                    To enable a regular docker builder, use this flag. For details visit https://docs.docker.com/reference/cli/docker/buildx/build/
   -help                             Display this help message.
 
 Examples:
@@ -59,6 +62,7 @@ USE_CACHE=false
 ONLY_IMAGE_NAME=false
 PUSH_IMAGE=false
 USE_NIGHTLY_CACHE=false
+ALLOW_INSECURE_DOCKER_BUILDER=true
 
 LABELS_ARGS=""
 EXTRA_ARGS=""
@@ -78,6 +82,7 @@ while [[ "$#" -gt 0 ]]; do
         -extra-args) EXTRA_ARGS="$2"; shift 2 ;;
         -push) PUSH_IMAGE=true; shift ;;
         -print-image-name) ONLY_IMAGE_NAME=true; shift ;;
+        -regular-docker-builder) ALLOW_INSECURE_DOCKER_BUILDER=false; shift ;;
         -help) display_help ;;
         *) echo "Unknown parameter: $1"; display_help ;;
     esac
@@ -162,15 +167,18 @@ fi
 set -x
 # Setup docker build buildx
 docker buildx version
-docker buildx create --use \
-    --name insecure-builder --driver-opt network=host \
-    --buildkitd-flags '--allow-insecure-entitlement security.insecure'
+if [ "$ALLOW_INSECURE_DOCKER_BUILDER" = true ]; then
+  docker buildx create --use \
+      --name insecure-builder --driver-opt network=host \
+      --buildkitd-flags '--allow-insecure-entitlement security.insecure'
+  EXTRA_ARGS="${EXTRA_ARGS} --allow security.insecure"
+fi
 docker context ls
 
 set -u
 # Build the Docker image
 GITLAB_TOKEN=$GITLAB_TOKEN docker buildx build $EXTRA_ARGS \
-  --allow security.insecure --provenance=false --progress plain \
+  --provenance=false --progress plain \
   --secret id=GITLAB_TOKEN,env=GITLAB_TOKEN $LABELS_ARGS $CACHE_ARGS $PUSH_OPTION \
   -t "${IMAGE_NAME}" \
   -f "${DOCKERFILE_PATH}" .
