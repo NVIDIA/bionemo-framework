@@ -160,7 +160,7 @@ fi
 
 set -x
 # Setup docker build buildx
-git config --global --add safe.directory \$(pwd)
+git config --global --add safe.directory $(pwd)
 docker buildx version
 docker buildx create --use \
     --name insecure-builder --driver-opt network=host \
