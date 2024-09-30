@@ -10,7 +10,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-set -e
+set -eu
 
 source "$(dirname "$0")/utils.sh"
 
@@ -78,7 +78,6 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-set +u
 # Ensure required parameters are set
 if [ -z "$CONTAINER_REGISTRY_PATH" ] && { [ -z "$IMAGE_NAME" ] || { [ "$USE_CACHE" = true ] && [ -z "$CACHE_ARGS" ]; }; }; then
     echo "Error: The container registry path is required. Use -container-registry-path <path>. Run 'ci/scripts/build_docker_image.sh -help' for more details."
