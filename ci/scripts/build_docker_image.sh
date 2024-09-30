@@ -10,7 +10,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-set -eu
+set -e
 
 source "$(dirname "$0")/utils.sh"
 
@@ -58,6 +58,11 @@ EOF
 USE_CACHE=false
 ONLY_IMAGE_NAME=false
 PUSH_IMAGE=false
+USE_NIGHTLY_CACHE=false
+
+LABELS_ARGS=""
+EXTRA_ARGS=""
+CACHE_ARGS=""
 
 # Parse command-line options
 while [[ "$#" -gt 0 ]]; do
@@ -100,7 +105,8 @@ fi
 COMMIT_SHA=$(git rev-parse HEAD)
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 SANITIZED_BRANCH_NAME=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-128)
-
+# Set defaults if not provided
+DOCKERFILE_PATH="${DOCKERFILE_PATH:-setup/Dockerfile}"
 # Set default image tag if not provided
 IMAGE_TAG="${IMAGE_TAG:-${SANITIZED_BRANCH_NAME}}"
 IMAGE_NAME="${IMAGE_NAME:-${CONTAINER_REGISTRY_PATH}:${IMAGE_TAG}--${COMMIT_SHA}}"
@@ -110,8 +116,7 @@ if [ "$ONLY_IMAGE_NAME" = true ]; then
     exit 0
 fi
 
-# Set defaults if not provided
-DOCKERFILE_PATH="${DOCKERFILE_PATH:-setup/Dockerfile}"
+
 # Set cache arguments if USE_CACHE is enabled
 if [ "$USE_CACHE" = true ]; then
     if [ -z "$CACHE_ARGS" ]; then
@@ -129,8 +134,6 @@ if [ "$USE_CACHE" = true ]; then
                     --cache-to=type=registry,mode=max,image-manifest=true,ref=${IMAGE_NAME_CACHE}"
     fi
     echo "Using cache with configuration: ${CACHE_ARGS}"
-else
-   CACHE_ARGS=""
 fi
 
 # Set default label arguments if not provided
@@ -142,10 +145,6 @@ if [ -z "$LABELS_ARGS" ]; then
 fi
 echo "Using docker labels with configuration: ${LABELS_ARGS}"
 
-
-if [ -z "$EXTRA_ARGS" ]; then
-  EXTRA_ARGS=""
-fi
 
 # Push option
 PUSH_OPTION=""
