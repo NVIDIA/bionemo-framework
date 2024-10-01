@@ -1,41 +1,33 @@
 # UniProt Dataset
 
-UniProt Reference Cluster (UniRef) databases provide clustered sets of sequences from UniProtKB. UniRef50 is built by clustering UniRef90 seed sequences that have at least 50% sequence identity to, and 80% overlap with, the longest sequence in the cluster.
+The UniProt Knowledgebase (UniProtKB) is an open database of protein sequences curated from translated genomic data [1].
+The UniProt Reference Cluster (UniRef) databases provide clustered sets of sequences from UniProtKB [2], which have been
+used in previous large language model training studies to improve diversity in protein training data. UniRef clusters
+proteins hierarchically. At the highest level, UniRef100 groups proteins with identical primary sequences from the
+UniProt Archive (UniParc). UniRef90 clusters these unique sequences into buckets with 90% sequence similarity, selecting
+a single sequence from within each cluster as the representative sequence. UniRef50 is then built by clustering these
+UniRef90 representative sequences into groups with 50% sequence similarity.
 
-A visual demo of the ESM sampling process is below:
+## Data Used for ESM2 Pre-training
 
-<div class="uniprot-visual-play-container">
-    <button id="uniprot-visual-play-button">Play</button>
-    <input
-        id="uniprot-visual-slider"
-        type="range"
-        min="1"
-        max="1000"
-        value="1"
-        step="1"
-        disabled
-    />
-</div>
-<p id="uniprot-visual-description-text">
-    <span id="uniprot-visual-step-text"></span>
-    <span id="uniprot-visual-status-text">Click Play to view a demo of the sampling process.</span>
-</p>
-<div class="uniprot-visual-container">
-    <div id="uniprot-circlepack-anchor"></div>
-    <p class="uniprot-visual-small-text">
-        This is a demo of the sampling process. The actual UNIREF datasets
-        comprise much larger numbers of clusters. View them
-        <a target="_blank" href="https://www.uniprot.org/uniref?query=*>"
-            >here</a
-        >.
-    </p>
-</div>
+Since the original train/test splits from ESM2 were not available [3], we replicated the ESM2 pre-training experiments
+with UniProt's 2024_03 release. Following the approach described by the ESM2 authors, we removed artificial sequences
+and reserved 0.5% of UniRef50 clusters for validation. From the 65,672,139 UniRef50 clusters, this resulted in 328,360
+validation sequences. We then ran MMSeqs to further ensure no contamination of the training set with sequences similar
+to the validation set. This resulted in 65,182,365 training UniRef50 clusters comprising 187,382,018 UniRef90 sequences.
 
-## ESM-2nv v
+Pretraining batches were formed by uniformly sampling each UniRef50 cluster from the training database, taking a
+randomly chosen UniRef90 sequence from each.
 
-We follow the ESM2 data preparation approach to create UniRef50 and UniRef90 sequence sets used for pre-training ESM2. This dataset can be used by BioNeMo users to pre-train ESM-2nv models from scratch.
-The UniRef from 04/2021 was used for creating the pre-training dataset. The representative sequence for each cluster was selected, resulting in approximately 49M protein sequences. A random fraction of 250K sequences was removed for validation after training. The remaining sequences were filtered to remove any training sequences with high sequence similarity to the validation dataset, resulting in 49,425,807 training sequences. The training sequences were randomly split with 3400 sequences in validation, 1M sequences in test, and the remaining in train. A corresponding set of UniRef90 cluster members and the train sequences were also curated to enable sampling during training. UniRef90 cluster members were augmented with sequence data based on data availability in the UniRef100 representative sequence set.
+## Reference
 
-## ESM-1nv
+1. UniProt Consortium. (2023). UniProt: The universal protein knowledgebase in 2023. Nucleic Acids Research, 51(D1),
+   D523–D531. doi:10.1093/nar/gkac1052
 
-The UniRef50 database was used for training. UniProt Reference Cluster (UniRef) databases provide clustered sets of sequences from UniProtKB. UniRef50 is built by clustering UniRef90 seed sequences that have at least 50% sequence identity to, and 80% overlap with, the longest sequence in the cluster. The release from 05/2022 was used for training. The representative sequence for each cluster was selected, with sequences longer than the maximum sequence length of 512 removed, resulting in approximately 46M protein sequences. The sequences were randomly split with 4.35K sequences in validation, 875K sequences in test, and the remaining in train.
+2. Suzek, B. E., Wang, Y., Huang, H., McGarvey, P. B., Wu, C. H., & UniProt Consortium. (2015). UniRef clusters: a
+   comprehensive and scalable alternative for improving sequence similarity searches. Bioinformatics (Oxford, England),
+   31(6), 926–932. doi:10.1093/bioinformatics/btu739
+
+3. Lin, Z., Akin, H., Rao, R., Hie, B., Zhu, Z., Lu, W., … Rives, A. (2023). Evolutionary-scale prediction of
+   atomic-level protein structure with a language model. Science (New York, N.Y.), 379(6637), 1123–1130.
+   doi:10.1126/science.ade2574
