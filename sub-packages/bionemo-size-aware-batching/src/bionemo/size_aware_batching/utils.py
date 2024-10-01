@@ -15,8 +15,10 @@
 
 import gc
 import sys
+from collections import Counter
 from typing import Callable, Iterable, List, Optional, Tuple, TypeVar
 
+import numpy as np
 import torch
 
 
@@ -132,3 +134,77 @@ def collect_cuda_peak_alloc(
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats(device)
     return features, alloc_peaks
+
+
+def create_buckets(sizes: Iterable[int], max_range: int, min_bucket_count: int) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Create buckets for a list of integers with pre-defined maximal range of interval and minimal bucket sizes.
+
+    Args:
+        sizes (Iterable[int]): An iterable of integers representing sizes.
+        max_range (int): The maximum range of a bucket.
+        min_bucket_count (int): The minimum count of a bucket.
+            Bucket size may be smaller than min_bucket_count if its range reaches max_range.
+
+    Raises:
+        ValueError: If the provided sizes is empty, or not integers.
+        ValueError: If max_range is not non-negative integer or min_bucket_count is not positive integer.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: A tuple containing bucket ranges in ascending order and the number of elements in each bucket.
+        e.g. np.array([[0, 5], [7,10]]), np.array([3,2]): specifies 2 buckets: 0<= sizes <= 5, 7 <= sizes <= 10, with 3 and 2 elements.
+
+    ---------
+    Examples:
+
+    ```python
+    >>> import numpy as np
+    >>> from bionemo.size_aware_batching.utils import create_buckets
+
+    >>> sizes = np.array([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 22, 22, 22, 22])
+    >>> bucket_ranges, bucket_sizes = create_buckets(sizes, max_range=20, min_bucket_count=20)
+    >>> print(bucket_ranges)
+    [[ 1  3]
+    [22 22]]
+    >>> print(bucket_sizes)
+    [12  4]
+    ```
+
+    """
+    sizes = np.array(list(sizes))
+    if sizes.ndim != 1 or not np.issubdtype(sizes.dtype, np.integer):
+        raise ValueError("sizes should be an iterable of integers")
+
+    if len(sizes) == 0:
+        raise ValueError("sizes should not be empty")
+
+    if not isinstance(max_range, int) or max_range < 0:
+        raise ValueError(f"max_range should be non-negative number but got {max_range}")
+
+    if not isinstance(min_bucket_count, int) or min_bucket_count <= 0:
+        raise ValueError(f"min_bucket_count should be positive integer but got {min_bucket_count}")
+
+    counter = Counter(sizes.tolist())
+    dist_size, dist_count = zip(*sorted(counter.items()))
+
+    bucket_ranges = []
+    bucket_sizes = []
+    start = 0
+    end = 1
+
+    while start < len(dist_size):
+        while (
+            end < len(dist_size)
+            and sum(dist_count[start:end]) < min_bucket_count
+            and dist_size[end] - dist_size[start] <= max_range
+        ):
+            end += 1
+        bucket_ranges.append([dist_size[start], dist_size[end - 1]])
+        bucket_sizes.append(sum(dist_count[start:end]))
+        start = end
+        end = start + 1
+
+    bucket_ranges = np.array(bucket_ranges)
+    bucket_sizes = np.array(bucket_sizes)
+
+    return bucket_ranges, bucket_sizes
