@@ -13,10 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Callable, Generator, Iterable, List, TypeVar, Union
+from typing import Any, Callable, Iterable, Iterator, List, Optional, TypeVar, Union
 from warnings import warn
 
-from git import Optional
 from torch.utils.data import Sampler
 
 
@@ -31,26 +30,27 @@ def size_aware_batching(
     collate_fn: Optional[Callable[[Iterable[Data]], Any]] = None,
     info_logger: Optional[Callable[[str], None]] = None,
     warn_logger: Optional[Callable[[str], None]] = None,
-) -> Generator[Any, None, None]:
+) -> Iterator[Any]:
     """
     A generator that batches elements from an iterable while ensuring that the
-    total size of each batch does not exceed a specified maximum. This can be
-    useful for both indexible data or non-indexible but iterable data.
+    total size of each batch does not exceed a specified maximum. Here the size
+    can be a measurement of memory consumption of the elements in the batch.
+    This can be useful for both indexible data or non-indexible but iterable data.
 
     Args:
-        dataset (Iterable[Data]): The input iterable.
-        max_total_size (Real): The maximum total size of each batch.
-        sizeof (Callable[[Data], Real]):
-            A function or mapping that returns the size of each element in `dataset`.
-        collate_fn (Optional[Callable[[Iterable[Data]], Any]], optional):
-            An optional function to collate batches. Defaults to None.
-        info_logger (Optional[Callable[[str], None]], optional): A function to log info.
-            Defaults to None.
-        warn_logger (Optional[Callable[[str], None]], optional): A function to log warnings.
-            Defaults to None.
+        dataset: The input iterable.
+        sizeof: A function or mapping that returns the "size" of each element in `dataset`.
+            E.g., this can used to determine how much memory an element consumes. Its return
+            type must be comparable with `max_total_size` and it must be addable (operator `+`).
+        max_total_size: The maximum total "size" of each batch. The semantics of "size"
+            is defined by the `sizeof` argument. The type of this value must be comparable
+            with the return type of sizeof, i.e., the operator `<` and `==` must be meaningful.
+        collate_fn: An optional function to collate batches. Defaults to None.
+        info_logger: A function to log info. Defaults to None.
+        warn_logger: A function to log warnings. Defaults to None.
 
     Yields:
-        Generator[Any, None, None]: A generator that yields batches from `dataset`.
+        A generator that yields batches from `dataset`.
 
     -----------
     Assumptions
@@ -58,8 +58,8 @@ def size_aware_batching(
        by going over the data item one by one to build a batch and yield it as soon as the
        addition of the next data item to the batch would exceed `max_total_size` or if the
        batch is the last one (end of iteration)
-    2. Additive size measurement. For the general usage case of building mini-batches by
-       thresholding the batch's memory consumption, it assumes that the size of the batch is
+    2. Additive size measurement. For the general usage case of building mini-batches with
+       a threshold of the batch's memory consumption, it assumes that the size of the batch is
        the sum of all elements in the batch (additive property).
     3. Comparable type of `max_total_size` and `sizeof`'s return. `sizeof`'s return values
        must be compared with `max_total_size` to threshold the size of batches
@@ -71,7 +71,7 @@ def size_aware_batching(
        - how to workaround: filter the output of this generator using a batch size threshold
     2: The number of batches may vary a lot across different epochs.
        - how to workaround: increase the number of steps that compose an epoch,
-         e.g., in the Lightning training/valiation loop, which effectively increases the input
+         e.g., in the Lightning training/validation loop, which effectively increases the input
          dataset size per epoch
 
 
@@ -116,8 +116,6 @@ def size_aware_batching(
             new_size = sizeof(data)
         except Exception as e:
             raise RuntimeError(f"sizeof raises error at data={data}: {e}") from e
-        if not isinstance(new_size, Real):
-            raise TypeError(f"Size of element {data} is not int or float")
         if new_size > max_total_size:
             if warn_logger is not None:
                 warn_logger(
@@ -213,13 +211,15 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         Initializes the SizeAwareBatchSampler.
 
         Args:
-            sampler (Union[Sampler[List[int]], Iterable[int]]): The underlying sampler.
-            sizeof (Callable[[int], Real]): A function that returns the size at each index.
-            max_total_size (Real): The maximum total size of a mini-batch.
-            info_logger (Optional[Callable[[str], None]], optional): A function to log info.
-                Defaults to a lambda function that print.
-            warn_logger (Optional[Callable[[str], None]], optional): A function to log warnings.
-                Defaults to a lambda function that warns.
+            sampler: The underlying sampler.
+            sizeof: A function that returns the size at each index. E.g., this can used to
+                determine how much memory an element consumes. Its return type must be
+                comparable with `max_total_size` and it must be addable (operator `+`).
+            max_total_size: The maximum total size of a mini-batch. The semantics of "size"
+                is defined by the `sizeof` argument. The type of this value must be comparable
+                with the return type of sizeof, i.e., the operator `<` and `==` must be meaningful.
+            info_logger: A function to log info. Defaults to a lambda function that print.
+            warn_logger: A function to log warnings. Defaults to a lambda function that warns.
 
         Raises:
             TypeError: If sampler is not an instance of Sampler or Iterable, or if sizeof is not a callable, dictionary, or sequence container.
@@ -244,14 +244,14 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         self._sizeof = sizeof
         self._max_total_size = max_total_size
 
-    def __iter__(self) -> Generator[List[int], None, None]:
+    def __iter__(self) -> Iterator[List[int]]:
         """
         Iterate over batches of indices.
 
         This function yields batches of indices that do not exceed the maximum total size.
 
         Yields:
-            List[int]: A batch of indices that do not exceed the maximum total size.
+            A batch of indices that do not exceed the maximum total size.
         """
         return size_aware_batching(
             self._sampler,
