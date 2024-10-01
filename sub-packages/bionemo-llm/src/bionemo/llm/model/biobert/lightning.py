@@ -14,78 +14,40 @@
 # limitations under the License.
 
 
-from typing import Callable, Dict, Iterable, Optional, Protocol, Sequence, TypedDict, cast
+from typing import Callable, Dict, Iterable, Optional, Sequence
 
 import pytorch_lightning as pl
+import torch
 import torch.distributed
-from apex.optimizers import FusedAdam
 from megatron.core import parallel_state
+from megatron.core.optimizer import OptimizerConfig
 from megatron.core.packed_seq_params import PackedSeqParams
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
+from nemo.lightning import io as nlio
 from nemo.lightning.megatron_parallel import DataT, MegatronLossReduction
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
-from torch import Tensor
 
-from bionemo.llm.lightning import BionemoLightningModule, DataStep, ForwardStep, default_megatron_optimizer
-from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel
+from bionemo.llm.lightning import LightningPassthroughPredictionMixin
+from bionemo.llm.model.config import MegatronBioNeMoTrainableModelConfig
+from bionemo.llm.utils import iomixin_utils as iom
 
 
 __all__: Sequence[str] = (
-    "biobert_lightning_module",
+    "BioBertLightningModule",
     "biobert_data_step",
     "bert_forward_step",
-    "bert_default_optimizer",
-    "BertModel",
-    "BertBatch",
-    "SequenceBatch",
     "get_packed_seq_params",
     "get_batch_on_this_context_parallel_rank",
 )
 
-
-class BertModel(Protocol[DataT]):
-    """Interface for BERT-like models."""
-
-    def forward(self, input_ids: Tensor, attention_mask: Tensor, packed_seq_params: Optional[Tensor] = None) -> DataT:
-        """Inference for BERT-like models.
-
-        Inference for BERT-like models require their tokenized inputs by IDs, an attention mask over the input,
-        and the original sequence lengths if the sequences are packed into a dense batch.
-        """
-
-
-class BertBatchCore(TypedDict):
-    """Input datatype for inference with BERT-like models."""
-
-    text: Tensor
-    attention_mask: Tensor
-
-
 DataStepOutput = Dict[str, torch.Tensor | PackedSeqParams]
 DataStepFunction = Callable[[Iterable], DataStepOutput]
 ForwardStepFunction = Callable[[pl.LightningModule, DataStepOutput], DataT]
+############################################################################################################
+# Below are static helper functions for handling various steps in the actual class at the bottom of the file.
 
 
-class BertBatch(BertBatchCore, total=False):
-    """Input datatype for inference with BERT-like models."""
-
-    cu_seqlens: Tensor
-
-
-class SequenceBatchCore(TypedDict):
-    """Input datatype for inference with BERT-like models."""
-
-    cu_seqlens: Tensor
-
-
-class SequenceBatch(SequenceBatchCore, total=False):
-    """Input datatype for inference with BERT-like models."""
-
-    cu_seqlens_argmin: Tensor
-    max_seqlen: Tensor
-
-
-def biobert_data_step(dataloader_iter) -> Dict[str, Tensor]:
+def biobert_data_step(dataloader_iter) -> Dict[str, torch.Tensor]:
     """Preprocesses a batch of data for the GeneFormer model, and ingest a single batch of data from the dataloader iterator.
         only necessary batch keys are subsetted and passed to the model's forward pass, and the loss forward pass, depending on stage.
         TODO document how parallel_state pipeline stages work.
@@ -124,12 +86,10 @@ def biobert_data_step(dataloader_iter) -> Dict[str, Tensor]:
     return output
 
 
-def bert_forward_step(model: BertModel[DataT], batch: BertBatch) -> DataT:
-    """Performs the model's orward pass using the batch, for Megatron compatability.
-
-    This subsets the batch keys to the ones actually used by forward pass of the model, and then calls the model's forward pass.
+def bert_forward_step(model: pl.LightningModule, batch: DataStepOutput) -> DataT:
+    """This subsets the batch keys to the ones actually used by forward pass of the model, and then calls the model's forward pass.
     if "cu_seqsens" are defined in the batch, then the packed sequence parameters are also passed to the model for forward pass efficiency.
-    """
+    """  # noqa: D205
     forward_args = {
         "input_ids": batch["text"],
         "attention_mask": batch["attention_mask"],
@@ -138,71 +98,21 @@ def bert_forward_step(model: BertModel[DataT], batch: BertBatch) -> DataT:
     }
 
     if "cu_seqlens" in batch:
-        forward_args["packed_seq_params"] = get_packed_seq_params(cast(SequenceBatch, batch))
+        forward_args["packed_seq_params"] = get_packed_seq_params(batch)
 
-    forward_results = model.forward(**forward_args)
-    # TODO support losses that also include the binary head, this means doing something more fancy than the one
-    #      default GPT reduction function above MaskedTokenLossReduction()
-    return forward_results
+    forward_results = model(**forward_args)
+    return forward_results  # TODO support losses that also include the binary head, this means doing something more fancy than the one default GPT reduction function above MaskedTokenLossReduction()
 
 
-def biobert_lightning_module(
-    config: BioBertConfig,
-    optimizer: Optional[MegatronOptimizerModule] = None,
-    tokenizer: Optional[TokenizerSpec] = None,
-    data_step: DataStep = biobert_data_step,
-    forward_step: ForwardStep = bert_forward_step,
-) -> BionemoLightningModule[MegatronBioBertModel, MegatronLossReduction]:
-    """A pytorch lightning module for BioBert-derived models.
-
-    This module is designed to be used with the Megatron-LM strategy and nemo 2.0 conventions.
-    To change your loss, pass in a different config object that returns a different loss reduction class.
-    To change your model and what it outputs, pass in a different config object that returns a different model.
-    Do not modify this function unless you need to change higher level logic. You may need to modify the various step
-    and forward functions towards the bottom of this file to handle new/different keys in the batch. In the future some
-    of those functions may need to be refactored out into the config object or a different place so that they live
-    closer to the model definition.
-    """
-    return BionemoLightningModule(
-        config=config,
-        optimizer=optimizer if optimizer is not None else default_megatron_optimizer(),
-        data_step=data_step,
-        forward_step=forward_step,
-        tokenizer=tokenizer,
-    )
-
-
-def bert_default_optimizer(model: torch.nn.Module) -> FusedAdam:
-    """Returns the default optimizer for the BERT model.
+def get_batch_on_this_context_parallel_rank(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    """Modifies the batch data based on the context parallel rank, if the context parallel world size is greater than 1. Otherwise the batch is returned as-is.
 
     Args:
-        model: The BERT model.
-
-    Returns:
-        The default optimizer initialized for this BERT module's parameters.
-        Uses a learning rate of 1e-4 and weight decay of 1e-2.
-    """
-    return FusedAdam(model.parameters(), lr=1e-4, weight_decay=0.01)
-
-
-def get_batch_on_this_context_parallel_rank(batch: Dict[str, Tensor], in_place: bool = True) -> Dict[str, Tensor]:
-    """Ensures that the input batch is in the right format for context parallel rank.
-
-    Modifies the batch data based on the context parallel rank, if the context parallel world size is greater than 1.
-    Otherwise, the batch is returned as-is.
-
-
-    Args:
-        batch: The input batch data.
-        in_place: If true, then the input is mutated. The returned dict is a reference to the input.
-                  Otherwise, the input data is always shallow-copied and this copy is modified and returned.
+        batch (dict): The input batch data.
 
     Returns:
         dict: The modified batch data based on the context parallel rank.
     """
-    if not in_place:
-        batch = dict(**batch)
-
     if cp_size := parallel_state.get_context_parallel_world_size() > 1:
         num_valid_tokens_in_ub = None
         if "loss_mask" in batch and batch["loss_mask"] is not None:
@@ -225,24 +135,24 @@ def get_batch_on_this_context_parallel_rank(batch: Dict[str, Tensor], in_place: 
                 _val = _val.view(*val.shape[0:seq_dim], -1, *_val.shape[(seq_dim + 2) :])
                 batch[key] = _val
         batch["num_valid_tokens_in_ub"] = num_valid_tokens_in_ub
-
     return batch
 
 
-def get_packed_seq_params(batch: SequenceBatch) -> PackedSeqParams:
-    """Get the packed sequence parameters for the given batch.
-
-    This function should only be called if `cu_seqlens` is defined in the batch.
+def get_packed_seq_params(batch: Dict[str, torch.Tensor]) -> PackedSeqParams:
+    """Get the packed sequence parameters for the given batch. This function should only be called if `cu_seqlens` is defined in the batch.
 
     Args:
-        batch: The input batch to pack.
+        batch (dict): The input batch containing the following keys:
+            - cu_seqlens (torch.Tensor): The sequence lengths of the input batch.
+            - cu_seqlens_argmin (torch.Tensor, optional): The minimum sequence length index.
+            - max_seqlen (torch.Tensor, optional): The maximum sequence length.
 
     Returns:
         PackedSeqParams: The packed sequence parameters containing the following attributes:
-            - cu_seqlens_q (Tensor): The sequence lengths for query.
-            - cu_seqlens_kv (Tensor): The sequence lengths for key and value.
-            - max_seqlen_q (Tensor, optional): The maximum sequence length for query.
-            - max_seqlen_kv (Tensor, optional): The maximum sequence length for key and value.
+            - cu_seqlens_q (torch.Tensor): The sequence lengths for query.
+            - cu_seqlens_kv (torch.Tensor): The sequence lengths for key and value.
+            - max_seqlen_q (torch.Tensor, optional): The maximum sequence length for query.
+            - max_seqlen_kv (torch.Tensor, optional): The maximum sequence length for key and value.
             - qkv_format (str): The format of query, key, and value tensors.
 
     """
@@ -265,3 +175,98 @@ def get_packed_seq_params(batch: SequenceBatch) -> PackedSeqParams:
         max_seqlen_kv=max_seqlen,
         qkv_format="thd",
     )
+
+
+class BioBertLightningModule(  # noqa: D101
+    pl.LightningModule, iom.IOMixinWithGettersSetters, nlio.ConnectorMixin, LightningPassthroughPredictionMixin
+):
+    def __init__(
+        self,
+        config: MegatronBioNeMoTrainableModelConfig,
+        # TODO: Add transformer_layer_spec when we update mcore
+        tokenizer: Optional[TokenizerSpec] = None,
+        optimizer: MegatronOptimizerModule = MegatronOptimizerModule(
+            config=OptimizerConfig(lr=1e-4, optimizer="adam", use_distributed_optimizer=True),
+        ),
+        data_step_function: DataStepFunction = biobert_data_step,
+        forward_step_function: ForwardStepFunction = bert_forward_step,
+        model_transform: Callable | None = None,
+    ):
+        """A pytorch lightning module for BioBert-derived models. This module is designed to be used with the Megatron-LM strategy and nemo 2.0 conventions.
+        To change the your loss, pass in a different config object that returns a different loss reduction class. To change your model and what it outputs,
+        pass in a different config object that returns a different model. Do not modify this function unless you need to change higher level logic. You may
+        need to modify the various step and forward functions towards the bottom of this file to handle new/different keys in the batch. In the future some of
+        those functions may need to be refactored out into the config object or a different place so that they live closer to the model definition.
+
+        Args:
+            config (MegatronBioNeMoTrainableModelConfig): The model configuration object.
+            tokenizer (Optional[TokenizerSpec], optional): The tokenizer object. Defaults to None.
+            optimizer (MegatronOptimizerModule, optional): The optimizer object. Defaults to MegatronOptimizerModule(config=OptimizerConfig(lr=1e-4, optimizer="adam", use_distributed_optimizer=True)).
+            data_step_function (DataStepFunction, optional): The data step function. Defaults to biobert_data_step.
+            forward_step_function (ForwardStepFunction, optional): The forward step function. Defaults to bert_forward_step.
+            model_transform (Callable, optional): The model transform function. Defaults to None.
+        """  # noqa: D205
+        super().__init__()
+        self.config = config
+        self.tokenizer = tokenizer
+        self.loss_reduction_class = config.get_loss_reduction_class()
+        # TODO replace the self.configure_optimizer call with the optimizer below
+        #  once it all works. This is the future direction for how things are going.
+
+        self.optim = optimizer
+        self.optim.connect(self)  # This will bind the `configure_optimizers` method
+        self.data_step_function: DataStepFunction = data_step_function
+        self.forward_step_function: ForwardStepFunction = forward_step_function
+        if model_transform is not None:
+            self.model_transform = model_transform
+
+    def configure_model(self) -> None:  # noqa: D102
+        self.module = self.config.configure_model(self.tokenizer)
+
+    # This is now replaced by the init hook on self.optimizer
+    # def configure_optimizers(self) -> Optimizer:
+    #     return bert_default_optimizer(self)
+
+    def forward(
+        self,
+        *args,
+        **kwargs,
+    ) -> torch.Tensor:
+        """Call the forward method of the underlying model, and return whatever it outputs."""
+        output_tensor = self.module(*args, **kwargs)  # for now just pass through to the underlying model
+        return output_tensor
+
+    def data_step(self, dataloader_iter) -> DataStepOutput:  # noqa: D102
+        return self.data_step_function(dataloader_iter)
+
+    def forward_step(self, batch) -> DataT:  # noqa: D102
+        return self.forward_step_function(self, batch)
+
+    def training_step(self, batch, batch_idx=None) -> DataT:  # noqa: D102
+        # In mcore the loss-function is part of the forward-pass (when labels are provided)
+        return self.forward_step(batch)
+
+    def validation_step(self, batch, batch_idx=None) -> DataT:  # noqa: D102
+        # In mcore the loss-function is part of the forward-pass (when labels are provided)
+        return self.forward_step(batch)
+
+    def predict_step(self, batch, batch_idx=None) -> DataT:  # noqa: D102
+        return self.forward_step(batch)
+
+    def training_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
+        # This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss
+        #  This function will
+        return self.loss_reduction_class()
+
+    # The predict step comes from the LightningPassthroughPredictionMixin
+
+    def validation_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
+        return self.loss_reduction_class(validation_step=True)
+
+    def test_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
+        return self.loss_reduction_class(validation_step=True)
+
+    def copy(self) -> "BioBertLightningModule":  # noqa: D102
+        return self.__class__(
+            self.config, self.tokenizer, self.optim, self.data_step_function, self.forward_step_function
+        )

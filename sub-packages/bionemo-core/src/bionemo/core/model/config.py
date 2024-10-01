@@ -15,41 +15,21 @@
 
 
 from abc import ABC, abstractmethod
-from typing import Generic, Protocol, Sequence, Type, TypeVar
-
-from torch import Tensor
+from typing import Generic, Sequence, Type, TypeVar
 
 
 __all__: Sequence[str] = (
     "BionemoModelConfig",
     "BionemoTrainableModelConfig",
-    "ModelOutput",
-    "Model",
 )
 
-ModelOutput = Tensor | list[Tensor] | tuple[Tensor] | dict[str, Tensor]
-"""A Model's forward pass may produce a tensor, multiple tensors, or named tensors.
-"""
 
-LossType = TypeVar("LossType")
-"""Stand-in for a loss function; no constraints.
-"""
+Loss = TypeVar("Loss")
+
+Model = TypeVar("Model")
 
 
-class Model(Protocol):
-    """Lightweight interface for a model: must have a forward method."""
-
-    def forward(self, *args, **kwargs) -> ModelOutput:
-        """Prediction / forward-step for a model."""
-        ...
-
-
-ModelType = TypeVar("ModelType", bound=Model)
-"""Generic type for things that have a forward pass.
-"""
-
-
-class BionemoModelConfig(Generic[ModelType], ABC):
+class BionemoModelConfig(Generic[Model], ABC):
     """An abstract class for model configuration."""
 
     @abstractmethod
@@ -58,10 +38,10 @@ class BionemoModelConfig(Generic[ModelType], ABC):
         raise NotImplementedError()
 
 
-class BionemoTrainableModelConfig(Generic[ModelType, LossType], BionemoModelConfig[Model]):
+class BionemoTrainableModelConfig(Generic[Model, Loss], BionemoModelConfig[Model]):
     """An abstract class for trainable model configuration."""
 
     @abstractmethod
-    def get_loss_reduction_class(self) -> Type[LossType]:
+    def get_loss_reduction_class(self) -> Type[Loss]:
         """Returns the loss reduction class."""
         raise NotImplementedError()

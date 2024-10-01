@@ -1,3 +1,5 @@
 #!/bin/bash
 
-sudo pip install --no-deps --editable ./3rdparty/* ./sub-packages/bionemo-*
+for sub in ./3rdparty/* ./sub-packages/*; do
+    uv pip install --no-deps --no-build-isolation --editable $sub
+done

@@ -89,7 +89,7 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
   <<EOT
-uv pip install --no-build-isolation -v ./3rdparty/* ./sub-packages/bionemo-*
+uv pip install --no-build-isolation ./3rdparty/* ./sub-packages/bionemo-*
 rm -rf ./3rdparty
 rm -rf /tmp/*
 EOT
@@ -118,9 +118,32 @@ RUN groupadd --gid $USER_GID $USERNAME \
   && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
 
-RUN rm -rf /usr/local/lib/python3.10/dist-packages
+# Here we delete the dist-packages directory from the pytorch base image, and copy over the dist-packages directory from
+# the build image. This ensures we have all the necessary dependencies installed (megatron, nemo, etc.).
+RUN <<EOT
+  rm -rf /usr/local/lib/python3.10/dist-packages
+  mkdir -p /usr/local/lib/python3.10/dist-packages
+  chmod 777 /usr/local/lib/python3.10/dist-packages
+  chmod 777 /usr/local/bin
+EOT
+
+USER $USERNAME
+
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
   /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_LINK_MODE=copy \
+  UV_COMPILE_BYTECODE=0 \
+  UV_PYTHON_DOWNLOADS=never \
+  UV_SYSTEM_PYTHON=true
+
+RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
+  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOT
+  uv pip install -r /workspace/bionemo2/requirements-dev.txt
+  rm -rf /tmp/*
+EOT
+
 RUN <<EOT
   rm -rf /usr/local/lib/python3.10/dist-packages/bionemo*
   pip uninstall -y nemo_toolkit megatron_core

@@ -31,7 +31,7 @@ from bionemo.llm.data import masking
 from bionemo.llm.data.types import BertSample
 
 
-class RandomMaskStrategy(Enum):
+class RandomMaskStrategy(str, Enum):
     """Enum for different random masking strategies.
 
     In ESM2 pretraining, 15% of all tokens are masked and among which 10% are replaced with a random token. This class controls the set of random tokens to choose from.
