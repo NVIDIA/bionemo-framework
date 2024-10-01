@@ -14,13 +14,22 @@
 # limitations under the License.
 
 
-from typing import Iterable, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, TypeVar, Union
 
 import pytorch_lightning as pl
 import torch
 import torch.distributed
 from megatron.core import parallel_state
-from nemo.lightning.megatron_parallel import DataT, MegatronLossReduction, ReductionT
+from nemo.lightning.megatron_parallel import (
+    CallbackMethods,
+    DataT,
+    MegatronLossReduction,
+    MegatronStep,
+    ReductionT,
+)
+from typing_extensions import override
+
+from bionemo.llm.model.loss import unreduced_token_loss_fn
 
 
 __all__: Sequence[str] = (
@@ -28,7 +37,7 @@ __all__: Sequence[str] = (
     "batch_collator",
     "PassthroughLossReduction",
     "LightningPassthroughPredictionMixin",
-    "LossLoggingCallback",
+    "PerplexityLoggingCallback",
 )
 
 
@@ -155,58 +164,89 @@ class LightningPassthroughPredictionMixin:
         return PassthroughLossReduction()
 
 
-class LossLoggingCallback(pl.Callback):  # noqa: D101
-    def __init__(self):
-        """Log the loss at the end of each batch. For training do not reduce across the epoch but do so for validation/test."""
-        self.val_losses = []
-        self.test_losses = []
+class PerplexityLoggingCallback(pl.Callback, CallbackMethods):
+    """Megatron Callback to log perplexity in validation and optionally training.
 
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):  # noqa: D102
-        # Assuming the loss is computed internally and stored in pl_module
-        if torch.distributed.get_rank() == 0 and parallel_state.is_pipeline_last_stage():
-            # TODO(@jstjohn): verify when the outputs are a dictionary of "loss" and when they are just one tensor value.
-            if isinstance(outputs, dict):
-                outputs = outputs["loss"]
-            # torch.distributed.all_reduce(outputs, op=torch.distributed.ReduceOp.AVG)
-            loss = outputs
-            pl_module.log("train_loss", loss, on_step=True, prog_bar=True, logger=True, rank_zero_only=True)
+    NeMo2.0 checks whether a callback is an instance of {LightningModule,LightningDataModule,Callback} but only megatron_hooks are useful.
+    """
 
-    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):  # noqa: D102
-        # TODO(@jstjohn): Add a docstring with type hints for this lightning hook
-        # Assuming the loss is computed internally and stored in pl_module
-        if torch.distributed.get_rank() == 0 and parallel_state.is_pipeline_last_stage():
-            # TODO(@jstjohn): verify when the outputs are a dictionary of "loss" and when they are just one tensor value.
-            if isinstance(outputs, dict):
-                outputs = outputs["loss"]
-            # TODO verify that losses are already reduced across ranks
-            # torch.distributed.all_reduce(outputs, op=torch.distributed.ReduceOp.AVG)
-            loss = outputs
-            self.test_losses.append(loss)
+    def __init__(self, log_train: bool = False, log_val: bool = True):
+        """Initialize PerplexityLoggingCallback.
 
-    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):  # noqa: D102
-        # TODO(@jstjohn): Add a docstring with type hints for this lightning hook
-        # Assuming the loss is computed internally and stored in pl_module
-        if torch.distributed.get_rank() == 0 and parallel_state.is_pipeline_last_stage():
-            # TODO(@jstjohn): verify when the outputs are a dictionary of "loss" and when they are just one tensor value.
-            if isinstance(outputs, dict):
-                outputs = outputs["loss"]
-            # TODO verify that losses are already reduced across ranks
-            # torch.distributed.all_reduce(outputs, op=torch.distributed.ReduceOp.AVG)
-            loss = outputs
-            self.val_losses.append(loss)
+        Args:
+            log_train: whether to log train perplexity. Defaults to False.
+            log_val: whether to log validation perplexity. Defaults to True.
+        """
+        super().__init__()
+        self.log_train = log_train
+        self.log_val = log_val
 
-    def on_validation_epoch_end(self, trainer, pl_module):  # noqa: D102
-        # TODO(@jstjohn): Add a docstring with type hints for this lightning hook
-        if torch.distributed.get_rank() == 0 and parallel_state.is_pipeline_last_stage():
-            if len(self.val_losses) > 0:
-                avg_val_loss = torch.stack(self.val_losses).mean()
-                pl_module.log("val_loss", avg_val_loss, prog_bar=True, logger=True, rank_zero_only=True)
-                self.val_losses.clear()
+    def _pad_to_max_length(
+        self, microbatch_outputs: List[Dict[str, Dict[str, torch.Tensor]]], key1: str, key2: str, pad_value: int = 0
+    ) -> torch.Tensor:
+        """Pad tensors to max length in microbatch_outputs."""
+        max_sequence_length = max(output[key1][key2].size(1) for output in microbatch_outputs)
 
-    def on_test_epoch_end(self, trainer, pl_module):  # noqa: D102
-        # TODO(@jstjohn): Add a docstring with type hints for this lightning hook
-        if torch.distributed.get_rank() == 0 and parallel_state.is_pipeline_last_stage():
-            if len(self.test_losses) > 0:
-                avg_test_loss = torch.stack(self.test_losses).mean()
-                pl_module.log("test_loss", avg_test_loss, prog_bar=True, logger=True, rank_zero_only=True)
-                self.test_losses.clear()
+        tensors = []
+        for microbatch_output in microbatch_outputs:
+            tensor = microbatch_output[key1][key2]
+            assert (
+                tensor.dim() >= 2
+            ), f"Tensor in microbatch_outputs must have at least 2 dimensions, but got {tensor.dim()} dimensions"
+            tensors.append(
+                torch.nn.functional.pad(  # padding reverse in order
+                    tensor,
+                    (0, 0) * (tensor.dim() - 2)
+                    + (0, max_sequence_length - tensor.shape[1], 0, 0),  # [b s *] -> [* s b]
+                    value=pad_value,
+                )
+            )
+
+        return torch.cat(tensors, dim=0)  # concat on batch dim
+
+    @override
+    def on_megatron_reduce_microbatches_end(
+        self,
+        step: MegatronStep,
+        microbatch_outputs: List[Any],
+        loss_reduction: "MegatronLossReduction",
+        reduced: Union[torch.Tensor, Dict[str, torch.Tensor]],
+    ) -> None:
+        """Log after MegatronReductionLoss.reduce is called.
+
+        Expected microbatch_outputs to be a list of dicts with the following keys:
+            - batch: dict of tensors with the following keys:
+                - labels: [b s]
+                - loss_mask: [b s]; 1 means included 0 means ignored
+            - forward_out: dict of tensors with the following keys:
+                - token_logits: [b s vocab]
+        """
+        if step.trainer.training and not self.log_train:
+            return
+
+        if not parallel_state.is_pipeline_last_stage():
+            return
+
+        assert step.num_microbatches > 0, "num_microbatches must be greater than 0"
+        assert (
+            len(microbatch_outputs) == step.num_microbatches
+        ), "microbatch_outputs length does not match num_microbatches"
+        labels = self._pad_to_max_length(microbatch_outputs, "batch", "labels", pad_value=-100)
+        loss_mask = self._pad_to_max_length(microbatch_outputs, "batch", "loss_mask")
+        token_logits = self._pad_to_max_length(microbatch_outputs, "forward_out", "token_logits")
+
+        unreduced_token_loss = unreduced_token_loss_fn(
+            token_logits.clone(),  # unreduced_token_loss_fn has inplace operation on token_logits
+            labels.clone(),
+        )  #  [b s]
+
+        cp_size = parallel_state.get_context_parallel_world_size()
+        if cp_size == 1:
+            ppl = torch.exp((unreduced_token_loss * loss_mask).sum() / loss_mask.sum())
+        else:
+            raise NotImplementedError("Context parallel perplexity logging is not supported yet")
+
+        if self.log_val and not step.trainer.training:
+            step.pl_module.log("val_ppl", ppl, prog_bar=True, on_epoch=True)
+        elif self.log_train and step.trainer.training:
+            step.pl_module.log("train_ppl", ppl, prog_bar=True, batch_size=1, sync_dist=False)

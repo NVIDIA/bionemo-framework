@@ -1,4 +1,0 @@
-torch>=2.2.1
-numpy
-platformdirs
-pytorch-lightning

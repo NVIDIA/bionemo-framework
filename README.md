@@ -80,38 +80,55 @@ tests for all sub-packages.
 
 ## Publishing Packages
 
-### Set `BIONEMO_PUBLISH_MODE=1` and `REPO_ROOT`
-To publish a bionemo namespace package, you must set the `BIONEMO_PUBLISH_MODE` environment variable to a true value:
-one of `"true"`, `"y"`, `"yes"`, or `1` suffices. This will enable the build step to list any dependent bionemo
-subpackages by their PyPI-compatible package name. Otherwise, the default is to use local _path_ based dependencies
-to reference other bionemo `sub-packages/`.
+*Note*: Once we have a pypi deployment strategy, we should automate the following commands to run automatically via
+github actions on new git tags. We can therefore trigger wheel building and pypi deployment by minting new releases as
+part of the github.com CI.
 
-Additionally, when building, you must manually set the `REPO_ROOT` environment variable to point to the repository's
-root on your filesystem. This must be an absolute path. Or, it may be a relative path that starts from the user's home
-directory (i.e. `~/` is acceptable).
+### Add a new git tag
 
-### Increment `VERSION` File
-Make sure that the [`VERSION`](./VERSION) file is incremented appropriately. Bionemo packages follow
-[semantic versioning 2.0](https://semver.org/) rules: API-breaking changes are `MAJOR`, new features
-are `MINOR`, and bug-fixes and refactors are `PATCH` in `MAJOR.MINOR.PATCH` version string format.
+We use [setuptools-scm](https://setuptools-scm.readthedocs.io/en/latest/) to dynamically determine the library version
+from git tags. As an example:
 
-### `python -m build`
-Build the bionemo sub-package project by executing the following at the sub-package's root level:
-```shell
-BIONEMO_PUBLISH_MODE=1 python -m build
+```bash
+$ git tag 2.0.0a1
+$ docker build . -t bionemo-uv
+$ docker run --rm -it bionemo-uv:latest python -c "from importlib.metadata import version; print(version('bionemo.esm2'))"
+2.0.0a1
 ```
-This will produce a wheel file for the sub-package's code and its dependencies.
 
-### `python -m twine upload`
+Bionemo packages follow [semantic versioning 2.0](https://semver.org/) rules: API-breaking changes are `MAJOR`, new
+features are `MINOR`, and bug-fixes and refactors are `PATCH` in `MAJOR.MINOR.PATCH` version string format.
+
+If subsequent commits are added after a git tag, the version string will reflect the additional commits (e.g.
+`2.0.0a1.post1`). Note, we don't consider uncommitted changes in determining the version string.
+
+### Building a python wheel
+
+An overview for publishing packages with `uv` can be found here: https://docs.astral.sh/uv/guides/publish/
+
+Build the bionemo sub-package project by executing the following for the desired package:
+```shell
+uv build sub-packages/bionemo-core/
+```
+
+This will produce a wheel file for the sub-package's code and its dependencies:
+```shell
+$ ls sub-packages/bionemo-core/dist/
+bionemo_core-2.0.0a1.post0-py3-none-any.whl  bionemo_core-2.0.0a1.post0.tar.gz
+```
+
+### Uploading a python wheel
+
 After building, the wheel file can be uploaded to PyPI (or a compatible package registry) by executing
-`python -m twine upload dist/*`.
+`uvx twine upload sub-packages/bionemo-core/dist/*`.
 
 ### All steps together
+
+Assumes we're building a wheel for `bionemo-core`.
 ```bash
-echo "Updated version: $(cat VERSION)"
-pushd sub-package/bionemo-<project name>
-REPO_ROOT="<path to bionemo-fw-ea>" BIONEMO_PUBLISH_MODE=1 python -m build
-TWINE_PASSWORD="<pypi pass>" TWINE_USERNAME="<pypi user>" python -m twine upload dist/*
+git tag MY-VERSION-TAG
+uv build /sub-packages/bionemo-core
+TWINE_PASSWORD="<pypi pass>" TWINE_USERNAME="<pypi user>" uvx twine upload /sub-packages/bionemo-core/dist/*
 ```
 
 
@@ -181,4 +198,61 @@ Make sure you have installed [`license-check`](https://gitlab-master.nvidia.com/
 which is defined in the development dependencies. If you add new Python (`.py`) files, be sure to run as:
 ```bash
 license-check --license-header ./license_header --check . --modify --replace
+```
+
+
+# UV-based python packaging
+
+We've begun migrating to use `uv` (https://docs.astral.sh/uv/) to handle python packaging inside our docker containers.
+In addition to streamlining how we specify intra-repo dependencies, it will allow us to create a uv lockfile to pin our
+dependencies for our bionemo docker container.
+
+We'll likely maintain two images going forward:
+
+1. An image that derives from `nvcr.io/nvidia/pytorch` that will be our performance baseline. The advantage of this
+   image base is that the performance of pytorch is validated by the NVIDIA pytorch team, but the downsides are that (1)
+   the overall image size is quite large, and (2) using `uv sync` to install a pinned virtual environment is not
+   possible with the existing python environment in the ngc image.
+
+2. An image that derives from `nvcr.io/nvidia/cuda`, where we use uv to create the python environment from scratch. This
+   image uses pytorch wheels from https://download.pytorch.org.
+
+Currently, the devcontainer derives from the cuda-based image above, while the release image derives from the pytorch
+image.
+
+## Generating uv.lock
+
+The current `uv.lock` file was generated by running
+
+```bash
+uv lock --refresh --no-cache
+```
+
+For cuda 12.4, we can run
+
+```bash
+uv lock --extra-index-url https://download.pytorch.org/whl/cu124 --index-strategy unsafe-best-match --refresh --no-cache
+```
+
+(to match https://pytorch.org/get-started/locally/#start-locally)
+
+## Building the CUDA image
+
+```bash
+docker build -f Dockerfile.uv . -t bionemo-uv
+```
+
+## Runnings tests inside the CUDA image.
+
+```bash
+docker run --rm -it \
+    -v ${HOME}/.aws:/home/bionemo/.aws \
+    -v ${HOME}/.ngc:/home/bionemo/.ngc \
+    -v ${PWD}:/home/bionemo/ \
+    -v ${HOME}/.cache:/home/bionemo/.cache \
+    -e HOST_UID=$(id -u) \
+    -e HOST_GID=$(id -g) \
+    --gpus=all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
+    bionemo-uv:latest \
+    py.test sub-packages/ scripts/
 ```

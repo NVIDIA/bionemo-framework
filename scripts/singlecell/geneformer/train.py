@@ -40,7 +40,7 @@ from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.geneformer.api import FineTuneSeqLenBioBertConfig, GeneformerConfig
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
-from bionemo.llm.lightning import LossLoggingCallback
+from bionemo.llm.lightning import PerplexityLoggingCallback
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
 from bionemo.llm.model.biobert.model import BioBertGenericConfig, BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
@@ -156,7 +156,7 @@ def main(
         val_check_interval=val_check_interval,  # TODO(@jstjohn) Checkpoint saving is currently broken, fix and change this.
         num_nodes=num_nodes,
         callbacks=[
-            LossLoggingCallback(),
+            PerplexityLoggingCallback(log_train=False, log_val=True),  # TODO(@sichu) fix this
             RichModelSummary(max_depth=4),
             LearningRateMonitor(),
         ],

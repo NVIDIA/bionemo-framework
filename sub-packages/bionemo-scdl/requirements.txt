@@ -1,6 +1,0 @@
-pyarrow>=16.0.0
-anndata>=0.10.7
-numpy>=1.26.4
-pandas>=2.2.1
-torch>=2.1.0
-scipy>=1.11.1

@@ -198,7 +198,7 @@ def test_apply_bert_pretraining_mask_doesnt_mask_special_tokens():
         mask_config=BertMaskConfig(mask_prob=0.5, tokenizer=TestTokenizer(), random_tokens=range(4, 24)),
     )
     assert torch.all(masked_sequence == 0)
-    assert torch.all(labels == -1)
+    assert torch.all(labels == -100)
     assert torch.all(~loss_mask)
 
 
