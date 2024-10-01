@@ -161,7 +161,8 @@ def test_val_dataloader_in_main_runs_with_limit_val_batches(
             valid_database_path=dummy_protein_dataset,
             num_nodes=1,
             devices=1,
-            seq_length=128,
+            min_seq_length=None,
+            max_seq_length=128,
             result_dir=result_dir,
             wandb_project=None,
             wandb_offline=True,
@@ -221,7 +222,7 @@ def test_pretrain_cli(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inp
     --val-check-interval 10 \
     --num-dataset-workers 1 \
     --num-steps 55 \
-    --seq-length 128 \
+    --max-seq-length 128 \
     --limit-val-batches 2 \
     --micro-batch-size 2 \
     --accumulate-grad-batches 2

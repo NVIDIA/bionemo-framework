@@ -29,7 +29,6 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.example_model import lightning_basic as lb
-from bionemo.llm.lightning import LossLoggingCallback
 from bionemo.llm.model.config import MegatronBioNeMoTrainableModelConfig
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
@@ -104,7 +103,7 @@ def _train_model_get_ckpt(
         max_steps=100,
         num_nodes=1,
         log_every_n_steps=5,
-        callbacks=[LossLoggingCallback(), metric_tracker],
+        callbacks=[metric_tracker],
         **extra_args,
     )
     data_module = lb.MNISTDataModule(data_dir=str(BIONEMO_CACHE_DIR), batch_size=64)  # Re-use the same data directory

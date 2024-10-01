@@ -17,6 +17,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Sequence, Tuple, Type, Union
 
+import numpy as np
 import torch
 from megatron.core import parallel_state
 from megatron.core.transformer.module import MegatronModule
@@ -27,6 +28,7 @@ from torch.utils.data import Dataset
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
 from bionemo.esm2.data import tokenizer
 from bionemo.llm.data.label2id_tokenizer import Label2IDTokenizer
+from bionemo.llm.data.types import BertSample
 from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
 from bionemo.llm.utils import iomixin_utils as iom
 
@@ -84,8 +86,8 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
         Returns:
             A tensor that is the mean of the losses. (used for logging).
         """
-        mse_losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
-        return mse_losses.mean()
+        losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
+        return losses.mean()
 
 
 class MegatronConvNetHead(MegatronModule):
@@ -111,13 +113,13 @@ class MegatronConvNetHead(MegatronModule):
         return output
 
 
-class ESM2FineTuneSeqLengthModel(ESM2Model):
+class ESM2FineTuneTokenModel(ESM2Model):
     def __init__(self, config, *args, include_hiddens: bool = False, post_process: bool = True, **kwargs):
         super().__init__(config, *args, include_hiddens=True, post_process=post_process, **kwargs)
 
         # freeze encoder parameters
         if config.encoder_frozen:
-            for param in self.encoder.parameters():
+            for _, param in self.named_parameters():
                 param.requires_grad = False
 
         self.include_hiddens_finetuning = (
@@ -155,13 +157,13 @@ class ESM2FineTuneSeqLengthModel(ESM2Model):
 
 
 @dataclass
-class ESM2FineTuneSeqLenBioBertConfig(ESM2GenericConfig[ESM2FineTuneSeqLengthModel], iom.IOMixinWithGettersSetters):
+class ESM2FineTuneTokenConfig(ESM2GenericConfig[ESM2FineTuneTokenModel], iom.IOMixinWithGettersSetters):
     """ExampleConfig is a dataclass that is used to configure the model.
 
     Timers from ModelParallelConfig are required for megatron forward compatibility.
     """
 
-    model_cls: Type[ESM2FineTuneSeqLengthModel] = ESM2FineTuneSeqLengthModel
+    model_cls: Type[ESM2FineTuneTokenModel] = ESM2FineTuneTokenModel
     # typical case is fine-tune the base biobert that doesn't have this head. If you are instead loading a checkpoint
     # that has this new head and want to keep using these weights, please drop this next line or set to []
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=lambda: ["classification_head"])
@@ -175,19 +177,26 @@ class ESM2FineTuneSeqLenBioBertConfig(ESM2GenericConfig[ESM2FineTuneSeqLengthMod
         return ClassifierLossReduction
 
 
-class PerTokenValueDataset(Dataset):
+class InMemoryPerTokenValueDataset(Dataset):
     def __init__(
         self,
-        data: Sequence[Tuple[str, str, str]],
+        data: Sequence[Tuple[str, str]],
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
+        seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
         """Initializes a dataset for per-token classification fine-tuining.
 
+        This is an in-memory dataset that does not apply masking to the sequence.
+
         Args:
-            data (Sequence[Tuple[str, str, str]]): A sequence of tuples containing the data.
+            data (Sequence[Tuple[str, str]]): A sequence of tuples containing the sequence and target data.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
+            seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
+                that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
+                generated.
         """
         self.data = data
+        self.seed = seed
         self._len = len(self.data)
         self.tokenizer = tokenizer
         label_tokenizer = Label2IDTokenizer()
@@ -196,12 +205,12 @@ class PerTokenValueDataset(Dataset):
     def __len__(self):
         return self._len
 
-    def __getitem__(self, idx):
-        sequence = self.data[idx][1]
+    def __getitem__(self, index: int) -> BertSample:
+        sequence, target = self.data[index]
         tokenized_sequence = self._tokenize(sequence)
         # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
         loss_mask = ~torch.isin(tokenized_sequence, torch.tensor(self.tokenizer.all_special_ids))
-        labels = self._tokenize_labels(self.data[idx][2])
+        labels = self._tokenize_labels(target)
 
         return {
             "text": tokenized_sequence,

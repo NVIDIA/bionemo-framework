@@ -47,43 +47,11 @@ RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-di
 RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.0.3
 
-FROM bionemo2-base AS pip-requirements
-
-# Copy and install pypi depedencies.
-RUN mkdir /tmp/pip-tmp
-WORKDIR /tmp/pip-tmp
-
-COPY requirements-dev.txt requirements-test.txt requirements-cve.txt /tmp/pip-tmp/
-
-# We want to only copy the requirements.txt, setup.py, and pyproject.toml files for *ALL* sub-packages
-# but we **can't** do COPY sub-packages/**/{requirements.txt,...} /<destination> because this will overwrite!
-# So....we copy everything into a temporary image and remove everything else!
-# Later, we can copy the result from the temporary image and get what we want
-# **WITHOUT** invalidating the cache for successive layers!
-COPY sub-packages/ /tmp/pip-tmp/sub-packages
-# remove all directories that aren't the top-level sub-packages/bionemo-{xyz}
-RUN find sub-packages/ -type d | grep "bionemo-[a-zA-Z0-9\-]*/" | xargs rm -rf && \
-    # only keep the requirements-related files
-    find sub-packages/ -type f | grep -v -E "requirements.txt|pyproject.toml|setup.py" | xargs rm
-
-FROM bionemo2-base AS dev
+RUN pip install hatchling   # needed to install nemo-run
+ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
+RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG}
 
 RUN mkdir -p /workspace/bionemo2/
-WORKDIR /workspace/bionemo2
-
-# We get the sub-packcages/ top-level structure + requirements.txt files
-COPY --from=pip-requirements /tmp/pip-tmp/ /workspace/bionemo2/
-
-RUN pip install -r requirements-dev.txt -r requirements-test.txt -r requirements-cve.txt
-
-# We calculate paths to each requirements.txt file and dynamically construct the pip install command.
-# This command will expand to something like:
-#   pip install --disable-pip-version-check --no-cache-dir \
-#      -r bionemo-core/requirements.txt \
-#      -r bionemo-pytorch/requirements.txt \
-#      -r bionemo-lmm/requirements.txt \
-#      (etc.)
-RUN X=""; for sub in $(echo sub-packages/bionemo-*); do X="-r ${sub}/requirements.txt ${X}"; done; eval "pip install --disable-pip-version-check --no-cache-dir ${X}"
 
 # Delete the temporary /build directory.
 WORKDIR /workspace
@@ -92,16 +60,54 @@ RUN rm -rf /build
 # Addressing Security Scan Vulnerabilities
 RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
 RUN apt-get update  && \
-    apt-get install -y openssh-client=1:8.9p1-3ubuntu0.10 && \
-    rm -rf /var/lib/apt/lists/*
+  apt-get install -y openssh-client=1:8.9p1-3ubuntu0.10 && \
+  rm -rf /var/lib/apt/lists/*
 RUN apt purge -y libslurm37 libpmi2-0 && \
-    apt autoremove -y
+  apt autoremove -y
 RUN source /usr/local/nvm/nvm.sh && \
-    NODE_VER=$(nvm current) && \
-    nvm deactivate && \
-    nvm uninstall $NODE_VER && \
-    sed -i "/NVM/d" /root/.bashrc && \
-    sed -i "/nvm.sh/d" /etc/bash.bashrc
+  NODE_VER=$(nvm current) && \
+  nvm deactivate && \
+  nvm uninstall $NODE_VER && \
+  sed -i "/NVM/d" /root/.bashrc && \
+  sed -i "/nvm.sh/d" /etc/bash.bashrc
+
+# Use UV to install python packages from the workspace. This just installs packages into the system's python
+# environment, and does not use the current uv.lock file.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_LINK_MODE=copy \
+  UV_COMPILE_BYTECODE=1 \
+  UV_PYTHON_DOWNLOADS=never \
+  UV_SYSTEM_PYTHON=true
+
+WORKDIR /workspace/bionemo2
+
+# Install 3rd-party deps and bionemo submodules.
+COPY ./3rdparty /workspace/bionemo2/3rdparty
+COPY ./sub-packages /workspace/bionemo2/sub-packages
+
+# Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
+RUN --mount=type=bind,source=./.git,target=./.git \
+  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
+  <<EOT
+uv pip install --no-build-isolation ./3rdparty/* ./sub-packages/bionemo-*
+rm -rf ./3rdparty
+rm -rf /tmp/*
+EOT
+
+# In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
+# base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
+# they can be installed in an editable fashion from the workspace directory. This lets us install all the package
+# dependencies in a cached fashion, so they don't have to be built from scratch every time the devcontainer is rebuilt.
+FROM ${BASE_IMAGE} AS dev
+
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+  <<EOT
+apt-get update -qy
+apt-get install -qyy \
+  sudo
+rm -rf /tmp/* /var/tmp/*
+EOT
 
 # Create a non-root user to use inside a devcontainer.
 ARG USERNAME=bionemo
@@ -112,35 +118,43 @@ RUN groupadd --gid $USER_GID $USERNAME \
   && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
 
-RUN find /usr/local/lib/python3.10/dist-packages/ -type f -print0 | xargs -0 -P 0 -n 10000 chown $USERNAME:$USER_GID
+# Here we delete the dist-packages directory from the pytorch base image, and copy over the dist-packages directory from
+# the build image. This ensures we have all the necessary dependencies installed (megatron, nemo, etc.).
+RUN <<EOT
+  rm -rf /usr/local/lib/python3.10/dist-packages
+  mkdir -p /usr/local/lib/python3.10/dist-packages
+  chmod 777 /usr/local/lib/python3.10/dist-packages
+  chmod 777 /usr/local/bin
+EOT
 
-ENV PATH="/home/bionemo/.local/bin:${PATH}"
+USER $USERNAME
 
+COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
+  /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 
-# Create a release image with bionemo2 installed.
-FROM dev AS release
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_LINK_MODE=copy \
+  UV_COMPILE_BYTECODE=0 \
+  UV_PYTHON_DOWNLOADS=never \
+  UV_SYSTEM_PYTHON=true
 
-# Install 3rd-party deps
-COPY ./3rdparty /build
-WORKDIR /build/Megatron-LM
-RUN pip install --disable-pip-version-check --no-cache-dir .
+RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
+  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOT
+  uv pip install -r /workspace/bionemo2/requirements-dev.txt
+  rm -rf /tmp/*
+EOT
 
-WORKDIR /build/NeMo
-RUN pip install --disable-pip-version-check --no-cache-dir .[all]
+RUN <<EOT
+  rm -rf /usr/local/lib/python3.10/dist-packages/bionemo*
+  pip uninstall -y nemo_toolkit megatron_core
+EOT
 
-WORKDIR /build/NeMo-Run
-RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0.dev1 pip install --disable-pip-version-check --no-cache-dir .
+# The 'release' target needs to be last so that it's the default build target. In the future, we could consider a setup
+# similar to the devcontainer above, where we copy the dist-packages folder from the build image into the release image.
+# This would reduce the overall image size by reducing the number of intermediate layers. In the meantime, we match the
+# existing release image build by copying over remaining files from the repo into the container.
+FROM bionemo2-base AS release
 
-WORKDIR /workspace
-RUN rm -rf /build
-
-# Install bionemo2 submodules
-WORKDIR /workspace/bionemo2/
 COPY VERSION .
-COPY ./sub-packages /workspace/bionemo2/sub-packages
-# Dynamically install the code for each bionemo namespace package.
-RUN for sub in sub-packages/bionemo-*; do pushd ${sub} && pip install --no-build-isolation --no-cache-dir --disable-pip-version-check --no-deps -e . && popd; done
-
-WORKDIR /workspace/bionemo2/
 COPY ./scripts ./scripts
 COPY ./README.md ./

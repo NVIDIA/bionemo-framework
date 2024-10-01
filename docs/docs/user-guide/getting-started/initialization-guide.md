@@ -1,10 +1,14 @@
-# Next Steps
+# Initialization Guide
 
-Now that you have successfully launched the Docker container and entered it, this section will guide you through the container, initial steps to take within the container (such as configuration, downloading pre-trained model weights, etc.), and where to find tutorials.
+!!! note
+
+    Prior to beginning this section, you must confirm that your computing platform meets or exceeds the prerequisites outlined in the [Hardware and Software Prerequisites](./pre-reqs.md) page.
+
+At this point, you have successfully launched and entered the Docker container. This section will guide you through the container, initial steps such as configuration and downloading pre-trained model weights, and where to find tutorials.
 
 ## NGC CLI Configuration
 
-NVIDIA NGC Command Line Interface (CLI) is a command-line tool for managing Docker containers in NGC. If NGC is not already installed in the container, download it as per the instructions [here](https://org.ngc.nvidia.com/setup/installers/cli) (note that within the container, the AMD64 Linux version should be installed).
+NVIDIA NGC Command Line Interface (CLI) is a command-line tool for managing Docker containers in NGC. If NGC is not already installed in the container, download it as per the instructions on the [CLI Installation Page](https://org.ngc.nvidia.com/setup/installers/cli) (note that within the container, the AMD64 Linux version should be installed.)
 
 Once installed, run `ngc config set` to establish NGC credentials within the container.
 
@@ -31,14 +35,16 @@ You may now download all pre-trained model checkpoints from NGC through the foll
 ```bash
 ./launch.sh download
 ```
-This will download all models to the `workspace/bionemo/models` directory. Optionally, you may persist the models by copying them to your mounted workspace, so that they need not be redownloaded each time.
+
+This command will download all models to the `workspace/bionemo/models` directory. Optionally, you may persist the models by copying them to your mounted workspace, so that they need not be re-downloaded each time.
 
 ## Directory Structure
 
 Note that `workspace/bionemo` is the home directory for the container. Below are a few key components:
+
 * `bionemo`: Contains the core BioNeMo package, which includes base classes for BioNeMo data modules, tokenizers, models, etc.
 * `examples`: Contains example scripts, datasets, YAML files, and notebooks
-* `models`: Contains all pre-trained models checkpoints in .nemo format.
+* `models`: Contains all pre-trained models checkpoints in `.nemo` format.
 
 ## Weights and Biases Setup (Optional)
 
@@ -59,7 +65,7 @@ It is convenient to first launch the BioNeMo Framework container and copy the tu
 | Model Pre-Training | [Launching a MolMIM model pre-training with ZINC-15 dataset, both from scratch and starting from an existing checkpoint](./notebooks/model_training_molmim.ipynb) |
 | Model Pre-Training | [ESM-1nv: Data preprocessing and model pre-training using BioNeMo with curated data from UniRef50, UniRef90](./notebooks/model_training_esm1nv.ipynb) |
 | Model Pre-Training | [ESM-2nv: Data Preprocessing and Model Training](./notebooks/model_training_esm2nv.ipynb) |
-| Model Pre-Training | [Pretraining a geneformer model for representing single cell RNA-seq data](./notebooks/geneformer_cellxgene_tutorial.ipynb) |
+| Model Pre-Training | [Pretraining a Geneformer model for representing single cell RNA-seq data](./notebooks/geneformer_cellxgene_tutorial.ipynb) |
 | Geneformer Benchmarking| [Benchmarking pre-trained Geneformer models against a baseline with cell type classification](./notebooks/Geneformer-celltype-classification-example.ipynb) |
 | Model Training     | [Launching an EquiDock model pre-training with DIPS or DB5 datasets](./notebooks/model_training_equidock.ipynb)|
 | Inference          | [Performing Inference with MegaMolBART for Generative Chemistry and Predictive Modeling with RAPIDS](./notebooks/MMB_GenerativeAI_Inference_with_examples.ipynb) |

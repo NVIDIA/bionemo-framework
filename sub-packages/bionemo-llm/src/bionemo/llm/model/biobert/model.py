@@ -429,6 +429,9 @@ class BioBertGenericConfig(
     include_hiddens: bool = False  # Include hidden layers in the output of the model
     core_attention_override: Type[torch.nn.Module] | None = None
 
+    # loss reduction class
+    loss_reduction_class: Type[MegatronLossReduction] = BERTMLMLossWithReduction
+
     def configure_model(self, tokenizer) -> MegatronBioBertModelT:  # noqa: D102
         vp_size = self.virtual_pipeline_model_parallel_size
         if vp_size:
@@ -439,11 +442,9 @@ class BioBertGenericConfig(
 
         # The local specs all require the standard full attention mask. For transformer engine only the NVTE_FLASH_ATTN=0
         #  option requires this full attention mask.
-        use_full_attention_mask: bool = os.getenv("NVTE_FLASH_ATTN") == "0" or self.biobert_spec_option in {
-            BiobertSpecOption.bert_layer_local_spec,
-            BiobertSpecOption.bert_layer_local_spec_with_qk_ln,
-            BiobertSpecOption.esm2_bert_layer_local_spec,
-        }
+        use_full_attention_mask: bool = (
+            os.getenv("NVTE_FLASH_ATTN") == "0" or "transformer_engine" not in self.biobert_spec_option
+        )
 
         do_next_sentence = False
         if self.model_cls is None:
@@ -486,10 +487,7 @@ class BioBertGenericConfig(
         # a checkpoint for fine-tuning (eg ignore misisng lm_head, if not there in model, etc).
         if self.nemo1_ckpt_path is not None:
             assert self.initial_ckpt_path is None, "Mutually exclusive checkpoint path used twice"
-            te_mapping = self.biobert_spec_option in {
-                BiobertSpecOption.bert_layer_with_transformer_engine_spec,
-                BiobertSpecOption.bert_layer_with_transformer_engine_and_qk_ln_spec,
-            }
+            te_mapping = "transformer_engine" in self.biobert_spec_option.value
             with tarfile.open(self.nemo1_ckpt_path, "r") as old_ckpt:
                 ckpt_file = old_ckpt.extractfile("./model_weights.ckpt")
                 old_weights = torch.load(ckpt_file)
@@ -517,4 +515,4 @@ class BioBertGenericConfig(
 
     def get_loss_reduction_class(self) -> Type[MegatronLossReduction]:  # noqa: D102
         # You could optionally return a different loss reduction class here based on the config settings.
-        return BERTMLMLossWithReduction
+        return self.loss_reduction_class

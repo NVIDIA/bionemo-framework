@@ -1,6 +1,0 @@
-lightning>=2.2.1
-pytorch-lightning>=2.2.1
-#git+https://github.com/NVIDIA/TransformerEngine.git@7d576ed25266a17a7b651f2c12e8498f67e0baea
-#git+https://github.com/NVIDIA/apex.git@810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
-#git+https://github.com/NVIDIA/NeMo.git@d28c1b2dd7c8539299a4c31f7c8d1678e2cbb9c8
-#git+https://github.com/NVIDIA/Megatron-LM.git@c7a1f82d761577e6ca0338d3521eac82f2aa0904

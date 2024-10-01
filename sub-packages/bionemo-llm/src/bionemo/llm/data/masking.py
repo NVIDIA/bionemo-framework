@@ -109,7 +109,7 @@ def apply_bert_pretraining_mask(
 
     # Create the labels for the masked tokens.
     labels = tokenized_sequence.clone()
-    labels[~loss_mask] = -1  # Ignore loss for non-masked tokens.
+    labels[~loss_mask] = -100  # Ignore loss for non-masked tokens.
 
     return masked_sequence, labels, loss_mask
 

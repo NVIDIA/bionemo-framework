@@ -7,8 +7,8 @@
 	"build": {
 		"context": "${localWorkspaceFolder}",
 		"dockerfile": "${localWorkspaceFolder}/Dockerfile",
-		"cacheFrom": "nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-latest",
-		"cacheFrom": "gitlab-master.nvidia.com:5005/clara-discovery/bionemo/bionemo-inter:bionemo2-latest-cache",
+		"cacheFrom": "type=registry,ref=nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-devcontainer-cache",
+		"cacheTo": "type=registry,ref=nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-devcontainer-cache,mode=max",
 		"target": "dev"
 	},
 	"mounts": [
@@ -34,7 +34,8 @@
 				"ms-azuretools.vscode-docker",
 				"charliermarsh.ruff",
 				"njpwerner.autodocstring",
-				"ms-toolsai.jupyter"
+				"ms-toolsai.jupyter",
+				"tamasfe.even-better-toml"
 			],
 			"settings": {
 				"python.analysis.extraPaths": [
@@ -46,10 +47,9 @@
 					"./sub-packages/bionemo-testing/src",
 					"./sub-packages/bionemo-example_model/src",
 					"./3rdparty/NeMo",
-					"./3rdparty/Megatron-LM",
-					"./3rdparty/NeMo-Run"
+					"./3rdparty/Megatron-LM"
 				],
-				"python.pythonPath": "/bin/python3",
+				"python.defaultInterpreterPath": "/usr/bin/python",
 				"python.testing.pytestEnabled": true,
 				"python.testing.pytestArgs": [
 					"sub-packages/",

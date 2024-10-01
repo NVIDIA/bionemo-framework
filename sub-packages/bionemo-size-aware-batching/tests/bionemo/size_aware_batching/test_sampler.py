@@ -199,7 +199,7 @@ def test_SABS_iter_sizeof_invalid_return_type(sampler):
 
     size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, 1)
 
-    with pytest.raises(TypeError, match="not int or float"):
+    with pytest.raises(TypeError, match="'>' not supported"):
         list(size_aware_sampler)
 
 

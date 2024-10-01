@@ -49,7 +49,6 @@ from bionemo.geneformer.model.finetune_token_regressor import (
     LoRAForGeneFormerTokenRegressor,
 )
 from bionemo.llm.data import collate
-from bionemo.llm.lightning import LossLoggingCallback
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
@@ -847,7 +846,7 @@ def _train_model_get_ckpt(
         always_save_context=True,
     )
     metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
-    callbacks = [LossLoggingCallback(), metric_tracker]
+    callbacks = [metric_tracker]
     if peft is not None:
         callbacks.append(ModelTransform())
     trainer = nl.Trainer(

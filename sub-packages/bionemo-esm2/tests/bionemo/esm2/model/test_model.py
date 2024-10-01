@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import gc
+import io
 import tarfile
 from copy import deepcopy
 from pathlib import Path
@@ -151,16 +152,23 @@ def test_esm2_650m_checkpoint(esm2_model):
 
         # Set the new_model_prefix to "" since we are looking at the base megatron model and not the lightning module which stores a copy of
         #  this model into self.module
-        old_keys = {nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="") for k in old_state_dict}
+        old_keys = {
+            nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="", te_mapping=True) for k in old_state_dict
+        }
         assert len(old_keys) == len(old_state_dict), "Mapping unexpectedly discarded some keys."
 
         new_keys = set(new_state_dict)
         for k, v in old_state_dict.items():
             # Make sure the shapes of the weights match.
-            assert new_state_dict[nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="")].shape == v.shape
+            assert (
+                new_state_dict[nemo1_to_nemo2_biobert_key_mapping(k, new_model_prefix="", te_mapping=True)].shape
+                == v.shape
+            )
 
         extra_keys = new_keys.difference(old_keys)
-        extra_non_null_keys = {k for k in extra_keys if new_state_dict[k] is not None}
+        extra_non_null_keys = {
+            k for k in extra_keys if new_state_dict[k] is not None and not isinstance(new_state_dict[k], io.BytesIO)
+        }
         assert not extra_non_null_keys, "There are new keys that have state that is missing from the old checkpoint."
 
         missing_old_keys = old_keys.difference(new_keys)
@@ -168,7 +176,6 @@ def test_esm2_650m_checkpoint(esm2_model):
 
 
 def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
-    assert esm2_650M_config_w_ckpt.core_attention_override is not None
     tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
     tokens = tokenizer.tokenizer([row[1] for row in sample_data], return_tensors="pt", padding=True).to("cuda")
     input_ids = tokens["input_ids"]
