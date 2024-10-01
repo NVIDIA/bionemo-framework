@@ -26,6 +26,8 @@ This package provides a simple way to create mini-batches in a memory consumptio
    prediction (from the previous step) to build batch of data so that the
    resulting mini-batches do not exceed a specified maximum total memory size.
 
+In addition, this package provides one solution to create homogeneous mini-batches, which can be useful to reduce the padding in the network from the input tensors with varying sizes. This `BucketBatchSampler` can be used in conjunction with `torch.utils.data.BatchSampler`, `SizeAwareBatchSampler` or other user-defined batch samplers.
+
 Refer to the later sections for the API documentation and examples on how to achieve each of the steps above.
 
 ### utils Module
@@ -35,12 +37,16 @@ Refer to the later sections for the API documentation and examples on how to ach
     collects CUDA peak memory allocation statistics and features to be used for
     memory usage prediction for a given workflow.
 
+*   [**create_buckets**](#create_buckets): A function to create buckets for a
+    list of integers with pre-defined maximal range of interval and minimal
+    bucket sizes.
+
 ### sampler Module
 -----------------
 
 *   [**size_aware_batching**](#size_aware_batching): A generator that batches elements from an iterable while ensuring that the total size of each batch does not exceed a specified maximum.
 *   [**SizeAwareBatchSampler**](#sizeawarebatchsampler): A class that batches elements of varying sizes while ensuring that the total size of each batch does not exceed a specified maximum.
-
+*   [**BucketBatchSampler**](#BucketBatchSampler): A class that groups elements of varying sizes based on predefined bucket ranges, and batches elements from each bucket to ensure that each batch has elements with homogeneous sizes.
 
 # API reference and examples
 
@@ -136,7 +142,53 @@ data (e.g., internal PyTorch buffers). Therefore, users may want to skip these i
 >>> memory_model.fit(features, alloc_peaks)
 ```
 
-<a id="sampler"></a>
+<a id="utils.create_buckets"></a>
+
+#### create\_buckets
+
+```python
+def create_buckets(sizes: Iterable[int], max_range: int,
+                   min_bucket_count: int) -> Tuple[np.ndarray, np.ndarray]
+```
+
+Create buckets for a list of integers with pre-defined maximal range of interval and minimal bucket sizes.
+
+**Arguments**:
+
+- `sizes` _Iterable[int]_ - An iterable of integers representing sizes.
+- `max_range` _int_ - The maximum range of a bucket.
+- `min_bucket_count` _int_ - The minimum count of a bucket.
+  Bucket size may be smaller than min_bucket_count if its range reaches max_range.
+
+
+**Raises**:
+
+- `ValueError` - If the provided sizes is empty, or not integers.
+- `ValueError` - If max_range is not non-negative integer or min_bucket_count is not positive integer.
+
+
+**Returns**:
+
+  Tuple[np.ndarray, np.ndarray]: A tuple containing bucket ranges in ascending order and the number of elements in each bucket.
+  e.g. np.array([[0, 5], [7,10]]), np.array([3,2]): specifies 2 buckets: 0<= sizes <= 5, 7 <= sizes <= 10, with 3 and 2 elements.
+
+  ---------
+
+**Examples**:
+
+
+```python
+>>> import numpy as np
+>>> from bionemo.size_aware_batching.utils import create_buckets
+
+>>> sizes = np.array([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 22, 22, 22, 22])
+>>> bucket_ranges, bucket_sizes = create_buckets(sizes, max_range=20, min_bucket_count=20)
+>>> print(bucket_ranges)
+[[ 1  3]
+[22 22]]
+>>> print(bucket_sizes)
+[12  4]
+```
 
 ## sampler
 
@@ -321,173 +373,105 @@ This function yields batches of indices that do not exceed the maximum total siz
 - `List[int]` - A batch of indices that do not exceed the maximum total size.
 
 
-# sampler
+<a id="sampler.BucketBatchSampler"></a>
 
-<a id="sampler.size_aware_batching"></a>
-
-#### size\_aware\_batching
+## BucketBatchSampler Objects
 
 ```python
-def size_aware_batching(
-    dataset: Iterable[Data],
-    sizeof: Callable[[Data], Real],
-    max_total_size: Real,
-    collate_fn: Optional[Callable[[Iterable[Data]], Any]] = None,
-    info_logger: Optional[Callable[[str], None]] = None,
-    warn_logger: Optional[Callable[[str], None]] = None
-) -> Generator[Any, None, None]
+class BucketBatchSampler(Sampler[List[int]])
 ```
 
-A generator that batches elements from an iterable while ensuring that the
-total size of each batch does not exceed a specified maximum. This can be
-useful for both indexible data or non-indexible but iterable data.
+A batch sampler to create batches with sizes of elements from each pre-defined bucket ranges.
+A base batch sampler will be used for each bucket.
+
+Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util.py
 
 **Arguments**:
 
-- `dataset` _Iterable[Data]_ - The input iterable.
-- `max_total_size` _Real_ - The maximum total size of each batch.
-  sizeof (Callable[[Data], Real]):
-  A function or mapping that returns the size of each element in `dataset`.
-  collate_fn (Optional[Callable[[Iterable[Data]], Any]], optional):
-  An optional function to collate batches. Defaults to None.
-- `info_logger` _Optional[Callable[[str], None]], optional_ - A function to log info.
-  Defaults to None.
-- `warn_logger` _Optional[Callable[[str], None]], optional_ - A function to log warnings.
-  Defaults to None.
+- `sizes` _np.ndarray_ - A 1D numpy array of real numbers representing the size of each element in the dataset.
+- `bucket_ranges` _np.ndarray_ - A 2D numpy array of real numbers with shape (num_buckets, 2) with each row representing the closed boundary of each bucket interval.
+- `base_batch_sampler_class` _Sampler_ - Base batch sampler class type, which will be used for each bucket.
+- `base_batch_sampler_shared_kwargs` _Dict[str, Any], optional_ - Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
+  Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
+- `base_batch_sampler_individual_kwargs` _Dict[str, Iterable], optional_ - Keyword argument dictionary used to initialize each bucket batch sampler with the corresponding key value pairs.
+  Length of each value in this dict must be equal to len(`bucket_ranges`) (the number of buckets).
+  e.g. {'batch_size': [8,10,12]} will be used to create 3 batch samplers with batch_size = 8, 10, 12 for 3 buckets.
+  Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
+  Default to  {}.
+- `shuffle` _bool_ - A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
 
 
-**Yields**:
+**Raises**:
 
-  Generator[Any, None, None]: A generator that yields batches from `dataset`.
+- `ValueError` - If `sizes` is not a 1D numpy array of real numbers.
+- `ValueError` - If `bucket_ranges` is not a 2D numpy array with shape (num_buckets, 2), or each row is not a valid interval, or the intervals overlap.
+- `ValueError` - If `base_batch_sampler_individual_kwargs` or `base_batch_sampler_individual_kwargs` is not a keyword argument dictionary.
+- `ValueError` - If the length of values in the dict of `base_batch_sampler_individual_kwargs` must be equal to len(bucket_ranges).
+- `RuntimeError` - If there is no elements with sizes inside the `bucket_ranges`.
 
-  -----------
-  Assumptions
-  1. Linear complexity. This function consumes the given Iterable of data (`dataset`) once,
-  by going over the data item one by one to build a batch and yield it as soon as the
-  addition of the next data item to the batch would exceed `max_total_size`.
-  2. Additive size measurement. For the general usage case of building mini-batches by
-  thresholding the batch's memory consumption, it assumes that the size of the batch is
-  the sum of all elements in the batch (additive property).
-  3. The `sizeof` functor only returns int or float values. The primary usage case
-  is for `sizeof` functor to compute and return the memory allocation incurred by the input data
-
-
-  ------
-  Caveat
-- `1` - The generated batch sizes may have large variance
-  - how to workaround: filter the output of this generator using a batch size threshold
-- `2` - The number of batches may vary a lot across different epochs.
-  - how to workaround: increase the number of steps that compose an epoch,
-  e.g., in the Lightning training/valiation loop, which effectively increases the input
-  dataset size per epoch
-
-
-  -------
-  Example
-
-```python
->>> import torch
->>> from torch.utils.data import default_collate
->>> from bionemo.size_aware_batching.sampler import size_aware_batching
-
->>> # Define a sample dataset with torch.tensor
->>> dataset = [torch.tensor([1, 2]), torch.tensor([3, 4]), torch.tensor([5, 6]),
-...            torch.tensor([7, 8]), torch.tensor([9, 10])]
-
->>> # Define a sizeof function that returns the size of each tensor
->>> def sizeof(x):
-...     return x.numel()
-
->>> # Create a generator with max_total_size=4 and default_collate_fn
->>> gen = size_aware_batching(dataset, sizeof, 4, collate_fn=default_collate)
->>> batches = list(gen)
->>> print(batches)
-    [tensor([[1, 2], [3, 4]]), tensor([[5, 6], [7, 8]]), tensor([[9, 10]])]
-```
-
-<a id="sampler.SizeAwareBatchSampler"></a>
-
-## SizeAwareBatchSampler Objects
-
-```python
-class SizeAwareBatchSampler(Sampler[List[int]])
-```
-
-A sampler that batches elements of varying sizes while ensuring
-that the total size of each batch does not exceed a specified maximum.
-
-This is useful when dealing with datasets where each element has a
-different size, such as graphs or sequences of varying lengths.
-The sampler uses a provided `sizeof` function to determine the size
-of each element in the dataset and ensures that the total size of
-each batch does not exceed the specified `max_total_size`.
-
----------
+  ---------
 
 **Examples**:
 
 
 ```python
 >>> import torch
->>> from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
+>>> from bionemo.size_aware_batching.sampler import BucketBatchSampler
 
+>>> # Define the sizes for a dataset
+>>> import numpy as np
+>>> sizes = np.arange(25)
+>>> # Define bucket ranges
+>>> bucket_ranges = np.array([[0,5],[6,14],[15,24]])
 
->>> # Define a sample dataset with torch.tensor
->>> dataset = [torch.tensor([1, 2]), torch.tensor([3, 4]), torch.tensor([5, 6]),
-...            torch.tensor([7, 8]), torch.tensor([9, 10])]
+>>> # Create a bucket batch sampler with torch.utils.data.BatchSampler as base batch sampler
+>>> # As there are 3 buckets, there will be 3 base batch samplers with batch sizes 2, 3, and 5.
+>>> batch_sampler = BucketBatchSampler(
+        sizes=sizes,
+        bucket_ranges=bucket_ranges,
+        base_batch_sampler_class=torch.utils.data.BatchSampler,
+        base_batch_sampler_shared_kwargs={'drop_last': False},
+        base_batch_sampler_individual_kwargs={'batch_size': [2,3,5]},
+        shuffle=False,
+    )
 
-
->>> # Define a function that returns the size of each element in the dataset.
->>> def sizeof(index):
-...     return dataset[index].numel()
-
-
->>> # Create a SizeAwareBatchSampler with a maximum total batch size of 10.
->>> batch_sampler = SizeAwareBatchSampler(
-...     sampler=torch.utils.data.SequentialSampler(dataset),
-...     sizeof=sizeof,
-...     max_total_size=4
-... )
-
-
->>> # Iterate over batches of indices that do not exceed the maximum total size.
+>>> # Iterate over batches of indices that lies in the same bucket and with different batch sizes.
 >>> print(list(batch_sampler))
-    [[0, 1], [2, 3], [4]]
+[[0, 1], [2, 3], [4, 5], [6, 7, 8], [9, 10, 11], [12, 13, 14], [15, 16, 17, 18, 19], [20, 21, 22, 23, 24]]
+
+>>> # randomize the dataset and buckets
+>>> np.random.seed(0)
+>>> batch_sampler = BucketBatchSampler(
+        sizes=sizes,
+        bucket_ranges=bucket_ranges,
+        base_batch_sampler_class=torch.utils.data.BatchSampler,
+        base_batch_sampler_shared_kwargs={'drop_last': False},
+        base_batch_sampler_individual_kwargs={'batch_size': [2,3,5]},
+        shuffle=True,
+    )
+>>> print(list(batch_sampler))
+[[9, 7, 13], [20, 17, 18, 19, 16], [12, 14, 6], [15, 24, 23, 22, 21], [5, 2], [10, 8, 11], [1, 3], [0, 4]]
+>>> print(list(batch_sampler))
+[[6, 14, 13], [5, 2], [12, 11, 10], [8, 7, 9], [17, 21, 20, 15, 16], [18, 22, 24, 19, 23], [1, 0], [3, 4]]
 ```
+  >>> # Combine with SizeAwareBatchSampler to control the cost of each batch
+  >>> from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
+  >>> item_costs = np.copy(sizes).tolist()
+  >>> def cost_of_element(index):
+  return item_costs[index]
+  >>> np.random.seed(0)
+  >>> batch_sampler = BucketBatchSampler(
+  sizes=sizes,
+  bucket_ranges=bucket_ranges,
+  base_batch_sampler_class=SizeAwareBatchSampler,
+- `base_batch_sampler_shared_kwargs={"sizeof"` - cost_of_element, "max_total_size": 40},
+  base_batch_sampler_individual_kwargs={},
+  shuffle=True,
+  )
+  >>> print(list(iter(batch_sampler)))
+  [[9, 7, 13], [20, 17], [12, 14, 6], [18, 19], [5, 2, 1, 3, 0, 4], [16, 15], [24], [23], [10, 8, 11], [22], [21]]
 
-<a id="sampler.SizeAwareBatchSampler.__init__"></a>
-
-#### \_\_init\_\_
-
-```python
-def __init__(
-    sampler: Union[Sampler[List[int]], Iterable[int]],
-    sizeof: Callable[[int], Real],
-    max_total_size: Real,
-    info_logger: Optional[Callable[[str], None]] = lambda msg: print(msg),
-    warn_logger: Optional[Callable[[str], None]] = lambda msg: warn(msg)
-) -> None
-```
-
-Initializes the SizeAwareBatchSampler.
-
-**Arguments**:
-
-- `sampler` _Union[Sampler[List[int]], Iterable[int]]_ - The underlying sampler.
-- `sizeof` _Callable[[int], Real]_ - A function that returns the size at each index.
-- `max_total_size` _Real_ - The maximum total size of a mini-batch.
-- `info_logger` _Optional[Callable[[str], None]], optional_ - A function to log info.
-  Defaults to a lambda function that print.
-- `warn_logger` _Optional[Callable[[str], None]], optional_ - A function to log warnings.
-  Defaults to a lambda function that warns.
-
-
-**Raises**:
-
-- `TypeError` - If sampler is not an instance of Sampler or Iterable, or if sizeof is not a callable, dictionary, or sequence container.
-- `ValueError` - If max_total_size is not a positive number.
-
-<a id="sampler.SizeAwareBatchSampler.__iter__"></a>
+<a id="sampler.BucketBatchSampler.__iter__"></a>
 
 #### \_\_iter\_\_
 
@@ -497,8 +481,8 @@ def __iter__() -> Generator[List[int], None, None]
 
 Iterate over batches of indices.
 
-This function yields batches of indices that do not exceed the maximum total size.
+This function yields batches of indices of elements with sizes from each bucket range.
 
 **Yields**:
 
-- `List[int]` - A batch of indices that do not exceed the maximum total size.
+- `List[int]` - A batch of indices of elements with sizes from each bucket range.
