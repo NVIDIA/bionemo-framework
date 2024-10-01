@@ -41,14 +41,14 @@ def collect_cuda_peak_alloc(
     data (e.g., internal PyTorch buffers). Therefore, users may want to skip these initial data points when analyzing the results.
 
     Args:
-        dataset (Iterable[Data]): An iterable containing the input data.
-        work (Callable[[Data], Feature]): A function that takes a data point and returns its corresponding feature. This is where
+        dataset: An iterable containing the input data.
+        work: A function that takes a data point and returns its corresponding feature. This is where
             the main computation happens and memory allocations are tracked.
-        device (torch.device): The target Torch CUDA device.
-        cleanup (Optional[Callable[[], None]]): A function that is called after each iteration to perform any necessary cleanup.
+        device: The target Torch CUDA device.
+        cleanup: A function that is called after each iteration to perform any necessary cleanup.
 
     Returns:
-        Tuple[List[Feature], List[int]]: A tuple containing the collected features and their corresponding memory usage statistics.
+        A tuple containing the collected features and their corresponding memory usage statistics.
 
     Raises:
         ValueError: If the provided device is not a CUDA device.
@@ -81,7 +81,7 @@ def collect_cuda_peak_alloc(
     ...     return featurize(data)
 
     >>> # can optionally use a cleanup function to release the references
-    >>> # holded during the work(). This cleanup function will be called
+    >>> # hold during the work(). This cleanup function will be called
     >>> # at the end of each step before garbage collection and memory allocations measurement
     >>> def cleanup():
     ...     model.zero_grad(set_to_none=True)
@@ -119,8 +119,6 @@ def collect_cuda_peak_alloc(
         except torch.cuda.OutOfMemoryError:
             print("Encounter CUDA out-of-memory error. Skipping sample", file=sys.stderr, flush=True)
             continue
-        except Exception as e:
-            raise e
         finally:
             # ensures cleanup is done next round even in case of exception
             del data
