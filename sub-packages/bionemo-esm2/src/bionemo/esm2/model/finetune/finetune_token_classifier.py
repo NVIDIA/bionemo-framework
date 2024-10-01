@@ -17,6 +17,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Sequence, Tuple, Type, Union
 
+import numpy as np
 import torch
 from megatron.core import parallel_state
 from megatron.core.transformer.module import MegatronModule
@@ -27,6 +28,7 @@ from torch.utils.data import Dataset
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
 from bionemo.esm2.data import tokenizer
 from bionemo.llm.data.label2id_tokenizer import Label2IDTokenizer
+from bionemo.llm.data.types import BertSample
 from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
 from bionemo.llm.utils import iomixin_utils as iom
 
@@ -84,8 +86,8 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
         Returns:
             A tensor that is the mean of the losses. (used for logging).
         """
-        mse_losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
-        return mse_losses.mean()
+        losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
+        return losses.mean()
 
 
 class MegatronConvNetHead(MegatronModule):
@@ -180,14 +182,21 @@ class InMemoryPerTokenValueDataset(Dataset):
         self,
         data: Sequence[Tuple[str, str]],
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
+        seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
         """Initializes a dataset for per-token classification fine-tuining.
+
+        This is an in-memory dataset that does not apply masking to the sequence.
 
         Args:
             data (Sequence[Tuple[str, str]]): A sequence of tuples containing the sequence and target data.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
+            seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
+                that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
+                generated.
         """
         self.data = data
+        self.seed = seed
         self._len = len(self.data)
         self.tokenizer = tokenizer
         label_tokenizer = Label2IDTokenizer()
@@ -196,12 +205,12 @@ class InMemoryPerTokenValueDataset(Dataset):
     def __len__(self):
         return self._len
 
-    def __getitem__(self, idx):
-        sequence = self.data[idx][0]
+    def __getitem__(self, index: int) -> BertSample:
+        sequence, target = self.data[index]
         tokenized_sequence = self._tokenize(sequence)
         # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
         loss_mask = ~torch.isin(tokenized_sequence, torch.tensor(self.tokenizer.all_special_ids))
-        labels = self._tokenize_labels(self.data[idx][1])
+        labels = self._tokenize_labels(target)
 
         return {
             "text": tokenized_sequence,
