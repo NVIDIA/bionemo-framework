@@ -49,7 +49,8 @@ def main(
     valid_database_path: Path,
     num_nodes: int,
     devices: int,
-    seq_length: int,
+    min_seq_length: Optional[int],
+    max_seq_length: int,
     result_dir: Path,
     wandb_project: Optional[str],
     wandb_offline: bool,
@@ -167,15 +168,18 @@ def main(
         valid_database_path=valid_database_path,
         global_batch_size=global_batch_size,
         micro_batch_size=micro_batch_size,
-        min_seq_length=None,
-        max_seq_length=seq_length,
+        min_seq_length=min_seq_length,
+        max_seq_length=max_seq_length,
         num_workers=num_dataset_workers,
         random_mask_strategy=random_mask_strategy,
     )
 
     # Configure the model
+    need_megatron_variable_seq_lengths_reductions = (
+        pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length,
+    )  # essential for pipeline/tensor parallel
     esm2_config = ESM2Config(
-        seq_length=seq_length,
+        seq_length=max_seq_length,
         num_layers=num_layers,
         hidden_size=hidden_size,
         num_attention_heads=num_attention_heads,
@@ -185,8 +189,7 @@ def main(
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
         biobert_spec_option=biobert_spec_option,
         nemo1_ckpt_path=nemo1_init_path,
-        variable_seq_lengths=pipeline_model_parallel_size * tensor_model_parallel_size
-        > 1,  # essential for pipeline/tensor parallel
+        variable_seq_lengths=need_megatron_variable_seq_lengths_reductions,
     )
 
     model = BioBertLightningModule(
@@ -343,11 +346,17 @@ parser.add_argument(
     help="Number of steps between validation. Default is 10000.",
 )
 parser.add_argument(
-    "--seq-length",
+    "--min-seq-length",
+    type=int,
+    required=False,
+    help="Minimum sequence length. Sampled will be padded if less than this value.",
+)
+parser.add_argument(
+    "--max-seq-length",
     type=int,
     required=False,
     default=1024,
-    help="Sequence length of cell. Default is 1024.",
+    help="Maximum sequence length. Samples will be truncated if exceeds this value.",
 )
 parser.add_argument(
     "--limit-val-batches",
@@ -389,8 +398,8 @@ parser.add_argument(
     type=BiobertSpecOption,
     choices=[e.value for e in BiobertSpecOption],
     required=False,
-    default=BiobertSpecOption.esm2_bert_layer_local_spec.value,
-    help="Biobert spec option to use for the model. Default is 'esm2_bert_layer_local_spec'.",
+    default=BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec.value,
+    help="Biobert spec option to use for the model. Default is 'esm2_bert_layer_with_transformer_engine_spec'.",
 )
 parser.add_argument(
     "--nemo1-init-path",
@@ -436,8 +445,8 @@ parser.add_argument(
 parser.add_argument(
     "--random-mask-strategy",
     type=RandomMaskStrategy,
-    choices=list(RandomMaskStrategy),
-    default=RandomMaskStrategy.ALL_TOKENS,
+    choices=[e.value for e in RandomMaskStrategy],
+    default=RandomMaskStrategy.ALL_TOKENS.value,
     help=f"""In ESM2 pretraining, 15%% of all tokens are masked and among which 10%% are replaced with a random token. This class controls the set of random tokens to choose from. Options are: '{"', '".join([e.value for e in RandomMaskStrategy])}'. Note that 'all_token' will introduce non-canonical amino acid tokens as effective mask tokens, and the resultant loss will appear lower than that from 'amino_acids_only'. Note that 'all_token' is the method used in hugging face as well as portions of fairseq.""",
 )
 parser.add_argument(
@@ -478,7 +487,8 @@ if __name__ == "__main__":
         valid_database_path=args.valid_database_path,
         num_nodes=args.num_nodes,
         devices=args.num_gpus,
-        seq_length=args.seq_length,
+        min_seq_length=args.min_seq_length,
+        max_seq_length=args.max_seq_length,
         result_dir=args.result_dir,
         wandb_project=args.wandb_project,
         wandb_offline=args.wandb_offline,

@@ -58,6 +58,11 @@ class ESM2Embedding(LanguageModelEmbedding):
         self.use_attention_mask = use_attention_mask
         self.mask_token_id = mask_token_id
 
+    @property
+    def dtype(self) -> torch.dtype:
+        """The dtype of the embedding weights."""
+        return self.word_embeddings.weight.dtype
+
     def _apply_esm2_customization(
         self, word_embeddings: Tensor, input_ids: Tensor, attention_mask: Tensor
     ) -> Tuple[Tensor, Tensor]:
@@ -78,7 +83,7 @@ class ESM2Embedding(LanguageModelEmbedding):
         if embeddings_mask is not None and self.token_dropout:
             word_embeddings = word_embeddings.masked_fill((input_ids == self.mask_token_id).unsqueeze(-1), 0.0)
             src_lengths = embeddings_mask.sum(-1)
-            mask_ratio_observed = (input_ids == self.mask_token_id).sum(-1).float() / src_lengths
+            mask_ratio_observed = (input_ids == self.mask_token_id).sum(-1).to(self.dtype) / src_lengths
 
             scale_factor = (1 - ESM2_MASK_RATIO_TRAIN) / (1 - mask_ratio_observed)[:, None, None]
             word_embeddings = (word_embeddings * scale_factor).to(word_embeddings.dtype)

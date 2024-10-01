@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import logging
 import math
 from dataclasses import dataclass
 from typing import Callable, Literal, Optional, Sequence, Type, TypeVar
@@ -33,7 +34,7 @@ from torch import Tensor
 from torch.optim import Optimizer
 
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
-from bionemo.esm2.model.attention import ESM2DotProductAttention
+from bionemo.esm2.model.attention import ESM2DotProductAttention, ESM2TEDotProductAttention
 from bionemo.esm2.model.embedding import ESM2Embedding
 from bionemo.llm.model.biobert.model import BioBertGenericConfig, MegatronBioBertModel
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
@@ -279,10 +280,9 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
     use_attention_mask: bool = True
 
     # core attention
-    use_esm_attention: bool = True
+    use_esm_attention: bool = False  # Skip ESM2 custom attention for TE acceleration. Still passes golden value test.
     attention_softmax_in_fp32: bool = True
     normalize_attention_scores: bool = False
-    apply_query_key_layer_scaling: bool = True
 
     # From megatron.core.models.gpt.bert_model.GPTModel
     fp16_lm_cross_entropy: bool = False  # Move the cross entropy unreduced loss calculation for lm head to fp16
@@ -296,7 +296,7 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
     rotary_percent: float = 1.0
     seq_len_interpolation_factor: Optional[float] = None
     seq_length: int = 1024
-    biobert_spec_option: BiobertSpecOption = BiobertSpecOption.esm2_bert_layer_local_spec
+    biobert_spec_option: BiobertSpecOption = BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec
 
     # TODO: Move this to better places?
     get_attention_mask_from_fusion: bool = False
@@ -312,7 +312,21 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
     #  things as part of the workflow for inference and fine-tuning.
     return_embeddings: bool = False
     return_only_hidden_states: bool = False  # return logits
-    core_attention_override: Type[torch.nn.Module] | None = ESM2DotProductAttention
+
+    def __post_init__(self):
+        """Check compatibility between biobert_spec_option and apply_query_key_layer_scaling post initialization."""
+        super().__post_init__()
+        if self.biobert_spec_option == BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec:
+            self.apply_query_key_layer_scaling = False
+            self.core_attention_override = ESM2TEDotProductAttention
+        elif self.biobert_spec_option == BiobertSpecOption.esm2_bert_layer_local_spec:
+            logging.warning(
+                "BiobertSpecOption.esm2_bert_layer_local_spec is depreciated. Use BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec instead."
+            )
+            self.apply_query_key_layer_scaling = True
+            self.core_attention_override = ESM2DotProductAttention
+        else:
+            raise ValueError(f"Unknown biobert_spec_option: {self.biobert_spec_option}")
 
 
 @dataclass

@@ -25,6 +25,8 @@ from nemo.collections import llm as nllm
 from nemo.lightning import io, resume
 from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks.model_transform import ModelTransform
+from nemo.lightning.pytorch.callbacks.peft import PEFT
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from pytorch_lightning.loggers import TensorBoardLogger
 
@@ -41,6 +43,7 @@ from bionemo.esm2.model.finetune.finetune_token_classifier import (
     ESM2FineTuneTokenConfig,
     InMemoryPerTokenValueDataset,
 )
+from bionemo.esm2.model.finetune.peft import ESM2LoRA
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
@@ -88,6 +91,7 @@ def _train_model(
     data_module: pl.LightningDataModule,
     n_steps_train: int,
     tokenizer: BioNeMoESMTokenizer,
+    peft: PEFT | None = None,
 ) -> Tuple[Path, MetricTracker, nl.Trainer]:
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
         save_last=True,
@@ -115,7 +119,7 @@ def _train_model(
             bf16=config.bf16,
         )
     )
-    module = BioBertLightningModule(config=config, tokenizer=tokenizer, optimizer=optimizer)
+    module = BioBertLightningModule(config=config, tokenizer=tokenizer, optimizer=optimizer, model_transform=peft)
 
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=1,
@@ -125,6 +129,9 @@ def _train_model(
         enable_nemo_ckpt_io=True,
     )
     metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
+    callbacks = [metric_tracker]
+    if peft is not None:
+        callbacks.append(ModelTransform())
     trainer = nl.Trainer(
         accelerator="gpu",
         devices=1,
@@ -134,7 +141,7 @@ def _train_model(
         max_steps=n_steps_train,
         num_nodes=1,
         log_every_n_steps=n_steps_train // 2,
-        callbacks=[metric_tracker],
+        callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
     )
     nllm.train(
@@ -152,12 +159,14 @@ def _train_model(
 
 
 @pytest.mark.needs_gpu
+@pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_token_classifier(
     tmpdir,
     esm2_2layer_config,
     tokenizer,
     pretrain_data_module,
     dummy_data_per_token_classification_ft,
+    with_peft: bool,
     n_steps_train: int = 50,
     seed: int = 42,
 ):
@@ -180,6 +189,10 @@ def test_esm2_finetune_token_classifier(
         assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
 
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
+        if with_peft:
+            peft = ESM2LoRA()
+        else:
+            peft = None
         esm2_finetune_config = ESM2FineTuneTokenConfig(initial_ckpt_path=str(ckpt_path))
         dataset = InMemoryPerTokenValueDataset(dummy_data_per_token_classification_ft)
         finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
@@ -190,11 +203,8 @@ def test_esm2_finetune_token_classifier(
             data_module=finetune_data_module,
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
+            peft=peft,
         )
-        encoder_requires_grad = [
-            p.requires_grad for name, p in trainer.model.named_parameters() if "classification_head" not in name
-        ]
-        assert not all(encoder_requires_grad), "Pretrained model is not fully frozen during fine-tuning"
 
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
@@ -202,14 +212,29 @@ def test_esm2_finetune_token_classifier(
         assert io.is_distributed_ckpt(weights_ckpt)
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
 
+        if with_peft:
+            assert trainer.model.model_transform is not None
+            model = trainer.model[0].module.module.module
+            assert all(not p.requires_grad for p in model.embedding.parameters())
+            assert all(not p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" not in name)
+            assert all(p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" in name)
+            assert all(p.requires_grad for p in model.classification_head.parameters())
+        else:
+            encoder_requires_grad = [
+                p.requires_grad for name, p in trainer.model.named_parameters() if "classification_head" not in name
+            ]
+            assert not all(encoder_requires_grad), "Pretrained model is not fully frozen during fine-tuning"
+
 
 @pytest.mark.needs_gpu
+@pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_regressor(
     tmpdir,
     esm2_2layer_config,
     tokenizer,
     pretrain_data_module,
     dummy_data_single_value_regression_ft,
+    with_peft: bool,
     n_steps_train: int = 50,
     seed: int = 42,
 ):
@@ -232,6 +257,10 @@ def test_esm2_finetune_regressor(
         assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
 
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
+        if with_peft:
+            peft = ESM2LoRA()
+        else:
+            peft = None
         esm2_regression_finetune_config = ESM2FineTuneSeqConfig(initial_ckpt_path=str(ckpt_path))
         dataset = InMemorySingleValueDataset(dummy_data_single_value_regression_ft)
         finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
@@ -242,14 +271,24 @@ def test_esm2_finetune_regressor(
             data_module=finetune_data_module,
             n_steps_train=n_steps_train,
             tokenizer=tokenizer,
+            peft=peft,
         )
-        encoder_requires_grad = [
-            p.requires_grad for name, p in trainer.model.named_parameters() if "regression_head" not in name
-        ]
-        assert not all(encoder_requires_grad), "Pretrained model is not fully frozen during fine-tuning"
 
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
+
+        if with_peft:
+            assert trainer.model.model_transform is not None
+            model = trainer.model[0].module.module.module
+            assert all(not p.requires_grad for p in model.embedding.parameters())
+            assert all(not p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" not in name)
+            assert all(p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" in name)
+            assert all(p.requires_grad for p in model.regression_head.parameters())
+        else:
+            encoder_requires_grad = [
+                p.requires_grad for name, p in trainer.model.named_parameters() if "regression_head" not in name
+            ]
+            assert not all(encoder_requires_grad), "Pretrained model is not fully frozen during fine-tuning"

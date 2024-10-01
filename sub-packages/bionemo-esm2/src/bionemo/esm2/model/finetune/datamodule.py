@@ -18,12 +18,12 @@ import functools
 
 import pytorch_lightning as pl
 import torch
+import torch.utils.data
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
-from torch.utils.data import Dataset
 
-from bionemo.core.data.resamplers import PRNGResampleDataset
+from bionemo.core.data.multi_epoch_dataset import IdentityMultiEpochDatasetWrapper, MultiEpochDatasetResampler
 from bionemo.esm2.data import tokenizer
 from bionemo.esm2.model.finetune.finetune_regressor import InMemorySingleValueDataset
 from bionemo.esm2.model.finetune.finetune_token_classifier import InMemoryPerTokenValueDataset
@@ -42,7 +42,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         self,
         train_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset,
         valid_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset,
-        seed: int | None = 42,
+        seed: int = 42,
         min_seq_length: int | None = None,
         max_seq_length: int = 1024,
         micro_batch_size: int = 4,
@@ -128,10 +128,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
 
         # Create training dataset
         num_train_samples = int(max_train_steps * self.data_sampler.global_batch_size)
-
-        self._train_ds = self._sample_and_shuffle_dataset(
-            self.train_dataset, num_train_samples
-        )  # shuffle manually without cyclic MegatronPretrainingRandomSampler
+        self._train_ds = self._create_epoch_based_dataset(self.train_dataset, num_train_samples)
 
         # Create validation dataset
         num_val_samples = infer_num_samples(
@@ -140,14 +137,20 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             global_batch_size=self.data_sampler.global_batch_size,
             stage="val",
         )
-        self._valid_ds = self._sample_and_shuffle_dataset(
-            self.valid_dataset,
-            num_val_samples,
-        )  # shuffle manually without cyclic MegatronPretrainingRandomSampler
+        self._valid_ds = self._create_epoch_based_dataset(self.valid_dataset, num_val_samples)
 
         assert (
             hasattr(self, "trainer") and self.trainer is not None
         ), "Setup should be completed when trainer and config are attached."
+
+    def _create_epoch_based_dataset(
+        self,
+        dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset,
+        total_samples: int,
+    ):
+        return MultiEpochDatasetResampler(
+            IdentityMultiEpochDatasetWrapper(dataset), num_samples=total_samples, shuffle=True, seed=self._seed
+        )
 
     def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
@@ -174,20 +177,6 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         """Returns the dataloader for validation data."""
         return self._create_dataloader(self._valid_ds)
 
-    def _sample_and_shuffle_dataset(self, dataset: Dataset, num_samples: int):
-        """Sample the training dataset.
-
-        Args:
-            dataset (torch.utils.data.Dataset): The dataset to sample from
-            num_samples (int): number of samples to generate
-
-        Returns:
-            ResamplingMappedDataset: Resampled dataset
-
-        """
-        # This is where re-sampling occurs.
-        return PRNGResampleDataset(
-            dataset,
-            num_samples=num_samples,
-            seed=self._seed,
-        )
+    def test_dataloader(self) -> EVAL_DATALOADERS:
+        """Raises a not implemented error."""
+        raise NotImplementedError("No test dataset provided for ESM2")
