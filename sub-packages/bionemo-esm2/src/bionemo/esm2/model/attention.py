@@ -14,19 +14,12 @@
 # limitations under the License.
 
 
-import os
 from typing import Callable, Optional, Sequence, Union
 
 import torch
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.extensions.transformer_engine import TEDotProductAttention
 from megatron.core.packed_seq_params import PackedSeqParams
-from megatron.core.parallel_state import (
-    get_context_parallel_global_ranks,
-    get_context_parallel_group,
-    get_tensor_model_parallel_group,
-)
-from megatron.core.tensor_parallel import get_cuda_rng_tracker
 from megatron.core.transformer.dot_product_attention import DotProductAttention
 from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.transformer_config import TransformerConfig
@@ -41,17 +34,19 @@ class ESM2TEDotProductAttention(TEDotProductAttention):
 
     Override the softmax_scale default to 1.0 to match the ESM2 implementation.
     """
+
     def __init__(
         self,
         config: TransformerConfig,
         layer_number: int,
         attn_mask_type: AttnMaskType,
         attention_type: str,
-        attention_dropout: float = None,
+        attention_dropout: Optional[float] = None,
         softmax_scale: float = 1.0,
-        k_channels: int = None,
-        v_channels: int = None,
+        k_channels: Optional[int] = None,
+        v_channels: Optional[int] = None,
     ):
+        """Initialize ESM2TEDotProductAttention with softmax_scale default to 1.0."""
         super().__init__(
             config,
             layer_number,
