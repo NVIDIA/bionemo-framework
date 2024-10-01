@@ -79,6 +79,12 @@ ENV UV_LINK_MODE=copy \
   UV_PYTHON_DOWNLOADS=never \
   UV_SYSTEM_PYTHON=true
 
+# Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
+# installation. These involve building some torch extensions, so they can take a while to install.
+RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
+  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
+  uv pip install --no-build-isolation -r /requirements-pyg.txt
+
 WORKDIR /workspace/bionemo2
 
 # Install 3rd-party deps and bionemo submodules.

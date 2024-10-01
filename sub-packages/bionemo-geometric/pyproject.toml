@@ -14,7 +14,8 @@ classifiers = ["Private :: Do Not Upload", "Programming Language :: Python :: 3.
 dynamic = ["version"]
 dependencies = [
     'bionemo-core',
-    # Version pins for the pip package. If updating these, also update the image pins in requirements.txt.
+    # Version pins for the pip package. If updating these, also update the image pins in requirements.txt. Ideally we
+    # should allow these dependencies to float in the package definition.
     'torch-cluster==1.6.3',
     'torch-geometric==2.5.0',
     'torch-scatter==2.1.2',
