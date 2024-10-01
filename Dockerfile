@@ -71,14 +71,6 @@ RUN source /usr/local/nvm/nvm.sh && \
   sed -i "/NVM/d" /root/.bashrc && \
   sed -i "/nvm.sh/d" /etc/bash.bashrc
 
-# Use UV to install python packages from the workspace. This just installs packages into the system's python
-# environment, and does not use the current uv.lock file.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-ENV UV_LINK_MODE=copy \
-  UV_COMPILE_BYTECODE=1 \
-  UV_PYTHON_DOWNLOADS=never \
-  UV_SYSTEM_PYTHON=true
-
 WORKDIR /workspace/bionemo2
 
 # Install 3rd-party deps and bionemo submodules.
@@ -87,9 +79,8 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
 RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
   <<EOT
-uv pip install --no-build-isolation ./3rdparty/* ./sub-packages/bionemo-*
+pip install --no-build-isolation ./3rdparty/* ./sub-packages/bionemo-*
 rm -rf ./3rdparty
 rm -rf /tmp/*
 EOT
@@ -132,15 +123,8 @@ USER $USERNAME
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
   /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-ENV UV_LINK_MODE=copy \
-  UV_COMPILE_BYTECODE=0 \
-  UV_PYTHON_DOWNLOADS=never \
-  UV_SYSTEM_PYTHON=true
-
-RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOT
-  uv pip install -r /workspace/bionemo2/requirements-dev.txt
+RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt <<EOT
+  pip install -r /workspace/bionemo2/requirements-dev.txt
   rm -rf /tmp/*
 EOT
 
