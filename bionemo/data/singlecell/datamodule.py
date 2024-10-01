@@ -20,7 +20,7 @@ from scanpy import AnnData
 from torch.utils.data import DataLoader
 
 from bionemo.core import BioNeMoDataModule
-from bionemo.data.mapped_dataset import IndexMappedDataset, ResamplingMappedDataset
+from bionemo.data.mapped_dataset import FilteredIdxMappedDataset, IndexMappedDataset, ResamplingMappedDataset
 from bionemo.data.singlecell.adamson import AdamsonDataset, _parse_pert
 from bionemo.data.singlecell.dataset import SingleCellDataset
 from tokenizers import Tokenizer
@@ -29,15 +29,15 @@ from tokenizers import Tokenizer
 class SingleCellDataModule(BioNeMoDataModule):
     """LightningDataModule wrapper of `SingleCellDataset`
 
-    Args:
-        data_path (Union[str, PosixPath]): Path to preprocessed single-cell data files
-        tokenizer (Tokenizer): Maps gene names to ids and vice-versa
-        collator: Used to batch samples
-        process_item: Function defining how each item should be processed
-        num_workers (int): Number of workers to use
-        num_mask_per_sample (int): Number of masked versions of a single sample to be returned by each worker
-        train_batch_size (int): Batch size for training
-        val_batch_size (int): Batch size for validation
+     Args:
+        cfg (DictConfig): Configuration file.
+        trainer (Trainer): Pytorch Lightning Trainer.
+        tokenizer (Tokenizer): Maps gene names to ids and vice-versa.
+        median_dict (dict[str, float]): Dictionary containing median values.
+        mask_prob (float, optional): Probability of masking a token. Defaults to 0.15.
+        mask_token_prob (float, optional): Probability of the token [MASK] out of the tokens selected for masking. Defaults to 0.8.
+        random_token_prob (float, optional): Probability of a random token out of the tokens selected for masking. Defaults to 0.1.
+        max_len (int, optional): he maximum length of the input sequence. Defaults to 1024.
 
     Attributes:
         cfg (Config): Configuration object
@@ -66,6 +66,9 @@ class SingleCellDataModule(BioNeMoDataModule):
         self.data_path_train = self.cfg.train_dataset_path
         self.data_path_val = self.cfg.val_dataset_path
         self.data_path_test = self.cfg.test_dataset_path
+        self.ncp = cfg.next_cell_prediction
+        self.filter_no_neighbors = cfg.filter_no_neighbors
+        self.no_neighbor_policy = cfg.no_neighbor_policy
         self.tokenizer = tokenizer
         self.median_dict = median_dict
         self.max_len = max_len
@@ -81,6 +84,8 @@ class SingleCellDataModule(BioNeMoDataModule):
             mask_prob=self.mask_prob,
             mask_token_prob=self.mask_token_prob,
             random_token_prob=self.random_token_prob,
+            next_cell_prediction=self.ncp,
+            no_neighbor_policy=self.no_neighbor_policy,
         )
         self._val_dataset = SingleCellDataset(
             self.data_path_val,
@@ -90,6 +95,8 @@ class SingleCellDataModule(BioNeMoDataModule):
             mask_prob=self.mask_prob,
             mask_token_prob=self.mask_token_prob,
             random_token_prob=self.random_token_prob,
+            next_cell_prediction=self.ncp,
+            no_neighbor_policy=self.no_neighbor_policy,
         )
         self._test_dataset = SingleCellDataset(
             self.data_path_test,
@@ -99,6 +106,8 @@ class SingleCellDataModule(BioNeMoDataModule):
             mask_prob=self.mask_prob,
             mask_token_prob=self.mask_token_prob,
             random_token_prob=self.random_token_prob,
+            next_cell_prediction=self.ncp,
+            no_neighbor_policy=self.no_neighbor_policy,
         )
         self.init_num_samples()
 
@@ -114,6 +123,12 @@ class SingleCellDataModule(BioNeMoDataModule):
         """
         # This is where re-sampling occurs.
         os.makedirs(self.index_mapping_dir, exist_ok=True)
+        if self.filter_no_neighbors:
+
+            def criterion(idx):
+                return dataset.sample_has_neighbor(idx)
+
+            dataset = FilteredIdxMappedDataset(dataset, criterion_fn=criterion)
         return ResamplingMappedDataset(
             dataset,
             num_samples=self.train_num_samples,
@@ -124,6 +139,12 @@ class SingleCellDataModule(BioNeMoDataModule):
 
     def sample_val_dataset(self, dataset):
         os.makedirs(self.index_mapping_dir, exist_ok=True)
+        if self.filter_no_neighbors:
+
+            def criterion(idx):
+                return dataset.sample_has_neighbor(idx)
+
+            dataset = FilteredIdxMappedDataset(dataset, criterion_fn=criterion)
         return ResamplingMappedDataset(
             dataset,
             num_samples=self.val_num_samples,
@@ -134,6 +155,12 @@ class SingleCellDataModule(BioNeMoDataModule):
 
     def sample_test_dataset(self, dataset):
         os.makedirs(self.index_mapping_dir, exist_ok=True)
+        if self.filter_no_neighbors:
+
+            def criterion(idx):
+                return dataset.sample_has_neighbor(idx)
+
+            dataset = FilteredIdxMappedDataset(dataset, criterion_fn=criterion)
         return ResamplingMappedDataset(
             dataset,
             num_samples=self.test_num_samples,

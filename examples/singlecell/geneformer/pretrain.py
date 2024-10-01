@@ -13,9 +13,8 @@ from nemo.core.config import hydra_runner
 from nemo.utils import logging
 from omegaconf.omegaconf import OmegaConf
 
-from bionemo.data.preprocess.singlecell.preprocess import GeneformerPreprocess
 from bionemo.model.singlecell.geneformer.model import GeneformerModel
-from bionemo.model.utils import setup_trainer
+from bionemo.model.utils import create_geneformer_preprocessor, setup_trainer
 from bionemo.utils.connectors import BioNeMoSaveRestoreConnector
 
 
@@ -50,10 +49,11 @@ def main(cfg) -> None:
     else:
         logging.info("************** Starting Preprocessing ***********")
         # Path that the medians file gets saved to. Note that internally the tokenizer also controls saving its vocab based on a location in the config
-        preprocessor = GeneformerPreprocess(
-            download_directory=cfg.model.data.train_dataset_path,
-            medians_file_path=cfg.model.data.medians_file,
-            tokenizer_vocab_path=cfg.model.tokenizer.vocab_file,
+        preprocessor = create_geneformer_preprocessor(
+            cfg.model.data.compute_medians,
+            cfg.model.data.train_dataset_path,
+            cfg.model.data.medians_file,
+            cfg.model.tokenizer.vocab_file,
         )
         match preprocessor.preprocess():
             case {"tokenizer": _, "median_dict": _}:

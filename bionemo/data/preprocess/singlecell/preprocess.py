@@ -11,6 +11,7 @@
 import json
 import os
 import pickle
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Literal
@@ -34,8 +35,8 @@ class GeneformerResourcePreprocessor(ResourcePreprocessor):
 
     def get_remote_resources(self) -> List[RemoteResource]:
         url_fn = {
-            "https://huggingface.co/ctheodoris/Geneformer/resolve/main/geneformer/gene_name_id_dict.pkl?download=true": "gene_name_id_dict.pkl",
-            "https://huggingface.co/ctheodoris/Geneformer/resolve/main/geneformer/gene_median_dictionary.pkl?download=true": "gene_median_dictionary.pkl",
+            "https://huggingface.co/ctheodoris/Geneformer/resolve/main/geneformer/gene_dictionaries_30m/gene_name_id_dict_gc30M.pkl?download=true": "gene_name_id_dict.pkl",
+            "https://huggingface.co/ctheodoris/Geneformer/resolve/main/geneformer/gene_dictionaries_30m/gene_median_dictionary_gc30M.pkl?download=true": "gene_median_dictionary.pkl",
         }
 
         resources = []
@@ -63,7 +64,7 @@ class GeneformerResourcePreprocessor(ResourcePreprocessor):
         return [self.prepare_resource(resource) for resource in self.get_remote_resources()]
 
 
-class GeneformerPreprocess:
+class GeneformerPreprocess(ABC):
     def __init__(self, download_directory: Path, medians_file_path: Path, tokenizer_vocab_path: Path):
         """Downloads HGNC symbols
 
@@ -78,6 +79,10 @@ class GeneformerPreprocess:
         self._validate_tokenizer_args(
             self.tokenizer_vocab_path,
         )
+
+    @abstractmethod
+    def get_median_filenames(self):
+        raise NotImplementedError("Subclasses must implement get_median_filenames methods")
 
     def build_and_save_tokenizer(self, median_dict, gene_to_ens, vocab_output_name):
         """Builds the GeneTokenizer using the median dictionary
@@ -94,10 +99,7 @@ class GeneformerPreprocess:
 
     def preprocess(self) -> dict[Literal["tokenizer", "median_dict"], Any]:
         """Preprocesses for the Geneformer model"""
-        gene_name_dict_fn, gene_median_dict_fn = GeneformerResourcePreprocessor(
-            dest_directory=self.download_directory,
-        ).prepare()
-
+        gene_name_dict_fn, gene_median_dict_fn = self.get_median_filenames()
         # Load artifacts
         with open(gene_name_dict_fn, "rb") as fd:
             gene_ens = pickle.load(fd)
@@ -122,6 +124,14 @@ class GeneformerPreprocess:
             tokenizer = None
 
         return {"tokenizer": tokenizer, "median_dict": median_dict}
+
+
+class GeneformerPreprocessPaperMedians(GeneformerPreprocess):
+    def get_median_filenames(self):
+        gene_name_dict_fn, gene_median_dict_fn = GeneformerResourcePreprocessor(
+            dest_directory=self.download_directory,
+        ).prepare()
+        return gene_name_dict_fn, gene_median_dict_fn
 
 
 class AdamsonResources(ResourcePreprocessor):

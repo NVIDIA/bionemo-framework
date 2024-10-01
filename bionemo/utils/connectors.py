@@ -70,7 +70,7 @@ class BioNeMoSaveRestoreConnector(NLPSaveRestoreConnector):
         new_state_dict = {}
         # trunace the word_embeddings and tokens_head
         for key in state_dict.keys():
-            if ("word_embeddings" in key) or ("tokens_head" in key):
+            if ("word_embeddings" in key or "tokens_head" in key) and "_extra_state" not in key:
                 # initialize with pretrained word embeddings
                 token_embeddings = state_dict[key]
                 if self.vocab_size is None:

@@ -1,4 +1,3 @@
-# DSMBind
 # Model Overview
 
 ## Description:

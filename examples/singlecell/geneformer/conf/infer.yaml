@@ -16,7 +16,7 @@ model:
   activation: gelu # required by Nemo 1.23 and backward compatibility since relu activation is not supported
   post_process: False # Set to false if you want embeddings and not logits
   downstream_task:
-    restore_from_path: "${oc.env:BIONEMO_HOME}/models/singlecell/geneformer/geneformer-qa.nemo"
+    restore_from_path: "${oc.env:BIONEMO_HOME}/models/singlecell/geneformer/geneformer-10M-240530.nemo"
     outputs: [embeddings, hiddens] # Which outputs to extract per sample (a value or list). Possible values: hiddens, embeddings.
   data:
     data_impl: "geneformer"
