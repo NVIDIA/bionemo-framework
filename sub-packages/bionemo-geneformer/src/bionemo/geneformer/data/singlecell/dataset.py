@@ -292,7 +292,7 @@ def process_item(  # noqa: D417
 
     masked_tokens, labels, loss_mask = masking.apply_bert_pretraining_mask(
         tokenized_sequence=torch.from_numpy(token_ids),
-        random_seed=random_utils.get_seed_from_rng(rng),
+        random_seed=int(random_utils.get_seed_from_rng(rng)),
         mask_config=masking.BertMaskConfig(
             tokenizer=tokenizer,
             random_tokens=range(5, len(tokenizer.vocab)),

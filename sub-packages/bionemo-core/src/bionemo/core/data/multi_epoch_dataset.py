@@ -86,7 +86,7 @@ class MultiEpochDatasetResampler(Dataset[T_co]):
     shuffle: bool = True
     """Whether to shuffle the samples in the dataset each epoch."""
 
-    seed: int = np.random.SeedSequence().entropy  # type: ignore
+    seed: int = 42  # type: ignore
     """A random seed for reproducibility."""
 
     def __post_init__(self):

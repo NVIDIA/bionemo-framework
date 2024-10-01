@@ -16,7 +16,7 @@
 
 import math
 from dataclasses import dataclass
-from typing import Callable, Literal, Optional, Sequence, Type
+from typing import Callable, Literal, Optional, Sequence, Type, TypeVar
 
 import torch
 import torch.distributed
@@ -42,6 +42,7 @@ from bionemo.llm.utils import iomixin_utils as iom
 
 __all__: Sequence[str] = (
     "ESM2Config",
+    "ESM2GenericConfig",
     "ESM2Model",
 )
 
@@ -65,9 +66,9 @@ class ESM2Model(MegatronBioBertModel):
         position_embedding_type: Literal["learned_absolute", "rope"] = "learned_absolute",
         rotary_percent: float = 1.0,
         seq_len_interpolation_factor: Optional[float] = None,
-        add_binary_head=True,
-        return_embeddings=False,
-        use_full_attention_mask=False,
+        add_binary_head: bool = True,
+        return_embeddings: bool = False,
+        use_full_attention_mask: bool = False,
         include_hiddens: bool = False,
     ) -> None:
         """Initialize the ESM2 model.
@@ -98,7 +99,7 @@ class ESM2Model(MegatronBioBertModel):
         self.post_process = post_process
         self.add_binary_head = add_binary_head
         if return_embeddings:
-            assert self.post_process and self.add_binary_head
+            assert self.post_process, "only return embeddings on the last pipeline stage"
         # `b` = batch, `s` = sequence.
         # The old flash attention mechanism apparently wants you to use a b x 1 x s x s attention mask while
         #  the new one wants a b x 1 x 1 x s attention mask. This is a hack to allow us to switch between the two.
@@ -123,6 +124,8 @@ class ESM2Model(MegatronBioBertModel):
         # Embeddings.
         if self.pre_process:
             # ESM2 Customization: ESM2Embedding instead of LanguageModelEmbedding
+            # TODO: call super, overwrite the self.embedding, and setup_embeddings_and_output_layer in constructor.
+            # Note: need to avoid calling setup twice: skip with super (super(skip_setup=True))
             self.embedding = ESM2Embedding(
                 config=self.config,
                 vocab_size=self.vocab_size,
@@ -215,8 +218,11 @@ def esm_gelu_func(x: Tensor) -> Tensor:
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
 
 
+ESM2ModelT = TypeVar("ESM2ModelT", bound=ESM2Model)
+
+
 @dataclass
-class ESM2Config(BioBertGenericConfig[ESM2Model], iom.IOMixinWithGettersSetters):
+class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
     """Configuration class for ESM2 model.
 
     Attributes:
@@ -303,5 +309,20 @@ class ESM2Config(BioBertGenericConfig[ESM2Model], iom.IOMixinWithGettersSetters)
     initial_ckpt_path: str | None = None
     # TODO (@jstjohn) come up with a cleaner way in the biobert module to return user requested
     #  things as part of the workflow for inference and fine-tuning.
+    return_embeddings: bool = False
     return_only_hidden_states: bool = False  # return logits
     core_attention_override: Type[torch.nn.Module] | None = ESM2DotProductAttention
+
+
+@dataclass
+class ESM2Config(ESM2GenericConfig[ESM2Model], iom.IOMixinWithGettersSetters):
+    """Configuration class for ESM2 model.
+
+    model_cls: Type[ESM2Model] = ESM2Model
+    num_layers: int = 33  # 650M
+    hidden_size: int = 1280  # 650M
+    """
+
+    model_cls: Type[ESM2Model] = ESM2Model
+    num_layers: int = 33  # 650M
+    hidden_size: int = 1280  # 650M

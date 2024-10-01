@@ -47,10 +47,6 @@ RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-di
 RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.0.3
 
-RUN pip install hatchling   # needed to install nemo-run
-ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
-RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG}
-
 FROM bionemo2-base AS pip-requirements
 
 # Copy and install pypi depedencies.
@@ -131,6 +127,10 @@ RUN pip install --disable-pip-version-check --no-cache-dir .
 
 WORKDIR /build/NeMo
 RUN pip install --disable-pip-version-check --no-cache-dir .[all]
+
+WORKDIR /build/NeMo-Run
+RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0.dev1 pip install --disable-pip-version-check --no-cache-dir .
+
 WORKDIR /workspace
 RUN rm -rf /build
 

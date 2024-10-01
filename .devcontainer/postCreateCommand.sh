@@ -2,6 +2,7 @@
 
 pip install --disable-pip-version-check --no-cache-dir -e 3rdparty/Megatron-LM
 pip install --disable-pip-version-check --no-cache-dir -e 3rdparty/NeMo[all]
+pip install --disable-pip-version-check --no-cache-dir -e 3rdparty/NeMo-Run
 
 for SUB_PKG in sub-packages/bionemo-*;
 do

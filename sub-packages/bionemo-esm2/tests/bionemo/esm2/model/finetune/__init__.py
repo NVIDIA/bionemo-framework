@@ -12,15 +12,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
-from typing import Sequence
-
-from bionemo.esm2.model.model import ESM2Config, ESM2GenericConfig, ESM2Model
-
-
-__all__: Sequence[str] = (
-    "ESM2Config",
-    "ESM2GenericConfig",
-    "ESM2Model",
-)
