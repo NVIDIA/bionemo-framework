@@ -20,7 +20,6 @@ from warnings import warn
 import numpy as np
 import pytest
 import torch
-import torch.utils
 from torch.utils.data import SequentialSampler, default_collate
 
 from bionemo.size_aware_batching.sampler import BucketBatchSampler, SizeAwareBatchSampler, size_aware_batching

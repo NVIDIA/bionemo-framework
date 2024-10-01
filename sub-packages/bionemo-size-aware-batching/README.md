@@ -33,7 +33,7 @@ Refer to the later sections for the API documentation and examples on how to ach
 ### utils Module
 ---------------
 
-*   [**collect_cuda_peak_alloc**](#collect_cuda_peak_alloc): A function that
+*   [**collect_cuda_peak_alloc**](#utils.collect_cuda_peak_alloc): A function that
     collects CUDA peak memory allocation statistics and features to be used for
     memory usage prediction for a given workflow.
 
@@ -44,11 +44,13 @@ Refer to the later sections for the API documentation and examples on how to ach
 ### sampler Module
 -----------------
 
-*   [**size_aware_batching**](#size_aware_batching): A generator that batches elements from an iterable while ensuring that the total size of each batch does not exceed a specified maximum.
-*   [**SizeAwareBatchSampler**](#sizeawarebatchsampler): A class that batches elements of varying sizes while ensuring that the total size of each batch does not exceed a specified maximum.
+*   [**size_aware_batching**](#sampler.size_aware_batching): A generator that batches elements from an iterable while ensuring that the total size of each batch does not exceed a specified maximum.
+*   [**SizeAwareBatchSampler**](#sampler.SizeAwareBatchSampler): A class that batches elements of varying sizes while ensuring that the total size of each batch does not exceed a specified maximum.
 *   [**BucketBatchSampler**](#BucketBatchSampler): A class that groups elements of varying sizes based on predefined bucket ranges, and batches elements from each bucket to ensure that each batch has elements with homogeneous sizes.
 
 # API reference and examples
+
+<a id="utils"></a>
 
 ## utils
 
@@ -189,6 +191,9 @@ Create buckets for a list of integers with pre-defined maximal range of interval
 >>> print(bucket_sizes)
 [12  4]
 ```
+
+
+<a id="sampler"></a>
 
 ## sampler
 
@@ -375,7 +380,6 @@ This function yields batches of indices that do not exceed the maximum total siz
 
   A batch of indices that do not exceed the maximum total size.
 
-
 <a id="sampler.BucketBatchSampler"></a>
 
 ## BucketBatchSampler Objects
@@ -393,7 +397,7 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
 
 - `sizes` _np.ndarray_ - A 1D numpy array of real numbers representing the size of each element in the dataset.
 - `bucket_ranges` _np.ndarray_ - A 2D numpy array of real numbers with shape (num_buckets, 2) with each row representing the closed boundary of each bucket interval.
-- `base_batch_sampler_class` _Sampler_ - Base batch sampler class type, which will be used for each bucket.
+- `base_batch_sampler_class` _Type[Sampler]_ - Base batch sampler class type, which will be used for each bucket.
 - `base_batch_sampler_shared_kwargs` _Dict[str, Any], optional_ - Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
   Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
 - `base_batch_sampler_individual_kwargs` _Dict[str, Iterable], optional_ - Keyword argument dictionary used to initialize each bucket batch sampler with the corresponding key value pairs.
@@ -402,7 +406,7 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
   Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
   Default to  {}.
 - `shuffle` _bool_ - A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
-
+  
 
 **Raises**:
 
@@ -411,12 +415,12 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
 - `ValueError` - If `base_batch_sampler_individual_kwargs` or `base_batch_sampler_individual_kwargs` is not a keyword argument dictionary.
 - `ValueError` - If the length of values in the dict of `base_batch_sampler_individual_kwargs` must be equal to len(bucket_ranges).
 - `RuntimeError` - If there is no elements with sizes inside the `bucket_ranges`.
-
+  
   ---------
 
 **Examples**:
 
-
+  
 ```python
 >>> import torch
 >>> from bionemo.size_aware_batching.sampler import BucketBatchSampler
@@ -479,7 +483,7 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
 #### \_\_iter\_\_
 
 ```python
-def __iter__() -> Generator[List[int], None, None]
+def __iter__() -> Iterator[List[int]]
 ```
 
 Iterate over batches of indices.
