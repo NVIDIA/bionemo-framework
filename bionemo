@@ -17,8 +17,9 @@ if [[ ! $(command -v docker) ]]; then
 fi
 
 # don't let these get set in the .env file
+LOCAL_ENV='.env'
 DOCKER_REPO_PATH='/workspace/bionemo2'
-CACHE_TAG=${CACHE_TAG:='bionemo2-latest'}
+
 LOCAL_REPO_PATH=$(realpath $(pwd))
 if [[ $(basename "${LOCAL_REPO_PATH}") != "bionemo-fw-ea" ]]; then
   echo "ERROR: must run from the root of the bionemo repository!"
@@ -28,29 +29,11 @@ fi
 # NOTE: do allow IMAGE_TAG to be overridden by env var, but DO NOT set this in the .env file!
 IMAGE_TAG=${IMAGE_TAG:="bionemo2-${COMMIT}"}
 
-# these will be set in the .env file
-IMAGE_REPO=${IMAGE_REPO:=nvcr.io/nvidian/cvai_bnmo_trng/bionemo}
-LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH:=${LOCAL_REPO_PATH}/results}
-DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH:=${DOCKER_REPO_PATH}/results}
-LOCAL_DATA_PATH=${LOCAL_DATA_PATH:=${LOCAL_REPO_PATH}/data}
-DOCKER_DATA_PATH=${DOCKER_DATA_PATH:=${DOCKER_REPO_PATH}/data}
-LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH:=${LOCAL_REPO_PATH}/models}
-DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH:=${DOCKER_REPO_PATH}/models}
-WANDB_API_KEY=${WANDB_API_KEY:=NotSpecified}
-JUPYTER_PORT=${JUPYTER_PORT:=8888}
-REGISTRY=${REGISTRY:=nvcr.io}
-REGISTRY_USER=${REGISTRY_USER:="'$oauthtoken'"}
-DEV_CONT_NAME=${DEV_CONT_NAME:=bionemo2}
-NGC_CLI_API_KEY=${NGC_CLI_API_KEY:=NotSpecified}
-NGC_CLI_ORG=${NGC_CLI_ORG:=nvidian}
-NGC_CLI_TEAM=${NGC_CLI_TEAM:=NotSpecified}
-NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE:=ascii}
 
 set -euo pipefail
 
 env_file_setup() {
   # if $LOCAL_ENV file exists, source it to specify my environment
-  local LOCAL_ENV='.env'
   local write_env
   if [[ -e ./$LOCAL_ENV ]]; then
       echo "Sourcing environment from ./$LOCAL_ENV"
@@ -61,8 +44,28 @@ env_file_setup() {
       write_env="1"
   fi
 
+  # these are set via the .env file
+  CACHE_TAG=${CACHE_TAG:='bionemo2-latest'}
+  IMAGE_REPO=${IMAGE_REPO:=nvcr.io/nvidian/cvai_bnmo_trng/bionemo}
+  LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH:=${LOCAL_REPO_PATH}/results}
+  DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH:=${DOCKER_REPO_PATH}/results}
+  LOCAL_DATA_PATH=${LOCAL_DATA_PATH:=${LOCAL_REPO_PATH}/data}
+  DOCKER_DATA_PATH=${DOCKER_DATA_PATH:=${DOCKER_REPO_PATH}/data}
+  LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH:=${LOCAL_REPO_PATH}/models}
+  DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH:=${DOCKER_REPO_PATH}/models}
+  WANDB_API_KEY=${WANDB_API_KEY:=NotSpecified}
+  JUPYTER_PORT=${JUPYTER_PORT:=8888}
+  REGISTRY=${REGISTRY:=nvcr.io}
+  REGISTRY_USER=${REGISTRY_USER:="'$oauthtoken'"}
+  DEV_CONT_NAME=${DEV_CONT_NAME:=bionemo2}
+  NGC_CLI_API_KEY=${NGC_CLI_API_KEY:=NotSpecified}
+  NGC_CLI_ORG=${NGC_CLI_ORG:=nvidian}
+  NGC_CLI_TEAM=${NGC_CLI_TEAM:=NotSpecified}
+  NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE:=ascii}
+
   # If $LOCAL_ENV was not found, write out a template for user to edit
   if [[ "${write_env}"  == "1" ]]; then
+      echo "CACHE_TAG=${CACHE_TAG}" >> $LOCAL_ENV
       echo "IMAGE_REPO=${IMAGE_REPO}" >> $LOCAL_ENV
       echo "LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH}" >> $LOCAL_ENV
       echo "DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH}" >> $LOCAL_ENV
@@ -211,7 +214,7 @@ case "$1" in
         echo "For 'dev', the command defaults to bash. "
         echo "Provide any other in-image executable to run as the 2nd argument."
         echo "-----------------------------------------------------------------"
-        echo "For advanced use, you may override any of the following environment variables:"
+        echo "For advanced use, you may override any of the following variables by editing the $LOCAL_ENV file:"
         echo "  IMAGE_REPO"
         echo "  IMAGE_TAG"
         echo "  CACHE_TAG"
