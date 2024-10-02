@@ -35,6 +35,7 @@ from bionemo.esm2.model.finetune.finetune_token_classifier import (
 from bionemo.esm2.model.finetune.peft import ESM2LoRA
 from bionemo.esm2.model.finetune.train import train_model
 from bionemo.testing import megatron_parallel_state_utils
+from bionemo.testing.callbacks import MetricTracker
 from bionemo.testing.data.load import load
 
 
