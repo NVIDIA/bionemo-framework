@@ -79,10 +79,7 @@ def test_SABS_init_valid_input(sampler, get_sizeof):
     assert batch_sampler._max_total_size == max_total_size
 
     for idx in sampler:
-        if callable(sizeof):
-            assert batch_sampler._sizeof(idx) == sizeof(idx)
-        else:
-            assert batch_sampler._sizeof(idx) == sizeof[idx]
+        assert batch_sampler._sizeof(idx) == sizeof(idx)
 
 
 def test_SABS_init_invalid_max_total_size(sampler):
@@ -121,10 +118,7 @@ def test_SABS_iter(sampler, get_sizeof, max_total_size, warn_logger):
         meta_batch_ids = list(size_aware_sampler)
 
     def fn_sizeof(i: int):
-        if callable(sizeof):
-            return sizeof(i)
-        else:
-            return sizeof[i]
+        return sizeof(i)
 
     # Check that the batches are correctly sized
     for ids_batch in meta_batch_ids:
