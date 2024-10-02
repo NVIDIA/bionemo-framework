@@ -223,7 +223,7 @@ model:
       decay_every_n_steps: 50000
       decay_factor: 0.05
   data:
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/openfold_data
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/openfold
     dataset_variant: processed
     realign_when_required: false
     prepare:

@@ -31,7 +31,7 @@ model:
     encoder_augment: False
     decoder_independent_augment: False
     # TODO exchange with whole dataset if needed
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/reaction/processed/test/data.csv # full path to dataset (can include range or a list)
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/molecule/uspto50k/processed/test/data.csv # full path to dataset (can include range or a list)
     batch_size: 10
     data_impl: "csv_fields_mmap"
     data_impl_kwargs:

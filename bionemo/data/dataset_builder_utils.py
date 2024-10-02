@@ -205,9 +205,11 @@ def build_typed_dataset(
                 else:
                     metadata_fn = os.path.join(index_mapping_dir, dataset_path.lstrip("/") + ".idx.info")
                     idx_fn = os.path.join(index_mapping_dir, dataset_path.lstrip("/") + ".idx.npy")
-                logging.info(f"Deleting stale files: {metadata_fn} {idx_fn}")
-                os.remove(metadata_fn)
-                os.remove(idx_fn)
+                logging.info(f"Deleting stale files: {metadata_fn} {idx_fn} if exist")
+                if os.path.exists(metadata_fn):
+                    os.remove(metadata_fn)
+                if os.path.exists(idx_fn):
+                    os.remove(idx_fn)
 
     dataset: Dataset = dataset_cls(
         dataset_paths=dataset_paths, index_mapping_dir=index_mapping_dir, **data_impl_kwargs

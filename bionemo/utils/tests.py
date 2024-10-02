@@ -13,9 +13,6 @@ import json
 import os
 import pathlib
 import shutil
-import subprocess
-import tarfile
-import tempfile
 from collections import OrderedDict
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
@@ -278,19 +275,3 @@ class Deterministic(AbstractContextManager):
         torch.backends.cuda.matmul.allow_tf32 = self.cuda_matmul_allow_tf32
         torch.backends.cuda.allow_tf32 = True
         torch.backends.cudnn.enabled = self.cudnn_enabled
-
-
-def download_s3_tar_gz_to_target_path(s3_data_path: str, dest_path: str) -> None:
-    """Download data as .tar.gz from s3 and extract to target destination"""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        try:
-            subprocess.run(
-                ["aws", "s3", "cp", s3_data_path, temp_dir, "--endpoint-url", "https://pbss.s8k.io"], check=True
-            )
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"Fail to download file from {s3_data_path}. Check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY."
-            ) from e
-
-        with tarfile.open(os.path.join(temp_dir, os.path.basename(s3_data_path)), "r:gz") as tar:
-            tar.extractall(path=dest_path)

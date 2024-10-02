@@ -36,13 +36,9 @@ GRADIENT_CHECKPOINTING = False
 BIONEMO_HOME = os.getenv("BIONEMO_HOME")
 EXAMPLE_CONFIG_PATH = os.path.join(BIONEMO_HOME, "examples/protein/openfold/conf")
 TEST_DATA_PATH = os.path.join(BIONEMO_HOME, "examples/tests/test_data")
-SAMPLE_DATA_PATH = os.path.join(TEST_DATA_PATH, "openfold_data")
+SAMPLE_DATA_PATH = os.path.join(TEST_DATA_PATH, "protein", "openfold")
 
-S3_DATA_PATH = "s3://bionemo-ci/test-data/openfold/openfold_vprocessed_sample/openfold_sample_data.tar.gz"
-
-SAMPLE_INFER_DATA_PATH = os.path.join(
-    os.path.dirname(os.path.realpath(__file__)), "../examples/tests/test_data/openfold_data/inference"
-)
+SAMPLE_INFER_DATA_PATH = os.path.join(SAMPLE_DATA_PATH, "inference")
 
 PDB_DIR = os.path.join(SAMPLE_INFER_DATA_PATH, "pdb")
 CIF_NAMES = ["7b4q.cif", "7dnu.cif"]
@@ -158,7 +154,6 @@ def test_openfold_prediction_pdb_writer(infer_cfg: DictConfig, outputs: str):
         )
 
 
-@pytest.mark.xfail(reason="Issue #195")
 @pytest.mark.needs_gpu
 def test_openfold_inference_sequence_only_dryrun(
     infer_cfg: DictConfig,
@@ -187,7 +182,6 @@ def test_openfold_inference_sequence_only_dryrun(
     trainer.predict(alphafold_model, dl, return_predictions=False)
 
 
-@pytest.mark.xfail(reason="Issue #195")
 @pytest.mark.needs_gpu
 def test_openfold_inference_sequence_and_msa_dryrun(
     infer_cfg: DictConfig,
@@ -230,7 +224,6 @@ def test_sample_data_exists():
         )
 
 
-@pytest.mark.xfail(reason="Issue #195")
 @pytest.mark.skipif(not os.path.exists(SAMPLE_DATA_PATH), reason="Test sample data not found")
 @pytest.mark.needs_gpu
 def test_openfold_inference_lddt_validation_metric_check(infer_cfg: DictConfig):

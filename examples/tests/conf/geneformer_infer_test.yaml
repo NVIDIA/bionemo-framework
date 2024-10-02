@@ -14,12 +14,12 @@ model:
   activation: gelu # required by Nemo 1.23 and backward compatibility since relu activation is not supported
   post_process: False # Set to false if you want embeddings and not logits
   downstream_task:
-    restore_from_path: "${oc.env:BIONEMO_HOME}/models/singlecell/geneformer/geneformer-qa.nemo"
+    restore_from_path: "${oc.env:BIONEMO_HOME}/models/singlecell/geneformer/geneformer-10M-240530.nemo"
     outputs: [embeddings, hiddens] # Which outputs to extract per sample (a value or list). Possible values: hiddens, embeddings.
   data:
     dynamic_padding: true
     data_impl: "geneformer"
-    dataset_path: /workspace/bionemo/examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/test
+    dataset_path: /workspace/bionemo/examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/test
     batch_size: 16
 
 target: bionemo.model.singlecell.geneformer.model.GeneformerModel # path to model class to load

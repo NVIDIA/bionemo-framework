@@ -43,7 +43,7 @@ model:
   data:
     task_type: token-level-classification
     emb_batch_size: ${model.micro_batch_size}
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/downstream
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/flip
     dataset:
       train: x000
       test: x000

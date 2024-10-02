@@ -41,10 +41,8 @@ from bionemo.utils.hydra import load_model_config
 BIONEMO_HOME = os.getenv("BIONEMO_HOME")
 EXAMPLE_CONFIG_PATH = os.path.join(BIONEMO_HOME, "examples/protein/openfold/conf")
 TEST_DATA_PATH = os.path.join(BIONEMO_HOME, "examples/tests/test_data")
-SAMPLE_DATA_PATH = os.path.join(TEST_DATA_PATH, "openfold_data")
+SAMPLE_DATA_PATH = os.path.join(TEST_DATA_PATH, "protein", "openfold")
 SAMPLE_INFER_DATA_PATH = os.path.join(SAMPLE_DATA_PATH, "inference")
-
-S3_DATA_PATH = "s3://bionemo-ci/test-data/openfold/openfold_vprocessed_sample/openfold_sample_data.tar.gz"
 
 TRAINING_DATA_VARIANT = "processed"
 TEST_SAMPLE_VARIANT = "processed_test"

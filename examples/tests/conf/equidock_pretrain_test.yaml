@@ -7,7 +7,7 @@ hydra:
 
 data:
   data_name: dips # Train first over this dataset, [db5, dips] for now only train on db5
-  cache_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/equidock # Folder from where to load/restore cached dataset
+  cache_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/equidock/raw # Folder from where to load/restore cached dataset
   raw_data_path: null
   split_files_path: null
 

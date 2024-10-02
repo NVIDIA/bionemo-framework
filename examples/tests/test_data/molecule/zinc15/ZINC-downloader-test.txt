@@ -1,5 +1,0 @@
-http://files.docking.org/2D/AA/AAAA.txt
-http://files.docking.org/2D/AA/AAAB.txt
-http://files.docking.org/2D/AA/AAAC.txt
-http://files.docking.org/2D/AA/AAAF.txt
-http://files.docking.org/2D/AA/AABA.txt

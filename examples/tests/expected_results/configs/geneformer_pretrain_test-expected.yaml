@@ -80,9 +80,9 @@ model:
   data:
     data_impl: geneformer
     probabilistic_dirichlet_sampling_train: false
-    train_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/train
-    val_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/val
-    test_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/test
+    train_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/train
+    val_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/val
+    test_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/test
     dataset_path: null
     dataset: /
     data_prefix: ''

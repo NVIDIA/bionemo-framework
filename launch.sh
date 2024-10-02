@@ -228,9 +228,6 @@ download_test_data() {
     echo 'Downloading all test data...'
     python $BIONEMO_HOME/download_artifacts.py --data all --source pbss --verbose
     echo 'Data download complete.'
-    echo 'Unzipping ESM2 test data...'
-    unzip $BIONEMO_HOME/examples/tests/test_data/uniref202104_esm2_qc_test200_val200.zip -d $BIONEMO_HOME/examples/tests/test_data/
-    echo 'ESM2 test data unzipped.'
 }
 
 ngc_api_key_is_set() {

@@ -16,7 +16,7 @@ import scanpy as sc
 from scipy.sparse import csr_matrix
 
 
-data_path = "examples/tests/test_data/cellxgene_2023-12-15_small/input_data/test"
+data_path = "examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/input_data/test"
 
 dataset_names = [
     "assay__10x_3_v2/sex__male/development_stage__45-year-old_human_stage/self_reported_ethnicity__unknown/tissue_general__small_intestine/dataset_id__ee195b7d-184d-4dfa-9b1c-51a7e601ac11/sidx_19480503_2689_0.h5ad",
@@ -61,7 +61,7 @@ for ind in range(2):
         path,
     )
 
-process_path = "examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/pseudotime/test"
+process_path = "examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/pseudotime/test"
 command = [
     "python",
     "/workspace/bionemo/bionemo/data/singlecell/sc_memmap.py",

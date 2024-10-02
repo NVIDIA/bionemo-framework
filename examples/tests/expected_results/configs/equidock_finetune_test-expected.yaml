@@ -7,7 +7,7 @@ data:
   pin_memory: true
   micro_batch_size: ${model.micro_batch_size}
   world_size: ${multiply:${trainer.devices}, ${trainer.num_nodes}}
-  cache_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/equidock
+  cache_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/equidock/raw
   graph_cutoff: 30.0
   graph_max_neighbor: 10
   split: 0

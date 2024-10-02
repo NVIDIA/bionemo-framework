@@ -18,7 +18,7 @@ model:
     restore_from_path: "${oc.env:BIONEMO_HOME}/models/protein/prott5nv/prott5nv.nemo"
     outputs: [embeddings, hiddens] # Which outputs to extract per sample (a value or list). Possible values: hiddens, embeddings.
   data:
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/downstream/test/x000.csv # full path to dataset (can include range or a list)
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/flip/test/x000.csv # full path to dataset (can include range or a list)
     output_fname: ${oc.env:BIONEMO_HOME}/test_results/nemo_experiments/prott5nv_infer/x000.pkl
 
 target: bionemo.model.protein.prott5nv.prott5_model.ProtT5nvModel # path to model class to load

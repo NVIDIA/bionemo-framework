@@ -55,13 +55,32 @@ def config_path_for_tests(bionemo_home) -> str:
 
 @pytest.fixture(scope="module")
 def sample_data(bionemo_home) -> str:
-    path = bionemo_home / "examples" / "tests" / "test_data" / "preprocessing" / "test" / "uniref2022_small.fasta"
+    path = (
+        bionemo_home
+        / "examples"
+        / "tests"
+        / "test_data"
+        / "protein"
+        / "uniref50"
+        / "preprocessing"
+        / "test"
+        / "uniref2022_small.fasta"
+    )
     return str(path.absolute())
 
 
 @pytest.fixture(scope="module")
 def sample_ngc_file(bionemo_home) -> str:
-    path = bionemo_home / "examples" / "tests" / "test_data" / "preprocessing" / "uniref2022_UR50.fasta"
+    path = (
+        bionemo_home
+        / "examples"
+        / "tests"
+        / "test_data"
+        / "protein"
+        / "uniref50"
+        / "preprocessing"
+        / "uniref2022_UR50.fasta"
+    )
     return str(path.absolute())
 
 

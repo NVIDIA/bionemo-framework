@@ -49,7 +49,7 @@ model:
       decay_factor: 0.95
 
   data:
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/openfold_data
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/openfold
     dataset_variant: processed
     realign_when_required: True
     use_only_pdb_chain_ids: null # Optional list of pdb chain ids for intersection with train and val datasets.

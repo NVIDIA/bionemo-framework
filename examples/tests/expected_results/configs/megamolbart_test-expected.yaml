@@ -70,7 +70,7 @@ model:
     merge_file: null
   data:
     links_file: ${oc.env:BIONEMO_HOME}/examples/molecule/megamolbart/dataset/ZINC-downloader.txt
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/molecule/
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/molecule/zinc15/processed
     dataset:
       train: x[000..001]
       test: x[000..001]

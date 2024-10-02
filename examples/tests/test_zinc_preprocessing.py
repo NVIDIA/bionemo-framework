@@ -21,7 +21,7 @@ from bionemo.data import Zinc15Preprocess
 from bionemo.utils.tests import get_directory_hash
 
 
-TEST_DATA_DIR = os.path.join(os.environ["BIONEMO_HOME"], "examples/tests/test_data/molecule/zinc15")
+TEST_DATA_DIR = os.path.join(os.environ["BIONEMO_HOME"], "examples/tests/test_data/molecule/zinc15/")
 ROOT_DIR = "zinc15"
 CONFIG = {
     "max_smiles_length": 512,
@@ -71,7 +71,7 @@ def test_process_files(tmp_path, download_directory, config, **kwargs):
         for url in fl:
             url = url.strip()
             data_filename = os.path.basename(url)
-            with open(os.path.join(TEST_DATA_DIR, data_filename), "r") as fh:
+            with open(os.path.join(TEST_DATA_DIR, "raw", data_filename), "r") as fh:
                 mocker.get(url, text=fh.read())
 
     preproc = Zinc15Preprocess(root_directory=str(tmp_path))
@@ -103,7 +103,7 @@ def test_prepare_dataset(tmp_path, download_directory, output_directory, config,
         for url in fl:
             url = url.strip()
             data_filename = os.path.basename(url)
-            with open(os.path.join(TEST_DATA_DIR, data_filename), "r") as fh:
+            with open(os.path.join(TEST_DATA_DIR, "raw", data_filename), "r") as fh:
                 mocker.get(url, text=fh.read())
 
     preproc = Zinc15Preprocess(root_directory=str(tmp_path))
@@ -148,7 +148,7 @@ def test_prepare_dataset(tmp_path, download_directory, output_directory, config,
 def test_filtering(tmp_path, download_directory, url, max_smiles_length, **kwargs):
     data_filename = os.path.basename(url)
     mocker = kwargs["mocker"]
-    with open(os.path.join(TEST_DATA_DIR, data_filename), "r") as fh:
+    with open(os.path.join(TEST_DATA_DIR, "raw", data_filename), "r") as fh:
         mocker.get(url, text=fh.read())
     preproc = Zinc15Preprocess(root_directory=str(tmp_path))
     preproc._process_file(url, download_directory, max_smiles_length)
@@ -156,6 +156,6 @@ def test_filtering(tmp_path, download_directory, url, max_smiles_length, **kwarg
     if len(filtered_data) > 0:
         assert filtered_data["SMILES"].map(len).max() <= max_smiles_length
 
-    full_data = pd.read_table(os.path.join(TEST_DATA_DIR, data_filename))
+    full_data = pd.read_table(os.path.join(TEST_DATA_DIR, "raw", data_filename))
     num_kept = (full_data["smiles"].map(Chem.CanonSmiles).map(len) <= max_smiles_length).sum()
     assert len(filtered_data) == num_kept

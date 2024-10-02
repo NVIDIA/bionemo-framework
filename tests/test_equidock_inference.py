@@ -54,7 +54,15 @@ def config_path(bionemo_home) -> str:
 
 @pytest.fixture(scope="module")
 def equidock_data_path(bionemo_home) -> str:
-    path = bionemo_home / "tests" / "equidock_test_data"
+    path = bionemo_home / "examples" / "tests" / "test_data" / "protein" / "equidock"
+    return str(path)
+
+
+@pytest.fixture(scope="module")
+def equidock_golden_data_path(bionemo_home) -> str:
+    path = (
+        bionemo_home / "examples" / "tests" / "test_data" / "expected_outputs" / "inference_golden_values" / "equidock"
+    )
     return str(path)
 
 
@@ -84,15 +92,14 @@ def test_model_exists(equidock_infer_cfg):
 
 
 @pytest.mark.needs_gpu
-def test_rmsds(equidock_infer_model, equidock_infer_cfg, equidock_data_path):
+def test_rmsds(equidock_infer_model, equidock_infer_cfg, equidock_data_path, equidock_golden_data_path):
     method_name = "equidock"
     cfg, data_name = equidock_infer_cfg
     # test data
-    data_dir = os.path.join(
-        equidock_data_path, "test_sets_pdb", f"{data_name}_test_random_transformed/random_transformed"
-    )
+    folder_name = "random_transform"
+    data_dir = os.path.join(equidock_data_path, folder_name, f"{data_name}_test_random_transformed/random_transformed")
     ground_truth_data_dir = os.path.join(
-        equidock_data_path, "test_sets_pdb", f"{data_name}_test_random_transformed/complexes"
+        equidock_data_path, folder_name, f"{data_name}_test_random_transformed/complexes"
     )
 
     with (
@@ -235,7 +242,7 @@ def test_rmsds(equidock_infer_model, equidock_infer_cfg, equidock_data_path):
             all_crmsd.append(crmsd)
             all_irmsd.append(irmsd)
 
-        expected_rmsd = np.load(os.path.join(equidock_data_path, f"expected_{data_name}_equidock.npz"))
+        expected_rmsd = np.load(os.path.join(equidock_golden_data_path, f"expected_{data_name}_equidock.npz"))
         all_crmsd = np.array(all_crmsd)
         all_irmsd = np.array(all_irmsd)
 

@@ -28,7 +28,7 @@ model:
     model: ${oc.env:BIONEMO_HOME}/tokenizers/protein/esm1nv/vocab/protein_sequence_sentencepiece.model
     vocab_file: ${oc.env:BIONEMO_HOME}/tokenizers/protein/esm1nv/vocab/protein_sequence_sentencepiece.vocab
   data:
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein # parent directory for data, contains train / val / test folders
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50/processed # parent directory for data, contains train / val / test folders
     dataset: # inclusive range of data files to load or can load a single file, e.g. x000.csv
       train: x[000..001]
       test: x[000..001]
