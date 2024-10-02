@@ -128,13 +128,7 @@ build() {
 dev() {
 
   set +u
-  local CMD
-  if [[ "$2" != "" ]]; then
-    CMD="$2"
-  else
-    echo "Using bash as the default command. Override with 2nd argument value to in-image executable."
-    CMD="bash"
-  fi
+  local CMD=${2:='bash'}
   set -u
 
   # ensure that we have the image present
@@ -182,8 +176,6 @@ dev() {
     -e HOME=/workspace/bionemo2 -w /workspace/bionemo2 \
     -v ${HOME}/.ssh:/workspace/bionemo2/.ssh:ro"
 
-
-
     set -x
     ${DOCKER_CMD} --name "${DEV_CONT_NAME}" --rm -it "${IMAGE_REPO}:${IMAGE_TAG}" ${CMD}
     set +x
@@ -201,6 +193,9 @@ case "$1" in
     help)
         echo "Usage: $0 {build||dev [cmd]}"
         echo "-----------------------------------"
+        echo "For 'dev', the command defaults to bash. "
+        echo "Provide any other in-image executable to run as the 2nd argument."
+        echo "-----------------------------------------------------------------"
         echo "For advanced use, you may override any of the following environment variables:"
         echo "  IMAGE_REPO"
         echo "  CACHE_TAG"
