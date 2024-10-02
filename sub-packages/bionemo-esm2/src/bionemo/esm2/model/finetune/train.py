@@ -28,6 +28,7 @@ from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.callbacks.model_transform import ModelTransform
 from nemo.lightning.pytorch.callbacks.peft import PEFT
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
+from pytorch_lightning.callbacks import RichModelSummary
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from bionemo.esm2.api import ESM2GenericConfig
@@ -35,7 +36,6 @@ from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
 from bionemo.esm2.model.finetune.finetune_regressor import ESM2FineTuneSeqConfig, InMemorySingleValueDataset
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
-from bionemo.testing.callbacks import MetricTracker
 
 
 def train_model(
@@ -44,9 +44,10 @@ def train_model(
     config: ESM2GenericConfig,
     data_module: pl.LightningDataModule,
     n_steps_train: int,
+    metric_tracker: pl.Callback | None = None,
     tokenizer: BioNeMoESMTokenizer = get_tokenizer(),
     peft: PEFT | None = None,
-) -> Tuple[Path, MetricTracker, nl.Trainer]:
+) -> Tuple[Path, pl.Callback, nl.Trainer]:
     """Trains a BioNeMo ESM2 model using PyTorch Lightning.
 
     Parameters:
@@ -55,6 +56,7 @@ def train_model(
         config (ESM2GenericConfig): The configuration for the ESM2 model.
         data_module (pl.LightningDataModule): The data module for training and validation.
         n_steps_train (int): The number of training steps.
+        metric_tracker (pl.Callback): Optional callback to track metrics
         tokenizer (BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to `get_tokenizer()`.
         peft (PEFT | None, optional): The PEFT (Parameter-Efficient Fine-Tuning) module. Defaults to None.
 
@@ -97,8 +99,10 @@ def train_model(
         find_unused_parameters=True,
         enable_nemo_ckpt_io=True,
     )
-    metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
-    callbacks = [metric_tracker]
+
+    callbacks = [RichModelSummary(max_depth=4)]
+    if metric_tracker is not None:
+        callbacks.append(metric_tracker)
     if peft is not None:
         callbacks.append(ModelTransform())
 
@@ -159,7 +163,7 @@ if __name__ == "__main__":
     # config = ESM2FineTuneSeqConfig(initial_ckpt_path=str(pretrain_ckpt_path))
     config = ESM2FineTuneSeqConfig()
 
-    simple_ft_checkpoint, simple_ft_metrics, trainer = train_model(
+    checkpoint, metrics, trainer = train_model(
         experiment_name=experiment_name,
         experiment_dir=experiment_dir,  # new checkpoint will land in a subdir of this
         config=config,  # same config as before since we are just continuing training

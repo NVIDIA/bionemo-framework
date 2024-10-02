@@ -35,6 +35,7 @@ from bionemo.esm2.model.finetune.finetune_token_classifier import (
 from bionemo.esm2.model.finetune.peft import ESM2LoRA
 from bionemo.esm2.model.finetune.train import train_model
 from bionemo.testing import megatron_parallel_state_utils
+from bionemo.testing.callbacks import MetricTracker
 from bionemo.testing.data.load import load
 
 
@@ -91,6 +92,7 @@ def test_esm2_finetune_token_classifier(
             config=esm2_2layer_config,
             data_module=pretrain_data_module,
             n_steps_train=n_steps_train,
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             tokenizer=tokenizer,
         )
         pretrain_requires_grad = [p.requires_grad for _, p in trainer.model.named_parameters()]
@@ -116,6 +118,7 @@ def test_esm2_finetune_token_classifier(
             config=esm2_finetune_config,  # same config as before since we are just continuing training
             data_module=finetune_data_module,
             n_steps_train=n_steps_train,
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             tokenizer=tokenizer,
             peft=peft,
         )
@@ -159,6 +162,7 @@ def test_esm2_finetune_regressor(
             config=esm2_2layer_config,
             data_module=pretrain_data_module,
             n_steps_train=n_steps_train,
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             tokenizer=tokenizer,
         )
         pretrain_requires_grad = [p.requires_grad for _, p in trainer.model.named_parameters()]
@@ -184,6 +188,7 @@ def test_esm2_finetune_regressor(
             config=esm2_regression_finetune_config,  # same config as before since we are just continuing training
             data_module=finetune_data_module,
             n_steps_train=n_steps_train,
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             tokenizer=tokenizer,
             peft=peft,
         )
