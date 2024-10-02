@@ -1,9 +1,5 @@
-# bionemo-core
+# bionemo-testing
 
-Minimalist package containing proven utilities that are used among many indenepdent feature packages of the bionemo framework.
-
-Additions to this package are made if and only if they are used between 3 or more independent feature packages, including the framework package itself.
-
-```bash
-pip install -e .
-```
+A package of test-time requirements and utilities for bionemo sub-packages. In particular, the `bionemo-testing` package
+handles downloading and caching data and other assets for running unit tests and example notebooks. For more information
+on test data handling, see [BioNeMo test data management](src/bionemo/testing/data/README.md)

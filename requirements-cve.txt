@@ -1,6 +1,7 @@
 onnx>=1.16.0
 setuptools>=70.0.0
 aiohttp>=3.9.4
-jupyterlab>=3.6.7
+jupyterlab>=3.6.8
+jupyter_server>=2.14.1  # https://github.com/advisories/GHSA-hrw6-wg82-cm62
 Werkzeug>=3.0.3
 nltk>=3.9.1
