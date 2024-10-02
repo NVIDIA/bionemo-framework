@@ -203,7 +203,6 @@ case "$1" in
         else
           CMD="$2"
         fi
-        echo "CMD: ${CMD}"
         set -u
 
         dev "${CMD}"
