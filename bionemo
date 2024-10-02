@@ -133,9 +133,6 @@ build() {
 
 dev() {
 
-  CMD="$2"
-  echo "in dev func, CMD=${CMD}"
-
   env_file_setup
 
   echo "Checking that version ${IMAGE_TAG} is available"
@@ -200,11 +197,13 @@ case "$1" in
         ;;
     dev)
         set +u
+        export CMD
         if [[ "$2" != "" ]]; then
           CMD="bash"
         else
           CMD="$2"
         fi
+        echo "CMD: ${CMD}"
         set -u
 
         dev "${CMD}"
