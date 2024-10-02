@@ -44,9 +44,11 @@ NGC_CLI_ORG=${NGC_CLI_ORG:=nvidian}
 NGC_CLI_TEAM=${NGC_CLI_TEAM:=NotSpecified}
 NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE:=ascii}
 
-set -euo pipefail
+# do allow IMAGE_TAG to be overridden by env var
+# but DO NOT set this in the .env file
+IMAGE_TAG=${IMAGE_TAG:="bionemo2-${COMMIT}"}
 
-IMAGE_TAG="bionemo2-${COMMIT}"
+set -euo pipefail
 
 env_file_setup() {
   # if $LOCAL_ENV file exists, source it to specify my environment
@@ -212,6 +214,7 @@ case "$1" in
         echo "-----------------------------------------------------------------"
         echo "For advanced use, you may override any of the following environment variables:"
         echo "  IMAGE_REPO"
+        echo "  IMAGE_TAG"
         echo "  CACHE_TAG"
         echo "  LOCAL_RESULTS_PATH"
         echo "  DOCKER_RESULTS_PATH"
