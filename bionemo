@@ -53,8 +53,7 @@ env_file_setup() {
 }
 
 # if $LOCAL_ENV file exists, source it to specify my environment
-LOCAL_ENV='.env'
-write_env
+LOCAL_ENV=.env
 if [ -e ./$LOCAL_ENV ]
 then
     echo "Sourcing environment from ./$LOCAL_ENV"
