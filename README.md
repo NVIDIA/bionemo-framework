@@ -1,12 +1,12 @@
 # BioNeMo2 Repo
 To get started, please build the docker container using
 ```bash
-./launch.sh build
+./bionemo build
 ```
 
 Launch a container from the build image by executing
 ```bash
-./launch.sh dev
+./bionemo dev
 ```
 
 All `bionemo2` code is partitioned into independently installable namespace packages. These live under the `sub-packages/` directory.
