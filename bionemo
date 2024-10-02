@@ -55,7 +55,7 @@ env_file_setup() {
   if [ -e ./$LOCAL_ENV ]
   then
       echo "Sourcing environment from ./$LOCAL_ENV"
-      source ./$LOCAL_ENV
+      . ./$LOCAL_ENV
       write_env=0
   else
       echo "$LOCAL_ENV does not exist. Writing defaults to $LOCAL_ENV"
