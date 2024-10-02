@@ -191,7 +191,7 @@ case "$1" in
         dev
         ;;
     help)
-        echo "Usage: $0 {build||dev [cmd]}"
+        echo "Usage: $0 build -OR- $0 dev [cmd]"
         echo "-----------------------------------"
         echo "For 'dev', the command defaults to bash. "
         echo "Provide any other in-image executable to run as the 2nd argument."
@@ -219,7 +219,7 @@ case "$1" in
         exit 0
         ;;
     *)
-        echo "Usage: $0 {build||dev [cmd]}"
+        echo "Usage: $0 {build||dev|help}"
         exit 1
         ;;
 esac
