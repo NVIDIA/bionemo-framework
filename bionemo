@@ -131,15 +131,6 @@ build() {
 
 dev() {
 
-  local CMD
-  set +u
-  if [[ "$2" == "" ]]; then
-    CMD="bash"
-  else
-    CMD="$2"
-  fi
-  set -u
-
   env_file_setup
 
   echo "Checking that version ${IMAGE_TAG} is available"
@@ -203,6 +194,14 @@ case "$1" in
         build
         ;;
     dev)
+        set +u
+        if [[ "$2" != "" ]]; then
+          CMD="bash"
+        else
+          CMD="$2"
+        fi
+        set -u
+
         dev
         ;;
     help)
