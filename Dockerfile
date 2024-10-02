@@ -79,6 +79,12 @@ ENV UV_LINK_MODE=copy \
   UV_PYTHON_DOWNLOADS=never \
   UV_SYSTEM_PYTHON=true
 
+# Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
+# installation. These involve building some torch extensions, so they can take a while to install.
+RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
+  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
+  uv pip install --no-build-isolation -r /requirements-pyg.txt
+
 WORKDIR /workspace/bionemo2
 
 # Install 3rd-party deps and bionemo submodules.
@@ -88,8 +94,9 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
 RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
+  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   <<EOT
-uv pip install --no-build-isolation ./3rdparty/* ./sub-packages/bionemo-*
+uv pip install --no-build-isolation ./3rdparty/* ./sub-packages/bionemo-* -r /requirements-cve.txt
 rm -rf ./3rdparty
 rm -rf /tmp/*
 EOT
