@@ -148,12 +148,13 @@ data (e.g., internal PyTorch buffers). Therefore, users may want to skip these i
 
 ```python
 def size_aware_batching(
-        dataset: Iterable[Data],
-        sizeof: Callable[[Data], Real],
-        max_total_size: Real,
-        collate_fn: Optional[Callable[[Iterable[Data]], Any]] = None,
-        info_logger: Optional[Callable[[str], None]] = None,
-        warn_logger: Optional[Callable[[str], None]] = None) -> Iterator[Any]
+    dataset: Iterable[Data],
+    sizeof: Callable[[Data], Real],
+    max_total_size: Real,
+    collate_fn: Optional[Callable[[Iterable[Data]], BatchCollated]] = None,
+    info_logger: Optional[Callable[[str], None]] = None,
+    warn_logger: Optional[Callable[[str], None]] = None
+) -> Iterator[Union[List[Data], BatchCollated]]
 ```
 
 A generator that batches elements from an iterable while ensuring that the
@@ -170,7 +171,8 @@ This can be useful for both indexible data or non-indexible but iterable data.
 - `max_total_size` - The maximum total "size" of each batch. The semantics of "size"
   is defined by the `sizeof` argument. The type of this value must be comparable
   with the return type of sizeof, i.e., the operator `<` and `==` must be meaningful.
-- `collate_fn` - An optional function to collate batches. Defaults to None.
+- `collate_fn` - An optional function to collate batches. Defaults to None, in which case
+  each batch is a list of elements from the input dataset
 - `info_logger` - A function to log info. Defaults to None.
 - `warn_logger` - A function to log warnings. Defaults to None.
 
@@ -280,13 +282,11 @@ each batch does not exceed the specified `max_total_size`.
 #### \_\_init\_\_
 
 ```python
-def __init__(
-    sampler: Union[Sampler[List[int]], Iterable[int]],
-    sizeof: Callable[[int], Real],
-    max_total_size: Real,
-    info_logger: Optional[Callable[[str], None]] = lambda msg: print(msg),
-    warn_logger: Optional[Callable[[str], None]] = lambda msg: warn(msg)
-) -> None
+def __init__(sampler: Union[Sampler[List[int]], Iterable[int]],
+             sizeof: Callable[[int], Real],
+             max_total_size: Real,
+             info_logger: Optional[Callable[[str], None]] = None,
+             warn_logger: Optional[Callable[[str], None]] = None) -> None
 ```
 
 Initializes the SizeAwareBatchSampler.
@@ -300,8 +300,8 @@ Initializes the SizeAwareBatchSampler.
 - `max_total_size` - The maximum total size of a mini-batch. The semantics of "size"
   is defined by the `sizeof` argument. The type of this value must be comparable
   with the return type of sizeof, i.e., the operator `<` and `==` must be meaningful.
-- `info_logger` - A function to log info. Defaults to a lambda function that print.
-- `warn_logger` - A function to log warnings. Defaults to a lambda function that warns.
+- `info_logger` - A function to log info. Defaults to None.
+- `warn_logger` - A function to log warnings. Defaults None.
 
 
 **Raises**:
