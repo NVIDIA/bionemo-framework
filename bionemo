@@ -11,7 +11,7 @@ else
   exit 1
 fi
 
-if [[ $(command -v docker) ]]; then
+if [[ ! $(command -v docker) ]]; then
   echo "ERROR: docker is not installed!"
   exit 1
 fi
