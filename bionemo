@@ -56,7 +56,7 @@ env_file_setup() {
   WANDB_API_KEY=${WANDB_API_KEY:=NotSpecified}
   JUPYTER_PORT=${JUPYTER_PORT:=8888}
   REGISTRY=${REGISTRY:=nvcr.io}
-  REGISTRY_USER=${REGISTRY_USER:="'$oauthtoken'"}
+  REGISTRY_USER=${REGISTRY_USER:='$oauthtoken'}
   DEV_CONT_NAME=${DEV_CONT_NAME:=bionemo2}
   NGC_CLI_API_KEY=${NGC_CLI_API_KEY:=NotSpecified}
   NGC_CLI_ORG=${NGC_CLI_ORG:=nvidian}
