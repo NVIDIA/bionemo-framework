@@ -16,11 +16,18 @@ if [[ $(command -v docker) ]]; then
   exit 1
 fi
 
-IMAGE_NAME=${IMAGE_NAME:=nvcr.io/nvidian/cvai_bnmo_trng/bionemo}
+IMAGE_REPO=${IMAGE_REPO:=nvcr.io/nvidian/cvai_bnmo_trng/bionemo}
 CACHE_TAG=${CACHE_TAG:='bionemo2-latest'}
 
-LOCAL_REPO_PATH=${LOCAL_REPO_PATH:=$(realpath $(pwd))}
-DOCKER_REPO_PATH=${DOCKER_REPO_PATH:=/workspace/bionemo2}
+LOCAL_REPO_PATH=$(realpath $(pwd))
+
+if [[ $(basename "${LOCAL_REPO_PATH}") != "bionemo-fw-ea" ]]; then
+  echo "ERROR: must run from the root of the bionemo repository!"
+  echo "ERROR: invalid path: ${LOCAL_DATA_PATH}"
+  exit 1
+fi
+
+DOCKER_REPO_PATH='/workspace/bionemo2'
 LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH:=${LOCAL_REPO_PATH}/results}
 DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH:=${DOCKER_REPO_PATH}/results}
 LOCAL_DATA_PATH=${LOCAL_DATA_PATH:=${LOCAL_REPO_PATH}/data}
@@ -37,11 +44,40 @@ NGC_CLI_ORG=${NGC_CLI_ORG:=nvidian}
 NGC_CLI_TEAM=${NGC_CLI_TEAM:=NotSpecified}
 NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE:=ascii}
 
+# if $LOCAL_ENV file exists, source it to specify my environment
+LOCAL_ENV=.env
+if [ -e ./$LOCAL_ENV ]
+then
+    echo "Sourcing environment from ./$LOCAL_ENV"
+    . ./$LOCAL_ENV
+    write_env=0
+else
+    echo "$LOCAL_ENV does not exist. Writing deafults to $LOCAL_ENV"
+    write_env=1
+fi
+
+# If $LOCAL_ENV was not found, write out a template for user to edit
+if [ $write_env -eq 1 ]; then
+    echo LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH} >> $LOCAL_ENV
+    echo DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH} >> $LOCAL_ENV
+    echo LOCAL_DATA_PATH=${LOCAL_DATA_PATH} >> $LOCAL_ENV
+    echo DOCKER_DATA_PATH=${DOCKER_DATA_PATH} >> $LOCAL_ENV
+    echo LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH} >> $LOCAL_ENV
+    echo DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH} >> $LOCAL_ENV
+    echo WANDB_API_KEY=${WANDB_API_KEY} >> $LOCAL_ENV
+    echo JUPYTER_PORT=${JUPYTER_PORT} >> $LOCAL_ENV
+    echo REGISTRY=${REGISTRY} >> $LOCAL_ENV
+    echo REGISTRY_USER=${REGISTRY_USER} >> $LOCAL_ENV
+    echo DEV_CONT_NAME=${DEV_CONT_NAME} >> $LOCAL_ENV
+    echo NGC_CLI_API_KEY=${NGC_CLI_API_KEY} >> $LOCAL_ENV
+    echo NGC_CLI_ORG=${NGC_CLI_ORG} >> $LOCAL_ENV
+    echo NGC_CLI_TEAM=${NGC_CLI_TEAM} >> $LOCAL_ENV
+    echo NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE} >> $LOCAL_ENV
+fi
+
 set -euo pipefail
 
 IMAGE_TAG="bionemo2-${COMMIT}"
-
-
 
 #Function to build the Docker image
 build() {
@@ -51,8 +87,8 @@ build() {
     }
 
     # Check Docker version
-    docker_version=$(docker --version | awk -F'[, ]' '{print $3}')
-    required_docker_version="23.0.1"
+    local docker_version=$(docker --version | awk -F'[, ]' '{print $3}')
+    local required_docker_version='23.0.1'
 
     if ! version_ge "$docker_version" "$required_docker_version"; then
         echo "Error: Docker version $required_docker_version or higher is required. Current version: $docker_version"
@@ -60,30 +96,30 @@ build() {
     fi
 
     # Check Buildx version
-    buildx_version=$(docker buildx version | awk '{print $2}')
-    required_buildx_version="0.10.2"
+    local buildx_version=$(docker buildx version | awk '{print $2}')
+    local required_buildx_version='0.10.2'
 
     if ! version_ge "$buildx_version" "$required_buildx_version"; then
         echo "Error: Docker Buildx version $required_buildx_version or higher is required. Current version: $buildx_version"
         exit 1
     fi
 
-    echo "Pulling updated cache"
-    docker pull ${IMAGE_NAME}:${CACHE_TAG} || true
-    local created_at
-    created_at="$(date --iso-8601=seconds -u)"
+    echo "Pulling updated cache..."
+    docker pull ${IMAGE_REPO}:${CACHE_TAG} || true
+
     echo "Building Docker image..."
+    local created_at="$(date --iso-8601=seconds -u)"
     local DOCKER_BUILD_CMD="docker buildx build \
-        -t ${IMAGE_NAME}:${IMAGE_TAG} \
+        -t ${IMAGE_REPO}:${IMAGE_TAG} \
         --cache-to type=inline \
-	      --cache-from ${IMAGE_NAME}:${CACHE_TAG} \
+	      --cache-from ${IMAGE_REPO}:${CACHE_TAG} \
         --label com.nvidia.bionemo.git_sha=${COMMIT} \
         --label com.nvidia.bionemo.created_at=${created_at} \
         -f ./Dockerfile"
     echo "$DOCKER_BUILD_CMD"
     DOCKER_BUILDKIT=1 $DOCKER_BUILD_CMD .
     if [[ "$?" == "0" ]]; then
-      echo "Docker build completed successfully."
+      echo "Docker build completed successfully!"
     else
       echo "FAILURE: image was not built. Check logs for error."
     fi
@@ -92,15 +128,8 @@ build() {
 dev() {
   # Compare Docker version to find Nvidia Container Toolkit support.
   # Please refer https://github.com/NVIDIA/nvidia-docker
-  local DOCKER_VERSION
-  if [ -x "$(command -v docker)" ]; then
-      DOCKER_VERSION=$(docker version | grep -i version | head -1 | awk '{print $2}')
-  else
-      DOCKER_VERSION=""
-  fi
-
+  local DOCKER_VERSION=$(docker version | grep -i version | head -1 | awk '{print $2}')
   local DOCKER_VERSION_WITH_GPU_SUPPORT='19.03.0'
-
   local PARAM_RUNTIME
   if [ "$DOCKER_VERSION_WITH_GPU_SUPPORT" == "$(echo -e "$DOCKER_VERSION\n$DOCKER_VERSION_WITH_GPU_SUPPORT" | sort -V | head -1)" ]; then
       PARAM_RUNTIME="--gpus all"
@@ -110,8 +139,14 @@ dev() {
 
   echo "Mounting ~/.ssh, /etc/{passwd,group,shadow} for development"
 
-  local DOCKER_CMD
-  DOCKER_CMD="docker run \
+
+  # We used to start the container as non-root
+  # -u $(id -u):$(id -g) \
+  # but this runs into problems because everything that is installed in the image is owned by root.
+  # So doing this means that
+
+
+  local DOCKER_CMD="docker run \
     --network host \
     ${PARAM_RUNTIME} \
     -p ${JUPYTER_PORT}:8888 \
@@ -131,22 +166,21 @@ dev() {
     -v /etc/passwd:/etc/passwd:ro \
     -v /etc/group:/etc/group:ro \
     -v /etc/shadow:/etc/shadow:ro \
-    -u $(id -u):$(id -g) \
     -e HOME=/workspace/bionemo2 -w /workspace/bionemo2 \
     -v ${HOME}/.ssh:/workspace/bionemo2/.ssh:ro"
 
+    set +u
     local CMD
     if [[ "$2" != "" ]]; then
       CMD="$2"
     else
-      echo "Using bash as the default command. Override with 2nd argument value to exectuable."
+      echo "Using bash as the default command. Override with 2nd argument value to in-image executable."
       CMD="bash"
     fi
-
-    local IMAGE_TO_RUN="${IMAGE_NAME}:${IMAGE_TAG}"
+    set -u
 
     set -x
-    ${DOCKER_CMD} --name "${DEV_CONT_NAME}" --rm -it "${IMAGE_TO_RUN}" ${CMD}
+    ${DOCKER_CMD} --name "${DEV_CONT_NAME}" --rm -it "${IMAGE_REPO}:${IMAGE_TAG}" ${CMD}
     set +x
     exit 0
 }
@@ -159,14 +193,12 @@ case "$1" in
     dev)
         dev
         ;;
-    *)
+    help)
         echo "Usage: $0 {build||dev [cmd]}"
         echo "-----------------------------------"
         echo "For advanced use, you may override any of the following environment variables:"
-        echo "  IMAGE_NAME"
+        echo "  IMAGE_REPO"
         echo "  CACHE_TAG"
-        echo "  LOCAL_REPO_PATH"
-        echo "  DOCKER_REPO_PATH"
         echo "  LOCAL_RESULTS_PATH"
         echo "  DOCKER_RESULTS_PATH"
         echo "  LOCAL_DATA_PATH"
@@ -182,6 +214,12 @@ case "$1" in
         echo "  NGC_CLI_ORG"
         echo "  NGC_CLI_TEAM"
         echo "  NGC_CLI_FORMAT_TYPE"
+        echo '---------------------'
+        echo "You may also edit these values in the .env file."
+        exit 0
+        ;;
+    *)
+        echo "Usage: $0 {build||dev [cmd]}"
         exit 1
         ;;
 esac
