@@ -198,7 +198,7 @@ case "$1" in
     dev)
         set +u
         export CMD
-        if [[ "$2" != "" ]]; then
+        if [[ "$2" == "" ]]; then
           CMD="bash"
         else
           CMD="$2"
