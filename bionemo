@@ -1,28 +1,47 @@
 #!/usr/bin/env bash
 
-IMAGE_NAME=${IMAGE_NAME:=nvcr.io/nvidian/cvai_bnmo_trng/bionemo}
-COMMIT=$(git rev-parse HEAD)
-IMAGE_TAG="bionemo2-${COMMIT}"
-CACHE_TAG="bionemo2-latest"
+if [[ $(command -v git) ]]; then
+  COMMIT=$(git rev-parse HEAD)
+  if [[ "$?" != "0" ]]; then
+    echo "ERROR: must run from within git repository!"
+    exit 1
+  fi
+else
+  echo "ERROR: git is not installed!"
+  exit 1
+fi
 
-export LOCAL_REPO_PATH
-LOCAL_REPO_PATH=$(realpath $(pwd))
-export DOCKER_REPO_PATH=${DOCKER_REPO_PATH:=/workspace/bionemo2}
-export LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH:=${LOCAL_REPO_PATH}/results}
-export DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH:=${DOCKER_REPO_PATH}/results}
-export LOCAL_DATA_PATH=${LOCAL_DATA_PATH:=${LOCAL_REPO_PATH}/data}
-export DOCKER_DATA_PATH=${DOCKER_DATA_PATH:=${DOCKER_REPO_PATH}/data}
-export LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH:=${LOCAL_REPO_PATH}/models}
-export DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH:=${DOCKER_REPO_PATH}/models}
-export WANDB_API_KEY=${WANDB_API_KEY:=NotSpecified}
-export JUPYTER_PORT=${JUPYTER_PORT:=8888}
-export REGISTRY=${REGISTRY:=nvcr.io}
-export REGISTRY_USER=${REGISTRY_USER:='$oauthtoken'}
-export DEV_CONT_NAME=${DEV_CONT_NAME:=bionemo2}
-export NGC_CLI_API_KEY=${NGC_CLI_API_KEY:=NotSpecified}
-export NGC_CLI_ORG=${NGC_CLI_ORG:=nvidian}
-export NGC_CLI_TEAM=${NGC_CLI_TEAM:=NotSpecified}
-export NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE:=ascii}
+if [[ $(command -v docker) ]]; then
+  echo "ERROR: docker is not installed!"
+  exit 1
+fi
+
+IMAGE_NAME=${IMAGE_NAME:=nvcr.io/nvidian/cvai_bnmo_trng/bionemo}
+CACHE_TAG=${CACHE_TAG:='bionemo2-latest'}
+
+LOCAL_REPO_PATH=${LOCAL_REPO_PATH:=$(realpath $(pwd))}
+DOCKER_REPO_PATH=${DOCKER_REPO_PATH:=/workspace/bionemo2}
+LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH:=${LOCAL_REPO_PATH}/results}
+DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH:=${DOCKER_REPO_PATH}/results}
+LOCAL_DATA_PATH=${LOCAL_DATA_PATH:=${LOCAL_REPO_PATH}/data}
+DOCKER_DATA_PATH=${DOCKER_DATA_PATH:=${DOCKER_REPO_PATH}/data}
+LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH:=${LOCAL_REPO_PATH}/models}
+DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH:=${DOCKER_REPO_PATH}/models}
+WANDB_API_KEY=${WANDB_API_KEY:=NotSpecified}
+JUPYTER_PORT=${JUPYTER_PORT:=8888}
+REGISTRY=${REGISTRY:=nvcr.io}
+REGISTRY_USER=${REGISTRY_USER:='$oauthtoken'}
+DEV_CONT_NAME=${DEV_CONT_NAME:=bionemo2}
+NGC_CLI_API_KEY=${NGC_CLI_API_KEY:=NotSpecified}
+NGC_CLI_ORG=${NGC_CLI_ORG:=nvidian}
+NGC_CLI_TEAM=${NGC_CLI_TEAM:=NotSpecified}
+NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE:=ascii}
+
+set -euo pipefail
+
+IMAGE_TAG="bionemo2-${COMMIT}"
+
+
 
 #Function to build the Docker image
 build() {
@@ -132,6 +151,7 @@ dev() {
     exit 0
 }
 
+set +u
 case "$1" in
     build)
         build
@@ -141,6 +161,27 @@ case "$1" in
         ;;
     *)
         echo "Usage: $0 {build||dev [cmd]}"
+        echo "-----------------------------------"
+        echo "For advanced use, you may override any of the following environment variables:"
+        echo "  IMAGE_NAME"
+        echo "  CACHE_TAG"
+        echo "  LOCAL_REPO_PATH"
+        echo "  DOCKER_REPO_PATH"
+        echo "  LOCAL_RESULTS_PATH"
+        echo "  DOCKER_RESULTS_PATH"
+        echo "  LOCAL_DATA_PATH"
+        echo "  DOCKER_DATA_PATH"
+        echo "  LOCAL_MODELS_PATH"
+        echo "  DOCKER_MODELS_PATH"
+        echo "  WANDB_API_KEY"
+        echo "  JUPYTER_PORT"
+        echo "  REGISTRY"
+        echo "  REGISTRY_USER"
+        echo "  DEV_CONT_NAME"
+        echo "  NGC_CLI_API_KEY"
+        echo "  NGC_CLI_ORG"
+        echo "  NGC_CLI_TEAM"
+        echo "  NGC_CLI_FORMAT_TYPE"
         exit 1
         ;;
 esac
