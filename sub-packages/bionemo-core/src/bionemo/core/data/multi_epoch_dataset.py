@@ -29,10 +29,13 @@ U_co = TypeVar("U_co", covariant=True)
 
 
 class EpochIndex(NamedTuple):
-    """A tuple that contains both the current epoch and index within the given epoch."""
+    """A tuple that contains both the current epoch and index for multi-epoch training."""
 
     epoch: int
+    """An integer representing the current epoch."""
+
     idx: int
+    """An integer representing the index within the current epoch."""
 
 
 class SizedDataset(Protocol[T_co]):
