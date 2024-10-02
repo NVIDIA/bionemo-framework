@@ -28,6 +28,24 @@ fi
 # NOTE: do allow IMAGE_TAG to be overridden by env var, but DO NOT set this in the .env file!
 IMAGE_TAG=${IMAGE_TAG:="bionemo2-${COMMIT}"}
 
+# these will be set in the .env file
+IMAGE_REPO=${IMAGE_REPO:=nvcr.io/nvidian/cvai_bnmo_trng/bionemo}
+LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH:=${LOCAL_REPO_PATH}/results}
+DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH:=${DOCKER_REPO_PATH}/results}
+LOCAL_DATA_PATH=${LOCAL_DATA_PATH:=${LOCAL_REPO_PATH}/data}
+DOCKER_DATA_PATH=${DOCKER_DATA_PATH:=${DOCKER_REPO_PATH}/data}
+LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH:=${LOCAL_REPO_PATH}/models}
+DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH:=${DOCKER_REPO_PATH}/models}
+WANDB_API_KEY=${WANDB_API_KEY:=NotSpecified}
+JUPYTER_PORT=${JUPYTER_PORT:=8888}
+REGISTRY=${REGISTRY:=nvcr.io}
+REGISTRY_USER=${REGISTRY_USER:="'$oauthtoken'"}
+DEV_CONT_NAME=${DEV_CONT_NAME:=bionemo2}
+NGC_CLI_API_KEY=${NGC_CLI_API_KEY:=NotSpecified}
+NGC_CLI_ORG=${NGC_CLI_ORG:=nvidian}
+NGC_CLI_TEAM=${NGC_CLI_TEAM:=NotSpecified}
+NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE:=ascii}
+
 set -euo pipefail
 
 env_file_setup() {
@@ -42,26 +60,6 @@ env_file_setup() {
       echo "$LOCAL_ENV does not exist. Writing defaults to $LOCAL_ENV"
       write_env="1"
   fi
-
-  # we first source from .env
-  # if there's no .env, then we set default values
-  # doing it this way lets us still override env vars on the CLI
-  IMAGE_REPO=${IMAGE_REPO:=nvcr.io/nvidian/cvai_bnmo_trng/bionemo}
-  LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH:=${LOCAL_REPO_PATH}/results}
-  DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH:=${DOCKER_REPO_PATH}/results}
-  LOCAL_DATA_PATH=${LOCAL_DATA_PATH:=${LOCAL_REPO_PATH}/data}
-  DOCKER_DATA_PATH=${DOCKER_DATA_PATH:=${DOCKER_REPO_PATH}/data}
-  LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH:=${LOCAL_REPO_PATH}/models}
-  DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH:=${DOCKER_REPO_PATH}/models}
-  WANDB_API_KEY=${WANDB_API_KEY:=NotSpecified}
-  JUPYTER_PORT=${JUPYTER_PORT:=8888}
-  REGISTRY=${REGISTRY:=nvcr.io}
-  REGISTRY_USER=${REGISTRY_USER:="'$oauthtoken'"}
-  DEV_CONT_NAME=${DEV_CONT_NAME:=bionemo2}
-  NGC_CLI_API_KEY=${NGC_CLI_API_KEY:=NotSpecified}
-  NGC_CLI_ORG=${NGC_CLI_ORG:=nvidian}
-  NGC_CLI_TEAM=${NGC_CLI_TEAM:=NotSpecified}
-  NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE:=ascii}
 
   # If $LOCAL_ENV was not found, write out a template for user to edit
   if [[ "${write_env}"  == "1" ]]; then
