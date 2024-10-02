@@ -44,40 +44,43 @@ NGC_CLI_ORG=${NGC_CLI_ORG:=nvidian}
 NGC_CLI_TEAM=${NGC_CLI_TEAM:=NotSpecified}
 NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE:=ascii}
 
-# if $LOCAL_ENV file exists, source it to specify my environment
-LOCAL_ENV=.env
-if [ -e ./$LOCAL_ENV ]
-then
-    echo "Sourcing environment from ./$LOCAL_ENV"
-    source ./$LOCAL_ENV
-    write_env=0
-else
-    echo "$LOCAL_ENV does not exist. Writing defaults to $LOCAL_ENV"
-    write_env=1
-fi
-
-# If $LOCAL_ENV was not found, write out a template for user to edit
-if [ $write_env -eq 1 ]; then
-    echo LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH} >> $LOCAL_ENV
-    echo DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH} >> $LOCAL_ENV
-    echo LOCAL_DATA_PATH=${LOCAL_DATA_PATH} >> $LOCAL_ENV
-    echo DOCKER_DATA_PATH=${DOCKER_DATA_PATH} >> $LOCAL_ENV
-    echo LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH} >> $LOCAL_ENV
-    echo DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH} >> $LOCAL_ENV
-    echo WANDB_API_KEY=${WANDB_API_KEY} >> $LOCAL_ENV
-    echo JUPYTER_PORT=${JUPYTER_PORT} >> $LOCAL_ENV
-    echo REGISTRY=${REGISTRY} >> $LOCAL_ENV
-    echo REGISTRY_USER=${REGISTRY_USER} >> $LOCAL_ENV
-    echo DEV_CONT_NAME=${DEV_CONT_NAME} >> $LOCAL_ENV
-    echo NGC_CLI_API_KEY=${NGC_CLI_API_KEY} >> $LOCAL_ENV
-    echo NGC_CLI_ORG=${NGC_CLI_ORG} >> $LOCAL_ENV
-    echo NGC_CLI_TEAM=${NGC_CLI_TEAM} >> $LOCAL_ENV
-    echo NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE} >> $LOCAL_ENV
-fi
-
 set -euo pipefail
 
 IMAGE_TAG="bionemo2-${COMMIT}"
+
+env_file_setup() {
+  # if $LOCAL_ENV file exists, source it to specify my environment
+  local LOCAL_ENV='.env'
+  local write_env
+  if [ -e ./$LOCAL_ENV ]
+  then
+      echo "Sourcing environment from ./$LOCAL_ENV"
+      source ./$LOCAL_ENV
+      write_env=0
+  else
+      echo "$LOCAL_ENV does not exist. Writing defaults to $LOCAL_ENV"
+      write_env=1
+  fi
+
+  # If $LOCAL_ENV was not found, write out a template for user to edit
+  if [ $write_env -eq 1 ]; then
+      echo LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH} >> $LOCAL_ENV
+      echo DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH} >> $LOCAL_ENV
+      echo LOCAL_DATA_PATH=${LOCAL_DATA_PATH} >> $LOCAL_ENV
+      echo DOCKER_DATA_PATH=${DOCKER_DATA_PATH} >> $LOCAL_ENV
+      echo LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH} >> $LOCAL_ENV
+      echo DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH} >> $LOCAL_ENV
+      echo WANDB_API_KEY=${WANDB_API_KEY} >> $LOCAL_ENV
+      echo JUPYTER_PORT=${JUPYTER_PORT} >> $LOCAL_ENV
+      echo REGISTRY=${REGISTRY} >> $LOCAL_ENV
+      echo REGISTRY_USER=${REGISTRY_USER} >> $LOCAL_ENV
+      echo DEV_CONT_NAME=${DEV_CONT_NAME} >> $LOCAL_ENV
+      echo NGC_CLI_API_KEY=${NGC_CLI_API_KEY} >> $LOCAL_ENV
+      echo NGC_CLI_ORG=${NGC_CLI_ORG} >> $LOCAL_ENV
+      echo NGC_CLI_TEAM=${NGC_CLI_TEAM} >> $LOCAL_ENV
+      echo NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE} >> $LOCAL_ENV
+  fi
+}
 
 #Function to build the Docker image
 build() {
@@ -103,6 +106,8 @@ build() {
         echo "Error: Docker Buildx version $required_buildx_version or higher is required. Current version: $buildx_version"
         exit 1
     fi
+
+    env_file_setup
 
     echo "Pulling updated cache..."
     docker pull ${IMAGE_REPO}:${CACHE_TAG} || true
@@ -131,15 +136,21 @@ dev() {
   local CMD=${2:='bash'}
   set -u
 
-  # ensure that we have the image present
-  set +e
-  docker pull "${IMAGE_REPO}:${IMAGE_TAG}"
-  if [[ "$?" != "0" ]]; then
-    echo "ERROR: must build the image before launching a container!"
-    echo "ERROR: could not obtain '${IMAGE_REPO}:${IMAGE_TAG}'"
-    exit 1
+  env_file_setup
+
+  echo "Checking that version ${IMAGE_TAG} is available"
+  # check if image has been built / is locally available
+  if [[ $(docker images -q "${IMAGE_REPO}:${IMAGE_TAG}" 2> /dev/null) == "" ]]; then
+    set +e
+    # check if we can pull the image
+    docker pull "${IMAGE_REPO}:${IMAGE_TAG}"
+    if [[ "$?" != "0" ]]; then
+      echo "ERROR: must build the image before launching a container!"
+      echo "ERROR: could not obtain '${IMAGE_REPO}:${IMAGE_TAG}'"
+      exit 1
+    fi
+    set -e
   fi
-  set -e
 
   # Compare Docker version to find Nvidia Container Toolkit support.
   # Please refer https://github.com/NVIDIA/nvidia-docker
