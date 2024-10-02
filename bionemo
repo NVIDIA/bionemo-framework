@@ -132,8 +132,13 @@ build() {
 
 dev() {
 
+  local CMD
   set +u
-  local CMD=${2:='bash'}
+  if [[ "$2" == "" ]]; then
+    CMD="bash"
+  else
+    CMD="$2"
+  fi
   set -u
 
   env_file_setup
