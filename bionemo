@@ -76,7 +76,7 @@ env_file_setup() {
       echo "WANDB_API_KEY=${WANDB_API_KEY}" >> $LOCAL_ENV
       echo "JUPYTER_PORT=${JUPYTER_PORT}" >> $LOCAL_ENV
       echo "REGISTRY=${REGISTRY}" >> $LOCAL_ENV
-      echo "REGISTRY_USER=\'${REGISTRY_USER}\'" >> $LOCAL_ENV
+      echo "REGISTRY_USER='${REGISTRY_USER}'" >> $LOCAL_ENV
       echo "DEV_CONT_NAME=${DEV_CONT_NAME}" >> $LOCAL_ENV
       echo "NGC_CLI_API_KEY=${NGC_CLI_API_KEY}" >> $LOCAL_ENV
       echo "NGC_CLI_ORG=${NGC_CLI_ORG}" >> $LOCAL_ENV
