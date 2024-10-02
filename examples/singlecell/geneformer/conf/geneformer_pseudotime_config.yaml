@@ -1,0 +1,45 @@
+defaults:
+  - geneformer_base_config
+
+seed_everything: false  # Set to False with real runs in parallel to avoid duplicated seeds across nodes.
+
+trainer:
+  devices: 1
+  val_check_interval: 1
+  log_every_n_steps: 1
+  limit_val_batches: 8
+  limit_test_batches: 500
+  max_steps: 400000
+  precision: bf16-mixed
+
+model:
+  num_layers: 6
+  micro_batch_size: 16
+  pre_process: True
+  post_process: True
+  bert_binary_head: False
+  tokenizer:
+    vocab_file: ${..data.train_dataset_path}/geneformer.vocab  # By convention the vocab file is preprocessed into the train dataset path.
+  next_cell_prediction: True
+  no_neighbor_policy: identity
+  data:
+    probabilistic_dirichlet_sampling_train: False  # Set to True to enable some shuffling of order when gene counts are close.
+    train_dataset_path: /workspace/bionemo/data/cellxgene_2023-12-15/processed_data/train
+    val_dataset_path: /workspace/bionemo/data/cellxgene_2023-12-15/processed_data/val
+    test_dataset_path: /workspace/bionemo/data/cellxgene_2023-12-15/processed_data/test
+    micro_batch_size: ${model.micro_batch_size}
+    num_workers: 12
+    dataloader_type: single
+    dynamic_padding: true
+    medians_file: ${.train_dataset_path}/medians.json  # By convention the medians file is preprocessed into the train dataset path.
+
+exp_manager:
+  explicit_log_dir: null
+  exp_dir: ${oc.env:BIONEMO_HOME}/results/nemo_experiments/${.name}/${.wandb_logger_kwargs.name}
+  name: geneformer
+  create_wandb_logger: True
+  wandb_logger_kwargs:
+    project: null
+    name: geneformer-pretraining
+    offline: False
+  resume_if_exists: True

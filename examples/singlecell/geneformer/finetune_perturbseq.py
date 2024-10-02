@@ -14,9 +14,10 @@ from omegaconf import open_dict
 from omegaconf.omegaconf import OmegaConf
 
 from bionemo.data.metrics import mse
-from bionemo.data.preprocess.singlecell.preprocess import AdamsonResources, GeneformerPreprocess, preprocess_adamson
+from bionemo.data.preprocess.singlecell.preprocess import AdamsonResources, preprocess_adamson
 from bionemo.model.singlecell.downstream.finetuning import FineTuneGeneformerModel
 from bionemo.model.utils import (
+    create_geneformer_preprocessor,
     setup_trainer,
 )
 
@@ -45,10 +46,11 @@ def main(cfg) -> None:
         # Get the medians and vocab setup appropriately
         logging.info("************** Starting Preprocessing ***********")
         # Path that the medians file gets saved to. Note that internally the tokenizer also controls saving its vocab based on a location in the config
-        preprocessor = GeneformerPreprocess(
-            download_directory=cfg.model.data.train_dataset_path,
-            medians_file_path=cfg.model.data.medians_file,
-            tokenizer_vocab_path=cfg.model.tokenizer.vocab_file,
+        preprocessor = create_geneformer_preprocessor(
+            cfg.model.data.compute_medians,
+            cfg.model.data.train_dataset_path,
+            cfg.model.data.medians_file,
+            cfg.model.tokenizer.vocab_file,
         )
         match preprocessor.preprocess():
             case {"tokenizer": _, "median_dict": _}:

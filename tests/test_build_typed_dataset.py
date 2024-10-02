@@ -8,6 +8,10 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+import os
+import pickle as pkl
+import shutil
+
 import pytest
 from omegaconf import OmegaConf, open_dict
 
@@ -16,6 +20,7 @@ from bionemo.data.dataset_builder_utils import (
     _CSV_MMAP_TYPE,
     _DATA_IMPL_TYPE_CLS,
     _FASTA_FIELDS_MMAP_TYPE,
+    add_hash_to_metadata,
     build_typed_dataset,
 )
 from bionemo.data.mapped_dataset import ResamplingMappedDataset
@@ -53,6 +58,24 @@ def test_dataset_builder_fasta_fields():
     ) == set()
 
 
+def test_add_hash_to_metadata():
+    # Write file without SHA256
+    info = {"newline_int": 10, "version": "0.2"}
+    data_path = "examples/tests/test_data/molecule/test/x000.csv"
+    idx_mapping_dir = "examples/tests/test_data/molecule/test/idx_dir"
+    data_path_dir = os.path.dirname(data_path)
+    os.makedirs(os.path.join(idx_mapping_dir, data_path_dir), exist_ok=True)
+    pkl.dump(info, open(os.path.join(idx_mapping_dir, data_path + ".idx.info"), "wb"))
+
+    # Add hash
+    add_hash_to_metadata(idx_mapping_dir, [data_path])
+
+    # Check that hash is present
+    hash_info = pkl.load(open(os.path.join(idx_mapping_dir, data_path + ".idx.info"), "rb"))
+    shutil.rmtree(idx_mapping_dir)  # clean up
+    assert "sha256" in hash_info.keys(), "sha256 key not added to metadata file"
+
+
 def test_dataset_builder_csv_mmap():
     # MegamolBART pretraining
     filepath = "examples/tests/test_data/molecule/test/x[000..001]"
@@ -65,7 +88,7 @@ def test_dataset_builder_csv_mmap():
         "data_sep": ",",
         "data_col": 1,
     }
-    cfg = {"data_impl_kwargs": {_CSV_MMAP_TYPE: kwargs}}
+    cfg = {"data_impl_kwargs": {_CSV_MMAP_TYPE: kwargs}, "index_mapping_dir": ""}
     cfg = OmegaConf.create(cfg)
 
     dataset = build_typed_dataset(

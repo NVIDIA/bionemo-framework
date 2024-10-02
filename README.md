@@ -1,12 +1,3 @@
-# :rotating_light: GitLab to GitHub Migration :construction:
-
-BioNeMo is currently in the process of going full open source with the intent of ingesting external contributions while also refactoring a large chunk of the codebase. Prior BioNeMo development was done internally at NVIDIA on GitLab, and this GitHub repository is currently mid-migration. There are two main branches of development:
-
-* `main` - This is currently a mirror of released versions of BioNeMo with "flat commits" for each release version. The code here corresponds to the `dev` branch on NVIDIA's internal GitLab, sometimes referred to as "bionemo1".
-* `v2-main` - This is in *active development* here on GitHub with a live git tree. This is "bionemo2" code which is a significant refactor around NeMo 2.0.
-
-If you are an Early Access customer and looking to contribute to either `main` or `v2-main`, we can't wait! Please coordinate with Harry Clifford (hclifford@nvidia.com) to get engineering support while we continue to build the developer operations and processes around our new GitHub home.
-
 # NVIDIA BioNeMo (Early Access)
 
 ## Introduction

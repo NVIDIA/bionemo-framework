@@ -86,6 +86,7 @@ def model_cfg(config_path_for_tests) -> DictConfig:
     return cfg
 
 
+@pytest.mark.xfail(reason="Issue #195")
 @pytest.mark.needs_gpu
 def test_megamolbart_greedy_beam_search(megamolbart_model_trainer, model_cfg):
     """

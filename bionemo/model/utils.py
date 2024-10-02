@@ -9,6 +9,7 @@
 # its affiliates is strictly prohibited.
 
 import re
+from pathlib import Path
 from typing import Optional, Tuple, Type, TypeVar
 
 import pytorch_lightning as pl
@@ -33,6 +34,10 @@ from pytorch_lightning.callbacks.timer import Timer
 from pytorch_lightning.plugins.environments import TorchElasticEnvironment
 
 from bionemo.callbacks.utils import add_progress_bar_callback, add_test_callbacks, add_training_callbacks
+from bionemo.data.preprocess.singlecell.preprocess import (
+    GeneformerPreprocess,
+    GeneformerPreprocessPaperMedians,
+)
 
 
 M = TypeVar("M")
@@ -514,3 +519,12 @@ def initialize_distributed_parallel_state(
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             pipeline_model_parallel_split_rank=pipeline_model_parallel_split_rank,
         )
+
+
+def create_geneformer_preprocessor(
+    compute_medians, download_directory: Path, medians_file_path: Path, tokenizer_vocab_path: Path
+) -> GeneformerPreprocess:
+    if compute_medians == "paper":
+        return GeneformerPreprocessPaperMedians(download_directory, medians_file_path, tokenizer_vocab_path)
+    else:
+        raise NotImplementedError

@@ -294,7 +294,7 @@ def test_esm1nv_golden_value_json_and_overwrite_32(
 ):
     model, trainer, dataset = esm1_model_32
     _test_esm1nv_golden_value_json_and_overwrite(
-        cfg_32, golden_value_heatmap_dir, model, trainer, dataset, 1e-6, golden_values_fp32_json
+        cfg_32, golden_value_heatmap_dir, model, trainer, dataset, 1e-9, golden_values_fp32_json
     )
 
 

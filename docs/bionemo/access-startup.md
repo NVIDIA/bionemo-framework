@@ -8,12 +8,12 @@ An open-source version of the BioNeMo Framework is coming soon and will be avail
 
 ## NGC Account and API Key Configuration
 
-NVIDIA GPU Cloud (NGC) is a portal of enterprise services, software, and support for AI and HPC workloads. The NGC Catalog is a collection of GPU-accelerated software, models and containers that speed up end-to-end AI workflows. The BioNeMo Framework container is available on NGC.
+NVIDIA GPU Cloud (NGC) is a portal of enterprise services, software, and support for AI and HPC workloads. The [NGC Catalog](https://catalog.ngc.nvidia.com/) is a collection of GPU-accelerated software, models and containers that speed up end-to-end AI workflows. The BioNeMo Framework container is available on NGC.
 
 1. Create a free account on [NGC](https://ngc.nvidia.com/signin) and log in.
 2. At the top right, click on the **User > Setup > Generate API Key**, then click **+ Generate API Key** and **Confirm**. Copy and store your API Key in a secure location.
 
-You can now view the BioNeMo Framework container [here](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework) or by searching the NGC Catalog for “BioNeMo Framework”. Feel free to explore the resources available to you in the Catalog.
+You can now view the BioNeMo Framework container [here](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework) or by searching the [NGC Catalog](https://catalog.ngc.nvidia.com/) for “BioNeMo Framework”. Feel free to explore the resources available to you in the Catalog.
 
 # Startup Instructions
 
@@ -23,7 +23,7 @@ Now that you can access the BioNeMo Framework container, it is time to get up an
 
 ### Pull Docker Container from NGC
 
-Within the NGC Catalog, navigate to **BioNeMo Framework > Tags > Get Container**, and copy the image path for the latest tag.
+Within the [NGC Catalog](https://catalog.ngc.nvidia.com/), navigate to **BioNeMo Framework > Tags > Get Container**, and copy the image path for the latest tag.
 
 Open a command prompt on your machine and enter the following:
 
@@ -34,10 +34,21 @@ docker login nvcr.io
     Password: <YOUR_API_KEY>
 ```
 
-You can now pull the container:
+You can now pull the container with the command below. Replace the <TAG> string with your desired version tag available [here](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags):
 
 ```bash
-docker pull <IMAGE_PATH>
+BIONEMO_IMAGE_PATH=nvcr.io/nvidia/clara/bionemo-framework:<TAG>
+docker pull $BIONEMO_IMAGE_PATH
+```
+
+To automatically retrieve the latest container, you can use the following commands:
+
+```bash
+LATEST_TAG=$(ngc registry image list --format_type=csv --column=tag nvidia/clara/bionemo-framework | tail +2 | head -1 | cut -f 2 -d',')
+
+BIONEMO_IMAGE_PATH=nvcr.io/nvidia/clara/bionemo-framework:${LATEST_TAG}
+
+docker pull $BIONEMO_IMAGE_PATH
 ```
 
 ### Run Docker Container
@@ -46,7 +57,7 @@ First, create a local workspace directory (to be mounted to the home directory o
 
 ```bash
 docker run --rm -d --gpus all -p 8888:8888 \
-  -v <YOUR_WORKSPACE>:/workspace/bionemo/<YOUR_WORKSPACE> <IMAGE_PATH> \
+  -v <YOUR_WORKSPACE>:/workspace/bionemo/<YOUR_WORKSPACE> $BIONEMO_IMAGE_PATH \
   "jupyter lab --allow-root --ip=* --port=8888 --no-browser \
   --NotebookApp.token='' --NotebookApp.allow_origin='*' \
   --ContentsManager.allow_hidden=True --notebook-dir=/workspace/bionemo"
@@ -100,7 +111,7 @@ ngc batch run \
 	--team <YOUR_TEAM> \
 	--ace <YOUR_ACE> \
 	--instance dgxa100.80g.1.norm \
-	--image <IMAGE_PATH> \
+	--image <BIONEMO_IMAGE_PATH> \
 	--port 8888 \
 	--workspace <YOUR_WORKSPACE>:/workspace/bionemo/<YOUR_WORKSPACE>:RW \
 	--datasetid <YOUR_DATASET> \
@@ -125,4 +136,4 @@ Explanation:
 * `--label`: Job label, allowing quick filtering on NGC dashboard
 * `--commandline`: Command to run inside the container, in this case, starting JupyterLab and keeping it running with `sleep infinity`
 
-To launch your Jupyter notebook in the browser, click on your job in the NGC Web UI and then click the URL under the Service Mapped Ports. You may also set up a Remote Tunnel to access a running job to execute and edit your code using VS Code locally or via the browser, as discussed [here](https://docs.nvidia.com/base-command-platform/user-guide/latest/index.html#setting-up-and-accessing-visual-studio-code-via-remote-tunnel).
+To launch your Jupyter notebook in the browser, click on your [job in the NGC Web UI](https://bc.ngc.nvidia.com/jobs) and then click the URL under the Service Mapped Ports. You may also set up a Remote Tunnel to access a running job to execute and edit your code using VS Code locally or via the browser, as discussed [here](https://docs.nvidia.com/base-command-platform/user-guide/latest/index.html#setting-up-and-accessing-visual-studio-code-via-remote-tunnel).

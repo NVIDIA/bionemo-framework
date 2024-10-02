@@ -438,7 +438,6 @@ class FinetuningSampler(Sampler[Tuple[str, int, int]]):
     def __iter__(self) -> Iterator[Tuple[str, int, int]]:
         assert hasattr(self, "dataset_index_seed_triples")
         yield from self.dataset_index_seed_triples
-        del self.dataset_index_seed_triples
 
     def __len__(self) -> int:
         assert hasattr(self, "dataset_index_seed_triples")

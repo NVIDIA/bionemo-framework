@@ -271,7 +271,7 @@ However, the pipelines can be modified for different datasets. The following thr
 
 ### API Setup
 
-Enabling integration with Weights & Biases is highly recommended. To leverage this feature, ensure the `.env` file contains a WANDB API key entered for the variable `WANDB_API_KEY`. Check the Weights and Biases user guide for further instructions on obtaining an API key. Refer to the [Next Steps](./next-steps.md) section for details on setup.
+Enabling integration with Weights & Biases is highly recommended. To leverage this feature, ensure the `.env` file contains a WANDB API key entered for the variable `WANDB_API_KEY`. Check the Weights and Biases user guide for further instructions on obtaining an API key. Refer to the [Initialization Guide](./initialization-guide.md) section for details on setup.
 
 ### Weights and Biases Charts
 

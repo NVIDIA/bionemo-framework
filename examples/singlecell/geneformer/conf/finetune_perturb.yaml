@@ -21,7 +21,7 @@ exp_manager:
     name: ${name}_finetuning_encoder_frozen_${model.encoder_frozen}
 
 model:
-  restore_encoder_path: "${oc.env:BIONEMO_HOME}/models/singlecell/geneformer/geneformer-qa.nemo"
+  restore_encoder_path: "${oc.env:BIONEMO_HOME}/models/singlecell/geneformer/geneformer-10M-240530.nemo"
   encoder_frozen: False # encoder trainable or frozen
   bert_binary_head: True # this MUST be set for perturb-seq finetuning because it allows use to use the tokentype_embeddings, its here that we set the pertubation target.
   post_process: False # set to False for downstream task

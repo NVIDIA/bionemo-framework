@@ -566,6 +566,23 @@ class ResamplingMappedDataset(MappedDataset):
         return samples_mapping
 
 
+class FilteredIdxMappedDataset(MappedDataset):
+    """Same as FilteredMappedDataset, but operates on sample indices instead of samples. Useful if __getitem__ is not performant."""
+
+    def __init__(self, dataset, criterion_fn, num_samples=None):
+        """
+        Args:
+            dataset (Dataset): Dataset to filter
+            critetion_fn (Callable): Function that takes in a sample index and returns True if the sample should be kept
+        """
+        self.criterion_fn = criterion_fn
+        super().__init__(dataset=dataset, num_samples=num_samples)
+
+    def create_sample_mapping(self, dataset: Dataset, num_samples: int):
+        samples_mapping = np.where(list(map(self.criterion_fn, np.arange(len(dataset)))))[0]
+        return samples_mapping
+
+
 class FilteredMappedDataset(MappedDataset):
     """Filters samples from a dataset based on a criterion function by mapping the dataset samples."""
 
