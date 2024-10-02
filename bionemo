@@ -133,6 +133,9 @@ build() {
 
 dev() {
 
+  CMD="$2"
+  echo "in dev func, CMD=${CMD}"
+
   env_file_setup
 
   echo "Checking that version ${IMAGE_TAG} is available"
@@ -185,7 +188,7 @@ dev() {
     -v ${HOME}/.ssh:/workspace/bionemo2/.ssh:ro"
 
     set -x
-    ${DOCKER_CMD} --name "${DEV_CONT_NAME}" --rm -it "${IMAGE_REPO}:${IMAGE_TAG}" ${CMD}
+    ${DOCKER_CMD} --name "${DEV_CONT_NAME}" --rm -it "${IMAGE_REPO}:${IMAGE_TAG}" "${CMD}"
     set +x
     exit 0
 }
@@ -204,7 +207,7 @@ case "$1" in
         fi
         set -u
 
-        dev
+        dev "${CMD}"
         ;;
     help)
         echo "Usage: $0 build -OR- $0 dev [cmd]"
