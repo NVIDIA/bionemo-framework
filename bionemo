@@ -49,38 +49,40 @@ set -euo pipefail
 IMAGE_TAG="bionemo2-${COMMIT}"
 
 env_file_setup() {
-  # if $LOCAL_ENV file exists, source it to specify my environment
-  local LOCAL_ENV='.env'
-  local write_env
-  if [ -e ./$LOCAL_ENV ]
-  then
-      echo "Sourcing environment from ./$LOCAL_ENV"
-      . ./$LOCAL_ENV
-      write_env=0
-  else
-      echo "$LOCAL_ENV does not exist. Writing defaults to $LOCAL_ENV"
-      write_env=1
-  fi
-
-  # If $LOCAL_ENV was not found, write out a template for user to edit
-  if [ $write_env -eq 1 ]; then
-      echo LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH} >> $LOCAL_ENV
-      echo DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH} >> $LOCAL_ENV
-      echo LOCAL_DATA_PATH=${LOCAL_DATA_PATH} >> $LOCAL_ENV
-      echo DOCKER_DATA_PATH=${DOCKER_DATA_PATH} >> $LOCAL_ENV
-      echo LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH} >> $LOCAL_ENV
-      echo DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH} >> $LOCAL_ENV
-      echo WANDB_API_KEY=${WANDB_API_KEY} >> $LOCAL_ENV
-      echo JUPYTER_PORT=${JUPYTER_PORT} >> $LOCAL_ENV
-      echo REGISTRY=${REGISTRY} >> $LOCAL_ENV
-      echo REGISTRY_USER=${REGISTRY_USER} >> $LOCAL_ENV
-      echo DEV_CONT_NAME=${DEV_CONT_NAME} >> $LOCAL_ENV
-      echo NGC_CLI_API_KEY=${NGC_CLI_API_KEY} >> $LOCAL_ENV
-      echo NGC_CLI_ORG=${NGC_CLI_ORG} >> $LOCAL_ENV
-      echo NGC_CLI_TEAM=${NGC_CLI_TEAM} >> $LOCAL_ENV
-      echo NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE} >> $LOCAL_ENV
-  fi
+  echo "empty"
 }
+
+# if $LOCAL_ENV file exists, source it to specify my environment
+local LOCAL_ENV='.env'
+local write_env
+if [ -e ./$LOCAL_ENV ]
+then
+    echo "Sourcing environment from ./$LOCAL_ENV"
+    . ./$LOCAL_ENV
+    write_env=0
+else
+    echo "$LOCAL_ENV does not exist. Writing defaults to $LOCAL_ENV"
+    write_env=1
+fi
+
+# If $LOCAL_ENV was not found, write out a template for user to edit
+if [ $write_env -eq 1 ]; then
+    echo LOCAL_RESULTS_PATH=${LOCAL_RESULTS_PATH} >> $LOCAL_ENV
+    echo DOCKER_RESULTS_PATH=${DOCKER_RESULTS_PATH} >> $LOCAL_ENV
+    echo LOCAL_DATA_PATH=${LOCAL_DATA_PATH} >> $LOCAL_ENV
+    echo DOCKER_DATA_PATH=${DOCKER_DATA_PATH} >> $LOCAL_ENV
+    echo LOCAL_MODELS_PATH=${LOCAL_MODELS_PATH} >> $LOCAL_ENV
+    echo DOCKER_MODELS_PATH=${DOCKER_MODELS_PATH} >> $LOCAL_ENV
+    echo WANDB_API_KEY=${WANDB_API_KEY} >> $LOCAL_ENV
+    echo JUPYTER_PORT=${JUPYTER_PORT} >> $LOCAL_ENV
+    echo REGISTRY=${REGISTRY} >> $LOCAL_ENV
+    echo REGISTRY_USER=${REGISTRY_USER} >> $LOCAL_ENV
+    echo DEV_CONT_NAME=${DEV_CONT_NAME} >> $LOCAL_ENV
+    echo NGC_CLI_API_KEY=${NGC_CLI_API_KEY} >> $LOCAL_ENV
+    echo NGC_CLI_ORG=${NGC_CLI_ORG} >> $LOCAL_ENV
+    echo NGC_CLI_TEAM=${NGC_CLI_TEAM} >> $LOCAL_ENV
+    echo NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE} >> $LOCAL_ENV
+fi
 
 #Function to build the Docker image
 build() {
