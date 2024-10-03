@@ -174,7 +174,7 @@ COPY ./3rdparty ./3rdparty
 USER root
 RUN <<EOF
 set -eo pipefail
-find . -name __pycache__ -type d -print | xargs rm -f
+find . -name __pycache__ -type d -print | xargs rm -rf
 for sub in ./3rdparty/* ./sub-packages/*; do
     uv pip install --no-deps --no-build-isolation --editable $sub
 done
