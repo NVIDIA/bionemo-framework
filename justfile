@@ -8,8 +8,7 @@ set export
 
 # don't fail fast here --> the `setup` command will check this!
 COMMIT := `git rev-parse HEAD || true`
-
-IMAGE_TAG := "bionemo2-${COMMIT}"
+IMAGE_TAG := "bionemo2-" + COMMIT
 
 setup:
   ./internal/scripts/check_preconditions.sh
