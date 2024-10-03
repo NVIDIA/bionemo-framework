@@ -115,6 +115,7 @@ run is_dev image_tag cmd: setup
   #!/usr/bin/env bash
 
   docker_cmd="docker run \
+  --gpus=all \
   --rm -it \
   --network host \
   ${PARAM_RUNTIME} \
