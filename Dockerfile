@@ -106,6 +106,21 @@ rm -rf ./3rdparty
 rm -rf /tmp/*
 EOT
 
+# Create a non-root user
+ARG USERNAME=bionemo
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+RUN groupadd --gid $USER_GID $USERNAME \
+  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+  && chmod 0440 /etc/sudoers.d/$USERNAME \
+
+# make this user own the Python dist-packages directory
+RUN chown -R ${USERNAME} /usr/local/lib/python3.10/ && chmod -R 777
+
+# have this non-root user be the default in the image
+USER $USERNAME
+
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
 # base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
 # they can be installed in an editable fashion from the workspace directory. This lets us install all the package
@@ -122,14 +137,14 @@ apt-get install -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOT
 
-# Create a non-root user to use inside a devcontainer.
-ARG USERNAME=bionemo
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-RUN groupadd --gid $USER_GID $USERNAME \
-  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
-  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
-  && chmod 0440 /etc/sudoers.d/$USERNAME
+## Create a non-root user to use inside a devcontainer.
+#ARG USERNAME=bionemo
+#ARG USER_UID=1000
+#ARG USER_GID=$USER_UID
+#RUN groupadd --gid $USER_GID $USERNAME \
+#  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+#  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+#  && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # Here we delete the dist-packages directory from the pytorch base image, and copy over the dist-packages directory from
 # the build image. This ensures we have all the necessary dependencies installed (megatron, nemo, etc.).
