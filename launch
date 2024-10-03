@@ -29,6 +29,13 @@ fi
 # NOTE: do allow IMAGE_TAG to be overridden by env var, but DO NOT set this in the .env file!
 IMAGE_TAG=${IMAGE_TAG:="bionemo2-${COMMIT}"}
 
+# Whenever we mount a container,
+# we will unfortunately make root on the host system the owner of the contents of sub-packages/*.
+# So we install an exit trap that resets the owner to the user that originally owned sub-packages/.
+# We install the trap here, outside of any function, in order to make sure that we always run this in case
+# this script's container-running features ever expand in the future.
+ORIGINAL_OWNER=$(ls -ld ${LOCAL_REPO_PATH} | awk '{print $3}')
+trap "chown -R ${ORIGINAL_OWNER} ${LOCAL_REPO_PATH}/{sub-packages,ci,scripts,Dockerfile,docs,*.toml,LICENSE,license_header,*.md,CODEOWNERS,*.lock,*.txt}" EXIT
 
 set -euo pipefail
 
@@ -133,37 +140,19 @@ build() {
     fi
 }
 
-dev() {
-
-  env_file_setup
-
-  echo "Checking that version ${IMAGE_TAG} is available"
-  # check if image has been built / is locally available
-  if [[ $(docker images -q "${IMAGE_REPO}:${IMAGE_TAG}" 2> /dev/null) == "" ]]; then
-    set +e
-    # check if we can pull the image
-    docker pull "${IMAGE_REPO}:${IMAGE_TAG}"
-    if [[ "$?" != "0" ]]; then
-      echo "ERROR: must build the image before launching a container!"
-      echo "ERROR: could not obtain '${IMAGE_REPO}:${IMAGE_TAG}'"
-      exit 1
+base_docker_run_cmd() {
+    # Compare Docker version to find Nvidia Container Toolkit support.
+    # Please refer https://github.com/NVIDIA/nvidia-docker
+    local DOCKER_VERSION=$(docker version | grep -i version | head -1 | awk '{print $2}')
+    local DOCKER_VERSION_WITH_GPU_SUPPORT='19.03.0'
+    local PARAM_RUNTIME
+    if [ "$DOCKER_VERSION_WITH_GPU_SUPPORT" == "$(echo -e "$DOCKER_VERSION\n$DOCKER_VERSION_WITH_GPU_SUPPORT" | sort -V | head -1)" ]; then
+        PARAM_RUNTIME="--gpus all"
+    else
+        PARAM_RUNTIME="--runtime=nvidia"
     fi
-    set -e
-  fi
 
-  # Compare Docker version to find Nvidia Container Toolkit support.
-  # Please refer https://github.com/NVIDIA/nvidia-docker
-  local DOCKER_VERSION=$(docker version | grep -i version | head -1 | awk '{print $2}')
-  local DOCKER_VERSION_WITH_GPU_SUPPORT='19.03.0'
-  local PARAM_RUNTIME
-  if [ "$DOCKER_VERSION_WITH_GPU_SUPPORT" == "$(echo -e "$DOCKER_VERSION\n$DOCKER_VERSION_WITH_GPU_SUPPORT" | sort -V | head -1)" ]; then
-      PARAM_RUNTIME="--gpus all"
-  else
-      PARAM_RUNTIME="--runtime=nvidia"
-  fi
-
-  echo "Mounting ~/.ssh, /etc/{passwd,group,shadow} for development"
-  local DOCKER_CMD="docker run \
+    echo "docker run \
     --network host \
     ${PARAM_RUNTIME} \
     -p ${JUPYTER_PORT}:8888 \
@@ -183,13 +172,54 @@ dev() {
     -v /etc/passwd:/etc/passwd:ro \
     -v /etc/group:/etc/group:ro \
     -v /etc/shadow:/etc/shadow:ro \
-    -e HOME=/workspace/bionemo2 -w /workspace/bionemo2 \
+    -e HOME=/workspace/bionemo2 \
+    -w /workspace/bionemo2 \
     -v ${HOME}/.ssh:/workspace/bionemo2/.ssh:ro"
+}
 
-    set -x
-    ${DOCKER_CMD} --name "${DEV_CONT_NAME}" --rm -it "${IMAGE_REPO}:${IMAGE_TAG}" "${CMD}"
-    set +x
-    exit 0
+assert_image_exists() {
+  echo "Checking that version ${IMAGE_TAG} is available"
+  # check if image has been built / is locally available
+  if [[ $(docker images -q "${IMAGE_REPO}:${IMAGE_TAG}" 2> /dev/null) == "" ]]; then
+    set +e
+    # check if we can pull the image
+    docker pull "${IMAGE_REPO}:${IMAGE_TAG}"
+    if [[ "$?" != "0" ]]; then
+      echo "ERROR: must build the image before launching a container!"
+      echo "ERROR: could not obtain '${IMAGE_REPO}:${IMAGE_TAG}'"
+      exit 1
+    fi
+    set -e
+  fi
+}
+
+dev() {
+
+  env_file_setup
+
+  assert_image_exists
+
+  echo "NOTE: Mounting ~/.ssh, /etc/{passwd,group,shadow} for development"
+  # build the `docker run ...` command
+  local DOCKER_CMD="$(base_docker_run_cmd)"
+
+  # volume mount the local repository code
+  # since it's a release image, we need to mount each package into the dist-packages directory
+  for p in sub-packages/bionemo-*; do
+    # sub-packages/bionemo-core/src/bionemo/core
+    # get the '*' part of 'bionemo-*' and convert to Python name
+    py_module=$(echo "${p}" | cut -f2- -d'-' | sed s/-/_/g)
+    # example mapping: sub-packages/bionemo-core/src/bionemo/core -> /usr/local/lib/python3.10/dist-packages/bionemo/core/
+    DOCKER_CMD="${DOCKER_CMD} -v ${LOCAL_REPO_PATH}/sub-packages/${p}/src/bionemo/${py_module}:/usr/local/lib/python3.10/dist-packages/bionemo/${py_module}"
+  done
+
+  # NOTE: exit trap resets permissions to original owner.
+
+  # show & execute the `docker run ...` command
+  set -x
+  ${DOCKER_CMD} --name "${DEV_CONT_NAME}" --rm -it "${IMAGE_REPO}:${IMAGE_TAG}" "${CMD}"
+  set +x
+  exit 0
 }
 
 set +u
