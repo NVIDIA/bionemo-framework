@@ -17,7 +17,6 @@
 from typing import Sequence
 
 import pytorch_lightning as pl
-import torch
 from nemo import lightning as nl
 from torch import Tensor
 
