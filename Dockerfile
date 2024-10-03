@@ -165,10 +165,13 @@ RUN <<EOF
   pip uninstall -y nemo_toolkit megatron_core
 EOF
 
-FROM dev as development
+FROM dev AS development
 
 WORKDIR /workspace/bionemo2
-COPY --from=bionemo2-base /workspace/bionemo2 /workspace/bionemo2/
+COPY --from=bionemo2-base /workspace/bionemo2/ .
+# because of the `rm -rf ./3rdparty` in bionemo2-base
+COPY ./3rdparty ./3rdparty
+USER root
 RUN <<EOF
 set -eo pipefail
 ls -l
@@ -176,6 +179,7 @@ for sub in ./3rdparty/* ./sub-packages/*; do
     uv pip install --no-deps --no-build-isolation --editable $sub
 done
 EOF
+USER $USERNAME
 
 # The 'release' target needs to be last so that it's the default build target. In the future, we could consider a setup
 # similar to the devcontainer above, where we copy the dist-packages folder from the build image into the release image.
