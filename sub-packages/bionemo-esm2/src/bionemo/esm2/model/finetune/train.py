@@ -138,8 +138,6 @@ def train_model(
 
 
 if __name__ == "__main__":
-    tokenizer = get_tokenizer()
-
     # create a List[Tuple] with (sequence, target) values
     artificial_sequence_data = [
         "TLILGWSDKLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
