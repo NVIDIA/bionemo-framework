@@ -140,7 +140,7 @@ run image_tag cmd: setup
 # beacuse this is a common state during development
 # **AND** we're volume mounting the code, so we'll have the latest state
 run-dev cmd: build-dev
-  @just run ${IMAGE_TAG} {{cmd}}
+  @just run ${DEV_IMAGE_TAG} {{cmd}}
 
 # in contrast, run-release requires a clean repository,
 # because users want to know that they're running the **exact** version they expect
