@@ -68,7 +68,8 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
         cp_size = parallel_state.get_context_parallel_world_size()
         if cp_size == 1:
             losses = torch.nn.functional.cross_entropy(classification_output, targets, reduction="none")
-            masked_loss = losses * loss_mask
+            # losses may contain NaNs at masked locations. We use masked_select to filter out these NaNs
+            masked_loss = torch.masked_select(losses, loss_mask)
             loss = masked_loss.sum() / loss_mask.sum()
         else:  # TODO: support CP with masked_token_loss_context_parallel
             raise NotImplementedError("Context Parallel support is not implemented for this loss")
