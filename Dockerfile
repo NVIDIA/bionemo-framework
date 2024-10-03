@@ -89,7 +89,7 @@ RUN groupadd --gid $USER_GID $USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # make this user own the Python dist-packages directory
-RUN chown -R ${USERNAME} /usr/local/lib/python3.10/ && chmod -R 777
+RUN chown -R ${USERNAME} /usr/local/lib/python3.10/ && chmod -R 777 /usr/local/lib/python3.10/
 
 # have this non-root user be the default in the image
 USER $USERNAME
