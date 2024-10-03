@@ -168,7 +168,7 @@ EOF
 FROM dev as development
 
 WORKDIR /workspace/bionemo2
-COPY --from=release /workspace/bionemo2 /workspace/bionemo2/
+COPY --from=bionemo2-base /workspace/bionemo2 /workspace/bionemo2/
 RUN <<EOF
 set -eo pipefail
 ls -l

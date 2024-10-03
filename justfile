@@ -23,7 +23,6 @@ setup:
 [private]
 build image_tag target: setup
   DOCKER_BUILDKIT=1 docker buildx build \
-  --progress=plain \
   -t ${IMAGE_REPO}:{{image_tag}} \
   --target={{target}} \
   --cache-to type=inline \
