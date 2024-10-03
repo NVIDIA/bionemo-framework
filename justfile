@@ -107,7 +107,7 @@ build-dev:
 ###############################################################################
 
 [private]
-run image_tag cmd is_dev is_interactive: setup
+run is_dev is_interactive image_tag cmd: setup
   #!/usr/bin/env bash
 
   docker_cmd="docker run \
@@ -163,16 +163,16 @@ ensure-dev-or-build:
 # so we use ensure-dev-or-build which will build the image if it is necessary.
 # Image building requires that the git repo state is clean!
 run-dev cmd='bash': ensure-dev-or-build
-  @just run ${DEV_IMAGE_TAG} {{cmd}} is_dev=true is_iteractive=true
+  @just run true true ${DEV_IMAGE_TAG} {{cmd}}
 
 # in contrast, run-release requires a clean repository,
 # because users want to know that they're running the **exact** version they expect
 # and we're **NOT** volume mounting the code
 run-release cmd='bash': build-release assert_clean_git_repo
-  @just run ${IMAGE_TAG} {{cmd}} is_dev=true is_iteractive=true
+  @just run true true ${IMAGE_TAG} {{cmd}} 
 
 
 ###############################################################################
 
 test: build-release
-  @just run ${IMAGE_TAG} 'pytest --cov=bionemo -v sub-packages/bionemo-*' is_dev=true is_iteractive=false
+  @just run true false ${IMAGE_TAG} 'pytest --cov=bionemo -v sub-packages/bionemo-*'
