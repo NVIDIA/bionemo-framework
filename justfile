@@ -9,6 +9,7 @@ set export
 # don't fail fast here --> the `setup` command will check this!
 COMMIT := `git rev-parse HEAD || true`
 IMAGE_TAG := "bionemo2-" + COMMIT
+DEV_IMAGE_TAG := "dev-" + IMAGE_TAG
 DATE := `date --iso-8601=seconds -u`
 LOCAL_ENV := '.env'
 DOCKER_REPO_PATH := '/workspace/bionemo2'
@@ -96,39 +97,53 @@ build-release:
   @just build ${IMAGE_TAG} release
 
 build-dev:
-  @just build "dev-${IMAGE_TAG}" development
+  @just build ${DEV_IMAGE_TAG} development
 
 
 [private]
-run image_tag cmd: setup assert_clean_git_repo
-    docker run \
-    --network host \
-    ${PARAM_RUNTIME} \
-    -p ${JUPYTER_PORT}:8888 \
-    --shm-size=4g \
-    -e TMPDIR=/tmp/ \
-    -e NUMBA_CACHE_DIR=/tmp/ \
-    -e BIONEMO_HOME=$DOCKER_REPO_PATH \
-    -e WANDB_API_KEY=$WANDB_API_KEY \
-    -e NGC_CLI_API_KEY=$NGC_CLI_API_KEY \
-    -e NGC_CLI_ORG=$NGC_CLI_ORG \
-    -e NGC_CLI_TEAM=$NGC_CLI_TEAM \
-    -e NGC_CLI_FORMAT_TYPE=$NGC_CLI_FORMAT_TYPE \
-    -e HOME=${DOCKER_REPO_PATH} \
-    -w ${DOCKER_REPO_PATH} \
-    -v $LOCAL_REPO_PATH:$DOCKER_REPO_PATH \
-    -v ${LOCAL_RESULTS_PATH}:${DOCKER_RESULTS_PATH} \
-    -v ${LOCAL_DATA_PATH}:${DOCKER_DATA_PATH} \
-    -v ${LOCAL_MODELS_PATH}:${DOCKER_MODELS_PATH} \
-    -v /etc/passwd:/etc/passwd:ro \
-    -v /etc/group:/etc/group:ro \
-    -v /etc/shadow:/etc/shadow:ro \
-    -v ${HOME}/.ssh:${DOCKER_REPO_PATH}/.ssh:ro \
-    ${IMAGE_REPO}:{{image_tag}} \
-    {{cmd}}
+run image_tag cmd: setup
+  #!/usr/bin/env bash
 
+  docker_cmd="docker run \
+  --network host \
+  ${PARAM_RUNTIME} \
+  -p ${JUPYTER_PORT}:8888 \
+  --shm-size=4g \
+  -e TMPDIR=/tmp/ \
+  -e NUMBA_CACHE_DIR=/tmp/ \
+  -e BIONEMO_HOME=$DOCKER_REPO_PATH \
+  -e WANDB_API_KEY=$WANDB_API_KEY \
+  -e NGC_CLI_API_KEY=$NGC_CLI_API_KEY \
+  -e NGC_CLI_ORG=$NGC_CLI_ORG \
+  -e NGC_CLI_TEAM=$NGC_CLI_TEAM \
+  -e NGC_CLI_FORMAT_TYPE=$NGC_CLI_FORMAT_TYPE \
+  -e HOME=${DOCKER_REPO_PATH} \
+  -w ${DOCKER_REPO_PATH} \
+  -v ${LOCAL_RESULTS_PATH}:${DOCKER_RESULTS_PATH} \
+  -v ${LOCAL_DATA_PATH}:${DOCKER_DATA_PATH} \
+  -v ${LOCAL_MODELS_PATH}:${DOCKER_MODELS_PATH} \
+  -v /etc/passwd:/etc/passwd:ro \
+  -v /etc/group:/etc/group:ro \
+  -v /etc/shadow:/etc/shadow:ro \
+  -v ${HOME}/.ssh:${DOCKER_REPO_PATH}/.ssh:ro"
+
+  if [[ "${IS_DEV}" == "1" ]]; then
+    docker_cmd="${docker_cmd} -v ${LOCAL_REPO_PATH}:${DOCKER_REPO_PATH}"
+  fi
+
+  docker_cmd="${docker_cmd} ${IMAGE_REPO}:{{image_tag}} {{cmd}}"
+
+  set -xeuo pipefail
+  DOCKER_BUILDKIT=1 ${docker_cmd} .
+
+# run-dev lets us work with a dirty repository,
+# beacuse this is a common state during development
+# **AND** we're volume mounting the code, so we'll have the latest state
 run-dev cmd: build-dev
   @just run ${IMAGE_TAG} {{cmd}}
 
-run-release cmd: build-release
+# in contrast, run-release requires a clean repository,
+# because users want to know that they're running the **exact** version they expect
+# and we're **NOT** volume mounting the code
+run-release cmd: build-release assert_clean_git_repo
   @just run ${IMAGE_TAG} {{cmd}}
