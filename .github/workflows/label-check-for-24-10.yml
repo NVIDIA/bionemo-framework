@@ -3,7 +3,7 @@ name: Enforce PR Label for 24.10 release
 on:
   pull_request:
     types: [opened, edited, labeled, unlabeled]
-    branches: 
+    branches:
       - main
       - bionemo1
 
