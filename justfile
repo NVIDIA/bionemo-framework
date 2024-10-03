@@ -10,18 +10,78 @@ set export
 COMMIT := `git rev-parse HEAD || true`
 IMAGE_TAG := "bionemo2-" + COMMIT
 DATE := `date --iso-8601=seconds -u`
+LOCAL_ENV := '.env'
+DOCKER_REPO_PATH := '/workspace/bionemo2'
+LOCAL_REPO_PATH := `realpath $(pwd)`
 
 default:
   @just --list
 
-setup:
-  ./internal/scripts/check_preconditions.sh
+[private]
+check_preconditions:
+  #!/usr/bin/env bash
+
+  version_ge() {
+      # Returns 0 (true) if $1 >= $2, 1 (false) otherwise
+      [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+  }
+
+  if [[ $(command -v git) ]]; then
+    commit=$(git rev-parse HEAD)
+    if [[ "$?" != "0" ]]; then
+      echo "ERROR: must run from within git repository!"
+      exit 1
+    fi
+  else
+    echo "ERROR: git is not installed!"
+    exit 1
+  fi
+
+  if [[ ! $(command -v docker) ]]; then
+    echo "ERROR: docker is not installed!"
+    exit 1
+  fi
+
+  docker_version=$(docker --version | awk -F'[, ]' '{print $3}')
+  required_docker_version='23.0.1'
+
+  if ! version_ge "$docker_version" "$required_docker_version"; then
+      echo "Error: Docker version $required_docker_version or higher is required. Current version: $docker_version"
+      exit 1
+  fi
+
+
+setup: check_preconditions
   ./internal/scripts/setup_env_file.sh
   @echo "Pulling updated cache..."
   docker pull ${IMAGE_REPO}:${CACHE_TAG} || true
 
 [private]
-build image_tag target: setup
+assert_clean_git_repo:
+  #!/usr/bin/env bash
+
+  git diff-index --quiet HEAD --
+  exit_code="$?"
+
+  if [ "${exit_code}" == "128" ]; then
+      echo "ERROR: Cannot build image if not in bionemo git repository!"
+      exit 1
+
+  elif [ "${exit_code}" == "1" ]; then
+      echo "ERROR: Repository is dirty! Commit all changes before building image!"
+      exit  2
+
+  elif [ "${exit_code}" == "0" ]; then
+      # ok!
+
+  else
+      echo "ERROR: Unknown exit code for `git diff-index`: ${exit_code}"
+      exit 1
+  fi
+
+
+[private]
+build image_tag target: setup assert_clean_git_repo
   DOCKER_BUILDKIT=1 docker buildx build \
   -t ${IMAGE_REPO}:{{image_tag}} \
   --target={{target}} \
@@ -37,3 +97,38 @@ build-release:
 
 build-dev:
   @just build "dev-${IMAGE_TAG}" development
+
+
+[private]
+run image_tag cmd: setup assert_clean_git_repo
+    docker run \
+    --network host \
+    ${PARAM_RUNTIME} \
+    -p ${JUPYTER_PORT}:8888 \
+    --shm-size=4g \
+    -e TMPDIR=/tmp/ \
+    -e NUMBA_CACHE_DIR=/tmp/ \
+    -e BIONEMO_HOME=$DOCKER_REPO_PATH \
+    -e WANDB_API_KEY=$WANDB_API_KEY \
+    -e NGC_CLI_API_KEY=$NGC_CLI_API_KEY \
+    -e NGC_CLI_ORG=$NGC_CLI_ORG \
+    -e NGC_CLI_TEAM=$NGC_CLI_TEAM \
+    -e NGC_CLI_FORMAT_TYPE=$NGC_CLI_FORMAT_TYPE \
+    -e HOME=${DOCKER_REPO_PATH} \
+    -w ${DOCKER_REPO_PATH} \
+    -v $LOCAL_REPO_PATH:$DOCKER_REPO_PATH \
+    -v ${LOCAL_RESULTS_PATH}:${DOCKER_RESULTS_PATH} \
+    -v ${LOCAL_DATA_PATH}:${DOCKER_DATA_PATH} \
+    -v ${LOCAL_MODELS_PATH}:${DOCKER_MODELS_PATH} \
+    -v /etc/passwd:/etc/passwd:ro \
+    -v /etc/group:/etc/group:ro \
+    -v /etc/shadow:/etc/shadow:ro \
+    -v ${HOME}/.ssh:${DOCKER_REPO_PATH}/.ssh:ro \
+    ${IMAGE_REPO}:{{image_tag}} \
+    {{cmd}}
+
+run-dev cmd: build-dev
+  @just run ${IMAGE_TAG} {{cmd}}
+
+run-release cmd: build-release
+  @just run ${IMAGE_TAG} {{cmd}}
