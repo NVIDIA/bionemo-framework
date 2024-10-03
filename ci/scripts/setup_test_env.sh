@@ -53,4 +53,4 @@ $CMD
 
 unzip examples/tests/test_data/uniref202104_esm2_qc_test200_val200.zip -d examples/tests/test_data/
 ls examples/tests/test_data/uniref202104_esm2_qc_test200_val200
-#examples/singlecell/geneformer/scripts/get_pt_neighbors_data.py
+python examples/singlecell/geneformer/scripts/get_pt_neighbors_data.py
