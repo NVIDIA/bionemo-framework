@@ -15,7 +15,7 @@ In this tutorial, we will demonstrate how to create a fine-tune module, train a 
 4. Fine-tune config (configures Fine-tune model and loss)
 5. Dataset
 
-This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo`.
+This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspaces/bionemo-fw-ea`.
 
 All commands should be executed inside the BioNeMo docker container.
 
@@ -92,7 +92,7 @@ The common arguments among different fine-tuning tasks are
 - `model_cls`: The fine-tune model class (`ESM2FineTuneSeqModel`)
 - `initial_ckpt_path`: BioNeMo 2.0 ESM2 pre-trained checkpoint
 - `initial_ckpt_skip_keys_with_these_prefixes`: skip keys when loading parameters from a checkpoint. Here we should not look for `regression_head` in the pre-trained checkpoint.
-- `get_loss_reduction_class()`
+- `get_loss_reduction_class()`: Implements selection of the appropriate `MegatronLossReduction` class, e.g. `bionemo.esm2.model.finetune.finetune_regressor.RegressorLossReduction`.
 
 ```python
 
@@ -139,7 +139,7 @@ class InMemorySingleValueDataset(Dataset):
 To coordinate the creation of training, validation and testing datasets from your data, we need to use a `datamodule` class. To do this we can directly use or extend the ```ESM2FineTuneDataModule``` class (located at ``` bionemo.esm2.model.finetune.datamodule.ESM2FineTuneDataModule```) which defines helpful abstract methods that use your dataset class.
 
 # Fine-tuning the regressor
-Now we can put these five requirements together to fine-tune a regressor task head starting from a pre-trained ESM2 model (`pretrain_ckpt_path`). We can take advantage of a simple training loop in ```bionemo.esm2.model.fnetune.train``` and use the ```train_model()`` function to start the fine-tuning process in th following.
+Now we can put these five requirements together to fine-tune a regressor task head starting from a pre-trained ESM2 model (`pretrain_ckpt_path`). We can take advantage of a simple training loop in ```bionemo.esm2.model.fnetune.train``` and use the ```train_model()`` function to start the fine-tuning process in the following.
 
 ```python
 # create a List[Tuple] with (sequence, target) values
