@@ -147,9 +147,6 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             )
             self._valid_ds = self._create_epoch_based_dataset(self.valid_dataset, num_val_samples)
 
-        if self.predict_dataset is not None:
-            self._predict_ds = self._create_epoch_based_dataset(self.predict_dataset, len(self.predict_dataset))
-
         assert (
             hasattr(self, "trainer") and self.trainer is not None
         ), "Setup should be completed when trainer and config are attached."
@@ -160,7 +157,10 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         total_samples: int,
     ):
         return MultiEpochDatasetResampler(
-            IdentityMultiEpochDatasetWrapper(dataset), num_samples=total_samples, shuffle=True, seed=self._seed
+            IdentityMultiEpochDatasetWrapper(dataset),
+            num_samples=total_samples,
+            shuffle=self.predict_dataset is None,
+            seed=self._seed,
         )
 
     def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
@@ -192,8 +192,8 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
 
     def predict_dataloader(self) -> EVAL_DATALOADERS:
         """Returns the dataloader for prediction data."""
-        assert self._predict_ds is not None, "predict_dataset is not provided to ESM2FineTuneDataModule"
-        return self._create_dataloader(self._predict_ds)
+        assert self.predict_dataset is not None, "predict_dataset is not provided to ESM2FineTuneDataModule"
+        return self._create_dataloader(self.predict_dataset)
 
     def test_dataloader(self) -> EVAL_DATALOADERS:
         """Raises a not implemented error."""
