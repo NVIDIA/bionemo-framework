@@ -15,8 +15,11 @@ LOCAL_ENV := '.env'
 DOCKER_REPO_PATH := '/workspace/bionemo2'
 LOCAL_REPO_PATH := `realpath $(pwd)`
 
+[private]
 default:
   @just --list
+
+###############################################################################
 
 [private]
 check_preconditions:
@@ -57,6 +60,7 @@ setup: check_preconditions
   @echo "Pulling updated cache..."
   docker pull ${IMAGE_REPO}:${CACHE_TAG} || true
 
+
 [private]
 assert_clean_git_repo:
   #!/usr/bin/env bash
@@ -80,6 +84,7 @@ assert_clean_git_repo:
       exit 1
   fi
 
+###############################################################################
 
 [private]
 build image_tag target: setup assert_clean_git_repo
@@ -99,16 +104,7 @@ build-release:
 build-dev:
   @just build ${DEV_IMAGE_TAG} development
 
-[private]
-ensure-dev-or-build:
-  #!/usr/bin/env bash
-  if [[ $(docker images -q "${IMAGE_REPO}:${DEV_IMAGE_TAG}" 2> /dev/null) == "" ]]; then
-    echo "Building development image: ${IMAGE_REPO}:${DEV_IMAGE_TAG}"
-    just build-dev
-  else
-    echo "Development image exists:   ${IMAGE_REPO}:${DEV_IMAGE_TAG}"
-  fi
-
+###############################################################################
 
 [private]
 run is_dev image_tag cmd: setup
@@ -148,9 +144,22 @@ run is_dev image_tag cmd: setup
   set -xeuo pipefail
   DOCKER_BUILDKIT=1 ${docker_cmd}
 
+[private]
+ensure-dev-or-build:
+  #!/usr/bin/env bash
+  if [[ $(docker images -q "${IMAGE_REPO}:${DEV_IMAGE_TAG}" 2> /dev/null) == "" ]]; then
+    echo "Building development image: ${IMAGE_REPO}:${DEV_IMAGE_TAG}"
+    just build-dev
+  else
+    echo "Development image exists:   ${IMAGE_REPO}:${DEV_IMAGE_TAG}"
+  fi
+
 # run-dev lets us work with a dirty repository,
 # beacuse this is a common state during development
-# **AND** we're volume mounting the code, so we'll have the latest state
+# **AND** we're volume mounting the code, so we'll have the latest state.
+# **BUT** we can only do this if we have built an image for DEV_IMAGE_TAG already,
+# so we use ensure-dev-or-build which will build the image if it is necessary.
+# Image building requires that the git repo state is clean!
 run-dev cmd='bash': ensure-dev-or-build
   @just run 1 ${DEV_IMAGE_TAG} {{cmd}}
 
