@@ -103,18 +103,19 @@ build-dev:
 ensure-dev-or-build:
   #!/usr/bin/env bash
   if [[ $(docker images -q "${IMAGE_REPO}:${DEV_IMAGE_TAG}" 2> /dev/null) == "" ]]; then
-    echo "BUILDING IMAGE: ${IMAGE_REPO}:${DEV_IMAGE_TAG}"
+    echo "Building development image: ${IMAGE_REPO}:${DEV_IMAGE_TAG}"
     just build-dev
   else
-    echo "IMAGE EXISTS:   ${IMAGE_REPO}:${DEV_IMAGE_TAG}"
+    echo "Development image exists:   ${IMAGE_REPO}:${DEV_IMAGE_TAG}"
   fi
 
 
 [private]
-run image_tag cmd: setup
+run is_dev image_tag cmd: setup
   #!/usr/bin/env bash
 
   docker_cmd="docker run \
+  --rm -it \
   --network host \
   ${PARAM_RUNTIME} \
   -p ${JUPYTER_PORT}:8888 \
@@ -137,23 +138,23 @@ run image_tag cmd: setup
   -v /etc/shadow:/etc/shadow:ro \
   -v ${HOME}/.ssh:${DOCKER_REPO_PATH}/.ssh:ro"
 
-  if [[ "${IS_DEV}" == "1" ]]; then
+  if [[ "{{is_dev}}" == "1" ]]; then
     docker_cmd="${docker_cmd} -v ${LOCAL_REPO_PATH}:${DOCKER_REPO_PATH}"
   fi
 
   docker_cmd="${docker_cmd} ${IMAGE_REPO}:{{image_tag}} {{cmd}}"
 
   set -xeuo pipefail
-  DOCKER_BUILDKIT=1 ${docker_cmd} .
+  DOCKER_BUILDKIT=1 ${docker_cmd}
 
 # run-dev lets us work with a dirty repository,
 # beacuse this is a common state during development
 # **AND** we're volume mounting the code, so we'll have the latest state
 run-dev cmd='bash': ensure-dev-or-build
-  @just run ${DEV_IMAGE_TAG} {{cmd}}
+  @just run 1 ${DEV_IMAGE_TAG} {{cmd}}
 
 # in contrast, run-release requires a clean repository,
 # because users want to know that they're running the **exact** version they expect
 # and we're **NOT** volume mounting the code
-run-release cmd: build-release assert_clean_git_repo
-  @just run ${IMAGE_TAG} {{cmd}}
+run-release cmd='bash': build-release assert_clean_git_repo
+  @just run 0 ${IMAGE_TAG} {{cmd}}
