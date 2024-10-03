@@ -169,10 +169,10 @@ run-dev cmd='bash': ensure-dev-or-build
 # because users want to know that they're running the **exact** version they expect
 # and we're **NOT** volume mounting the code
 run-release cmd='bash': build-release assert_clean_git_repo
-  @just run true true ${IMAGE_TAG} {{cmd}} 
+  @just run true true ${IMAGE_TAG} {{cmd}}
 
 
 ###############################################################################
 
 test: build-release
-  @just run true false ${IMAGE_TAG} 'pytest --cov=bionemo -v sub-packages/bionemo-*'
+  @just run true false ${IMAGE_TAG} 'pytest -v --cov=bionemo --cov-report term --cov-v sub-packages/bionemo-*'
