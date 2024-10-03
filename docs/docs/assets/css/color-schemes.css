@@ -75,4 +75,21 @@
   --md-header-color: white;
   --md-search-hover-color: #2a2a2a;
   --md-shadow-z2: 0.5px 1px 2px rgba(255, 255, 255, 0.25);
+
+  /* code  */
+  --md-code-fg-color: #d4d4d4;
+  --md-code-bg-color: #1e1e1e;
+  --md-code-hl-color: rgba(255, 255, 255, 0.1);
+  --md-code-hl-number-color: #b5cea8;
+  --md-code-hl-special-color: #d7ba7d;
+  --md-code-hl-function-color: #dcdcaa;
+  --md-code-hl-constant-color: #4ec9b0;
+  --md-code-hl-keyword-color: #c586c0;
+  --md-code-hl-string-color: #ce9178;
+  --md-code-hl-name-color: #9cdcfe;
+  --md-code-hl-operator-color: #d4d4d4;
+  --md-code-hl-punctuation-color: #d4d4d4;
+  --md-code-hl-comment-color: #6a9955;
+  --md-code-hl-generic-color: #d4d4d4;
+  --md-code-hl-variable-color: #9cdcfe;
 }
