@@ -179,6 +179,7 @@ for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
     uv pip install --no-deps --no-build-isolation --editable $sub
 done
 EOF
+ARG USERNAME=bionemo
 USER $USERNAME
 
 # The 'release' target needs to be last so that it's the default build target. In the future, we could consider a setup
