@@ -91,6 +91,11 @@ WORKDIR /workspace/bionemo2
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
+# Patch NeMo in container source code repository prior to final installation.
+COPY ./patches /workspace/bionemo2/patches
+RUN patch -p1 -d /workspace/bionemo2/3rdparty/NeMo -i /workspace/bionemo2/patches/nemo-v2-lightning-megatron-parallel-ddp-peft.patch && \
+    rm -drf /workspace/bionemo2/patches
+
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
 RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \

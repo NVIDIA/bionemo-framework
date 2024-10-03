@@ -25,7 +25,6 @@ from nemo.collections import llm as nllm
 from nemo.lightning import resume
 from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nl_callbacks
-from nemo.lightning.pytorch.callbacks.model_transform import ModelTransform
 from nemo.lightning.pytorch.callbacks.peft import PEFT
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from pytorch_lightning.callbacks import Callback, RichModelSummary
@@ -35,6 +34,7 @@ from bionemo.esm2.api import ESM2GenericConfig
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
 from bionemo.esm2.model.finetune.finetune_regressor import ESM2FineTuneSeqConfig, InMemorySingleValueDataset
+from bionemo.esm2.model.finetune.peft import ESM2LoRA
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 
 
@@ -108,8 +108,8 @@ def train_model(
         callbacks.append(metric_tracker)
     if peft is not None:
         callbacks.append(
-            ModelTransform()
-        )  # Callback needed for PEFT fine-tuning using NeMo2, i.e. biobert_lightning_module(model_transform=peft).
+            peft
+        )  # Callback needed for PEFT fine-tuning using NeMo2, i.e. BioBertLightningModule(model_transform=peft).
 
     trainer = nl.Trainer(
         accelerator="gpu",
@@ -171,10 +171,15 @@ if __name__ == "__main__":
             # initial_ckpt_path=str(pretrain_ckpt_path)
         )
 
+        # Set a parameter-efficient fine-tuning strategy (PEFT).
+        # Options: None, ESM2LoRA()
+        peft = ESM2LoRA()
+
         checkpoint, metrics, trainer = train_model(
             experiment_name=experiment_name,
             experiment_dir=experiment_dir,  # new checkpoint will land in a subdir of this
             config=config,  # same config as before since we are just continuing training
             data_module=data_module,
             n_steps_train=n_steps_train,
+            peft=peft,
         )

@@ -117,7 +117,7 @@ CELLS_FOR_TEST: List[List[str]] = [
 ]
 
 MODEL_PRECISION: str = "bf16-mixed"
-USE_TE: bool = True  # TODO use this for high level decisions around whether we're ready to switch to TE
+USE_TE: bool = True
 TARGET_MEAN_LOSS: float = 2.368649959564209
 
 

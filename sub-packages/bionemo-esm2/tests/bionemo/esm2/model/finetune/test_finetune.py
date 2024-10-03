@@ -14,13 +14,11 @@
 # limitations under the License.
 
 
-from pathlib import Path
 from typing import Generator
 
 import pytest
 from nemo.lightning import io
 
-from bionemo import esm2
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
@@ -36,19 +34,6 @@ from bionemo.esm2.model.finetune.peft import ESM2LoRA
 from bionemo.esm2.model.finetune.train import train_model
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
-from bionemo.testing.data.load import load
-
-
-bionemo2_root: Path = (
-    # esm2 module's path is the most dependable --> don't expect this to change!
-    Path(esm2.__file__)
-    # This gets us from 'sub-packages/bionemo-esm2/src/bionemo/esm2/__init__.py' to 'sub-packages/bionemo-esm2'
-    .parent.parent.parent.parent
-    # From here, we want to get to the root of the repository: _before_ sub-packages/
-    .parent.parent
-).absolute()
-assert bionemo2_root != Path("/")
-nemo1_checkpoint_path: Path = load("esm2/nv_650m:1.0")
 
 
 @pytest.fixture(scope="module")

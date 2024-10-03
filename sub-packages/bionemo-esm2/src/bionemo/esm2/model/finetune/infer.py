@@ -18,12 +18,14 @@ from typing import Sequence
 
 import pytorch_lightning as pl
 from nemo import lightning as nl
+from nemo.lightning.pytorch.callbacks.peft import PEFT
 from torch import Tensor
 
 from bionemo.esm2.api import ESM2GenericConfig
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
 from bionemo.esm2.model.finetune.finetune_regressor import ESM2FineTuneSeqConfig, InMemorySingleValueDataset
+from bionemo.esm2.model.finetune.peft import ESM2LoRA
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 
 
@@ -34,6 +36,7 @@ def infer_model(
     config: ESM2GenericConfig,
     data_module: pl.LightningDataModule,
     tokenizer: BioNeMoESMTokenizer = get_tokenizer(),
+    peft: PEFT | None = None,
 ) -> list[Tensor]:
     """Infers a BioNeMo ESM2 model using PyTorch Lightning.
 
@@ -49,12 +52,19 @@ def infer_model(
         tensor_model_parallel_size=1, pipeline_model_parallel_size=1, ddp="megatron", find_unused_parameters=True
     )
 
+    callbacks = []
+    if peft is not None:
+        callbacks.append(
+            peft
+        )  # Callback needed for PEFT fine-tuning using NeMo2, i.e. BioBertLightningModule(model_transform=peft).
+
     trainer = nl.Trainer(
         accelerator="gpu",
         devices=1,
         strategy=strategy,
         num_nodes=1,
         plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
+        callbacks=callbacks,
     )
     module = biobert_lightning_module(config=config, tokenizer=tokenizer)
     results = trainer.predict(module, datamodule=data_module)
@@ -96,5 +106,9 @@ if __name__ == "__main__":
         # initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=list)   # reset to avoid skipping the head params
     )
 
-    results = infer_model(config, data_module)
+    # Set a parameter-efficient fine-tuning strategy (PEFT).
+    # Options: None, ESM2LoRA()
+    peft = ESM2LoRA()
+
+    results = infer_model(config, data_module, peft=peft)
     print(results)
