@@ -131,13 +131,18 @@ build() {
         --label com.nvidia.bionemo.git_sha=${COMMIT} \
         --label com.nvidia.bionemo.created_at=${created_at} \
         -f ./Dockerfile"
-    echo "$DOCKER_BUILD_CMD"
+
+    set -x
     DOCKER_BUILDKIT=1 $DOCKER_BUILD_CMD .
-    if [[ "$?" == "0" ]]; then
+    local e_build=$?
+    set +x
+
+    if [[ "${e_build}" == "0" ]]; then
       echo "Docker build completed successfully!"
     else
       echo "FAILURE: image was not built. Check logs for error."
     fi
+    return $e_build
 }
 
 base_docker_run_cmd() {
@@ -219,13 +224,14 @@ dev() {
   set -x
   ${DOCKER_CMD} --name "${DEV_CONT_NAME}" --rm -it "${IMAGE_REPO}:${IMAGE_TAG}" "${CMD}"
   set +x
-  exit 0
+  return 0
 }
 
 set +u
 case "$1" in
     build)
         build
+        exit $?
         ;;
     dev)
         set +u
@@ -237,6 +243,7 @@ case "$1" in
         set -u
 
         dev
+        exit $?
         ;;
     help)
         echo "Usage: $0 build -OR- $0 dev [cmd]"
@@ -244,27 +251,7 @@ case "$1" in
         echo "For 'dev', the command defaults to bash. "
         echo "Provide any other in-image executable to run as the 2nd argument."
         echo "-----------------------------------------------------------------"
-        echo "For advanced use, you may override any of the following variables by editing the $LOCAL_ENV file:"
-        echo "  IMAGE_REPO"
-        echo "  IMAGE_TAG"
-        echo "  CACHE_TAG"
-        echo "  LOCAL_RESULTS_PATH"
-        echo "  DOCKER_RESULTS_PATH"
-        echo "  LOCAL_DATA_PATH"
-        echo "  DOCKER_DATA_PATH"
-        echo "  LOCAL_MODELS_PATH"
-        echo "  DOCKER_MODELS_PATH"
-        echo "  WANDB_API_KEY"
-        echo "  JUPYTER_PORT"
-        echo "  REGISTRY"
-        echo "  REGISTRY_USER"
-        echo "  DEV_CONT_NAME"
-        echo "  NGC_CLI_API_KEY"
-        echo "  NGC_CLI_ORG"
-        echo "  NGC_CLI_TEAM"
-        echo "  NGC_CLI_FORMAT_TYPE"
-        echo '---------------------'
-        echo "You may also edit these values in the .env file."
+        echo "For advanced use, you may override variables by editing the $LOCAL_ENV file."
         exit 0
         ;;
     *)
