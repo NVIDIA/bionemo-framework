@@ -87,11 +87,21 @@ ARG USER_GID=$USER_UID
 RUN groupadd --gid $USER_GID $USERNAME \
   && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
   && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
-  && chmod 0440 /etc/sudoers.d/$USERNAME \
-  && chown -R $USERNAME /usr/local/lib/python3.10
+  && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # make this user own the Python dist-packages directory
-RUN chmod -R 777 /usr/local/lib/python3.10/
+RUN <<EOF
+set -eo pipefail
+
+update_perm() {
+  X="$1"
+  chown "${USERNAME}" "${X}"
+  chmod 777 "${X}"
+}
+
+export -f update_perm
+find /usr/local/lib/python3.10/ -print | xargs -P 100 -I {} bash -c 'update_perm "$@"' _ {}
+EOF
 
 # have this non-root user be the default in the image
 USER $USERNAME
