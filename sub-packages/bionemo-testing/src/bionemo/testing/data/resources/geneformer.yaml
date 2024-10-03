@@ -1,6 +1,6 @@
 
 - tag: 10M_240530
-  ngc: null
+  ngc: "nvidia/clara/geneformer_10m:1.6"
   pbss: "s3://bionemo-ci/models/geneformer-10M-240530-step-115430-wandb-4ij9ghox.nemo"
   sha256: 6e3670c6b61487035ebb8ce2c00fcbca7fb50128bd4d36ad035fa863791ef792 # pragma: allowlist secret
   owner: John St John <jstjohn@nvidia.com>
@@ -9,6 +9,7 @@
     final shape of 25472 for GPU efficiency. See https://wandb.ai/clara-discovery/scFM_v9/runs/4ij9ghox.
 
 - tag: qa
+  ngc: "nvidia/clara/geneformer-qa:1.0"
   pbss: "s3://bionemo-ci/models/geneformer-qa.nemo"
   sha256: ab49ba01e78b4fc940d528f8a4ff03cef3f68e08101de08a3c82a72f5d49be9d # pragma: allowlist secret
   owner: John St John <jstjohn@nvidia.com>
