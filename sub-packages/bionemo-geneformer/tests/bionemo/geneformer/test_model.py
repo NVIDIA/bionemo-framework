@@ -40,7 +40,7 @@ from bionemo.core.data.resamplers import PRNGResampleDataset
 from bionemo.core.utils.batching_utils import pad_token_ids
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.core.utils.random_utils import random_numpy_context
-from bionemo.geneformer.api import GeneformerConfig, GeneformerModel
+from bionemo.geneformer.api import GeneformerConfig, GeneformerModel, GeneformerNeMo1LightningModuleConnector
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
@@ -48,6 +48,7 @@ from bionemo.geneformer.model.finetune_token_regressor import (
     FineTuneSeqLenBioBertConfig,
     LoRAForGeneFormerTokenRegressor,
 )
+from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import collate
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
 from bionemo.llm.model.biobert.model import BiobertSpecOption
@@ -55,7 +56,11 @@ from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
 from bionemo.testing.data.load import load
-from bionemo.testing.utils import assert_matrix_correlation_above_value, assert_matrix_mape_below_value
+from bionemo.testing.utils import (
+    assert_matrix_correlation_above_value,
+    assert_matrix_mape_below_value,
+    compare_dataclasses,
+)
 
 
 nemo1_checkpoint_path: Path = load("geneformer/qa")
@@ -113,7 +118,8 @@ CELLS_FOR_TEST: List[List[str]] = [
 ]
 
 MODEL_PRECISION: str = "bf16-mixed"
-USE_TE: bool = False  # TODO use this for high level decisions around whether we're ready to switch to TE
+USE_TE: bool = True  # TODO use this for high level decisions around whether we're ready to switch to TE
+TARGET_MEAN_LOSS: float = 2.368649959564209
 
 
 @pytest.fixture()
@@ -149,11 +155,11 @@ def geneformer_config():
         layernorm_epsilon=1.0e-12,
         activation_func=F.gelu,  # TODO(@jstjohn) check this
         qk_layernorm=False,  # TODO(@jstjohn) check this
-        apply_residual_connection_post_layernorm=True,  # False is new default, True was BERT pub.
+        apply_residual_connection_post_layernorm=False,  # False is new default, True was BERT pub.
         bias_activation_fusion=True,  # TODO(@jstjohn) check this
         bias_dropout_fusion=True,  # TODO(@jstjohn) check this
         get_attention_mask_from_fusion=False,
-        attention_dropout=0.1,
+        attention_dropout=0.1,  # historically ignored in nemo1, always set to 0.1
         share_embeddings_and_output_weights=True,
         enable_autocast=False,  # This has to be set to True if we use the mixed precision plugin
         biobert_spec_option=BiobertSpecOption.bert_layer_with_transformer_engine_spec
@@ -162,6 +168,30 @@ def geneformer_config():
         nemo1_ckpt_path=str(nemo1_checkpoint_path),
         return_only_hidden_states=True,  # This is what we did in nemo1 for inference
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Need cuda to run this test.")
+@pytest.mark.skip(reason="This test only works when executed by itself. FIXME issue #226.")
+def test_nemo1_checkpoint_conversion(
+    tmpdir: Path, geneformer_config: GeneformerConfig, cells: List[List[str]], seed: int = 42
+):
+    with megatron_parallel_state_utils.distributed_model_parallel_state(32):
+        converter = GeneformerNeMo1LightningModuleConnector(nemo1_release_checkpoint_path)
+        assert isinstance(converter.tokenizer, GeneTokenizer)
+        diffs = compare_dataclasses(converter.config, geneformer_config)
+        skip_fields = {"nemo1_ckpt_path", "return_only_hidden_states", "init_method", "output_layer_init_method"}
+        filt = [d for d in diffs if d["field"] not in skip_fields]
+        assert filt == []
+        out_config = tmpdir / "out_config"
+        converter.apply(out_config)  # currently crashes in here during self.nemo_save(out_path, trainer)
+        assert io.is_distributed_ckpt(out_config / "weights")
+        geneformer_config_logit = deepcopy(geneformer_config)
+        # Set up the model to return logits and switch to the released 10M checkpoint
+        geneformer_config_logit.set_hparam("return_only_hidden_states", False)  # return logits
+        geneformer_config_logit.set_hparam("initial_ckpt_path", str(out_config))  # release checkpoint is important
+
+        mean_loss = _get_loss_from_model(geneformer_config_logit, seed)
+        assert mean_loss < TARGET_MEAN_LOSS or mean_loss == pytest.approx(TARGET_MEAN_LOSS, abs=1e-2, rel=None)
 
 
 def test_nemo1_nemo2_weight_shapes_match(geneformer_config, seed: int = 42):
@@ -739,8 +769,7 @@ def test_inference_loss_10m_released_checkpoint(geneformer_config: GeneformerCon
     #  the target is defined as described above for the 10M checkpoint based on our first pass
     #  of the megatron implementation. Since we manually passed experiment 1 this experiment
     #  will define our initial "golden value" test target.
-    target: float = 2.368649959564209
-    assert mean_loss < target or mean_loss == pytest.approx(target, abs=1e-2, rel=None)
+    assert mean_loss < TARGET_MEAN_LOSS or mean_loss == pytest.approx(TARGET_MEAN_LOSS, abs=1e-2, rel=None)
 
 
 def test_inference_loss_10m_released_checkpoint_wrong_activation(geneformer_config: GeneformerConfig, seed: int = 42):

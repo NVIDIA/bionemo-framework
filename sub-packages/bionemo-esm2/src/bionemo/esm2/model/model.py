@@ -17,7 +17,7 @@
 import logging
 import math
 from dataclasses import dataclass
-from typing import Callable, Literal, Optional, Sequence, Type, TypeVar
+from typing import Any, Callable, Dict, Literal, Optional, Sequence, Type, TypeVar
 
 import torch
 import torch.distributed
@@ -33,9 +33,11 @@ from megatron.core.transformer.utils import get_linear_layer
 from torch import Tensor
 from torch.optim import Optimizer
 
-from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
+from bionemo.core.utils.dtypes import get_autocast_dtype
+from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.attention import ESM2DotProductAttention, ESM2TEDotProductAttention
 from bionemo.esm2.model.embedding import ESM2Embedding
+from bionemo.llm.model.biobert.connector import GenericBioBertNeMo1LightningModuleConnector
 from bionemo.llm.model.biobert.model import BioBertGenericConfig, MegatronBioBertModel
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils import iomixin_utils as iom
@@ -341,3 +343,19 @@ class ESM2Config(ESM2GenericConfig[ESM2Model], iom.IOMixinWithGettersSetters):
     model_cls: Type[ESM2Model] = ESM2Model
     num_layers: int = 33  # 650M
     hidden_size: int = 1280  # 650M
+
+
+class ESM2NeMo1LightningModuleConnector(GenericBioBertNeMo1LightningModuleConnector[ESM2Model]):
+    @property
+    def tokenizer(self):
+        return get_tokenizer()
+
+    def get_config_overrides(self, autocast_dtype: torch.dtype) -> Dict[str, Any]:
+        overrides = super().get_config_overrides(autocast_dtype=get_autocast_dtype("bf16-mixed"))  # change from fp16
+        overrides["bias_activation_fusion"] = False  # needed for non gelu/swiglu activation
+        del overrides["attention_dropout"]  # this actually worked in esm2 so do not override it.
+        del overrides["bias_dropout_fusion"]  # let this be default
+        return overrides
+
+    def get_config_class(self) -> ESM2Config:
+        return ESM2Config

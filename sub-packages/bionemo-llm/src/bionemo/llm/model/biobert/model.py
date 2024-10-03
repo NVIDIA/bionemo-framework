@@ -406,7 +406,7 @@ class BioBertGenericConfig(
     num_attention_heads: int = 8
     num_layers: int = 6
     init_method_std: float = 0.02
-    biobert_spec_option: BiobertSpecOption = BiobertSpecOption.bert_layer_local_spec
+    biobert_spec_option: BiobertSpecOption = BiobertSpecOption.bert_layer_with_transformer_engine_spec
 
     # TODO: Move this to better places?
     get_attention_mask_from_fusion: bool = False
