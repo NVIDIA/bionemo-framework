@@ -93,7 +93,6 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
 RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
   --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   <<EOT
@@ -175,4 +174,7 @@ FROM bionemo2-base AS release
 COPY VERSION .
 COPY ./scripts ./scripts
 COPY ./README.md ./
+
+# Copy over folders so that the image can run tests in a self-contained fashion.
 COPY ./ci/scripts ./ci/scripts
+COPY ./docs ./docs
