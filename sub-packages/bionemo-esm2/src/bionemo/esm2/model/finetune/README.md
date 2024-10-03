@@ -159,9 +159,8 @@ artificial_sequence_data = [
 data = [(seq, len(seq)/100.0) for seq in artificial_sequence_data]
 
 # we are training and validating on the same dataset for simplicity
-train_dataset = InMemorySingleValueDataset(data)
-valid_dataset = InMemorySingleValueDataset(data)
-data_module = ESM2FineTuneDataModule(train_dataset, valid_dataset)
+dataset = InMemorySingleValueDataset(data)
+data_module = ESM2FineTuneDataModule(train_dataset=dataset, valid_dataset=dataset)
 
 experiment_tempdir = tempfile.TemporaryDirectory()
 experiment_dir = Path(experiment_tempdir.name)
@@ -183,4 +182,19 @@ checkpoint, metrics, trainer = train_model(
 This example is fully implemented in ```bionemo.esm2.model.finetune.train``` and can be executed by:
 ```bash
 python /workspaces/bionemo-fw-ea/sub-packages/bionemo-esm2/src/bionemo/esm2/model/finetune/train.py
+```
+
+# Inference using the fine-tuned model
+Once we have a checkpoint we can create a config object by pointing the path in `initial_ckpt_path` and use that for inference. Since we need to load all the parameters from this checkpoint (and don't skip the head) we reset the `nitial_ckpt_skip_keys_with_these_prefixe` in this config. Now we can use the ````bionemo.esm2.model.fnetune.train.infer``` to run inference on prediction dataset.
+
+```python
+dataset = InMemorySingleValueDataset(data)
+data_module = ESM2FineTuneDataModule(predict_dataset=dataset)
+
+config = ESM2FineTuneSeqConfig(
+    initial_ckpt_path = finetuned_checkpoint,
+    initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=list)
+)
+
+results = infer_model(config, data_module)
 ```

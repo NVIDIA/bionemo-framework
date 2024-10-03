@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Tuple
 
 import pytorch_lightning as pl
+import torch
 from nemo import lightning as nl
 
 from bionemo.esm2.api import ESM2GenericConfig
@@ -54,14 +55,12 @@ def infer_model(
         plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
     )
     module = BioBertLightningModule(config=config, tokenizer=tokenizer)
-    results = trainer.predict(module, datamodule=data_module)
+    results = torch.cat(trainer.predict(module, datamodule=data_module), dim=1)
 
     return results
 
 
 if __name__ == "__main__":
-    tokenizer = get_tokenizer()
-
     # create a List[Tuple] with (sequence, target) values
     artificial_sequence_data = [
         "TLILGWSDKLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
@@ -77,11 +76,13 @@ if __name__ == "__main__":
     ]
     data = [(seq, len(seq) / 100.0) for seq in artificial_sequence_data]
 
-    # we are training and validating on the same dataset for simplicity
     dataset = InMemorySingleValueDataset(data)
     data_module = ESM2FineTuneDataModule(predict_dataset=dataset)
 
-    config = ESM2FineTuneSeqConfig()
+    config = ESM2FineTuneSeqConfig(
+        # initial_ckpt_path = finetuned_checkpoint,  # supply the finetuned checkpoint path
+        # initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=list)   # reset to avoid skipping the head params
+    )
 
     results = infer_model(config, data_module)
     print(results)

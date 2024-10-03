@@ -135,8 +135,6 @@ def train_model(
 
 
 if __name__ == "__main__":
-    tokenizer = get_tokenizer()
-
     # create a List[Tuple] with (sequence, target) values
     artificial_sequence_data = [
         "TLILGWSDKLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
@@ -162,8 +160,9 @@ if __name__ == "__main__":
     n_steps_train = 50
     seed = 42
 
-    # config = ESM2FineTuneSeqConfig(initial_ckpt_path=str(pretrain_ckpt_path))
-    config = ESM2FineTuneSeqConfig()
+    config = ESM2FineTuneSeqConfig(
+        # initial_ckpt_path=str(pretrain_ckpt_path)
+    )
 
     checkpoint, metrics, trainer = train_model(
         experiment_name=experiment_name,
@@ -171,5 +170,6 @@ if __name__ == "__main__":
         config=config,  # same config as before since we are just continuing training
         data_module=data_module,
         n_steps_train=n_steps_train,
-        tokenizer=tokenizer,
     )
+
+    experiment_tempdir.cleanup()
