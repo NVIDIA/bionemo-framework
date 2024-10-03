@@ -77,9 +77,9 @@ if __name__ == "__main__":
 
     dataset = InMemorySingleValueDataset(data)
 
-    # NOTE: Due to the current limitation in inference of NeMo lightning module. Only one global_batch of the data
-    # is processed with predict_step(). Therefore we pass all the prediction data in one global_batch and choose the
-    # micro_batch_size so that global batch size is divisible by micro batch size times data parallel size
+    # NOTE: Due to the current limitation in inference of NeMo lightning module, partial batches with
+    # size < global_batch_size are not being processed with predict_step(). Therefore we set the global to len(data)
+    # and choose the micro_batch_size so that global batch size is divisible by micro batch size x data parallel size
     data_module = ESM2FineTuneDataModule(
         predict_dataset=dataset, global_batch_size=len(data), micro_batch_size=len(data)
     )
