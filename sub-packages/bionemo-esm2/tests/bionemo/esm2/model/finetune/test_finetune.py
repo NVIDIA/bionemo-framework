@@ -30,7 +30,6 @@ from nemo.lightning.pytorch.callbacks.peft import PEFT
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from bionemo import esm2
 from bionemo.esm2.api import ESM2Config, ESM2GenericConfig
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
@@ -47,19 +46,6 @@ from bionemo.esm2.model.finetune.peft import ESM2LoRA
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
-from bionemo.testing.data.load import load
-
-
-bionemo2_root: Path = (
-    # esm2 module's path is the most dependable --> don't expect this to change!
-    Path(esm2.__file__)
-    # This gets us from 'sub-packages/bionemo-esm2/src/bionemo/esm2/__init__.py' to 'sub-packages/bionemo-esm2'
-    .parent.parent.parent.parent
-    # From here, we want to get to the root of the repository: _before_ sub-packages/
-    .parent.parent
-).absolute()
-assert bionemo2_root != Path("/")
-nemo1_checkpoint_path: Path = load("esm2/nv_650m:1.0")
 
 
 @pytest.fixture(scope="module")
@@ -194,7 +180,7 @@ def test_esm2_finetune_token_classifier(
         else:
             peft = None
         esm2_finetune_config = ESM2FineTuneTokenConfig(initial_ckpt_path=str(ckpt_path))
-        dataset = InMemoryPerTokenValueDataset(dummy_data_per_token_classification_ft)
+        dataset = InMemoryPerTokenValueDataset(dummy_data_per_token_classification_ft, seed=seed)
         finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
         simple_ft_checkpoint, simple_ft_metrics, trainer = _train_model(
             name="finetune_new_head",
@@ -262,7 +248,7 @@ def test_esm2_finetune_regressor(
         else:
             peft = None
         esm2_regression_finetune_config = ESM2FineTuneSeqConfig(initial_ckpt_path=str(ckpt_path))
-        dataset = InMemorySingleValueDataset(dummy_data_single_value_regression_ft)
+        dataset = InMemorySingleValueDataset(dummy_data_single_value_regression_ft, seed=seed)
         finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
         simple_ft_checkpoint, simple_ft_metrics, trainer = _train_model(
             name="finetune_new_head_regression",

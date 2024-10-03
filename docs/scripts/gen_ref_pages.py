@@ -79,10 +79,8 @@ def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
     examples_dir = sub_package / "examples"
     if examples_dir.exists():
         for notebook in examples_dir.glob("*.ipynb"):
-            dest_dir = Path("examples") / sub_package.name
+            dest_dir = Path("user-guide/examples") / sub_package.name
             dest_file = dest_dir / notebook.name
-
-            dest_dir.mkdir(parents=True, exist_ok=True)
 
             with mkdocs_gen_files.open(dest_file, "wb") as fd:
                 fd.write(notebook.read_bytes())
@@ -91,7 +89,7 @@ def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
 
 
 def get_subpackage_readmes(sub_package: Path, root: Path) -> None:
-    """Copy README file from a sub-package to the developer guide directory.
+    """Copy README file from a sub-package to the user guide's developer guide directory.
 
     Args:
         sub_package (Path): The path to the sub-package directory.
@@ -102,10 +100,8 @@ def get_subpackage_readmes(sub_package: Path, root: Path) -> None:
     """
     readme_file = sub_package / "README.md"
     if readme_file.exists():
-        dest_dir = Path("developer-guide") / sub_package.name
-        dest_file = dest_dir / f"{sub_package.name} Overview.md"
-
-        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_dir = Path("user-guide/developer-guide") / sub_package.name
+        dest_file = dest_dir / f"{sub_package.name}-Overview.md"
 
         with mkdocs_gen_files.open(dest_file, "w") as fd:
             fd.write(readme_file.read_text())

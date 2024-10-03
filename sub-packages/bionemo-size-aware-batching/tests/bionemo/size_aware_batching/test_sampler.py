@@ -14,13 +14,12 @@
 # limitations under the License.
 
 import itertools
-import sys
 from warnings import warn
 
 import numpy as np
 import pytest
 import torch
-from torch.utils.data import SequentialSampler, default_collate
+from torch.utils.data import BatchSampler, DataLoader, SequentialSampler, default_collate
 
 from bionemo.size_aware_batching.sampler import BucketBatchSampler, SizeAwareBatchSampler, size_aware_batching
 
@@ -81,10 +80,7 @@ def test_SABS_init_valid_input(sampler, get_sizeof):
     assert batch_sampler._max_total_size == max_total_size
 
     for idx in sampler:
-        if callable(sizeof):
-            assert batch_sampler._sizeof(idx) == sizeof(idx)
-        else:
-            assert batch_sampler._sizeof(idx) == sizeof[idx]
+        assert batch_sampler._sizeof(idx) == sizeof(idx)
 
 
 def test_SABS_init_invalid_max_total_size(sampler):
@@ -113,62 +109,49 @@ def test_SABS_init_invalid_sizeof_type(sampler):
 def test_SABS_iter(sampler, get_sizeof, max_total_size, warn_logger):
     sizeof = get_sizeof
 
-    if max_total_size == 0 and not callable(sizeof):
-        sys.gettrace = lambda: True
-        if warn_logger is not None:
-            with pytest.raises(ValueError, match=r"exceeds max_total_size"), pytest.warns(UserWarning):
-                size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size, warn_logger=warn_logger)
-        else:
-            with pytest.raises(ValueError):
-                size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size, warn_logger=warn_logger)
-        sys.gettrace = lambda: None
-    else:
-        # construction should always succeed
-        size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size, warn_logger=warn_logger)
+    # construction should always succeed
+    size_aware_sampler = SizeAwareBatchSampler(sampler, sizeof, max_total_size, warn_logger=warn_logger)
 
-        if max_total_size == 0 and warn_logger is not None:
-            with pytest.warns(UserWarning):
-                meta_batch_ids = list(size_aware_sampler)
-        else:
+    if max_total_size == 0 and warn_logger is not None:
+        with pytest.warns(UserWarning):
             meta_batch_ids = list(size_aware_sampler)
+    else:
+        meta_batch_ids = list(size_aware_sampler)
 
-        def fn_sizeof(i: int):
-            if callable(sizeof):
-                return sizeof(i)
-            else:
-                return sizeof[i]
+    def fn_sizeof(i: int):
+        return sizeof(i)
 
-        # Check that the batches are correctly sized
-        for ids_batch in meta_batch_ids:
-            size_batch = sum(fn_sizeof(idx) for idx in ids_batch)
-            assert size_batch <= max_total_size
+    # Check that the batches are correctly sized
+    for ids_batch in meta_batch_ids:
+        size_batch = sum(fn_sizeof(idx) for idx in ids_batch)
+        assert size_batch <= max_total_size
 
-        meta_batch_ids_expected = []
-        ids_batch = []
-        s_all = 0
-        for idx in sampler:
-            s = fn_sizeof(idx)
-            if s > max_total_size:
-                continue
-            if s + s_all > max_total_size:
-                meta_batch_ids_expected.append(ids_batch)
-                s_all = s
-                ids_batch = [idx]
-                continue
-            s_all += s
-            ids_batch.append(idx)
-        if len(ids_batch) > 0:
+    meta_batch_ids_expected = []
+    ids_batch = []
+    s_all = 0
+    for idx in sampler:
+        s = fn_sizeof(idx)
+        if s > max_total_size:
+            continue
+        if s + s_all > max_total_size:
             meta_batch_ids_expected.append(ids_batch)
+            s_all = s
+            ids_batch = [idx]
+            continue
+        s_all += s
+        ids_batch.append(idx)
+    if len(ids_batch) > 0:
+        meta_batch_ids_expected.append(ids_batch)
 
-        assert meta_batch_ids == meta_batch_ids_expected
+    assert meta_batch_ids == meta_batch_ids_expected
 
-        # the 2nd pass should return the same result
-        if max_total_size == 0 and warn_logger is not None:
-            with pytest.warns(UserWarning):
-                meta_batch_ids_2nd_pass = list(size_aware_sampler)
-        else:
+    # the 2nd pass should return the same result
+    if max_total_size == 0 and warn_logger is not None:
+        with pytest.warns(UserWarning):
             meta_batch_ids_2nd_pass = list(size_aware_sampler)
-        assert meta_batch_ids == meta_batch_ids_2nd_pass
+    else:
+        meta_batch_ids_2nd_pass = list(size_aware_sampler)
+    assert meta_batch_ids == meta_batch_ids_2nd_pass
 
 
 def test_SABS_iter_no_samples(get_sizeof):
@@ -206,7 +189,7 @@ def test_SABS_iter_sizeof_invalid_return_type(sampler):
 def sample_data():
     sizes = np.arange(25)
     bucket_ranges = np.array([[0, 5], [6, 14], [15, 24]])
-    base_batch_sampler_class = torch.utils.data.BatchSampler
+    base_batch_sampler_class = BatchSampler
     base_batch_sampler_shared_kwargs = {"drop_last": False}
     base_batch_sampler_individual_kwargs = {"batch_size": [2, 3, 5]}
     return (
@@ -229,7 +212,7 @@ def test_init_bucket_batch_sampler_with_invalid_sizes(sample_data):
     # sizes must be a numpy array
     with pytest.raises(ValueError):
         BucketBatchSampler(
-            sizes=list(sizes),
+            sizes=list(sizes),  # type: ignore
             bucket_ranges=bucket_ranges,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
@@ -350,10 +333,10 @@ def test_init_bucket_batch_sampler_with_invalid_shuffle(sample_data):
         BucketBatchSampler(
             sizes=sizes,
             bucket_ranges=bucket_ranges,
-            base_batch_sampler_class=torch.utils.data.DataLoader,
+            base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
-            shuffle=1,
+            shuffle=1,  # type: ignore
         )
 
 
@@ -370,7 +353,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_class(sample_
         BucketBatchSampler(
             sizes=sizes,
             bucket_ranges=bucket_ranges,
-            base_batch_sampler_class=torch.utils.data.DataLoader,
+            base_batch_sampler_class=DataLoader,  # type: ignore
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
         )
@@ -390,7 +373,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
             sizes=sizes,
             bucket_ranges=bucket_ranges,
             base_batch_sampler_class=base_batch_sampler_class,
-            base_batch_sampler_shared_kwargs={1: False},
+            base_batch_sampler_shared_kwargs={1: False},  # type: ignore
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
         )
     with pytest.raises(ValueError):
@@ -398,7 +381,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
             sizes=sizes,
             bucket_ranges=bucket_ranges,
             base_batch_sampler_class=base_batch_sampler_class,
-            base_batch_sampler_shared_kwargs=[("drop_last", False)],
+            base_batch_sampler_shared_kwargs=[("drop_last", False)],  # type: ignore
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
         )
     with pytest.raises(ValueError):
@@ -407,7 +390,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
             bucket_ranges=bucket_ranges,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
-            base_batch_sampler_individual_kwargs={1: [2, 3, 5]},
+            base_batch_sampler_individual_kwargs={1: [2, 3, 5]},  # type: ignore
         )
     with pytest.raises(ValueError):
         BucketBatchSampler(
@@ -415,7 +398,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
             bucket_ranges=bucket_ranges,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
-            base_batch_sampler_individual_kwargs=[("batch_sizes", [2, 3, 5])],
+            base_batch_sampler_individual_kwargs=[("batch_sizes", [2, 3, 5])],  # type: ignore
         )
     # values in base_batch_sampler_individual_kwargs should have same length as bucket_ranges.
     with pytest.raises(ValueError):
