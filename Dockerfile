@@ -79,6 +79,21 @@ ENV UV_LINK_MODE=copy \
   UV_PYTHON_DOWNLOADS=never \
   UV_SYSTEM_PYTHON=true
 
+# Create a non-root user
+ARG USERNAME=bionemo
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+RUN groupadd --gid $USER_GID $USERNAME \
+  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+  && chmod 0440 /etc/sudoers.d/$USERNAME
+
+# make this user own the Python dist-packages directory
+RUN chown -R ${USERNAME} /usr/local/lib/python3.10/ && chmod -R 777
+
+# have this non-root user be the default in the image
+USER $USERNAME
+
 # Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
 RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
@@ -105,21 +120,6 @@ uv pip install --no-build-isolation \
 rm -rf ./3rdparty
 rm -rf /tmp/*
 EOT
-
-# Create a non-root user
-ARG USERNAME=bionemo
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-RUN groupadd --gid $USER_GID $USERNAME \
-  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
-  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
-  && chmod 0440 /etc/sudoers.d/$USERNAME
-
-# make this user own the Python dist-packages directory
-RUN chown -R ${USERNAME} /usr/local/lib/python3.10/ && chmod -R 777
-
-# have this non-root user be the default in the image
-USER $USERNAME
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
 # base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
@@ -156,7 +156,7 @@ RUN <<EOT
   chmod 777 /usr/local/bin
 EOT
 
-USER $USERNAME
+# USER $USERNAME
 
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
   /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
