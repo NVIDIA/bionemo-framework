@@ -99,6 +99,13 @@ build-release:
 build-dev:
   @just build ${DEV_IMAGE_TAG} development
 
+[private]
+ensure-dev-or-build:
+  #!/usr/bin/env bash
+  if [[ $(docker images -q "${IMAGE_REPO}:${DEV_IMAGE_TAG}" 2> /dev/null) != "" ]]; then
+    just build-dev
+  fi
+
 
 [private]
 run image_tag cmd: setup
@@ -139,8 +146,8 @@ run image_tag cmd: setup
 # run-dev lets us work with a dirty repository,
 # beacuse this is a common state during development
 # **AND** we're volume mounting the code, so we'll have the latest state
-run-dev cmd: build-dev
-  @just run ${DEV_IMAGE_TAG} {{cmd}}
+run-dev cmd: ensure-dev-or-build
+  @just run ${IMAGE_TAG} {{cmd}}
 
 # in contrast, run-release requires a clean repository,
 # because users want to know that they're running the **exact** version they expect
