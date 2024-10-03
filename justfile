@@ -110,6 +110,14 @@ build-dev:
 run is_dev is_interactive image_tag cmd: setup
   #!/usr/bin/env bash
 
+  DOCKER_VERSION=$(docker version | grep -i version | head -1 | awk '{print $2}')
+  DOCKER_VERSION_WITH_GPU_SUPPORT='19.03.0'
+  if [ "$DOCKER_VERSION_WITH_GPU_SUPPORT" == "$(echo -e "$DOCKER_VERSION\n$DOCKER_VERSION_WITH_GPU_SUPPORT" | sort -V | head -1)" ]; then
+      PARAM_RUNTIME="--gpus all"
+  else
+      PARAM_RUNTIME="--runtime=nvidia"
+  fi
+
   docker_cmd="docker run \
   --network host \
   ${PARAM_RUNTIME} \
