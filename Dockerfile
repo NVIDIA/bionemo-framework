@@ -167,8 +167,11 @@ EOF
 
 FROM dev as development
 
+WORKDIR /workspace/bionemo2
+COPY --from=release /workspace/bionemo2 /workspace/bionemo2/
 RUN <<EOF
-set -euo pipefail
+set -eo pipefail
+ls -l
 for sub in ./3rdparty/* ./sub-packages/*; do
     uv pip install --no-deps --no-build-isolation --editable $sub
 done
