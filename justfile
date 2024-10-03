@@ -175,4 +175,4 @@ run-release cmd='bash': build-release assert_clean_git_repo
 ###############################################################################
 
 test: build-release
-  @just run true false ${IMAGE_TAG} 'pytest -v --cov=bionemo --cov-report term --cov-report=html sub-packages/bionemo-*'
+  @just run true false ${IMAGE_TAG} 'pytest -v --cov=bionemo --cov-report term --cov-report=html docs/ scripts/ sub-packages/'
