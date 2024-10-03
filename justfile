@@ -63,16 +63,16 @@ assert_clean_git_repo:
   git diff-index --quiet HEAD --
   exit_code="$?"
 
-  if [ "${exit_code}" == "128" ]; then
+  if [[ "${exit_code}" == "128" ]]; then
       echo "ERROR: Cannot build image if not in bionemo git repository!"
       exit 1
 
-  elif [ "${exit_code}" == "1" ]; then
+  elif [[ "${exit_code}" == "1" ]]; then
       echo "ERROR: Repository is dirty! Commit all changes before building image!"
       exit  2
 
-  elif [ "${exit_code}" == "0" ]; then
-      # ok!
+  elif [[ "${exit_code}" == "0" ]]; then
+      echo "ok" 2> /dev/null
 
   else
       echo "ERROR: Unknown exit code for `git diff-index`: ${exit_code}"
