@@ -71,14 +71,6 @@ RUN source /usr/local/nvm/nvm.sh && \
   sed -i "/NVM/d" /root/.bashrc && \
   sed -i "/nvm.sh/d" /etc/bash.bashrc
 
-# Use UV to install python packages from the workspace. This just installs packages into the system's python
-# environment, and does not use the current uv.lock file.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-ENV UV_LINK_MODE=copy \
-  UV_COMPILE_BYTECODE=1 \
-  UV_PYTHON_DOWNLOADS=never \
-  UV_SYSTEM_PYTHON=true
-
 # Create a non-root user
 # & make this user own the Python dist-packages directory
 ARG USERNAME=bionemo
@@ -105,6 +97,14 @@ EOF
 
 # have this non-root user be the default in the image
 USER $USERNAME
+
+# Use UV to install python packages from the workspace. This just installs packages into the system's python
+# environment, and does not use the current uv.lock file.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_LINK_MODE=copy \
+  UV_COMPILE_BYTECODE=1 \
+  UV_PYTHON_DOWNLOADS=never \
+  UV_SYSTEM_PYTHON=true
 
 # Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
