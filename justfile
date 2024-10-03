@@ -131,7 +131,8 @@ run is_dev is_interactive image_tag cmd: setup
   -v /etc/passwd:/etc/passwd:ro \
   -v /etc/group:/etc/group:ro \
   -v /etc/shadow:/etc/shadow:ro \
-  -v ${HOME}/.ssh:${DOCKER_REPO_PATH}/.ssh:ro"
+  -v ${HOME}/.ssh:${DOCKER_REPO_PATH}/.ssh:ro \
+  -u $(id -u):$(id -g)"
 
   if [[ "{{is_dev}}" == "true" ]]; then
     docker_cmd="${docker_cmd} -v ${LOCAL_REPO_PATH}:${DOCKER_REPO_PATH}"
