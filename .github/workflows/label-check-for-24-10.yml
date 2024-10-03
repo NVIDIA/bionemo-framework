@@ -23,5 +23,5 @@ jobs:
       - name: Fail if no required label
         if: failure()
         run: |
-          echo "PR cannot be merged without one of the required labels: 'bug_fix_24.10' or 'not_bug_fix_24.10'."
+          echo "PR cannot be merged without one of the required labels: 'bug_fix_24.10' or 'NOT_related_to_v24.10' or 'feature_for_v24.10'"
           exit 1
