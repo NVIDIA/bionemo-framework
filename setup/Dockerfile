@@ -305,6 +305,7 @@ COPY tokenizers ${BIONEMO_HOME}/tokenizers
 COPY examples ${BIONEMO_HOME}/examples
 COPY tests ${BIONEMO_HOME}/tests
 COPY bionemo ${BIONEMO_HOME}/bionemo
+COPY ci/scripts ${BIONEMO_HOME}/ci/scripts
 
 ### install bionemo
 WORKDIR ${BIONEMO_HOME}
