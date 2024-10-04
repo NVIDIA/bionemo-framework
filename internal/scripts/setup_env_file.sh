@@ -81,6 +81,10 @@ env_file_setup() {
       echo "NGC_CLI_ORG=${NGC_CLI_ORG}" >> $LOCAL_ENV
       echo "NGC_CLI_TEAM=${NGC_CLI_TEAM}" >> $LOCAL_ENV
       echo "NGC_CLI_FORMAT_TYPE=${NGC_CLI_FORMAT_TYPE}" >> $LOCAL_ENV
+
+      echo "------------------------------------------------------------"
+      echo "First time setup complete! Re-run!"
+      exit 1
   fi
 }
 
