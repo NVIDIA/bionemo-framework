@@ -47,7 +47,7 @@ __all__: Sequence[str] = (
     "ExampleModel",
     "MNISTCustom",
     "MNISTDataModule",
-    "AverageLoss",
+    "SameSizeLossDict",
     "MnistItem",
     "ExampleModelOutput",
     "ExampleFineTuneOutput",
@@ -59,8 +59,8 @@ __all__: Sequence[str] = (
 #  for inference, as well as for logging.
 
 
-class AverageLoss(TypedDict):
-    """A dict[str,Tensor] with a single key, 'avg'."""
+class SameSizeLossDict(TypedDict):
+    """This is the return type for a loss that is computed for the entire batch, where all microbatches are the same size."""
 
     avg: Tensor
 
@@ -89,7 +89,7 @@ class ExampleFineTuneOutput(ExampleModelOutput):
 class MSELossReduction(MegatronLossReduction):
     """A class used for calculating the loss, and for logging the reduced loss across micro batches."""
 
-    def forward(self, batch: MnistItem, forward_out: Dict[str, Tensor]) -> Tuple[Tensor, AverageLoss]:
+    def forward(self, batch: MnistItem, forward_out: Dict[str, Tensor]) -> Tuple[Tensor, SameSizeLossDict]:
         """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
 
         Args:
@@ -108,7 +108,7 @@ class MSELossReduction(MegatronLossReduction):
 
         return loss, {"avg": loss}
 
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[AverageLoss]) -> Tensor:
+    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
         """Works across micro-batches. (data on single gpu).
 
         Note: This currently only works for logging and this loss will not be used for backpropagation.
@@ -126,7 +126,7 @@ class MSELossReduction(MegatronLossReduction):
 class MSEPlusClassifierLossReduction(MegatronLossReduction):
     """A class used for calculating the loss, and for logging the reduced loss across micro batches."""
 
-    def forward(self, batch: MnistItem, forward_out: ExampleFineTuneOutput) -> Tuple[Tensor, AverageLoss]:
+    def forward(self, batch: MnistItem, forward_out: ExampleFineTuneOutput) -> Tuple[Tensor, SameSizeLossDict]:
         """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
 
         Args:
@@ -148,7 +148,7 @@ class MSEPlusClassifierLossReduction(MegatronLossReduction):
         loss = classifier_loss + mse_loss
         return loss, {"avg": loss}
 
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[AverageLoss]) -> Tensor:
+    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
         """Works across micro-batches. (data on single gpu).
 
         Note: This currently only works for logging and this loss will not be used for backpropagation.
@@ -166,7 +166,7 @@ class MSEPlusClassifierLossReduction(MegatronLossReduction):
 class ClassifierLossReduction(MegatronLossReduction):
     """A class used for calculating the loss, and for logging the reduced loss across micro batches."""
 
-    def forward(self, batch: MnistItem, forward_out: Tensor) -> Tuple[Tensor, AverageLoss]:
+    def forward(self, batch: MnistItem, forward_out: Tensor) -> Tuple[Tensor, SameSizeLossDict]:
         """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
 
         Args:
@@ -183,7 +183,7 @@ class ClassifierLossReduction(MegatronLossReduction):
         loss = nn.functional.cross_entropy(digit_logits, digits)
         return loss, {"avg": loss}
 
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[AverageLoss]) -> Tensor:
+    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
         """Works across micro-batches. (data on single gpu).
 
         Note: This currently only works for logging and this loss will not be used for backpropagation.
