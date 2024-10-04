@@ -36,7 +36,7 @@ from torch.optim import Optimizer
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
 from bionemo.esm2.model.attention import ESM2DotProductAttention, ESM2TEDotProductAttention
 from bionemo.esm2.model.embedding import ESM2Embedding
-from bionemo.llm.model.biobert.model import BioBertGenericConfig, MegatronBioBertModel
+from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils import iomixin_utils as iom
 
@@ -223,7 +223,7 @@ ESM2ModelT = TypeVar("ESM2ModelT", bound=ESM2Model)
 
 
 @dataclass
-class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
+class ESM2GenericConfig(BioBertConfig[ESM2ModelT]):
     """Configuration class for ESM2 model.
 
     Attributes:

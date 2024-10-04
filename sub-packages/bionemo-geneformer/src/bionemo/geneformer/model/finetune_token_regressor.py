@@ -30,7 +30,7 @@ from nemo.lightning.megatron_parallel import (
 )
 from torch import nn
 
-from bionemo.llm.model.biobert.model import BioBertGenericConfig, MegatronBioBertModel
+from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel
 from bionemo.llm.model.loss import (
     BERTMLMLossWithReduction,
     PerTokenLossDict,
@@ -177,9 +177,7 @@ class MegatronBioBertFineTuneSeqLengthModel(MegatronBioBertModel):
 
 
 @dataclass
-class FineTuneSeqLenBioBertConfig(
-    BioBertGenericConfig[MegatronBioBertFineTuneSeqLengthModel], iom.IOMixinWithGettersSetters
-):
+class FineTuneSeqLenBioBertConfig(BioBertConfig[MegatronBioBertFineTuneSeqLengthModel], iom.IOMixinWithGettersSetters):
     # When overriding fields in a dataclass _always_ declare types: https://github.com/python/cpython/issues/123269
     model_cls: Type[MegatronBioBertFineTuneSeqLengthModel] = MegatronBioBertFineTuneSeqLengthModel
     # typical case is fine-tune the base biobert that doesn't have this head. If you are instead loading a checkpoint

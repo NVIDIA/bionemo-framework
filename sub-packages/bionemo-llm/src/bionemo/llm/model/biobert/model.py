@@ -59,11 +59,12 @@ from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 
 __all__: Sequence[str] = (
     "MegatronBioBertModel",
-    "BioBertGenericConfig",
+    "BioBertConfig",
     "MegatronBioBertModelType",
     "BioBertOutput",
     "BioBertOutputCore",
     "PositionEmbeddingKinds",
+    "OVERRIDE_BIOBERT_CONFIG_DEFAULTS",
 )
 
 # Configure the logger
@@ -74,14 +75,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__file__)
-
-__all__: Sequence[str] = (
-    "BioBertGenericConfig",
-    "MegatronBioBertModel",
-    "BioBertOutput",
-    "OVERRIDE_BIOBERT_CONFIG_DEFAULTS",
-)
-
 
 # Add some fields specific to the BIOBERT config that we want to override by default
 _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS + [
@@ -414,7 +407,7 @@ MegatronBioBertModelType = TypeVar("MegatronBioBertModelType", bound=MegatronBio
 
 
 @dataclass
-class BioBertGenericConfig(
+class BioBertConfig(
     MegatronBioNeMoTrainableModelConfig[MegatronBioBertModelType, MegatronLossReduction],
 ):
     """Config class for BioBert model, responsible for the partial configuration of Transformer models.
