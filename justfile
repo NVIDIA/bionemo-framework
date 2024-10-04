@@ -122,6 +122,7 @@ run is_dev is_interactive image_tag cmd: setup
   fi
 
   docker_cmd="docker run \
+  --rm \
   --network host \
   ${PARAM_RUNTIME} \
   -p ${JUPYTER_PORT}:8888 \
@@ -155,7 +156,7 @@ run is_dev is_interactive image_tag cmd: setup
   fi
 
   if [[ "{{is_interactive}}" == "true" ]]; then
-    docker_cmd="${docker_cmd} --rm -it"
+    docker_cmd="${docker_cmd} -it"
   fi
 
   docker_cmd="${docker_cmd} ${IMAGE_REPO}:{{image_tag}} {{cmd}}"
