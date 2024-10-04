@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-bionemo_test_data_path = "bionemo.testing.data.load:main_cli"
+download_bionemo_data = "bionemo.testing.data.load:main_cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]

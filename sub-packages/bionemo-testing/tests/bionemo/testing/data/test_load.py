@@ -43,7 +43,7 @@ def test_load_raises_error_on_invalid_tag(tmp_path):
 
 def test_load_cli():
     result = subprocess.run(
-        ["bionemo_test_data_path", "--source", "pbss", "single_cell/testdata-20240506"],
+        ["download_bionemo_data", "--source", "pbss", "single_cell/testdata-20240506"],
         stdout=subprocess.PIPE,  # Capture stdout
         stderr=subprocess.PIPE,  # Capture stderr (optional)
         text=True,  # Return output as string rather than bytes
@@ -55,7 +55,7 @@ def test_load_cli():
 
 def test_get_resources_cli():
     result = subprocess.run(
-        ["bionemo_test_data_path", "--list-resources"],
+        ["download_bionemo_data", "--list-resources"],
         stdout=subprocess.PIPE,  # Capture stdout
         stderr=subprocess.PIPE,  # Capture stderr (optional)
         text=True,  # Return output as string rather than bytes
