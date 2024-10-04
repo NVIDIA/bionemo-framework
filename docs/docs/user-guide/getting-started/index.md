@@ -30,10 +30,10 @@ interacting with `NeMo2`. Some examples of these include:
 
 Documentation source is stored in `docs/`
 
-The script for building a local docker container is `./bionemo` which has some useful commands including:
+The script for building a local docker container is `./launch.sh` which has some useful commands including:
 
-* `./bionemo build` to build the container
-* `./bionemo dev` to get into a running container with reasonable settings for data/code mounts etc.
+* `./launch.sh build` to build the container
+* `./launch.sh run` to get into a running container with reasonable settings for data/code mounts etc.
 
 
 ### More detailed structure notes
@@ -80,7 +80,7 @@ $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_expe
 │   ├── requirements.txt
 │   └── scripts
 │       └── gen_ref_pages.py
-├── bionemo
+├── launch.sh
 ├── license_header
 ├── pyproject.toml
 ├── requirements-cve.txt

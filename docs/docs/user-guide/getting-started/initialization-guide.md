@@ -17,7 +17,7 @@ Once installed, run `ngc config set` to establish NGC credentials within the con
 First, invoke the following launch script. The first time, it will create a .env file and exit:
 
 ```bash
-./bionemo
+./launch.sh
 ```
 
 Next, edit the .env file with the correct NGC parameters for your organization and team:
@@ -27,6 +27,16 @@ Next, edit the .env file with the correct NGC parameters for your organization a
     NGC_CLI_ORG=<YOUR_ORG>
     NGC_CLI_TEAM=<YOUR_TEAM>
 ```
+
+## Download Model Weights
+
+You may now download all pre-trained model checkpoints from NGC through the following command:
+
+```bash
+./launch.sh download
+```
+
+This command will download all models to the `workspace/bionemo/models` directory. Optionally, you may persist the models by copying them to your mounted workspace, so that they need not be re-downloaded each time.
 
 ## Directory Structure
 
