@@ -1,4 +1,4 @@
-# NeMo2
+# NeMo2 Parallelism
 NeMo2 represents tools and utilities to extend the capabilities of `pytorch-lightning` to support training and inference
 with megatron models. While pytorch-lightning supports parallel abstractions sufficient for LLMs that fit on single GPUs
 (distributed data parallel, aka DDP) and even somewhat larger architectures that need to be sharded across small
@@ -24,7 +24,7 @@ Synchronization of gradients occurs after the backward pass is complete for each
 that ensures all GPUs have synchronized parameters for the next iteration. Here is an example of how this might appear
 on your cluster with a small model:
 
-![Data Parallelism Diagram](../assets/images/megatron_background/data_parallelism.jpg)
+![Data Parallelism Diagram](site:assets/images/megatron_background/data_parallelism.jpg)
 
 ### FSDP background
 FSDP extends DDP by sharding (splitting) model weights across GPUs in your cluster to optimize memory usage.
@@ -40,8 +40,8 @@ Note that this process parallelizes the storage in a way that enables too large 
 layer is not too large to fit on a GPU). Megatron (next) co-locates both storage and compute.
 
 The following two figures show two steps through the forward pass of a model that has been sharded with FSDP.
-![FSDP Diagram Step 1](../assets/images/megatron_background/fsdp_slide1.jpg)
-![FSDP Diagram Step 2](../assets/images/megatron_background/fsdp_slide2.jpg)
+![FSDP Diagram Step 1](site:assets/images/megatron_background/fsdp_slide1.jpg)
+![FSDP Diagram Step 2](site:assets/images/megatron_background/fsdp_slide2.jpg)
 
 ### Model Parallelism
 Model parallelism is the catch-all term for the variety of different parallelism strategies
@@ -64,7 +64,7 @@ Tensor parallelism represents splitting single layers across GPUs. This can also
 layers could in theory be too large to fit on a single GPU, which would make FSDP not possible. This would still work
 since individual layer weights (and computations) are distributed. Examples of this in megatron include `RowParallelLinear` and
 `ColumnParallelLinear` layers.
-![Tensor Parallelism](../assets/images/megatron_background/tensor_parallelism.jpg)
+![Tensor Parallelism](site:assets/images/megatron_background/tensor_parallelism.jpg)
 
 #### Sequence Parallelism
 In megatron, "sequence parallelism" refers to the parallelization of the dropout, and layernorm blocks of a transformer.
@@ -77,7 +77,7 @@ layers (which are typically set up for tensor parallelism). Next the result from
 sequence parallel nodes which execute dropout, do a residual connection from the previous sequence parallel output, and
 a layernorm. Next those results are again gathered for the final FFN and activation layers prior to a final scattering
 across sequence parallel GPUs for the output of that transformer block.
-![Sequence Parallelism](../assets/images/megatron_background/sp_korthikanti_2022_fig5.png)
+![Sequence Parallelism](site:assets/images/megatron_background/sp_korthikanti_2022_fig5.png)
 
 As a user, if you know that your transformer is executed in parallel and you have custom losses or downstream layers,
 you need to make sure that the appropriate gather operations are occurring for your loss computation etc.
@@ -102,7 +102,7 @@ Below is a figure demonstrating how mixing strategies results in larger "virtual
 fewer distinct micro-batches in flight across your cluster. Also note that the number of virtual GPUs is multiplicative
 so if you have `TP=2` and `PP=2` then you are creating a larger virtual GPU out of `2*2=4` GPUs, so your cluster size
 needs to be a multiple of 4 in this case.
-![Mixing Tensor and Pipeline Parallelism](../assets/images/megatron_background/tensor_and_pipeline_parallelism.jpg)
+![Mixing Tensor and Pipeline Parallelism](site:assets/images/megatron_background/tensor_and_pipeline_parallelism.jpg)
 
 #### Scheduling model parallelism
 You can improve on naive schedules by splitting up micro-batches into smaller pieces, executing multiple stages of the
@@ -110,4 +110,4 @@ model on single GPUs, and starting computing the backwards pass of one micro-bat
 These optimizations allow for better cluster GPU utilization to be achieved. For example the following figure shows
 how more advanced splitting techniques in megatron (eg the interleaved scheduler) provide better utilization when model
 parallelism is used. Again when you can get away without using model parallelism (DDP), that is generally the best approach.
-![Execution Schedulers](../assets/images/megatron_background/execution_schedulers.jpg)
+![Execution Schedulers](site:assets/images/megatron_background/execution_schedulers.jpg)

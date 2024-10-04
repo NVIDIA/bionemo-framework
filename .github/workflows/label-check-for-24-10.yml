@@ -2,7 +2,7 @@ name: Enforce PR Label for 24.10 release
 
 on:
   pull_request:
-    types: [opened, edited, labeled, unlabeled]
+    types: [opened, edited, labeled, unlabeled, synchronize, reopened, ready_for_review, review_requested, review_request_removed, auto_merge_enabled, auto_merge_disabled]
     branches:
       - main
       - bionemo1
