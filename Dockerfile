@@ -188,7 +188,7 @@ USER $USERNAME
 # existing release image build by copying over remaining files from the repo into the container.
 FROM bionemo2-base AS release
 
-RUN chmod 777 -R /workspace/bionemo2 && mkdir -p /workspace/bionemo2/.cache/
+RUN mkdir -p /workspace/bionemo2/.cache/
 
 COPY VERSION .
 COPY ./scripts ./scripts
@@ -197,3 +197,5 @@ COPY ./README.md ./
 # Copy over folders so that the image can run tests in a self-contained fashion.
 COPY ./ci/scripts ./ci/scripts
 COPY ./docs ./docs
+
+RUN chmod 777 -R /workspace/bionemo2/
