@@ -36,7 +36,8 @@ from torch.optim import Optimizer
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
 from bionemo.esm2.model.attention import ESM2DotProductAttention, ESM2TEDotProductAttention
 from bionemo.esm2.model.embedding import ESM2Embedding
-from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel
+from bionemo.llm.api import MegatronLossType
+from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel, PositionEmbeddingKinds
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils import iomixin_utils as iom
 
@@ -223,7 +224,7 @@ ESM2ModelT = TypeVar("ESM2ModelT", bound=ESM2Model)
 
 
 @dataclass
-class ESM2GenericConfig(BioBertConfig[ESM2ModelT]):
+class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     """Configuration class for ESM2 model.
 
     Attributes:
@@ -263,7 +264,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT]):
     """
 
     # When overriding fields in a dataclass _always_ declare types: https://github.com/python/cpython/issues/123269
-    model_cls: Type[ESM2Model] = ESM2Model
+    model_cls: Type[ESM2ModelT] = ESM2Model
     num_layers: int = 33  # 650M
     hidden_size: int = 1280  # 650M
     num_attention_heads: int = 20
@@ -289,9 +290,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT]):
     parallel_output: bool = True
     share_embeddings_and_output_weights: bool = True
     make_vocab_size_divisible_by: int = 128
-    position_embedding_type: Literal["learned_absolute", "rope"] = (
-        "rope"  # ESM2 uses relative positional encoding 'ROPE' to extrapolate to longer sequences unseen during training
-    )
+    position_embedding_type: PositionEmbeddingKinds = "rope"  # ESM2 uses relative positional encoding 'ROPE' to extrapolate to longer sequences unseen during training
     rotary_base: int = 10000
     rotary_percent: float = 1.0
     seq_len_interpolation_factor: Optional[float] = None
@@ -330,13 +329,8 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT]):
 
 
 @dataclass
-class ESM2Config(ESM2GenericConfig[ESM2Model], iom.IOMixinWithGettersSetters):
-    """Configuration class for ESM2 model.
-
-    model_cls: Type[ESM2Model] = ESM2Model
-    num_layers: int = 33  # 650M
-    hidden_size: int = 1280  # 650M
-    """
+class ESM2Config(ESM2GenericConfig, iom.IOMixinWithGettersSetters):
+    """Configuration class for ESM2 model."""
 
     model_cls: Type[ESM2Model] = ESM2Model
     num_layers: int = 33  # 650M
