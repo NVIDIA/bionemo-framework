@@ -65,6 +65,7 @@ plugins:
       file_pattern: '.*\.(md|ipynb)$'
   - literate-nav:
       nav_file: SUMMARY.md
+  - site-urls
 
 markdown_extensions:
   - attr_list

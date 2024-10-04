@@ -6,3 +6,37 @@
   owner: Farhad Ramezanghorbani <farhadr@nvidia.com>
   description: >
     A pretrained 650M parameter ESM2 model. See https://ngc.nvidia.com/catalog/models/nvidia:clara:esm2nv650m.
+
+- tag: 650m:2.0
+  ngc: nvidia/clara/esm2nv650m:2.0
+  ngc_registry: model
+  pbss: "s3://bionemo-ci/models/esm2_650M_nemo2.tar.gz"
+  sha256: 0798767e843e3d54315aef91934d28ae7d8e93c2849d5fcfbdf5fac242013997 # pragma: allowlist secret
+  owner: Farhad Ramezanghorbani <farhadr@nvidia.com>
+  description: >
+    A pretrained 650M parameter ESM2 model. See https://ngc.nvidia.com/catalog/models/nvidia:clara:esm2nv650m.
+
+- tag: 3b:2.0
+  ngc: nvidia/clara/esm2nv3b:2.0
+  ngc_registry: model
+  pbss: "s3://bionemo-ci/models/esm2_3B_nemo2.tar.gz"
+  sha256: a2248cfed1ef39f83bd32a0e08b84c0a8f39325d383e2d92767022ff7f5260ed # pragma: allowlist secret
+  owner: Farhad Ramezanghorbani <farhadr@nvidia.com>
+  description: >
+    A pretrained 3B parameter ESM2 model. See https://ngc.nvidia.com/catalog/models/nvidia:clara:esm2nv3b.
+
+- tag: full_data_esm2_pretrain:2.0
+  ngc: nvidia/clara/esm2_pretrain_nemo2:1.0
+  ngc_registry: resource
+  pbss: "s3://general-purpose/esm2/pretrain/2024_03.tar.gz"
+  sha256: 404d0ad8de58fa8aae96f8d9f54263a088bc7e4f7d668215afbe04c28416151b  # pragma: allowlist secret
+  owner: Peter St John <pstjohn@nvidia.com>
+  description: Full data for ESM2 pretraining.
+
+- tag: testdata_esm2_pretrain:2.0
+  ngc: nvidia/clara/esm2_pretrain_nemo2_testdata:1.0
+  ngc_registry: resource
+  pbss: "s3://general-purpose/esm2/pretrain/2024_03_sanity.tar.gz"
+  sha256: 006911f92bbc0ded7ea302bbdbfab4c694b409e699c32fd49de1c527a99dba3e  # pragma: allowlist secret
+  owner: Peter St John <pstjohn@nvidia.com>
+  description: Test data for ESM2 pretraining.
