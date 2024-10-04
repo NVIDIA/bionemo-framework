@@ -55,6 +55,7 @@ check_preconditions:
   fi
 
 
+# Checks for installed programs (docker, git, etc.), their versions, and grabs the latest cache image.
 setup: check_preconditions
   ./internal/scripts/setup_env_file.sh
   @echo "Pulling updated cache..."
@@ -98,9 +99,11 @@ build image_tag target: setup assert_clean_git_repo
   -f ./Dockerfile \
   .
 
+# Builds the release image.
 build-release:
   @just build ${IMAGE_TAG} release
 
+# Builds the development image.
 build-dev:
   @just build ${DEV_IMAGE_TAG} development
 
@@ -171,17 +174,22 @@ ensure-dev-or-build:
 # **BUT** we can only do this if we have built an image for DEV_IMAGE_TAG already,
 # so we use ensure-dev-or-build which will build the image if it is necessary.
 # Image building requires that the git repo state is clean!
+#
+# Runs an interactive program in the development bionemo image.
 run-dev cmd='bash': ensure-dev-or-build
   @just run true true ${DEV_IMAGE_TAG} {{cmd}}
 
 # in contrast, run-release requires a clean repository,
 # because users want to know that they're running the **exact** version they expect
 # and we're **NOT** volume mounting the code
+#
+# Runs an interactive program in the release bionemo image.
 run-release cmd='bash': build-release assert_clean_git_repo
   @just run false true ${IMAGE_TAG} {{cmd}}
 
 
 ###############################################################################
 
+# Executes pytest in the release image.
 test: build-release
   @just run true false ${IMAGE_TAG} 'pytest -v --cov=bionemo --cov-report term --cov-report=html docs/ scripts/ sub-packages/'
