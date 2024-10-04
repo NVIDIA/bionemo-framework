@@ -1,5 +1,5 @@
 # BioNeMo2 Repo
-To get started, first download [`just`](https://github.com/casey/just). You can use Homebrew on OS X & Linux:
+To get started, first download [`just`](https://github.com/casey/just). You can use [Homebrew](https://brew.sh/) on OS X & Linux:
 ```bash
 brew install just
 ```
