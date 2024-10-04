@@ -4,6 +4,13 @@ To get started, first download [`just`](https://github.com/casey/just). You can 
 brew install just
 ```
 
+**Once you have `just`, you need to run the `just setup` command once _before_ you can run any other command.**
+Thus, if it's your first time, you will need to do this first:
+```bash
+just setup
+just <command you want to run>
+```
+
 You can see all of the commands for the development cycle by running `just`. These commands are executable as
 `just X` for each command `X` listed:
 ```
@@ -15,7 +22,10 @@ setup                  # Checks for installed programs (docker, git, etc.), thei
 test                   # Executes pytest in the release image.
 ```
 
-All `bionemo2` code is partitioned into independently installable namespace packages. These live under the `sub-packages/` directory.
+You can combine `just` commands together. For example, run `just build-dev build-release` to build both images.
+
+All `bionemo2` code is partitioned into independently installable namespace packages.
+These live under the `sub-packages/` directory.
 
 
 ## Downloading artifacts
@@ -28,7 +38,7 @@ AWS_ENDPOINT_URL="https://pbss.s8k.io"
 ```
 then, running tests should download the test data to a cache location when first invoked.
 
-For more information on adding new test artifacts, see the documentation in [bionemo.testing.data.load](sub-packages/bionemo-testing/src/bionemo/testing/data/README.md)
+For more information on adding new test artifacts, see the documentation in [`bionemo.testing.data.load`](sub-packages/bionemo-testing/src/bionemo/testing/data/README.md).
 
 
 ## Initializing 3rd-party dependencies as git submodules
