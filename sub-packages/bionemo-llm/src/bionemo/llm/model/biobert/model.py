@@ -28,7 +28,6 @@ from typing import (
     Type,
     TypedDict,
     TypeVar,
-    Union,
 )
 
 import torch
@@ -58,6 +57,15 @@ from bionemo.llm.model.loss import BERTMLMLossWithReduction
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 
 
+__all__: Sequence[str] = (
+    "MegatronBioBertModel",
+    "BioBertGenericConfig",
+    "MegatronBioBertModelType",
+    "BioBertOutput",
+    "BioBertOutputCore",
+    "PositionEmbeddingKinds",
+)
+
 # Configure the logger
 logging.basicConfig(
     level=logging.INFO,  # Set the minimum logging level
@@ -86,12 +94,21 @@ _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS 
 OVERRIDE_BIOBERT_CONFIG_DEFAULTS = deepcopy(_OVERRIDE_BIOBERT_CONFIG_DEFAULTS)
 
 
-class BioBertOutput(TypedDict):  # noqa: D101
+class BioBertOutputCore(TypedDict):
+    """Keys always present in the bionemo bert model inference output."""
+
     token_logits: Tensor
     binary_logits: Optional[Tensor]
 
 
+class BioBertOutput(BioBertOutputCore, total=False):
+    """The megatron bionemo bert model inference type."""
+
+    hidden_states: Tensor
+
+
 PositionEmbeddingKinds = Literal["learned_absolute", "rope"]
+"""Kinds of supported positional embeddings."""
 
 
 # TODO make this a base class without the language head and pooler
@@ -109,7 +126,7 @@ class MegatronBioBertModel(LanguageModule):
         parallel_output: Do not gather the outputs, keep them split across tensor parallel ranks
         share_embeddings_and_output_weights: When True, input embeddings and output logit weights are shared.
             Defaults to False.
-        position_embedding_type: Position embedding type. Options {PositionEmbeddingKinds}.
+        position_embedding_type: Position embedding type. Options ["learned_absolute", "rope"].
             Defaults is 'learned_absolute'.
         rotary_percent: Percent of rotary dimension to use for rotary position embeddings.
             Defaults to 1.0 (100%). Ignored unless position_embedding_type is 'rope'.
@@ -268,25 +285,33 @@ class MegatronBioBertModel(LanguageModule):
         return position_ids
 
     def embedding_forward(  # noqa: D102
-        self, input_ids: Tensor, position_ids: Tensor, tokentype_ids: Tensor = None, attention_mask: Tensor = None
-    ):
+        self,
+        input_ids: Tensor,
+        position_ids: Tensor,
+        tokentype_ids: Optional[Tensor] = None,
+        attention_mask: Optional[Tensor] = None,
+    ) -> Tensor:
         return self.embedding(input_ids=input_ids, position_ids=position_ids, tokentype_ids=tokentype_ids)
 
-    def set_input_tensor(self, input_tensor: Tensor) -> None:
+    def set_input_tensor(self, input_tensor: Tensor | list[Tensor]) -> None:
         """Sets input tensor to the model.
 
         See megatron.model.transformer.set_input_tensor()
 
         Args:
-            input_tensor (Tensor): Sets the input tensor for the model.
-        """
-        # This is usually handled in schedules.py but some inference code still
-        # gives us non-lists or None
-        if not isinstance(input_tensor, list):
-            input_tensor = [input_tensor]
+            input_tensor: Sets the input tensor for the model.
 
-        assert len(input_tensor) == 1, "input_tensor should only be length 1 for gpt/bert"
-        self.encoder.set_input_tensor(input_tensor[0])
+        Raises:
+            ValueError: Iff the input tensor is a list that doesn't have exactly 1 tensor.
+        """
+        # This is usually handled in schedules.py but some inference code still gives us non-lists or None.
+        if isinstance(input_tensor, list):
+            if len(input_tensor) != 1:
+                raise ValueError(f"input_tensor should only be length 1 for gpt/bert, not length: {len(input_tensor)}")
+            single_input_tensor: Tensor = input_tensor[0]
+        else:
+            single_input_tensor = input_tensor
+        self.encoder.set_input_tensor(single_input_tensor)
 
     def forward(
         self,
@@ -295,14 +320,14 @@ class MegatronBioBertModel(LanguageModule):
         tokentype_ids: Optional[Tensor] = None,
         lm_labels: Optional[Tensor] = None,
         inference_params=None,
-    ) -> Union[BioBertOutput, Tensor]:
+    ) -> BioBertOutput | Tensor:
         """Forward function of BERT model
 
         Forward function of the BERT Model This function passes the input tensors
         through the embedding layer, and then the encoder and finally into the post
         processing layer (optional).
 
-        It either returns the Loss values if labels are given  or the final hidden units
+        It either returns the Loss values if labels are given or the final hidden units.
         """  # noqa: D415
         # TODO! If we upgrade to TE 1.7 why does bit flipping back to 1 help the loss in TE 1.7? It claimed that they now follow standards, did
         #  nemo/megatron flip again internally to be compatible wtih TE somewhere?
@@ -310,17 +335,17 @@ class MegatronBioBertModel(LanguageModule):
         extended_attention_mask = self.bert_extended_attention_mask(attention_mask)
 
         if parallel_state.is_pipeline_first_stage():
-            input_ids = input_ids
-            position_ids = self.bert_position_ids(input_ids)
+            using_input_ids: Optional[Tensor] = input_ids
+            using_position_ids: Optional[Tensor] = self.bert_position_ids(input_ids)
         else:
-            position_ids = None
-            input_ids = None
+            using_input_ids = None
+            using_position_ids = None
 
         # Encoder embedding.
         if self.pre_process:
-            encoder_input = self.embedding_forward(
-                input_ids=input_ids,
-                position_ids=position_ids,
+            encoder_input: Optional[Tensor] = self.embedding_forward(
+                input_ids=using_input_ids,
+                position_ids=using_position_ids,
                 tokentype_ids=tokentype_ids,
                 attention_mask=attention_mask,
             )
@@ -384,12 +409,13 @@ class MegatronBioBertModel(LanguageModule):
 
 
 # Typevar that works for all children of MegatronBioBertModel
-MegatronBioBertModelT = TypeVar("MegatronBioBertModelT", bound=MegatronBioBertModel)
+MegatronBioBertModelType = TypeVar("MegatronBioBertModelType", bound=MegatronBioBertModel)
+"""A megatron model that is or extends the MegatronBioBertModel."""
 
 
 @dataclass
 class BioBertGenericConfig(
-    MegatronBioNeMoTrainableModelConfig[MegatronBioBertModelT, MegatronLossReduction],
+    MegatronBioNeMoTrainableModelConfig[MegatronBioBertModelType, MegatronLossReduction],
 ):
     """Config class for BioBert model, responsible for the partial configuration of Transformer models.
 
@@ -403,7 +429,7 @@ class BioBertGenericConfig(
     parallel_output: bool = True
     share_embeddings_and_output_weights: bool = False  # try True
     make_vocab_size_divisible_by: int = 128
-    position_embedding_type: Literal["learned_absolute", "rope"] = "learned_absolute"
+    position_embedding_type: PositionEmbeddingKinds = "learned_absolute"
     rotary_base: int = 10000
     rotary_percent: float = 1.0
     seq_len_interpolation_factor: Optional[float] = None
@@ -438,7 +464,7 @@ class BioBertGenericConfig(
     # loss reduction class
     loss_reduction_class: Type[MegatronLossReduction] = BERTMLMLossWithReduction
 
-    def configure_model(self, tokenizer: AutoTokenizer) -> MegatronBioBertModelT:  # noqa: D102
+    def configure_model(self, tokenizer: AutoTokenizer) -> MegatronBioBertModelType:  # noqa: D102
         vp_size = self.virtual_pipeline_model_parallel_size
         if vp_size:
             p_size = self.pipeline_model_parallel_size
