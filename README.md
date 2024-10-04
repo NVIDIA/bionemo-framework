@@ -1,45 +1,7 @@
 # BioNeMo2 Repo
-To get started, first download [`just`](https://github.com/casey/just). You can use [Homebrew](https://brew.sh/) on OS X & Linux:
-```bash
-brew install just
-```
-
-**Once you have `just`, you need to run the `just setup` command once _before_ you can run any other command.**
-Thus, if it's your first time, you will need to do this first:
-```bash
-just setup
-just <command you want to run>
-```
-
-You can see all of the commands for the development cycle by running `just`. These commands are executable as
-`just X` for each command `X` listed:
-```
-build-dev              # Builds the development image.
-build-release          # Builds the release image.
-run-dev cmd='bash'     # Runs an interactive program in the development bionemo image.
-run-release cmd='bash' # Runs an interactive program in the release bionemo image.
-setup                  # Checks for installed programs (docker, git, etc.), their versions, and grabs the latest cache image.
-test                   # Executes pytest in the release image.
-```
-
-You can combine `just` commands together. For example, run `just build-dev build-release` to build both images.
 
 All `bionemo2` code is partitioned into independently installable namespace packages.
 These live under the `sub-packages/` directory.
-
-
-## Downloading artifacts
-Set the AWS access info in environment prior to running `just run-{dev,release}` or `just test`:
-```bash
-AWS_ACCESS_KEY_ID="team-bionemo"
-AWS_SECRET_ACCESS_KEY=$(grep aws_secret_access_key ~/.aws/config | cut -d' ' -f 3)
-AWS_REGION="us-east-1"
-AWS_ENDPOINT_URL="https://pbss.s8k.io"
-```
-then, running tests should download the test data to a cache location when first invoked.
-
-For more information on adding new test artifacts, see the documentation in [`bionemo.testing.data.load`](sub-packages/bionemo-testing/src/bionemo/testing/data/README.md).
-
 
 ## Initializing 3rd-party dependencies as git submodules
 
@@ -71,6 +33,41 @@ To configure git to automatically update submodules when switching branches, run
 ```bash
 git config submodule.recurse true
 ```
+
+## Setup
+After cloning the repository, you need to run the setup script **first**:
+```bash
+./internal/scripts/setup_env_file.sh
+```
+
+## Release Image Building
+To build the release image, run the following script:
+```bash
+DOCKER_BUILDKIT=1 ./ci/scripts/build_docker_image.sh \
+  -regular-docker-builder \
+  -container-registry-path nvcr.io/nvidian/cvai_bnmo_trng/bionemo \
+  -image-tag "bionemo2-"
+```
+
+## Development Image Building
+To build the development image, run the following script:
+```bash
+./internal/scripts/build_dev_image.sh
+```
+
+## Downloading artifacts
+Set the AWS access info in environment prior to running the dev-container launch script:
+```bash
+AWS_ACCESS_KEY_ID="team-bionemo"
+AWS_SECRET_ACCESS_KEY=$(grep aws_secret_access_key ~/.aws/config | cut -d' ' -f 3)
+AWS_REGION="us-east-1"
+AWS_ENDPOINT_URL="https://pbss.s8k.io"
+```
+then, running tests should download the test data to a cache location when first invoked.
+
+For more information on adding new test artifacts, see the documentation in
+[`bionemo.testing.data.load`](sub-packages/bionemo-testing/src/bionemo/testing/data/README.md).
+
 
 ### Updating pinned versions of NeMo / Megatron-LM
 
