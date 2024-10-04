@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import ABC
 from typing import Any, Callable, Dict, Generic, Iterable, Iterator, List, Optional, Sequence, Tuple, TypeVar, Union
 
 import pytorch_lightning as pl
@@ -188,7 +187,6 @@ class BionemoLightningModule(
     nlio.ConnectorMixin,
     LightningPassthroughPredictionMixin,
     Generic[MegatronModelType, MegatronLossType],
-    ABC,
 ):
     """Reusable PyTorch Lightning module for Megatron models that is compatible with NeMo's conventions."""
 
