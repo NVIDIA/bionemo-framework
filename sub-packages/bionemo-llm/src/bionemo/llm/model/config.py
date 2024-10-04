@@ -23,7 +23,7 @@ from megatron.core.transformer import TransformerConfig
 from nemo.lightning import io
 from nemo.lightning.io.pl import TrainerContext
 
-from bionemo.core.model.config import BionemoModelConfig, BionemoTrainableModelConfig, Loss, Model
+from bionemo.core.model.config import BionemoModelConfig, BionemoTrainableModelConfig, LossType, Model
 from bionemo.llm.utils import iomixin_utils as iom
 from bionemo.llm.utils.weight_utils import load_weights_sharded_inplace_nemo2_to_mcore
 
@@ -55,7 +55,9 @@ class MegatronBioNeMoModelConfig(BionemoModelConfig[Model], TransformerConfig, i
 
 
 @dataclass
-class MegatronBioNeMoTrainableModelConfig(MegatronBioNeMoModelConfig[Model], BionemoTrainableModelConfig[Model, Loss]):
+class MegatronBioNeMoTrainableModelConfig(
+    MegatronBioNeMoModelConfig[Model], BionemoTrainableModelConfig[Model, LossType]
+):
     """A TrainableModelConfig class for bionemo that supports usage with Megatron models, for example as NeMo2 requires."""
 
     initial_ckpt_path: str | None = None

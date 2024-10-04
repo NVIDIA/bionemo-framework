@@ -21,10 +21,12 @@ from torch import Tensor
 
 
 __all__: Sequence[str] = (
+    "LossType",
+    "ModelType",
+    "Model",
+    "ModelOutput",
     "BionemoModelConfig",
     "BionemoTrainableModelConfig",
-    "ModelOutput",
-    "Model",
 )
 
 ModelOutput = Tensor | list[Tensor] | tuple[Tensor] | dict[str, Tensor]
@@ -58,7 +60,7 @@ class BionemoModelConfig(Generic[ModelType], ABC):
         raise NotImplementedError()
 
 
-class BionemoTrainableModelConfig(Generic[ModelType, LossType], BionemoModelConfig[Model]):
+class BionemoTrainableModelConfig(Generic[ModelType, LossType], BionemoModelConfig[ModelType]):
     """An abstract class for trainable model configuration."""
 
     @abstractmethod
