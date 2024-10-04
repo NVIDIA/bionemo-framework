@@ -1,20 +1,25 @@
 # BioNeMo2 Repo
-To get started, please build the docker container using
+To get started, first download [`just`](https://github.com/casey/just). You can use Homebrew on OS X & Linux:
 ```bash
-./bionemo build
+brew install just
 ```
 
-Launch a container from the build image by executing
-```bash
-./bionemo dev
+You can see all of the commands for the development cycle by running `just`. These commands are executable as
+`just X` for each command `X` listed:
+```
+build-dev              # Builds the development image.
+build-release          # Builds the release image.
+run-dev cmd='bash'     # Runs an interactive program in the development bionemo image.
+run-release cmd='bash' # Runs an interactive program in the release bionemo image.
+setup                  # Checks for installed programs (docker, git, etc.), their versions, and grabs the latest cache image.
+test                   # Executes pytest in the release image.
 ```
 
 All `bionemo2` code is partitioned into independently installable namespace packages. These live under the `sub-packages/` directory.
 
 
 ## Downloading artifacts
-Set the AWS access info in your `.env` in the host container prior to running docker:
-
+Set the AWS access info in environment prior to running `just run-{dev,release}` or `just test`:
 ```bash
 AWS_ACCESS_KEY_ID="team-bionemo"
 AWS_SECRET_ACCESS_KEY=$(grep aws_secret_access_key ~/.aws/config | cut -d' ' -f 3)

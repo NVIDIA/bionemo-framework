@@ -134,6 +134,10 @@ run is_dev is_interactive image_tag cmd: setup
   -e NGC_CLI_ORG=$NGC_CLI_ORG \
   -e NGC_CLI_TEAM=$NGC_CLI_TEAM \
   -e NGC_CLI_FORMAT_TYPE=$NGC_CLI_FORMAT_TYPE \
+  -e AWS_ENDPOINT_URL \
+  -e AWS_REGION \
+  -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_ACCESS_KEY_ID \
   -e HOME=${DOCKER_REPO_PATH} \
   -w ${DOCKER_REPO_PATH} \
   -v ${LOCAL_RESULTS_PATH}:${DOCKER_RESULTS_PATH} \
