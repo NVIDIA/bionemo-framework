@@ -20,6 +20,7 @@ import tarfile
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import (
+    Any,
     Callable,
     List,
     Literal,
@@ -277,13 +278,14 @@ class MegatronBioBertModel(LanguageModule):
 
         return position_ids
 
-    def embedding_forward(  # noqa: D102
+    def embedding_forward(
         self,
         input_ids: Tensor,
         position_ids: Tensor,
         tokentype_ids: Optional[Tensor] = None,
         attention_mask: Optional[Tensor] = None,
     ) -> Tensor:
+        """Produce embeddings."""
         return self.embedding(input_ids=input_ids, position_ids=position_ids, tokentype_ids=tokentype_ids)
 
     def set_input_tensor(self, input_tensor: Tensor | list[Tensor]) -> None:
@@ -312,7 +314,7 @@ class MegatronBioBertModel(LanguageModule):
         attention_mask: Tensor,
         tokentype_ids: Optional[Tensor] = None,
         lm_labels: Optional[Tensor] = None,
-        inference_params=None,
+        inference_params: Any | None = None,
     ) -> BioBertOutput | Tensor:
         """Forward function of BERT model
 

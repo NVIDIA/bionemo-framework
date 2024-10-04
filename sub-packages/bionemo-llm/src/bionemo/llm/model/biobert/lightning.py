@@ -134,11 +134,14 @@ def bert_forward_step(model: BertModel[DataT], batch: BertBatch) -> DataT:
     forward pass. if "cu_seqsens" are defined in the batch, then the packed sequence parameters are also passed to the
     model for forward pass efficiency.
     """
-    forward_results = model.forward(
-        input_ids=batch["text"],
-        attention_mask=batch["attention_mask"],
-        packed_seq_params=(get_packed_seq_params(cast(SequenceBatch, batch)) if "cu_seqlens" in batch else None),
-    )
+    if "cu_seqlens" in batch:
+        forward_results = model.forward(
+            input_ids=batch["text"],
+            attention_mask=batch["attention_mask"],
+            packed_seq_params=get_packed_seq_params(cast(SequenceBatch, batch)),
+        )
+    else:
+        forward_results = model.forward(input_ids=batch["text"], attention_mask=batch["attention_mask"])
     # TODO support losses that also include the binary head, this means doing something more fancy than the one
     #      default GPT reduction function above MaskedTokenLossReduction()
     return forward_results

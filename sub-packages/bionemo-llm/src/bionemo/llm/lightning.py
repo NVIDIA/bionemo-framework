@@ -279,6 +279,9 @@ class BionemoLightningModule(
 
     def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
+        import ipdb
+
+        ipdb.set_trace()
         return self.forward_step(batch)
 
     def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
