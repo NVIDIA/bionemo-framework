@@ -164,7 +164,7 @@ class LightningPassthroughPredictionMixin:
         return PassthroughLossReduction()
 
 
-ForwardStep = Callable[[MegatronModelType, dict[str, Tensor]], DataT]
+ForwardStep = Callable[[MegatronModelType, DataT], DataT]
 """Megatron-compatible forward pass function.
 """
 

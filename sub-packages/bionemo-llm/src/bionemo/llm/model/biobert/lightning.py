@@ -47,7 +47,9 @@ __all__: Sequence[str] = (
 class BertModel(Protocol[DataT]):
     """Interface for BERT-like models."""
 
-    def forward(self, input_ids: Tensor, attention_mask: Tensor, packed_seq_params: Optional[Tensor] = None) -> DataT:
+    def forward(
+        self, input_ids: Tensor, attention_mask: Tensor, packed_seq_params: Optional[PackedSeqParams] = None
+    ) -> DataT:
         """Inference for BERT-like models.
 
         Inference for BERT-like models require their tokenized inputs by IDs, an attention mask over the input,
@@ -125,22 +127,17 @@ def biobert_data_step(dataloader_iter) -> Dict[str, Tensor]:
 
 
 def bert_forward_step(model: BertModel[DataT], batch: BertBatch) -> DataT:
-    """Performs the model's orward pass using the batch, for Megatron compatability.
+    """Performs the model's forward pass using the batch, for Megatron compatibility.
 
-    This subsets the batch keys to the ones actually used by forward pass of the model, and then calls the model's forward pass.
-    if "cu_seqsens" are defined in the batch, then the packed sequence parameters are also passed to the model for forward pass efficiency.
+    This subsets the batch keys to the ones actually used by forward pass of the model, and then calls the model's
+    forward pass. if "cu_seqsens" are defined in the batch, then the packed sequence parameters are also passed to the
+    model for forward pass efficiency.
     """
-    forward_args = {
-        "input_ids": batch["text"],
-        "attention_mask": batch["attention_mask"],
-        # TODO support tokentypes when they are meaningful.
-        # "tokentype_ids": batch.get("types", None),
-    }
-
-    if "cu_seqlens" in batch:
-        forward_args["packed_seq_params"] = get_packed_seq_params(cast(SequenceBatch, batch))
-
-    forward_results = model.forward(**forward_args)
+    forward_results = model.forward(
+        input_ids=batch["text"],
+        attention_mask=batch["attention_mask"],
+        packed_seq_params=(get_packed_seq_params(cast(SequenceBatch, batch)) if "cu_seqlens" in batch else None),
+    )
     # TODO support losses that also include the binary head, this means doing something more fancy than the one
     #      default GPT reduction function above MaskedTokenLossReduction()
     return forward_results
@@ -201,10 +198,10 @@ def get_batch_on_this_context_parallel_rank(batch: Dict[str, Tensor], in_place: 
         dict: The modified batch data based on the context parallel rank.
     """
     if not in_place:
-        batch = dict(**batch)
+        batch: dict[str, Tensor] = dict(**batch)
 
     if cp_size := parallel_state.get_context_parallel_world_size() > 1:
-        num_valid_tokens_in_ub = None
+        num_valid_tokens_in_ub: Tensor | None = None
         if "loss_mask" in batch and batch["loss_mask"] is not None:
             num_valid_tokens_in_ub = batch["loss_mask"].sum()
 
@@ -224,7 +221,7 @@ def get_batch_on_this_context_parallel_rank(batch: Dict[str, Tensor], in_place: 
                 _val = _val.index_select(seq_dim, index)
                 _val = _val.view(*val.shape[0:seq_dim], -1, *_val.shape[(seq_dim + 2) :])
                 batch[key] = _val
-        batch["num_valid_tokens_in_ub"] = num_valid_tokens_in_ub
+        batch["num_valid_tokens_in_ub"] = num_valid_tokens_in_ub  # type: ignore
 
     return batch
 
