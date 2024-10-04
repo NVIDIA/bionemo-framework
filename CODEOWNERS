@@ -59,7 +59,8 @@ docs/CONTRIBUTING.md @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
 .devcontainer @dorotat-nv @malcolmgreaves @pstjohn
 CODEOWNERS @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @trvachov
 Dockerfile @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-bionemo  @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+justfile  @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+internal/ @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 3rdparty       @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 pyproject.toml @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 requirements-cve.txt @dorotat-nv  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
