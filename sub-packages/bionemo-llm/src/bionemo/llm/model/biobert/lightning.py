@@ -25,6 +25,7 @@ from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
 from nemo.lightning.megatron_parallel import DataT, MegatronLossReduction
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from torch import Tensor
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from bionemo.llm.lightning import BionemoLightningModule, DataStep, ForwardStep, default_megatron_optimizer
 from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel
@@ -149,7 +150,7 @@ def bert_forward_step(model: BertModel[DataT], batch: BertBatch) -> DataT:
 def biobert_lightning_module(
     config: BioBertConfig,
     optimizer: Optional[MegatronOptimizerModule] = None,
-    tokenizer: Optional[TokenizerSpec] = None,
+    tokenizer: Optional[TokenizerSpec | PreTrainedTokenizerBase] = None,
     data_step: DataStep = biobert_data_step,
     forward_step: ForwardStep = bert_forward_step,
 ) -> BionemoLightningModule[MegatronBioBertModel, MegatronLossReduction]:
