@@ -16,9 +16,10 @@ RUN git clone https://github.com/NVIDIA/apex.git && \
   pip install . -v --no-build-isolation --disable-pip-version-check --no-cache-dir \
   --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
 
+ARG TE_VERSION_TAG=v1.9
 RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
   pip install -v --no-build-isolation --no-cache-dir \
-  git+https://github.com/NVIDIA/TransformerEngine.git@v1.10
+  git+https://github.com/NVIDIA/TransformerEngine.git@${TE_VERSION_TAG}
 
 # Install core apt packages.
 RUN apt-get update \
