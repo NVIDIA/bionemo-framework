@@ -218,16 +218,16 @@ class BionemoLightningModule(
         """
         super().__init__()
         self.config = config
-        self.model_construct_args: Optional[dict[str, Any]] = model_construct_args
-        self.model: Optional[MegatronModelType] = (
-            None  # ***must** be set up in configure_model() -- megatron constraint
-        )
+        self.module_construct_args: Optional[dict[str, Any]] = model_construct_args
+        # ***must** be set up in configure_model() -- megatron constraint
+        # also, must be called `module`: nemo expects the actual model to be stored this way
+        self.module: Optional[MegatronModelType] = None
         self.loss_reduction_class: type[MegatronLossType] = config.get_loss_reduction_class()
         self.optim = optimizer
         self.optim.connect(self)  # This will bind the `configure_optimizers` method
         self._data_step = data_step
         self._forward_step = forward_step
-        self.model_transform = model_transform
+        self.module_transform = model_transform
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -237,22 +237,22 @@ class BionemoLightningModule(
         Raises:
             ValueError iff the internal config's configure_model method returns None.
         """
-        if self.model is None:
+        if self.module is None:
             model: MegatronModelType = (
-                self.config.configure_model(**self.model_construct_args)
-                if self.model_construct_args is not None
+                self.config.configure_model(**self.module_construct_args)
+                if self.module_construct_args is not None
                 else self.config.configure_model()
             )
-            self.model = model
-        if self.model is None:
+            self.module = model
+        if self.module is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
 
     def forward(self, *args, **kwargs) -> DataT:
         """Call the forward method of the underlying model, and return whatever it outputs."""
         # safe to do because configure_model is idempotent
         self.configure_model()
-        assert self.model is not None, "ERROR: configure_model() method has been incorrectly overridden!"
-        prediction = self.model(*args, **kwargs)  # for now just pass through to the underlying model
+        assert self.module is not None, "ERROR: configure_model() method has been incorrectly overridden!"
+        prediction = self.module(*args, **kwargs)  # for now just pass through to the underlying model
         return prediction
 
     def data_step(self, dataloader_iter: Iterator[DataT]) -> DataT:  # noqa: D102
@@ -270,8 +270,8 @@ class BionemoLightningModule(
         """
         # safe to do because configure_model is idempotent
         self.configure_model()
-        assert self.model is not None
-        return self._forward_step(self.model, batch)
+        assert self.module is not None
+        return self._forward_step(self.module, batch)
 
     def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
