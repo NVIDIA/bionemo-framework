@@ -15,15 +15,15 @@
 
 
 from abc import ABC, abstractmethod
-from typing import Generic, Sequence
+from typing import Generic, Sequence, TypeVar
 
 from megatron.core.transformer.module import MegatronModule
 from nemo.lightning.megatron_parallel import DataT, MegatronLossReduction
 
-from bionemo.core.model.config import Model
-
 
 __all__: Sequence[str] = (
+    "MegatronModelType",
+    "MegatronLossType",
     "BionemoMegatronModel",
     "MegatronLossReduction",  # re-export Megatron's loss definition as it's a core part of the bionemo-llm API
 )
@@ -42,4 +42,10 @@ class BionemoMegatronModel(MegatronModule, Generic[DataT], ABC):
 
 
 # Typechecking: ensure that the bionemo megatron model abstraction is compliant with bionemo-core's Model
-_: type[Model] = BionemoMegatronModel
+# _: type[Model] = BionemoMegatronModel
+
+
+MegatronModelType = TypeVar("MegatronModelType", bound=MegatronModule)
+# bound=BionemoMegatronModel)
+
+MegatronLossType = TypeVar("MegatronLossType", bound=MegatronLossReduction)

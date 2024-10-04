@@ -29,7 +29,7 @@ __all__: Sequence[str] = (
     "BionemoTrainableModelConfig",
 )
 
-ModelOutput = Tensor | list[Tensor] | tuple[Tensor] | dict[str, Tensor]
+ModelOutput = TypeVar("ModelOutput", Tensor, list[Tensor], tuple[Tensor], dict[str, Tensor], covariant=True)
 """A Model's forward pass may produce a tensor, multiple tensors, or named tensors.
 """
 
@@ -38,7 +38,7 @@ LossType = TypeVar("LossType")
 """
 
 
-class Model(Protocol):
+class Model(Protocol[ModelOutput]):
     """Lightweight interface for a model: must have a forward method."""
 
     def forward(self, *args, **kwargs) -> ModelOutput:

@@ -20,7 +20,6 @@ import pytorch_lightning as pl
 import torch.distributed
 from megatron.core import parallel_state
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
-from megatron.core.transformer.module import MegatronModule
 from nemo.lightning import io as nlio
 from nemo.lightning.megatron_parallel import (
     CallbackMethods,
@@ -34,7 +33,7 @@ from torch import Tensor
 from typing_extensions import override
 
 from bionemo.core.model.config import BionemoTrainableModelConfig
-from bionemo.llm.api import BionemoMegatronModel
+from bionemo.llm.api import MegatronLossType, MegatronModelType
 from bionemo.llm.model.loss import unreduced_token_loss_fn
 
 
@@ -51,9 +50,6 @@ __all__: Sequence[str] = (
 
 T = TypeVar("T")
 BatchT = TypeVar("BatchT")
-
-Model = TypeVar("Model", bound=MegatronModule)
-Loss = TypeVar("Loss", bound=MegatronLossReduction)
 
 
 def some_first(seq: Iterable[Optional[T]]) -> T:
@@ -168,7 +164,7 @@ class LightningPassthroughPredictionMixin:
         return PassthroughLossReduction()
 
 
-ForwardStep = Callable[[BionemoMegatronModel, dict[str, Tensor]], DataT]
+ForwardStep = Callable[[MegatronModelType, dict[str, Tensor]], DataT]
 """Megatron-compatible forward pass function.
 """
 
@@ -191,14 +187,14 @@ class BionemoLightningModule(
     nlio.IOMixin,
     nlio.ConnectorMixin,
     LightningPassthroughPredictionMixin,
-    Generic[Model, Loss],
+    Generic[MegatronModelType, MegatronLossType],
     ABC,
 ):
     """Reusable PyTorch Lightning module for Megatron models that is compatible with NeMo's conventions."""
 
     def __init__(
         self,
-        config: BionemoTrainableModelConfig[Model, Loss],
+        config: BionemoTrainableModelConfig[MegatronModelType, MegatronLossType],
         forward_step: ForwardStep,
         data_step: DataStep,
         # TODO: Add transformer_layer_spec when we update mcore
@@ -219,8 +215,10 @@ class BionemoLightningModule(
         super().__init__()
         self.config = config
         self.model_construct_args: Optional[dict[str, Any]] = model_construct_args
-        self.model: Optional[Model] = None  # ***must** be set up in configure_model() -- megatron constraint
-        self.loss_reduction_class: type[Loss] = config.get_loss_reduction_class()
+        self.model: Optional[MegatronModelType] = (
+            None  # ***must** be set up in configure_model() -- megatron constraint
+        )
+        self.loss_reduction_class: type[MegatronLossType] = config.get_loss_reduction_class()
         self.optim = optimizer
         self.optim.connect(self)  # This will bind the `configure_optimizers` method
         self._data_step = data_step
@@ -235,7 +233,12 @@ class BionemoLightningModule(
             ValueError iff the internal config's configure_model method returns None.
         """
         if self.model is None:
-            self.model = self.config.configure_model(**self.model_construct_args)
+            model: MegatronModelType = (
+                self.config.configure_model(**self.model_construct_args)
+                if self.model_construct_args is not None
+                else self.config.configure_model()
+            )
+            self.model = model
         if self.model is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
 
@@ -277,14 +280,14 @@ class BionemoLightningModule(
         """Alias for forward_step."""
         return self.forward_step(batch)
 
-    def training_loss_reduction(self) -> Loss:
+    def training_loss_reduction(self) -> MegatronLossType:
         """This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss."""
         return self.loss_reduction_class()
 
-    def validation_loss_reduction(self) -> Loss:  # noqa: D102
+    def validation_loss_reduction(self) -> MegatronLossType:  # noqa: D102
         return self.loss_reduction_class(validation_step=True)
 
-    def test_loss_reduction(self) -> Loss:  # noqa: D102
+    def test_loss_reduction(self) -> MegatronLossType:  # noqa: D102
         return self.loss_reduction_class(validation_step=True)
 
 
@@ -358,6 +361,7 @@ class PerplexityLoggingCallback(pl.Callback, CallbackMethods):
         if not parallel_state.is_pipeline_last_stage():
             return
 
+        assert step.num_microbatches is not None, "num_microbatches must be initialized to non-None"
         assert step.num_microbatches > 0, "num_microbatches must be greater than 0"
         assert (
             len(microbatch_outputs) == step.num_microbatches
