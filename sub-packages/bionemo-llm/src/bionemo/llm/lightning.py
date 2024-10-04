@@ -182,11 +182,11 @@ of the examples in the iterator.
 
 
 class BionemoLightningModule(
+    Generic[MegatronModelType, MegatronLossType],
     pl.LightningModule,
     nlio.IOMixin,
     nlio.ConnectorMixin,
     LightningPassthroughPredictionMixin,
-    Generic[MegatronModelType, MegatronLossType],
 ):
     """Reusable PyTorch Lightning module for Megatron models that is compatible with NeMo's conventions."""
 
