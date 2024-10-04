@@ -343,7 +343,7 @@ class PerplexityLoggingCallback(pl.Callback, CallbackMethods):
         self,
         step: MegatronStep,
         microbatch_outputs: List[Any],
-        loss_reduction: "MegatronLossReduction",
+        loss_reduction: MegatronLossReduction,
         reduced: Union[Tensor, Dict[str, Tensor]],
     ) -> None:
         """Log after MegatronReductionLoss.reduce is called.

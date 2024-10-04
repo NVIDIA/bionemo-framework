@@ -55,6 +55,7 @@ class BertModel(Protocol[DataT]):
         Inference for BERT-like models require their tokenized inputs by IDs, an attention mask over the input,
         and the original sequence lengths if the sequences are packed into a dense batch.
         """
+        ...
 
 
 class BertBatchCore(TypedDict):
