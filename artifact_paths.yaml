@@ -22,18 +22,21 @@ models:
         symlink:
             source: "../../esm1nv.nemo"
             target: "protein/esm1nv/esm1nv.nemo"
+        md5sum: 0ba2bf7d7e539e3fc8bff323fa1ab784 # pragma: allowlist secret
     prott5nv:
         ngc: "nvidia/clara/prott5nv:1.0"
         pbss: "s3://bionemo-ci/models/prott5nv.nemo"
         symlink:
             source: "../../prott5nv.nemo"
             target: "protein/prott5nv/prott5nv.nemo"
+        md5sum: 3181758ab636fce7993e36482f971a50 # pragma: allowlist secret
     megamolbart:
         ngc: "nvidia/clara/megamolbart:1.0"
         pbss: "s3://bionemo-ci/models/megamolbart.nemo"
         symlink:
             source: "../../megamolbart.nemo"
             target: "molecule/megamolbart/megamolbart.nemo"
+        md5sum: d0c559d38ef5374b34c438e1f34e56d4 # pragma: allowlist secret
     molmim_70m_24_3:
         # https://wandb.ai/clara-discovery/molmim_convergence_prod_March2024/runs/cOLZ4Eme
         ngc: "nvidia/clara/molmim:1.3"
@@ -41,18 +44,21 @@ models:
         symlink:
             source: "../../molmim_70m_24_3.nemo"
             target: "molecule/molmim/molmim_70m_24_3.nemo"
+        md5sum: ede3edcfc90711eb915591b28b83eca2 # pragma: allowlist secret
     equidock_dips:
         ngc: "nvidia/clara/equidock_dips:1.1"
         pbss: "s3://bionemo-ci/models/equidock_dips.nemo"
         symlink:
             source: "../../equidock_dips.nemo"
             target: "protein/equidock/equidock_dips.nemo"
+        md5sum: 2e7b021adcc6d76b7ebe2d5fbc4a2a4e # pragma: allowlist secret
     equidock_db5:
         ngc: "nvidia/clara/equidock_db5:1.1"
         pbss: "s3://bionemo-ci/models/equidock_db5.nemo"
         symlink:
             source: "../../equidock_db5.nemo"
             target: "protein/equidock/equidock_db5.nemo"
+        md5sum: 263fa3d991bda0ee7735cb12d826ac15 # pragma: allowlist secret
     diffdock_score:
         ngc: "nvidia/clara/diffdock_score:1.5"
         pbss: "s3://bionemo-ci/models/diffdock_score.nemo"
@@ -65,6 +71,7 @@ models:
         symlink:
             source: "../../diffdock_confidence.nemo"
             target: "molecule/diffdock/diffdock_confidence.nemo"
+        md5sum: 8d0e386b6b78be3eff5c334b6cda5607 # pragma: allowlist secret
     esm2nv_8m_untrained:
         ngc: null
         pbss: "s3://bionemo-ci/models/esm2nv_8M_untrained.nemo"
@@ -78,19 +85,19 @@ models:
             source: "../../esm2nv_sec_str_lora.nemo"
             target: "protein/esm2nv/esm2nv_sec_str_lora.nemo"
     esm2nv_650m:
-        #TODO: update path when model is released
         ngc: "nvidia/clara/esm2nv650m:1.0"
         pbss: "s3://bionemo-ci/models/esm2nv_650M_converted.nemo"
         symlink:
             source: "../../esm2nv_650M_converted.nemo"
             target: "protein/esm2nv/esm2nv_650M_converted.nemo"
+        md5sum: f1d926c4ed38ce16be962c79459c4abf # pragma: allowlist secret
     esm2nv_3b:
-        #TODO: update path when model is released
         ngc: "nvidia/clara/esm2nv3b:1.0"
         pbss: "s3://bionemo-ci/models/esm2nv_3B_converted.nemo"
         symlink:
             source: "../../esm2nv_3B_converted.nemo"
             target: "protein/esm2nv/esm2nv_3B_converted.nemo"
+        md5sum: b90222ecdbfc22d9c099a1cc5696c23f # pragma: allowlist secret
     openfold_finetuning_inhouse:
         ngc: "nvidia/clara/openfold:finetuned_1.2"
         pbss: "s3://bionemo-ci/models/openfold_finetuning_inhouse_checkpoint.nemo"
@@ -124,6 +131,7 @@ models:
         symlink:
             source: "../../geneformer-10M-240530-step-115430-wandb-4ij9ghox.nemo"
             target: "singlecell/geneformer/geneformer-10M-240530.nemo"
+        md5sum: 375ebb9431419f4936fa3aa2bce6e7d6 # pragma: allowlist secret
     geneformer_106M_240530:
         # A pretrained 106M parameter geneformer (BERT) on 23M unique single cells and 25429 ENSG based tokens,
         #   padded to a final shape of 25472 for GPU efficiency.
@@ -133,6 +141,7 @@ models:
         symlink:
             source: "../../geneformer-106M-240530-step-115430-wandb-KZxWJ0I5.nemo"
             target: "singlecell/geneformer/geneformer-106M-240530.nemo"
+        md5sum: a998810df42bcdede95be319af302868 #pragma: allowlist secret
     dsmbind:
         ngc: "nvidia/clara/dsmbind:1.7"
         pbss: "s3://bionemo-ci/models/dsmbind.pth"
