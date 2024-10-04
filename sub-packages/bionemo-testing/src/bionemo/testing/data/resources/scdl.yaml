@@ -1,4 +1,6 @@
 - tag: sample
+  ngc: nvidia/clara/scdl_sample_test:1.0
+  ngc_registry: resource
   pbss: "s3://bionemo-ci/test-data/scdl_sample_test.tar.gz"
   sha256: 7a4237537bf535dfa00301ce8cc7073e0a23d5bc8aa902ad65db9f51b57a6df9 # pragma: allowlist secret
   owner: Polina Binder <pbinder@nvidia.com>

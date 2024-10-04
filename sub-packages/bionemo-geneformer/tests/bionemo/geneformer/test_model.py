@@ -21,6 +21,7 @@ from typing import List, Tuple
 
 import pytest
 import torch
+import torch.utils.data
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from megatron.core.transformer.module import Float16Module
 from nemo import lightning as nl
@@ -55,11 +56,14 @@ from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
 from bionemo.testing.data.load import load
-from bionemo.testing.utils import assert_matrix_correlation_above_value, assert_matrix_mape_below_value
+from bionemo.testing.utils import (
+    assert_matrix_correlation_above_value,
+    assert_matrix_mape_below_value,
+)
 
 
 nemo1_checkpoint_path: Path = load("geneformer/qa")
-nemo1_release_checkpoint_path: Path = load("geneformer/10M_240530")
+nemo1_release_checkpoint_path: Path = load("geneformer/10M_240530:1.0")
 nemo_1_per_layer_outputs_path: Path = load("single_cell/nemo1-geneformer-per-layer-outputs")
 nemo_1_expected_values_path: Path = load("single_cell/nemo1-geneformer-golden-vals")
 data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
@@ -113,7 +117,8 @@ CELLS_FOR_TEST: List[List[str]] = [
 ]
 
 MODEL_PRECISION: str = "bf16-mixed"
-USE_TE: bool = False  # TODO use this for high level decisions around whether we're ready to switch to TE
+USE_TE: bool = True
+TARGET_MEAN_LOSS: float = 2.368649959564209
 
 
 @pytest.fixture()
@@ -149,11 +154,11 @@ def geneformer_config():
         layernorm_epsilon=1.0e-12,
         activation_func=F.gelu,  # TODO(@jstjohn) check this
         qk_layernorm=False,  # TODO(@jstjohn) check this
-        apply_residual_connection_post_layernorm=True,  # False is new default, True was BERT pub.
+        apply_residual_connection_post_layernorm=False,  # False is new default, True was BERT pub.
         bias_activation_fusion=True,  # TODO(@jstjohn) check this
         bias_dropout_fusion=True,  # TODO(@jstjohn) check this
         get_attention_mask_from_fusion=False,
-        attention_dropout=0.1,
+        attention_dropout=0.1,  # historically ignored in nemo1, always set to 0.1
         share_embeddings_and_output_weights=True,
         enable_autocast=False,  # This has to be set to True if we use the mixed precision plugin
         biobert_spec_option=BiobertSpecOption.bert_layer_with_transformer_engine_spec
@@ -739,8 +744,7 @@ def test_inference_loss_10m_released_checkpoint(geneformer_config: GeneformerCon
     #  the target is defined as described above for the 10M checkpoint based on our first pass
     #  of the megatron implementation. Since we manually passed experiment 1 this experiment
     #  will define our initial "golden value" test target.
-    target: float = 2.368649959564209
-    assert mean_loss < target or mean_loss == pytest.approx(target, abs=1e-2, rel=None)
+    assert mean_loss < TARGET_MEAN_LOSS or mean_loss == pytest.approx(TARGET_MEAN_LOSS, abs=1e-2, rel=None)
 
 
 def test_inference_loss_10m_released_checkpoint_wrong_activation(geneformer_config: GeneformerConfig, seed: int = 42):
