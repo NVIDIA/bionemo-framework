@@ -227,7 +227,7 @@ class BionemoLightningModule(
         self.optim.connect(self)  # This will bind the `configure_optimizers` method
         self._data_step = data_step
         self._forward_step = forward_step
-        self.module_transform = model_transform
+        self.model_transform = model_transform
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
