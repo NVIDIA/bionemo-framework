@@ -65,6 +65,7 @@ models:
         symlink:
             source: "../../diffdock_score.nemo"
             target: "molecule/diffdock/diffdock_score.nemo"
+        md5sum: 2ff354b4a1032b99609922c6da7663d7 # pragma: allowlist secret
     diffdock_confidence:
         ngc: "nvidia/clara/diffdock_confidence:1.5"
         pbss: "s3://bionemo-ci/models/diffdock_confidence.nemo"
