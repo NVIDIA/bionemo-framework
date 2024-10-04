@@ -40,7 +40,7 @@ from torch.nn import functional as F
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
-from bionemo.llm.model.biobert.lightning import BioBertLightningModule
+from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.testing_utils import compute_biobert_loss_singlegpu
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.testing.data.load import load
@@ -160,7 +160,7 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
                 constant_steps=int(math.ceil(num_steps * 0.1)),
             ),
         )
-        module = BioBertLightningModule(config=geneformer_config(), tokenizer=self.tokenizer, optimizer=optim)
+        module = biobert_lightning_module(config=geneformer_config(), tokenizer=self.tokenizer, optimizer=optim)
 
         data = geneformer_datamodule(
             self.tokenizer,

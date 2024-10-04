@@ -150,6 +150,8 @@ def biobert_lightning_module(
     tokenizer: Optional[TokenizerSpec | PreTrainedTokenizerBase] = None,
     data_step: DataStep = biobert_data_step,
     forward_step: ForwardStep = bert_forward_step,
+    model_transform: Optional[Callable] = None,
+    **model_construct_args,
 ) -> BionemoLightningModule[MegatronBioBertModel, MegatronLossReduction]:
     """A pytorch lightning module for BioBert-derived models.
 
@@ -167,6 +169,8 @@ def biobert_lightning_module(
         data_step=data_step,
         forward_step=forward_step,
         tokenizer=tokenizer,
+        model_transform=model_transform,
+        **model_construct_args,
     )
 
 

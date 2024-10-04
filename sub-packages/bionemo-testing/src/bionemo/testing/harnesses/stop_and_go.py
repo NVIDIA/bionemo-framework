@@ -93,7 +93,7 @@ class StopAndGoHarness(ABC):
 
     Methods:
         __init__(self, metrics: list[str], exp_name='stop_and_go_harness'): Initializes the StopAndGoHarness object.
-        setup_model(self, mode: Literal['stop', 'go']) -> tuple[BioBertLightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]: Constructs the model, data, and optimizer for the test harness.
+        setup_model(self, mode: Literal['stop', 'go']) -> tuple[biobert_lightning_module, pl.LightningDataModule, nl.MegatronOptimizerModule]: Constructs the model, data, and optimizer for the test harness.
         get_callbacks(self, mode: Literal['stop', 'go'], metrics): Returns the callbacks based on the mode.
         setup_trainer_and_strategy(self, mode: Literal["stop", "go"], metrics): Sets up the trainer and strategy.
         stop(self): Runs the requisite methods with the 'stop' mode.

@@ -50,7 +50,7 @@ from bionemo.geneformer.model.finetune_token_regressor import (
     LoRAForGeneFormerTokenRegressor,
 )
 from bionemo.llm.data import collate
-from bionemo.llm.model.biobert.lightning import BioBertLightningModule
+from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
@@ -417,7 +417,7 @@ def test_geneformer_nemo1_v_nemo2_inference_golden_values(
             bf16=geneformer_config.bf16,
         )
     )
-    module = BioBertLightningModule(config=geneformer_config, tokenizer=tokenizer, optimizer=optimizer)
+    module = biobert_lightning_module(config=geneformer_config, tokenizer=tokenizer, optimizer=optimizer)
 
     dataloader = torch.utils.data.DataLoader(_DummyDataSet(cells, tokenizer), batch_size=3, num_workers=0)
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
@@ -840,7 +840,7 @@ def _train_model_get_ckpt(
             bf16=config.bf16,
         )
     )
-    module = BioBertLightningModule(config=config, tokenizer=tokenizer, optimizer=optimizer, model_transform=peft)
+    module = biobert_lightning_module(config=config, tokenizer=tokenizer, optimizer=optimizer, model_transform=peft)
 
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=1,

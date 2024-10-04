@@ -197,18 +197,24 @@ class BionemoLightningModule(
         data_step: DataStep,
         # TODO: Add transformer_layer_spec when we update mcore
         optimizer: MegatronOptimizerModule,
+        model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
         **model_construct_args,
     ) -> None:
         """Constructor.
 
         Args:
-            config: Serializable configuration object that allows one to construct a new model instance and loss function.
-                    Necessary for Megatron-based training as the model itself cannot be serialized and distributed to nodes.
-                    Instead, we serialize the procedure for making the model and distribute that.
+            config: Serializable configuration object that allows one to construct a new model instance and loss
+                function. Necessary for Megatron-based training as the model itself cannot be serialized and
+                distributed to nodes. Instead, we serialize the procedure for making the model and distribute that.
             forward_step: Performs forward pass using the model and a batch of data.
             data_step: Custom batch-creating function for the model.
-            optimizer: Megatron-compatible distributed optimizer instance. Defaults to using ADAM with a 1e-4 learning rate.
-            model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s `configure_model` method.
+            optimizer: Megatron-compatible distributed optimizer instance. Defaults to using ADAM with a 1e-4 learning
+                rate.
+            model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s
+                `configure_model` method.
+            model_transform: Optional. The model transform function.
+            **model_construct_args: Optional. Arguments necessary for the supplied model configuration's
+                `configure_model` method, which will make an instance of the model.
         """
         super().__init__()
         self.config = config
@@ -221,6 +227,7 @@ class BionemoLightningModule(
         self.optim.connect(self)  # This will bind the `configure_optimizers` method
         self._data_step = data_step
         self._forward_step = forward_step
+        self.model_transform = model_transform
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
