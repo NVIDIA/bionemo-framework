@@ -25,6 +25,7 @@ from bionemo.esm2.data.dataset import (
     create_train_dataset,
     create_valid_dataset,
 )
+from bionemo.testing.megatron_dataset_compatibility import assert_dataset_elements_not_equal
 
 
 def test_protein_sqlite_dataset(dummy_protein_dataset):
@@ -58,6 +59,18 @@ def test_ESMPreTrainingDataset_getitem_has_expected_structure(dummy_protein_data
 
     assert sample["text"][0] == tokenizer.cls_token_id
     assert sample["text"][-1] == tokenizer.eos_token_id
+
+
+def test_ESMPreTrainingDataset_changes_with_epoch(dummy_protein_dataset, tokenizer):
+    protein_dataset = ProteinSQLiteDataset(dummy_protein_dataset)
+    clusters = [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]]
+    esm_dataset = ESMMaskedResidueDataset(protein_dataset=protein_dataset, clusters=clusters, seed=123)
+
+    index_0 = EpochIndex(epoch=0, idx=0)
+    index_1 = EpochIndex(epoch=1, idx=0)
+
+    # Tests megatron validity (subsequent calls to the same index produce the same result) and epoch non-determinism
+    assert_dataset_elements_not_equal(esm_dataset, index_0, index_1)
 
 
 def test_ESMPreTrainingDataset_getitem_match_for_identical_seeds(dummy_protein_dataset):

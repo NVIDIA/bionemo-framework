@@ -31,6 +31,13 @@ class PRNGResampleDataset(Dataset):
     from 0 if the last requested index was greater than or equal to this requested index. This should work well with the
     megatron sampler which is sequential. It handles skipped lookups as will happen with multiple workers by not
     generating those numbers.
+
+    !!! warning "Prefer bionemo.core.data.multi_epoch_dataset.MultiEpochDatasetResampler"
+
+        This class performs sampling with replacement of an underlying dataset. It is recommended to use the epoch-based
+        sampling provided by `bionemo.core.data.multi_epoch_dataset.MultiEpochDatasetResampler` instead, which ensures
+        that each sample is seen exactly once per epoch. This dataset is useful for cases where the dataset is too large
+        for the shuffled list of indices to fit in memory and exhaustive sampling is not required.
     """
 
     def __init__(self, dataset: Dataset, seed: int = 42, num_samples: Optional[int] = None):

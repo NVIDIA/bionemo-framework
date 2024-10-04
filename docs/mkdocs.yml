@@ -46,6 +46,7 @@ extra_css:
   - assets/css/color-schemes.css
   - assets/css/fonts.css
   - assets/css/custom-material.css
+  - assets/css/jupyter-themes.css
 
 plugins:
   - search
@@ -57,11 +58,14 @@ plugins:
         python:
           paths:
             - ../sub-packages/*/src
-  - mkdocs-jupyter
+  - mkdocs-jupyter:
+      theme: auto
+      highlight_extra_classes: "jupyter-notebook"
   - include_dir_to_nav:
       file_pattern: '.*\.(md|ipynb)$'
   - literate-nav:
       nav_file: SUMMARY.md
+  - site-urls
 
 markdown_extensions:
   - attr_list
