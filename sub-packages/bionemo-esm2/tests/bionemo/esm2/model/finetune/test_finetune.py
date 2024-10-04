@@ -14,25 +14,13 @@
 # limitations under the License.
 
 
-from pathlib import Path
-from typing import Generator, Tuple
+from typing import Generator
 
 import pytest
-import pytorch_lightning as pl
-from megatron.core.optimizer.optimizer_config import OptimizerConfig
-from nemo import lightning as nl
-from nemo.collections import llm as nllm
-from nemo.lightning import io, resume
-from nemo.lightning.nemo_logger import NeMoLogger
-from nemo.lightning.pytorch import callbacks as nl_callbacks
-from nemo.lightning.pytorch.callbacks.model_transform import ModelTransform
-from nemo.lightning.pytorch.callbacks.peft import PEFT
-from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
-from pytorch_lightning.loggers import TensorBoardLogger
+from nemo.lightning import io
 
-from bionemo.esm2.api import ESM2Config, ESM2GenericConfig
+from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
-from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
 from bionemo.esm2.model.finetune.finetune_regressor import (
     ESM2FineTuneSeqConfig,
@@ -43,7 +31,7 @@ from bionemo.esm2.model.finetune.finetune_token_classifier import (
     InMemoryPerTokenValueDataset,
 )
 from bionemo.esm2.model.finetune.peft import ESM2LoRA
-from bionemo.llm.model.biobert.lightning import BioBertLightningModule
+from bionemo.esm2.model.finetune.train import train_model
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
 
@@ -70,80 +58,6 @@ def pretrain_data_module(dummy_protein_dataset, dummy_parquet_train_val_inputs):
     yield data_module
 
 
-def _train_model(
-    name: str,
-    root_dir: Path,
-    config: ESM2GenericConfig,
-    data_module: pl.LightningDataModule,
-    n_steps_train: int,
-    tokenizer: BioNeMoESMTokenizer,
-    peft: PEFT | None = None,
-) -> Tuple[Path, MetricTracker, nl.Trainer]:
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_last=True,
-        save_on_train_epoch_end=True,
-        monitor="reduced_train_loss",  # TODO find out how to get val_loss logged and use "val_loss",
-        every_n_train_steps=n_steps_train // 2,
-        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-    )
-
-    # Setup the logger and train the model
-    nemo_logger = NeMoLogger(
-        log_dir=str(root_dir),
-        name=name,
-        tensorboard=TensorBoardLogger(save_dir=root_dir, name=name),
-        ckpt=checkpoint_callback,
-    )
-    # Needed so that the trainer can find an output directory for the profiler
-    # ckpt_path needs to be a string for SerDe
-    optimizer = MegatronOptimizerModule(
-        config=OptimizerConfig(
-            lr=5e-4,
-            optimizer="adam",
-            use_distributed_optimizer=True,
-            fp16=config.fp16,
-            bf16=config.bf16,
-        )
-    )
-    module = BioBertLightningModule(config=config, tokenizer=tokenizer, optimizer=optimizer, model_transform=peft)
-
-    strategy = nl.MegatronStrategy(
-        tensor_model_parallel_size=1,
-        pipeline_model_parallel_size=1,
-        ddp="megatron",
-        find_unused_parameters=True,
-        enable_nemo_ckpt_io=True,
-    )
-    metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
-    callbacks = [metric_tracker]
-    if peft is not None:
-        callbacks.append(ModelTransform())
-    trainer = nl.Trainer(
-        accelerator="gpu",
-        devices=1,
-        strategy=strategy,
-        limit_val_batches=2,
-        val_check_interval=n_steps_train // 2,
-        max_steps=n_steps_train,
-        num_nodes=1,
-        log_every_n_steps=n_steps_train // 2,
-        callbacks=callbacks,
-        plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
-    )
-    nllm.train(
-        model=module,
-        data=data_module,
-        trainer=trainer,
-        log=nemo_logger,
-        resume=resume.AutoResume(
-            resume_if_exists=True,  # Looks for the -last checkpoint to continue training.
-            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
-        ),
-    )
-    ckpt_path = Path(checkpoint_callback.last_model_path.replace(".ckpt", ""))
-    return ckpt_path, metric_tracker, trainer
-
-
 @pytest.mark.needs_gpu
 @pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_token_classifier(
@@ -157,12 +71,13 @@ def test_esm2_finetune_token_classifier(
     seed: int = 42,
 ):
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        ckpt_path, initial_metrics, trainer = _train_model(
-            name="test_experiment",
-            root_dir=tmpdir / "pretrain",
+        ckpt_path, initial_metrics, trainer = train_model(
+            experiment_name="test_experiment",
+            experiment_dir=tmpdir / "pretrain",
             config=esm2_2layer_config,
             data_module=pretrain_data_module,
             n_steps_train=n_steps_train,
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             tokenizer=tokenizer,
         )
         pretrain_requires_grad = [p.requires_grad for _, p in trainer.model.named_parameters()]
@@ -182,12 +97,13 @@ def test_esm2_finetune_token_classifier(
         esm2_finetune_config = ESM2FineTuneTokenConfig(initial_ckpt_path=str(ckpt_path))
         dataset = InMemoryPerTokenValueDataset(dummy_data_per_token_classification_ft, seed=seed)
         finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
-        simple_ft_checkpoint, simple_ft_metrics, trainer = _train_model(
-            name="finetune_new_head",
-            root_dir=tmpdir / "finetune_new_head",  # new checkpoint will land in a subdir of this
+        simple_ft_checkpoint, simple_ft_metrics, trainer = train_model(
+            experiment_name="finetune_new_head",
+            experiment_dir=tmpdir / "finetune_new_head",  # new checkpoint will land in a subdir of this
             config=esm2_finetune_config,  # same config as before since we are just continuing training
             data_module=finetune_data_module,
             n_steps_train=n_steps_train,
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             tokenizer=tokenizer,
             peft=peft,
         )
@@ -225,12 +141,13 @@ def test_esm2_finetune_regressor(
     seed: int = 42,
 ):
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        ckpt_path, initial_metrics, trainer = _train_model(
-            name="test_experiment",
-            root_dir=tmpdir / "pretrain",
+        ckpt_path, initial_metrics, trainer = train_model(
+            experiment_name="test_experiment",
+            experiment_dir=tmpdir / "pretrain",
             config=esm2_2layer_config,
             data_module=pretrain_data_module,
             n_steps_train=n_steps_train,
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             tokenizer=tokenizer,
         )
         pretrain_requires_grad = [p.requires_grad for _, p in trainer.model.named_parameters()]
@@ -250,12 +167,13 @@ def test_esm2_finetune_regressor(
         esm2_regression_finetune_config = ESM2FineTuneSeqConfig(initial_ckpt_path=str(ckpt_path))
         dataset = InMemorySingleValueDataset(dummy_data_single_value_regression_ft, seed=seed)
         finetune_data_module = ESM2FineTuneDataModule(dataset, dataset)
-        simple_ft_checkpoint, simple_ft_metrics, trainer = _train_model(
-            name="finetune_new_head_regression",
-            root_dir=tmpdir / "finetune_new_head_regression",  # new checkpoint will land in a subdir of this
+        simple_ft_checkpoint, simple_ft_metrics, trainer = train_model(
+            experiment_name="finetune_new_head_regression",
+            experiment_dir=tmpdir / "finetune_new_head_regression",  # new checkpoint will land in a subdir of this
             config=esm2_regression_finetune_config,  # same config as before since we are just continuing training
             data_module=finetune_data_module,
             n_steps_train=n_steps_train,
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             tokenizer=tokenizer,
             peft=peft,
         )

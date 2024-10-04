@@ -398,7 +398,7 @@ def test_geneformer_nemo1_v_nemo2_inference_golden_values(
             micro_batch_size=3,
             global_batch_size=3,
             seq_len=16,
-            output_log=False,
+            output_log=False,  # this is needed for predict step to work
         ),
     )
     trainer = nl.Trainer(
