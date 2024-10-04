@@ -103,9 +103,8 @@ def biobert_data_step(dataloader_iter) -> Dict[str, Tensor]:
 
     batch = next(dataloader_iter)
 
-    _batch: dict
     if isinstance(batch, tuple) and len(batch) == 3:
-        _batch = batch[0]
+        _batch: dict = batch[0]
     else:
         _batch = batch
 
