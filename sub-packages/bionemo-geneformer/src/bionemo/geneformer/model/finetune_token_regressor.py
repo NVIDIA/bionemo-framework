@@ -143,7 +143,7 @@ class SequenceLengthRMSEPlusBERTMLMLossWithReduction(BERTMLMLossWithReduction):
             }
         loss_for_microbatch = loss_for_microbatch + rmse_loss  # add in the RMSE loss after reducing the logit loss
         # average the losses across the data parallel group, but also return the unreduced loss
-        reduced_loss = average_losses_across_data_parallel_group([loss_for_microbatch])
+        reduced_loss: Tensor = average_losses_across_data_parallel_group([loss_for_microbatch])
         if (self.validation_step and self.send_val_output) or (not self.validation_step and self.send_train_output):
             return loss_for_microbatch * cp_size, {"avg": reduced_loss, "batch": batch, "forward_out": forward_out}
         else:
