@@ -144,7 +144,7 @@ def bert_forward_step(model: BertModel[DataT], batch: BertBatch) -> DataT:
 
 
 def biobert_lightning_module(
-    config: BioBertConfig,
+    config: BioBertConfig[MegatronBioBertModel, MegatronLossReduction],
     optimizer: Optional[MegatronOptimizerModule] = None,
     tokenizer: Optional[TokenizerSpec | PreTrainedTokenizerBase] = None,
     data_step: DataStep = biobert_data_step,

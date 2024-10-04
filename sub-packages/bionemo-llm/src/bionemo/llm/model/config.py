@@ -17,7 +17,7 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, List, Protocol, Sequence, Type
+from typing import Any, Generic, List, Protocol, Sequence, Type
 
 from megatron.core.transformer import TransformerConfig
 from nemo.lightning import io
@@ -59,7 +59,9 @@ class MegatronBioNeMoModelConfig(BionemoModelConfig[MegatronModelType], Transfor
 
 @dataclass
 class MegatronBioNeMoTrainableModelConfig(
-    MegatronBioNeMoModelConfig[MegatronModelType], BionemoTrainableModelConfig[MegatronModelType, MegatronLossType]
+    MegatronBioNeMoModelConfig[MegatronModelType],
+    BionemoTrainableModelConfig[MegatronModelType, MegatronLossType],
+    Generic[MegatronModelType, MegatronLossType],
 ):
     """A TrainableModelConfig class for bionemo that supports usage with Megatron models, for example as NeMo2 requires."""
 

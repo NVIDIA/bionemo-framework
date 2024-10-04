@@ -44,10 +44,10 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import get_linear_layer
 from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
 from nemo.lightning import get_vocab_size
-from nemo.lightning.megatron_parallel import MegatronLossReduction
 from torch import Tensor
 from torch.optim import Optimizer
 
+from bionemo.llm.api import MegatronLossType
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption, get_biobert_spec
 from bionemo.llm.model.config import (
     OVERRIDE_BIONEMO_CONFIG_DEFAULTS,
@@ -408,7 +408,7 @@ MegatronBioBertModelType = TypeVar("MegatronBioBertModelType", bound=MegatronBio
 
 @dataclass
 class BioBertConfig(
-    MegatronBioNeMoTrainableModelConfig[MegatronBioBertModelType, MegatronLossReduction],
+    MegatronBioNeMoTrainableModelConfig[MegatronBioBertModelType, MegatronLossType],
 ):
     """Config class for BioBert model, responsible for the partial configuration of Transformer models.
 
@@ -455,7 +455,7 @@ class BioBertConfig(
     core_attention_override: Type[torch.nn.Module] | None = None
 
     # loss reduction class
-    loss_reduction_class: Type[MegatronLossReduction] = BERTMLMLossWithReduction
+    loss_reduction_class: Type[MegatronLossType] = BERTMLMLossWithReduction
 
     def configure_model(self, tokenizer: AutoTokenizer) -> MegatronBioBertModelType:  # noqa: D102
         vp_size = self.virtual_pipeline_model_parallel_size
@@ -540,6 +540,6 @@ class BioBertConfig(
             model.encoder.post_layer_norm = True
         return model
 
-    def get_loss_reduction_class(self) -> Type[MegatronLossReduction]:  # noqa: D102
+    def get_loss_reduction_class(self) -> Type[MegatronLossType]:  # noqa: D102
         # You could optionally return a different loss reduction class here based on the config settings.
         return self.loss_reduction_class
