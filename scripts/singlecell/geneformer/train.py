@@ -42,7 +42,7 @@ from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.llm.lightning import PerplexityLoggingCallback
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
-from bionemo.llm.model.biobert.model import BioBertGenericConfig, BiobertSpecOption
+from bionemo.llm.model.biobert.model import BioBertConfig, BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
 
@@ -84,7 +84,7 @@ def main(
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
     save_every_n_steps: int = 100,
-    config_class: Type[BioBertGenericConfig] = GeneformerConfig,
+    config_class: Type[BioBertConfig] = GeneformerConfig,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
     """Train a Geneformer model on single cell data.
@@ -476,13 +476,13 @@ parser.add_argument(
 )
 
 # TODO consider whether nemo.run or some other method can simplify this config class lookup.
-config_class_options: Dict[str, Type[BioBertGenericConfig]] = {
+config_class_options: Dict[str, Type[BioBertConfig]] = {
     "GeneformerConfig": GeneformerConfig,
     "FineTuneSeqLenBioBertConfig": FineTuneSeqLenBioBertConfig,
 }
 
 
-def config_class_type(desc: str) -> Type[BioBertGenericConfig]:
+def config_class_type(desc: str) -> Type[BioBertConfig]:
     try:
         return config_class_options[desc]
     except KeyError:
