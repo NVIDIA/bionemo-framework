@@ -211,7 +211,7 @@ class InMemorySingleValueDataset(Dataset):
             "text": tokenized_sequence,
             "types": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
             "attention_mask": torch.ones_like(tokenized_sequence, dtype=torch.int64),
-            "labels": Tensor([target], dtype=torch.float),
+            "labels": torch.tensor([target], dtype=torch.float),
             "loss_mask": loss_mask,
             "is_random": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
         }
