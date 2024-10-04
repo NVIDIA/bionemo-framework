@@ -92,6 +92,7 @@ build image_tag target: setup assert_clean_git_repo
   DOCKER_BUILDKIT=1 docker buildx build \
   -t ${IMAGE_REPO}:{{image_tag}} \
   --target={{target}} \
+  --load \
   --cache-to type=inline \
   --cache-from ${IMAGE_REPO}:${CACHE_TAG} \
   --label com.nvidia.bionemo.git_sha=${COMMIT} \
