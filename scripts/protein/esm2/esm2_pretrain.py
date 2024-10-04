@@ -191,8 +191,8 @@ def main(
     )
 
     # Configure the model
-    need_megatron_variable_seq_lengths_reductions: tuple[bool] = (
-        pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length,
+    need_megatron_variable_seq_lengths_reductions: bool = (
+        pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length
     )  # essential for pipeline/tensor parallel
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
