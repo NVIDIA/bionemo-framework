@@ -16,7 +16,7 @@
 
 import pathlib
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Sequence, TypedDict
 
 import nemo.lightning as nl
 import pytorch_lightning as pl
@@ -27,6 +27,21 @@ from nemo.lightning.pytorch import callbacks as nl_callbacks
 from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.testing import testing_callbacks
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
+
+
+__all__: Sequence[str] = (
+    "get_learning_rate",
+    "get_global_step",
+    "StopAndGoHarness",
+    "MetricsDict",
+)
+
+
+class MetricsDict(TypedDict):
+    """Default metrics dict."""
+
+    global_step: Callable[[pl.Trainer, pl.LightningModule], Any]
+    learning_rate: Callable[[pl.Trainer, pl.LightningModule], Any]
 
 
 def get_learning_rate(trainer: pl.Trainer, model: pl.LightningModule) -> Any:
@@ -93,7 +108,7 @@ class StopAndGoHarness(ABC):
 
     Methods:
         __init__(self, metrics: list[str], exp_name='stop_and_go_harness'): Initializes the StopAndGoHarness object.
-        setup_model(self, mode: Literal['stop', 'go']) -> tuple[biobert_lightning_module, pl.LightningDataModule, nl.MegatronOptimizerModule]: Constructs the model, data, and optimizer for the test harness.
+        setup_model(self, mode: Literal['stop', 'go']) -> tuple[BioBertLightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]: Constructs the model, data, and optimizer for the test harness.
         get_callbacks(self, mode: Literal['stop', 'go'], metrics): Returns the callbacks based on the mode.
         setup_trainer_and_strategy(self, mode: Literal["stop", "go"], metrics): Sets up the trainer and strategy.
         stop(self): Runs the requisite methods with the 'stop' mode.
@@ -106,17 +121,17 @@ class StopAndGoHarness(ABC):
     def __init__(
         self,
         root_dir: pathlib.Path | str = BIONEMO_CACHE_DIR,
-        val_check_interval=2,
-        exp_name="stop_and_go_harness",
+        val_check_interval: int = 2,
+        exp_name: str = "stop_and_go_harness",
         extra_metrics_dict: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]] | None = None,
     ):
         """Initializes the StopAndGoHarness object.
 
         Args:
-            root_dir (pathlib.Path | str, optional): The root directory. Defaults to pathlib.Path("./").
-            val_check_interval (int, optional): The validation check interval. Defaults to 2.
-            exp_name (str, optional): The experiment name. Defaults to "stop_and_go_harness".
-            extra_metrics_dict (dict, optional): A dictionary that maps keys to 'functions capable of computing metrics in a callback.'
+            root_dir: The root directory. Defaults to pathlib.Path("./").
+            val_check_interval: The validation check interval. Defaults to 2.
+            exp_name: The experiment name. Defaults to "stop_and_go_harness".
+            extra_metrics_dict: A dictionary that maps keys to 'functions capable of computing metrics in a callback.'
                 Callbacks typically have an interface where both the Trainer and LightningModule are available, meaning any metric that
                 can be computed using these are viable functions to pass in to this dictionary. By default 'global_step' and 'learning_rate' are available.
         """
@@ -146,7 +161,7 @@ class StopAndGoHarness(ABC):
         encouraged to use the same code path for both.
 
         Args:
-            mode (Literal['stop', 'go']): The mode indicating whether to stop or go.
+            mode: The mode indicating whether to stop or go.
 
         Returns:
             tuple: A tuple containing the model, data, and optimizer.
@@ -162,12 +177,12 @@ class StopAndGoHarness(ABC):
         This method invokes the get_callbacks method to get the appropriate callbacks for the mode and passes it to the trainer.
 
         Args:
-            mode (Literal['stop', 'go']): The mode indicating whether to stop or go.
-            metrics_getter (Callable[[pl.Trainer, pl.LightningModule], Any]): A dictionary of functions that computes the metrics.
+            mode: The mode indicating whether to stop or go.
+            metrics_getter: A dictionary of functions that computes the metrics.
         """
         ...
 
-    def get_default_metrics_dict(self) -> dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]:
+    def get_default_metrics_dict(self) -> MetricsDict:
         """Returns a dictionary of default metrics that can be used in the StopAndGoHarness.
 
         Returns:
@@ -187,7 +202,7 @@ class StopAndGoHarness(ABC):
         ```
 
         Args:
-            mode (Literal['stop', 'go']): The mode indicating whether to stop or go.
+            mode: The mode indicating whether to stop or go.
 
         Returns:
             list: A list of callbacks based on the specified mode.
@@ -232,7 +247,7 @@ class StopAndGoHarness(ABC):
         return callbacks
 
     # stop() and go() are provided methods and run the requisite methods with the appropriate mode.
-    def stop(self):
+    def stop(self) -> None:
         """Runs pre-training and 'stops' after the first checkpoint is saved.
 
         This method sets up the model, data, and optimizer for the "stop" mode.
@@ -259,9 +274,9 @@ class StopAndGoHarness(ABC):
                     ),
                 )
             except testing_callbacks.StopAndGoException:
-                ...
+                raise
 
-    def go(self):
+    def go(self) -> None:
         """Resumes the model from the checkpoint saved at the end of `stop()` and verifies the metadata integrity."""
         model, data, opt = self.setup_model(mode="go")
         trainer = self.setup_trainer_and_strategy("go", self.metrics_getter)
