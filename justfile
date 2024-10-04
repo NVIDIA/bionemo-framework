@@ -193,4 +193,4 @@ run-release cmd='bash': build-release assert_clean_git_repo
 
 # Executes pytest in the release image.
 test: build-release
-  @just run true false ${IMAGE_TAG} 'pytest -v --cov=bionemo --cov-report term --cov-report=html docs/ scripts/ sub-packages/'
+  @just run true false ${IMAGE_TAG} 'pytest -v --nbval-lax --cov=bionemo --cov-report term --cov-report=html docs/ scripts/ sub-packages/'
