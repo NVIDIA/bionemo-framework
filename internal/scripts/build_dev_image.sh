@@ -11,7 +11,6 @@ DOCKER_BUILDKIT=1 docker buildx build \
   --target="development" \
   --load \
   --cache-to type=inline \
-  --cache-from type=inline \
   --label com.nvidia.bionemo.git_sha=${COMMIT} \
   --label com.nvidia.bionemo.created_at=${DATE} \
   -f ./Dockerfile \
