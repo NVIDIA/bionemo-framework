@@ -21,24 +21,22 @@ To download the pinned versions of these submodules within an existing git repos
 git submodule update --init --recursive
 ```
 
-Different branches of the repo can have different pinned versions of these third-party submodules. To update submodules
-after switching branches (or pulling recent changes), run
-
-```bash
-git submodule update
-```
+Different branches of the repo can have different pinned versions of these third-party submodules. Make sure you
+update submodules after switching branches or pulling recent changes!
 
 To configure git to automatically update submodules when switching branches, run
-
 ```bash
 git config submodule.recurse true
 ```
+**NOTE**: this setting will not download **new** or remove **old** submodules with the branch's changes.
+You will have to run the full `git submodule update --init --recursive` command in these situations.
 
-## Setup
+## First Time Setup
 After cloning the repository, you need to run the setup script **first**:
 ```bash
 ./internal/scripts/setup_env_file.sh
 ```
+This will return an exit code of 1 on a first time run.
 
 ## Release Image Building
 To build the release image, run the following script:
