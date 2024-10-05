@@ -4,6 +4,8 @@ set -euo pipefail
 
 source .env
 
+COMMIT=$(git rev-parse HEAD)
+
 DOCKER_VERSION=$(docker version | grep -i version | head -1 | awk '{print $2}')
 DOCKER_VERSION_WITH_GPU_SUPPORT='19.03.0'
 if [ "$DOCKER_VERSION_WITH_GPU_SUPPORT" == "$(echo -e "$DOCKER_VERSION\n$DOCKER_VERSION_WITH_GPU_SUPPORT" | sort -V | head -1)" ]; then
