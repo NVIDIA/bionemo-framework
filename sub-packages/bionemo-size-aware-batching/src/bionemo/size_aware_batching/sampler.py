@@ -16,13 +16,14 @@
 import warnings
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Type, TypeVar, Union
 
-import numpy as np
+import torch
 from torch.utils.data import Sampler
 
 
 Data = TypeVar("Data")
 BatchCollated = TypeVar("BatchCollated")
 Real = Union[int, float]
+TorchIntegerDataTypes = {torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64}  # type: ignore
 
 
 def size_aware_batching(
@@ -269,29 +270,46 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
 class BucketBatchSampler(Sampler[List[int]]):
     """
     A batch sampler to create batches with sizes of elements from each pre-defined bucket ranges.
-    A base batch sampler will be used for each bucket.
+    Elements of the dataset are first grouped into each bucket based on the bucket ranges and the sizes of elements.
+    Then, a base batch sampler is used for each bucket to create mini-batches.
+
+    The bucekt ranges are specified by `bucket_endpoints`, which will be first sorted internally and used to create
+    `len(bucket_endpoints) - 1` half-closed intervals.
+    e.g. if bucket_endpoints tensor is [10, 5, 0, 16], it will be sorted as [0, 5, 10, 16] and 3 buckets will be created
+    with ranges: [0, 5), [5, 10), [10, 16).
+
+    The base batch sampler will be created by passing `base_batch_sampler_shared_kwargs` and `base_batch_sampler_individual_kwargs`
+    to the constructor of the base batch sampler class specified as `base_batch_sampler_class`.
+    e.g. `base_batch_sampler_individual_kwargs = {'batch_size': [8,10,12]}` will be used to create 3 batch samplers with batch_size = 8, 10, 12 for 3 buckets.
+
+    In the `__iter__` method, if `shuffle` is `True`, the element indices in each bucket will be shuffled, and a bucket
+    is randomly selected each time to create a mini-batch. If `shuffle` is `False`, there is no shuffle on element indices,
+    and the bucket is selected in ascending order of its interval endpoints.
+
+    This class is used to create homogeneous batches of data for training or evaluation, and reduce the padding necessary to align the shape of elements.
 
     Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util.py
 
     Args:
-        sizes (np.ndarray): A 1D numpy array of real numbers representing the size of each element in the dataset.
-        bucket_ranges (np.ndarray): A 2D numpy array of real numbers with shape (num_buckets, 2) with each row representing the closed boundary of each bucket interval.
+        sizes (torch.Tensor): A 1D tensor of real numbers representing the size of each element in the dataset.
+        bucket_endpoints (torch.Tensor): A 1D tensor of real numbers representing the endpoints of the bucket ranges.
+            It will be first sorted and used to create `len(bucket_endpoints) - 1` half-closed intervals as bucket ranges.
         base_batch_sampler_class (Type[Sampler]): Base batch sampler class type, which will be used for each bucket.
         base_batch_sampler_shared_kwargs (Dict[str, Any], optional): Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
             Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
         base_batch_sampler_individual_kwargs (Dict[str, Iterable], optional): Keyword argument dictionary used to initialize each bucket batch sampler with the corresponding key value pairs.
-            Length of each value in this dict must be equal to len(`bucket_ranges`) (the number of buckets).
-            e.g. {'batch_size': [8,10,12]} will be used to create 3 batch samplers with batch_size = 8, 10, 12 for 3 buckets.
+            Length of each value in this dict must be equal to len(bucket_endpoints) - 1 (the number of buckets).
             Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
             Default to  {}.
         shuffle (bool): A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
+        generator (torch.Generator, optional): Generator used in sampling. Defaults to None.
 
     Raises:
-        ValueError: If `sizes` is not a 1D numpy array of real numbers.
-        ValueError: If `bucket_ranges` is not a 2D numpy array with shape (num_buckets, 2), or each row is not a valid interval, or the intervals overlap.
+        ValueError: If `sizes` is not a 1D tensor of real numbers.
+        ValueError: If `bucket_endpoints` is not a 1D tensor of real numbers.
         ValueError: If `base_batch_sampler_individual_kwargs` or `base_batch_sampler_individual_kwargs` is not a keyword argument dictionary.
-        ValueError: If the length of values in the dict of `base_batch_sampler_individual_kwargs` must be equal to len(bucket_ranges).
-        RuntimeError: If there is no elements with sizes inside the `bucket_ranges`.
+        ValueError: If the length of values in the dict of `base_batch_sampler_individual_kwargs` must be equal to len(bucket_endpoints) - 1.
+        RuntimeError: If there is no elements with sizes inside the ranges specified by `bucket_endpoints`.
 
     ---------
     Examples:
@@ -301,16 +319,15 @@ class BucketBatchSampler(Sampler[List[int]]):
     >>> from bionemo.size_aware_batching.sampler import BucketBatchSampler
 
     >>> # Define the sizes for a dataset
-    >>> import numpy as np
-    >>> sizes = np.arange(25)
+    >>> sizes = torch.arange(25)
     >>> # Define bucket ranges
-    >>> bucket_ranges = np.array([[0,5],[6,14],[15,24]])
+    >>> bucket_endpoints = torch.tensor([0, 6, 15, 25])
 
     >>> # Create a bucket batch sampler with torch.utils.data.BatchSampler as base batch sampler
     >>> # As there are 3 buckets, there will be 3 base batch samplers with batch sizes 2, 3, and 5.
     >>> batch_sampler = BucketBatchSampler(
             sizes=sizes,
-            bucket_ranges=bucket_ranges,
+            bucket_endpoints=bucket_endpoints,
             base_batch_sampler_class=torch.utils.data.BatchSampler,
             base_batch_sampler_shared_kwargs={'drop_last': False},
             base_batch_sampler_individual_kwargs={'batch_size': [2,3,5]},
@@ -322,103 +339,124 @@ class BucketBatchSampler(Sampler[List[int]]):
     [[0, 1], [2, 3], [4, 5], [6, 7, 8], [9, 10, 11], [12, 13, 14], [15, 16, 17, 18, 19], [20, 21, 22, 23, 24]]
 
     >>> # randomize the dataset and buckets
-    >>> np.random.seed(0)
     >>> batch_sampler = BucketBatchSampler(
             sizes=sizes,
-            bucket_ranges=bucket_ranges,
+            bucket_endpoints=bucket_endpoints,
             base_batch_sampler_class=torch.utils.data.BatchSampler,
             base_batch_sampler_shared_kwargs={'drop_last': False},
             base_batch_sampler_individual_kwargs={'batch_size': [2,3,5]},
             shuffle=True,
+            generator=torch.Generator().manual_seed(0),
         )
     >>> print(list(batch_sampler))
-    [[9, 7, 13], [20, 17, 18, 19, 16], [12, 14, 6], [15, 24, 23, 22, 21], [5, 2], [10, 8, 11], [1, 3], [0, 4]]
+    [[24, 17, 16, 22, 19], [2, 5], [12, 10, 11], [3, 0], [15, 18, 20, 21, 23], [7, 13, 6], [14, 9, 8], [1, 4]]
     >>> print(list(batch_sampler))
-    [[6, 14, 13], [5, 2], [12, 11, 10], [8, 7, 9], [17, 21, 20, 15, 16], [18, 22, 24, 19, 23], [1, 0], [3, 4]]
+    [[14, 9, 13], [23, 16, 20, 21, 15], [5, 0], [8, 10, 11], [17, 24, 22, 18, 19], [12, 6, 7], [4, 2], [3, 1]]
     ```
     >>> # Combine with SizeAwareBatchSampler to control the cost of each batch
     >>> from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
-    >>> item_costs = np.copy(sizes).tolist()
+    >>> item_costs = sizes.tolist()
     >>> def cost_of_element(index):
             return item_costs[index]
-    >>> np.random.seed(0)
     >>> batch_sampler = BucketBatchSampler(
             sizes=sizes,
-            bucket_ranges=bucket_ranges,
+            bucket_endpoints=bucket_endpoints,
             base_batch_sampler_class=SizeAwareBatchSampler,
             base_batch_sampler_shared_kwargs={"sizeof": cost_of_element, "max_total_size": 40},
             base_batch_sampler_individual_kwargs={},
             shuffle=True,
+            generator=torch.Generator().manual_seed(0),
         )
     >>> print(list(iter(batch_sampler)))
-    [[9, 7, 13], [20, 17], [12, 14, 6], [18, 19], [5, 2, 1, 3, 0, 4], [16, 15], [24], [23], [10, 8, 11], [22], [21]]
+    [[24], [2, 5, 3, 0, 1, 4], [12, 10, 11, 7], [13, 6, 14], [17, 16], [22], [19, 15], [9, 8], [18, 20], [21], [23]]
     """
 
     def __init__(
         self,
-        sizes: np.ndarray,
-        bucket_ranges: np.ndarray,
+        sizes: torch.Tensor,
+        bucket_endpoints: torch.Tensor,
         base_batch_sampler_class: Type[Sampler],
         base_batch_sampler_shared_kwargs: Optional[Dict[str, Any]] = {},
         base_batch_sampler_individual_kwargs: Optional[Dict[str, Iterable]] = {},
         shuffle: bool = True,
+        generator: Optional[torch.Generator] = None,
     ) -> None:
-        if (
-            not isinstance(sizes, np.ndarray)
-            or sizes.ndim != 1
-            or not (np.issubdtype(sizes.dtype, np.integer) or np.issubdtype(sizes.dtype, np.floating))
-        ):
-            raise ValueError(f"sizes should be a 1D numpy array of real numbers, but got sizes={sizes}")
+        if not torch.is_tensor(sizes):
+            raise TypeError(f"sizes should be a torch tensor, but got sizes={sizes}")
 
-        if (
-            not isinstance(bucket_ranges, np.ndarray)
-            or bucket_ranges.ndim != 2
-            or bucket_ranges.shape[-1] != 2
-            or not (np.issubdtype(bucket_ranges.dtype, np.integer) or np.issubdtype(bucket_ranges.dtype, np.floating))
-        ):
+        if sizes.ndim != 1:
+            raise ValueError(f"sizes should be a 1D tensor, but got sizes with shape {sizes.shape}")
+
+        if not torch.is_floating_point(sizes) and sizes.dtype not in TorchIntegerDataTypes:
             raise ValueError(
-                f"bucket_ranges should be a 2D numpy array of real numbers with shape (num_buckets, 2), but got bucket_ranges={bucket_ranges}"
+                f"sizes should contain only integers or floating point numbers, but got sizes.dtype={sizes.dtype}"
             )
 
-        idx = np.argsort(bucket_ranges[:, 0])
-        bucket_ranges = bucket_ranges[idx]
+        if not torch.is_tensor(bucket_endpoints):
+            raise TypeError(f"bucket_endpoints should be a torch tensor, but got bucket_endpoints={bucket_endpoints}")
 
-        if np.any(bucket_ranges[:, 0] > bucket_ranges[:, 1]) or (
-            len(bucket_ranges) > 1 and np.any(bucket_ranges[1:, 0] <= bucket_ranges[:-1, 1])
-        ):
+        if bucket_endpoints.ndim != 1:
             raise ValueError(
-                "Invalid buckets, buckets specifies the closed boundary of each bucket interval, with lower boundary <= upper boundary, and no overlap between buckets"
+                f"bucket_endpoints should be a 2D tensor, but got bucket_endpoints with shape {bucket_endpoints.shape}"
+            )
+
+        if len(bucket_endpoints) < 2:
+            raise ValueError(
+                f"bucket_endpoints should have at least 2 numbers, but got bucket_endpoints={bucket_endpoints.shape}"
+            )
+
+        if not torch.is_floating_point(bucket_endpoints) and bucket_endpoints.dtype not in TorchIntegerDataTypes:
+            raise ValueError(
+                f"bucket_endpoints should contain only integers or floating point numbers, but got bucket_endpoints.dtype={bucket_endpoints.dtype}"
+            )
+
+        bucket_endpoints = torch.sort(bucket_endpoints)[0]
+
+        if torch.any(bucket_endpoints[:-1] >= bucket_endpoints[1:]):
+            raise ValueError(
+                f"bucket_endpoints should specify the lower endpoint of each interval smaller than the upper endpoint, but got sorted bucket_endpoints={bucket_endpoints}"
             )
 
         if not isinstance(shuffle, bool):
-            raise ValueError(f"shuffle should be a boolean value, but got shuffle={shuffle}")
+            raise TypeError(f"shuffle should be a boolean value, but got shuffle={shuffle}")
 
         self.sizes = sizes
-        self.bucket_ranges = bucket_ranges
-        self.num_buckets = len(bucket_ranges)
+        self.bucket_endpoints = bucket_endpoints
+        self.num_buckets = len(bucket_endpoints) - 1
         self.shuffle = shuffle
+        self.generator = generator
+        if self.shuffle and self.generator is None:
+            self.generator = torch.Generator().manual_seed(int(torch.empty((), dtype=torch.int64).random_().item()))
 
         if not issubclass(base_batch_sampler_class, Sampler):
-            raise ValueError(
+            raise TypeError(
                 f"base_batch_sampler_class should be a batch sampler class inherited from torch.utils.data.Sampler, but got base_batch_sampler_class={base_batch_sampler_class}"
             )
 
-        if not isinstance(base_batch_sampler_shared_kwargs, dict) or not all(
-            isinstance(key, str) for key in base_batch_sampler_shared_kwargs.keys()
-        ):
-            raise ValueError(
-                f"base_batch_sampler_shared_kwargs should be a keyword argument dictionary, but got base_batch_sampler_shared_kwargs={base_batch_sampler_shared_kwargs}"
+        if not isinstance(base_batch_sampler_shared_kwargs, dict):
+            raise TypeError(
+                f"base_batch_sampler_shared_kwargs should be a dictionary, but got base_batch_sampler_shared_kwargs={base_batch_sampler_shared_kwargs}"
             )
 
-        if (
-            not isinstance(base_batch_sampler_individual_kwargs, dict)
-            or not all(isinstance(key, str) for key in base_batch_sampler_individual_kwargs.keys())
-            or not all(len(list(value)) == self.num_buckets for value in base_batch_sampler_individual_kwargs.values())
-        ):
+        if not all(isinstance(key, str) for key in base_batch_sampler_shared_kwargs.keys()):
+            raise TypeError(
+                f"base_batch_sampler_shared_kwargs should have string keys, but got keys={list(base_batch_sampler_shared_kwargs.keys())}"
+            )
+
+        if not isinstance(base_batch_sampler_individual_kwargs, dict):
+            raise TypeError(
+                f"base_batch_sampler_individual_kwargs should be a dictionary, but got base_batch_sampler_individual_kwargs={base_batch_sampler_individual_kwargs}"
+            )
+
+        if not all(isinstance(key, str) for key in base_batch_sampler_individual_kwargs.keys()):
+            raise TypeError(
+                f"base_batch_sampler_individual_kwargs should have string keys, but got keys={list(base_batch_sampler_individual_kwargs.keys())}"
+            )
+
+        if not all(len(list(value)) == self.num_buckets for value in base_batch_sampler_individual_kwargs.values()):
             raise ValueError(
-                f"base_batch_sampler_individual_kwargs should be a keyword argument dictionary "
-                f"with each of its value having length of number of buckets={self.num_buckets}, "
-                f"but got base_batch_sampler_individual_kwargs={base_batch_sampler_individual_kwargs}"
+                f"Each value in base_batch_sampler_individual_kwargs should have a length of {self.num_buckets}, "
+                f"but got lengths {[len(list(value)) for value in base_batch_sampler_individual_kwargs.values()]}"
             )
 
         self.base_batch_sampler_class = base_batch_sampler_class
@@ -428,13 +466,18 @@ class BucketBatchSampler(Sampler[List[int]]):
             for k in range(self.num_buckets)
         ]
 
-        self.bucket_sizes: np.ndarray  # number of elements in each bucket
-        self.bucket_indices: List[np.ndarray]  # List of elements' indices for each bucket
+        self.bucket_sizes: torch.Tensor  # number of elements in each bucket
+        self.bucket_element_indices: List[List[int]]  # List of elements' indices for each bucket
 
-        bucket_indices = [np.argwhere((self.sizes >= st) * (self.sizes <= ed))[:, 0] for st, ed in self.bucket_ranges]
-        self.bucket_indices = [bucket for bucket in bucket_indices if len(bucket) > 0]
-        self.bucket_sizes = np.array([len(bucket) for bucket in self.bucket_indices])
-        self.num_samples = np.sum(self.bucket_sizes)
+        # bucket_element_indices = [torch.argwhere((self.sizes >= st) * (self.sizes <= ed))[:, 0] for st, ed in self.bucket_endpoints]
+        indices = torch.searchsorted(self.bucket_endpoints, self.sizes, right=True) - 1
+        bucket_element_indices = [torch.where(indices == i)[0].tolist() for i in range(len(self.bucket_endpoints))]
+
+        self.bucket_element_indices = [
+            element_indices for element_indices in bucket_element_indices if len(element_indices) > 0
+        ]
+        self.bucket_sizes = torch.tensor([len(element_indices) for element_indices in self.bucket_element_indices])
+        self.num_samples = torch.sum(self.bucket_sizes).item()
         if self.num_samples == 0:
             raise RuntimeError("The sizes of all elements in the dataset are outside the bucket ranges provided")
         if self.num_samples < len(self.sizes):
@@ -444,7 +487,7 @@ class BucketBatchSampler(Sampler[List[int]]):
 
         self.base_batch_samplers: List[Sampler] = self._init_base_batch_samplers()
 
-    def _init_base_batch_samplers(self) -> list[Sampler]:
+    def _init_base_batch_samplers(self) -> list[Sampler[List[int]]]:
         """
         Initialize batch samplers for each bucket
 
@@ -455,7 +498,7 @@ class BucketBatchSampler(Sampler[List[int]]):
         for k in range(self.num_buckets):
             base_batch_samplers.append(
                 self.base_batch_sampler_class(
-                    self.bucket_indices[k],
+                    self.bucket_element_indices[k],
                     **self.base_batch_sampler_shared_kwargs,
                     **self.base_batch_sampler_individual_kwargs[k],
                 )
@@ -477,18 +520,22 @@ class BucketBatchSampler(Sampler[List[int]]):
             List[int]: A batch of indices of elements with sizes from each bucket range.
         """
         if self.shuffle:
-            for indices in self.bucket_indices:
-                np.random.shuffle(indices)
+            for indices in self.bucket_element_indices:
+                idx = torch.randperm(len(indices), generator=self.generator)
+                indices[:] = torch.tensor(indices)[idx].tolist()
 
         base_batch_sampler_iters = [iter(batch_sampler) for batch_sampler in self.base_batch_samplers]
-        bucket_remaining_elements = np.copy(self.bucket_sizes)
+        bucket_remaining_elements = self.bucket_sizes.clone()
         total_remaining_elements = self.num_samples
 
         while total_remaining_elements > 0:
             if self.shuffle:
-                bucket_idx = np.random.choice(self.num_buckets, p=bucket_remaining_elements / total_remaining_elements)
+                bucket_idx = torch.multinomial(
+                    bucket_remaining_elements / total_remaining_elements, 1, generator=self.generator
+                )
+
             else:
-                bucket_idx = np.argmax(bucket_remaining_elements > 0)
+                bucket_idx = torch.argmax((bucket_remaining_elements > 0).to(int))  # type: ignore
 
             try:
                 batch = next(base_batch_sampler_iters[bucket_idx])
@@ -497,7 +544,5 @@ class BucketBatchSampler(Sampler[List[int]]):
                 yield batch
             except StopIteration:
                 bucket_remaining_elements[bucket_idx] = 0
-                total_remaining_elements = np.sum(bucket_remaining_elements)
+                total_remaining_elements = torch.sum(bucket_remaining_elements)
                 continue
-            except Exception as e:
-                raise e

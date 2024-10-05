@@ -15,15 +15,14 @@
 
 import gc
 import sys
-from collections import Counter
 from typing import Callable, Iterable, List, Optional, Tuple, TypeVar
 
-import numpy as np
 import torch
 
 
 Data = TypeVar("Data")
 Feature = TypeVar("Feature")
+TorchIntegerDataTypes = {torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64}
 
 
 def collect_cuda_peak_alloc(
@@ -134,75 +133,103 @@ def collect_cuda_peak_alloc(
     return features, alloc_peaks
 
 
-def create_buckets(sizes: Iterable[int], max_range: int, min_bucket_count: int) -> Tuple[np.ndarray, np.ndarray]:
+def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Create buckets for a list of integers with pre-defined maximal range of interval and minimal bucket sizes.
+    Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket sizes.
+    It will return a tuple containing the bucket interval endpoints and the actual bucket sizes.
+    e.g. torch.tensor([0, 5, 7]), torch.tensor([3,2]): specifies 2 buckets: one with range 0<= sizes < 5, width=5 and 3 elements
+    and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
+
 
     Args:
-        sizes (Iterable[int]): An iterable of integers representing sizes.
-        max_range (int): The maximum range of a bucket.
+        sizes (torch.Tensor): An 1D tensor of integers.
+        max_width (int): The maximum width of a bucket.
         min_bucket_count (int): The minimum count of a bucket.
-            Bucket size may be smaller than min_bucket_count if its range reaches max_range.
+            Bucket size may be smaller than min_bucket_count if its range reaches max_width.
 
     Raises:
         ValueError: If the provided sizes is empty, or not integers.
-        ValueError: If max_range is not non-negative integer or min_bucket_count is not positive integer.
+        ValueError: If max_width is not a positive integer or min_bucket_count is not a positive integer.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray]: A tuple containing bucket ranges in ascending order and the number of elements in each bucket.
-        e.g. np.array([[0, 5], [7,10]]), np.array([3,2]): specifies 2 buckets: 0<= sizes <= 5, 7 <= sizes <= 10, with 3 and 2 elements.
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing bucket interval endpoints in ascending order and the number of elements in each bucket.
 
     ---------
     Examples:
 
     ```python
-    >>> import numpy as np
+    >>> import torch
     >>> from bionemo.size_aware_batching.utils import create_buckets
 
-    >>> sizes = np.array([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 22, 22, 22, 22])
-    >>> bucket_ranges, bucket_sizes = create_buckets(sizes, max_range=20, min_bucket_count=20)
-    >>> print(bucket_ranges)
-    [[ 1  3]
-    [22 22]]
+    >>> sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 22, 22, 22, 22])
+    >>> bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=5, min_bucket_count=10)
+    >>> # 5 buckets: 1 <= sizes < 6, 6 <= sizes < 11, 11 <= sizes < 16, 16 <= sizes < 21, 21 <= sizes < 23
+    >>> print(bucket_endpoints)
+    tensor([ 1,  6, 11, 16, 21, 23])
+
+    >>> # each with 12, 0, 0, 0, 4 elements respectively.
     >>> print(bucket_sizes)
-    [12  4]
+    tensor([12,  0,  0,  0,  4])
     ```
 
     """
-    sizes = np.array(list(sizes))
-    if sizes.ndim != 1 or not np.issubdtype(sizes.dtype, np.integer):
-        raise ValueError("sizes should be an iterable of integers")
+    if not torch.is_tensor(sizes):
+        raise TypeError(f"sizes should be a torch tensor, but got sizes={sizes}")
+
+    if sizes.ndim != 1:
+        raise ValueError(f"sizes should be a 1D tensor, but got sizes with shape {sizes.shape}")
+
+    if sizes.dtype not in TorchIntegerDataTypes:
+        raise ValueError(f"sizes should contain only integers, but got sizes.dtype={sizes.dtype}")
 
     if len(sizes) == 0:
         raise ValueError("sizes should not be empty")
 
-    if not isinstance(max_range, int) or max_range < 0:
-        raise ValueError(f"max_range should be non-negative number but got {max_range}")
+    if not isinstance(max_width, int) or max_width <= 0:
+        raise ValueError(f"max_width should be a positive integer but got max_width={max_width}")
 
     if not isinstance(min_bucket_count, int) or min_bucket_count <= 0:
-        raise ValueError(f"min_bucket_count should be positive integer but got {min_bucket_count}")
+        raise ValueError(f"min_bucket_count should be a positive integer but got min_bucket_count={min_bucket_count}")
 
-    counter = Counter(sizes.tolist())
-    dist_size, dist_count = zip(*sorted(counter.items()))
+    unique_values, counts = torch.unique(sizes, return_counts=True, sorted=True)
 
-    bucket_ranges = []
+    bucket_endpoints = [unique_values[0]]
     bucket_sizes = []
     start = 0
-    end = 1
+    end = 0
+    upper_bound = unique_values[0] + 1
 
-    while start < len(dist_size):
+    # if len(unique_values) == 1:
+    #     return torch.tensor([unique_values[0], unique_values[0]+1]), torch.tensor([len(sizes)])
+
+    while start < len(unique_values):
         while (
-            end < len(dist_size)
-            and sum(dist_count[start:end]) < min_bucket_count
-            and dist_size[end] - dist_size[start] <= max_range
+            end < len(unique_values)
+            and sum(counts[start:end]) < min_bucket_count
+            and unique_values[end] - bucket_endpoints[-1] < max_width
         ):
             end += 1
-        bucket_ranges.append([dist_size[start], dist_size[end - 1]])
-        bucket_sizes.append(sum(dist_count[start:end]))
+
+        bucket_sizes.append(sum(counts[start:end]))
+        if end == len(unique_values):
+            upper_bound = unique_values[-1] + 1
+        else:
+            upper_bound = unique_values[end]
+
+        # Adjust the end of the range to ensure that no width exceeds 'max_width'
+        if upper_bound - bucket_endpoints[-1] >= max_width:
+            bucket_endpoints.append(bucket_endpoints[-1] + max_width)
+            while upper_bound - bucket_endpoints[-1] >= max_width:
+                bucket_endpoints.append(bucket_endpoints[-1] + max_width)
+                bucket_sizes.append(0)
+        else:
+            bucket_endpoints.append(upper_bound)
+
+        # bucket_endpoints.append(upper_bound)
         start = end
         end = start + 1
 
-    bucket_ranges = np.array(bucket_ranges)
-    bucket_sizes = np.array(bucket_sizes)
+    bucket_endpoints = torch.tensor(bucket_endpoints)
+    bucket_sizes = torch.tensor(bucket_sizes)
 
-    return bucket_ranges, bucket_sizes
+    return bucket_endpoints, bucket_sizes
