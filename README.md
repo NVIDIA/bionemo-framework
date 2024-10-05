@@ -54,6 +54,12 @@ To build the development image, run the following script:
 ./internal/scripts/build_dev_image.sh
 ```
 
+## Interactive Shell in Development Image
+After building the development image, you can start a container from it and open a bash shell in it by executing:
+```bash
+./internal/scripts/run_dev.sh
+```
+
 ## Downloading artifacts
 Set the AWS access info in environment prior to running the dev-container launch script:
 ```bash
