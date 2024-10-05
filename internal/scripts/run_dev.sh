@@ -4,7 +4,16 @@ set -euo pipefail
 
 source .env
 
+LOCAL_REPO_PATH="$(realpath $(pwd))"
+
+if [[ "$(basename ${LOCAL_REPO_PATH})" != "bionemo-fw-ea" ]]; then
+    echo "ERROR: must run this script from the bionemo repository root!"
+    exit 1
+fi
+
 COMMIT=$(git rev-parse HEAD)
+
+DOCKER_REPO_PATH="/workspace/bionemo2"
 
 DOCKER_VERSION=$(docker version | grep -i version | head -1 | awk '{print $2}')
 DOCKER_VERSION_WITH_GPU_SUPPORT='19.03.0'
