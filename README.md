@@ -45,8 +45,7 @@ To build the release image, run the following script:
 ```bash
 DOCKER_BUILDKIT=1 ./ci/scripts/build_docker_image.sh \
   -regular-docker-builder \
-  -container-registry-path nvcr.io/nvidian/cvai_bnmo_trng/bionemo \
-  -image-tag "bionemo2-"
+  -image-name "nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-$(git rev-parse HEAD)"
 ```
 
 ## Development Image Building
