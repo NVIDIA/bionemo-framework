@@ -12,4 +12,27 @@ from setuptools import setup
 
 
 if __name__ == "__main__":
-    setup()
+
+    def has_requirement(x: str) -> bool:
+        x = x.strip()
+        if x.startswith("#"):
+            return False
+        return True
+
+    def strip_version(x: str) -> str:
+        x = x.strip()
+        for s in (
+            ">=",
+            "<=",
+            "<",
+            ">",
+            "==",
+        ):
+            if s in x:
+                return x.split(s)[0]
+        return x
+
+    with open("./requirements.txt", "rt") as rt:
+        requirements_no_versions = [strip_version(x) for x in rt if has_requirement(x)]
+
+    setup(install_requires=requirements_no_versions)
