@@ -3,7 +3,9 @@ Tools maintained by the BioNeMo Framework Infrastructure team.
 
 
 ## Development
-All code must be formatted & linted using `ruff` and type checked using `mypy`. To type check, run:
+All code must be formatted & linted using `ruff` and type checked using `mypy`.
+
+To type check, run:
 ```bash
 mypy --install-types --non-interactive --ignore-missing --check-untyped-defs .
 ```
@@ -18,7 +20,6 @@ For first time setup, be sure to install the development and test dependencies o
 These are defined at the repository's top-level [`pyproject.toml`](../../pyproject.toml) file. Follow the instructions
 outlined in the [top-level README](../../README.md). Once you have your local virtual environment ready, you may
 install this project's code by running the following:
-To setup, create a virtual environment, install dependencies, the project, and the pre-commit hooks:
 ```bash
 pip install -e .
 ```
