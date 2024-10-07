@@ -208,9 +208,6 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
     end = 0
     upper_bound = unique_values[0] + 1
 
-    # if len(unique_values) == 1:
-    #     return torch.tensor([unique_values[0], unique_values[0]+1]), torch.tensor([len(sizes)])
-
     while start < len(unique_values):
         while (
             end < len(unique_values)
@@ -234,7 +231,6 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
         else:
             bucket_endpoints.append(upper_bound)
 
-        # bucket_endpoints.append(upper_bound)
         start = end
         end = start + 1
 
