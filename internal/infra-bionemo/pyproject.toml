@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 # For guidance, see: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
 [project]
 name = "infra-bionemo"
-version = "0.5.1"
+version = "0.0.0"
 authors = []
 description = "Internal library of utilities and programs for BioNeMo-related infrastructure."
 readme = "README.md"
