@@ -170,6 +170,15 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
     >>> # each with 12, 0, 0, 0, 4 elements respectively.
     >>> print(bucket_sizes)
     tensor([12,  0,  0,  0,  4])
+
+    >>> sizes = torch.arange(20)
+    >>> # min_bucket_count is used to control bucket size
+    >>> bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=10, min_bucket_count=5)
+    >>> print(bucket_endpoints)
+    tensor([ 0,  5, 10, 15, 20])
+
+    >>> print(bucket_sizes)
+    tensor([5, 5, 5, 5])
     ```
 
     """
