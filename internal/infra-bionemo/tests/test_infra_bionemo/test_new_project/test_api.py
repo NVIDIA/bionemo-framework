@@ -25,7 +25,6 @@ from infra_bionemo.new_project.api import (
     convert,
     create_on_filesystem,
     namespace_py_project_structure,
-    py_project_structure,
 )
 
 
@@ -86,26 +85,6 @@ def test_project_name_check(project_name):
 def test_module_name_convert(input_, expected):
     actual = convert(input_)
     assert actual == expected, f"{input_=} did not convert into {expected=}, instead was {actual=}"
-
-
-def test_simple_project():
-    d = py_project_structure("infra-bionemo", ["nltk"])
-    _assert_has_core_toplevel(d)
-    assert not _has_file_by_name("setup.py", d, descend=False)
-    assert _has_file_by_name("requirements-test.txt", d, descend=False)
-    assert _has_file_by_name("requirements-dev.txt", d, descend=False)
-    assert _has_file_by_name("__init__.py", d, descend=True)
-    assert _has_file_by_name("test_TODO_infra_bionemo.py", d, descend=True)
-    assert _has_dir_by_name("infra_bionemo", d, descend=True)
-
-    d = py_project_structure(
-        "infra-bionemo",
-        ["nltk"],
-        add_setup_py=True,
-        prefix_test_dirs=True,
-    )
-    assert _has_file_by_name("setup.py", d, descend=False)
-    assert _has_dir_by_name("test_infra_bionemo", d, descend=True)
 
 
 def test_namespace_project():
