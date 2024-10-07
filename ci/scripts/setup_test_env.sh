@@ -43,7 +43,7 @@ fi
 examples/protein/openfold/scripts/install_third_party.sh
 
 MODEL_PATH=${BIONEMO_HOME}/models
-MODELS="openfold_finetuning_inhouse esm2nv_3b esm2nv_8m_lora esm2nv_8m_untrained esm2nv_650m esm2_650m_huggingface esm2_3b_huggingface diffdock_confidence diffdock_score equidock_db5 equidock_dips megamolbart molmim_70m_24_3 prott5nv esm1nv dnabert geneformer geneformer_10M_240530 dsmbind"
+MODELS="openfold_finetuning_inhouse esm2nv_3b esm2nv_8m_lora esm2nv_8m_untrained esm2nv_650m diffdock_confidence diffdock_score equidock_db5 equidock_dips megamolbart molmim_70m_24_3 prott5nv esm1nv dnabert geneformer_10M_240530 dsmbind esm2_650m_huggingface esm2_3b_huggingface"
 CMD="python download_artifacts.py --models ${MODELS} --model_dir ${MODEL_PATH} --data all --data_dir ${BIONEMO_HOME} --verbose"
 
 if [ -n "$PBSS" ]; then
@@ -51,6 +51,4 @@ if [ -n "$PBSS" ]; then
 fi
 $CMD
 
-unzip examples/tests/test_data/uniref202104_esm2_qc_test200_val200.zip -d examples/tests/test_data/
-ls examples/tests/test_data/uniref202104_esm2_qc_test200_val200
 python examples/singlecell/geneformer/scripts/get_pt_neighbors_data.py

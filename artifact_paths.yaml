@@ -86,7 +86,6 @@ models:
             source: "../../esm2nv_sec_str_lora.nemo"
             target: "protein/esm2nv/esm2nv_sec_str_lora.nemo"
     esm2nv_650m:
-        #TODO: update path when model is released
         ngc: "nvidia/clara/esm2nv650m:1.0"
         pbss: "s3://bionemo-ci/models/esm2nv_650M_converted.nemo"
         symlink:
@@ -94,28 +93,12 @@ models:
             target: "protein/esm2nv/esm2nv_650M_converted.nemo"
         md5sum: f1d926c4ed38ce16be962c79459c4abf # pragma: allowlist secret
     esm2nv_3b:
-        #TODO: update path when model is released
         ngc: "nvidia/clara/esm2nv3b:1.0"
         pbss: "s3://bionemo-ci/models/esm2nv_3B_converted.nemo"
         symlink:
             source: "../../esm2nv_3B_converted.nemo"
             target: "protein/esm2nv/esm2nv_3B_converted.nemo"
         md5sum: b90222ecdbfc22d9c099a1cc5696c23f # pragma: allowlist secret
-    openfold_initial_training_public:
-        pbss: "s3://bionemo-ci/models/openfold_initial_training_public_checkpoint.nemo"
-        symlink:
-            source: "../../openfold_initial_training_public_checkpoint.nemo"
-            target: "protein/openfold/openfold_initial_training_public_checkpoint.nemo"
-    openfold_finetuning_4_public:
-        pbss: "s3://bionemo-ci/models/openfold_finetuning_4_public_checkpoint.nemo"
-        symlink:
-            source: "../../openfold_finetuning_4_public_checkpoint.nemo"
-            target: "protein/openfold/openfold_finetuning_4_public_checkpoint.nemo"
-    openfold_initial_training_inhouse:
-        pbss: "s3://bionemo-ci/models/openfold_initial_training_inhouse_checkpoint.nemo"
-        symlink:
-            source: "../../openfold_initial_training_inhouse_checkpoint.nemo"
-            target: "protein/openfold/openfold_initial_training_inhouse_checkpoint.nemo"
     openfold_finetuning_inhouse:
         ngc: "nvidia/clara/openfold:finetuned_1.2"
         pbss: "s3://bionemo-ci/models/openfold_finetuning_inhouse_checkpoint.nemo"
@@ -160,60 +143,105 @@ models:
             source: "../../geneformer-106M-240530-step-115430-wandb-KZxWJ0I5.nemo"
             target: "singlecell/geneformer/geneformer-106M-240530.nemo"
         md5sum: a998810df42bcdede95be319af302868 #pragma: allowlist secret
-    geneformer:
-        # A QA model for geneformer with randomly initialized weights.
-        pbss: "s3://bionemo-ci/models/geneformer-qa.nemo"
-        symlink:
-            source: "../../geneformer-qa.nemo"
-            target: "singlecell/geneformer/geneformer-qa.nemo"
-    enformer_finetuned16:
-        pbss: "s3://bionemo-ci/models/dna/enformer/enformer_finetuned16/0.1.0/enformer_finetuned16.nemo"
-        symlink:
-            source: "../../enformer_finetuned16.nemo"
-            target: "dna/enformer/enformer_finetuned16.nemo"
-    enformer_finetuned32:
-        pbss: "s3://bionemo-ci/models/dna/enformer/enformer_finetuned32/0.1.0/enformer_finetuned32.nemo"
-        symlink:
-            source: "../../enformer_finetuned32.nemo"
-            target: "dna/enformer/enformer_finetuned32.nemo"
-    enformer_pretrained16:
-        pbss: "s3://bionemo-ci/models/dna/enformer/enformer_pretrained16/0.1.0/enformer_pretrained16.nemo"
-        symlink:
-            source: "../../enformer_pretrained16.nemo"
-            target: "dna/enformer/enformer_pretrained16.nemo"
-    enformer_pretrained32:
-        pbss: "s3://bionemo-ci/models/dna/enformer/enformer_pretrained32/0.1.0/enformer_pretrained32.nemo"
-        relative_download_dir: "dna/enformer/"
-        symlink:
-            source: "../../enformer_pretrained32.nemo"
-            target: "dna/enformer/enformer_pretrained32.nemo"
     dsmbind:
-        ngc: null
+        ngc: "nvidia/clara/dsmbind:1.7"
         pbss: "s3://bionemo-ci/models/dsmbind.pth"
         symlink:
             source: "../../dsmbind.pth"
             target: "molecule/dsmbind/dsmbind.pth"
 data:
     openfold_sample:
-        pbss: "s3://bionemo-ci/test-data/openfold/openfold_vprocessed_sample/openfold_sample_data.tar.gz"
+        pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_openfold_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
-    openfold_training:
-        pbss: "s3://bionemo-ci/test-data/openfold/openfold_vprocessed_sample_cif_pt/openfold_training_samples.tar.gz"
-        relative_download_dir: "examples/tests/test_data/"
-        untar_dir: "openfold_data"
-    single_cell:
+        untar_dir: "protein"
+    singlecell_sample:
         pbss: "s3://bionemo-ci/test-data/singlecell/singlecell-testdata-20240506.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
-        md5sum: dd6b0d791bf2b3301d9793a1d6663c75 #pragma: allowlist secret
-    diffdock_sample:
-        pbss: "s3://bionemo-ci/test-data/diffdock/diffdock_vprocessed_sample_05022024/"
-        relative_download_dir: "examples/tests/test_data/molecule/diffdock"
-        extra_args: "--recursive"
-    diffdock_test:
-        pbss: "s3://bionemo-ci/test-data/diffdock/diffdock_vpreprocessing_test_07022024/"
-        relative_download_dir: "examples/tests/test_data/molecule/diffdock"
-        extra_args: "--recursive"
-    diffdick_cugraph:
-        pbss: "s3://bionemo-ci/test-data/diffdock/diffdock_vmodel_io_03042024_cugraph/"
-        relative_download_dir: "examples/tests/test_data/molecule/diffdock"
-        extra_args: "--recursive"
+        untar_dir: "singlecell"
+    diffdock_training_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/molecule/diffdock/diffdock_vprocessed_sample_05022024.tar.gz"
+        relative_download_dir: "examples/tests/test_data/molecule/"
+        untar_dir: "diffdock"
+    diffdock_preprocessing_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/molecule/diffdock/diffdock_vpreprocessing_test_07022024.tar.gz"
+        relative_download_dir: "examples/tests/test_data/molecule/"
+        untar_dir: "diffdock"
+    diffdock_cugraph_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/molecule/diffdock/diffdock_vmodel_io_03042024_cugraph.tar.gz"
+        relative_download_dir: "examples/tests/test_data/molecule/"
+        untar_dir: "diffdock"
+    diffdock_sample_posebuster:
+        pbss: "s3://bionemo-ci/tests/test_data/molecule/diffdock/20241004_posebuster_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/molecule"
+        untar_dir: "diffdock"
+    dna_synthetic_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/20241004_dna_synthetic_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/"
+        untar_dir: "."
+    dsmbind_sample_inference:
+        pbss: "s3://bionemo-ci/tests/test_data/molecule/dsmbind/20241004_dsmbind_inference_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/molecule/"
+        untar_dir: "dsmbind"
+    physchem_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/molecule/20241004_physchem_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/"
+        untar_dir: "molecule"
+    uspto50k_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/molecule/20241004_uspto50k_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/"
+        untar_dir: "molecule"
+    zinc15_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/molecule/20241004_zinc15_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/"
+        untar_dir: "molecule"
+    equidock_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_equidock_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/"
+        untar_dir: "protein"
+    esm2nv_synthetic_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_esm2nv_synthetic_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/"
+        untar_dir: "protein"
+    flip_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_flip_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/"
+        untar_dir: "protein"
+    uniref50_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_uniref50_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/"
+        untar_dir: "protein"
+    uniref50_90_sample:
+        pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_uniref50_90_sample.tar.gz"
+        relative_download_dir: "examples/tests/test_data/"
+        untar_dir: "protein"
+    unit_test_forward_golden_values_esm1nv:
+        pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/forward_golden_values/20241004_unit_test_forward_golden_values_esm1nv.tar.gz"
+        relative_download_dir: "examples/tests/test_data/expected_outputs"
+        untar_dir: "forward_golden_values"
+    unit_test_forward_golden_values_esm2nv:
+        pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/forward_golden_values/20241004_unit_test_forward_golden_values_esm2nv.tar.gz"
+        relative_download_dir: "examples/tests/test_data/expected_outputs"
+        untar_dir: "forward_golden_values"
+    unit_test_forward_golden_values_esm2nv_lora:
+        pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/forward_golden_values/20241004_unit_test_forward_golden_values_esm2nv_lora.tar.gz"
+        relative_download_dir: "examples/tests/test_data/expected_outputs/forward_golden_values"
+        untar_dir: "."
+    unit_test_inference_golden_values_equidock:
+        pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/20241004_unit_test_inference_golden_values_equidock.tar.gz"
+        relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values"
+        untar_dir: "."
+    unit_test_inference_golden_values_geneformer:
+        pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/geneformer/inference_test_golden_values.pt"
+        relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values/geneformer"
+    unit_test_inference_golden_values_megamolbart:
+        pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/megamolbart/inference_test_golden_values.pt"
+        relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values/megamolbart"
+    unit_test_inference_golden_values_esm1nv:
+        pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/esm1nv/inference_test_golden_values.pt"
+        relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values/esm1nv"
+    unit_test_inference_golden_values_molmim:
+        pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/molmim/inference_test_golden_values.pt"
+        relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values/molmim"
+    unit_test_inference_golden_values_prott5nv:
+        pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/prott5nv/inference_test_golden_values.pt"
+        relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values/prott5nv"

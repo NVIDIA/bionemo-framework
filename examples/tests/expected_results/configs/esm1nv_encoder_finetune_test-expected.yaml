@@ -112,7 +112,7 @@ model:
     seed: ${model.seed}
     max_seq_length: ${model.seq_length}
     dynamic_padding: false
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/downstream
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/flip
     dataset:
       train: x000
       test: x000

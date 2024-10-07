@@ -29,7 +29,7 @@ from bionemo.utils.tests import teardown_apex_megatron_cuda
 
 
 def test_dataset_builder_fasta_fields():
-    filepath = "examples/tests/test_data/preprocessing/test/uniref2022_small.fasta"
+    filepath = "examples/tests/test_data/protein/uniref50/preprocessing/test/uniref2022_small.fasta"
     data_impl = _FASTA_FIELDS_MMAP_TYPE
     kwargs = {"data_fields": {"id": 0, "sequence": 1}}
 
@@ -58,11 +58,11 @@ def test_dataset_builder_fasta_fields():
     ) == set()
 
 
-def test_add_hash_to_metadata():
+def test_add_hash_to_metadata(tmp_path):
     # Write file without SHA256
     info = {"newline_int": 10, "version": "0.2"}
-    data_path = "examples/tests/test_data/molecule/test/x000.csv"
-    idx_mapping_dir = "examples/tests/test_data/molecule/test/idx_dir"
+    data_path = "examples/tests/test_data/molecule/zinc15/processed/test/x000.csv"
+    idx_mapping_dir = os.path.join(tmp_path, "index_dir")
     data_path_dir = os.path.dirname(data_path)
     os.makedirs(os.path.join(idx_mapping_dir, data_path_dir), exist_ok=True)
     pkl.dump(info, open(os.path.join(idx_mapping_dir, data_path + ".idx.info"), "wb"))
@@ -78,7 +78,7 @@ def test_add_hash_to_metadata():
 
 def test_dataset_builder_csv_mmap():
     # MegamolBART pretraining
-    filepath = "examples/tests/test_data/molecule/test/x[000..001]"
+    filepath = "examples/tests/test_data/molecule/zinc15/processed/test/x[000..001]"
     data_impl = _CSV_MMAP_TYPE
     kwargs = {
         "newline_int": 10,
@@ -103,7 +103,7 @@ def test_dataset_builder_csv_mmap():
 
 def test_dataset_builder_csv_fields_mmap():
     # MegaMolBART downstream task retrosynthesis
-    filepath = "examples/tests/test_data/reaction/processed/test/data.csv"
+    filepath = "examples/tests/test_data/molecule/uspto50k/processed/test/data.csv"
     data_impl = _CSV_FIELDS_MMAP_TYPE
     kwargs = {
         "newline_int": 10,
@@ -129,7 +129,7 @@ def test_dataset_builder_csv_fields_mmap():
 
     # testing if list will pass
     n = 2
-    data_paths = ["examples/tests/test_data/reaction/processed/test/data.csv"] * n
+    data_paths = ["examples/tests/test_data/molecule/uspto50k/processed/test/data.csv"] * n
     dataset_2 = build_typed_dataset(
         dataset_paths=data_paths, data_impl=data_impl, use_upsampling=False, cfg=cfg, num_samples=None
     )
@@ -139,7 +139,7 @@ def test_dataset_builder_csv_fields_mmap():
 @pytest.mark.needs_gpu
 def test_dataset_builder_upsampling():
     # MegaMolBART downstream task retrosynthesis
-    filepath = "examples/tests/test_data/reaction/processed/test/data.csv"
+    filepath = "examples/tests/test_data/molecule/uspto50k/processed/test/data.csv"
     data_impl = _CSV_FIELDS_MMAP_TYPE
     kwargs = {
         "newline_int": 10,

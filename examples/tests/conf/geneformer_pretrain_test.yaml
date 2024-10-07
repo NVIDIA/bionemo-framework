@@ -26,9 +26,9 @@ model:
   tokenizer:
     vocab_file: ${..data.train_dataset_path}/geneformer.vocab  # By convention the vocab file is preprocessed into the train dataset path.
   data:
-    train_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/train
-    val_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/val
-    test_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/test
+    train_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/train
+    val_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/val
+    test_dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/test
     micro_batch_size: ${model.micro_batch_size}
     medians_file: ${.train_dataset_path}/medians.json  # By convention the medians file is preprocessed into the train dataset path.
     num_workers: 12

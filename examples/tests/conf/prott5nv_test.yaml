@@ -27,7 +27,7 @@ model:
   data:
     ngc_registry_target: uniref50_2022_05
     ngc_registry_version: v23.06
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein # parent directory for data, contains train / val / test folders
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50/processed # parent directory for data, contains train / val / test folders
     dataset: # inclusive range of data files to load or can load a single file, e.g. x000.csv
       train: x000
       test: x000
@@ -45,7 +45,7 @@ model:
       batch_size: ${.emb_batch_size}
       num_epochs: 1
       task_name: downstream
-      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/downstream
+      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/flip
 
 
 exp_manager:

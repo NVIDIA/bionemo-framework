@@ -111,7 +111,7 @@ model:
   data:
     ngc_registry_target: uniref50_2022_05
     ngc_registry_version: v23.06
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/downstream
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/flip
     dataset:
       train: x000
       test: x000

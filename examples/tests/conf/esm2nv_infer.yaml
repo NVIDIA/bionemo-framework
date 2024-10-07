@@ -22,7 +22,7 @@ model:
     restore_from_path: ${oc.env:BIONEMO_HOME}/models/protein/esm2nv/esm2nv_650M_converted.nemo # Path to pretrained checkpoint. Other options: esm2nv_3B_converted.nemo
     outputs: [embeddings, hiddens] # Which outputs to extract per sample (a value or list). Possible values: hiddens, embeddings.
   data:
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/downstream/test/x000.csv # full path to dataset (can include range or a list)
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/flip/test/x000.csv # full path to dataset (can include range or a list)
     output_fname: ${oc.env:BIONEMO_HOME}/test_results/nemo_experiments/esm2nv_infer/x000.pkl
     batch_size: 32
 

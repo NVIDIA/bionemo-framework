@@ -126,7 +126,7 @@ model:
     pin_memory: false
     dynamic_padding: false
     force_regen_sample_mapping: false
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90
     index_mapping_dir: ${model.data.dataset_path}
     preprocessing:
       num_preprocess_workers: 16
@@ -220,7 +220,7 @@ model:
       shuffle: true
       num_workers: 8
       task_name: downstream
-      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/downstream
+      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/flip
       dataset:
         train: x000
         test: x000

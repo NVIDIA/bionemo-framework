@@ -9,7 +9,7 @@ hydra:
 model:
   num_steps_in_one_epoch: 30 # originally 100
   data:
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/openfold_data # only if downloaded
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/openfold # only if downloaded
     filter_by_alignments: true
     realign_when_required: false # set to true to use kalignu package which improves performance of training
   train_ds:

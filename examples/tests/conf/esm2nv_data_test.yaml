@@ -19,29 +19,29 @@ trainer:
 
 model:
   data:
-    index_mapping_dir: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200/
+    index_mapping_dir: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90
     preprocessing:
       num_preprocess_workers: 16
     train:
       use_upsampling: True # if the data should be upsampled to max number of steps in the training
       sample_from_map: True # TODO: Use uf90_datapath and cluster_mapping_tsv to create resampled dataset for training with uf50_datapath. If False, only uf50_datapath is used for training.
-      uf50_datapath: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200/uniref50_train_filt.fasta
-      uf90_datapath: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200/ur90_ur50_sampler.fasta
-      cluster_mapping_tsv: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200/mapping.tsv
-      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200/uf50
+      uf50_datapath: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90/uniref50_train_filt.fasta
+      uf90_datapath: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90/ur90_ur50_sampler.fasta
+      cluster_mapping_tsv: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90/mapping.tsv
+      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90/uf50
       uf90:
-        uniref90_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200/uf90/
+        uniref90_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90/uf90/
       max_seq_length: ${model.seq_length} # Maximum input sequence length. Longer sequences are truncated
     val:
       use_upsampling: False
-      uf50_datapath: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200/uniref50_valid_reduced.fasta
-      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200/uf50
+      uf50_datapath: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90/uniref50_valid_reduced.fasta
+      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90/uf50
 
     test:
       use_upsampling: True  # TODO (@sichu): Why upsample test set? ask @jomitchell
       # TODO(@jomitchell): Get the test fasta file.
-      uf50_datapath: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200/uniref50_valid_reduced.fasta
-      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200/uf50
+      uf50_datapath: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90/uniref50_valid_reduced.fasta
+      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90/uf50
 
   dwnstr_task_validation:
     enabled: False
@@ -50,7 +50,7 @@ model:
       batch_size: ${.emb_batch_size}
       num_epochs: 1
       task_name: downstream
-      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/downstream
+      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/flip
 
 
 

@@ -228,7 +228,7 @@ def download_artifacts(
 
         execute_download(stream_stdout, conf, download_artifact, complete_download_dir, command, file_name, source)
 
-        if artifact_type == "data":
+        if artifact_type == "data" and conf[download_artifact].untar_dir is not None:
             tar_file = f"{str(complete_download_dir)}/{file_name}"
             if Path(tar_file).is_file():
                 with tarfile.open(tar_file) as tar:

@@ -21,7 +21,7 @@ model:
   micro_batch_size: 4
   global_batch_size: null
   data:
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/reaction/ # parent directory for data, contains train / val / test folders
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/molecule/uspto50k # parent directory for data, contains train / val / test folders
     micro_batch_size: ${model.micro_batch_size}
     header_lines: 1
     num_workers: 10

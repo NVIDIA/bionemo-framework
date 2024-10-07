@@ -105,18 +105,25 @@ def get_data_overrides(script_or_cfg_path: str) -> str:
 
     task = {
         "molecule": "physchem/SAMPL",
-        "protein": "downstream",
+        "protein": "flip",
         "dna": "downstream",
         "singlecell": "downstream",
     }
+
+    train_data_folder = {
+        "molecule": "zinc15",
+        "protein": "uniref50",
+    }
+
     if model == "geneformer":
+        sample_data_path = f"{TEST_DATA_DIR}/singlecell/cellxgene_2023-12-15_small/processed_data"
         return (
             # This is what we run inference on when running infer.py. This is not checked or used during pretraining.
-            f" {DATA}.dataset_path={TEST_DATA_DIR}/cellxgene_2023-12-15_small/processed_data/test"
+            f" {DATA}.dataset_path={sample_data_path}/test"
             # The following three paths are used for pretrain.py, but also are required to support model loading currently when running inference.
-            f" {DATA}.train_dataset_path={TEST_DATA_DIR}/cellxgene_2023-12-15_small/processed_data/train"
-            f" {DATA}.val_dataset_path={TEST_DATA_DIR}/cellxgene_2023-12-15_small/processed_data/val"
-            f" {DATA}.test_dataset_path={TEST_DATA_DIR}/cellxgene_2023-12-15_small/processed_data/test"
+            f" {DATA}.train_dataset_path={sample_data_path}/train"
+            f" {DATA}.val_dataset_path={sample_data_path}/val"
+            f" {DATA}.test_dataset_path={sample_data_path}/test"
         )
     if conf == ["conf"]:
         if model in ("megamolbart", "openfold", "molmim"):
@@ -125,9 +132,9 @@ def get_data_overrides(script_or_cfg_path: str) -> str:
             return MAIN % f"{domain}/{task[domain]}/test/x000"
 
     if "retro" in script:
-        return MAIN % "reaction"
+        return MAIN % f"{domain}/uspto50k"
     elif model == "openfold":
-        return MAIN % "openfold_data"
+        return MAIN % f"{domain}/{model}"
     elif model == "diffdock":
         return (
             f" ++data.split_train={TEST_DATA_DIR}/molecule/diffdock/splits/split_train"
@@ -150,17 +157,18 @@ def get_data_overrides(script_or_cfg_path: str) -> str:
         else:
             return MAIN % f"{domain}/{task[domain]}"
     elif model == "dnabert":
-        DNABERT_TEST_DATA_DIR = os.path.join(BIONEMO_HOME, "examples/dna/dnabert/data/small-example")
+        DNABERT_TEST_DATA_DIR = os.path.join(TEST_DATA_DIR, domain)
+        sample_filename = "chr1-test.fa"
         dnabert_overrides = (
             f"++model.data.dataset_path={DNABERT_TEST_DATA_DIR} "
-            "++model.data.dataset.train=chr1-trim-train.fna "
-            "++model.data.dataset.val=chr1-trim-val.fna "
-            "++model.data.dataset.test=chr1-trim-test.fna "
+            f"++model.data.dataset.train={sample_filename} "
+            f"++model.data.dataset.val={sample_filename} "
+            f"++model.data.dataset.test={sample_filename} "
         )
         return dnabert_overrides
     elif model == "esm2nv" and "infer" not in script:
         # TODO(dorotat) Simplify this case when data-related utils for ESM2 are refactored
-        UNIREF_FOLDER = "uniref202104_esm2_qc_test200_val200"
+        UNIREF_FOLDER = "protein/uniref50_90/"
         MAIN = f"{DATA}.train.dataset_path={TEST_DATA_DIR}/%s"
         esm2_overwrites = (
             MAIN % f"{UNIREF_FOLDER}/uf50"
@@ -174,7 +182,7 @@ def get_data_overrides(script_or_cfg_path: str) -> str:
         return esm2_overwrites
 
     else:
-        return (MAIN + DOWNSTREAM) % (domain, f"{domain}/{task[domain]}")
+        return (MAIN + DOWNSTREAM) % (f"{domain}/{train_data_folder[domain]}/processed", f"{domain}/{task[domain]}")
 
 
 def get_train_args_overrides(script_or_cfg_path, train_args):

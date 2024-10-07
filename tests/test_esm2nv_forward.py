@@ -20,31 +20,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 import torch
-from hydra import compose, initialize
 
 from bionemo.model.loading import setup_inference
-from bionemo.model.protein.esm1nv import esm1nv_model
 from bionemo.model.run_inference import predict_ddp
-from bionemo.model.utils import initialize_distributed_parallel_state, setup_trainer
+from bionemo.utils.hydra import load_model_config
 from bionemo.utils.tests import (
-    BioNemoSearchPathConfig,
     Deterministic,
     distributed_model_parallel_state,
-    register_searchpath_config_plugin,
     reset_microbatch_calculator,
-    update_relative_config_dir,
 )
 
 
 os.environ["BIONEMO_HOME"] = os.environ.get("BIONEMO_HOME", "/workspace/bionemo")
-BIONEMO_HOME = os.environ["BIONEMO_HOME"]
+BIONEMO_HOME = pathlib.Path(os.environ["BIONEMO_HOME"])
 
-THIS_FILE_DIR = pathlib.Path(os.path.abspath(__file__))
-PROJ_BASE_DIR = THIS_FILE_DIR.parent
-CONFIG_PATH = "../examples/tests/conf"
-PREPEND_CONFIG_DIR = PROJ_BASE_DIR / "examples" / "protein" / "esm2nv" / "conf"
+CONFIG_PATH = BIONEMO_HOME / "examples" / "tests" / "conf"
+PREPEND_CONFIG_DIR = BIONEMO_HOME / "examples" / "protein" / "esm2nv" / "conf"
 
-GOLDEN_VALUE_PREPEND_DIR = pathlib.Path(PROJ_BASE_DIR / "data/esm2_golden_values")
+GOLDEN_VALUE_PREPEND_DIR = pathlib.Path(
+    BIONEMO_HOME / "examples" / "tests" / "test_data" / "expected_outputs" / "forward_golden_values" / "esm2nv"
+)
 # SET FILEPATHS
 GOLDEN_VALUES_FP16PT = GOLDEN_VALUE_PREPEND_DIR / "revert_esm2nv_infer_golden_values_fp16.pt"
 GOLDEN_VALUES_FP32PT = GOLDEN_VALUE_PREPEND_DIR / "revert_esm2nv_infer_golden_values_fp32.pt"
@@ -55,48 +50,41 @@ GOLDEN_VALUES_FP32JSON = GOLDEN_VALUE_PREPEND_DIR / "revert_esm2nv_infer_golden_
 HEATMAPS_REPO_DIR = GOLDEN_VALUE_PREPEND_DIR / "heatmaps"
 
 # Diffs
-DIFF_FILEPATH_FP32 = f"{BIONEMO_HOME}/tests/data/esm2_golden_values/differences-fp32.yaml"
-DIFF_FILEPATH_FP16 = f"{BIONEMO_HOME}/tests/data/esm2_golden_values/differences-fp16.yaml"
+DIFF_FILEPATH_FP32 = f"{GOLDEN_VALUE_PREPEND_DIR}/differences-fp32.yaml"
+DIFF_FILEPATH_FP16 = f"{GOLDEN_VALUE_PREPEND_DIR}/differences-fp16.yaml"
+
+parameter_sets_json = [
+    ("32", 1e-9, GOLDEN_VALUES_FP32JSON, HEATMAPS_REPO_DIR),
+    ("16-mixed", 1e-1, GOLDEN_VALUES_FP16JSON, HEATMAPS_REPO_DIR),
+]
 
 
-def get_cfg(prepend_config_path, config_name, config_path="conf"):
-    prepend_config_path = pathlib.Path(prepend_config_path)
-
-    class TestSearchPathConfig(BioNemoSearchPathConfig):
-        def __init__(self) -> None:
-            super().__init__()
-            self.prepend_config_dir = update_relative_config_dir(prepend_config_path, THIS_FILE_DIR)
-
-    register_searchpath_config_plugin(TestSearchPathConfig)
-    with initialize(config_path=config_path):
-        cfg = compose(config_name=config_name)
-
-    return cfg
-
-
-@pytest.fixture
-def model_and_configs():
-    cfg = get_cfg(PREPEND_CONFIG_DIR, config_name="esm2nv_data_test", config_path=CONFIG_PATH)
-    reset_microbatch_calculator()
-    initialize_distributed_parallel_state()
-
-    trainer = setup_trainer(cfg)
-    model = esm1nv_model.ESM2nvModel(cfg.model, trainer)
-    yield model, cfg
+@pytest.fixture()
+def cfg(config_path_for_tests):
+    cfg = load_model_config(config_name="esm2nv_data_test", config_path=config_path_for_tests)
+    yield cfg
     reset_microbatch_calculator()
     torch.cuda.empty_cache()
 
 
-@pytest.fixture()
-def cfg():
-    cfg = get_cfg(PREPEND_CONFIG_DIR, config_name="esm2nv_data_test", config_path=CONFIG_PATH)
-    return cfg
+# @pytest.fixture
+# def model_and_configs(cfg):
+#     reset_microbatch_calculator()
+#     initialize_distributed_parallel_state()
+#
+#     trainer = setup_trainer(cfg)
+#     model = esm1nv_model.ESM2nvModel(cfg.model, trainer)
+#     yield model, cfg
+#     reset_microbatch_calculator()
+#     torch.cuda.empty_cache()
 
 
 @pytest.fixture()
-def cfg_infer():
-    cfg = get_cfg(PREPEND_CONFIG_DIR, config_name="esm2nv_infer", config_path=CONFIG_PATH)
-    return cfg
+def cfg_infer(config_path_for_tests):
+    cfg = load_model_config(config_name="esm2nv_infer", config_path=config_path_for_tests)
+    yield cfg
+    reset_microbatch_calculator()
+    torch.cuda.empty_cache()
 
 
 def plot_heatmap(diff_array, title, filepath):
@@ -234,12 +222,6 @@ def test_esm2_inference_input_output_shapes_sizes_from_nemo_ckpt(cfg_infer):
 
     # Maybe remove this test. It is not necessary.
     assert sample["sequence"][0] == predictions[0]["sequence"]
-
-
-parameter_sets_json = [
-    ("32", 1e-9, GOLDEN_VALUES_FP32JSON, HEATMAPS_REPO_DIR),
-    ("16-mixed", 1e-1, GOLDEN_VALUES_FP16JSON, HEATMAPS_REPO_DIR),
-]
 
 
 @pytest.mark.needs_gpu

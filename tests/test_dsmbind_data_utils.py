@@ -23,7 +23,7 @@ from .inference_shared_test_code import get_config_dir
 
 
 def dsmbind_test_raw_data_dir(bionemo_home) -> str:
-    path = bionemo_home / "examples" / "tests" / "test_data" / "molecule" / "dsmbind" / "inference_set_test"
+    path = bionemo_home / "examples" / "tests" / "test_data" / "molecule" / "dsmbind" / "inference"
     return str(path)
 
 

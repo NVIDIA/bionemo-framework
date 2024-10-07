@@ -95,7 +95,13 @@ def geneformer_inferer(bionemo_home: Path) -> Generator[GeneformerInference, Non
     with open_dict(cfg):
         # Override where the loaded inference object will look for training data for the inference.model object, which needs train/val/test dataloaders.
         base_dir_processed_files = (
-            bionemo_home / "examples" / "tests" / "test_data" / "cellxgene_2023-12-15_small" / "processed_data"
+            bionemo_home
+            / "examples"
+            / "tests"
+            / "test_data"
+            / "singlecell"
+            / "cellxgene_2023-12-15_small"
+            / "processed_data"
         )
         # TODO make it so that we do not need to load the datamodule into the Geneformer model when loaded by the inference object.
         #  as it is now, whenver a user loads an inference object they need to remember to set the train/val/test paths in the config to

@@ -18,7 +18,7 @@ from bionemo.data.singlecell.dataset import SingleCellDataset
 
 
 def test_dataset_init_lookup():
-    data_path = "examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/test"
+    data_path = "examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/test"
     # This is a convention based on the way the data is generated, not a general rule for how to look
     #  up raw data paths. In general there is no guarantee that we have the path to the original h5ad data.
     input_data_path = data_path.replace("processed_data", "input_data")
@@ -52,7 +52,7 @@ def test_dataset_init_lookup():
 
 
 def test_dataset_ccum():
-    data_path = "examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/test"
+    data_path = "examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/test"
     tokenizer = MagicMock()
 
     dataset = SingleCellDataset(data_path, tokenizer)
@@ -275,7 +275,7 @@ def test_lookup_cell_by_idx():
 
 
 def test_neighbor_lookup():
-    data_path = "/workspace/bionemo/examples/tests/test_data/cellxgene_2023-12-15_small/processed_data/pseudotime/test"
+    data_path = "/workspace/bionemo/examples/tests/test_data/singlecell/cellxgene_2023-12-15_small/processed_data/pseudotime/test"
     # ensure to run add_pt_neighbors and memmaps creation on data_path
     data_path.replace("processed_data", "input_data")
     tokenizer = MagicMock()

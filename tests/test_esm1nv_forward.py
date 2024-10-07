@@ -34,7 +34,9 @@ UPDATE_GOLDEN_VALUES = os.environ.get("UPDATE_GOLDEN_VALUES", "0") == "1"
 
 @pytest.fixture(scope="module")
 def golden_value_prepend_dir(bionemo_home: Path) -> Path:
-    yield Path(bionemo_home / "tests" / "data" / "esm1_golden_values")
+    yield Path(
+        bionemo_home / "examples" / "tests" / "test_data" / "expected_outputs" / "forward_golden_values" / "esm1nv"
+    )
 
 
 @pytest.fixture(scope="module")

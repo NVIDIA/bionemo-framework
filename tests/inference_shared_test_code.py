@@ -52,7 +52,16 @@ def get_config_dir(bionemo_home: Path, model_name: str) -> str:
 
 
 def get_expected_vals_file(bionemo_home: Path, model_name: str) -> Path:
-    return bionemo_home / "tests" / "data" / model_name / "inference_test_golden_values.pt"
+    return (
+        bionemo_home
+        / "examples"
+        / "tests"
+        / "test_data"
+        / "expected_outputs"
+        / "inference_golden_values"
+        / model_name
+        / "inference_test_golden_values.pt"
+    )
 
 
 def run_seqs_to_hiddens_with_goldens(

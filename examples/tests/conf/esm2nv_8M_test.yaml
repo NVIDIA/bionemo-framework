@@ -17,7 +17,7 @@ trainer:
 
 model:
   data:
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/uniref202104_esm2_qc_test200_val200
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/uniref50_90
     train:
       uf90_datapath: ${model.data.dataset_path}/ur90_ur50_sampler.fasta
       cluster_mapping_tsv: ${model.data.dataset_path}/mapping.tsv
@@ -27,7 +27,7 @@ model:
       batch_size: ${.emb_batch_size}
       num_epochs: 1
       task_name: downstream
-      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/downstream
+      dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/flip
 
 
 exp_manager:

@@ -118,7 +118,7 @@ model:
   data:
     batch_size: ${model.micro_batch_size}
     links_file: ${oc.env:BIONEMO_HOME}/examples/molecule/megamolbart/dataset/ZINC-downloader.txt # Set to ZINC-downloader-sample.txt for demo
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/molecule/ # parent directory for data, contains train / val / test folders
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/molecule/zinc15/processed # parent directory for data, contains train / val / test folders
     dataset: # inclusive range of data files to load or can load a single file, e.g. x000 or x[000..186]
       train: x[000..001] # Range is for full dataset
       test: x[000..001]

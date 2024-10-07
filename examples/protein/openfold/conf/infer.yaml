@@ -40,7 +40,7 @@ model:
     chunk_size_opm: 128
 
   data:
-    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/openfold_data/
+    dataset_path: ${oc.env:BIONEMO_HOME}/examples/tests/test_data/protein/openfold/
     dataset_variant: processed
     msa_a3m_filepaths: # Optional list of MSAs files in A3M format for each sequence. Path should be null for sequences without MSAs.
       - - ${model.data.dataset_path}/inference/msas/7b4q_A/bfd_uniclust_hits.a3m
