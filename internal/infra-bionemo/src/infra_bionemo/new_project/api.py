@@ -24,7 +24,6 @@ __all__: Sequence[str] = (
     "Dir",
     "create_on_filesystem",
     "namespace_py_project_structure",
-    "py_project_structure",
     "check",
     "convert",
 )
@@ -110,18 +109,18 @@ def namespace_py_project_structure(
     `setup.py` file by default.
 
     Args:
-        `base_name`: The namespace package name. The import name for the project will follow `base_name.*`.
-                     Note, however, that when used as a Python name, this value will have `-` converted to `_`.
-        `project_name`: used in the project infrastructure & documentation files. It's also used to create the first
-                        differentiated namespaced Python package and initial unit test file. This will be the
-                        first sub-package created under the `base_name` namespace.
-                        Note, however, that when used as a Python name, this value will have `-` converted to `_`.
-        `dependencies`: populates the generated `requirements.txt` file.
-        `add_setup_py`: if true, includes a `File` for `setup.py`.
-        `add_test_reqs`: If true, includes a `File` for `requirements-test.txt` populated with `pytest`.
-        `add_dev_reqs`: If true, includes a `File` for `requirements-dev.txt` populated with `ruff` & `ipdb`.
-        `prefix_test_dirs`: If present, then "test_" is prefixed to the name of each directory created under `tests/`
-                           with "_" as the word separator.
+        base_name: The namespace package name. The import name for the project will follow `base_name.*`.
+                   Note, however, that when used as a Python name, this value will have `-` converted to `_`.
+        project_module_name: used in the project infrastructure & documentation files. It's also used to create the
+                             first differentiated namespaced Python package and initial unit test file. This will be
+                             the first sub-package created under the `base_name` namespace. Note, however, that when
+                             used as a Python name, this value will have `-` converted to `_`.
+        dependencies: populates the generated `requirements.txt` file.
+        add_setup_py: if true, includes a `File` for `setup.py`.
+        add_test_reqs: If true, includes a `File` for `requirements-test.txt` populated with `pytest`.
+        add_dev_reqs: If true, includes a `File` for `requirements-dev.txt` populated with `ruff` & `ipdb`.
+        prefix_test_dirs: If present, then "test_" is prefixed to the name of each directory created under `tests/`
+                         with "_" as the word separator.
 
     Returns:
         Virtual representation of simple Python project on a filesystem.
@@ -174,86 +173,6 @@ def namespace_py_project_structure(
                                 ],
                             )
                         ],
-                    )
-                ],
-            ),
-        ],
-    )
-
-    if add_setup_py:
-        project.contents.append(File("setup.py", setup_py()))
-    if add_test_reqs:
-        project.contents.append(File("requirements-test.txt", requirements_txt(["pytest-cov"])))
-    if add_dev_reqs:
-        project.contents.append(File("requirements-dev.txt", requirements_txt(["ruff", "ipython", "ipdb"])))
-
-    return project
-
-
-def py_project_structure(
-    project_name: str,
-    dependencies: List[str],
-    add_setup_py: bool = False,
-    add_test_reqs: bool = True,
-    add_dev_reqs: bool = True,
-    prefix_test_dirs: bool = True,
-) -> Dir:
-    """Virtual representation of files and folders for a simple, non-namespaced Python project.
-
-    The returned `Dir` represents the entire directory containing a Python project. Such a project needs
-    things like a place to store the Python packages and modules (`src/`), a place for unit tests (`tests/`),
-    files to list project infrastructure (`requirements*.txt`, `pyproject.toml`, `setup.py`), and documentation
-    (`README.md`).
-
-    Note, unlike :func:`namespace_py_project_structure`, this function defaults to include the test & development
-    dependencies under `requirements-test.txt` and `requirements-dev.txt`, respectively. Additionally, this function
-    will not include the `setup.py` file by default.
-
-    Args:
-        `project_name`: Used in the project infrastructure & documentation files. It's also used to create the first
-                        Python package and initial unit test file.
-        `dependencies`: Populates the generated `requirements.txt` file.
-        `add_setup_py`: If true, includes a `File` for `setup.py`.
-        `add_test_reqs`: If true, includes a `File` for `requirements-test.txt` populated with `pytest`.
-        `add_dev_reqs`: If true, includes a `File` for `requirements-dev.txt` populated with `ruff` & `ipdb`.
-        `prefix_test_dirs`: If present, then "test_" is prefixed to the name of each directory created under `tests/`
-                           with "_" as the word separator.
-
-    Returns:
-        Virtual representation of simple Python project on a filesystem.
-
-    Raises:
-        ValueError If the project name is not a valid Python package or module name.
-    """
-    check(project_name)
-
-    module_name = convert(project_name)
-
-    test_dir_prefix = "test_" if prefix_test_dirs else ""
-
-    project = Dir(
-        name=project_name,
-        contents=[
-            File("README.md", readme_md(module_name, project_name)),
-            File("pyproject.toml", pyproject_toml(module_name, project_name)),
-            File("requirements.txt", requirements_txt(dependencies)),
-            Dir(
-                "src",
-                contents=[
-                    Dir(
-                        name=module_name,
-                        contents=[
-                            File("__init__.py", contents=""),
-                        ],
-                    )
-                ],
-            ),
-            Dir(
-                "tests",
-                contents=[
-                    Dir(
-                        f"{test_dir_prefix}{module_name}",
-                        contents=[File(f"test_TODO_{module_name}.py", contents=pytest_example())],
                     )
                 ],
             ),
