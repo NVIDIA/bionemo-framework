@@ -12,8 +12,14 @@ options.
 
 ## Setting Up Your Host Machine Environment
 
-We recommend using a `.env` file in your local workspace to define environment variables. Specifically,
-the following variables are useful to include in your `.env` file:
+### Creating .env For First Time Setup
+To create the `.env` file for the first time, run the following setup script from the repository's root:
+```bash
+./internal/scripts/setup_env_file.sh
+```
+
+We recommend using a `.env` file in your local workspace to define environment variables.
+Specifically, the following variables are useful to include in your `.env` file:
 
 ```txt
 # Local Cache Directories
@@ -49,6 +55,7 @@ Refer to the list below for an explanation of each of these variables:
     type for the NVIDIA GPU Cloud (NGC) command-line interface (CLI).
 - `WANDB_API_KEY`: An API key for Weights and Biases (W&B), a platform for machine learning experiment tracking and
     visualization.
+
 
 For each of these variables, you can define them using `=`. For example, you can set the NGC API key using
 `NGC_CLI_API_KEY=<your API key here>`. You can then define these variables in your current shell using:
@@ -90,9 +97,18 @@ mounted directories while inside the container will persist on the host machine,
 as installed software) will not.
 
 ```bash
-docker run --rm -it -u $(id -u):$(id -g) --gpus all \
-  -e NGC_CLI_API_KEY \
+docker run \
+  --rm -it \
+  -u $(id -u):$(id -g) \
+  --gpus all \
+  --network host \
+  --shm-size=4g \
   -e WANDB_API_KEY \
+  -e NGC_CLI_API_KEY \
+  -e NGC_CLI_ORG \
+  -e NGC_CLI_TEAM \
+  -e NGC_CLI_FORMAT_TYPE \
+  -e BIONEMO_HOME=$DOCKER_REPO_PATH \
   -v $LOCAL_DATA_PATH:$DOCKER_DATA_PATH \
   -v $LOCAL_MODELS_PATH:$DOCKER_MODELS_PATH \
   -v $LOCAL_RESULTS_PATH:$DOCKER_RESULTS_PATH \
@@ -108,6 +124,18 @@ docker run --rm -it -u $(id -u):$(id -g) --gpus all \
 * `-v <LOCAL DIRECTORY>:<DOCKER DIRECTORY>`: Mounts a volume from the host machine to the container.
 * `{{ docker_url }}:{{ docker_tag }}`: The path to the Docker image to use.
 * `/bin/bash`: The command to run inside the container, which starts a Bash shell.
+
+#### Developers Only -- Development Container Build & Launch Process
+If you are developing bionemo code and you have checked out the repository, you can execute the following script
+to launch a development container from the latest checked-in changes:
+```bash
+./internal/scripts/run_dev.sh
+```
+
+Be sure to build the development image first, after committing changes, by running:
+```bash
+./internal/scripts/build_dev_image.sh
+```
 
 ### Running a Model Training Script Inside the Container
 
