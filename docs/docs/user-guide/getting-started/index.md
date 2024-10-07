@@ -90,7 +90,6 @@ $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_expe
 │   ├── artifact_paths.yaml
 │   ├── download_artifacts.py
 │   ├── gpt-pretrain.py
-│   ├── license_check.py
 │   ├── protein
 │   │   └── esm2
 │   │       ├── esm2_pretrain.py
