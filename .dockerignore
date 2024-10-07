@@ -1,5 +1,8 @@
 # -- Docker-specific ignores --
 
+# bionemo related
+results/
+
 # we copy over docs/ into the image for notebook testing, but can skip the images for space
 docs/docs/assets
 

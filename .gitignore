@@ -3,6 +3,7 @@ docs/site/
 *.nemo
 protein/
 singlecell/
+results/
 
 # Local configs
 .gitconfig
