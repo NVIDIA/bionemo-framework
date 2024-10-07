@@ -162,9 +162,9 @@ and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
 **Arguments**:
 
 - `sizes` _torch.Tensor_ - An 1D tensor of integers.
-- `max_width` _int_ - The maximum width of a bucket.
-- `min_bucket_count` _int_ - The minimum count of a bucket.
-  Bucket size may be smaller than min_bucket_count if its range reaches max_width.
+- `max_width` _int_ - The maximum width of a bucket, should be a positive integer.
+- `min_bucket_count` _int_ -  The minimum count of a bucket, should be a positive integer.
+  Bucket size may be smaller than min_bucket_count if its width reaches max_width.
 
 
 **Raises**:
@@ -425,6 +425,7 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
 - `sizes` _torch.Tensor_ - A 1D tensor of real numbers representing the size of each element in the dataset.
 - `bucket_endpoints` _torch.Tensor_ - A 1D tensor of real numbers representing the endpoints of the bucket ranges.
   It will be first sorted and used to create `len(bucket_endpoints) - 1` half-closed intervals as bucket ranges.
+  It should not contain any duplicate values.
 - `base_batch_sampler_class` _Type[Sampler]_ - Base batch sampler class type, which will be used for each bucket.
 - `base_batch_sampler_shared_kwargs` _Dict[str, Any], optional_ - Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
   Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.

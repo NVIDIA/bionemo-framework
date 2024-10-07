@@ -294,6 +294,7 @@ class BucketBatchSampler(Sampler[List[int]]):
         sizes (torch.Tensor): A 1D tensor of real numbers representing the size of each element in the dataset.
         bucket_endpoints (torch.Tensor): A 1D tensor of real numbers representing the endpoints of the bucket ranges.
             It will be first sorted and used to create `len(bucket_endpoints) - 1` half-closed intervals as bucket ranges.
+            It should not contain any duplicate values.
         base_batch_sampler_class (Type[Sampler]): Base batch sampler class type, which will be used for each bucket.
         base_batch_sampler_shared_kwargs (Dict[str, Any], optional): Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
             Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
@@ -414,7 +415,7 @@ class BucketBatchSampler(Sampler[List[int]]):
 
         if torch.any(bucket_endpoints[:-1] >= bucket_endpoints[1:]):
             raise ValueError(
-                f"bucket_endpoints should specify the lower endpoint of each interval smaller than the upper endpoint, but got sorted bucket_endpoints={bucket_endpoints}"
+                f"bucket_endpoints should not have duplicate values, and should specify the lower endpoint of each interval smaller than the upper endpoint, but got sorted bucket_endpoints={bucket_endpoints}"
             )
 
         if not isinstance(shuffle, bool):

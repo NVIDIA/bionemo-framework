@@ -143,9 +143,9 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
 
     Args:
         sizes (torch.Tensor): An 1D tensor of integers.
-        max_width (int): The maximum width of a bucket.
-        min_bucket_count (int): The minimum count of a bucket.
-            Bucket size may be smaller than min_bucket_count if its range reaches max_width.
+        max_width (int): The maximum width of a bucket, should be a positive integer.
+        min_bucket_count (int): The minimum count of a bucket, should be a positive integer.
+            Bucket size may be smaller than min_bucket_count if its width reaches max_width.
 
     Raises:
         ValueError: If the provided sizes is empty, or not integers.
