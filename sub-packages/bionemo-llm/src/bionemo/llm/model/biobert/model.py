@@ -78,9 +78,12 @@ logging.basicConfig(
 logger = logging.getLogger(__file__)
 
 # Add some fields specific to the BIOBERT config that we want to override by default
+# TODO automatically determine which fields a user is trying to override in the future.
 _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS + [
     "return_only_hidden_states",
     "include_hiddens",
+    # Model parallelism settings! Important to override these if the user requests different settings from how
+    #  a model was trained (common). See https://github.com/NVIDIA/bionemo-fw-ea/issues/275
     "tensor_model_parallel_size",
     "pipeline_model_parallel_size",
     "virtual_pipeline_model_parallel_size",
