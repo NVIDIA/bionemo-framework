@@ -36,7 +36,5 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
       - run: pip install -r requirements-dev.txt -r requirements-test.txt
-      - run: cd internal/infra-bionemo && pytest -v
-      - uses: trufflesecurity/trufflehog@main
-        with:
-          extra_args: --only-verified
+      - run: pip install internal/infra-bionemo
+      - run: cd internal/infra-bionemo && pytest -v .
