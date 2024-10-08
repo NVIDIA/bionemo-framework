@@ -63,7 +63,7 @@ def test_create_bionemo_cli(tmpdir, monkeypatch):
     (sub_packages / "bionemo-fw" / "requirements.txt").touch(exist_ok=True)
 
     with monkeypatch.context() as ctx:
-        ctx.setattr("sys.stdin", io.StringIO("y"))
+        ctx.setattr("sys.stdin", io.StringIO("y\ny\n"))
         main_bionemo_sub(
             project_name="bionemo-supermodel",
             loc_sub_pack=str(sub_packages),
