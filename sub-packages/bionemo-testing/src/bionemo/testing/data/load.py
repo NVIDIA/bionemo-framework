@@ -236,12 +236,12 @@ def main_cli():
                 sources.append("pbss")
             print(f"{resource_name}\t{','.join(sources)}")
         sys.exit(0)  # Successful exit
-
-    if args.artifact_name:
-        # Get the local path for the provided artifact name
-        local_path = load(args.artifact_name, source=args.source)
+    elif args.artifact_name:
+        # Redirect stdout from the subprocess calls to stderr
+        with contextlib.redirect_stdout(sys.stderr):
+            local_path = load(args.artifact_name, source=args.source)
         # Print the result
-        print(local_path)
+        print(str(local_path.absolute()))
     else:
         parser.error("You must provide an artifact name if --list-resources is not set.")
 
