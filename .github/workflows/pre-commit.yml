@@ -37,4 +37,4 @@ jobs:
           cache: 'pip'
       - run: pip install -r requirements-dev.txt -r requirements-test.txt
       - run: pip install internal/infra-bionemo
-      - run: cd internal/infra-bionemo && pytest -v .
+      - run: cd internal/infra-bionemo && pytest -v --cov=infra_bionemo --cov-report=term .
