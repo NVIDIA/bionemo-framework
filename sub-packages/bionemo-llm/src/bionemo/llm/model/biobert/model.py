@@ -81,6 +81,13 @@ logger = logging.getLogger(__file__)
 _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS + [
     "return_only_hidden_states",
     "include_hiddens",
+    "tensor_model_parallel_size",
+    "pipeline_model_parallel_size",
+    "virtual_pipeline_model_parallel_size",
+    "sequence_parallel",
+    "context_parallel_size",
+    "expert_model_parallel_size",
+    "moe_extended_tp",
 ]
 
 # A copy that we do not use internally. Useful for external users who want to
