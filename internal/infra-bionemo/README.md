@@ -21,8 +21,11 @@ These are defined at the repository's top-level [`pyproject.toml`](../../pyproje
 outlined in the [top-level README](../../README.md). Once you have your local virtual environment ready, you may
 install this project's code by running the following:
 ```bash
-pip install -e .
+uv pip install --editable .
 ```
+
+NOTE: you may have to re-install the project if there are new or removed packages. If the requirements haven't changed,
+      you can re-install without re-installing the dependenices by doing: `uv pip install --no-deps -e .`
 
 ### Versioning
 This project uses [Semantic Versioning 2.0](https://semver.org/). Contributors *MUST* update the `version` in
