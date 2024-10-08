@@ -1,4 +1,9 @@
 # Geneformer
+NOTE: this document references performance numbers and runtime engines that are from the bionemo v1 variant of the model.
+These numbers will be updated in a coming release to reflect the new bionemo v2 codebase. The model architecture and
+training information will be the same, as checkpoints are converted from bionemo v1 format to v2 format, however
+performance benchmarks need to be updated to reflect the latest code. Accuracy should be the same within small epsilon
+since we have tests in place showing model equivalency between the two versions.
 
 ## Model Overview
 
