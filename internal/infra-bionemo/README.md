@@ -15,6 +15,13 @@ type annotations if it is beneficial.
 
 To run unit tests, use `pytest -v`. Unit tests must cover all features and known bug cases.
 
+To get code coverage reports, run:
+```bash
+pytest -v --cov=infra_bionemo --cov-report=term --cov-report=html .
+```
+Then, open the [HTML coverage report](htmlcov/index.html) in your browser. Note that file coverage stats are reported
+in the terminal too.
+
 ### First Time Setup
 For first time setup, be sure to install the development and test dependencies of the entire bionemo repository.
 These are defined at the repository's top-level [`pyproject.toml`](../../pyproject.toml) file. Follow the instructions
