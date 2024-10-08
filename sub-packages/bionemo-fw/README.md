@@ -1,15 +1,18 @@
 # bionemo-fw
 
-BioNeMo Framework (FW): Production grade framework for AI-enabled Drug Discovery.
+The BioNeMo Framework (FW): a production grade framework for AI-enabled Drug Discovery.
 
-All independently installable bionemo feature packages are dependencies of the bionemo-fw (`bionemo.fw`) namespace package.
-Additionally, the bionemo-core (`bionemo.core`) package is also a dependency.
+The `bionemo-fw` Python package contains framework-spanning code under the `bionemo.fw` namespace.
+All other namespaces of the BioNeMo Framework (`bionemo.*`) are dependencies of this package.
 
-**NOTE**: The bionemo-contrib package **MAY NOT** be a dependency of this framework package!
-
-
-## Installation
+## Developer Setup
+After following the setup specified in the [README](../../README.md), you may install this project's
+code in your environment via executing:
 ```bash
-pip install -r requirements.txt
-pip install -no-deps -e .
+pip install -e .
+```
+
+To run unit tests with code coverage, execute:
+```bash
+pytest -v --cov=bionemo --cov-report=term .
 ```

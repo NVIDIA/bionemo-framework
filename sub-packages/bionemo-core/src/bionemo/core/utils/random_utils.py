@@ -18,7 +18,10 @@ from typing import Iterator, Sequence, Type
 import numpy as np
 
 
-__all__: Sequence[str] = ("random_numpy_context",)
+__all__: Sequence[str] = (
+    "random_numpy_context",
+    "get_seed_from_rng",
+)
 
 
 @contextmanager
