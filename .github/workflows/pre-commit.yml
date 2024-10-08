@@ -1,4 +1,4 @@
-name: Run pre-commit hooks and Run internal/ code's tests
+name: Run pre-commit hooks and Run infra-bionemo tests
 
 on:
   pull_request:
