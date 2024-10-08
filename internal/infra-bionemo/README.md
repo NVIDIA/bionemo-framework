@@ -32,7 +32,7 @@ uv pip install --editable .
 ```
 
 NOTE: you may have to re-install the project if there are new or removed packages. If the requirements haven't changed,
-      you can re-install without re-installing the dependenices by doing: `uv pip install --no-deps -e .`
+      you can re-install without re-installing the dependencies by doing: `uv pip install --no-deps -e .`
 
 ### Versioning
 This project uses [Semantic Versioning 2.0](https://semver.org/). Contributors *MUST* update the `version` in
