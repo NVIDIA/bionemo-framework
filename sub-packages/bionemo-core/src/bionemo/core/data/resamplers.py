@@ -16,12 +16,17 @@
 
 import math
 import random
-from typing import Optional, Union
+from typing import Optional, Sequence, TypeVar, Union
 
 from torch.utils.data import Dataset
 
 
-class PRNGResampleDataset(Dataset):
+__all__: Sequence[str] = "PRNGResampleDataset"
+
+T_co = TypeVar("T_co", covariant=True)
+
+
+class PRNGResampleDataset(Dataset[T_co]):
     """A thread-safe dataset shuffler that uses a pseudo-random number generator (PRNG) to shuffle the dataset.
 
     PRNGResampleDataset shuffles a given dataset using a pseudo-random number generator (PRNG). This allows for
@@ -40,18 +45,18 @@ class PRNGResampleDataset(Dataset):
         for the shuffled list of indices to fit in memory and exhaustive sampling is not required.
     """
 
-    def __init__(self, dataset: Dataset, seed: int = 42, num_samples: Optional[int] = None):
+    def __init__(self, dataset: Dataset[T_co], seed: int = 42, num_samples: Optional[int] = None):
         """Initializes the PRNGResampleDataset.
 
         Args:
-            dataset (Dataset): The dataset to be shuffled.
-            seed (int, optional): The seed value for the PRNG. Default is 42.
-            num_samples (Optional[int], optional): The number of samples to draw from the dataset.
+            dataset: The dataset to be shuffled.
+            seed: The seed value for the PRNG. Default is 42.
+            num_samples: The number of samples to draw from the dataset.
                 If None, the length of the dataset is used. Default is None.
         """
         self.initial_seed = seed
         self.rng = random.Random(seed)
-        self.dataset_len = len(dataset)
+        self.dataset_len = len(dataset)  # type: ignore
         self.num_samples = num_samples if num_samples is not None else len(dataset)
         self.dataset = dataset
         # Store the last accessed index. On this first pass this is initialized to infinity, which will trigger a reset since
@@ -74,11 +79,11 @@ class PRNGResampleDataset(Dataset):
         for _ in range(num_to_advance):
             self.rand_idx()
 
-    def __getitem__(self, index: int):
+    def __getitem__(self, index: int) -> T_co:
         """Returns the item from the dataset at the specified index.
 
         Args:
-            index (int): The index of the item to retrieve.
+            index: The index of the item to retrieve.
 
         Returns:
             The item from the dataset at the specified index.
@@ -110,6 +115,3 @@ class PRNGResampleDataset(Dataset):
     def __len__(self) -> int:
         """Returns the total number of samples in the dataset."""
         return self.num_samples
-
-
-__all__ = ["PRNGResampleDataset"]

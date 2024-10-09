@@ -4,22 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bionemo-esm2"
-license.file = "LICENSE"
 readme = "README.md"
-description = "BioNeMo ESM"
+description = "BioNeMo ESM2 model."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
 dynamic = ["version"]
-dependencies = ['bionemo-core', 'bionemo-llm']
+dependencies = [
+    # bionemo sub-packages
+    'bionemo-core',
+    'bionemo-llm',
+    # external
+]
+
+# Make sure that the tokenizer files are included along with the python files during installation.
+[tool.setuptools.package-data]
+"bionemo.esm2" = ["data/tokenizer/*.json", "data/tokenizer/*.txt"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
-
-# Make sure that the tokenizer files are included along with the python files during installation.
-[tool.setuptools.package-data]
-"bionemo.esm2" = ["data/tokenizer/*.json", "data/tokenizer/*.txt"]
 
 [tool.setuptools_scm]
 root = '../..'

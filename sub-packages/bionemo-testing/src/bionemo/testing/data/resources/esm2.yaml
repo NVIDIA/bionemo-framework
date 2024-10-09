@@ -25,7 +25,7 @@
   description: >
     A pretrained 3B parameter ESM2 model. See https://ngc.nvidia.com/catalog/models/nvidia:clara:esm2nv3b.
 
-- tag: full_data_esm2_pretrain:2.0
+- tag: fulldata_esm2_pretrain:2.0
   ngc: nvidia/clara/esm2_pretrain_nemo2_data:1.0
   ngc_registry: resource
   pbss: "s3://general-purpose/esm2/pretrain/2024_03.tar.gz"

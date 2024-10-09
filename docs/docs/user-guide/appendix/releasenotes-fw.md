@@ -71,7 +71,9 @@
 ### Bug fixes and Improvements
 * NeMo upgraded to v1.22 ([see NeMo release notes](https://github.com/NVIDIA/NeMo/releases)),
 * PyTorch Lightning upgraded to 2.0.7
-* [NGC CLI](https://org.ngc.nvidia.com/setup/installers/cli) has been removed from the release container. If users download models from inside the container (via e.g. `download_artifacts.py` or `launch.sh download`), the NGC CLI will be auto-installed to pull the models from NGC.
+* [NGC CLI](https://org.ngc.nvidia.com/setup/installers/cli) has been removed from the release container. If users
+    download models from inside the container (e.g. using `bionemo_data_download` or via running specific unit tests),
+    the NGC CLI will be auto-installed to pull the models from NGC.
 
 ### Known Issues
 * BioNeMo Framework v24.03 container is vulnerable to [GHSA-whh8-fjgc-qp73](https://github.com/advisories/GHSA-whh8-fjgc-qp73) in onnx 1.14.0. Users are advised not to open untrusted onnx files with this image. Restrict your mount point to minimize directory traversal impact.

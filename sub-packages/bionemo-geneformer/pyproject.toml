@@ -4,12 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bionemo-geneformer"
-license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo Geneformer"
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
 dynamic = ["version"]
-dependencies = ['bionemo-core', 'bionemo-llm']
+dependencies = [
+    # bionemo sub-packages
+    'bionemo-core',
+    'bionemo-llm',
+    # external
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

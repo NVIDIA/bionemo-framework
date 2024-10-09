@@ -4,22 +4,31 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bionemo-fw"
-license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo Framework (FW): Production grade framework for AI-enabled Drug Discovery. Consists of all independently installable bionemo feature packages too."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
+    # bionemo sub-packages
     'bionemo-core',
     'bionemo-esm2',
     'bionemo-geneformer',
+    'bionemo-geometric',
     'bionemo-llm',
     'bionemo-scdl',
+    'bionemo-size-aware-batching',
     'bionemo-webdatamodule',
-    'lightning>=2.2.1',
+    #
+    # NOTE: DO **NOT** INCLUDE:
+    #    bionemo-testing (test-time only dependency)
+    #    bionemo-example_model (documentation)
+    #    bionemo-fw (itself!)
+    #
+    # external
     'nltk',
     'numba>=0.57.1',
-    'pytorch-lightning>=2.2.1',
     'tensorstore==0.1.45',
     'zarr',
 ]

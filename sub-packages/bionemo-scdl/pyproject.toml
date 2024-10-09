@@ -4,19 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bionemo-scdl"
-license.file = "LICENSE"
 readme = "README.md"
 description = "SCDL, a Dataset class for Single Cell data."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
-    'anndata>=0.10.7',
+    # bionemo sub-packages
     'bionemo-core',
-    'numpy>=1.26.0',
+    # external
+    'anndata>=0.10.7',
     'pandas>=2.2.1',
     'pyarrow>=16.0.0',
     'scipy>=1.11.1',
-    'torch>=2.1.0',
 ]
 
 [project.scripts]

@@ -18,7 +18,10 @@ from typing import Iterator, Sequence, Type
 import numpy as np
 
 
-__all__: Sequence[str] = ("random_numpy_context",)
+__all__: Sequence[str] = (
+    "random_numpy_context",
+    "get_seed_from_rng",
+)
 
 
 @contextmanager
@@ -49,6 +52,9 @@ def random_numpy_context(seed: int = 42) -> Iterator[None]:
 def get_seed_from_rng(rng: np.random.Generator, dtype: Type[np.signedinteger] = np.int64) -> int:
     """Generates a deterministic random seed from an existing random generator.
 
+    This is useful in particular because setting the torch seed doesn't want to accept a tuple of numbers, we we often
+    do in initializing a numpy random generator with epoch, index, and global seeds.
+
     Used to seed a torch random generator from a numpy random generator.
     """
-    return rng.integers(np.iinfo(dtype).max)
+    return int(rng.integers(np.iinfo(dtype).max))
