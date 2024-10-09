@@ -1,18 +1,18 @@
 # BioNeMo2 Repo
 
-All `bionemo2` code is partitioned into independently installable namespace packages.
-These live under the `sub-packages/` directory.
+`bionemo2` code is partitioned into independently installable namespace packages.
+These are located under the `sub-packages/` directory. Please refer to [PEP 420 – Implicit Namespace Packages](https://peps.python.org/pep-0420/) for details.
 
 ## Initializing 3rd-party dependencies as git submodules
 
-For development, the NeMo and Megatron-LM dependencies are vendored in the bionemo-2 repository workspace as git
-submodules. The pinned commits for these submodules represent the "last-known-good" versions of these packages that are
+The NeMo and Megatron-LM dependencies are vendored in the bionemo-2 repository workspace as git
+submodules for development purposes. The pinned commits for these submodules represent the "last-known-good" versions of these packages that are
 confirmed to be working with bionemo2 (and those that are tested in CI).
 
 To initialize these sub-modules when cloning the repo, add the `--recursive` flag to the git clone command:
 
 ```bash
-git clone --recursive git@github.com:NVIDIA/bionemo-fw-ea.git
+git clone --recursive git@github.com:NVIDIA/bionemo-framework.git
 ```
 
 To download the pinned versions of these submodules within an existing git repository, run
@@ -58,24 +58,25 @@ After building the development image, you can start a container from it and open
 ./internal/scripts/run_dev.sh
 ```
 
-## Downloading artifacts
+## Downloading artifacts (For NVIDIA Employees)
 Set the AWS access info in environment prior to running the dev-container launch script:
+
 ```bash
 AWS_ACCESS_KEY_ID="team-bionemo"
 AWS_SECRET_ACCESS_KEY=$(grep aws_secret_access_key ~/.aws/config | cut -d' ' -f 3)
 AWS_REGION="us-east-1"
 AWS_ENDPOINT_URL="https://pbss.s8k.io"
 ```
-then, running tests should download the test data to a cache location when first invoked.
+
+Running tests downloads the test data to a cache location when first invoked.
 
 For more information on adding new test artifacts, see the documentation in
 [`bionemo.testing.data.load`](sub-packages/bionemo-testing/src/bionemo/testing/data/README.md).
 
+## Updating pinned versions of NeMo / Megatron-LM
 
-### Updating pinned versions of NeMo / Megatron-LM
-
-To update the pinned commits of NeMo or Megatron-LM, checkout that commit in the submodule folder, and then commit the
-result in the top-level bionemo repository.
+Pinned commits are bumped by depend-a-bot. To update the pinned commits of NeMo or Megatron-LM manually, checkout the
+commit of interest in the submodule folder, and then commit the result in the top-level bionemo repository.
 
 ```bash
 cd 3rdparty/NeMo/
@@ -86,7 +87,6 @@ git add '3rdparty/NeMo/'
 git commit -m "updating NeMo commit"
 ```
 
-
 ## Testing Locally
 Inside the development container, run `./ci/scripts/static_checks.sh` to validate that code changes will pass the code
 formatting and license checks run during CI. In addition, run the longer `./ci/scripts/pr_test.sh` script to run unit
@@ -94,10 +94,6 @@ tests for all sub-packages.
 
 
 ## Publishing Packages
-
-*Note*: Once we have a pypi deployment strategy, we should automate the following commands to run automatically via
-github actions on new git tags. We can therefore trigger wheel building and pypi deployment by minting new releases as
-part of the github.com CI.
 
 ### Add a new git tag
 
@@ -115,7 +111,7 @@ Bionemo packages follow [semantic versioning 2.0](https://semver.org/) rules: AP
 features are `MINOR`, and bug-fixes and refactors are `PATCH` in `MAJOR.MINOR.PATCH` version string format.
 
 If subsequent commits are added after a git tag, the version string will reflect the additional commits (e.g.
-`2.0.0a1.post1`). Note, we don't consider uncommitted changes in determining the version string.
+`2.0.0a1.post1`). **NOTE**: we don't consider uncommitted changes in determining the version string.
 
 ### Building a python wheel
 
@@ -126,7 +122,7 @@ Build the bionemo sub-package project by executing the following for the desired
 uv build sub-packages/bionemo-core/
 ```
 
-This will produce a wheel file for the sub-package's code and its dependencies:
+Produce a wheel file for the sub-package's code and its dependencies:
 ```shell
 $ ls sub-packages/bionemo-core/dist/
 bionemo_core-2.0.0a1.post0-py3-none-any.whl  bionemo_core-2.0.0a1.post0.tar.gz
@@ -134,7 +130,7 @@ bionemo_core-2.0.0a1.post0-py3-none-any.whl  bionemo_core-2.0.0a1.post0.tar.gz
 
 ### Uploading a python wheel
 
-After building, the wheel file can be uploaded to PyPI (or a compatible package registry) by executing
+After building, the wheel file may be uploaded to PyPI (or a compatible package registry) by executing
 `uvx twine upload sub-packages/bionemo-core/dist/*`.
 
 ### All steps together
@@ -152,7 +148,7 @@ TWINE_PASSWORD="<pypi pass>" TWINE_USERNAME="<pypi user>" uvx twine upload /sub-
 #### Running
 First off, we have a utility function for downloading full/test data and model checkpoints called `download_bionemo_data` that our following examples currently use. This will download the object if it is not already on your local system,  and then return the path either way. For example if you run this twice in a row, you should expect the second time you run it to return the path almost instantly.
 
-Note NVIDIA employees should use `pbss` rather than `ngc` for the data source.
+**NOTE**: NVIDIA employees should use `pbss` rather than `ngc` for the data source.
 
 ```bash
 export MY_DATA_SOURCE="ngc"
@@ -178,7 +174,7 @@ python  \
     --val-check-interval 10 \
     --num-dataset-workers 1 \
     --num-steps 10 \
-    --max-seq-length 128 \
+    --max-seq-length 1024 \
     --limit-val-batches 2 \
     --micro-batch-size 2 \
     --restore-from-checkpoint-path ${ESM2_650M_CKPT}
@@ -208,15 +204,13 @@ python  \
     --micro-batch-size 2
 ```
 
-To fine-tune, you just need to specify a different combination of model and loss (TODO also data class). To do that you
-pass the path to the config output by the previous step as the `--restore-from-checkpoint-path`, and also change the
-`--training-model-config-class` to the new one.
+To fine-tune, you just need to specify a different combination of model and loss. Pass the path to the outputted config file from the previous step as the `--restore-from-checkpoint-path`, and also change
+`--training-model-config-class` to the newly created model-config-class.
 
-Eventually we will also add CLI options to hot swap in different data modules and processing functions so you could
-pass new information into your model for fine-tuning or new targets, but if you want that functionality _now_ you could
+While no CLI option currently exists to hot swap in different data modules and processing functions _now_, you could
 copy the `scripts/singlecell/geneformer/train.py` and modify the DataModule class that gets initialized.
 
-Simple fine-tuning example (NOTE: please change `--restore-from-checkpoint-path` to be the one that was output last
+Simple fine-tuning example (**NOTE**: please change `--restore-from-checkpoint-path` to be the checkpoint directory path that was output last
 by the previous train run)
 ```bash
 TEST_DATA_DIR=$(download_bionemo_data single_cell/testdata-20240506 --source $MY_DATA_SOURCE); \
@@ -238,23 +232,27 @@ python  \
 ```
 
 
+
 ## Updating License Header on Python Files
-Make sure you have installed [`license-check`](https://gitlab-master.nvidia.com/clara-discovery/infra-bionemo),
-which is defined in the development dependencies. If you add new Python (`.py`) files, be sure to run as:
+If you add new Python (`.py`) files, be sure to run our license-check. If you have not already done sone, please install
+the dev-requirements.txt. If you are working directly inside a release container, you may need to manually install these.
+We recommend using the developer container for contributions.
+
 ```bash
-license-check --license-header ./license_header --check . --modify --replace
+pip install -r dev-requirements.txt --user
+python ./scripts/license_check.py --modify --replace --license-header ./license_header -c sub-packages/ -c docs/ -c scripts/ -c ci/ -c internal/
 ```
 
 
 # UV-based python packaging
 
-We've begun migrating to use `uv` (https://docs.astral.sh/uv/) to handle python packaging inside our docker containers.
-In addition to streamlining how we specify intra-repo dependencies, it will allow us to create a uv lockfile to pin our
+BioNeMo FW is migrating to use `uv` (https://docs.astral.sh/uv/) for handling python packaging inside our docker containers.
+In addition to streamlining how we specify intra-repo dependencies, it allows us to create a uv lockfile to pin our
 dependencies for our bionemo docker container.
 
-We'll likely maintain two images going forward:
+We'll maintain two images going forward:
 
-1. An image that derives from `nvcr.io/nvidia/pytorch` that will be our performance baseline. The advantage of this
+2. An image that derives from `nvcr.io/nvidia/pytorch` that will be our performance baseline. The advantage of this
    image base is that the performance of pytorch is validated by the NVIDIA pytorch team, but the downsides are that (1)
    the overall image size is quite large, and (2) using `uv sync` to install a pinned virtual environment is not
    possible with the existing python environment in the ngc image.
@@ -265,29 +263,8 @@ We'll likely maintain two images going forward:
 Currently, the devcontainer derives from the cuda-based image above, while the release image derives from the pytorch
 image.
 
-## Generating uv.lock
 
-The current `uv.lock` file was generated by running
-
-```bash
-uv lock --refresh --no-cache
-```
-
-For cuda 12.4, we can run
-
-```bash
-uv lock --extra-index-url https://download.pytorch.org/whl/cu124 --index-strategy unsafe-best-match --refresh --no-cache
-```
-
-(to match https://pytorch.org/get-started/locally/#start-locally)
-
-## Building the CUDA image
-
-```bash
-docker build -f Dockerfile.uv . -t bionemo-uv
-```
-
-## Runnings tests inside the CUDA image.
+## Runnings tests inside the CUDA container.
 
 ```bash
 docker run --rm -it \

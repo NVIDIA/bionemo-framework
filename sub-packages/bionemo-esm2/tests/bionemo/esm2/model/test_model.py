@@ -223,7 +223,7 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
 def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
-    compute_hf_reference: bool = False
+    compute_hf_reference: bool = True
     seed: int = 42
 
     with (

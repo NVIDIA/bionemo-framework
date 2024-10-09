@@ -1,7 +1,7 @@
 site_name: BioNeMo Framework
 site_url: https://fuzzy-train-6k9k9e3.pages.github.io/
-repo_url: https://github.com/NVIDIA/bionemo-fw-ea
-repo_name: NVIDIA/bionemo-fw-ea
+repo_url: https://github.com/NVIDIA/bionemo-framework
+repo_name: NVIDIA/bionemo-framework
 
 theme:
   name: "material"
@@ -53,6 +53,7 @@ plugins:
   - gen-files:
       scripts:
         - scripts/gen_ref_pages.py
+  - macros
   - mkdocstrings:
       handlers:
         python:
@@ -88,7 +89,10 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/NVIDIA/bionemo-fw-ea
+      link: https://github.com/NVIDIA/bionemo-framework
+  docker_url: nvcr.io/nvidian/cvai_bnmo_trng/bionemo
+  docker_tag: main--nightly
+  github_url: https://github.com/NVIDIA/bionemo-framework
 
 copyright: |
   &copy; Copyright 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.

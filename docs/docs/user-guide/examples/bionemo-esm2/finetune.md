@@ -1,6 +1,6 @@
 # ESM2 Fine-Tuning
 
-This notebook serves as a demo for implementing ESM2 Fine-tuning module, running a regression example and using the model for inference.
+This readme serves as a demo for implementing ESM2 Fine-tuning module, running a regression example and using the model for inference.
 
 The ESM2 model is a transformer-based protein language model that has achieved state-of-the-art results in various protein-related tasks. The task head plays a crucial role in fine-tuning for a downstream task. As a part of transfer learning, a pre-trained model is often utilized to learn generic features from a large-scale dataset. However, these features might not be directly applicable to the specific task at hand. By incorporating a task head, which consists of learnable parameters, the model can adapt and specialize to the target task. The task head serves as a flexible and adaptable component that learns task-specific representations by leveraging the pre-trained features as a foundation. Through fine-tuning, the task head enables the model to learn and extract task-specific patterns, improving performance and addressing the nuances of the downstream task. It acts as a critical bridge between the pre-trained model and the specific task, enabling efficient and effective transfer of knowledge.
 
@@ -9,7 +9,7 @@ The ESM2 model is a transformer-based protein language model that has achieved s
 
 In this tutorial, we will demonstrate how to create a fine-tune module, train a regression task head, and use the fine-tuned model for inference.
 
-All commands should be executed inside the BioNeMo docker container, which has all ESM2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`. (**Note**: This `WORKDIR` may be `/workspaces/bionemo-fw-ea` if you are using the VSCode Dev Container.) For more information on how to build or pull the BioNeMo2 container, refer to the [BioNeMo2 README](../../../../../README.md)!
+All commands should be executed inside the BioNeMo docker container, which has all ESM2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`. (**Note**: This `WORKDIR` may be `/workspaces/bionemo-framework` if you are using the VSCode Dev Container.) For more information on how to build or pull the BioNeMo2 container, refer to the [BioNeMo2 README]({{ github_url }})!
 
 To successfully accomplish this we need to define some key classes:
 
