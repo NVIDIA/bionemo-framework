@@ -1,4 +1,5 @@
 mkdocs-material
+mkdocs-macros-plugin
 mkdocs-minify-plugin
 mkdocstrings[python]
 mkdocs-gen-files
