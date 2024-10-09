@@ -171,7 +171,9 @@ def main(
         if nsys_end_step is None:
             nsys_end_step = num_steps
         callbacks.append(
-            nl_callbacks.NsysCallback(start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True)
+            nl_callbacks.NsysCallback(
+                start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
+            )
         )
 
     trainer = nl.Trainer(
