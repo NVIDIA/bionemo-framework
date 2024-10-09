@@ -5,25 +5,72 @@ build-backend = "setuptools.build_meta"
 # We can likely clean up the meta-package once https://github.com/astral-sh/uv/issues/6935 has a resolution.
 [project]
 name = "bionemo-meta"
-version = "2.0.0"
-license.file = "LICENSE/license.txt"
 readme = "README.md"
 description = "BioNeMo meta-package."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+classifiers = ["Private :: Do Not Upload", "Programming Language :: Python :: 3.10"]
+license = { file = "LICENSE/license.txt" }
+version = "2.0.0"
 dependencies = [
+    # **ALL** bionemo sub-packages
     'bionemo-core',
     'bionemo-esm2',
     'bionemo-example_model',
     'bionemo-fw',
     'bionemo-geneformer',
+    'bionemo-geometric',
     'bionemo-llm',
     'bionemo-scdl',
+    'bionemo-size-aware-batching',
     'bionemo-testing',
     'bionemo-webdatamodule',
+    # external
     'nemo_run',
     'torch==2.3.*',
 ]
 
+[project.optional-dependencies]
+build = ['flash-attn', 'pip']
+
+[tool.uv.workspace]
+members = [
+    "3rdparty/*",
+    "sub-packages/bionemo-*/",
+]
+
+[tool.uv.sources]
+# external
+nemo_run = { git = "https://github.com/NVIDIA/NeMo-Run", rev = "34259bd3e752fef94045a9a019e4aaf62bd11ce2" }
+# under 3rdparty/
+nemo_toolkit = { workspace = true }
+megatron-core = { workspace = true }
+# in sub-packages/
+bionemo-core = { workspace = true }
+bionemo-esm2 = { workspace = true }
+bionemo-example_model = { workspace = true }
+bionemo-fw = { workspace = true }
+bionemo-geneformer = { workspace = true }
+bionemo-geometric = { workspace = true }
+bionemo-llm = { workspace = true }
+bionemo-scdl = { workspace = true }
+bionemo-size-aware-batching = { workspace = true }
+bionemo-testing = { workspace = true }
+bionemo-webdatamodule = { workspace = true }
+# in internal/
+
+[tool.uv]
+dev-dependencies = [
+    "click",
+    "ipdb",
+    "nbval",
+    "pre-commit",
+    "pyright",
+    "ruff",
+    "tach>=0.9.0",
+    "tenacity",
+]
+no-build-isolation-package = ["flash-attn"]
 
 [tool.black]
 line-length = 119
@@ -49,6 +96,7 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["D104", "E402", "F401", "F403", "F811"]
 "test_*.py" = ["D"]
+"conftest.py" = ["D"]
 "scripts/*.py" = ["D"]
 
 [tool.ruff.lint.isort]
@@ -67,49 +115,21 @@ include = ["./scripts/", "./sub-packages/"]
 exclude = ["*/tests/"]
 executionEnvironments = [
     { "root" = ".", pythonVersion = "3.10", extraPaths = [
+        # 3rd party, git submodules
         "./3rdparty/Megatron-LM",
         "./3rdparty/NeMo",
-        "./sub-packages/bionemo-core/src",
-        "./sub-packages/bionemo-esm2/src",
-        "./sub-packages/bionemo-example_model/src",
-        "./sub-packages/bionemo-fw/src",
-        "./sub-packages/bionemo-geneformer/src",
-        "./sub-packages/bionemo-llm/src",
-        "./sub-packages/bionemo-scdl/src",
-        "./sub-packages/bionemo-testing/src",
+        # bionemo sub-packages
+        './sub-packages/bionemo-core/src',
+        './sub-packages/bionemo-esm2/src',
+        './sub-packages/bionemo-example_model/src',
+        './sub-packages/bionemo-fw/src',
+        './sub-packages/bionemo-geneformer/src',
+        './sub-packages/bionemo-geometric/src',
+        './sub-packages/bionemo-llm/src',
+        './sub-packages/bionemo-scdl/src',
+        './sub-packages/bionemo-size-aware-batching/src',
+        './sub-packages/bionemo-testing/src',
+        './sub-packages/bionemo-webdatamodule/src',
+        # internal
     ] },
 ]
-
-[project.optional-dependencies]
-build = ['flash-attn', 'pip']
-
-[tool.uv]
-dev-dependencies = [
-    "click",
-    "ipdb",
-    "nbval",
-    "pre-commit",
-    "pyright",
-    "ruff",
-    "tach>=0.9.0",
-    "tenacity",
-]
-no-build-isolation-package = ["flash-attn"]
-
-
-[tool.uv.workspace]
-members = ["3rdparty/*", "sub-packages/bionemo-*/"]
-
-[tool.uv.sources]
-nemo_run = { git = "https://github.com/NVIDIA/NeMo-Run", rev = "34259bd3e752fef94045a9a019e4aaf62bd11ce2" }
-nemo_toolkit = { workspace = true }
-megatron-core = { workspace = true }
-bionemo-core = { workspace = true }
-bionemo-esm2 = { workspace = true }
-bionemo-example_model = { workspace = true }
-bionemo-fw = { workspace = true }
-bionemo-geneformer = { workspace = true }
-bionemo-llm = { workspace = true }
-bionemo-scdl = { workspace = true }
-bionemo-testing = { workspace = true }
-bionemo-webdatamodule = { workspace = true }

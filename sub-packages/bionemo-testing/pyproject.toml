@@ -4,14 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bionemo-testing"
-license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo testing: utilities aiding test creation for bionemo packages. Do Not Distriburte on PyPI !!"
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
+    # bionemo sub-packages
     'bionemo-core',
     'bionemo-llm',
+    # external
     'boto3',
     'email-validator',
     'ngcsdk',
@@ -25,15 +28,15 @@ dependencies = [
 [project.scripts]
 download_bionemo_data = "bionemo.testing.data.load:main_cli"
 
+# Make sure that the resource yaml files are being packaged alongside the python files.
+[tool.setuptools.package-data]
+"bionemo.testing" = ["**/*.yaml"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
-
-# Make sure that the resource yaml files are being packaged alongside the python files.
-[tool.setuptools.package-data]
-"bionemo.testing" = ["**/*.yaml"]
 
 [tool.setuptools_scm]
 root = '../..'

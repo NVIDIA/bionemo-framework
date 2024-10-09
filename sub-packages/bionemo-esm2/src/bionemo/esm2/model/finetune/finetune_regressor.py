@@ -100,7 +100,7 @@ class MegatronMLPHead(MegatronModule):
 
         layer_sizes = [config.hidden_size, 256, 1]
         self.linear_layers = torch.nn.ModuleList(
-            [torch.nn.Linear(i, o) for i, o in zip(layer_sizes[:-1], layer_sizes[1:])]
+            [torch.nn.Linear(i, o) for i, o in zip(layer_sizes[:-1], layer_sizes[1:])]  # noqa: RUF007
         )
         self.act = torch.nn.ReLU()
         self.dropout = torch.nn.Dropout(p=config.ft_dropout)

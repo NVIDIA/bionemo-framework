@@ -10,7 +10,19 @@ authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dynamic = ["version"]
-dependencies = ['bionemo-core', 'bionemo-llm', 'webdataset==0.2.96']
+dependencies = [
+    # bionemo sub-packages
+    'bionemo-core',
+    'bionemo-llm',
+    # external
+    'webdataset==0.2.96',
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bionemo.*"]
+namespaces = true
+exclude = ["test*."]
 
 [tool.setuptools_scm]
 root = '../..'

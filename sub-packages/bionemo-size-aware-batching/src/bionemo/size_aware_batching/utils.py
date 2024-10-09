@@ -15,10 +15,12 @@
 
 import gc
 import sys
-from typing import Callable, Iterable, List, Optional, Tuple, TypeVar
+from typing import Callable, Iterable, List, Optional, Sequence, Tuple, TypeVar
 
 import torch
 
+
+__all__: Sequence[str] = ("collect_cuda_peak_alloc",)
 
 Data = TypeVar("Data")
 Feature = TypeVar("Feature")
@@ -30,8 +32,7 @@ def collect_cuda_peak_alloc(
     device: torch.device,
     cleanup: Optional[Callable[[], None]] = None,
 ) -> Tuple[List[Feature], List[int]]:
-    """
-    Collects CUDA peak memory allocation statistics for a given workflow.
+    """Collects CUDA peak memory allocation statistics for a given workflow.
 
     This function iterates through the provided dataset, applies the given feature function to each data point,
     and records the peak CUDA memory allocation during this process. The features extracted from the data points
@@ -54,8 +55,8 @@ def collect_cuda_peak_alloc(
         ValueError: If the provided device is not a CUDA device.
 
     -------
-    Examples:
 
+    Examples:
     ```python
     >>> import torch
     >>> from bionemo.size_aware_batching.utils import collect_cuda_peak_alloc
