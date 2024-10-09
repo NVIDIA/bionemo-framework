@@ -12,7 +12,7 @@ confirmed to be working with bionemo2 (and those that are tested in CI).
 To initialize these sub-modules when cloning the repo, add the `--recursive` flag to the git clone command:
 
 ```bash
-git clone --recursive git@github.com:NVIDIA/bionemo-fw-ea.git
+git clone --recursive git@github.com:NVIDIA/bionemo-framework.git
 ```
 
 To download the pinned versions of these submodules within an existing git repository, run
@@ -174,7 +174,7 @@ python  \
     --val-check-interval 10 \
     --num-dataset-workers 1 \
     --num-steps 10 \
-    --max-seq-length 128 \
+    --max-seq-length 1024 \
     --limit-val-batches 2 \
     --micro-batch-size 2 \
     --restore-from-checkpoint-path ${ESM2_650M_CKPT}
