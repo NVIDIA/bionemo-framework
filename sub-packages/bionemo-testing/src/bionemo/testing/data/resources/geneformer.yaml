@@ -18,7 +18,7 @@
   description: >
     A pre-trained 10.3M parameter geneformer (BERT) on 23M unique single cells and 25429 ENSG based tokens, padded to a
     final shape of 25472 for GPU efficiency. See https://wandb.ai/clara-discovery/scFM_v9/runs/4ij9ghox and converted
-    to nemo2 format with https://github.com/NVIDIA/bionemo-fw-ea/pull/180
+    to nemo2 format with https://github.com/NVIDIA/bionemo-framework/pull/180
 
 - tag: 106M_240530:2.0
   ngc: nvidia/clara/geneformer_100m:2.0
@@ -29,7 +29,7 @@
   description: >
     A pre-trained 106M parameter geneformer (BERT) on 23M unique single cells and 25429 ENSG based tokens, padded to a
     final shape of 25472 for GPU efficiency. See https://wandb.ai/clara-discovery/scFM_v9/runs/KZxWJ0I5 and converted
-    to nemo2 format with https://github.com/NVIDIA/bionemo-fw-ea/pull/180
+    to nemo2 format with https://github.com/NVIDIA/bionemo-framework/pull/180
 
 - tag: qa
   ngc: nvidia/clara/geneformer-qa:1.0
