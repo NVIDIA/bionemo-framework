@@ -67,7 +67,7 @@ dev-dependencies = [
     "pre-commit",
     "pyright",
     "ruff",
-    "tach>=0.9.0",
+    "tach",
     "tenacity",
 ]
 no-build-isolation-package = ["flash-attn"]

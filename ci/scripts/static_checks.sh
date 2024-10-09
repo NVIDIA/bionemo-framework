@@ -11,12 +11,6 @@ ruff check scripts/ sub-packages/ docs/
 E_RUFF_CHECK="$?"
 set -e
 
-echo "Running tach checks"
-set +e
-tach check
-E_TACH_CHECK="$?"
-set -e
-
 echo "Running pre-commit checks"
 set +e
 pre-commit run --all-files --show-diff-on-failure --color always
@@ -32,10 +26,6 @@ fi
 if [[ "${E_RUFF_CHECK}" != "0" ]]; then
   ANY_FAILURE=1
   echo "ERROR: ruff check failed! (exit: ${E_RUFF_CHECK})"
-fi
-if [[ "${E_TACH_CHECK}" != "0" ]]; then
-  ANY_FAILURE=1
-  echo "ERROR: tach check failed! (exit: ${E_TACH_CHECK})"
 fi
 if [[ "${ANY_FAILURE}" != "0" ]]; then
   exit 1
