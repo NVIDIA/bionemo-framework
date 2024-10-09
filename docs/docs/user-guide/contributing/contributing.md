@@ -145,7 +145,7 @@ Developer workflow for _external_ code contributions is as follows:
 2. Clone the forked repository and push changes to the personal fork.
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/YOUR_FORK.git bionemo-fw-ea
+git clone https://github.com/YOUR_USERNAME/YOUR_FORK.git bionemo-framework
 # Checkout the targeted branch and commit changes
 # Push the commits to a branch on the fork (remote).
 git push -u origin <local-branch>:<remote-branch>

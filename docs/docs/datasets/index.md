@@ -5,7 +5,6 @@ The BioNeMo Framework provides access to a variety of high-quality datasets for 
 | **Dataset**                                              | **Modality**   | **Uses**                                         |
 | -------------------------------------------------------- | -------------- | ------------------------------------------------ |
 | [CELLxGENE](./CELLxGENE.md)                              | Single Cell    | Single-Cell Gene Expression
-| [UniProt](./uniprot.md)                          | Protein        | Protein Sequence and Function Analysis           |
-Analysis             |
+| [UniProt](./uniprot.md)                                  | Protein        | Protein Sequence and Function Analysis           |
 
 For more information about the datasets included in the BioNeMo Framework, refer to the Dataset Cards linked in the table above or the original sources referenced in the respective dataset descriptions.
