@@ -18,5 +18,5 @@ docker run --rm -it -p 8000:8000 \
     nvcr.io/nvidian/cvai_bnmo_trng/bionemo2-docs:latest
 ```
 
-And then navigate to [`http://0.0.0.0:8000/bionemo-framework/`](http://0.0.0.0:8000/bionemo-framework/) on your local
+And then navigate to [`http://0.0.0.0:8000`](http://0.0.0.0:8000) on your local
 machine.
