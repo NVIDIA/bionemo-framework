@@ -516,6 +516,9 @@ class BioBertConfig(
             use_full_attention_mask=use_full_attention_mask,
             include_hiddens=self.include_hiddens,
         )
+
+        model.forward = torch.compile(model.forward)
+
         # TODO (@skothenhill) this is a hack to load the old checkpoint.
         # This should be removed once we have a proper checkpoint conversion
         # see NeMo/nemo/collections/llm/gpt/model/mixtral.py for how we should do it.
