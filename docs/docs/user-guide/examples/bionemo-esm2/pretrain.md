@@ -274,7 +274,7 @@ llm.train(
 
 Or simply call [`esm2_pretrain.py`](../../../../../scripts/protein/esm2/esm2_pretrain.py) directly.
 ```bash
-DATA_PATH=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source pbss)
+DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source pbss)
 
 python scripts/protein/esm2/esm2_pretrain.py \
     --train-cluster-path ${DATA_DIR}/2024_03_sanity/train_clusters_sanity.parquet \
