@@ -126,6 +126,10 @@ class ESM2TEDotProductAttention(TEDotProductAttention):
             **extra_kwargs,
         )
 
+    @torch.compiler.disable
+    def forward(self, *args, **kwargs):  # noqa: D102
+        return super().forward(*args, **kwargs)
+
 
 class ESM2DotProductAttention(DotProductAttention):
     """ESM2-Specific core attention.
