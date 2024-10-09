@@ -74,13 +74,13 @@ models:
             target: "molecule/diffdock/diffdock_confidence.nemo"
         md5sum: 8d0e386b6b78be3eff5c334b6cda5607 # pragma: allowlist secret
     esm2nv_8m_untrained:
-        ngc: null
+        ngc: "nvidia/clara/esm2nv-8m-test:1.0"
         pbss: "s3://bionemo-ci/models/esm2nv_8M_untrained.nemo"
         symlink:
             source: "../../esm2nv_8M_untrained.nemo"
             target: "protein/esm2nv/esm2nv_8M_untrained.nemo"
     esm2nv_8m_lora:
-        ngc: null
+        ngc: "nvidia/clara/esm2nv-8m-lora-test:1.0"
         pbss: "s3://bionemo-ci/models/esm2nv_sec_str_lora.nemo"
         symlink:
             source: "../../esm2nv_sec_str_lora.nemo"
@@ -106,12 +106,14 @@ models:
             source: "../../openfold_finetuning_inhouse_checkpoint.nemo"
             target: "protein/openfold/openfold_finetuning_inhouse_checkpoint.nemo"
     esm2_650m_huggingface:
+        ngc: "nvidia/clara/esm2-650m-huggingface:1.0"
         pbss: "s3://bionemo-ci/models/esm2-650M-huggingface"
         relative_download_dir: "protein/esm2nv/esm2-650M-huggingface"
         # Hugging face models are multiple files in a directory, so the recursive
         # flag is used to download everything in the dir.
         extra_args: "--recursive"
     esm2_3b_huggingface:
+        ngc: "nvidia/clara/esm2-3B-huggingface:1.0"
         pbss: "s3://bionemo-ci/models/esm2-3B-huggingface"
         relative_download_dir: "protein/esm2nv/esm2-3B-huggingface"
         # Hugging face models are multiple files in a directory, so the recursive
@@ -151,97 +153,122 @@ models:
             target: "molecule/dsmbind/dsmbind.pth"
 data:
     openfold_sample:
+        ngc: "nvidia/clara/openfold_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_openfold_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "protein"
     singlecell_sample:
+        ngc: "nvidia/clara/singlecell_sample:1.0"
         pbss: "s3://bionemo-ci/test-data/singlecell/singlecell-testdata-20240506.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "singlecell"
     diffdock_training_sample:
+        ngc: "nvidia/clara/diffdock_training_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/molecule/diffdock/diffdock_vprocessed_sample_05022024.tar.gz"
         relative_download_dir: "examples/tests/test_data/molecule/"
         untar_dir: "diffdock"
     diffdock_preprocessing_sample:
+        ngc: "nvidia/clara/diffdock_preprocessing_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/molecule/diffdock/diffdock_vpreprocessing_test_07022024.tar.gz"
         relative_download_dir: "examples/tests/test_data/molecule/"
         untar_dir: "diffdock"
     diffdock_cugraph_sample:
+        ngc: "nvidia/clara/diffdock_cugraph_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/molecule/diffdock/diffdock_vmodel_io_03042024_cugraph.tar.gz"
         relative_download_dir: "examples/tests/test_data/molecule/"
         untar_dir: "diffdock"
     diffdock_sample_posebuster:
+        ngc: "nvidia/clara/diffdock_sample_posebuster:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/molecule/diffdock/20241004_posebuster_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/molecule"
         untar_dir: "diffdock"
     dna_synthetic_sample:
+        ngc: "nvidia/clara/dna_synthetic_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/20241004_dna_synthetic_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "."
     dsmbind_sample_inference:
+        ngc: "nvidia/clara/dsmbind_sample_inference:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/molecule/dsmbind/20241004_dsmbind_inference_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/molecule/"
         untar_dir: "dsmbind"
     physchem_sample:
+        ngc: "nvidia/clara/physchem_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/molecule/20241004_physchem_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "molecule"
     uspto50k_sample:
+        ngc: "nvidia/clara/uspto50k_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/molecule/20241004_uspto50k_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "molecule"
     zinc15_sample:
+        ngc: "nvidia/clara/zinc15_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/molecule/20241004_zinc15_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "molecule"
     equidock_sample:
+        ngc: "nvidia/clara/equidock_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_equidock_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "protein"
     esm2nv_synthetic_sample:
+        ngc: "nvidia/clara/esm2nv_synthetic_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_esm2nv_synthetic_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "protein"
     flip_sample:
+        ngc: "nvidia/clara/flip_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_flip_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "protein"
     uniref50_sample:
+        ngc: "nvidia/clara/uniref50_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_uniref50_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "protein"
     uniref50_90_sample:
+        ngc: "nvidia/clara/uniref50_90_sample:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/protein/20241004_uniref50_90_sample.tar.gz"
         relative_download_dir: "examples/tests/test_data/"
         untar_dir: "protein"
     unit_test_forward_golden_values_esm1nv:
+        ngc: "nvidia/clara/unit_test_forward_golden_values_esm1nv:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/forward_golden_values/20241004_unit_test_forward_golden_values_esm1nv.tar.gz"
         relative_download_dir: "examples/tests/test_data/expected_outputs"
         untar_dir: "forward_golden_values"
     unit_test_forward_golden_values_esm2nv:
+        ngc: "nvidia/clara/unit_test_forward_golden_values_esm2nv:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/forward_golden_values/20241004_unit_test_forward_golden_values_esm2nv.tar.gz"
         relative_download_dir: "examples/tests/test_data/expected_outputs"
         untar_dir: "forward_golden_values"
     unit_test_forward_golden_values_esm2nv_lora:
+        ngc: "nvidia/clara/unit_test_forward_golden_values_esm2nv_lora:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/forward_golden_values/20241004_unit_test_forward_golden_values_esm2nv_lora.tar.gz"
         relative_download_dir: "examples/tests/test_data/expected_outputs/forward_golden_values"
         untar_dir: "."
     unit_test_inference_golden_values_equidock:
+        ngc: "nvidia/clara/unit_test_inference_golden_values_equidock:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/20241004_unit_test_inference_golden_values_equidock.tar.gz"
         relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values"
         untar_dir: "."
     unit_test_inference_golden_values_geneformer:
+        ngc: "nvidia/clara/unit_test_inference_golden_values_geneformer:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/geneformer/inference_test_golden_values.pt"
         relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values/geneformer"
     unit_test_inference_golden_values_megamolbart:
+        ngc: "nvidia/clara/unit_test_inference_golden_values_megamolbart:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/megamolbart/inference_test_golden_values.pt"
         relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values/megamolbart"
     unit_test_inference_golden_values_esm1nv:
+        ngc: "nvidia/clara/unit_test_inference_golden_values_esm1nv:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/esm1nv/inference_test_golden_values.pt"
         relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values/esm1nv"
     unit_test_inference_golden_values_molmim:
+        ngc: "nvidia/clara/unit_test_inference_golden_values_molmim:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/molmim/inference_test_golden_values.pt"
         relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values/molmim"
     unit_test_inference_golden_values_prott5nv:
+        ngc: "nvidia/clara/unit_test_inference_golden_values_prott5nv:1.0"
         pbss: "s3://bionemo-ci/tests/test_data/expected_outputs/inference_golden_values/prott5nv/inference_test_golden_values.pt"
         relative_download_dir: "examples/tests/test_data/expected_outputs/inference_golden_values/prott5nv"
