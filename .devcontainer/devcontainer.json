@@ -46,6 +46,7 @@
 					"./sub-packages/bionemo-llm/src",
 					"./sub-packages/bionemo-testing/src",
 					"./sub-packages/bionemo-example_model/src",
+					"./sub-packages/bionemo-dnadl/src",
 					"./3rdparty/NeMo",
 					"./3rdparty/Megatron-LM"
 				],

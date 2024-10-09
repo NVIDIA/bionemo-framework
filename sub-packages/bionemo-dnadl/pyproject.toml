@@ -3,26 +3,18 @@ requires = ["setuptools-scm>=8", "setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bionemo-fw"
+name = "bionemo-dnadl"
 license.file = "LICENSE"
 readme = "README.md"
-description = "BioNeMo Framework (FW): Production grade framework for AI-enabled Drug Discovery. Consists of all independently installable bionemo feature packages too."
+description = "DNADL, a Dataset class for DNA data."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 dynamic = ["version"]
 dependencies = [
-    'bionemo-core',
-    'bionemo-esm2',
-    'bionemo-geneformer',
-    'bionemo-llm',
-    'bionemo-scdl',
-    'bionemo-dnadl',
-    'bionemo-webdatamodule',
-    'lightning>=2.2.1',
-    'nltk',
-    'numba>=0.57.1',
-    'pytorch-lightning>=2.2.1',
-    'tensorstore==0.1.45',
-    'zarr',
+    "bionemo-core",
+    "pyfaidx>=0.8.1.2",
+    "pysam>=0.21.0",
+    "polars>=1.9.0",
+    "pandas>=2.2.2",
 ]
 
 [tool.setuptools.packages.find]

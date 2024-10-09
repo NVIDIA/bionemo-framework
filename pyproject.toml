@@ -17,6 +17,7 @@ dependencies = [
     'bionemo-fw',
     'bionemo-geneformer',
     'bionemo-llm',
+    'bionemo-dnadl',
     'bionemo-scdl',
     'bionemo-testing',
     'bionemo-webdatamodule',
@@ -75,6 +76,7 @@ executionEnvironments = [
         "./sub-packages/bionemo-fw/src",
         "./sub-packages/bionemo-geneformer/src",
         "./sub-packages/bionemo-llm/src",
+        "./sub-packages/bionemo-dnadl/src",
         "./sub-packages/bionemo-scdl/src",
         "./sub-packages/bionemo-testing/src",
     ] },
@@ -110,6 +112,7 @@ bionemo-example_model = { workspace = true }
 bionemo-fw = { workspace = true }
 bionemo-geneformer = { workspace = true }
 bionemo-llm = { workspace = true }
+bionemo-dnadl = { workspace = true }
 bionemo-scdl = { workspace = true }
 bionemo-testing = { workspace = true }
 bionemo-webdatamodule = { workspace = true }
