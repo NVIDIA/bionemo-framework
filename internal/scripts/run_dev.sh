@@ -6,7 +6,7 @@ source .env
 
 LOCAL_REPO_PATH="$(realpath $(pwd))"
 
-if [[ "$(basename ${LOCAL_REPO_PATH})" != "bionemo-fw-ea" ]]; then
+if [[ "$(basename ${LOCAL_REPO_PATH})" != "bionemo-framework" ]]; then
     echo "ERROR: must run this script from the bionemo repository root!"
     exit 1
 fi

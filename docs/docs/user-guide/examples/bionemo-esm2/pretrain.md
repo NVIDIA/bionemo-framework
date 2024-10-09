@@ -8,7 +8,7 @@ The ESM2 model is a transformer-based protein language model that was pretrained
 
 In this tutorial, we will demonstrate how to create an ESM2 pretraining data module, and create and train a ESM2 model.
 
-All commands should be executed inside the BioNeMo docker container, which has all ESM2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`. (**Note**: This `WORKDIR` may be `/workspaces/bionemo-fw-ea` if you are using the VSCode Dev Container.) For more information on how to build or pull the BioNeMo2 container, refer to the [BioNeMo2 README](../../../../../README.md).
+All commands should be executed inside the BioNeMo docker container, which has all ESM2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`. (**Note**: This `WORKDIR` may be `/workspaces/bionemo-framework` if you are using the VSCode Dev Container.) For more information on how to build or pull the BioNeMo2 container, refer to the [BioNeMo2 README](../../../../../README.md).
 
 Similar to PyTorch Lightning, we have to define some key classes:
 1. `MegatronStrategy` - To launch and setup parallelism for [NeMo](https://github.com/NVIDIA/NeMo/tree/main) and [Megatron-LM](https://github.com/NVIDIA/Megatron-LM).
@@ -207,7 +207,7 @@ model: BionemoLightningModule = biobert_lightning_module(
 
 !!! note "`ModuleSpec`"
 
-    `ModelSpec` decides what torch modules are used in the transformer layers. By default, BioNeMo2 accelerates ESM2 architecture with TransformerEngine layers. Users can define their own `ModelSpec` for customized transformer layers. See [`get_biobert_spec`](https://github.com/NVIDIA/bionemo-fw-ea/blob/main/sub-packages/bionemo-llm/src/bionemo/llm/model/biobert/transformer_specs.py#L61).
+    `ModelSpec` decides what torch modules are used in the transformer layers. By default, BioNeMo2 accelerates ESM2 architecture with TransformerEngine layers. Users can define their own `ModelSpec` for customized transformer layers. See [`get_biobert_spec`](https://github.com/NVIDIA/bionemo-framework/blob/main/sub-packages/bionemo-llm/src/bionemo/llm/model/biobert/transformer_specs.py#L61).
 
 
 !!! note "`BionemoLightningModule`"

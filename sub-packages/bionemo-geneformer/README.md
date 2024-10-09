@@ -26,4 +26,4 @@ Refer to the Dataset cards and Model cards to learn more about the pre-trained c
 
 ## See Also
 - [sc-DL pypi](https://pypi.org/project/bionemo-scdl/)
-- [sc-DL github](https://github.com/NVIDIA/bionemo-fw-ea/tree/main/sub-packages/bionemo-scdl)
+- [sc-DL github](https://github.com/NVIDIA/bionemo-framework/tree/main/sub-packages/bionemo-scdl)
