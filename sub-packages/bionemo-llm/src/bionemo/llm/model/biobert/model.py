@@ -442,6 +442,8 @@ class BioBertConfig(
     parallel_output: bool = True
     bias_dropout_fusion: bool = True
     bias_activation_fusion: bool = True
+    masked_softmax_fusion: bool = True
+    persist_layer_norm: bool = True
     share_embeddings_and_output_weights: bool = False  # try True
     make_vocab_size_divisible_by: int = 128
     position_embedding_type: PositionEmbeddingKinds = "learned_absolute"
