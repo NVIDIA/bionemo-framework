@@ -283,7 +283,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
 
     # core attention
     use_esm_attention: bool = False  # Skip ESM2 custom attention for TE acceleration. Still passes golden value test.
-    attention_softmax_in_fp32: bool = True
+    attention_softmax_in_fp32: bool = False
     normalize_attention_scores: bool = False
 
     # From megatron.core.models.gpt.bert_model.GPTModel
@@ -299,7 +299,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec
 
     # TODO: Move this to better places?
-    get_attention_mask_from_fusion: bool = False
+    get_attention_mask_from_fusion: bool = True
 
     optimizer_fn: Optional[Callable[[MegatronBioBertModel], Optimizer]] = None
     # TODO (@skothenhill,@georgea) update to use the nemo2 checkpoint mixins

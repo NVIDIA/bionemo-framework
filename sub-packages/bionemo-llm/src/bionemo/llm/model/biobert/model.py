@@ -91,6 +91,10 @@ _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS 
     "context_parallel_size",
     "expert_model_parallel_size",
     "apply_rope_fusion",
+    "bias_dropout_fusion",
+    "bias_activation_fusion",
+    "attention_softmax_in_fp32",
+    "get_attention_mask_from_fusion",
     "moe_extended_tp",
 ]
 
@@ -436,6 +440,8 @@ class BioBertConfig(
     fp16_lm_cross_entropy: bool = False
     apply_rope_fusion: bool = True
     parallel_output: bool = True
+    bias_dropout_fusion: bool = True
+    bias_activation_fusion: bool = True
     share_embeddings_and_output_weights: bool = False  # try True
     make_vocab_size_divisible_by: int = 128
     position_embedding_type: PositionEmbeddingKinds = "learned_absolute"
