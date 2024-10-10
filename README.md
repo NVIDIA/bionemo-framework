@@ -38,8 +38,8 @@ An NGC API KEY is required for these steps.  You will need to configure [NGC](ht
 docker login nvcr.io --username '$oauthtoken' --password "${NGC_CLI_API_KEY}"
 
 # Clone repository:
-git clone https://github.com/NVIDIA/bionemo-fw-ea.git
-cd bionemo-fw-ea
+git clone https://github.com/NVIDIA/bionemo-framework.git
+cd bionemo-framework
 
 # Invoke launch script -- the first time, it will create a .env file and exit:
 ./launch.sh

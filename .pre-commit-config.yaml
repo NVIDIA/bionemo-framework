@@ -25,7 +25,7 @@ repos:
     hooks:
       - id: license-header-check
         name: Run license-check script
-        entry: python scripts/license_check.py -c setup.py -c bionemo -c tests -c examples -c internal -c hydra_plugins -c fw2nim_examples -c download_artifacts.py -c docs --modify
+        entry: python scripts/license_check.py -c setup.py -c bionemo -c tests -c examples -c hydra_plugins -c fw2nim_examples -c download_artifacts.py -c docs --license-header ./license_header --modify
         language: python
         additional_dependencies: ["click==8.1.7"]
         pass_filenames: false
