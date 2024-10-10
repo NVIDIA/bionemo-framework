@@ -15,7 +15,6 @@
 
 
 import logging
-import os
 import tarfile
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -265,20 +264,18 @@ class MegatronBioBertModel(LanguageModule):
         # [b, 1, s]
         attention_mask_b1s = attention_mask.unsqueeze(1)
 
-        # if self.use_full_attention_mask:
-        #     # [b, s, 1]
-        #     attention_mask_bs1 = attention_mask.unsqueeze(2)
-        #     # [b, s, s]
-        #     attention_mask_bss = attention_mask_b1s * attention_mask_bs1
-        #     # [b, 1, s, s]
-        #     extended_attention_mask = attention_mask_bss.unsqueeze(1)
-        # else:
-        #     # Tensor Engine requires a 1x1xS attention mask which it internally
-        #     #  converts into a 1xSxS mask.
-        #     # [b, 1, 1, s]
-        extended_attention_mask = attention_mask_b1s.unsqueeze(1)
-        assert extended_attention_mask.shape[1:3] == (1, 1), extended_attention_mask.shape
-        assert len(extended_attention_mask.shape) == 4, extended_attention_mask.shape
+        if self.use_full_attention_mask:
+            # [b, s, 1]
+            attention_mask_bs1 = attention_mask.unsqueeze(2)
+            # [b, s, s]
+            attention_mask_bss = attention_mask_b1s * attention_mask_bs1
+            # [b, 1, s, s]
+            extended_attention_mask = attention_mask_bss.unsqueeze(1)
+        else:
+            # Tensor Engine requires a 1x1xS attention mask which it internally
+            #  converts into a 1xSxS mask.
+            # [b, 1, 1, s]
+            extended_attention_mask = attention_mask_b1s.unsqueeze(1)
 
         # Convert attention mask to binary, and flip the values from 0 to 1 and vice versa so that
         #  extended_attention_mask._mask_fill(-1000) that megatron does internally result in
@@ -491,9 +488,7 @@ class BioBertConfig(
 
         # The local specs all require the standard full attention mask. For transformer engine only the NVTE_FLASH_ATTN=0
         #  option requires this full attention mask.
-        use_full_attention_mask: bool = (
-            os.getenv("NVTE_FLASH_ATTN") == "0" or "transformer_engine" not in self.biobert_spec_option
-        )
+        use_full_attention_mask: bool = "transformer_engine" not in self.biobert_spec_option
 
         do_next_sentence = False
         if self.model_cls is None:
