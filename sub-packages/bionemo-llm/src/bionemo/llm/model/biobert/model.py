@@ -94,6 +94,7 @@ _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS 
     "bias_activation_fusion",
     "attention_softmax_in_fp32",
     "get_attention_mask_from_fusion",
+    "activation_func",  # FIXME hack: update the ESM2 checkpoint with the updated activation function and don't override
     "moe_extended_tp",
 ]
 
