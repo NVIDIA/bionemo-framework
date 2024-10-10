@@ -214,7 +214,9 @@ def esm_gelu_func(x: Tensor) -> Tensor:
 
     !!! warning
 
-        Using F.gelu yields subtly wrong results.
+        Using F.gelu yields subtly wrong results, but only when used in combination with bias_activation_fusion=True
+        This variant will not allow you to use bias_activation_fusion=True, which may be the only accuracy benefit over
+        a native F.gelu.
 
     Args:
         x: input tensor of any given dimension
@@ -275,6 +277,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     attention_dropout: float = 0.0  # ESM2 does not use attention dropout
     apply_residual_connection_post_layernorm: bool = False  # TODO: farhadr False is new default, True was BERT pub.
     layernorm_epsilon: float = 1.0e-5
+    bias_activation_fusion: bool = False  # True degrades accuracy slightly, but is faster.
     activation_func: Callable = F.gelu  # esm_gelu_func  # ESM2 MLP
     init_method_std: float = 0.02
 

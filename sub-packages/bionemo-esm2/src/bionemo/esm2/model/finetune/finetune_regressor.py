@@ -105,6 +105,7 @@ class MegatronMLPHead(MegatronModule):
         self.act = torch.nn.ReLU()
         self.dropout = torch.nn.Dropout(p=config.ft_dropout)
 
+    @torch.compile
     def forward(self, hidden_states: Tensor) -> List[Tensor]:
         """Inference."""
         # [b, s, h]
@@ -112,7 +113,7 @@ class MegatronMLPHead(MegatronModule):
             hidden_states = self.dropout(self.act(layer(hidden_states)))
 
         output = self.linear_layers[-1](hidden_states)
-        return output
+        return output.contiguous()
 
 
 class ESM2FineTuneSeqModel(ESM2Model):
