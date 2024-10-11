@@ -6,7 +6,7 @@ NVIDIA BioNeMo Framework is a collection of programming tools, libraries, and mo
 `bionemo2` code is partitioned into independently installable namespace packages.
 These are located under the `sub-packages/` directory. Please refer to [PEP 420 – Implicit Namespace Packages](https://peps.python.org/pep-0420/) for details.
 
-## Developing and DCO
+## Developing and Developer Certificate of Origin (DCO)
 By contributing to this repo you acknowledge that either this is your original work, or have the right to submit the work
 under our license, which as of this writing is Apache v2. See [license](LICENSE/license.txt) for the current license,
 and the [contributing document](CONTRIBUTING.md) for more information.
