@@ -8,7 +8,7 @@ The ESM2 model is a transformer-based protein language model that was pretrained
 
 In this tutorial, we will demonstrate how to create an ESM2 pretraining data module, and create and train a ESM2 model.
 
-All commands should be executed inside the BioNeMo docker container, which has all ESM2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`. (**Note**: This `WORKDIR` may be `/workspaces/bionemo-framework` if you are using the VSCode Dev Container.) For more information on how to build or pull the BioNeMo2 container, refer to the [BioNeMo2 README]({{ github_url }}).
+All commands should be executed inside the BioNeMo docker container, which has all ESM2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`. (**Note**: This `WORKDIR` may be `/workspaces/bionemo-framework` if you are using the VSCode Dev Container.) For more information on how to build or pull the BioNeMo2 container, refer to the [Access and Startup](../../getting-started/access-startup.md).
 
 Similar to PyTorch Lightning, we have to define some key classes:
 1. `MegatronStrategy` - To launch and setup parallelism for [NeMo](https://github.com/NVIDIA/NeMo/tree/main) and [Megatron-LM](https://github.com/NVIDIA/Megatron-LM).
@@ -92,8 +92,8 @@ print(PrecisionTypes)  # show all possible precision types
 Before instantiating with data module, we can first download the testing ESM2 pretraining data with `download_bionemo_data`. The command line will download the data if we haven't yet, and will return the path to the testing data, which is needed to instantiate `ESMDataModule`.
 
 ```bash
-download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source pbss  # test data
-# download_bionemo_data esm2/fulldata_esm2_pretrain:2.0 --source pbss  # full data (~80GB)
+download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source ngc  # test data
+# download_bionemo_data esm2/fulldata_esm2_pretrain:2.0 --source ngc  # full data (~80GB)
 ```
 
 On top of the path to the data directory, BioNeMo2 data module requires global and micro batch sizes to ensure that the input tensors are initialized correctly across model-parallel ranks (see [megatron_datasets.md](../../background/megatron_datasets.md)).
