@@ -481,7 +481,7 @@ parser.add_argument(
 parser.add_argument(
     "--nsys-profiling",
     action="store_true",
-    default=True,
+    default=False,
     help="Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with `nsys`. For example: "
     " `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop  [regular python command here]`",
 )
