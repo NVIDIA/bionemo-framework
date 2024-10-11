@@ -166,8 +166,7 @@ RUN <<EOF
 EOF
 
 # Transformer engine attention defaults
-ENV NVTE_FUSED_ATTN=1
-ENV NVTE_FLASH_ATTN=0
+ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
 
 FROM dev AS development
 
