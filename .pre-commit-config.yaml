@@ -13,10 +13,6 @@ repos:
         # 1. Attempt to automatically fix any lint issues.
         args: ["--fix"]
       - id: ruff-format
-  - repo: https://github.com/gauge-sh/tach-pre-commit
-    rev: v0.13.1
-    hooks:
-      - id: tach
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:
