@@ -113,7 +113,7 @@ models:
         # flag is used to download everything in the dir.
         extra_args: "--recursive"
     esm2_3b_huggingface:
-        ngc: "nvidia/clara/esm2-3B-huggingface:1.0"
+        ngc: "nvidia/clara/esm2-3b-huggingface:1.0"
         pbss: "s3://bionemo-ci/models/esm2-3B-huggingface"
         relative_download_dir: "protein/esm2nv/esm2-3B-huggingface"
         # Hugging face models are multiple files in a directory, so the recursive
