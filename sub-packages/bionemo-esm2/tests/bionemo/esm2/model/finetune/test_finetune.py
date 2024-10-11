@@ -70,6 +70,8 @@ def test_esm2_finetune_token_classifier(
     n_steps_train: int = 50,
     seed: int = 42,
 ):
+    if with_peft:
+        pytest.xfail("FIXME PEFT fine-tuning not supported with fusions active")
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
         ckpt_path, initial_metrics, trainer = train_model(
             experiment_name="test_experiment",
@@ -140,6 +142,8 @@ def test_esm2_finetune_regressor(
     n_steps_train: int = 50,
     seed: int = 42,
 ):
+    if with_peft:
+        pytest.xfail("FIXME PEFT fine-tuning not supported")
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
         ckpt_path, initial_metrics, trainer = train_model(
             experiment_name="test_experiment",

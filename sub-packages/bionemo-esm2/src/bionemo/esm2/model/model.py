@@ -31,6 +31,7 @@ from megatron.core.transformer.transformer_block import TransformerBlock
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import get_linear_layer
 from torch import Tensor
+from torch.nn import functional as F
 from torch.optim import Optimizer
 
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
@@ -207,12 +208,15 @@ class ESM2Model(MegatronBioBertModel):
         )
 
 
+@torch.compile
 def esm_gelu_func(x: Tensor) -> Tensor:
     """ESM2-specific gelu implementation from the original ESM repo.
 
     !!! warning
 
-        Using F.gelu yields subtly wrong results.
+        Using F.gelu yields subtly wrong results, but only when used in combination with bias_activation_fusion=True
+        This variant will not allow you to use bias_activation_fusion=True, which may be the only accuracy benefit over
+        a native F.gelu.
 
     Args:
         x: input tensor of any given dimension
@@ -273,7 +277,8 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     attention_dropout: float = 0.0  # ESM2 does not use attention dropout
     apply_residual_connection_post_layernorm: bool = False  # TODO: farhadr False is new default, True was BERT pub.
     layernorm_epsilon: float = 1.0e-5
-    activation_func: Callable = esm_gelu_func  # ESM2 MLP
+    bias_activation_fusion: bool = True  # True degrades accuracy slightly, but is faster.
+    activation_func: Callable = F.gelu  # esm_gelu_func  # ESM2 MLP
     init_method_std: float = 0.02
 
     # embedding
@@ -282,7 +287,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
 
     # core attention
     use_esm_attention: bool = False  # Skip ESM2 custom attention for TE acceleration. Still passes golden value test.
-    attention_softmax_in_fp32: bool = True
+    attention_softmax_in_fp32: bool = False
     normalize_attention_scores: bool = False
 
     # From megatron.core.models.gpt.bert_model.GPTModel
@@ -296,9 +301,6 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     seq_len_interpolation_factor: Optional[float] = None
     seq_length: int = 1024
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec
-
-    # TODO: Move this to better places?
-    get_attention_mask_from_fusion: bool = False
 
     optimizer_fn: Optional[Callable[[MegatronBioBertModel], Optimizer]] = None
     # TODO (@skothenhill,@georgea) update to use the nemo2 checkpoint mixins

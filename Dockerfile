@@ -165,6 +165,9 @@ RUN <<EOF
   pip uninstall -y nemo_toolkit megatron_core
 EOF
 
+# Transformer engine attention defaults
+ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
+
 FROM dev AS development
 
 WORKDIR /workspace/bionemo2

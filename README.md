@@ -1,7 +1,21 @@
-# BioNeMo2 Repo
+# BioNeMo Framework (v2.0)
+
+NVIDIA BioNeMo Framework is a collection of programming tools, libraries, and models for computational drug discovery. It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources for the fastest performance on the market. You can access BioNeMo Framework as a free community resource here in this repository or learn more at https://www.nvidia.com/en-us/clara/bionemo/ about getting an enterprise license for improved expert-level support.
+
 
 `bionemo2` code is partitioned into independently installable namespace packages.
 These are located under the `sub-packages/` directory. Please refer to [PEP 420 – Implicit Namespace Packages](https://peps.python.org/pep-0420/) for details.
+
+## Developing and Developer Certificate of Origin (DCO)
+By contributing to this repo you acknowledge that either this is your original work, or have the right to submit the work
+under our license, which as of this writing is Apache v2. See [license](LICENSE/license.txt) for the current license,
+and the [contributing document](CONTRIBUTING.md) for more information.
+
+If you find yourself having made a number of commits in a PR, and need to sign them all, a useful tool is the following:
+1. Find your first unsigned commit, say it is `mYcmtShrtHash`.
+2. Run `git rebase --signoff mYcmtShrtHash^` to sign that commit and all future commits (in your branch please).
+3. Push the updated commits `git push -f`.
+
 
 ## Initializing 3rd-party dependencies as git submodules
 
@@ -159,6 +173,10 @@ export MY_DATA_SOURCE="pbss"
 ```
 
 ```bash
+# The fastest transformer engine environment variables in testing were the following two
+export NVTE_FUSED_ATTN=1
+export NVTE_FLASH_ATTN=0
+
 TEST_DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source $MY_DATA_SOURCE); \
 ESM2_650M_CKPT=$(download_bionemo_data esm2/650m:2.0 --source $MY_DATA_SOURCE); \
 python  \

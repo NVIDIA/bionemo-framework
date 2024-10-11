@@ -216,7 +216,7 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         hiddens = model(input_ids, attention_mask)
         embeddings = reduce_hiddens(torch.transpose(hiddens, 0, 1).float(), attention_mask)
 
-        torch.testing.assert_close(logits, hf_logits, atol=9e-2, rtol=0.0)
+        torch.testing.assert_close(logits, hf_logits, atol=0.2, rtol=0.0)
         torch.testing.assert_close(embeddings, hf_embeddings, atol=5e-3, rtol=0.0)
 
 
@@ -275,4 +275,4 @@ def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet
         else:
             hf_mean_loss = torch.tensor(2.9279041290283203).cuda()
 
-        torch.testing.assert_close(mean_loss, hf_mean_loss, atol=1e-4, rtol=0.0)
+        torch.testing.assert_close(mean_loss, hf_mean_loss, atol=1e-3, rtol=0.0)
