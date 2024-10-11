@@ -302,9 +302,6 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     seq_length: int = 1024
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec
 
-    # TODO: Move this to better places?
-    get_attention_mask_from_fusion: bool = True
-
     optimizer_fn: Optional[Callable[[MegatronBioBertModel], Optimizer]] = None
     # TODO (@skothenhill,@georgea) update to use the nemo2 checkpoint mixins
     #  support HF (requires weight interleaving on qkv layer) and nemo1 checkpoints ideally.

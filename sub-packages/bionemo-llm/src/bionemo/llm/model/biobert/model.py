@@ -443,6 +443,7 @@ class BioBertConfig(
     masked_softmax_fusion: bool = True
     persist_layer_norm: bool = True
     get_attention_mask_from_fusion: bool = True
+
     share_embeddings_and_output_weights: bool = False  # try True
     make_vocab_size_divisible_by: int = 128
     position_embedding_type: PositionEmbeddingKinds = "learned_absolute"
@@ -455,9 +456,6 @@ class BioBertConfig(
     num_layers: int = 6
     init_method_std: float = 0.02
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.bert_layer_with_transformer_engine_spec
-
-    # TODO: Move this to better places?
-    get_attention_mask_from_fusion: bool = False
 
     optimizer_fn: Optional[Callable[["MegatronBioBertModel"], Optimizer]] = None
     # TODO (@skothenhill,@georgea) update to use the nemo2 checkpoint mixins
