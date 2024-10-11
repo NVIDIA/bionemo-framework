@@ -403,6 +403,7 @@ class BucketBatchSampler(Sampler[List[int]])
 ```
 
 A batch sampler to create batches with sizes of elements from each pre-defined bucket ranges.
+
 Elements of the dataset are first grouped into each bucket based on the bucket ranges and the sizes of elements.
 Then, a base batch sampler is used for each bucket to create mini-batches.
 
@@ -411,9 +412,12 @@ The bucekt ranges are specified by `bucket_endpoints`, which will be first sorte
 e.g. if bucket_endpoints tensor is [10, 5, 0, 16], it will be sorted as [0, 5, 10, 16] and 3 buckets will be created
 with ranges: [0, 5), [5, 10), [10, 16).
 
-The base batch sampler will be created by passing `base_batch_sampler_shared_kwargs` and `base_batch_sampler_individual_kwargs`
+The base batch sampler will be created by passing the element indices in each bucket as the data source, and
+`base_batch_sampler_shared_kwargs` and `base_batch_sampler_individual_kwargs`
 to the constructor of the base batch sampler class specified as `base_batch_sampler_class`.
-e.g. `base_batch_sampler_individual_kwargs = {'batch_size': [8,10,12]}` will be used to create 3 batch samplers with batch_size = 8, 10, 12 for 3 buckets.
+e.g. `base_batch_sampler_shared_kwargs = {'drop_last': True}` and `base_batch_sampler_individual_kwargs = {'batch_size': [8,10,12]}`
+will be used to create 3 batch samplers with drop_last=True and batch_size=8, 10 and 12, and initialized like
+`base_batch_sampler_class(bucket_element_indices[0], batch_size=8, drop_last=True)`.
 
 In the `__iter__` method, if `shuffle` is `True`, the element indices in each bucket will be shuffled, and a bucket
 is randomly selected each time to create a mini-batch. If `shuffle` is `False`, there is no shuffle on element indices,
@@ -429,14 +433,16 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
 - `bucket_endpoints` _torch.Tensor_ - A 1D tensor of real numbers representing the endpoints of the bucket ranges.
   It will be first sorted and used to create `len(bucket_endpoints) - 1` half-closed intervals as bucket ranges.
   It should not contain any duplicate values.
-- `base_batch_sampler_class` _Type[Sampler]_ - Base batch sampler class type, which will be used for each bucket.
+- `base_batch_sampler_class` _Type[Sampler]_ - Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
+  `base_batch_sampler_shared_kwargs` and the corresponding `base_batch_sampler_individual_kwargs`.
 - `base_batch_sampler_shared_kwargs` _Dict[str, Any], optional_ - Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
   Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
-- `base_batch_sampler_individual_kwargs` _Dict[str, Iterable], optional_ - Keyword argument dictionary used to initialize each bucket batch sampler with the corresponding key value pairs.
+- `base_batch_sampler_individual_kwargs` _Dict[str, Iterable], optional_ - Keyword argument dictionary used to initialize
+  each bucket batch sampler with the corresponding key value pairs.
   Length of each value in this dict must be equal to len(bucket_endpoints) - 1 (the number of buckets).
   Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
   Default to  {}.
-- `shuffle` _bool_ - A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
+- `shuffle` _bool, optional_ - A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
 - `generator` _torch.Generator, optional_ - Generator used in sampling. Defaults to None.
 
 
@@ -450,8 +456,8 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
 
   ---------
 
-**Examples**:
 
+**Examples**:
 
 ```python
 >>> import torch

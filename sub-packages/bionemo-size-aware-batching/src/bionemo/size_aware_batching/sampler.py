@@ -274,8 +274,8 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
 
 
 class BucketBatchSampler(Sampler[List[int]]):
-    """
-    A batch sampler to create batches with sizes of elements from each pre-defined bucket ranges.
+    """A batch sampler to create batches with sizes of elements from each pre-defined bucket ranges.
+
     Elements of the dataset are first grouped into each bucket based on the bucket ranges and the sizes of elements.
     Then, a base batch sampler is used for each bucket to create mini-batches.
 
@@ -284,9 +284,12 @@ class BucketBatchSampler(Sampler[List[int]]):
     e.g. if bucket_endpoints tensor is [10, 5, 0, 16], it will be sorted as [0, 5, 10, 16] and 3 buckets will be created
     with ranges: [0, 5), [5, 10), [10, 16).
 
-    The base batch sampler will be created by passing `base_batch_sampler_shared_kwargs` and `base_batch_sampler_individual_kwargs`
+    The base batch sampler will be created by passing the element indices in each bucket as the data source, and
+    `base_batch_sampler_shared_kwargs` and `base_batch_sampler_individual_kwargs`
     to the constructor of the base batch sampler class specified as `base_batch_sampler_class`.
-    e.g. `base_batch_sampler_individual_kwargs = {'batch_size': [8,10,12]}` will be used to create 3 batch samplers with batch_size = 8, 10, 12 for 3 buckets.
+    e.g. `base_batch_sampler_shared_kwargs = {'drop_last': True}` and `base_batch_sampler_individual_kwargs = {'batch_size': [8,10,12]}`
+    will be used to create 3 batch samplers with drop_last=True and batch_size=8, 10 and 12, and initialized like
+    `base_batch_sampler_class(bucket_element_indices[0], batch_size=8, drop_last=True)`.
 
     In the `__iter__` method, if `shuffle` is `True`, the element indices in each bucket will be shuffled, and a bucket
     is randomly selected each time to create a mini-batch. If `shuffle` is `False`, there is no shuffle on element indices,
@@ -301,14 +304,16 @@ class BucketBatchSampler(Sampler[List[int]]):
         bucket_endpoints (torch.Tensor): A 1D tensor of real numbers representing the endpoints of the bucket ranges.
             It will be first sorted and used to create `len(bucket_endpoints) - 1` half-closed intervals as bucket ranges.
             It should not contain any duplicate values.
-        base_batch_sampler_class (Type[Sampler]): Base batch sampler class type, which will be used for each bucket.
+        base_batch_sampler_class (Type[Sampler]): Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
+            `base_batch_sampler_shared_kwargs` and the corresponding `base_batch_sampler_individual_kwargs`.
         base_batch_sampler_shared_kwargs (Dict[str, Any], optional): Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
             Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
-        base_batch_sampler_individual_kwargs (Dict[str, Iterable], optional): Keyword argument dictionary used to initialize each bucket batch sampler with the corresponding key value pairs.
+        base_batch_sampler_individual_kwargs (Dict[str, Iterable], optional): Keyword argument dictionary used to initialize
+            each bucket batch sampler with the corresponding key value pairs.
             Length of each value in this dict must be equal to len(bucket_endpoints) - 1 (the number of buckets).
             Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
             Default to  {}.
-        shuffle (bool): A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
+        shuffle (bool, optional): A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
         generator (torch.Generator, optional): Generator used in sampling. Defaults to None.
 
     Raises:
@@ -319,8 +324,8 @@ class BucketBatchSampler(Sampler[List[int]]):
         RuntimeError: If there is no elements with sizes inside the ranges specified by `bucket_endpoints`.
 
     ---------
-    Examples:
 
+    Examples:
     ```python
     >>> import torch
     >>> from bionemo.size_aware_batching.sampler import BucketBatchSampler
@@ -385,7 +390,7 @@ class BucketBatchSampler(Sampler[List[int]]):
         base_batch_sampler_class: Type[Sampler],
         base_batch_sampler_shared_kwargs: Optional[Dict[str, Any]] = {},
         base_batch_sampler_individual_kwargs: Optional[Dict[str, Iterable]] = {},
-        shuffle: bool = True,
+        shuffle: Optional[bool] = True,
         generator: Optional[torch.Generator] = None,
     ) -> None:
         if not torch.is_tensor(sizes):
@@ -495,8 +500,7 @@ class BucketBatchSampler(Sampler[List[int]]):
         self.base_batch_samplers: List[Sampler] = self._init_base_batch_samplers()
 
     def _init_base_batch_samplers(self) -> list[Sampler[List[int]]]:
-        """
-        Initialize batch samplers for each bucket
+        """Initialize batch samplers for each bucket.
 
         Returns:
             List of batch samplers.
@@ -518,8 +522,7 @@ class BucketBatchSampler(Sampler[List[int]]):
         return num_batches
 
     def __iter__(self) -> Iterator[List[int]]:
-        """
-        Iterate over batches of indices.
+        """Iterate over batches of indices.
 
         This function yields batches of indices of elements with sizes from each bucket range.
 

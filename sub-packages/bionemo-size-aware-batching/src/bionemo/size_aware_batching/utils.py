@@ -135,8 +135,8 @@ def collect_cuda_peak_alloc(
 
 
 def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket sizes.
+    """Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket sizes.
+
     It will return a tuple containing the bucket interval endpoints and the actual bucket sizes.
     e.g. torch.tensor([0, 5, 7]), torch.tensor([3,2]): specifies 2 buckets: one with range 0<= sizes < 5, width=5 and 3 elements
     and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
@@ -156,8 +156,8 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing bucket interval endpoints in ascending order and the number of elements in each bucket.
 
     ---------
-    Examples:
 
+    Examples:
     ```python
     >>> import torch
     >>> from bionemo.size_aware_batching.utils import create_buckets
