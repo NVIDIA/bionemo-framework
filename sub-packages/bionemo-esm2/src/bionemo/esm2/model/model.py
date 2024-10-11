@@ -277,7 +277,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     attention_dropout: float = 0.0  # ESM2 does not use attention dropout
     apply_residual_connection_post_layernorm: bool = False  # TODO: farhadr False is new default, True was BERT pub.
     layernorm_epsilon: float = 1.0e-5
-    bias_activation_fusion: bool = False  # True degrades accuracy slightly, but is faster.
+    bias_activation_fusion: bool = True  # True degrades accuracy slightly, but is faster.
     activation_func: Callable = F.gelu  # esm_gelu_func  # ESM2 MLP
     init_method_std: float = 0.02
 
