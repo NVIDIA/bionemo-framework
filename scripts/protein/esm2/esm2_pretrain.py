@@ -84,7 +84,7 @@ def main(
     nsys_profiling: bool = False,
     nsys_start_step: int = 0,
     nsys_end_step: Optional[int] = None,
-    nsys_ranks: Optional[List[int]] = None,
+    nsys_ranks: List[int] = [0],
     random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
     num_layers: int = 33,
     hidden_size: int = 1280,
@@ -167,7 +167,7 @@ def main(
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
     ]
-    if args.nsys_profiling:
+    if nsys_profiling:
         if nsys_end_step is None:
             nsys_end_step = num_steps
         callbacks.append(
@@ -448,13 +448,13 @@ parser.add_argument(
 parser.add_argument(
     "--save-best-checkpoint",
     action="store_true",
-    default=True,
+    default=True,  # TODO Rethink this, we can't turn it off. For default=True we should use `store_false` and fix name.
     help="Save the best checkpoint based on the metric to monitor.",
 )
 parser.add_argument(
     "--save-last-checkpoint",
     action="store_true",
-    default=True,
+    default=True,  # TODO Rethink this, we can't turn it off. For default=True we should use `store_false` and fix name.
     help="Save the last checkpoint.",
 )
 parser.add_argument(
