@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Type, Union
+from typing import Dict, List, Sequence, Tuple, Type, TypedDict
 
 import torch
 from megatron.core import parallel_state
@@ -22,17 +22,18 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from nemo.collections.llm import fn
 from nemo.collections.llm.fn.mixin import FNMixin
 from nemo.collections.llm.peft.lora import AdapterParallelAdd, LoRA
+from nemo.collections.nlp.modules.common.megatron.adapters.parallel_adapters import ParallelLinearAdapter
 from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
 from nemo.lightning.megatron_parallel import (
-    MegatronLossReduction,
     masked_token_loss,
     masked_token_loss_context_parallel,
 )
-from torch import nn
+from torch import Tensor, nn
 
-from bionemo.llm.model.biobert.model import BioBertGenericConfig, MegatronBioBertModel
+from bionemo.llm.model.biobert.model import BioBertConfig, BioBertOutput, MegatronBioBertModel
 from bionemo.llm.model.loss import (
     BERTMLMLossWithReduction,
+    DataParallelGroupLossAndIO,
     PerTokenLossDict,
     SameSizeLossDict,
     unreduced_token_loss_fn,
@@ -40,29 +41,54 @@ from bionemo.llm.model.loss import (
 from bionemo.llm.utils import iomixin_utils as iom
 
 
-"""This package demonstrates how you can take a pretrained geneformer module and fine-tune the classifier
-token to output cell type predictions.
-"""
+# This package demonstrates how you can take a pretrained geneformer module and fine-tune the classifier
+# token to output cell type predictions.
 
-__all__ = []
+__all__: Sequence[str] = (
+    "SequenceLengthRMSEPlusBERTMLMLossWithReduction",
+    "MegatronRegressionMLPHead",
+    "MegatronBioBertFineTuneSeqLengthModel",
+    "FineTuneSeqLenBioBertConfig",
+    "LoRAForGeneFormerTokenRegressor",
+    "MegatronFineTuneOutput",
+)
+
+
+class SeqLenRmsepBatch(TypedDict):
+    labels: Tensor
+    attention_mask: Tensor
+    loss_mask: Tensor
+    num_valid_tokens_in_ub: int
+
+
+class MegatronFineTuneOutput(BioBertOutput):
+    """Inference output type for MegatronBioBertFineTuneSeqLengthModel."""
+
+    regression_output: Tensor
 
 
 class SequenceLengthRMSEPlusBERTMLMLossWithReduction(BERTMLMLossWithReduction):
+    """Loss function."""
+
     def forward(
-        self, batch: Dict[str, torch.Tensor], forward_out: Dict[str, torch.Tensor]
-    ) -> Tuple[torch.Tensor, Union[PerTokenLossDict, SameSizeLossDict]]:
-        """Computes loss of `labels` in the batch vs `token_logits` in the forward output currently. In the future this will be extended
-            to handle other loss types like sequence loss if it is present in the forward_out and batch.
+        self,
+        batch: SeqLenRmsepBatch,
+        forward_out: Dict[str, Tensor],
+    ) -> Tuple[Tensor, PerTokenLossDict | SameSizeLossDict | DataParallelGroupLossAndIO]:
+        """Computes loss of `labels` in the batch vs `token_logits` in the forward output currently.
+
+        In the future this will be extended to handle other loss types like sequence loss if it is present in the
+        forward_out and batch.
 
         Args:
-            batch (Dict[str, torch.Tensor]): The batch of data. Each tensor should be of shape [batch_size, *, *],
+            batch: The batch of data. Each tensor should be of shape [batch_size, *, *],
                 and match the corresponding dimension for that particular key in the batch output.
                 For example, the "labels" and "token_logits" key should have a tensor of shape [batch_size, sequence_length].
-            forward_out (Dict[str, torch.Tensor]): The forward output from the model. Each tensor should be of shape [batch_size, *, *]
+            forward_out: The forward output from the model. Each tensor should be of shape [batch_size, *, *]
 
         Taken from:
-        https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/nlp/models/language_modeling/megatron_gpt_model.py#L951-L976 .
-        """  # noqa: D205
+        https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/nlp/models/language_modeling/megatron_gpt_model.py#L951-L976
+        """
         if "labels" not in batch:
             raise ValueError("Labels not provided in the batch. These are required for this loss computation.")
 
@@ -117,7 +143,7 @@ class SequenceLengthRMSEPlusBERTMLMLossWithReduction(BERTMLMLossWithReduction):
             }
         loss_for_microbatch = loss_for_microbatch + rmse_loss  # add in the RMSE loss after reducing the logit loss
         # average the losses across the data parallel group, but also return the unreduced loss
-        reduced_loss = average_losses_across_data_parallel_group([loss_for_microbatch])
+        reduced_loss: Tensor = average_losses_across_data_parallel_group([loss_for_microbatch])
         if (self.validation_step and self.send_val_output) or (not self.validation_step and self.send_train_output):
             return loss_for_microbatch * cp_size, {"avg": reduced_loss, "batch": batch, "forward_out": forward_out}
         else:
@@ -125,7 +151,10 @@ class SequenceLengthRMSEPlusBERTMLMLossWithReduction(BERTMLMLossWithReduction):
 
 
 class MegatronRegressionMLPHead(MegatronModule):
+    """A megatron MLP head."""
+
     def __init__(self, config: TransformerConfig):
+        """Constructor."""
         super().__init__(config)
         # FC layer over just the [CLS] token embedding
         # TODO use bias/activation fusion if requested
@@ -133,12 +162,16 @@ class MegatronRegressionMLPHead(MegatronModule):
         self.activation_function = config.activation_func
         self.linear_fc2 = nn.Linear(in_features=config.ffn_hidden_size, out_features=1)
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden_states: Tensor) -> Tensor:
+        """Inference."""
         return self.linear_fc2(self.activation_function(self.linear_fc1(hidden_states)))
 
 
 class MegatronBioBertFineTuneSeqLengthModel(MegatronBioBertModel):
+    """Megatron model for biobert finetuning with sequence length."""
+
     def __init__(self, config, *args, include_hiddens: bool = False, post_process: bool = True, **kwargs):
+        """Constructor."""
         super().__init__(config, *args, include_hiddens=True, post_process=post_process, **kwargs)
         self.include_hiddens_finetuning = (
             include_hiddens  # this include_hiddens is for the final output of fine-tuning
@@ -149,25 +182,20 @@ class MegatronBioBertFineTuneSeqLengthModel(MegatronBioBertModel):
             # if we are doing post process (eg pipeline last stage) then we need to add the output layers
             self.regression_head = MegatronRegressionMLPHead(config)
 
-    def forward(
-        self,
-        *args,
-        **kwargs,
-    ):
-        output = super().forward(*args, **kwargs)
+    def forward(self, *args, **kwargs) -> MegatronFineTuneOutput | BioBertOutput | Tensor:
+        """Inference."""
+        output: MegatronFineTuneOutput | BioBertOutput | Tensor = super().forward(*args, **kwargs)
         # Stop early if we are not in post_process mode (for example if we are in the middle of model parallelism)
         if not self.post_process:
             return output  # we are not at the last pipeline stage so just return what the parent has
         # Double check that the output from the parent has everything we need to do prediction in this head.
-        if ("hidden_states" not in output) or (not isinstance(output, dict)):
+        if not isinstance(output, dict) or ("hidden_states" not in output):
             raise ValueError(
                 f"Expected to find 'hidden_states' in the output, and output to be dictionary-like, found {output},\n"
                 "Make sure include_hiddens=True in the call to super().__init__"
             )
         # Get the hidden state from the parent output, and pull out the [CLS] token for this task
-        hidden_states: torch.Tensor = output["hidden_states"][
-            :, 0
-        ]  # [b s h] => [b h], use [CLS] (first) token for reg
+        hidden_states: Tensor = output["hidden_states"][:, 0]  # [b s h] => [b h], use [CLS] (first) token for reg
         # Predict our 1d regression target
         regression_output = self.regression_head(hidden_states)
         if not self.include_hiddens_finetuning:
@@ -178,15 +206,19 @@ class MegatronBioBertFineTuneSeqLengthModel(MegatronBioBertModel):
 
 @dataclass
 class FineTuneSeqLenBioBertConfig(
-    BioBertGenericConfig[MegatronBioBertFineTuneSeqLengthModel], iom.IOMixinWithGettersSetters
+    BioBertConfig[MegatronBioBertFineTuneSeqLengthModel, SequenceLengthRMSEPlusBERTMLMLossWithReduction],
+    iom.IOMixinWithGettersSetters,
 ):
+    """BioBert fine-tuning sequence length model configuration."""
+
     # When overriding fields in a dataclass _always_ declare types: https://github.com/python/cpython/issues/123269
     model_cls: Type[MegatronBioBertFineTuneSeqLengthModel] = MegatronBioBertFineTuneSeqLengthModel
     # typical case is fine-tune the base biobert that doesn't have this head. If you are instead loading a checkpoint
     # that has this new head and want to keep using these weights, please drop this next line or set to []
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=lambda: ["regression_head"])
 
-    def get_loss_reduction_class(self) -> Type[MegatronLossReduction]:
+    def get_loss_reduction_class(self) -> Type[SequenceLengthRMSEPlusBERTMLMLossWithReduction]:
+        """Loss function type."""
         return SequenceLengthRMSEPlusBERTMLMLossWithReduction
 
 
@@ -205,10 +237,10 @@ class LoRAForGeneFormerTokenRegressor(LoRA):
        This could break the if it is updated from a megatron module to a torch module or something else. Functional
        calls are generally favored for this reason and some have been made here to avoid updating inheritance throughout
        the code base.
-
     """
 
-    def input_size_getter(self, m: nn.Module):
+    def input_size_getter(self, m: nn.Module) -> int:
+        """Gets the input size of the supplied model."""
         match m:
             case object(input_size=n):
                 return n
@@ -217,7 +249,8 @@ class LoRAForGeneFormerTokenRegressor(LoRA):
             case _:
                 raise ValueError(f"Module {m} does not have a supported input size calculation.")
 
-    def output_size_getter(self, m: nn.Module):
+    def output_size_getter(self, m: nn.Module) -> int:
+        """Gets the output size of the supplied model."""
         match m:
             case object(output_size=n):
                 return n
@@ -227,18 +260,21 @@ class LoRAForGeneFormerTokenRegressor(LoRA):
                 raise ValueError(f"Module {m} does not have a supported output size calculation.")
 
     def __call__(self, model: nn.Module) -> nn.Module:
+        """Inference."""
         fn.walk(model, self.selective_freeze)
         fn.walk(model, self.transform)
         return model
 
-    def selective_freeze(self, m: nn.Module, name=None, prefix=None):
+    def selective_freeze(self, m: nn.Module, name: str | None = None, prefix: str | None = None) -> nn.Module:
+        """Freezes either 'encoder' or 'embedding' parameters of the input model (`m`) iff name is one of these."""
         if name in ["encoder", "embedding"]:
             FNMixin.freeze(m)
         return m
 
-    def transform(self, m: nn.Module, name=None, prefix=None):
-        from nemo.collections.nlp.modules.common.megatron.adapters.parallel_adapters import ParallelLinearAdapter
-
+    def transform(
+        self, m: nn.Module, name: str | None = None, prefix: str | None = None
+    ) -> nn.Module | AdapterParallelAdd:
+        """Transforms the input model if the name is in the target modules."""
         tp_size = parallel_state.get_tensor_model_parallel_world_size()
         if name in self.target_modules:
             # m.in_features and m.out_features are divided by tp_size already,

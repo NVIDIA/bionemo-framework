@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from typing import Sequence, Type
 
 from bionemo.geneformer.model.finetune_token_regressor import FineTuneSeqLenBioBertConfig
-from bionemo.llm.model.biobert.model import BioBertGenericConfig, MegatronBioBertModel
+from bionemo.llm.api import MegatronLossType
+from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel
 from bionemo.llm.utils import iomixin_utils as iom
 
 
@@ -31,7 +32,7 @@ GeneformerModel = MegatronBioBertModel
 
 
 @dataclass
-class GeneformerConfig(BioBertGenericConfig[GeneformerModel], iom.IOMixinWithGettersSetters):
+class GeneformerConfig(BioBertConfig[GeneformerModel, MegatronLossType], iom.IOMixinWithGettersSetters):
     """A geneformer config.
 
     The geneformer config overrides the parent config, and adds a leaf-level iomixin, please do not inherit from this

@@ -15,20 +15,21 @@
 
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Sequence, Tuple, Type, Union
+from typing import List, Sequence, Tuple, Type, TypedDict
 
 import numpy as np
 import torch
 from megatron.core import parallel_state
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
-from nemo.lightning.megatron_parallel import MegatronLossReduction, ReductionT
+from torch import Tensor
 from torch.utils.data import Dataset
 
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
 from bionemo.esm2.data import tokenizer
 from bionemo.llm.data.label2id_tokenizer import Label2IDTokenizer
 from bionemo.llm.data.types import BertSample
+from bionemo.llm.model.biobert.model import BioBertOutput
 from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
 from bionemo.llm.utils import iomixin_utils as iom
 
@@ -37,7 +38,28 @@ from bionemo.llm.utils import iomixin_utils as iom
 token to output secondary structure predictions.
 """
 
-__all__ = []
+__all__: Sequence[str] = (
+    "ClassifierLossReduction",
+    "MegatronConvNetHead",
+    "ESM2FineTuneTokenModel",
+    "ESM2FineTuneTokenConfig",
+    "InMemoryPerTokenValueDataset",
+    "ClassifierInput",
+    "Esm2FineTuneTokenOutput",
+)
+
+
+class ClassifierInput(TypedDict):
+    """Used as input in the ClassifierLossReduction's forward method."""
+
+    labels: Tensor
+    loss_mask: Tensor
+
+
+class Esm2FineTuneTokenOutput(BioBertOutput):
+    """Inference output from ESM2FineTuneTokenModel."""
+
+    classification_output: Tensor
 
 
 class ClassifierLossReduction(BERTMLMLossWithReduction):
@@ -47,8 +69,8 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
     """
 
     def forward(
-        self, batch: Dict[str, torch.Tensor], forward_out: Dict[str, torch.Tensor]
-    ) -> Tuple[torch.Tensor, Union[PerTokenLossDict, SameSizeLossDict]]:
+        self, batch: ClassifierInput, forward_out: Esm2FineTuneTokenOutput
+    ) -> Tuple[Tensor, PerTokenLossDict | SameSizeLossDict]:
         """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
 
         Args:
@@ -56,9 +78,8 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
             forward_out: the output of the forward method inside classification head.
 
         Returns:
-            A tuple containing [<loss_tensor>, ReductionT] where the loss tensor will be used for
-                backpropagation and the ReductionT will be passed to the reduce method
-                (which currently only works for logging.).
+            A tuple where the loss tensor will be used for backpropagation and the dict will be passed to
+            the reduce method, which currently only works for logging.
         """
         targets = batch["labels"]  # [b, s]
         # [b, s, num_class] -> [b, num_class, s] to satisfy input dims for cross_entropy loss
@@ -76,7 +97,7 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
 
         return loss, {"avg": loss}
 
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[ReductionT]) -> torch.Tensor:
+    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
         """Works across micro-batches. (data on single gpu).
 
         Note: This currently only works for logging and this loss will not be used for backpropagation.
@@ -95,6 +116,7 @@ class MegatronConvNetHead(MegatronModule):
     """A convolutional neural network class for residue-level classification."""
 
     def __init__(self, config: TransformerConfig):
+        """Constructor."""
         super().__init__(config)
 
         self.finetune_model = torch.nn.Sequential(
@@ -106,7 +128,8 @@ class MegatronConvNetHead(MegatronModule):
         # These are used for producing logits scores of varying sizes as specified in `output_sizes`.
         self.class_heads = torch.nn.Conv2d(32, config.cnn_num_classes, kernel_size=(7, 1), padding=(3, 0))
 
-    def forward(self, hidden_states: torch.Tensor) -> List[torch.Tensor]:
+    def forward(self, hidden_states: Tensor) -> List[Tensor]:
+        """Inference."""
         # [b, s, h] -> [b, h, s, 1]
         hidden_states = hidden_states.permute(0, 2, 1).unsqueeze(dim=-1)
         hidden_states = self.finetune_model(hidden_states)  # [b, 32, s, 1]
@@ -115,7 +138,10 @@ class MegatronConvNetHead(MegatronModule):
 
 
 class ESM2FineTuneTokenModel(ESM2Model):
+    """An ESM2 model that is suitable for fine tuning."""
+
     def __init__(self, config, *args, include_hiddens: bool = False, post_process: bool = True, **kwargs):
+        """Constructor."""
         super().__init__(config, *args, include_hiddens=True, post_process=post_process, **kwargs)
 
         # freeze encoder parameters
@@ -132,23 +158,20 @@ class ESM2FineTuneTokenModel(ESM2Model):
             # if we are doing post process (eg pipeline last stage) then we need to add the output layers
             self.classification_head = MegatronConvNetHead(config)
 
-    def forward(
-        self,
-        *args,
-        **kwargs,
-    ):
-        output = super().forward(*args, **kwargs)
+    def forward(self, *args, **kwargs) -> Tensor | BioBertOutput | Esm2FineTuneTokenOutput:
+        """Inference."""
+        output: Tensor | BioBertOutput | Esm2FineTuneTokenOutput = super().forward(*args, **kwargs)
         # Stop early if we are not in post_process mode (for example if we are in the middle of model parallelism)
         if not self.post_process:
             return output  # we are not at the last pipeline stage so just return what the parent has
         # Double check that the output from the parent has everything we need to do prediction in this head.
-        if ("hidden_states" not in output) or (not isinstance(output, dict)):
+        if not isinstance(output, dict) or "hidden_states" not in output:
             raise ValueError(
                 f"Expected to find 'hidden_states' in the output, and output to be dictionary-like, found {output},\n"
                 "Make sure include_hiddens=True in the call to super().__init__"
             )
         # Get the hidden state from the parent output, and pull out the [CLS] token for this task
-        hidden_states: torch.Tensor = output["hidden_states"]
+        hidden_states: Tensor = output["hidden_states"]
         # Predict our 1d regression target
         classification_output = self.classification_head(hidden_states)
         if not self.include_hiddens_finetuning:
@@ -158,7 +181,9 @@ class ESM2FineTuneTokenModel(ESM2Model):
 
 
 @dataclass
-class ESM2FineTuneTokenConfig(ESM2GenericConfig[ESM2FineTuneTokenModel], iom.IOMixinWithGettersSetters):
+class ESM2FineTuneTokenConfig(
+    ESM2GenericConfig[ESM2FineTuneTokenModel, ClassifierLossReduction], iom.IOMixinWithGettersSetters
+):
     """ExampleConfig is a dataclass that is used to configure the model.
 
     Timers from ModelParallelConfig are required for megatron forward compatibility.
@@ -174,11 +199,14 @@ class ESM2FineTuneTokenConfig(ESM2GenericConfig[ESM2FineTuneTokenModel], iom.IOM
     cnn_dropout: float = 0.25
     cnn_hidden_dim: int = 32  # The number of output channels in the bottleneck layer of the convolution.
 
-    def get_loss_reduction_class(self) -> Type[MegatronLossReduction]:
+    def get_loss_reduction_class(self) -> Type[ClassifierLossReduction]:
+        """The loss function type."""
         return ClassifierLossReduction
 
 
 class InMemoryPerTokenValueDataset(Dataset):
+    """An in-memory dataset of labeled strings, which are tokenized on demand."""
+
     def __init__(
         self,
         data: Sequence[Tuple[str, str]],
@@ -190,11 +218,11 @@ class InMemoryPerTokenValueDataset(Dataset):
         This is an in-memory dataset that does not apply masking to the sequence.
 
         Args:
-            data (Sequence[Tuple[str, str]]): A sequence of tuples containing the sequence and target data.
-            tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
-            seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
-                that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
-                generated.
+            data: A sequence of tuples containing the sequence and target data.
+            tokenizer: The tokenizer to use. Defaults to tokenizer.get_tokenizer().
+            seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to
+                ensure that __getitem__ is deterministic, but can be random across different runs. If None, a random
+                seed is generated.
         """
         self.data = data
         self.seed = seed
@@ -203,10 +231,12 @@ class InMemoryPerTokenValueDataset(Dataset):
         label_tokenizer = Label2IDTokenizer()
         self.label_tokenizer = label_tokenizer.build_vocab("CHE")
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Length of dataset."""
         return self._len
 
     def __getitem__(self, index: int) -> BertSample:
+        """Gets a BertSample associated to the supplied index."""
         sequence, target = self.data[index]
         tokenized_sequence = self._tokenize(sequence)
         # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
@@ -222,7 +252,7 @@ class InMemoryPerTokenValueDataset(Dataset):
             "is_random": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
         }
 
-    def _tokenize_labels(self, labels_sequence: str) -> torch.Tensor:
+    def _tokenize_labels(self, labels_sequence: str) -> Tensor:
         label_ids = torch.tensor(self.label_tokenizer.text_to_ids(labels_sequence))
 
         # # for multi-label classification with BCEWithLogitsLoss
@@ -237,7 +267,7 @@ class InMemoryPerTokenValueDataset(Dataset):
         labels = torch.cat((cls_eos, tokenized_labels, cls_eos))
         return labels
 
-    def _tokenize(self, sequence: str) -> torch.Tensor:
+    def _tokenize(self, sequence: str) -> Tensor:
         """Tokenize a protein sequence.
 
         Args:

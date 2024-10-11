@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bionemo-llm"
-license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo Large Language Model Components using NeMo and Megatron"
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
+    # bionemo sub-packages
     'bionemo-core',
+    # external
     'lightning>=2.2.1',
     'megatron-core',
     'nemo_toolkit[all]',  # We need [all] over [nlp] for the megatron-energon dependency.

@@ -93,10 +93,9 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
 RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
   --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-  <<EOT
+  <<EOF
 set -eo pipefail
 uv pip install --no-build-isolation \
   ./3rdparty/* \
@@ -105,7 +104,7 @@ uv pip install --no-build-isolation \
   -r /requirements-test.txt
 rm -rf ./3rdparty
 rm -rf /tmp/*
-EOT
+EOF
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
 # base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
@@ -115,13 +114,13 @@ FROM ${BASE_IMAGE} AS dev
 
 RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
-  <<EOT
+  <<EOF
 set -eo pipefail
 apt-get update -qy
 apt-get install -qyy \
   sudo
 rm -rf /tmp/* /var/tmp/*
-EOT
+EOF
 
 # Create a non-root user to use inside a devcontainer.
 ARG USERNAME=bionemo
@@ -134,13 +133,13 @@ RUN groupadd --gid $USER_GID $USERNAME \
 
 # Here we delete the dist-packages directory from the pytorch base image, and copy over the dist-packages directory from
 # the build image. This ensures we have all the necessary dependencies installed (megatron, nemo, etc.).
-RUN <<EOT
+RUN <<EOF
   set -eo pipefail
   rm -rf /usr/local/lib/python3.10/dist-packages
   mkdir -p /usr/local/lib/python3.10/dist-packages
   chmod 777 /usr/local/lib/python3.10/dist-packages
   chmod 777 /usr/local/bin
-EOT
+EOF
 
 USER $USERNAME
 
@@ -154,23 +153,45 @@ ENV UV_LINK_MODE=copy \
   UV_SYSTEM_PYTHON=true
 
 RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOT
+  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOF
   set -eo pipefail
   uv pip install -r /workspace/bionemo2/requirements-dev.txt
   rm -rf /tmp/*
-EOT
+EOF
 
-RUN <<EOT
+RUN <<EOF
   set -eo pipefail
   rm -rf /usr/local/lib/python3.10/dist-packages/bionemo*
   pip uninstall -y nemo_toolkit megatron_core
-EOT
+EOF
+
+# Transformer engine attention defaults
+ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
+
+FROM dev AS development
+
+WORKDIR /workspace/bionemo2
+COPY --from=bionemo2-base /workspace/bionemo2/ .
+# because of the `rm -rf ./3rdparty` in bionemo2-base
+COPY ./3rdparty ./3rdparty
+USER root
+RUN <<EOF
+set -eo pipefail
+find . -name __pycache__ -type d -print | xargs rm -rf
+for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
+    uv pip install --no-deps --no-build-isolation --editable $sub
+done
+EOF
+ARG USERNAME=bionemo
+USER $USERNAME
 
 # The 'release' target needs to be last so that it's the default build target. In the future, we could consider a setup
 # similar to the devcontainer above, where we copy the dist-packages folder from the build image into the release image.
 # This would reduce the overall image size by reducing the number of intermediate layers. In the meantime, we match the
 # existing release image build by copying over remaining files from the repo into the container.
 FROM bionemo2-base AS release
+
+RUN mkdir -p /workspace/bionemo2/.cache/
 
 COPY VERSION .
 COPY ./scripts ./scripts
@@ -179,3 +200,5 @@ COPY ./README.md ./
 # Copy over folders so that the image can run tests in a self-contained fashion.
 COPY ./ci/scripts ./ci/scripts
 COPY ./docs ./docs
+
+RUN chmod 777 -R /workspace/bionemo2/

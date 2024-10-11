@@ -105,13 +105,14 @@ def infer_global_batch_size(
         raise ValueError(f"tensor_model_parallel_size must be greater than 0, got {tensor_model_parallel_size}")
     if pipeline_model_parallel_size <= 0:
         raise ValueError(f"pipeline_model_parallel_size must be greater than 0, got {pipeline_model_parallel_size}")
-    if devices % (tensor_model_parallel_size * pipeline_model_parallel_size) != 0:
-        raise ValueError(
-            f"devices must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size, "
-            f"got {devices} and {tensor_model_parallel_size} * {pipeline_model_parallel_size}"
-        )
 
     world_size = num_nodes * devices
+    if world_size % (tensor_model_parallel_size * pipeline_model_parallel_size) != 0:
+        raise ValueError(
+            f"world_size must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size, "
+            f"got {world_size} and {tensor_model_parallel_size} * {pipeline_model_parallel_size}"
+        )
+
     model_parallel_size = tensor_model_parallel_size * pipeline_model_parallel_size
     data_parallel_size = world_size // model_parallel_size
     global_batch_size = micro_batch_size * data_parallel_size * accumulate_grad_batches

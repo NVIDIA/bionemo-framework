@@ -17,11 +17,20 @@
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, NamedTuple, Protocol, TypeVar
+from typing import Generic, NamedTuple, Protocol, Sequence, TypeVar
 
 import numpy as np
 from torch.utils.data import Dataset
 
+
+__all__: Sequence[str] = (
+    "EpochIndex",
+    "SizedDataset",
+    "MultiEpochDataset",
+    "MultiEpochDatasetResampler",
+    "MultiEpochDatasetWrapper",
+    "IdentityMultiEpochDatasetWrapper",
+)
 
 T = TypeVar("T")
 T_co = TypeVar("T_co", covariant=True)
@@ -29,10 +38,13 @@ U_co = TypeVar("U_co", covariant=True)
 
 
 class EpochIndex(NamedTuple):
-    """A tuple that contains both the current epoch and index within the given epoch."""
+    """A tuple that contains both the current epoch and index for multi-epoch training."""
 
     epoch: int
+    """An integer representing the current epoch."""
+
     idx: int
+    """An integer representing the index within the current epoch."""
 
 
 class SizedDataset(Protocol[T_co]):

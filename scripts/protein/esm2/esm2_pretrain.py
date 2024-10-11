@@ -32,7 +32,7 @@ from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.lightning import PerplexityLoggingCallback
-from bionemo.llm.model.biobert.lightning import BioBertLightningModule
+from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
@@ -81,6 +81,10 @@ def main(
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
     save_every_n_steps: int = 100,
+    nsys_profiling: bool = False,
+    nsys_start_step: int = 0,
+    nsys_end_step: Optional[int] = None,
+    nsys_ranks: List[int] = [0],
     random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
     num_layers: int = 33,
     hidden_size: int = 1280,
@@ -158,6 +162,20 @@ def main(
         )
     )
 
+    callbacks = [
+        PerplexityLoggingCallback(log_train=False, log_val=True),
+        RichModelSummary(max_depth=4),
+        LearningRateMonitor(),
+    ]
+    if nsys_profiling:
+        if nsys_end_step is None:
+            nsys_end_step = num_steps
+        callbacks.append(
+            nl_callbacks.NsysCallback(
+                start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
+            )
+        )
+
     trainer = nl.Trainer(
         devices=devices,
         max_steps=num_steps,
@@ -166,11 +184,7 @@ def main(
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,
         num_nodes=num_nodes,
-        callbacks=[
-            PerplexityLoggingCallback(log_train=False, log_val=True),
-            RichModelSummary(max_depth=4),
-            LearningRateMonitor(),
-        ],
+        callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
@@ -191,8 +205,8 @@ def main(
     )
 
     # Configure the model
-    need_megatron_variable_seq_lengths_reductions = (
-        pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length,
+    need_megatron_variable_seq_lengths_reductions: bool = (
+        pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length
     )  # essential for pipeline/tensor parallel
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
@@ -204,11 +218,13 @@ def main(
         pipeline_dtype=get_autocast_dtype(precision),
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
         biobert_spec_option=biobert_spec_option,
-        nemo1_ckpt_path=nemo1_init_path,
+        nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
+        # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
+        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
         variable_seq_lengths=need_megatron_variable_seq_lengths_reductions,
     )
 
-    model = BioBertLightningModule(
+    model = biobert_lightning_module(
         esm2_config,
         tokenizer=tokenizer,
         optimizer=MegatronOptimizerModule(
@@ -250,7 +266,6 @@ def main(
         trainer=trainer,
         log=nemo_logger,
         resume=resume.AutoResume(
-            resume_from_path=restore_from_checkpoint_path,  # Overrides the path found by resume_if_exists when set.
             resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
@@ -433,13 +448,13 @@ parser.add_argument(
 parser.add_argument(
     "--save-best-checkpoint",
     action="store_true",
-    default=True,
+    default=True,  # TODO Rethink this, we can't turn it off. For default=True we should use `store_false` and fix name.
     help="Save the best checkpoint based on the metric to monitor.",
 )
 parser.add_argument(
     "--save-last-checkpoint",
     action="store_true",
-    default=True,
+    default=True,  # TODO Rethink this, we can't turn it off. For default=True we should use `store_false` and fix name.
     help="Save the last checkpoint.",
 )
 parser.add_argument(
@@ -462,6 +477,36 @@ parser.add_argument(
     required=False,
     default=None,
     help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
+)
+parser.add_argument(
+    "--nsys-profiling",
+    action="store_true",
+    default=False,
+    help="Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with `nsys`. For example: "
+    " `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop  [regular python command here]`",
+)
+# start, end, rank
+parser.add_argument(
+    "--nsys-start-step",
+    type=int,
+    required=False,
+    default=0,
+    help="Start nsys profiling after this step.",
+)
+parser.add_argument(
+    "--nsys-end-step",
+    type=int,
+    required=False,
+    help="End nsys profiling after this step.",
+)
+# rank as list of integers
+parser.add_argument(
+    "--nsys-ranks",
+    type=int,
+    nargs="+",
+    required=False,
+    default=[0],
+    help="Enable nsys profiling for these ranks.",
 )
 
 # ESM2 specific configuration (default: 650M)
@@ -542,6 +587,10 @@ if __name__ == "__main__":
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
         save_every_n_steps=args.val_check_interval,
+        nsys_profiling=args.nsys_profiling,
+        nsys_start_step=args.nsys_start_step,
+        nsys_end_step=args.nsys_end_step,
+        nsys_ranks=args.nsys_ranks,
         random_mask_strategy=args.random_mask_strategy,
         num_layers=args.num_layers,
         hidden_size=args.hidden_size,

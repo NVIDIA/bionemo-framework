@@ -15,28 +15,34 @@
 
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Sequence, Tuple, Type, Union
+from typing import Dict, List, Sequence, Tuple, Type
 
 import numpy as np
 import torch
 from megatron.core import parallel_state
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
-from nemo.lightning.megatron_parallel import MegatronLossReduction, ReductionT
+from torch import Tensor
 from torch.utils.data import Dataset
 
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
 from bionemo.esm2.data import tokenizer
 from bionemo.llm.data.types import BertSample
+from bionemo.llm.model.biobert.model import BioBertOutput
 from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
 from bionemo.llm.utils import iomixin_utils as iom
 
 
-"""This package demonstrates how you can take a pretrained ESM2 module and fine-tune the regressor
-to output sequence-level regression predictions.
-"""
+# This package demonstrates how you can take a pretrained ESM2 module and fine-tune the regressor
+# to output sequence-level regression predictions.
 
-__all__ = []
+__all__: Sequence[str] = (
+    "RegressorLossReduction",
+    "MegatronMLPHead",
+    "ESM2FineTuneSeqModel",
+    "ESM2FineTuneSeqConfig",
+    "InMemorySingleValueDataset",
+)
 
 
 class RegressorLossReduction(BERTMLMLossWithReduction):
@@ -46,8 +52,8 @@ class RegressorLossReduction(BERTMLMLossWithReduction):
     """
 
     def forward(
-        self, batch: Dict[str, torch.Tensor], forward_out: Dict[str, torch.Tensor]
-    ) -> Tuple[torch.Tensor, Union[PerTokenLossDict, SameSizeLossDict]]:
+        self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
+    ) -> Tuple[Tensor, PerTokenLossDict | SameSizeLossDict]:
         """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
 
         Args:
@@ -70,7 +76,7 @@ class RegressorLossReduction(BERTMLMLossWithReduction):
 
         return loss, {"avg": loss}
 
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[ReductionT]) -> torch.Tensor:
+    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
         """Works across micro-batches. (data on single gpu).
 
         Note: This currently only works for logging and this loss will not be used for backpropagation.
@@ -89,16 +95,18 @@ class MegatronMLPHead(MegatronModule):
     """An MLP class for sequence-level regression."""
 
     def __init__(self, config: TransformerConfig):
+        """Constructor."""
         super().__init__(config)
 
         layer_sizes = [config.hidden_size, 256, 1]
         self.linear_layers = torch.nn.ModuleList(
-            [torch.nn.Linear(i, o) for i, o in zip(layer_sizes[:-1], layer_sizes[1:])]
+            [torch.nn.Linear(i, o) for i, o in zip(layer_sizes[:-1], layer_sizes[1:])]  # noqa: RUF007
         )
         self.act = torch.nn.ReLU()
         self.dropout = torch.nn.Dropout(p=config.ft_dropout)
 
-    def forward(self, hidden_states: torch.Tensor) -> List[torch.Tensor]:
+    def forward(self, hidden_states: Tensor) -> List[Tensor]:
+        """Inference."""
         # [b, s, h]
         for layer in self.linear_layers[:-1]:
             hidden_states = self.dropout(self.act(layer(hidden_states)))
@@ -108,7 +116,10 @@ class MegatronMLPHead(MegatronModule):
 
 
 class ESM2FineTuneSeqModel(ESM2Model):
+    """ESM2 model that is suitable for fine-tuning on downstream tasks."""
+
     def __init__(self, config, *args, post_process: bool = True, return_embeddings: bool = False, **kwargs):
+        """Constructs an instance of the ESM2 model suitable for fine-tuning."""
         super().__init__(config, *args, post_process=post_process, return_embeddings=True, **kwargs)
 
         # freeze encoder parameters
@@ -122,27 +133,26 @@ class ESM2FineTuneSeqModel(ESM2Model):
             # if we are doing post process (eg pipeline last stage) then we need to add the output layers
             self.regression_head = MegatronMLPHead(config)
 
-    def forward(
-        self,
-        *args,
-        **kwargs,
-    ):
+    def forward(self, *args, **kwargs) -> BioBertOutput | Tensor:
+        """Inference."""
         output = super().forward(*args, **kwargs)
         # Stop early if we are not in post_process mode (for example if we are in the middle of model parallelism)
         if not self.post_process:
             return output  # we are not at the last pipeline stage so just return what the parent has
         # Double check that the output from the parent has everything we need to do prediction in this head.
-        if not isinstance(output, torch.Tensor):
+        if not isinstance(output, Tensor):
             raise ValueError(f"Expected the output to be the embedding Tensor, found {output}")
         # Get the hidden state from the parent output, and pull out the [CLS] token for this task
-        embeddings: torch.Tensor = output
+        embeddings: Tensor = output
         # Predict our 1d regression target
         regression_output = self.regression_head(embeddings)
         return regression_output
 
 
 @dataclass
-class ESM2FineTuneSeqConfig(ESM2GenericConfig[ESM2FineTuneSeqModel], iom.IOMixinWithGettersSetters):
+class ESM2FineTuneSeqConfig(
+    ESM2GenericConfig[ESM2FineTuneSeqModel, RegressorLossReduction], iom.IOMixinWithGettersSetters
+):
     """ExampleConfig is a dataclass that is used to configure the model.
 
     Timers from ModelParallelConfig are required for megatron forward compatibility.
@@ -156,11 +166,14 @@ class ESM2FineTuneSeqConfig(ESM2GenericConfig[ESM2FineTuneSeqModel], iom.IOMixin
     encoder_frozen: bool = True  # freeze encoder parameters
     ft_dropout: float = 0.25  # MLP layer dropout
 
-    def get_loss_reduction_class(self) -> Type[MegatronLossReduction]:
+    def get_loss_reduction_class(self) -> Type[RegressorLossReduction]:
+        """Returns RegressorLossReduction class."""
         return RegressorLossReduction
 
 
 class InMemorySingleValueDataset(Dataset):
+    """An in-memory dataset that tokenizes strings into BertSample instances."""
+
     def __init__(
         self,
         data: Sequence[Tuple[str, float]],
@@ -183,14 +196,16 @@ class InMemorySingleValueDataset(Dataset):
         self._len = len(self.data)
         self.tokenizer = tokenizer
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """The size of the dataset."""
         return self._len
 
     def __getitem__(self, index: int) -> BertSample:
+        """Obtains the BertSample at the given index."""
         sequence, target = self.data[index]
         tokenized_sequence = self._tokenize(sequence)
         # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
-        loss_mask = ~torch.isin(tokenized_sequence, torch.tensor(self.tokenizer.all_special_ids))
+        loss_mask = ~torch.isin(tokenized_sequence, Tensor(self.tokenizer.all_special_ids))
 
         return {
             "text": tokenized_sequence,
@@ -201,7 +216,7 @@ class InMemorySingleValueDataset(Dataset):
             "is_random": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
         }
 
-    def _tokenize(self, sequence: str) -> torch.Tensor:
+    def _tokenize(self, sequence: str) -> Tensor:
         """Tokenize a protein sequence.
 
         Args:

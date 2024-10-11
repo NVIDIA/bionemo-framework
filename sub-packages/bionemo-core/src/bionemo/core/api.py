@@ -16,10 +16,12 @@
 
 from typing import Sequence
 
-from bionemo.core.model.config import BionemoModelConfig, BionemoTrainableModelConfig
+from bionemo.core.model.config import BionemoModelConfig, BionemoTrainableModelConfig, Model, ModelOutput
 
 
 __all__: Sequence[str] = (
     "BionemoModelConfig",
     "BionemoTrainableModelConfig",
+    "ModelOutput",
+    "Model",
 )

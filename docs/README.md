@@ -2,7 +2,7 @@
 
 ## Viewing the current documentation on github pages
 
-The documentation should be viewable at [https://nvidia.github.io/bionemo-fw-ea/](https://nvidia.github.io/bionemo-fw-ea/).
+The documentation should be viewable at [https://nvidia.github.io/bionemo-framework/](https://nvidia.github.io/bionemo-framework/).
 
 ## Previewing the documentation locally
 
@@ -18,5 +18,5 @@ docker run --rm -it -p 8000:8000 \
     nvcr.io/nvidian/cvai_bnmo_trng/bionemo2-docs:latest
 ```
 
-And then navigate to [`http://0.0.0.0:8000/bionemo-framework/`](http://0.0.0.0:8000/bionemo-framework/) on your local
+And then navigate to [`http://0.0.0.0:8000`](http://0.0.0.0:8000) on your local
 machine.

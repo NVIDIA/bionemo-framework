@@ -17,16 +17,19 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, List, Protocol, Type
+from typing import Any, Generic, List, Protocol, Sequence, Type
 
 from megatron.core.transformer import TransformerConfig
 from nemo.lightning import io
 from nemo.lightning.io.pl import TrainerContext
 
-from bionemo.core.model.config import BionemoModelConfig, BionemoTrainableModelConfig, Loss, Model
+from bionemo.core.model.config import BionemoModelConfig, BionemoTrainableModelConfig
+from bionemo.llm.api import MegatronLossType, MegatronModelType
 from bionemo.llm.utils import iomixin_utils as iom
 from bionemo.llm.utils.weight_utils import load_weights_sharded_inplace_nemo2_to_mcore
 
+
+__all__: Sequence[str] = ("MegatronBioNeMoModelConfig",)
 
 # Configure the logger
 logging.basicConfig(
@@ -48,14 +51,18 @@ _OVERRIDE_BIONEMO_CONFIG_DEFAULTS: List[str] = [
 OVERRIDE_BIONEMO_CONFIG_DEFAULTS = deepcopy(_OVERRIDE_BIONEMO_CONFIG_DEFAULTS)  # copy for export
 
 
-class MegatronBioNeMoModelConfig(BionemoModelConfig[Model], TransformerConfig, iom.WillHaveGetSetHparam):
+class MegatronBioNeMoModelConfig(BionemoModelConfig[MegatronModelType], TransformerConfig, iom.WillHaveGetSetHparam):
     """A ModelConfig class for bionemo that supports usage with Megatron models, for example as NeMo2 requires."""
 
-    model_cls: Type[Model]
+    model_cls: Type[MegatronModelType]
 
 
 @dataclass
-class MegatronBioNeMoTrainableModelConfig(MegatronBioNeMoModelConfig[Model], BionemoTrainableModelConfig[Model, Loss]):
+class MegatronBioNeMoTrainableModelConfig(
+    MegatronBioNeMoModelConfig[MegatronModelType],
+    BionemoTrainableModelConfig[MegatronModelType, MegatronLossType],
+    Generic[MegatronModelType, MegatronLossType],
+):
     """A TrainableModelConfig class for bionemo that supports usage with Megatron models, for example as NeMo2 requires."""
 
     initial_ckpt_path: str | None = None
@@ -87,7 +94,7 @@ class MegatronBioNeMoTrainableModelConfig(MegatronBioNeMoModelConfig[Model], Bio
         override_fields = [f for f in my_fields if f in initial_fields and f not in skip_fields]
         override_mutate_possibly_extra_mutated_fiddle(self, initial_config, override_fields)
 
-    def update_model_from_checkpoint(self, model: Model, initial_ckpt_path: str) -> None:
+    def update_model_from_checkpoint(self, model: MegatronModelType, initial_ckpt_path: str) -> None:
         """Utility function to standardize how to load a megatron model from a checkpoint ignoring user-specified keys.
 
         Update the model with the weights from the provided checkpoint path, skipping the keys with the prefixes in

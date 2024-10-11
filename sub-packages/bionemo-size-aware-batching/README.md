@@ -12,7 +12,9 @@ pytest -v .
 
 # **Summary of Usage**
 
-This package provides a simple way to create mini-batches in a memory consumption-aware (or size-aware) manner, making it useful for tasks like training models on datasets with varying memory requirements. The usage typically consists of the following steps:
+This package provides a simple way to create mini-batches in a memory consumption-aware (or size-aware) manner, making
+it useful for tasks like training models on datasets with varying memory requirements. The usage typically consists of
+the following steps:
 
 1. Use the `collect_cuda_peak_alloc` function to collect CUDA peak memory
    allocation statistics for a user-defined workflow. It's expected that the
@@ -74,13 +76,14 @@ and records the peak CUDA memory allocation during this process. The features ex
 are collected along with their corresponding memory usage statistics.
 
 Note that the first few iterations of the workflow might result in smaller memory allocations due to uninitialized
-data (e.g., internal PyTorch buffers). Therefore, users may want to skip these initial data points when analyzing the results.
+data (e.g., internal PyTorch buffers). Therefore, users may want to skip these initial data points when analyzing the
+results.
 
 **Arguments**:
 
 - `dataset` - An iterable containing the input data.
 - `work` - A function that takes a data point and returns its corresponding feature. This is where
-  the main computation happens and memory allocations are tracked.
+    the main computation happens and memory allocations are tracked.
 - `device` - The target Torch CUDA device.
 - `cleanup` - A function that is called after each iteration to perform any necessary cleanup.
 
@@ -232,7 +235,7 @@ This can be useful for both indexible data or non-indexible but iterable data.
 
 - `dataset` - The input iterable.
 - `sizeof` - A function or mapping that returns the "size" of each element in `dataset`.
-  E.g., this can used to determine how much memory an element consumes. Its return
+  E.g., this can be used to determine how much memory an element consumes. Its return
   type must be comparable with `max_total_size` and it must be addable (operator `+`).
 - `max_total_size` - The maximum total "size" of each batch. The semantics of "size"
   is defined by the `sizeof` argument. The type of this value must be comparable

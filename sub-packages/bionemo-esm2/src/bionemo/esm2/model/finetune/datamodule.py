@@ -40,8 +40,9 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
 
     def __init__(
         self,
-        train_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset,
-        valid_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset,
+        train_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset | None = None,
+        valid_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset | None = None,
+        predict_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset | None = None,
         seed: int = 42,
         min_seq_length: int | None = None,
         max_seq_length: int = 1024,
@@ -61,6 +62,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         Args:
             train_dataset: The training dataset.
             valid_dataset: The validation dataset.
+            predict_dataset: The prediction dataset. Should not be set together with train/valid datasets
             seed: The random seed to use for shuffling the datasets. Defaults to 42.
             min_seq_length: The minimum sequence length for the datasets. Defaults to None.
             max_seq_length: The maximum sequence length for the datasets. Defaults to 1024.
@@ -81,6 +83,9 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         super().__init__()
         self.train_dataset = train_dataset
         self.valid_dataset = valid_dataset
+        self.predict_dataset = predict_dataset
+        if predict_dataset is not None:
+            assert train_dataset is None, "Datamodule expects either trin/valid dataset or predict dataset"
         self._seed = seed
         self._min_seq_length = min_seq_length
         self._max_seq_length = max_seq_length
@@ -100,6 +105,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             global_batch_size=global_batch_size,
             dataloader_type="single",  # `MegatronPretrainingRandomSampler` from "cyclic" is failing.
             rampup_batch_size=rampup_batch_size,
+            output_log=predict_dataset is None,  # logging does not work with predict step
         )
 
     def setup(self, stage: str) -> None:
@@ -122,22 +128,24 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
                 "in each. Instead set max_epochs to 1 and increase the number of max_steps."
             )
 
-        max_train_steps = self.trainer.max_steps
-        if max_train_steps <= 0:
-            raise RuntimeError("Please specify trainer.max_steps")
-
         # Create training dataset
-        num_train_samples = int(max_train_steps * self.data_sampler.global_batch_size)
-        self._train_ds = self._create_epoch_based_dataset(self.train_dataset, num_train_samples)
+        if self.train_dataset is not None:
+            max_train_steps = self.trainer.max_steps
+            if max_train_steps <= 0:
+                raise RuntimeError("Please specify trainer.max_steps")
+
+            num_train_samples = int(max_train_steps * self.data_sampler.global_batch_size)
+            self._train_ds = self._create_epoch_based_dataset(self.train_dataset, num_train_samples)
 
         # Create validation dataset
-        num_val_samples = infer_num_samples(
-            limit_batches=self.trainer.limit_val_batches,
-            num_samples_in_dataset=len(self.valid_dataset),
-            global_batch_size=self.data_sampler.global_batch_size,
-            stage="val",
-        )
-        self._valid_ds = self._create_epoch_based_dataset(self.valid_dataset, num_val_samples)
+        if self.valid_dataset is not None:
+            num_val_samples = infer_num_samples(
+                limit_batches=self.trainer.limit_val_batches,
+                num_samples_in_dataset=len(self.valid_dataset),
+                global_batch_size=self.data_sampler.global_batch_size,
+                stage="val",
+            )
+            self._valid_ds = self._create_epoch_based_dataset(self.valid_dataset, num_val_samples)
 
         assert (
             hasattr(self, "trainer") and self.trainer is not None
@@ -149,7 +157,10 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
         total_samples: int,
     ):
         return MultiEpochDatasetResampler(
-            IdentityMultiEpochDatasetWrapper(dataset), num_samples=total_samples, shuffle=True, seed=self._seed
+            IdentityMultiEpochDatasetWrapper(dataset),
+            num_samples=total_samples,
+            shuffle=self.predict_dataset is None,
+            seed=self._seed,
         )
 
     def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
@@ -171,11 +182,18 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:
         """Returns the dataloader for training data."""
+        assert self._train_ds is not None, "train_dataset is not provided to ESM2FineTuneDataModule"
         return self._create_dataloader(self._train_ds)
 
     def val_dataloader(self) -> EVAL_DATALOADERS:
         """Returns the dataloader for validation data."""
+        assert self._valid_ds is not None, "valid_dataset is not provided to ESM2FineTuneDataModule"
         return self._create_dataloader(self._valid_ds)
+
+    def predict_dataloader(self) -> EVAL_DATALOADERS:
+        """Returns the dataloader for prediction data."""
+        assert self.predict_dataset is not None, "predict_dataset is not provided to ESM2FineTuneDataModule"
+        return self._create_dataloader(self.predict_dataset)
 
     def test_dataloader(self) -> EVAL_DATALOADERS:
         """Raises a not implemented error."""

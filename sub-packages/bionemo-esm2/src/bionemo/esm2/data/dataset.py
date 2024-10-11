@@ -26,6 +26,7 @@ import torch
 from torch.utils.data import Dataset
 
 from bionemo.core.data.multi_epoch_dataset import EpochIndex, MultiEpochDatasetResampler
+from bionemo.core.utils import random_utils
 from bionemo.esm2.data import tokenizer
 from bionemo.llm.data import masking
 from bionemo.llm.data.types import BertSample
@@ -189,7 +190,8 @@ class ESMMaskedResidueDataset(Dataset):
         tokenized_sequence = self._tokenize(sequence)
         cropped_sequence = _random_crop(tokenized_sequence, self.max_seq_length, rng)
 
-        torch_seed = int(rng.integers(low=np.iinfo(np.int64).min, high=np.iinfo(np.int64).max))
+        # Get a single integer seed for torch from our rng, since the index tuple is hard to pass directly to torch.
+        torch_seed = random_utils.get_seed_from_rng(rng)
         masked_sequence, labels, loss_mask = masking.apply_bert_pretraining_mask(
             tokenized_sequence=cropped_sequence,  # type: ignore
             random_seed=torch_seed,

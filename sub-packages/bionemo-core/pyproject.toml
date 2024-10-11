@@ -4,12 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bionemo-core"
-license.file = "LICENSE"
 readme = "README.md"
 description = "BioNeMo core interfaces and PyTorch-related code."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
-dependencies = ["numpy", "platformdirs", "pytorch-lightning", "torch>=2.2.1"]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
 dynamic = ["version"]
+dependencies = [
+    # bionemo sub-packages
+    # external
+    "numpy",
+    "platformdirs",
+    "torch>=2.2.1",
+    'pytorch-lightning>=2.2.1',
+    'lightning>=2.2.1',
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

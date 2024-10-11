@@ -31,12 +31,14 @@ from megatron.core.transformer.transformer_block import TransformerBlock
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import get_linear_layer
 from torch import Tensor
+from torch.nn import functional as F
 from torch.optim import Optimizer
 
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
 from bionemo.esm2.model.attention import ESM2DotProductAttention, ESM2TEDotProductAttention
 from bionemo.esm2.model.embedding import ESM2Embedding
-from bionemo.llm.model.biobert.model import BioBertGenericConfig, MegatronBioBertModel
+from bionemo.llm.api import MegatronLossType
+from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel, PositionEmbeddingKinds
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils import iomixin_utils as iom
 
@@ -206,12 +208,15 @@ class ESM2Model(MegatronBioBertModel):
         )
 
 
+@torch.compile
 def esm_gelu_func(x: Tensor) -> Tensor:
     """ESM2-specific gelu implementation from the original ESM repo.
 
     !!! warning
 
-        Using F.gelu yields subtly wrong results.
+        Using F.gelu yields subtly wrong results, but only when used in combination with bias_activation_fusion=True
+        This variant will not allow you to use bias_activation_fusion=True, which may be the only accuracy benefit over
+        a native F.gelu.
 
     Args:
         x: input tensor of any given dimension
@@ -223,7 +228,7 @@ ESM2ModelT = TypeVar("ESM2ModelT", bound=ESM2Model)
 
 
 @dataclass
-class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
+class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     """Configuration class for ESM2 model.
 
     Attributes:
@@ -263,7 +268,7 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
     """
 
     # When overriding fields in a dataclass _always_ declare types: https://github.com/python/cpython/issues/123269
-    model_cls: Type[ESM2Model] = ESM2Model
+    model_cls: Type[ESM2ModelT] = ESM2Model
     num_layers: int = 33  # 650M
     hidden_size: int = 1280  # 650M
     num_attention_heads: int = 20
@@ -272,7 +277,8 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
     attention_dropout: float = 0.0  # ESM2 does not use attention dropout
     apply_residual_connection_post_layernorm: bool = False  # TODO: farhadr False is new default, True was BERT pub.
     layernorm_epsilon: float = 1.0e-5
-    activation_func: Callable = esm_gelu_func  # ESM2 MLP
+    bias_activation_fusion: bool = True  # True degrades accuracy slightly, but is faster.
+    activation_func: Callable = F.gelu  # esm_gelu_func  # ESM2 MLP
     init_method_std: float = 0.02
 
     # embedding
@@ -281,7 +287,7 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
 
     # core attention
     use_esm_attention: bool = False  # Skip ESM2 custom attention for TE acceleration. Still passes golden value test.
-    attention_softmax_in_fp32: bool = True
+    attention_softmax_in_fp32: bool = False
     normalize_attention_scores: bool = False
 
     # From megatron.core.models.gpt.bert_model.GPTModel
@@ -289,17 +295,12 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
     parallel_output: bool = True
     share_embeddings_and_output_weights: bool = True
     make_vocab_size_divisible_by: int = 128
-    position_embedding_type: Literal["learned_absolute", "rope"] = (
-        "rope"  # ESM2 uses relative positional encoding 'ROPE' to extrapolate to longer sequences unseen during training
-    )
+    position_embedding_type: PositionEmbeddingKinds = "rope"  # ESM2 uses relative positional encoding 'ROPE' to extrapolate to longer sequences unseen during training
     rotary_base: int = 10000
     rotary_percent: float = 1.0
     seq_len_interpolation_factor: Optional[float] = None
     seq_length: int = 1024
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec
-
-    # TODO: Move this to better places?
-    get_attention_mask_from_fusion: bool = False
 
     optimizer_fn: Optional[Callable[[MegatronBioBertModel], Optimizer]] = None
     # TODO (@skothenhill,@georgea) update to use the nemo2 checkpoint mixins
@@ -330,13 +331,8 @@ class ESM2GenericConfig(BioBertGenericConfig[ESM2ModelT]):
 
 
 @dataclass
-class ESM2Config(ESM2GenericConfig[ESM2Model], iom.IOMixinWithGettersSetters):
-    """Configuration class for ESM2 model.
-
-    model_cls: Type[ESM2Model] = ESM2Model
-    num_layers: int = 33  # 650M
-    hidden_size: int = 1280  # 650M
-    """
+class ESM2Config(ESM2GenericConfig, iom.IOMixinWithGettersSetters):
+    """Configuration class for ESM2 model."""
 
     model_cls: Type[ESM2Model] = ESM2Model
     num_layers: int = 33  # 650M

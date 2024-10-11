@@ -1,4 +1,9 @@
+# bionemo
 docs/site/
+*.nemo
+protein/
+singlecell/
+results/
 
 # Local configs
 .gitconfig
@@ -63,6 +68,7 @@ MNISTCustom/
 
 # Python debugging
 .pdbhistory
+.python_history
 
 # Translations
 *.mo

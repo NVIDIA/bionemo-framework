@@ -28,7 +28,7 @@ from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
-from bionemo.llm.model.biobert.lightning import BioBertLightningModule
+from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.testing_utils import compute_biobert_loss_singlegpu
 from bionemo.testing.harnesses import stop_and_go
 
@@ -105,7 +105,7 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
             autocast_dtype=self.autocast_dtype,
         )
         # Build lightning module
-        module = BioBertLightningModule(config=config, tokenizer=self.tokenizer, optimizer=optimizer)
+        module = biobert_lightning_module(config=config, tokenizer=self.tokenizer, optimizer=optimizer)
 
         return module, data, optimizer
 

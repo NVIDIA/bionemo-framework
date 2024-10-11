@@ -14,11 +14,17 @@
 # limitations under the License.
 
 import warnings
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Type, TypeVar, Union
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Type, TypeVar, Union
 
 import torch
 from torch.utils.data import Sampler
 
+
+__all__: Sequence[str] = (
+    "size_aware_batching",
+    "SizeAwareBatchSampler",
+    "Real",
+)
 
 Data = TypeVar("Data")
 BatchCollated = TypeVar("BatchCollated")
@@ -34,7 +40,8 @@ def size_aware_batching(
     info_logger: Optional[Callable[[str], None]] = None,
     warn_logger: Optional[Callable[[str], None]] = None,
 ) -> Iterator[Union[List[Data], BatchCollated]]:
-    """
+    """Creates a batching iterator where each batch size varries (within a max limit) according to memory consumption.
+
     A generator that batches elements from an iterable while ensuring that the
     total size of each batch does not exceed a specified maximum. Here the size
     can be a measurement of memory consumption of the elements in the batch.
@@ -80,8 +87,8 @@ def size_aware_batching(
 
 
     -------
-    Example
 
+    Example:
     ```python
     >>> import torch
     >>> from torch.utils.data import default_collate
@@ -161,7 +168,8 @@ def size_aware_batching(
 
 
 class SizeAwareBatchSampler(Sampler[List[int]]):
-    """
+    """Varriying-size batching data sampler class that ensures batch size doesn't exceed maximum.
+
     A sampler that batches elements of varying sizes while ensuring
     that the total size of each batch does not exceed a specified maximum.
 
@@ -172,8 +180,8 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
     each batch does not exceed the specified `max_total_size`.
 
     ---------
-    Examples:
 
+    Examples:
     ```python
     >>> import torch
     >>> from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
@@ -211,8 +219,7 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         info_logger: Optional[Callable[[str], None]] = None,
         warn_logger: Optional[Callable[[str], None]] = None,
     ) -> None:
-        """
-        Initializes the SizeAwareBatchSampler.
+        """Initializes the SizeAwareBatchSampler.
 
         Args:
             sampler: The underlying sampler.
@@ -249,8 +256,7 @@ class SizeAwareBatchSampler(Sampler[List[int]]):
         self._max_total_size = max_total_size
 
     def __iter__(self) -> Iterator[List[int]]:
-        """
-        Iterate over batches of indices.
+        """Iterate over batches of indices.
 
         This function yields batches of indices that do not exceed the maximum total size.
 

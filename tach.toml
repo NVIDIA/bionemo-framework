@@ -8,25 +8,22 @@ exclude = [
     "build",
 ]
 source_roots = [
-    "sub-packages/bionemo-core/src",
-    "sub-packages/bionemo-esm2/src",
-    "sub-packages/bionemo-example_model/src",
-    "sub-packages/bionemo-fw/src",
-    "sub-packages/bionemo-geneformer/src",
-    "sub-packages/bionemo-llm/src",
-    "sub-packages/bionemo-testing/src",
-    "sub-packages/bionemo-webdatamodule/src",
+    'sub-packages/bionemo-core/src',
+    'sub-packages/bionemo-esm2/src',
+    'sub-packages/bionemo-example_model/src',
+    'sub-packages/bionemo-fw/src',
+    'sub-packages/bionemo-geneformer/src',
+    'sub-packages/bionemo-geometric/src',
+    'sub-packages/bionemo-llm/src',
+    'sub-packages/bionemo-scdl/src',
+    'sub-packages/bionemo-size-aware-batching/src',
+    'sub-packages/bionemo-testing/src',
+    'sub-packages/bionemo-webdatamodule/src',
 ]
 
 [[modules]]
 path = "bionemo.core"
 depends_on = []
-
-[[modules]]
-path = "bionemo.llm"
-depends_on = [
-    { path = "bionemo.core" },
-]
 
 [[modules]]
 path = "bionemo.esm2"
@@ -36,14 +33,7 @@ depends_on = [
 ]
 
 [[modules]]
-path = "bionemo.geneformer"
-depends_on = [
-    { path = "bionemo.core" },
-    { path = "bionemo.llm" },
-]
-
-[[modules]]
-path = "bionemo.webdatamodule"
+path = "bionemo.example_model"
 depends_on = [
     { path = "bionemo.core" },
     { path = "bionemo.llm" },
@@ -60,6 +50,37 @@ depends_on = [
 ]
 
 [[modules]]
+path = "bionemo.geneformer"
+depends_on = [
+    { path = "bionemo.core" },
+    { path = "bionemo.llm" },
+]
+
+[[modules]]
+path = "bionemo.geometric"
+depends_on = [
+    { path = "bionemo.core" },
+]
+
+[[modules]]
+path = "bionemo.llm"
+depends_on = [
+    { path = "bionemo.core" },
+]
+
+[[modules]]
+path = "bionemo.scdl"
+depends_on = [
+    { path = "bionemo.core" },
+]
+
+[[modules]]
+path = "bionemo.size_aware_batching"
+depends_on = [
+    { path = "bionemo.core" },
+]
+
+[[modules]]
 path = "bionemo.testing"
 depends_on = [
     { path = "bionemo.core" },
@@ -67,7 +88,7 @@ depends_on = [
 ]
 
 [[modules]]
-path = "bionemo.example_model"
+path = "bionemo.webdatamodule"
 depends_on = [
     { path = "bionemo.core" },
     { path = "bionemo.llm" },
