@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+from contextlib import contextmanager
 from typing import Optional, Sequence
 
 import torch
@@ -91,3 +93,20 @@ def assert_matrix_correlation_above_value(  # noqa: D417
     corr = torch.corrcoef(torch.stack([masked_actual, masked_expected]))[0, 1]
     if corr < min_correlation:
         raise AssertionError(f"Correlation below threshold: {corr} < {min_correlation}. {msg}")
+
+
+@contextmanager
+def env_var_manager(key: str, value: str):
+    """Set an environment variable temporarily."""
+    if not isinstance(value, str):
+        raise TypeError(f"Environment variable value must be a string, got {type(value)}")
+
+    value_org = os.environ.get(key, None)
+    os.environ[key] = value
+    try:
+        yield
+    finally:
+        if value_org is None:
+            del os.environ[key]
+        else:
+            os.environ[key] = value_org

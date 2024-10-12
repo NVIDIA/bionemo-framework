@@ -28,6 +28,7 @@ from lightning.fabric.plugins.environments.lightning import find_free_network_po
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
+from bionemo.testing.utils import env_var_manager
 
 
 @pytest.mark.skip("duplicate unittest")
@@ -89,7 +90,11 @@ def test_main_runs(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs
 
     result_dir = Path(tmpdir.mkdir("results"))
 
-    with megatron_parallel_state_utils.distributed_model_parallel_state():
+    with (
+        megatron_parallel_state_utils.distributed_model_parallel_state(),
+        env_var_manager("NVTE_FUSED_ATTN", "1"),
+        env_var_manager("NVTE_FLASH_ATTN", "0"),
+    ):
         main(
             train_cluster_path=train_cluster_path,
             train_database_path=dummy_protein_dataset,
@@ -153,7 +158,11 @@ def test_val_dataloader_in_main_runs_with_limit_val_batches(
 
     result_dir = Path(tmpdir.mkdir("results"))
 
-    with megatron_parallel_state_utils.distributed_model_parallel_state():
+    with (
+        megatron_parallel_state_utils.distributed_model_parallel_state(),
+        env_var_manager("NVTE_FUSED_ATTN", "1"),
+        env_var_manager("NVTE_FLASH_ATTN", "0"),
+    ):
         main(
             train_cluster_path=train_cluster_path,
             train_database_path=dummy_protein_dataset,
@@ -227,8 +236,13 @@ def test_pretrain_cli(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inp
     --micro-batch-size 2 \
     --accumulate-grad-batches 2
     """.strip()
-    env = dict(**os.environ)  # a local copy of the environment
+
+    # a local copy of the environment
+    env = dict(**os.environ)
     env["MASTER_PORT"] = str(open_port)
+    env["NVTE_FUSED_ATTN"] = "1"
+    env["NVTE_FLASH_ATTN"] = "0"
+
     cmd = shlex.split(cmd_str)
     result = subprocess.run(
         cmd,
