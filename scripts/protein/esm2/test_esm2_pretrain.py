@@ -84,7 +84,6 @@ def dummy_parquet_train_val_inputs(tmp_path):
     return train_cluster_path, valid_cluster_path
 
 
-@pytest.mark.skip("duplicate with argparse, model and data unittests")
 def test_main_runs(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
@@ -98,7 +97,8 @@ def test_main_runs(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs
             valid_database_path=dummy_protein_dataset,
             num_nodes=1,
             devices=1,
-            seq_length=128,
+            min_seq_length=None,
+            max_seq_length=128,
             result_dir=result_dir,
             wandb_project=None,
             wandb_offline=True,
