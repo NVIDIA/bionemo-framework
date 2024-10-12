@@ -205,9 +205,6 @@ def main(
     )
 
     # Configure the model
-    need_megatron_variable_seq_lengths_reductions: bool = (
-        pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length
-    )  # essential for pipeline/tensor parallel
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
         num_layers=num_layers,
@@ -221,7 +218,7 @@ def main(
         nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
         # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
         initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
-        variable_seq_lengths=need_megatron_variable_seq_lengths_reductions,
+        variable_seq_lengths=min_seq_length != max_seq_length,
     )
 
     model = biobert_lightning_module(
