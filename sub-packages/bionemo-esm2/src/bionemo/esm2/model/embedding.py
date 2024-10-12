@@ -91,7 +91,6 @@ class ESM2Embedding(LanguageModelEmbedding):
             word_embeddings = (word_embeddings * embeddings_mask.unsqueeze(-1)).to(word_embeddings.dtype)
         return word_embeddings, embeddings_mask
 
-    @torch.compile
     def forward(
         self,
         input_ids: Tensor,
