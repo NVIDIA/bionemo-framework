@@ -445,14 +445,28 @@ parser.add_argument(
 parser.add_argument(
     "--save-best-checkpoint",
     action="store_true",
-    default=True,  # TODO Rethink this, we can't turn it off. For default=True we should use `store_false` and fix name.
+    default=True,
     help="Save the best checkpoint based on the metric to monitor.",
+)
+parser.add_argument(
+    "--no-save-best-checkpoint",
+    action="store_false",
+    default=True,
+    dest="save_best_checkpoint",
+    help="Disable saving the best checkpoint based on the metric to monitor.",
 )
 parser.add_argument(
     "--save-last-checkpoint",
     action="store_true",
-    default=True,  # TODO Rethink this, we can't turn it off. For default=True we should use `store_false` and fix name.
+    default=True,
     help="Save the last checkpoint.",
+)
+parser.add_argument(
+    "--no-save-last-checkpoint",
+    action="store_false",
+    dest="save_last_checkpoint",
+    default=True,
+    help="Disable saving the last checkpoint."
 )
 parser.add_argument(
     "--metric-to-monitor-for-checkpoints",
