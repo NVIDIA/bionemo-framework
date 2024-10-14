@@ -382,9 +382,10 @@ parser.add_argument(
 )
 parser.add_argument(
     "--min-seq-length",
-    type=int,
+    type=float_or_int_or_none,
     required=False,
-    help="Minimum sequence length. Sampled will be padded if less than this value.",
+    default=1024,
+    help="Minimum sequence length. Sampled will be padded if less than this value. Set 'None' to unset minimum.",
 )
 parser.add_argument(
     "--max-seq-length",
