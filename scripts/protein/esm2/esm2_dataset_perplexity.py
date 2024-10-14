@@ -13,21 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-# SPDX-License-Identifier: LicenseRef-Apache2
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import argparse
 import contextlib
 import functools
@@ -49,6 +34,17 @@ from bionemo.testing import megatron_parallel_state_utils
 
 
 def _compute_preplexity(model, dataloader, vocab_size=None, limit_batches: int | None = None):
+    """Calculate perplexity over an entire dataloader using whatever MLM settings are in it.
+
+    Args:
+        model: model to apply to data loader
+        dataloader: dataloader to iterate over
+        vocab_size: vocab size to limit computation to. Useful when there are unused padded tokens.
+        limit_batches: for testing, you can limit to some number of batches. Defaults to None.
+
+    Returns:
+        global perplexity defined as exponentiation of the mean per-token cross entropy.
+    """
     loss = 0
     n = 0
     for i, batch in enumerate(tqdm(dataloader)):
@@ -77,7 +73,7 @@ if __name__ == "__main__":
     # TODO migrate to hydra config
     # Parse the arguments and pull them out into local variables for ease of future refactor to a
     #   config management system.
-    parser = argparse.ArgumentParser(description="Run inference on a dataset path with a model on a single GPU.")
+    parser = argparse.ArgumentParser(description="Calculate perplexity on an ESM2 style dataset on a single GPU.")
     parser.add_argument("--restore-from-checkpoint-path", type=Path, help="Path to checkpoint to load", required=True)
     parser.add_argument("--cluster-path", type=Path, help="Cluster path", required=True)
     parser.add_argument("--database-path", type=Path, help="Database path", required=True)
