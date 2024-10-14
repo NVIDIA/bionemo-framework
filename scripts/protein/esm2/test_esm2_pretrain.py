@@ -19,6 +19,7 @@ import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Dict
+from pytest import MonkeyPatch
 
 import pandas as pd
 import pytest
@@ -28,7 +29,6 @@ from lightning.fabric.plugins.environments.lightning import find_free_network_po
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
-from bionemo.testing.utils import env_var_manager
 
 
 @pytest.mark.skip("duplicate unittest")
@@ -85,16 +85,14 @@ def dummy_parquet_train_val_inputs(tmp_path):
     return train_cluster_path, valid_cluster_path
 
 
-def test_main_runs(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs):
+def test_main_runs(monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
     result_dir = Path(tmpdir.mkdir("results"))
 
-    with (
-        megatron_parallel_state_utils.distributed_model_parallel_state(),
-        env_var_manager("NVTE_FUSED_ATTN", "1"),
-        env_var_manager("NVTE_FLASH_ATTN", "0"),
-    ):
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        monkeypatch.setenv("NVTE_FUSED_ATTN", "1")
+        monkeypatch.setenv("NVTE_FLASH_ATTN", "0")
         main(
             train_cluster_path=train_cluster_path,
             train_database_path=dummy_protein_dataset,
@@ -144,11 +142,12 @@ def test_main_runs(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs
 
 @pytest.mark.parametrize("limit_val_batches", [1.0, 4, None])
 def test_val_dataloader_in_main_runs_with_limit_val_batches(
-    tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs, limit_val_batches
+    monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs, limit_val_batches
 ):
     """Ensures doesn't run out of validation samples whenever updating limit_val_batches logic.
 
     Args:
+        monkeypatch: (MonkeyPatch): Monkey patch for environment variables.
         tmpdir (str): Temporary directory.
         dummy_protein_dataset (str): Path to dummy protein dataset.
         dummy_parquet_train_val_inputs (tuple[str, str]): Tuple of dummy protein train and val cluster parquet paths.
@@ -158,11 +157,9 @@ def test_val_dataloader_in_main_runs_with_limit_val_batches(
 
     result_dir = Path(tmpdir.mkdir("results"))
 
-    with (
-        megatron_parallel_state_utils.distributed_model_parallel_state(),
-        env_var_manager("NVTE_FUSED_ATTN", "1"),
-        env_var_manager("NVTE_FLASH_ATTN", "0"),
-    ):
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        monkeypatch.setenv("NVTE_FUSED_ATTN", "1")
+        monkeypatch.setenv("NVTE_FLASH_ATTN", "0")
         main(
             train_cluster_path=train_cluster_path,
             train_database_path=dummy_protein_dataset,
