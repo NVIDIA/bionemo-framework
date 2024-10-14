@@ -19,7 +19,6 @@ import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Dict
-from pytest import MonkeyPatch
 
 import pandas as pd
 import pytest

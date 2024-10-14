@@ -466,7 +466,7 @@ parser.add_argument(
     action="store_false",
     dest="save_last_checkpoint",
     default=True,
-    help="Disable saving the last checkpoint."
+    help="Disable saving the last checkpoint.",
 )
 parser.add_argument(
     "--metric-to-monitor-for-checkpoints",
