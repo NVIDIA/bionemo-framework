@@ -8,7 +8,7 @@ ESM-2 is a pre-trained, bi-directional encoder (BERT-style model) over amino aci
 embeddings for amino acids that have led to state-of-the-art performance on downstream tasks such as structure and
 function prediction. ESM-2 has been trained at a number of different model sizes. BioNeMo2 includes converted
 checkpoints for the 650M and 3B parameter variants. The 650M model has 33 layers, 20 attention heads, and a hidden space
-dimension of 1280. The 3B model has 36 layers, 40 attention heads, and a hidden space dimension of 2560.
+dimension of 1280. The 3B model has 36 layers, 40 attention heads, and a hidden space dimension of 2,560.
 
 These models are ready for commercial use.
 
@@ -46,11 +46,11 @@ length 1022. Longer sequences are automatically truncated to this length.
 
 ### Output
 
-**Output Type(s):** Text (Protein Sequences)
+**Output Type(s):** Embeddings (Amino-acid and sequence-level)
 
 **Output Parameters:** 1D
 
-**Other Properties Related to Output:** Numeric vector with one float-point value corresponding to an embedding for each
+**Other Properties Related to Output:** Numeric vector with floating-point values corresponding to an embedding for each
 amino acid in the input protein sequence. Maximum output length is 1022 embeddings - one embedding vector per amino
 acid.
 
