@@ -27,7 +27,7 @@ Santos Costa, A., 2023. Evolutionary-scale prediction of atomic-level protein st
 [2] "UniProt: the universal protein knowledgebase in 2021." Nucleic acids research 49, no. D1 (2021): D480-D489.
 
 [3] Devlin, J., Chang, M.W., Lee, K. and Toutanova, K., 2018. Bert: Pre-training of deep bidirectional transformers for
-language understanding. arXiv preprint arXiv:1810.04805. <br>
+language understanding. arXiv preprint arXiv:1810.04805.
 
 ### Model Architecture
 
@@ -62,18 +62,18 @@ acid.
 
 **Supported Hardware Microarchitecture Compatibility**
 
-* [Ampere] <br>
-* [Hopper] <br>
-* [Volta] <br>
+* [Ampere]
+* [Hopper]
+* [Volta]
 
 **[Preferred/Supported] Operating System(s)**
 
-* [Linux] <br>
+* [Linux]
 
 ### Model Version(s)
 
-* esm2/650m:2.0
-* esm2/3b:2.0
+* [esm2/650m:2.0](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/models/esm2nv650m)
+* [esm2/3b:2.0](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/models/esm2nv3b)
 
 ## Training & Evaluation
 
@@ -107,12 +107,16 @@ A validation set of 328,360 UniRef50 representative sequences were randomly sele
 Dataset](../datasets/uniprot.md)). This validation set was used to ensure that the output of BioNeMo-converted
 checkpoints is consistent with their outputs when evaluated with the HuggingFace Transformers library.
 
-| Checkpoint | HuggingFace | BioNeMo2 | Lin *et al. 2023*[^1] |
-| ---------- | ----------- | -------- | --------------------- |
-| 650M       |  7.001      |  7.002   | 6.95                  |
-| 3B         |  6.003      |  6.004   | 6.49                  |
+| Checkpoint | HuggingFace | BioNeMo2 | Lin *et al.* 2023                    |
+| ---------- | ----------- | -------- | ---------------------                |
+| 650M       |  7.001      |  7.002   | 6.95 :material-information-outline:  |
+| 3B         |  6.003      |  6.004   | 6.49 :material-information-outline:  |
 
-[^1]: Evaluated on a different validation set, original train/test splits are not available.
+
+!!! info "Different Validation Sets"
+
+    The HuggingFace and converted BioNeMo2 checkpoints were evaluated on a newly curated validation set. Perplexities
+    from Lin *et al.* 2023 are reported for comparison, but the original train/test splits are not available.
 
 ### Training Performance
 
@@ -127,6 +131,16 @@ at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46
 59.2% on an NVIDIA A100.
 
 #### Model Scaling
+
+<figure markdown="span">
+  ![ESM2 Model Scaling](site:assets/images/esm2/esm2_model_scaling.svg)
+</figure>
+
+Training ESM-2 at the 650M, 3B, and 15B model variants show improved performance with the BioNeMo2 framework over the
+pure-pytorch baseline. These experiments were conducted on 16x NVIDIA A100 or 16x NVIDIA H100 GPUs split across two
+nodes.
+
+#### Device Scaling
 
 <figure markdown="span">
   ![ESM2 Device Scaling](site:assets/images/esm2/esm2_device_scaling.svg){ width="400" }
