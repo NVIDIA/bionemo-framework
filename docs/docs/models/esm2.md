@@ -16,7 +16,7 @@ These models are ready for commercial use.
 This model is not owned or developed by NVIDIA. This model has been developed and built to a third-party’s requirements
 for this application and use case [1]; see link to [Non-NVIDIA Model Card for ESM-2 3B model](
     https://huggingface.co/facebook/esm2_t36_3B_UR50D) and [non-NVIDIA Model Card for ESM-2 650M model](
-        https://huggingface.co/facebook/esm2_t36_650M_UR50D)
+        https://huggingface.co/facebook/esm2_t33_650M_UR50D)
 
 
 ### References
@@ -123,7 +123,7 @@ checkpoints is consistent with their outputs when evaluated with the HuggingFace
 #### Single-node Training Performance
 
 <figure markdown="span">
-  ![ESM2 Single-Device Training Performance](site:assets/images/esm2/esm2_single_node_training_perf.svg){ width="400" }
+  ![ESM2 Single-Device Training Performance](site:assets/images/esm2/esm2_single_node_training_perf.svg){ width="350" }
 </figure>
 
 The pure-pytorch baseline (compiled with `torch.compile()`) raised an out-of-memory error for batch sizes larger than 16
