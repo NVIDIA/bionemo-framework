@@ -55,7 +55,7 @@ Pipeline parallelism is similar to FSDP, but the model blocks that are sharded a
 nodes that own the model weight in question. You can think of this as a larger simulated GPU that happens to be spread
 across several child GPUs. Examples of this include `parallel_state.is_pipeline_last_stage()` which is commonly
 used to tell if a particular node is on last pipeline stage, where you compute the final head outputs, loss, etc.
-![Pipeline Parallelism](../assets/images/megatron_background/pipeline_parallelism.png). Similarly there are convenience
+![Pipeline Parallelism](site:/assets/images/megatron_background/pipeline_parallelism.png). Similarly there are convenience
 environmental lookups for the first pipeline stage (where you compute the embedding for example)
 `parallel_state.is_pipeline_first_stage()`.
 
