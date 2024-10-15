@@ -94,6 +94,7 @@ markdown_extensions:
           - overrides/.icons
   - def_list
   - admonition
+  - footnotes
 
 extra:
   social:
