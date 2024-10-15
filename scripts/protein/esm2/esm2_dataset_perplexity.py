@@ -94,7 +94,7 @@ if __name__ == "__main__":
     random_mask_strategy: dataset.RandomMaskStrategy = dataset.RandomMaskStrategy.ALL_TOKENS
 
     max_seq_length: int = 1024
-    min_seq_length: int | None = None
+    min_seq_length: int | None = max_seq_length
     seed: int = args.seed
     precision: str = "bf16-mixed"
 
