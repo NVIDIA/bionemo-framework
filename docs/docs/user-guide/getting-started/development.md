@@ -133,7 +133,8 @@ of the model. The fine-tuning steps will be application-specific, but a general 
     model.
 6. **Run inference**: Once the model is fine-tuned, use it to make predictions on new, unseen data.
 
-For more information on fine-tuning a model, refer to the [ESM2 Fine-tuning Tutorial](../examples/bionemo-esm2/finetune).
+For more information on fine-tuning a model, refer to the [ESM2 Fine-tuning
+Tutorial](../examples/bionemo-esm2/finetune.md).
 
 ## Advanced Developer Documentation
 
