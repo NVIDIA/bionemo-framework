@@ -123,8 +123,8 @@ checkpoints is consistent with their outputs when evaluated with the HuggingFace
 </figure>
 
 The pure-pytorch baseline (compiled with `torch.compile()`) raised an out-of-memory error for batch sizes larger than 16
-at the 650M model size. The `bionemo2` model could handle batch sizes of 46, reaching a model flops utilization of 59.2%
-on an NVIDIA A100.
+at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46, reaching a model flops utilization of
+59.2% on an NVIDIA A100.
 
 #### Model Scaling
 
@@ -132,5 +132,5 @@ on an NVIDIA A100.
   ![ESM2 Device Scaling](site:assets/images/esm2/esm2_device_scaling.svg){ width="400" }
 </figure>
 
-Training on 256 NVIDIA A100s on 32 nodes achieved 96.85% of the theoretical linear throughput expected from
-extrapolating single-node (8 GPU) performance.
+Training ESM-3B on 256 NVIDIA A100s on 32 nodes achieved 96.85% of the theoretical linear throughput expected from
+extrapolating single-node (8 GPU) performance, representing a model flops utilization of 60.6% at 256 devices.
