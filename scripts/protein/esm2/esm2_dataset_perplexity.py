@@ -22,6 +22,7 @@ from pathlib import Path
 import torch
 from megatron.core.transformer.module import Float16Module
 from torch.utils.data import DataLoader
+from torchmetrics.text import Perplexity
 from tqdm import tqdm
 
 from bionemo.core.utils.dtypes import get_autocast_dtype
@@ -45,8 +46,9 @@ def _compute_preplexity(model, dataloader, vocab_size=None, limit_batches: int |
     Returns:
         global perplexity defined as exponentiation of the mean per-token cross entropy.
     """
-    loss = 0
-    n = 0
+    # We use the mask, so having the correct ignore_index isn't as important, as long as it is not a real
+    #  index.
+    perplexity = Perplexity(ignore_index=-100).cuda()
     for i, batch in enumerate(tqdm(dataloader)):
         assert isinstance(batch, dict)
         result = model(input_ids=batch["text"].cuda(), attention_mask=batch["attention_mask"].cuda())
@@ -59,13 +61,14 @@ def _compute_preplexity(model, dataloader, vocab_size=None, limit_batches: int |
 
         loss_mask = batch["loss_mask"].cuda()
         target = batch["labels"].cuda()
-
-        loss += torch.nn.functional.cross_entropy(logits[loss_mask].float(), target[loss_mask], reduction="sum")
-        n += loss_mask.sum()
-
+        logits_masked = logits[loss_mask].float()
+        target_masked = target[loss_mask]
+        # Perplexity calc wants batch, seq, vocab, but we're masking which flattens, so instead add
+        #  back dummy batch dim at 0
+        perplexity.update(preds=logits_masked.unsqueeze(0), target=target_masked.unsqueeze(0))
         if limit_batches is not None and i + 1 >= limit_batches:
             break
-    mean_perplexity: torch.Tensor = torch.exp(loss / n)  # convert global mean loss to perplexity.
+    mean_perplexity = perplexity.compute()  # convert global mean loss to perplexity.
     return mean_perplexity
 
 
@@ -91,7 +94,7 @@ if __name__ == "__main__":
     random_mask_strategy: dataset.RandomMaskStrategy = dataset.RandomMaskStrategy.ALL_TOKENS
 
     max_seq_length: int = 1024
-    min_seq_length: int = 1024
+    min_seq_length: int | None = None
     seed: int = args.seed
     precision: str = "bf16-mixed"
 
@@ -101,7 +104,7 @@ if __name__ == "__main__":
         pipeline_dtype=get_autocast_dtype(precision),
         autocast_dtype=get_autocast_dtype(precision),
         initial_ckpt_path=str(restore_from_checkpoint_path),
-        variable_seq_lengths=False,
+        variable_seq_lengths=True,
     )
     mask_prob: float = 0.15
     mask_token_prob: float = 0.8
