@@ -20,7 +20,7 @@ from typing import Callable, Iterable, List, Optional, Sequence, Tuple, TypeVar
 import torch
 
 
-__all__: Sequence[str] = ("collect_cuda_peak_alloc",)
+__all__: Sequence[str] = ("collect_cuda_peak_alloc", "create_buckets")
 
 Data = TypeVar("Data")
 Feature = TypeVar("Feature")
@@ -135,9 +135,9 @@ def collect_cuda_peak_alloc(
 
 
 def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket sizes.
+    """Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket count.
 
-    It will return a tuple containing the bucket interval endpoints and the actual bucket sizes.
+    It will return a tuple containing the bucket boundaries and the actual bucket sizes.
     e.g. torch.tensor([0, 5, 7]), torch.tensor([3,2]): specifies 2 buckets: one with range 0<= sizes < 5, width=5 and 3 elements
     and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
 
@@ -153,7 +153,7 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
         ValueError: If max_width is not a positive integer or min_bucket_count is not a positive integer.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: A tuple containing bucket interval endpoints in ascending order and the number of elements in each bucket.
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing bucket boundaries in ascending order and the number of elements in each bucket.
 
     ---------
 
@@ -163,9 +163,9 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
     >>> from bionemo.size_aware_batching.utils import create_buckets
 
     >>> sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 22, 22, 22, 22])
-    >>> bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=5, min_bucket_count=10)
+    >>> bucket_boundaries, bucket_sizes = create_buckets(sizes, max_width=5, min_bucket_count=10)
     >>> # 5 buckets: 1 <= sizes < 6, 6 <= sizes < 11, 11 <= sizes < 16, 16 <= sizes < 21, 21 <= sizes < 23
-    >>> print(bucket_endpoints)
+    >>> print(bucket_boundaries)
     tensor([ 1,  6, 11, 16, 21, 23])
 
     >>> # each with 12, 0, 0, 0, 4 elements respectively.
@@ -174,8 +174,8 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
 
     >>> sizes = torch.arange(20)
     >>> # min_bucket_count is used to control bucket size
-    >>> bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=10, min_bucket_count=5)
-    >>> print(bucket_endpoints)
+    >>> bucket_boundaries, bucket_sizes = create_buckets(sizes, max_width=10, min_bucket_count=5)
+    >>> print(bucket_boundaries)
     tensor([ 0,  5, 10, 15, 20])
 
     >>> print(bucket_sizes)
@@ -203,7 +203,7 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
 
     unique_values, counts = torch.unique(sizes, return_counts=True, sorted=True)
 
-    bucket_endpoints = [unique_values[0]]
+    bucket_boundaries = [unique_values[0]]
     bucket_sizes = []
     start = 0
     end = 0
@@ -214,7 +214,7 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
         while (
             end < len(unique_values)
             and bucket_count < min_bucket_count
-            and unique_values[end] - bucket_endpoints[-1] < max_width
+            and unique_values[end] - bucket_boundaries[-1] < max_width
         ):
             assert bucket_count == sum(counts[start:end])
             bucket_count += counts[end]
@@ -228,19 +228,19 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
             upper_bound = unique_values[end]
 
         # Adjust the end of the range to ensure that no width exceeds 'max_width'
-        n_empty_buckets = (upper_bound - bucket_endpoints[-1]) // max_width
+        n_empty_buckets = (upper_bound - bucket_boundaries[-1]) // max_width
         if n_empty_buckets > 0:
-            bucket_endpoints.extend([bucket_endpoints[-1] + max_width * k for k in range(1, n_empty_buckets + 1)])
+            bucket_boundaries.extend([bucket_boundaries[-1] + max_width * k for k in range(1, n_empty_buckets + 1)])
             bucket_sizes.extend([0 for _ in range(n_empty_buckets - 1)])
         else:
-            bucket_endpoints.append(upper_bound)
+            bucket_boundaries.append(upper_bound)
 
         start = end
         end = start + 1
         # index start may be out of bounds
         bucket_count = counts[start:end].sum()
 
-    bucket_endpoints = torch.tensor(bucket_endpoints)
+    bucket_boundaries = torch.tensor(bucket_boundaries)
     bucket_sizes = torch.tensor(bucket_sizes)
 
-    return bucket_endpoints, bucket_sizes
+    return bucket_boundaries, bucket_sizes

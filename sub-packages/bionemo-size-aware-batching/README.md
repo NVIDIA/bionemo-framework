@@ -28,7 +28,23 @@ the following steps:
    prediction (from the previous step) to build batch of data so that the
    resulting mini-batches do not exceed a specified maximum total memory size.
 
-In addition, this package provides one solution to create homogeneous mini-batches, which can be useful to reduce the padding when aligning the shape of inputs when training or evaluating the models. This `BucketBatchSampler` can be used in conjunction with `torch.utils.data.BatchSampler`, `SizeAwareBatchSampler` or other user-defined batch samplers.
+In addition, this package provides one solution to create homogeneous mini-batches, which can be useful to reduce the
+padding when aligning the shape of inputs when training or evaluating the models. This `BucketBatchSampler` can be used
+in conjunction with `torch.utils.data.BatchSampler`, `SizeAwareBatchSampler` or other user-defined batch samplers.
+This usage can leverage the `create_buckets` function and follow the steps below:
+
+1. Gather the tensor sizes of elements in the dataset, which are the shapes of
+   tensors in a specific dimension where you want to reduce the padding.
+2. Provide your own bucket boundaries based on the tensor sizes, or create bucket
+   boundaries with `create_buckets` function with the tensor sizes and bucket
+   maximal width and the minimal bucket count. The `create_buckets` function
+   will try to create buckets with smallest widths and element counts >= minimal
+   bucket count, unless the maximal width or the boundary is reached.
+3. Use `BucketBatchSampler` with base batch sampler like `torch.utils.data.BatchSampler` or
+   `SizeAwareBatchSampler` for each bucket. The `BucketBatchSampler` will select a bucket
+   and generate mini-batches from this bucket using the base batch sampler for this bucket.
+   As such, the padding necessary for the generated mini-batches will be always smaller
+   than the width of buckets.
 
 Refer to the later sections for the API documentation and examples on how to achieve each of the steps above.
 
@@ -156,8 +172,9 @@ def create_buckets(sizes: torch.Tensor, max_width: int,
                    min_bucket_count: int) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
-Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket sizes.
-It will return a tuple containing the bucket interval endpoints and the actual bucket sizes.
+Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket count.
+
+It will return a tuple containing the bucket boundaries and the actual bucket sizes.
 e.g. torch.tensor([0, 5, 7]), torch.tensor([3,2]): specifies 2 buckets: one with range 0<= sizes < 5, width=5 and 3 elements
 and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
 
@@ -166,7 +183,7 @@ and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
 
 - `sizes` _torch.Tensor_ - An 1D tensor of integers.
 - `max_width` _int_ - The maximum width of a bucket, should be a positive integer.
-- `min_bucket_count` _int_ -  The minimum count of a bucket, should be a positive integer.
+- `min_bucket_count` _int_ - The minimum count of a bucket, should be a positive integer.
   Bucket size may be smaller than min_bucket_count if its width reaches max_width.
 
 
@@ -178,21 +195,21 @@ and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
 
 **Returns**:
 
-  Tuple[torch.Tensor, torch.Tensor]: A tuple containing bucket interval endpoints in ascending order and the number of elements in each bucket.
+  Tuple[torch.Tensor, torch.Tensor]: A tuple containing bucket boundaries in ascending order and the number of elements in each bucket.
 
   ---------
 
-**Examples**:
 
+**Examples**:
 
 ```python
 >>> import torch
 >>> from bionemo.size_aware_batching.utils import create_buckets
 
 >>> sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 22, 22, 22, 22])
->>> bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=5, min_bucket_count=10)
+>>> bucket_boundaries, bucket_sizes = create_buckets(sizes, max_width=5, min_bucket_count=10)
 >>> # 5 buckets: 1 <= sizes < 6, 6 <= sizes < 11, 11 <= sizes < 16, 16 <= sizes < 21, 21 <= sizes < 23
->>> print(bucket_endpoints)
+>>> print(bucket_boundaries)
 tensor([ 1,  6, 11, 16, 21, 23])
 
 >>> # each with 12, 0, 0, 0, 4 elements respectively.
@@ -201,14 +218,13 @@ tensor([12,  0,  0,  0,  4])
 
 >>> sizes = torch.arange(20)
 >>> # min_bucket_count is used to control bucket size
->>> bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=10, min_bucket_count=5)
->>> print(bucket_endpoints)
+>>> bucket_boundaries, bucket_sizes = create_buckets(sizes, max_width=10, min_bucket_count=5)
+>>> print(bucket_boundaries)
 tensor([ 0,  5, 10, 15, 20])
 
 >>> print(bucket_sizes)
 tensor([5, 5, 5, 5])
 ```
-
 ## sampler
 
 <a id="sampler.size_aware_batching"></a>
@@ -407,9 +423,9 @@ A batch sampler to create batches with sizes of elements from each pre-defined b
 Elements of the dataset are first grouped into each bucket based on the bucket ranges and the sizes of elements.
 Then, a base batch sampler is used for each bucket to create mini-batches.
 
-The bucekt ranges are specified by `bucket_endpoints`, which will be first sorted internally and used to create
-`len(bucket_endpoints) - 1` half-closed intervals.
-e.g. if bucket_endpoints tensor is [10, 5, 0, 16], it will be sorted as [0, 5, 10, 16] and 3 buckets will be created
+The bucket ranges are specified by `bucket_boundaries`, which will be first sorted internally and used to create
+`len(bucket_boundaries) - 1` left-closed right-open intervals.
+e.g. if bucket_boundaries tensor is [10, 5, 0, 16], it will be sorted as [0, 5, 10, 16] and 3 buckets will be created
 with ranges: [0, 5), [5, 10), [10, 16).
 
 The base batch sampler will be created by passing the element indices in each bucket as the data source, and
@@ -421,41 +437,13 @@ will be used to create 3 batch samplers with drop_last=True and batch_size=8, 10
 
 In the `__iter__` method, if `shuffle` is `True`, the element indices in each bucket will be shuffled, and a bucket
 is randomly selected each time to create a mini-batch. If `shuffle` is `False`, there is no shuffle on element indices,
-and the bucket is selected in ascending order of its interval endpoints.
+and the bucket is selected in ascending order of its interval boundaries.
 
 This class is used to create homogeneous batches of data for training or evaluation, and reduce the padding necessary to align the shape of elements.
 
 Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util.py
 
-**Arguments**:
-
-- `sizes` _torch.Tensor_ - A 1D tensor of real numbers representing the size of each element in the dataset.
-- `bucket_endpoints` _torch.Tensor_ - A 1D tensor of real numbers representing the endpoints of the bucket ranges.
-  It will be first sorted and used to create `len(bucket_endpoints) - 1` half-closed intervals as bucket ranges.
-  It should not contain any duplicate values.
-- `base_batch_sampler_class` _Type[Sampler]_ - Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
-  `base_batch_sampler_shared_kwargs` and the corresponding `base_batch_sampler_individual_kwargs`.
-- `base_batch_sampler_shared_kwargs` _Dict[str, Any], optional_ - Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
-  Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
-- `base_batch_sampler_individual_kwargs` _Dict[str, Iterable], optional_ - Keyword argument dictionary used to initialize
-  each bucket batch sampler with the corresponding key value pairs.
-  Length of each value in this dict must be equal to len(bucket_endpoints) - 1 (the number of buckets).
-  Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
-  Default to  {}.
-- `shuffle` _bool, optional_ - A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
-- `generator` _torch.Generator, optional_ - Generator used in sampling. Defaults to None.
-
-
-**Raises**:
-
-- `ValueError` - If `sizes` is not a 1D tensor of real numbers.
-- `ValueError` - If `bucket_endpoints` is not a 1D tensor of real numbers.
-- `ValueError` - If `base_batch_sampler_individual_kwargs` or `base_batch_sampler_individual_kwargs` is not a keyword argument dictionary.
-- `ValueError` - If the length of values in the dict of `base_batch_sampler_individual_kwargs` must be equal to len(bucket_endpoints) - 1.
-- `RuntimeError` - If there is no elements with sizes inside the ranges specified by `bucket_endpoints`.
-
-  ---------
-
+---------
 
 **Examples**:
 
@@ -466,13 +454,13 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
 >>> # Define the sizes for a dataset
 >>> sizes = torch.arange(25)
 >>> # Define bucket ranges
->>> bucket_endpoints = torch.tensor([0, 6, 15, 25])
+>>> bucket_boundaries = torch.tensor([0, 6, 15, 25])
 
 >>> # Create a bucket batch sampler with torch.utils.data.BatchSampler as base batch sampler
 >>> # As there are 3 buckets, there will be 3 base batch samplers with batch sizes 2, 3, and 5.
 >>> batch_sampler = BucketBatchSampler(
         sizes=sizes,
-        bucket_endpoints=bucket_endpoints,
+        bucket_boundaries=bucket_boundaries,
         base_batch_sampler_class=torch.utils.data.BatchSampler,
         base_batch_sampler_shared_kwargs={'drop_last': False},
         base_batch_sampler_individual_kwargs={'batch_size': [2,3,5]},
@@ -486,7 +474,7 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
 >>> # randomize the dataset and buckets
 >>> batch_sampler = BucketBatchSampler(
         sizes=sizes,
-        bucket_endpoints=bucket_endpoints,
+        bucket_boundaries=bucket_boundaries,
         base_batch_sampler_class=torch.utils.data.BatchSampler,
         base_batch_sampler_shared_kwargs={'drop_last': False},
         base_batch_sampler_individual_kwargs={'batch_size': [2,3,5]},
@@ -497,23 +485,84 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
 [[24, 17, 16, 22, 19], [2, 5], [12, 10, 11], [3, 0], [15, 18, 20, 21, 23], [7, 13, 6], [14, 9, 8], [1, 4]]
 >>> print(list(batch_sampler))
 [[14, 9, 13], [23, 16, 20, 21, 15], [5, 0], [8, 10, 11], [17, 24, 22, 18, 19], [12, 6, 7], [4, 2], [3, 1]]
+
+>>> # Combine with SizeAwareBatchSampler to control the cost of each batch
+>>> from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
+>>> item_costs = sizes.tolist()
+>>> def cost_of_element(index):
+        return item_costs[index]
+>>> batch_sampler = BucketBatchSampler(
+        sizes=sizes,
+        bucket_boundaries=bucket_boundaries,
+        base_batch_sampler_class=SizeAwareBatchSampler,
+        base_batch_sampler_shared_kwargs={"sizeof": cost_of_element, "max_total_size": 40},
+        base_batch_sampler_individual_kwargs={},
+        shuffle=True,
+        generator=torch.Generator().manual_seed(0),
+    )
+>>> print(list(iter(batch_sampler)))
+[[24], [2, 5, 3, 0, 1, 4], [12, 10, 11, 7], [13, 6, 14], [17, 16], [22], [19, 15], [9, 8], [18, 20], [21], [23]]
 ```
-  >>> # Combine with SizeAwareBatchSampler to control the cost of each batch
-  >>> from bionemo.size_aware_batching.sampler import SizeAwareBatchSampler
-  >>> item_costs = sizes.tolist()
-  >>> def cost_of_element(index):
-  return item_costs[index]
-  >>> batch_sampler = BucketBatchSampler(
-  sizes=sizes,
-  bucket_endpoints=bucket_endpoints,
-  base_batch_sampler_class=SizeAwareBatchSampler,
-- `base_batch_sampler_shared_kwargs={"sizeof"` - cost_of_element, "max_total_size": 40},
-  base_batch_sampler_individual_kwargs={},
-  shuffle=True,
-  generator=torch.Generator().manual_seed(0),
-  )
-  >>> print(list(iter(batch_sampler)))
-  [[24], [2, 5, 3, 0, 1, 4], [12, 10, 11, 7], [13, 6, 14], [17, 16], [22], [19, 15], [9, 8], [18, 20], [21], [23]]
+
+<a id="sampler.BucketBatchSampler.__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(sizes: torch.Tensor,
+             bucket_boundaries: torch.Tensor,
+             base_batch_sampler_class: Type[Sampler],
+             base_batch_sampler_shared_kwargs: Optional[Dict[str, Any]] = {},
+             base_batch_sampler_individual_kwargs: Optional[Dict[
+                 str, Iterable]] = {},
+             shuffle: Optional[bool] = True,
+             generator: Optional[torch.Generator] = None) -> None
+```
+
+Initializes the BucketBatchSampler.
+
+**Arguments**:
+
+- `sizes` _torch.Tensor_ - A 1D tensor of real numbers representing the size of each element in the dataset.
+- `bucket_boundaries` _torch.Tensor_ - A 1D tensor of real numbers representing the boundaries of the bucket ranges.
+  It will be first sorted and used to create `len(bucket_boundaries) - 1` left-closed right-open intervals as bucket ranges.
+  It should not contain any duplicate values.
+- `base_batch_sampler_class` _Type[Sampler]_ - Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
+  `base_batch_sampler_shared_kwargs` and the corresponding `base_batch_sampler_individual_kwargs`.
+- `base_batch_sampler_shared_kwargs` _Dict[str, Any], optional_ - Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
+  Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
+- `base_batch_sampler_individual_kwargs` _Dict[str, Iterable], optional_ - Keyword argument dictionary used to initialize
+  each bucket batch sampler with the corresponding key value pairs.
+  Length of each value in this dict must be equal to len(bucket_boundaries) - 1 (the number of buckets).
+  Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
+  Default to  {}.
+- `shuffle` _bool, optional_ - A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
+- `generator` _torch.Generator, optional_ - Generator used in sampling. Defaults to None.
+
+
+**Raises**:
+
+- `ValueError` - If `sizes` is not a 1D tensor of real numbers.
+- `ValueError` - If `bucket_boundaries` is not a 1D tensor of real numbers.
+- `ValueError` - If `base_batch_sampler_individual_kwargs` or `base_batch_sampler_individual_kwargs` is not a keyword argument dictionary.
+- `ValueError` - If the length of values in the dict of `base_batch_sampler_individual_kwargs` must be equal to len(bucket_boundaries) - 1.
+- `RuntimeError` - If there is no elements with sizes inside the ranges specified by `bucket_boundaries`.
+
+<a id="sampler.BucketBatchSampler.__len__"></a>
+
+#### \_\_len\_\_
+
+```python
+def __len__() -> int
+```
+
+Get the number of batches.
+
+Can only be called if the `base_batch_sampler_class` has __len__() implemented
+
+**Returns**:
+
+- `int` - Number of batches
 
 <a id="sampler.BucketBatchSampler.__iter__"></a>
 

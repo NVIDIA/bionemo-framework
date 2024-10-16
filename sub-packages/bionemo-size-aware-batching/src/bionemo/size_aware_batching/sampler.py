@@ -24,6 +24,7 @@ __all__: Sequence[str] = (
     "size_aware_batching",
     "SizeAwareBatchSampler",
     "Real",
+    "BucketBatchSampler",
 )
 
 Data = TypeVar("Data")
@@ -299,30 +300,6 @@ class BucketBatchSampler(Sampler[List[int]]):
 
     Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util.py
 
-    Args:
-        sizes (torch.Tensor): A 1D tensor of real numbers representing the size of each element in the dataset.
-        bucket_boundaries (torch.Tensor): A 1D tensor of real numbers representing the boundaries of the bucket ranges.
-            It will be first sorted and used to create `len(bucket_boundaries) - 1` left-closed right-open intervals as bucket ranges.
-            It should not contain any duplicate values.
-        base_batch_sampler_class (Type[Sampler]): Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
-            `base_batch_sampler_shared_kwargs` and the corresponding `base_batch_sampler_individual_kwargs`.
-        base_batch_sampler_shared_kwargs (Dict[str, Any], optional): Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
-            Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
-        base_batch_sampler_individual_kwargs (Dict[str, Iterable], optional): Keyword argument dictionary used to initialize
-            each bucket batch sampler with the corresponding key value pairs.
-            Length of each value in this dict must be equal to len(bucket_boundaries) - 1 (the number of buckets).
-            Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
-            Default to  {}.
-        shuffle (bool, optional): A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
-        generator (torch.Generator, optional): Generator used in sampling. Defaults to None.
-
-    Raises:
-        ValueError: If `sizes` is not a 1D tensor of real numbers.
-        ValueError: If `bucket_boundaries` is not a 1D tensor of real numbers.
-        ValueError: If `base_batch_sampler_individual_kwargs` or `base_batch_sampler_individual_kwargs` is not a keyword argument dictionary.
-        ValueError: If the length of values in the dict of `base_batch_sampler_individual_kwargs` must be equal to len(bucket_boundaries) - 1.
-        RuntimeError: If there is no elements with sizes inside the ranges specified by `bucket_boundaries`.
-
     ---------
 
     Examples:
@@ -394,6 +371,33 @@ class BucketBatchSampler(Sampler[List[int]]):
         shuffle: Optional[bool] = True,
         generator: Optional[torch.Generator] = None,
     ) -> None:
+        """Initializes the BucketBatchSampler.
+
+        Args:
+            sizes (torch.Tensor): A 1D tensor of real numbers representing the size of each element in the dataset.
+            bucket_boundaries (torch.Tensor): A 1D tensor of real numbers representing the boundaries of the bucket ranges.
+                It will be first sorted and used to create `len(bucket_boundaries) - 1` left-closed right-open intervals as bucket ranges.
+                It should not contain any duplicate values.
+            base_batch_sampler_class (Type[Sampler]): Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
+                `base_batch_sampler_shared_kwargs` and the corresponding `base_batch_sampler_individual_kwargs`.
+            base_batch_sampler_shared_kwargs (Dict[str, Any], optional): Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
+                Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
+            base_batch_sampler_individual_kwargs (Dict[str, Iterable], optional): Keyword argument dictionary used to initialize
+                each bucket batch sampler with the corresponding key value pairs.
+                Length of each value in this dict must be equal to len(bucket_boundaries) - 1 (the number of buckets).
+                Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
+                Default to  {}.
+            shuffle (bool, optional): A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
+            generator (torch.Generator, optional): Generator used in sampling. Defaults to None.
+
+        Raises:
+            ValueError: If `sizes` is not a 1D tensor of real numbers.
+            ValueError: If `bucket_boundaries` is not a 1D tensor of real numbers.
+            ValueError: If `base_batch_sampler_individual_kwargs` or `base_batch_sampler_individual_kwargs` is not a keyword argument dictionary.
+            ValueError: If the length of values in the dict of `base_batch_sampler_individual_kwargs` must be equal to len(bucket_boundaries) - 1.
+            RuntimeError: If there is no elements with sizes inside the ranges specified by `bucket_boundaries`.
+
+        """
         if not torch.is_tensor(sizes):
             raise TypeError(f"sizes should be a torch tensor, but got sizes={sizes}")
 
@@ -540,7 +544,13 @@ class BucketBatchSampler(Sampler[List[int]]):
         return base_batch_samplers
 
     def __len__(self) -> int:
-        # Can only be called if the base_batch_sampler has __len__ implemented
+        """Get the number of batches.
+
+        Can only be called if the `base_batch_sampler_class` has __len__() implemented
+
+        Returns:
+            int: Number of batches
+        """
         num_batches = sum(len(sampler) for sampler in self.base_batch_samplers)  # type: ignore
         return num_batches
 
