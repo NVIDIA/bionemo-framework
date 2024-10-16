@@ -62,9 +62,13 @@ Refer to the later sections for the API documentation and examples on how to ach
 ### sampler Module
 -----------------
 
-*   [**size_aware_batching**](#sampler.size_aware_batching): A generator that batches elements from an iterable while ensuring that the total size of each batch does not exceed a specified maximum.
-*   [**SizeAwareBatchSampler**](#sampler.SizeAwareBatchSampler): A class that batches elements of varying sizes while ensuring that the total size of each batch does not exceed a specified maximum.
-*   [**BucketBatchSampler**](#BucketBatchSampler): A class that groups elements of varying sizes based on predefined bucket ranges, and create batches with elements from each bucket to ensure that each batch has elements with homogeneous sizes.
+*   [**size_aware_batching**](#sampler.size_aware_batching): A generator that batches elements from an iterable while
+      ensuring that the total size of each batch does not exceed a specified maximum.
+*   [**SizeAwareBatchSampler**](#sampler.SizeAwareBatchSampler): A class that batches elements of varying sizes while
+      ensuring that the total size of each batch does not exceed a specified maximum.
+*   [**BucketBatchSampler**](#BucketBatchSampler): A class that groups elements of varying sizes based on predefined
+      bucket ranges, and create batches with elements from each bucket to ensure that each batch has elements with
+      homogeneous sizes.
 
 # API reference and examples
 
@@ -225,6 +229,9 @@ tensor([ 0,  5, 10, 15, 20])
 >>> print(bucket_sizes)
 tensor([5, 5, 5, 5])
 ```
+
+<a id="sampler"></a>
+
 ## sampler
 
 <a id="sampler.size_aware_batching"></a>
