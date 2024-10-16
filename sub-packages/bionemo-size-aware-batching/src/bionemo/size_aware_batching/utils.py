@@ -208,13 +208,17 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
     start = 0
     end = 0
     upper_bound = unique_values[0] + 1
+    bucket_count = 0
 
     while start < len(unique_values):
         while (
             end < len(unique_values)
-            and sum(counts[start:end]) < min_bucket_count
+            and bucket_count < min_bucket_count
             and unique_values[end] - bucket_endpoints[-1] < max_width
         ):
+            assert bucket_count == sum(counts[start:end])
+            bucket_count += counts[end]
+
             end += 1
 
         bucket_sizes.append(sum(counts[start:end]))
@@ -224,16 +228,17 @@ def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -
             upper_bound = unique_values[end]
 
         # Adjust the end of the range to ensure that no width exceeds 'max_width'
-        if upper_bound - bucket_endpoints[-1] >= max_width:
-            bucket_endpoints.append(bucket_endpoints[-1] + max_width)
-            while upper_bound - bucket_endpoints[-1] >= max_width:
-                bucket_endpoints.append(bucket_endpoints[-1] + max_width)
-                bucket_sizes.append(0)
+        n_empty_buckets = (upper_bound - bucket_endpoints[-1]) // max_width
+        if n_empty_buckets > 0:
+            bucket_endpoints.extend([bucket_endpoints[-1] + max_width * k for k in range(1, n_empty_buckets + 1)])
+            bucket_sizes.extend([0 for _ in range(n_empty_buckets - 1)])
         else:
             bucket_endpoints.append(upper_bound)
 
         start = end
         end = start + 1
+        # index start may be out of bounds
+        bucket_count = counts[start:end].sum()
 
     bucket_endpoints = torch.tensor(bucket_endpoints)
     bucket_sizes = torch.tensor(bucket_sizes)

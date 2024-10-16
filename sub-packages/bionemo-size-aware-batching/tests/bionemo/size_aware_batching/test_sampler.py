@@ -187,13 +187,13 @@ def test_SABS_iter_sizeof_invalid_return_type(sampler):
 @pytest.fixture
 def sample_data():
     sizes = torch.arange(25)
-    bucket_endpoints = torch.tensor([0, 6, 15, 25])
+    bucket_boundaries = torch.tensor([0, 6, 15, 25])
     base_batch_sampler_class = BatchSampler
     base_batch_sampler_shared_kwargs = {"drop_last": False}
     base_batch_sampler_individual_kwargs = {"batch_size": [2, 3, 5]}
     return (
         sizes,
-        bucket_endpoints,
+        bucket_boundaries,
         base_batch_sampler_class,
         base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs,
@@ -203,7 +203,7 @@ def sample_data():
 def test_init_bucket_batch_sampler_with_invalid_sizes(sample_data):
     (
         sizes,
-        bucket_endpoints,
+        bucket_boundaries,
         base_batch_sampler_class,
         base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs,
@@ -212,7 +212,7 @@ def test_init_bucket_batch_sampler_with_invalid_sizes(sample_data):
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes.tolist(),  # type: ignore
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -221,7 +221,7 @@ def test_init_bucket_batch_sampler_with_invalid_sizes(sample_data):
     with pytest.raises(ValueError):
         BucketBatchSampler(
             sizes=sizes.reshape(5, 5),
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -230,62 +230,62 @@ def test_init_bucket_batch_sampler_with_invalid_sizes(sample_data):
     with pytest.raises(ValueError):
         BucketBatchSampler(
             sizes=sizes.to(torch.complex64),
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
         )
 
 
-def test_init_bucket_batch_sampler_with_invalid_bucket_endpoints(sample_data):
+def test_init_bucket_batch_sampler_with_invalid_bucket_boundaries(sample_data):
     (
         sizes,
-        bucket_endpoints,
+        bucket_boundaries,
         base_batch_sampler_class,
         base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs,
     ) = sample_data
-    # bucket_endpoints must be a torch tensor
+    # bucket_boundaries must be a torch tensor
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints.tolist(),
+            bucket_boundaries=bucket_boundaries.tolist(),
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
         )
-    # bucket_endpoints must be a 1D
+    # bucket_boundaries must be a 1D
     with pytest.raises(ValueError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints[None, :],
+            bucket_boundaries=bucket_boundaries[None, :],
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
         )
-    # bucket_endpoints must have at least 2 elements
+    # bucket_boundaries must have at least 2 elements
     with pytest.raises(ValueError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints[:1],
+            bucket_boundaries=bucket_boundaries[:1],
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
         )
-    # bucket_endpoints' data type must be integer or floating number
+    # bucket_boundaries' data type must be integer or floating number
     with pytest.raises(ValueError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints.to(torch.complex64),
+            bucket_boundaries=bucket_boundaries.to(torch.complex64),
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
         )
-    # bucket_endpoints should not have duplicate values
+    # bucket_boundaries should not have duplicate values
     with pytest.raises(ValueError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=torch.tensor([[0, 6, 6, 24]]),
+            bucket_boundaries=torch.tensor([[0, 6, 6, 24]]),
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -294,16 +294,16 @@ def test_init_bucket_batch_sampler_with_invalid_bucket_endpoints(sample_data):
     with pytest.raises(RuntimeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints + 25,
+            bucket_boundaries=bucket_boundaries + 25,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
         )
-    # warning if some elements are outside the bucket_endpoints and will be skipped.
+    # warning if some elements are outside the bucket_boundaries and will be skipped.
     with pytest.warns(UserWarning):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints + 5,
+            bucket_boundaries=bucket_boundaries + 5,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -313,7 +313,7 @@ def test_init_bucket_batch_sampler_with_invalid_bucket_endpoints(sample_data):
 def test_init_bucket_batch_sampler_with_invalid_shuffle(sample_data):
     (
         sizes,
-        bucket_endpoints,
+        bucket_boundaries,
         base_batch_sampler_class,
         base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs,
@@ -322,7 +322,7 @@ def test_init_bucket_batch_sampler_with_invalid_shuffle(sample_data):
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -333,7 +333,7 @@ def test_init_bucket_batch_sampler_with_invalid_shuffle(sample_data):
 def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_class(sample_data):
     (
         sizes,
-        bucket_endpoints,
+        bucket_boundaries,
         base_batch_sampler_class,
         base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs,
@@ -342,7 +342,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_class(sample_
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=DataLoader,  # type: ignore
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -352,7 +352,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_class(sample_
 def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample_data):
     (
         sizes,
-        bucket_endpoints,
+        bucket_boundaries,
         base_batch_sampler_class,
         base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs,
@@ -361,7 +361,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs={1: False},  # type: ignore
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -369,7 +369,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=[("drop_last", False)],  # type: ignore
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -377,7 +377,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs={1: [2, 3, 5]},  # type: ignore
@@ -385,16 +385,16 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs=[("batch_sizes", [2, 3, 5])],  # type: ignore
         )
-    # values in base_batch_sampler_individual_kwargs should have same length as bucket_endpoints.
+    # values in base_batch_sampler_individual_kwargs should have same length as bucket_boundaries.
     with pytest.raises(ValueError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs={"batch_sizes": [2, 3]},
@@ -404,7 +404,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs={"drop_last": False, "shuffle": False},
             base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -412,7 +412,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
             base_batch_sampler_individual_kwargs={"batch_size": [2, 3, 5], "shuffle": [True, True, True]},
@@ -420,7 +420,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
     with pytest.raises(TypeError):
         BucketBatchSampler(
             sizes=sizes,
-            bucket_endpoints=bucket_endpoints,
+            bucket_boundaries=bucket_boundaries,
             base_batch_sampler_class=base_batch_sampler_class,
             base_batch_sampler_shared_kwargs={},
             base_batch_sampler_individual_kwargs={"batch_size": [2, 3, 5]},
@@ -430,7 +430,7 @@ def test_init_bucket_batch_sampler_with_invalid_base_batch_sampler_kwargs(sample
 def test_bucket_batch_sampler_attributes(sample_data):
     (
         sizes,
-        bucket_endpoints,
+        bucket_boundaries,
         base_batch_sampler_class,
         base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs,
@@ -438,7 +438,7 @@ def test_bucket_batch_sampler_attributes(sample_data):
 
     batch_sampler = BucketBatchSampler(
         sizes=sizes,
-        bucket_endpoints=bucket_endpoints,
+        bucket_boundaries=bucket_boundaries,
         base_batch_sampler_class=base_batch_sampler_class,
         base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -455,7 +455,7 @@ def test_bucket_batch_sampler_attributes(sample_data):
 def test_iter_bucket_batch_sampler(sample_data):
     (
         sizes,
-        bucket_endpoints,
+        bucket_boundaries,
         base_batch_sampler_class,
         base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs,
@@ -463,7 +463,7 @@ def test_iter_bucket_batch_sampler(sample_data):
 
     batch_sampler = BucketBatchSampler(
         sizes=sizes,
-        bucket_endpoints=bucket_endpoints,
+        bucket_boundaries=bucket_boundaries,
         base_batch_sampler_class=base_batch_sampler_class,
         base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -488,14 +488,14 @@ def test_iter_bucket_batch_sampler(sample_data):
 def test_iter_bucket_batch_sampler_with_shuffle(sample_data):
     (
         sizes,
-        bucket_endpoints,
+        bucket_boundaries,
         base_batch_sampler_class,
         base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs,
     ) = sample_data
     batch_sampler = BucketBatchSampler(
         sizes=sizes,
-        bucket_endpoints=bucket_endpoints,
+        bucket_boundaries=bucket_boundaries,
         base_batch_sampler_class=base_batch_sampler_class,
         base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
         base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
@@ -532,7 +532,7 @@ def test_iter_bucket_batch_sampler_with_shuffle(sample_data):
 
 
 def test_bucket_batch_sampler_with_size_aware_batch_sampler(sample_data):
-    sizes, bucket_endpoints, _, _, _ = sample_data
+    sizes, bucket_boundaries, _, _, _ = sample_data
     item_costs = sizes.tolist()
 
     def cost_of_element(index):
@@ -540,7 +540,7 @@ def test_bucket_batch_sampler_with_size_aware_batch_sampler(sample_data):
 
     batch_sampler = BucketBatchSampler(
         sizes=sizes,
-        bucket_endpoints=bucket_endpoints,
+        bucket_boundaries=bucket_boundaries,
         base_batch_sampler_class=SizeAwareBatchSampler,
         base_batch_sampler_shared_kwargs={"sizeof": cost_of_element},
         base_batch_sampler_individual_kwargs={"max_total_size": [10, 30, 50]},
@@ -567,7 +567,7 @@ def test_bucket_batch_sampler_with_size_aware_batch_sampler(sample_data):
     # with shuffling
     batch_sampler = BucketBatchSampler(
         sizes=sizes,
-        bucket_endpoints=bucket_endpoints,
+        bucket_boundaries=bucket_boundaries,
         base_batch_sampler_class=SizeAwareBatchSampler,
         base_batch_sampler_shared_kwargs={"sizeof": cost_of_element},
         base_batch_sampler_individual_kwargs={"max_total_size": [10, 30, 50]},
