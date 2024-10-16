@@ -43,4 +43,3 @@ pytest -v tests/your/new/or/existing/test_functions.py::test_function
 - [ ] Can you add [the `SKIP_CI` label](https://github.com/NVIDIA/bionemo-framework/-/blob/dev/CONTRIBUTING.md?ref_type=heads#skip-ci) to your PR?
 - [ ] Can you add [the `PYTEST_NOT_REQUIRED` label](https://github.com/NVIDIA/bionemo-framework/-/blob/dev/CONTRIBUTING.md?ref_type=heads#skip-pytest) to your PR?
 - [ ] Can you add [the `JET_NOT_REQUIRED` label](https://github.com/NVIDIA/bionemo-framework/-/blob/dev/CONTRIBUTING.md?ref_type=heads#skip-jet) to your PR?
-- [ ] You need to add one of the labels `bug_fix_for_v24.10` or `NOT_related_to_v24.10` or `feature_for_v24.10`

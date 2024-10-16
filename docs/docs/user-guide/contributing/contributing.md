@@ -63,6 +63,11 @@ repository (unless external constraints prevent it).
 
 
 ## Pull Request (PR) Guidelines
+
+### Labeling Your PR
+
+If you are an external contributor (not an NVIDIA employee), please add the `contribution` label to your PR before submitting. Labels can be accessed in the right sidebar of the GitHub user interface when creating or editing a PR.
+
 ### Signing Your Work
 
 * We require that all contributors "sign-off" on their commits (not GPG signing, just adding the `-s | --signoff`

@@ -272,7 +272,7 @@ llm.train(
 )
 ```
 
-Or simply call [`esm2_pretrain.py`](../../../../../scripts/protein/esm2/esm2_pretrain.py) directly.
+Or simply call `esm2_pretrain.py` directly.
 ```bash
 DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source pbss)
 

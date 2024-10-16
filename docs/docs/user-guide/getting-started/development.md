@@ -79,7 +79,7 @@ The scripts provide various options that can be customized for pretraining, such
 You can specify these options when running the script using command-line arguments. For each of the available scripts,
 you can use the `--help` option for an explanation of the available options for that model.
 
-For more information on pretraining a model, refer to the [ESM2 Pretraining Tutorial](../examples/bionemo-esm2/pretrain).
+For more information on pretraining a model, refer to the [ESM2 Pretraining Tutorial](../examples/bionemo-esm2/pretrain.md).
 
 ## Fine-Tuning
 
@@ -133,7 +133,8 @@ of the model. The fine-tuning steps will be application-specific, but a general 
     model.
 6. **Run inference**: Once the model is fine-tuned, use it to make predictions on new, unseen data.
 
-For more information on fine-tuning a model, refer to the [ESM2 Fine-tuning Tutorial](../examples/bionemo-esm2/finetune).
+For more information on fine-tuning a model, refer to the [ESM2 Fine-tuning
+Tutorial](../examples/bionemo-esm2/finetune.md).
 
 ## Advanced Developer Documentation
 

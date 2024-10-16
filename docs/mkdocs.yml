@@ -54,6 +54,15 @@ plugins:
       scripts:
         - scripts/gen_ref_pages.py
   - macros
+  - mike:
+      # These fields are all optional; the defaults are as below...
+      alias_type: symlink
+      redirect_template: null
+      deploy_prefix: ''
+      canonical_version: 'latest'
+      version_selector: true
+      css_dir: 'assets/css'
+      javascript_dir: 'assets/js'
   - mkdocstrings:
       handlers:
         python:
@@ -85,12 +94,17 @@ markdown_extensions:
           - overrides/.icons
   - def_list
   - admonition
+  - footnotes
 
 extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/NVIDIA/bionemo-framework
-  docker_url: nvcr.io/nvidian/cvai_bnmo_trng/bionemo
+  version:
+    provider: mike
+    default: stable
+    alias: true
+  docker_url: nvcr.io/nvidia/clara/bionemo-framework
   docker_tag: main--nightly
   github_url: https://github.com/NVIDIA/bionemo-framework
 
