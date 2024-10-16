@@ -41,8 +41,8 @@ This usage can leverage the `create_buckets` function and follow the steps below
    will try to create buckets with smallest widths and element counts >= minimal
    bucket count, unless the maximal width or the boundary is reached.
 3. Use `BucketBatchSampler` with base batch sampler like `torch.utils.data.BatchSampler` or
-   `SizeAwareBatchSampler` for each bucket. The `BucketBatchSampler` will select a bucket
-   and generate mini-batches from this bucket using the base batch sampler for this bucket.
+   `SizeAwareBatchSampler` for each bucket. The `BucketBatchSampler` will select a bucket each time
+   and generate a mini-batch from this bucket using the base batch sampler for this bucket.
    As such, the padding necessary for the generated mini-batches will be always smaller
    than the width of buckets.
 
