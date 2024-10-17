@@ -7,7 +7,7 @@
 #
 # @DejunL - Dejun Lin
 # @broland-hat - Brian Roland
-@ @camirr-nv - Camir Ricketts
+# @camirr-nv - Camir Ricketts
 # @cspades - Cory Ye
 # @dorotat-nv - Dorota Toczydlowska
 # @farhadrgh - Farhad Ramezanghorbani
@@ -53,6 +53,7 @@ setup/requirements*.txt @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber
 CONTRIBUTING.md @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
 .secrets.baseline @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
 .pre-commit-config.yaml @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
+.nspect-allowlist.toml @broland-hat @cspades @dorotat-nv @jomitchellnv @jwilber @kdidiNVIDIA @malcolmgreaves @polinabinder1 @trvachov @yzhang123
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
