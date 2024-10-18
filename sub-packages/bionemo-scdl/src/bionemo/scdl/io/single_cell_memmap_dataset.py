@@ -467,6 +467,98 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         with open(f"{self.data_path}/{FileNames.METADATA.value}", f"{Mode.CREATE.value}") as mfi:
             json.dump(self.metadata, mfi)
 
+    def _regular_load_h5ad(
+        self,
+        anndata_path: str,
+    ):
+        adata = ad.read_h5ad(anndata_path)  # slow
+
+        # Get / set the number of rows and columns for sanity
+        # Fill the data array
+        if not isinstance(adata.X, scipy.sparse.spmatrix):
+            raise NotImplementedError("Error: dense matrix loading not yet implemented.")
+
+        # Check if raw data is present
+        raw = getattr(adata, "raw", None)
+        count_data = None
+        if raw is not None:
+            # If it is, attempt to get the counts in the raw data.
+            count_data = getattr(raw, "X", None)
+
+        if count_data is None:
+            # No raw counts were present, resort to normalized
+            count_data = getattr(adata, "X")
+        if count_data is None:
+            raise ValueError("This file does not have count data")
+
+        shape = count_data.shape
+        num_rows = shape[0]
+
+        num_elements_stored = count_data.nnz
+
+        self.dtypes[f"{FileNames.DATA.value}"] = count_data.dtype
+
+        # Create the arrays.
+        self._init_arrs(num_elements_stored, num_rows)
+        # Store data
+        self.data[0:num_elements_stored] = count_data.data
+
+        # Store the col idx array
+        self.col_index[0:num_elements_stored] = count_data.indices.astype(int)
+
+        # Store the row idx array
+        self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
+        return adata, num_rows
+
+    def _lazy_load_h5ad(
+        self,
+        anndata_path: str,
+    ):
+        column_mem_map_list = []
+        data_mem_map_list = []
+
+        adata = ad.read_h5ad(anndata_path, backed=True)
+        row_block = 1_000_000
+        num_rows = adata.X.shape[0]
+        mode = Mode.CREATE_APPEND.value
+        self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
+        for row_start in range(0, num_rows + 1, row_block):
+            self.row_index[row_start + 1 : row_start + row_block + 1] = self.row_index[row_start] + adata.X[
+                row_start : row_start + row_block
+            ].indptr[1:].astype(int)
+
+        with tempfile.TemporaryDirectory(prefix="_tmp", dir=self.data_path) as tmp:
+            for row_start in range(0, num_rows + 1, row_block):
+                col_block = adata.X[row_start : row_start + row_block].indices
+                temp_col_arr = np.memmap(
+                    f"{tmp}/cols_{row_start}",
+                    dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
+                    shape=(len(col_block),),
+                    mode=mode,
+                )
+                temp_col_arr = col_block
+                column_mem_map_list.append(temp_col_arr)
+                data_block = adata.X[row_start : row_start + row_block].data
+                temp_data_arr = np.memmap(
+                    f"{tmp}/data_{row_start}",
+                    dtype=self.dtypes[f"{FileNames.DATA.value}"],
+                    shape=(len(col_block),),
+                    mode=mode,
+                )
+                temp_data_arr = data_block
+                data_mem_map_list.append(temp_data_arr)
+
+            num_elements = sum([arr.shape[0] for arr in column_mem_map_list])
+            self.data, self.col_index = _create_data_col_memmaps(num_elements, Path(self.data_path), mode, self.dtypes)
+
+            current_index = 0
+            for index in range(len(column_mem_map_list)):
+                number_elements = column_mem_map_list[index].shape[0]
+                self.col_index[current_index : current_index + number_elements] = column_mem_map_list[index]
+                self.data[current_index : current_index + number_elements] = data_mem_map_list[index]
+                current_index += number_elements
+        return adata, num_rows
+
     def load_h5ad(
         self,
         anndata_path: str,
@@ -490,88 +582,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         file_size_MB = os.path.getsize(anndata_path) / (1_024**2)
 
         if file_size_MB < self.lazy_load_cutoff:
-            adata = ad.read_h5ad(anndata_path)  # slow
-
-            # Get / set the number of rows and columns for sanity
-            # Fill the data array
-            if not isinstance(adata.X, scipy.sparse.spmatrix):
-                raise NotImplementedError("Error: dense matrix loading not yet implemented.")
-
-            # Check if raw data is present
-            raw = getattr(adata, "raw", None)
-            count_data = None
-            if raw is not None:
-                # If it is, attempt to get the counts in the raw data.
-                count_data = getattr(raw, "X", None)
-
-            if count_data is None:
-                # No raw counts were present, resort to normalized
-                count_data = getattr(adata, "X")
-            if count_data is None:
-                raise ValueError("This file does not have count data")
-
-            shape = count_data.shape
-            num_rows = shape[0]
-
-            num_elements_stored = count_data.nnz
-
-            self.dtypes[f"{FileNames.DATA.value}"] = count_data.dtype
-
-            # Create the arrays.
-            self._init_arrs(num_elements_stored, num_rows)
-            # Store data
-            self.data[0:num_elements_stored] = count_data.data
-
-            # Store the col idx array
-            self.col_index[0:num_elements_stored] = count_data.indices.astype(int)
-
-            # Store the row idx array
-            self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
+            adata, num_rows = self._regular_load_h5ad(anndata_path)
         else:
-            column_mem_map_list = []
-            data_mem_map_list = []
-
-            adata = ad.read_h5ad(anndata_path, backed=True)
-            row_block = 1_000_000
-            num_rows = adata.X.shape[0]
-            mode = Mode.CREATE_APPEND.value
-            self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
-            with tempfile.TemporaryDirectory(prefix="_tmp", dir=self.data_path) as tmp:
-                for row_start in range(0, num_rows + 1, row_block):
-                    self.row_index[row_start + 1 : row_start + row_block + 1] = self.row_index[row_start] + adata.X[
-                        row_start : row_start + row_block
-                    ].indptr[1:].astype(int)
-                    col_block = adata.X[row_start : row_start + row_block].indices
-                    temp_col_arr = np.memmap(
-                        f"{tmp}/cols_{row_start}",
-                        dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
-                        shape=(len(col_block),),
-                        mode=mode,
-                    )
-                    temp_col_arr = col_block
-                    column_mem_map_list.append(temp_col_arr)
-                    data_block = adata.X[row_start : row_start + row_block].data
-                    temp_data_arr = np.memmap(
-                        f"{tmp}/data_{row_start}",
-                        dtype=self.dtypes[f"{FileNames.DATA.value}"],
-                        shape=(len(col_block),),
-                        mode=mode,
-                    )
-                    temp_data_arr = data_block
-                    data_mem_map_list.append(temp_data_arr)
-
-                num_elements = sum([arr.shape[0] for arr in column_mem_map_list])
-                self.data, self.col_index = _create_data_col_memmaps(
-                    num_elements, Path(self.data_path), mode, self.dtypes
-                )
-
-                current_index = 0
-                for index in range(len(column_mem_map_list)):
-                    number_elements = column_mem_map_list[index].shape[0]
-                    self.col_index[current_index : current_index + number_elements] = column_mem_map_list[index]
-                    self.data[current_index : current_index + number_elements] = data_mem_map_list[index]
-                    current_index += number_elements
-
+            adata, num_rows = self._lazy_load_h5ad(anndata_path)
         # Collect features and store in FeatureIndex
         features = adata.var
         self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
