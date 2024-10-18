@@ -17,6 +17,7 @@ import argparse
 from pathlib import Path
 from typing import List, Optional, Sequence, get_args
 
+import pandas as pd
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -31,11 +32,11 @@ from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
-from bionemo.llm.lightning import PerplexityLoggingCallback
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
+from bionemo.llm.utils.memory_callback import MemoryCleanupCallback
 
 
 __all__: Sequence[str] = ("main", "parser")
@@ -162,8 +163,11 @@ def main(
         )
     )
 
+    mem_callback = MemoryCleanupCallback()
+
     callbacks = [
-        PerplexityLoggingCallback(log_train=False, log_val=True),
+        # PerplexityLoggingCallback(log_train=False, log_val=True),
+        mem_callback,
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
     ]
@@ -267,6 +271,8 @@ def main(
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
     )
+
+    pd.DataFrame(mem_callback.memory_usage).to_csv(result_dir / "memory_usage.csv", index=False)
 
 
 # TODO migrate to hydra config
