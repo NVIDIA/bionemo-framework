@@ -2,7 +2,7 @@
 
 This readme serves as a demo for implementing ESM2 Fine-tuning module, running a regression example and using the model for inference.
 
-The ESM2 model is a transformer-based protein language model that has achieved state-of-the-art results in various protein-related tasks. The task head plays a crucial role in fine-tuning for a downstream task. A task head refers to the additional layer or set of layers added on top of a pre-trained model, like the ESM2 transformer-based protein language model, to adapt it for a specific downstream task. As a part of transfer learning, a pre-trained model is often utilized to learn generic features from a large-scale dataset. However, these features might not be directly applicable to the specific task at hand. By incorporating a task head, which consists of learnable parameters, the model can adapt and specialize to the target task. The task head serves as a flexible and adaptable component that learns task-specific representations by leveraging the pre-trained features as a foundation. Through fine-tuning, the task head enables the model to learn and extract task-specific patterns, improving performance and addressing the nuances of the downstream task. It acts as a critical bridge between the pre-trained model and the specific task, enabling efficient and effective transfer of knowledge.
+The ESM2 model is a transformer-based protein language model that has achieved state-of-the-art results in various protein-related tasks. When fine-tuning ESM2, the task head plays a crucial role. A task head refers to the additional layer or set of layers added on top of a pre-trained model, like the ESM2 transformer-based protein language model, to adapt it for a specific downstream task. As a part of transfer learning, a pre-trained model is often utilized to learn generic features from a large-scale dataset. However, these features might not be directly applicable to the specific task at hand. By incorporating a task head, which consists of learnable parameters, the model can adapt and specialize to the target task. The task head serves as a flexible and adaptable component that learns task-specific representations by leveraging the pre-trained features as a foundation. Through fine-tuning, the task head enables the model to learn and extract task-specific patterns, improving performance and addressing the nuances of the downstream task. It acts as a critical bridge between the pre-trained model and the specific task, enabling efficient and effective transfer of knowledge.
 
 
 # Setup and Assumptions
@@ -144,8 +144,8 @@ dataset = InMemorySingleValueDataset(data)
 data_module = ESM2FineTuneDataModule(
     train_dataset=train_dataset,
     valid_dataset=valid_dataset
-    micro_batch_size= 4,   # size of a batch to be processed in a device
-    global_batch_size= 8,  # size of batch across all devices. Should be multiple of micro_batch_size
+    micro_batch_size=4,   # size of a batch to be processed in a device
+    global_batch_size=8,  # size of batch across all devices. Should be multiple of micro_batch_size
 )
 ```
 
