@@ -18,6 +18,11 @@
 * Partial implementation of Geneformer is present, use at your own risk. It will be optimized and officially released in the future.
 * Command line interface is currently based on one-off training recipes and scripts. We are working on a configuration based approach that will be released in the future.
 * Fine-tuning workflow is implemented for BERT based architectures and could be adapted for others, but it requires you to inherit from the biobert base model config. You can follow similar patterns in the short term to load weights from an old checkpoint partially into a new model, however in the future we will have a more direct API which is easier to follow.
+* Slow memory leak occurs during ESM-2 pretraining, which can cause OOM during long pretraining runs. Training with a
+  microbatch size of 48 on 40 A100s raised an out-of-memory error after 5,800 training steps.
+  * Possible workarounds include calling `gc.collect(); torch.cuda.empty_cache()` at every ~1,000 steps, which appears
+    to reclaim the consumed memory; or training with a lower microbatch size and re-starting training from a saved
+    checkpoint periodically.
 
 ## BioNeMo Framework v1.9
 
