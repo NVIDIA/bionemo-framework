@@ -36,7 +36,6 @@ from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
-from bionemo.llm.utils.memory_callback import MemoryCleanupCallback
 
 
 __all__: Sequence[str] = ("main", "parser")
@@ -166,7 +165,7 @@ def main(
 
     callbacks = [
         PerplexityLoggingCallback(log_train=False, log_val=True),
-        MemoryCleanupCallback(torch_empty_cache_steps),
+        # MemoryCleanupCallback(torch_empty_cache_steps),
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
     ]
