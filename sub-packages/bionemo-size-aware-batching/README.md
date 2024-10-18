@@ -173,21 +173,21 @@ results.
 
 ```python
 def create_buckets(sizes: torch.Tensor, max_width: int,
-                   min_bucket_count: int) -> Tuple[torch.Tensor, torch.Tensor]
+                   min_bucket_count: int) -> Buckets
 ```
 
 Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket count.
 
-It will return a tuple containing the bucket boundaries and the actual bucket sizes.
+It will return a named tuple containing the bucket boundaries and the actual bucket sizes.
 e.g. torch.tensor([0, 5, 7]), torch.tensor([3,2]): specifies 2 buckets: one with range 0<= sizes < 5, width=5 and 3 elements
 and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
 
 
 **Arguments**:
 
-- `sizes` _torch.Tensor_ - An 1D tensor of integers.
-- `max_width` _int_ - The maximum width of a bucket, should be a positive integer.
-- `min_bucket_count` _int_ - The minimum count of a bucket, should be a positive integer.
+- `sizes` - An 1D tensor of integers.
+- `max_width` - The maximum width of a bucket, should be a positive integer.
+- `min_bucket_count` - The minimum count of a bucket, should be a positive integer.
   Bucket size may be smaller than min_bucket_count if its width reaches max_width.
 
 
@@ -199,7 +199,7 @@ and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
 
 **Returns**:
 
-  Tuple[torch.Tensor, torch.Tensor]: A tuple containing bucket boundaries in ascending order and the number of elements in each bucket.
+  A named tuple containing bucket boundaries in ascending order and the number of elements in each bucket.
 
   ---------
 
@@ -211,22 +211,22 @@ and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
 >>> from bionemo.size_aware_batching.utils import create_buckets
 
 >>> sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 22, 22, 22, 22])
->>> bucket_boundaries, bucket_sizes = create_buckets(sizes, max_width=5, min_bucket_count=10)
+>>> buckets = create_buckets(sizes, max_width=5, min_bucket_count=10)
 >>> # 5 buckets: 1 <= sizes < 6, 6 <= sizes < 11, 11 <= sizes < 16, 16 <= sizes < 21, 21 <= sizes < 23
->>> print(bucket_boundaries)
+>>> print(buckets.bucket_boundaries)
 tensor([ 1,  6, 11, 16, 21, 23])
 
 >>> # each with 12, 0, 0, 0, 4 elements respectively.
->>> print(bucket_sizes)
+>>> print(buckets.bucket_sizes)
 tensor([12,  0,  0,  0,  4])
 
 >>> sizes = torch.arange(20)
 >>> # min_bucket_count is used to control bucket size
->>> bucket_boundaries, bucket_sizes = create_buckets(sizes, max_width=10, min_bucket_count=5)
->>> print(bucket_boundaries)
+>>> buckets = create_buckets(sizes, max_width=10, min_bucket_count=5)
+>>> print(buckets.bucket_boundaries)
 tensor([ 0,  5, 10, 15, 20])
 
->>> print(bucket_sizes)
+>>> print(buckets.bucket_sizes)
 tensor([5, 5, 5, 5])
 ```
 
@@ -519,9 +519,9 @@ Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util
 def __init__(sizes: torch.Tensor,
              bucket_boundaries: torch.Tensor,
              base_batch_sampler_class: Type[Sampler],
-             base_batch_sampler_shared_kwargs: Optional[Dict[str, Any]] = {},
+             base_batch_sampler_shared_kwargs: Optional[Dict[str, Any]] = None,
              base_batch_sampler_individual_kwargs: Optional[Dict[
-                 str, Iterable]] = {},
+                 str, Iterable]] = None,
              shuffle: Optional[bool] = True,
              generator: Optional[torch.Generator] = None) -> None
 ```
@@ -530,21 +530,21 @@ Initializes the BucketBatchSampler.
 
 **Arguments**:
 
-- `sizes` _torch.Tensor_ - A 1D tensor of real numbers representing the size of each element in the dataset.
-- `bucket_boundaries` _torch.Tensor_ - A 1D tensor of real numbers representing the boundaries of the bucket ranges.
+- `sizes` - A 1D tensor of real numbers representing the size of each element in the dataset.
+- `bucket_boundaries` - A 1D tensor of real numbers representing the boundaries of the bucket ranges.
   It will be first sorted and used to create `len(bucket_boundaries) - 1` left-closed right-open intervals as bucket ranges.
   It should not contain any duplicate values.
-- `base_batch_sampler_class` _Type[Sampler]_ - Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
+- `base_batch_sampler_class` - Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
   `base_batch_sampler_shared_kwargs` and the corresponding `base_batch_sampler_individual_kwargs`.
-- `base_batch_sampler_shared_kwargs` _Dict[str, Any], optional_ - Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
+- `base_batch_sampler_shared_kwargs` - Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
   Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
-- `base_batch_sampler_individual_kwargs` _Dict[str, Iterable], optional_ - Keyword argument dictionary used to initialize
+- `base_batch_sampler_individual_kwargs` - Keyword argument dictionary used to initialize
   each bucket batch sampler with the corresponding key value pairs.
   Length of each value in this dict must be equal to len(bucket_boundaries) - 1 (the number of buckets).
   Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
   Default to  {}.
-- `shuffle` _bool, optional_ - A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
-- `generator` _torch.Generator, optional_ - Generator used in sampling. Defaults to None.
+- `shuffle` - A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
+- `generator` - Generator used in sampling. Defaults to None.
 
 
 **Raises**:
