@@ -237,6 +237,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         num_rows: Optional[int] = None,
         mode: Mode = Mode.READ_APPEND.value,
         lazy_load_cutoff: int = 1_000_000,
+        lazy_load_block_size: int = 1_000_000,
     ) -> None:
         """Instantiate the class.
 
@@ -248,12 +249,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             num_rows: The number of rows in the data frame.
             mode: Whether to read or write from the data_path.
             lazy_load_cutoff: MB Cutoff at which to lazy-load the h5ad structure.
+            lazy_load_block_size: Block size at which to lazy load
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
         self.mode: Mode = mode
         self.lazy_load_cutoff = lazy_load_cutoff
-
+        self.lazy_load_block_size = lazy_load_block_size
         # Backing arrays
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
@@ -518,18 +520,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         data_mem_map_list = []
 
         adata = ad.read_h5ad(anndata_path, backed=True)
-        row_block = 1_000_000
         num_rows = adata.X.shape[0]
         mode = Mode.CREATE_APPEND.value
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
-        for row_start in range(0, num_rows + 1, row_block):
-            self.row_index[row_start + 1 : row_start + row_block + 1] = self.row_index[row_start] + adata.X[
-                row_start : row_start + row_block
-            ].indptr[1:].astype(int)
+        for row_start in range(0, self.lazy_load_block_size + 1, self.lazy_load_block_size):
+            self.row_index[row_start + 1 : row_start + self.lazy_load_block_size + 1] = self.row_index[
+                row_start
+            ] + adata.X[row_start : row_start + self.lazy_load_block_size].indptr[1:].astype(int)
 
         with tempfile.TemporaryDirectory(prefix="_tmp", dir=self.data_path) as tmp:
-            for row_start in range(0, num_rows + 1, row_block):
-                col_block = adata.X[row_start : row_start + row_block].indices
+            for row_start in range(0, self.lazy_load_block_size + 1, self.lazy_load_block_size):
+                col_block = adata.X[row_start : row_start + self.lazy_load_block_size].indices
                 temp_col_arr = np.memmap(
                     f"{tmp}/cols_{row_start}",
                     dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
@@ -538,7 +539,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 )
                 temp_col_arr = col_block
                 column_mem_map_list.append(temp_col_arr)
-                data_block = adata.X[row_start : row_start + row_block].data
+                data_block = adata.X[row_start : row_start + self.lazy_load_block_size].data
                 temp_data_arr = np.memmap(
                     f"{tmp}/data_{row_start}",
                     dtype=self.dtypes[f"{FileNames.DATA.value}"],
