@@ -129,6 +129,48 @@ def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:
     return ret
 
 
+def _create_row_memmaps(
+    num_rows: int,
+    memmap_dir_path: Path,
+    mode: Mode,
+    dtypes: Dict[str, str],
+):
+    # Records a pointer into the data and column arrays
+    # to get the data for a specific row, slice row_idx[idx, idx+1]
+    # and then get the elements in data[row_idx[idx]:row_idx[idx+1]]
+    # which are in the corresponding columns col_index[row_idx[idx], row_idx[row_idx+1]]
+    return np.memmap(
+        f"{memmap_dir_path}/{FileNames.ROWPTR.value}",
+        dtype=dtypes[f"{FileNames.ROWPTR.value}"],
+        shape=(num_rows + 1,),
+        mode=mode,
+    )
+
+
+def _create_data_col_memmaps(
+    num_elements: int,
+    memmap_dir_path: Path,
+    mode: Mode,
+    dtypes: Dict[str, str],
+):
+    # mmap new arrays
+    # Records the value at index[i]
+    data_arr = np.memmap(
+        f"{memmap_dir_path}/{FileNames.DATA.value}",
+        dtype=dtypes[f"{FileNames.DATA.value}"],
+        shape=(num_elements,),
+        mode=mode,
+    )
+    # Records the column the data resides in at index [i]
+    col_arr = np.memmap(
+        f"{memmap_dir_path}/{FileNames.COLPTR.value}",
+        dtype=dtypes[f"{FileNames.COLPTR.value}"],
+        shape=(num_elements,),
+        mode=mode,
+    )
+    return data_arr, col_arr
+
+
 def _create_compressed_sparse_row_memmaps(
     num_elements: int,
     num_rows: int,
@@ -148,30 +190,18 @@ def _create_compressed_sparse_row_memmaps(
         raise ValueError(f"num_rows is set to {num_rows}. It must be postive to create CSR matrices.")
 
     memmap_dir_path.mkdir(parents=True, exist_ok=True)
-    # mmap new arrays
-    # Records the value at index[i]
-    data_arr = np.memmap(
-        f"{memmap_dir_path}/{FileNames.DATA.value}",
-        dtype=dtypes[f"{FileNames.DATA.value}"],
-        shape=(num_elements,),
-        mode=mode,
+    data_arr, col_arr = _create_data_col_memmaps(
+        num_elements,
+        memmap_dir_path,
+        mode,
+        dtypes,
     )
-    # Records the column the data resides in at index [i]
-    col_arr = np.memmap(
-        f"{memmap_dir_path}/{FileNames.COLPTR.value}",
-        dtype=dtypes[f"{FileNames.COLPTR.value}"],
-        shape=(num_elements,),
-        mode=mode,
-    )
-    # Records a pointer into the data and column arrays
-    # to get the data for a specific row, slice row_idx[idx, idx+1]
-    # and then get the elements in data[row_idx[idx]:row_idx[idx+1]]
-    # which are in the corresponding columns col_index[row_idx[idx], row_idx[row_idx+1]]
-    row_arr = np.memmap(
-        f"{memmap_dir_path}/{FileNames.ROWPTR.value}",
-        dtype=dtypes[f"{FileNames.ROWPTR.value}"],
-        shape=(num_rows + 1,),
-        mode=mode,
+
+    row_arr = _create_row_memmaps(
+        num_rows,
+        memmap_dir_path,
+        mode,
+        dtypes,
     )
     return data_arr, col_arr, row_arr
 
@@ -206,6 +236,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         num_elements: Optional[int] = None,
         num_rows: Optional[int] = None,
         mode: Mode = Mode.READ_APPEND.value,
+        lazy_load_cutoff: int = 1_000_000,
     ) -> None:
         """Instantiate the class.
 
@@ -214,12 +245,14 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             or stored.
             h5ad_path: Optional, the location of the h5_ad path.
             num_elements: The total number of elements in the array.
-            num_rows: The number of rows in the data frame
-            mode: Whether to read or write from the data_path,
+            num_rows: The number of rows in the data frame.
+            mode: Whether to read or write from the data_path.
+            lazy_load_cutoff: MB Cutoff at which to lazy-load the h5ad structure.
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
         self.mode: Mode = mode
+        self.lazy_load_cutoff = lazy_load_cutoff
 
         # Backing arrays
         self.data: Optional[np.ndarray] = None
@@ -454,46 +487,111 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         if not os.path.exists(anndata_path):
             raise FileNotFoundError(f"Error: could not find h5ad path {anndata_path}")
-        adata = ad.read_h5ad(anndata_path)  # slow
-        # Get / set the number of rows and columns for sanity
-        # Fill the data array
-        if not isinstance(adata.X, scipy.sparse.spmatrix):
-            raise NotImplementedError("Error: dense matrix loading not yet implemented.")
+        file_size_MB = os.path.getsize(anndata_path) / (1_024**2)
 
-        # Check if raw data is present
-        raw = getattr(adata, "raw", None)
-        count_data = None
-        if raw is not None:
-            # If it is, attempt to get the counts in the raw data.
-            count_data = getattr(raw, "X", None)
+        if file_size_MB < self.lazy_load_cutoff:
+            adata = ad.read_h5ad(anndata_path)  # slow
 
-        if count_data is None:
-            # No raw counts were present, resort to normalized
-            count_data = getattr(adata, "X")
-        if count_data is None:
-            raise ValueError("This file does not have count data")
+            # Get / set the number of rows and columns for sanity
+            # Fill the data array
+            if not isinstance(adata.X, scipy.sparse.spmatrix):
+                raise NotImplementedError("Error: dense matrix loading not yet implemented.")
 
-        shape = count_data.shape
-        num_rows = shape[0]
+            # Check if raw data is present
+            raw = getattr(adata, "raw", None)
+            count_data = None
+            if raw is not None:
+                # If it is, attempt to get the counts in the raw data.
+                count_data = getattr(raw, "X", None)
 
-        num_elements_stored = count_data.nnz
+            if count_data is None:
+                # No raw counts were present, resort to normalized
+                count_data = getattr(adata, "X")
+            if count_data is None:
+                raise ValueError("This file does not have count data")
 
-        self.dtypes[f"{FileNames.DATA.value}"] = count_data.dtype
+            shape = count_data.shape
+            num_rows = shape[0]
+
+            num_elements_stored = count_data.nnz
+
+            self.dtypes[f"{FileNames.DATA.value}"] = count_data.dtype
+
+            # Create the arrays.
+            self._init_arrs(num_elements_stored, num_rows)
+            # Store data
+            self.data[0:num_elements_stored] = count_data.data
+
+            # Store the col idx array
+            self.col_index[0:num_elements_stored] = count_data.indices.astype(int)
+
+            # Store the row idx array
+            self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
+        else:
+            column_mem_map_list = []
+            data_mem_map_list = []
+
+            adata = ad.read_h5ad(anndata_path, backed=True)
+            row_block = 1_000_000
+            num_rows = adata.X.shape[0]
+            memmap_dir_path = Path(self.data_path)
+            mode = Mode.CREATE_APPEND.value
+
+            for row_start in range(0, num_rows + 1, row_block):
+                self.row_index[row_start + 1 : row_start + row_block + 1] = self.row_index[row_start] + adata.X[
+                    row_start : row_start + row_block
+                ].indptr[1:].astype(int)
+                col_block = adata.X[row_start : row_start + row_block].indices
+                col_arr = np.memmap(
+                    "test_arr/cols_{row_start}",
+                    dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
+                    shape=(len(col_block),),
+                    mode=mode,
+                )
+                col_arr = col_block
+                column_mem_map_list.append(col_arr)
+                data_block = adata.X[row_start : row_start + row_block].data
+                data_arr = np.memmap(
+                    "test_arr/data_{row_start}",
+                    dtype=self.dtypes[f"{FileNames.DATA.value}"],
+                    shape=(len(col_block),),
+                    mode=mode,
+                )
+                data_arr = data_block
+                data_mem_map_list.append(data_arr)
+            num_elements = sum([arr.shape[0] for arr in column_mem_map_list])
+
+            self.row_index = np.memmap(
+                f"{memmap_dir_path}/{FileNames.ROWPTR.value}",
+                dtype=self.dtypes[f"{FileNames.ROWPTR.value}"],
+                shape=(num_rows + 1,),
+                mode=mode,
+            )
+
+            self.data = np.memmap(
+                f"{memmap_dir_path}/{FileNames.DATA.value}",
+                dtype=self.dtypes[f"{FileNames.DATA.value}"],
+                shape=(num_elements,),
+                mode=mode,
+            )
+
+            self.col_index = np.memmap(
+                f"{memmap_dir_path}/{FileNames.COLPTR.value}",
+                dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
+                shape=(num_elements,),
+                mode=mode,
+            )
+            current_index = 0
+            for index in range(len(column_mem_map_list)):
+                column_memmap = column_mem_map_list[index]
+                data_memmap = data_mem_map_list[index]
+                self.col_index[current_index : current_index + column_memmap.shape[0]] = column_memmap
+                self.data[current_index : current_index + column_memmap.shape[0]] = data_memmap
+                current_index += column_memmap.shape[0]
 
         # Collect features and store in FeatureIndex
         features = adata.var
         self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
-
-        # Create the arrays.
-        self._init_arrs(num_elements_stored, num_rows)
-        # Store data
-        self.data[0:num_elements_stored] = count_data.data
-
-        # Store the col idx array
-        self.col_index[0:num_elements_stored] = count_data.indices.astype(int)
-
-        # Store the row idx array
-        self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
 
         self.save()
 
