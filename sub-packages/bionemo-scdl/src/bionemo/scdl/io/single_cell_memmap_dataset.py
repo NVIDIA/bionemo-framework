@@ -534,60 +534,43 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             adata = ad.read_h5ad(anndata_path, backed=True)
             row_block = 1_000_000
             num_rows = adata.X.shape[0]
-            memmap_dir_path = Path(self.data_path)
             mode = Mode.CREATE_APPEND.value
+            self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
+            with tempfile.TemporaryDirectory(prefix="_tmp", dir=self.data_path) as tmp:
+                for row_start in range(0, num_rows + 1, row_block):
+                    self.row_index[row_start + 1 : row_start + row_block + 1] = self.row_index[row_start] + adata.X[
+                        row_start : row_start + row_block
+                    ].indptr[1:].astype(int)
+                    col_block = adata.X[row_start : row_start + row_block].indices
+                    temp_col_arr = np.memmap(
+                        f"{tmp}/cols_{row_start}",
+                        dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
+                        shape=(len(col_block),),
+                        mode=mode,
+                    )
+                    temp_col_arr = col_block
+                    column_mem_map_list.append(temp_col_arr)
+                    data_block = adata.X[row_start : row_start + row_block].data
+                    temp_data_arr = np.memmap(
+                        f"{tmp}/data_{row_start}",
+                        dtype=self.dtypes[f"{FileNames.DATA.value}"],
+                        shape=(len(col_block),),
+                        mode=mode,
+                    )
+                    temp_data_arr = data_block
+                    data_mem_map_list.append(temp_data_arr)
 
-            for row_start in range(0, num_rows + 1, row_block):
-                self.row_index[row_start + 1 : row_start + row_block + 1] = self.row_index[row_start] + adata.X[
-                    row_start : row_start + row_block
-                ].indptr[1:].astype(int)
-                col_block = adata.X[row_start : row_start + row_block].indices
-                col_arr = np.memmap(
-                    "test_arr/cols_{row_start}",
-                    dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
-                    shape=(len(col_block),),
-                    mode=mode,
+                num_elements = sum([arr.shape[0] for arr in column_mem_map_list])
+                self.data, self.col_index = _create_data_col_memmaps(
+                    num_elements, Path(self.data_path), mode, self.dtypes
                 )
-                col_arr = col_block
-                column_mem_map_list.append(col_arr)
-                data_block = adata.X[row_start : row_start + row_block].data
-                data_arr = np.memmap(
-                    "test_arr/data_{row_start}",
-                    dtype=self.dtypes[f"{FileNames.DATA.value}"],
-                    shape=(len(col_block),),
-                    mode=mode,
-                )
-                data_arr = data_block
-                data_mem_map_list.append(data_arr)
-            num_elements = sum([arr.shape[0] for arr in column_mem_map_list])
 
-            self.row_index = np.memmap(
-                f"{memmap_dir_path}/{FileNames.ROWPTR.value}",
-                dtype=self.dtypes[f"{FileNames.ROWPTR.value}"],
-                shape=(num_rows + 1,),
-                mode=mode,
-            )
-
-            self.data = np.memmap(
-                f"{memmap_dir_path}/{FileNames.DATA.value}",
-                dtype=self.dtypes[f"{FileNames.DATA.value}"],
-                shape=(num_elements,),
-                mode=mode,
-            )
-
-            self.col_index = np.memmap(
-                f"{memmap_dir_path}/{FileNames.COLPTR.value}",
-                dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
-                shape=(num_elements,),
-                mode=mode,
-            )
-            current_index = 0
-            for index in range(len(column_mem_map_list)):
-                column_memmap = column_mem_map_list[index]
-                data_memmap = data_mem_map_list[index]
-                self.col_index[current_index : current_index + column_memmap.shape[0]] = column_memmap
-                self.data[current_index : current_index + column_memmap.shape[0]] = data_memmap
-                current_index += column_memmap.shape[0]
+                current_index = 0
+                for index in range(len(column_mem_map_list)):
+                    number_elements = column_mem_map_list[index].shape[0]
+                    self.col_index[current_index : current_index + number_elements] = column_mem_map_list[index]
+                    self.data[current_index : current_index + number_elements] = data_mem_map_list[index]
+                    current_index += number_elements
 
         # Collect features and store in FeatureIndex
         features = adata.var
