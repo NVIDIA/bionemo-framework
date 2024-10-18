@@ -366,29 +366,29 @@ class BucketBatchSampler(Sampler[List[int]]):
         sizes: torch.Tensor,
         bucket_boundaries: torch.Tensor,
         base_batch_sampler_class: Type[Sampler],
-        base_batch_sampler_shared_kwargs: Optional[Dict[str, Any]] = {},
-        base_batch_sampler_individual_kwargs: Optional[Dict[str, Iterable]] = {},
+        base_batch_sampler_shared_kwargs: Optional[Dict[str, Any]] = None,
+        base_batch_sampler_individual_kwargs: Optional[Dict[str, Iterable]] = None,
         shuffle: Optional[bool] = True,
         generator: Optional[torch.Generator] = None,
     ) -> None:
         """Initializes the BucketBatchSampler.
 
         Args:
-            sizes (torch.Tensor): A 1D tensor of real numbers representing the size of each element in the dataset.
-            bucket_boundaries (torch.Tensor): A 1D tensor of real numbers representing the boundaries of the bucket ranges.
+            sizes: A 1D tensor of real numbers representing the size of each element in the dataset.
+            bucket_boundaries: A 1D tensor of real numbers representing the boundaries of the bucket ranges.
                 It will be first sorted and used to create `len(bucket_boundaries) - 1` left-closed right-open intervals as bucket ranges.
                 It should not contain any duplicate values.
-            base_batch_sampler_class (Type[Sampler]): Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
+            base_batch_sampler_class: Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
                 `base_batch_sampler_shared_kwargs` and the corresponding `base_batch_sampler_individual_kwargs`.
-            base_batch_sampler_shared_kwargs (Dict[str, Any], optional): Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
+            base_batch_sampler_shared_kwargs: Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
                 Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
-            base_batch_sampler_individual_kwargs (Dict[str, Iterable], optional): Keyword argument dictionary used to initialize
+            base_batch_sampler_individual_kwargs: Keyword argument dictionary used to initialize
                 each bucket batch sampler with the corresponding key value pairs.
                 Length of each value in this dict must be equal to len(bucket_boundaries) - 1 (the number of buckets).
                 Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
                 Default to  {}.
-            shuffle (bool, optional): A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
-            generator (torch.Generator, optional): Generator used in sampling. Defaults to None.
+            shuffle: A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
+            generator: Generator used in sampling. Defaults to None.
 
         Raises:
             ValueError: If `sizes` is not a 1D tensor of real numbers.
@@ -479,7 +479,12 @@ class BucketBatchSampler(Sampler[List[int]]):
             )
 
         self.base_batch_sampler_class = base_batch_sampler_class
-        self.base_batch_sampler_shared_kwargs = base_batch_sampler_shared_kwargs
+        self.base_batch_sampler_shared_kwargs = (
+            {} if base_batch_sampler_shared_kwargs is None else base_batch_sampler_shared_kwargs
+        )
+        base_batch_sampler_individual_kwargs = (
+            {} if base_batch_sampler_individual_kwargs is None else base_batch_sampler_individual_kwargs
+        )
         self.base_batch_sampler_individual_kwargs = [
             {key: list(base_batch_sampler_individual_kwargs[key])[k] for key in base_batch_sampler_individual_kwargs}
             for k in range(self.num_buckets)
@@ -576,7 +581,6 @@ class BucketBatchSampler(Sampler[List[int]]):
                 bucket_idx = torch.multinomial(
                     bucket_remaining_elements / total_remaining_elements, 1, generator=self.generator
                 )
-
             else:
                 bucket_idx = torch.argmax((bucket_remaining_elements > 0).to(int))  # type: ignore
 
