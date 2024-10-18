@@ -17,7 +17,6 @@ import argparse
 from pathlib import Path
 from typing import List, Optional, Sequence, get_args
 
-import pandas as pd
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -32,6 +31,7 @@ from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
+from bionemo.llm.lightning import PerplexityLoggingCallback
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
@@ -91,6 +91,7 @@ def main(
     hidden_size: int = 1280,
     num_attention_heads: int = 20,
     ffn_hidden_size: int = 1280 * 4,
+    torch_empty_cache_steps: int = 1_000,
 ) -> None:
     """Train an ESM2 model on UR data.
 
@@ -163,11 +164,9 @@ def main(
         )
     )
 
-    mem_callback = MemoryCleanupCallback()
-
     callbacks = [
-        # PerplexityLoggingCallback(log_train=False, log_val=True),
-        mem_callback,
+        PerplexityLoggingCallback(log_train=False, log_val=True),
+        MemoryCleanupCallback(torch_empty_cache_steps),
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
     ]
@@ -271,8 +270,6 @@ def main(
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
     )
-
-    pd.DataFrame(mem_callback.memory_usage).to_csv(result_dir / "memory_usage.csv", index=False)
 
 
 # TODO migrate to hydra config
@@ -563,6 +560,13 @@ parser.add_argument(
     default=4 * 1280,
     help="FFN hidden size of the model. Default is 4 * 1280.",
 )
+parser.add_argument(
+    "--torch-empty-cache-steps",
+    type=int,
+    required=False,
+    default=1_000,
+    help="Clean up torch cache every N steps.",
+)
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -614,4 +618,5 @@ if __name__ == "__main__":
         hidden_size=args.hidden_size,
         num_attention_heads=args.num_attention_heads,
         ffn_hidden_size=args.ffn_hidden_size,
+        torch_empty_cache_steps=args.torch_empty_cache_steps,
     )
