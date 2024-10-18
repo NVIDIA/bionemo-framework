@@ -122,49 +122,49 @@ def test_create_buckets_with_invalid_min_bucket_count():
 
 
 def test_create_buckets_single_element():
-    bucket_endpoints, bucket_sizes = create_buckets(sizes=torch.tensor([1]), max_width=2, min_bucket_count=3)
-    assert torch.allclose(bucket_endpoints, torch.tensor([1, 2]))
-    assert torch.allclose(bucket_sizes, torch.tensor([1]))
+    buckets = create_buckets(sizes=torch.tensor([1]), max_width=2, min_bucket_count=3)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 2]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([1]))
 
 
 def test_create_buckets_multiple_elements():
     sizes = torch.tensor([5, 3, 1, 2, 4])
 
-    bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=10, min_bucket_count=5)
-    assert torch.allclose(bucket_endpoints, torch.tensor([1, 6]))
-    assert torch.allclose(bucket_sizes, torch.tensor([5]))
+    buckets = create_buckets(sizes, max_width=10, min_bucket_count=5)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 6]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([5]))
 
 
 def test_create_buckets_multiple_buckets():
     sizes = torch.arange(10)
-    bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=4, min_bucket_count=10)
-    assert torch.allclose(bucket_endpoints, torch.tensor([0, 4, 8, 10]))
-    assert torch.allclose(bucket_sizes, torch.tensor([4, 4, 2]))
+    buckets = create_buckets(sizes, max_width=4, min_bucket_count=10)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([0, 4, 8, 10]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([4, 4, 2]))
 
 
 def test_create_buckets_with_duplicates():
     sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3])
-    bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=4, min_bucket_count=10)
-    assert torch.allclose(bucket_endpoints, torch.tensor([1, 4]))
-    assert torch.allclose(bucket_sizes, torch.tensor([12]))
+    buckets = create_buckets(sizes, max_width=4, min_bucket_count=10)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 4]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([12]))
 
 
 def test_create_buckets_with_max_width_one():
     sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3])
-    bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=1, min_bucket_count=5)
-    assert torch.allclose(bucket_endpoints, torch.tensor([1, 2, 3, 4]))
-    assert torch.allclose(bucket_sizes, torch.tensor([3, 4, 5]))
+    buckets = create_buckets(sizes, max_width=1, min_bucket_count=5)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 2, 3, 4]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([3, 4, 5]))
 
 
 def test_create_buckets_with_max_width_reached():
     sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 22, 22, 22, 22, 31])
-    bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=5, min_bucket_count=10)
-    assert torch.allclose(bucket_endpoints, torch.tensor([1, 6, 11, 16, 21, 26, 31, 32]))
-    assert torch.allclose(bucket_sizes, torch.tensor([12, 0, 0, 0, 4, 0, 1]))
+    buckets = create_buckets(sizes, max_width=5, min_bucket_count=10)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 6, 11, 16, 21, 26, 31, 32]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([12, 0, 0, 0, 4, 0, 1]))
 
 
 def test_create_buckets_with_min_bucket_count_reached():
     sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 11, 11, 11, 11, 11])
-    bucket_endpoints, bucket_sizes = create_buckets(sizes, max_width=20, min_bucket_count=10)
-    assert torch.allclose(bucket_endpoints, torch.tensor([1, 11, 12]))
-    assert torch.allclose(bucket_sizes, torch.tensor([12, 5]))
+    buckets = create_buckets(sizes, max_width=20, min_bucket_count=10)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 11, 12]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([12, 5]))
