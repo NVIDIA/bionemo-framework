@@ -527,13 +527,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         num_rows = adata.X.shape[0]
         mode = Mode.CREATE_APPEND.value
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
-        for row_start in range(0, self.lazy_load_block_size + 1, self.lazy_load_block_size):
+        for row_start in range(0, num_rows, self.lazy_load_block_size):
             self.row_index[row_start + 1 : row_start + self.lazy_load_block_size + 1] = self.row_index[
                 row_start
             ] + adata.X[row_start : row_start + self.lazy_load_block_size].indptr[1:].astype(int)
 
         with tempfile.TemporaryDirectory(prefix="_tmp", dir=self.data_path) as tmp:
-            for row_start in range(0, self.lazy_load_block_size + 1, self.lazy_load_block_size):
+            for row_start in range(0, num_rows, self.lazy_load_block_size):
                 col_block = adata.X[row_start : row_start + self.lazy_load_block_size].indices
                 temp_col_arr = np.memmap(
                     f"{tmp}/cols_{row_start}",
@@ -542,6 +542,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     mode=mode,
                 )
                 temp_col_arr = col_block
+
                 column_mem_map_list.append(temp_col_arr)
                 data_block = adata.X[row_start : row_start + self.lazy_load_block_size].data
                 temp_data_arr = np.memmap(
@@ -550,12 +551,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     shape=(len(col_block),),
                     mode=mode,
                 )
+
                 temp_data_arr = data_block
                 data_mem_map_list.append(temp_data_arr)
 
             num_elements = sum([arr.shape[0] for arr in column_mem_map_list])
             self.data, self.col_index = _create_data_col_memmaps(num_elements, Path(self.data_path), mode, self.dtypes)
-
             current_index = 0
             for index in range(len(column_mem_map_list)):
                 number_elements = column_mem_map_list[index].shape[0]
