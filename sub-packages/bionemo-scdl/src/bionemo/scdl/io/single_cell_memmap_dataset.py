@@ -134,11 +134,8 @@ def _create_row_memmaps(
     memmap_dir_path: Path,
     mode: Mode,
     dtypes: Dict[str, str],
-):
-    # Records a pointer into the data and column arrays
-    # to get the data for a specific row, slice row_idx[idx, idx+1]
-    # and then get the elements in data[row_idx[idx]:row_idx[idx+1]]
-    # which are in the corresponding columns col_index[row_idx[idx], row_idx[row_idx+1]]
+) -> np.ndarray:
+    """Records a pointer into the data and column arrays."""
     return np.memmap(
         f"{memmap_dir_path}/{FileNames.ROWPTR.value}",
         dtype=dtypes[f"{FileNames.ROWPTR.value}"],
@@ -152,8 +149,8 @@ def _create_data_col_memmaps(
     memmap_dir_path: Path,
     mode: Mode,
     dtypes: Dict[str, str],
-):
-    # mmap new arrays
+) -> tuple[np.ndarray, np.ndarray]:
+    """Records a pointer into the data and column arrays."""
     # Records the value at index[i]
     data_arr = np.memmap(
         f"{memmap_dir_path}/{FileNames.DATA.value}",
@@ -182,6 +179,11 @@ def _create_compressed_sparse_row_memmaps(
 
     They are saved to memmap_dir_path. This is an efficient way of indexing
     into a sparse matrix. Only non- zero values of the data are stored.
+
+    To get the data for a specific row, slice row_idx[idx, idx+1]
+    and then get the elements in data[row_idx[idx]:row_idx[idx+1]]
+    which are in the corresponding columns col_index[row_idx[idx], row_idx[row_idx+1]]
+
     """
     if num_elements <= 0:
         raise ValueError(f"n_elements is set to {num_elements}. It must be postive to create CSR matrices.")
@@ -473,6 +475,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self,
         anndata_path: str,
     ):
+        """Method for loading an h5ad file into memory and converting it to the SCDL format."""
         adata = ad.read_h5ad(anndata_path)  # slow
 
         # Get / set the number of rows and columns for sanity
@@ -516,6 +519,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self,
         anndata_path: str,
     ):
+        """Method for lazy loading a larger h5ad file and converting it to the SCDL format."""
         column_mem_map_list = []
         data_mem_map_list = []
 
