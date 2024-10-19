@@ -238,7 +238,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         num_elements: Optional[int] = None,
         num_rows: Optional[int] = None,
         mode: Mode = Mode.READ_APPEND.value,
-        lazy_load_cutoff: int = 1_000_000,
+        lazy_load_cutoff: int = 10_000,
         lazy_load_block_size: int = 1_000_000,
     ) -> None:
         """Instantiate the class.
@@ -251,7 +251,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             num_rows: The number of rows in the data frame.
             mode: Whether to read or write from the data_path.
             lazy_load_cutoff: MB Cutoff at which to lazy-load the h5ad structure.
-            lazy_load_block_size: Block size at which to lazy load
+            lazy_load_block_size: Number of rows to load into memory with lazy load
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
