@@ -79,7 +79,7 @@ The scripts provide various options that can be customized for pretraining, such
 You can specify these options when running the script using command-line arguments. For each of the available scripts,
 you can use the `--help` option for an explanation of the available options for that model.
 
-For more information on pretraining a model, refer to the [ESM2 Pretraining Tutorial](../examples/bionemo-esm2/pretrain).
+For more information on pretraining a model, refer to the [ESM2 Pretraining Tutorial](../examples/bionemo-esm2/pretrain.md).
 
 ## Fine-Tuning
 
