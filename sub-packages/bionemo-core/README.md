@@ -4,12 +4,12 @@ Common code that all BioNeMo framework packages depend on. Contains highly reusa
 abstractions and implementations that are valuable across a wide variety of domains and applications.
 
 Crucially, the `bionemo-core` Python package (namespace `bionemo.core`) depends on PyTorch and PyTorch
-Lightning. Other key BioNeMo component libraries, such as [`bionemo-llm`](../bionemo-llm/README.md) and
-[`bionemo-geometric`](../bionemo-geometric/README.md), obtain their PyTorch dependencies via `bionemo-core`.
+Lightning. Other key BioNeMo component libraries, such as `bionemo-llm` and
+`bionemo-geometric`, obtain their PyTorch dependencies via `bionemo-core`.
 
 ## Developer Setup
-After following the setup specified in the [README](../../README.md), you may install this project's
-code in your environment via executing:
+After following the setup specified in the [README](https://github.com/NVIDIA/bionemo-framework/blob/main/README.md),
+you may install this project's code in your environment via executing:
 ```bash
 pip install -e .
 ```
