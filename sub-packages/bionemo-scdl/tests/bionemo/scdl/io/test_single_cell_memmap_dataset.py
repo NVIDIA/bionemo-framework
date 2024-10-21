@@ -240,7 +240,6 @@ def test_concat_SingleCellMemMapDatasets_multi(tmp_path, compare_fn, test_direct
 
 def test_lazy_load_SingleCellMemMapDatasets(tmp_path, compare_fn, test_directory):
     ds_regular = SingleCellMemMapDataset(tmp_path / "sc1", h5ad_path=test_directory / "adata_sample1.h5ad")
-    print(ds_regular.data, ds_regular.col_index, ds_regular.row_index)
     ds_lazy = SingleCellMemMapDataset(
         tmp_path / "sc2", h5ad_path=test_directory / "adata_sample1.h5ad", lazy_load_cutoff=0, lazy_load_block_size=2
     )
