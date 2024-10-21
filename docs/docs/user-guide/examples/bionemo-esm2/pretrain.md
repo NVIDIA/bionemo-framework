@@ -294,3 +294,7 @@ python scripts/protein/esm2/esm2_pretrain.py \
     --num-attention-head 20 \
     --ffn-hidden-size 5120
 ```
+
+**Note:** Non-critical warnings from command line run
+
+    Users might experience `torch._dynamo.convert_frame` warning messages and depreciation warning on `async_grad_allreduce` from Megatron-LM. Users can safely ignore them and is non-critical to pretraining.
