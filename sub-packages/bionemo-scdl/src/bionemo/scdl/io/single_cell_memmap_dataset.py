@@ -474,12 +474,21 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
     def _regular_load_h5ad(
         self,
         anndata_path: str,
-    ):
-        """Method for loading an h5ad file into memory and converting it to the SCDL format."""
+    ) -> Tuple[pd.DataFrame, int]:
+        """Method for loading an h5ad file into memory and converting it to the SCDL format.
+
+        Args:
+            anndata_path: location of data to load
+        Raises:
+            NotImplementedError if the data is not in scipy.sparse.spmatrix format
+            ValueError it there is not count data
+        Returns:
+            pd.DataFrame: var variables for features
+            int: number of rows in the dataframe.
+
+        """
         adata = ad.read_h5ad(anndata_path)  # slow
 
-        # Get / set the number of rows and columns for sanity
-        # Fill the data array
         if not isinstance(adata.X, scipy.sparse.spmatrix):
             raise NotImplementedError("Error: dense matrix loading not yet implemented.")
 
@@ -513,25 +522,39 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Store the row idx array
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
-        return adata, num_rows
+        return adata.var, num_rows
 
     def _lazy_load_h5ad(
         self,
         anndata_path: str,
-    ):
-        """Method for lazy loading a larger h5ad file and converting it to the SCDL format."""
+    ) -> Tuple[pd.DataFrame, int]:
+        """Method for lazy loading a larger h5ad file and converting it to the SCDL format.
+
+        Raises:
+            NotImplementedError if the data is not lazy loaded in the correct format.
+
+        Returns:
+            pd.DataFrame: var variables for features
+            int: number of rows in the dataframe.
+        """
         column_mem_map_list = []
         data_mem_map_list = []
 
         adata = ad.read_h5ad(anndata_path, backed=True)
+        if not isinstance(adata.X, ad.experimental.CSRDataset):
+            raise NotImplementedError("Sparse Matrix cannot be lazy-loaded.")
+
         num_rows = adata.X.shape[0]
         mode = Mode.CREATE_APPEND.value
+
+        # Read the row indices into an memmap.
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
         for row_start in range(0, num_rows, self.lazy_load_block_size):
             self.row_index[row_start + 1 : row_start + self.lazy_load_block_size + 1] = self.row_index[
                 row_start
             ] + adata.X[row_start : row_start + self.lazy_load_block_size].indptr[1:].astype(int)
 
+        # Read the column pointers and data values into the numpy memmaps.
         with tempfile.TemporaryDirectory(prefix="_tmp", dir=self.data_path) as tmp:
             for row_start in range(0, num_rows, self.lazy_load_block_size):
                 col_block = adata.X[row_start : row_start + self.lazy_load_block_size].indices
@@ -563,7 +586,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 self.col_index[current_index : current_index + number_elements] = column_mem_map_list[index]
                 self.data[current_index : current_index + number_elements] = data_mem_map_list[index]
                 current_index += number_elements
-        return adata, num_rows
+        return adata.var, num_rows
 
     def load_h5ad(
         self,
@@ -576,7 +599,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         be in a scipy.sparse.spmatrix format.
 
         Args:
-            anndata_path: location of data load
+            anndata_path: location of data to load
         Raises:
             FileNotFoundError if the data path does not exist.
             NotImplementedError if the data is not in scipy.sparse.spmatrix
@@ -588,11 +611,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         file_size_MB = os.path.getsize(anndata_path) / (1_024**2)
 
         if file_size_MB < self.lazy_load_cutoff:
-            adata, num_rows = self._regular_load_h5ad(anndata_path)
+            features, num_rows = self._regular_load_h5ad(anndata_path)
         else:
-            adata, num_rows = self._lazy_load_h5ad(anndata_path)
+            features, num_rows = self._lazy_load_h5ad(anndata_path)
         # Collect features and store in FeatureIndex
-        features = adata.var
         self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
 
         self.save()
