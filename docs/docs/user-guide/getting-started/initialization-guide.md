@@ -45,6 +45,15 @@ NGC_CLI_FORMAT_TYPE
 WANDB_API_KEY
 ```
 
+For each of these variables, you can define them inside the `.env` file using `=`. For example, you can set the NGC API
+key using `NGC_CLI_API_KEY=<your API key here>`. You can then define these variables in your current shell using:
+
+```bash
+source .env
+```
+
+Running this command will make these variables available for use in the `docker run` command examples shown below.
+
 Refer to the list below for an explanation of each of these variables:
 
 - `LOCAL_RESULTS_PATH` and `DOCKER_RESULTS_PATH`: Paths for storing results, with `LOCAL` referring to the path on the
@@ -71,24 +80,6 @@ Refer to the list below for an explanation of each of these variables:
         above.
     4. Set the environment variable inside your container using the `-e` option, as shown in the next section.
 
-For each of these variables, you can define them using `=`. For example, you can set the NGC API key using
-`NGC_CLI_API_KEY=<your API key here>`. You can then define these variables in your current shell using:
-
-```bash
-source .env
-```
-
-Running this command will make these variables available for use in the `docker run` command examples shown below.
-
-!!! note "Automatic Setup of Your `.env` File"
-
-    The BioNeMo GitHub Repository contains a script that can help you generate this `.env` file automatically. To use
-    this script, you must first clone the [BioNeMo GitHub Repository]({{ github_url }}). Then, from the repository's root, run the following setup script:
-
-    ```bash
-    ./internal/scripts/setup_env_file.sh
-    ```
-
 ## Starting the BioNeMo Container for Common Workflows
 
 Below we describe some common BioNeMo workflows, including how to setup and run the container in each case. Each of the
@@ -109,7 +100,6 @@ as installed software) will not.
 ```bash
 docker run \
   --rm -it \
-  -u $(id -u):$(id -g) \
   --gpus all \
   --network host \
   --shm-size=4g \
@@ -118,7 +108,6 @@ docker run \
   -e NGC_CLI_ORG \
   -e NGC_CLI_TEAM \
   -e NGC_CLI_FORMAT_TYPE \
-  -e BIONEMO_HOME=$DOCKER_REPO_PATH \
   -v $LOCAL_DATA_PATH:$DOCKER_DATA_PATH \
   -v $LOCAL_MODELS_PATH:$DOCKER_MODELS_PATH \
   -v $LOCAL_RESULTS_PATH:$DOCKER_RESULTS_PATH \
@@ -128,7 +117,6 @@ docker run \
 
 * `--rm`: Removes the container when it exits.
 * `-it`: Allocates a pseudo-TTY and keeps the container running in the foreground.
-* `-u $(id -u):$(id -g)`: Sets the user and group IDs to match those of the user running on the host machine.
 * `--gpus all`: Allocates all available GPUs on the host machine.
 * `--network host`: Allows the container to use the host's network stack, effectively sharing the host's network
     namespace and allowing the container to access the host's network interfaces directly.
@@ -137,20 +125,6 @@ docker run \
 * `-v <LOCAL DIRECTORY>:<DOCKER DIRECTORY>`: Mounts a volume from the host machine to the container.
 * `{{ docker_url }}:{{ docker_tag }}`: The path to the Docker image to use.
 * `/bin/bash`: The command to run inside the container, which starts a Bash shell.
-
-!!! tip "Source Code Developers Only: Development Container Build and Launch Process"
-    If you are developing BioNeMo Framework source code and you have checked out the repository, you can execute the
-    following script to launch a development container from the latest checked-in changes:
-
-    ```bash
-    ./internal/scripts/run_dev.sh
-    ```
-
-    Be sure to build the development image first, after committing changes, by running:
-
-    ```bash
-    ./internal/scripts/build_dev_image.sh
-    ```
 
 ### Running a Model Training Script Inside the Container
 
@@ -161,7 +135,7 @@ removed. A training script can be run as in the example below. Replace `training
 `--option1`) with the file name and relevant command line options, respectively.
 
 ```
-docker run --rm -it -u $(id -u):$(id -g) --gpus all \
+docker run --rm -it --gpus all \
   -e NGC_CLI_API_KEY \
   -e WANDB_API_KEY \
   -v $LOCAL_DATA_PATH:$DOCKER_DATA_PATH \
@@ -185,7 +159,7 @@ preparation, model development, and visualization, all within a single, streamli
 container. We recommend running the container in a Jupyter Lab environment using the command below:
 
 ```bash
-docker run --rm -d --gpus all -u $(id -u):$(id -g) \
+docker run --rm -d --gpus all \
   -p $JUPYTER_PORT:$JUPYTER_PORT \
   -e NGC_CLI_API_KEY \
   -e WANDB_API_KEY \
