@@ -279,13 +279,10 @@ llm.train(
 
 Or simply call `esm2_pretrain.py` directly.
 ```bash
-<<<<<<< HEAD
 # Enable fused attention in transformer engine for speed-up
 export NVTE_FUSED_ATTN=1
 export NVTE_FLASH_ATTN=0
 
-=======
->>>>>>> 34fa4e862 (switch to ngc data source)
 DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source ngc)
 
 python scripts/protein/esm2/esm2_pretrain.py \
