@@ -234,7 +234,7 @@ def main(
                 adam_beta2=0.98,
             ),
             lr_scheduler=WarmupAnnealDecayHoldScheduler(
-                warmup_steps=warmup_steps, max_steps=num_steps, max_lr=lr, min_lr=lr / 10.0, anneal_percentage=0.10
+                warmup_steps=warmup_steps, max_steps=num_steps, max_lr=lr, min_lr=0.0, anneal_percentage=0.10
             ),
         ),
     )
