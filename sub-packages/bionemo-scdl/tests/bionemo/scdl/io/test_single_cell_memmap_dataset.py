@@ -238,9 +238,17 @@ def test_concat_SingleCellMemMapDatasets_multi(tmp_path, compare_fn, test_direct
     compare_fn(dns, dt)
 
 
-def test_lazy_load_SingleCellMemMapDatasets(tmp_path, compare_fn, test_directory):
+def test_lazy_load_SingleCellMemMapDatasets_one_dataset(tmp_path, compare_fn, test_directory):
     ds_regular = SingleCellMemMapDataset(tmp_path / "sc1", h5ad_path=test_directory / "adata_sample1.h5ad")
     ds_lazy = SingleCellMemMapDataset(
         tmp_path / "sc2", h5ad_path=test_directory / "adata_sample1.h5ad", lazy_load_cutoff=0, lazy_load_block_size=2
+    )
+    compare_fn(ds_regular, ds_lazy)
+
+
+def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn, test_directory):
+    ds_regular = SingleCellMemMapDataset(tmp_path / "sc1", h5ad_path=test_directory / "adata_sample0.h5ad")
+    ds_lazy = SingleCellMemMapDataset(
+        tmp_path / "sc2", h5ad_path=test_directory / "adata_sample0.h5ad", lazy_load_cutoff=0, lazy_load_block_size=3
     )
     compare_fn(ds_regular, ds_lazy)

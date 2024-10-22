@@ -530,6 +530,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
     ) -> Tuple[pd.DataFrame, int]:
         """Method for lazy loading a larger h5ad file and converting it to the SCDL format.
 
+        This should be used in the case when the entire anndata file cannot be loaded into memory.
+        The anndata is loaded into memory lazy_load_block_size number of rows at a time. Each chunk
+        is converted into numpy memory maps which are then concatenated together.
+
         Raises:
             NotImplementedError if the data is not lazy loaded in the correct format.
 
@@ -547,14 +551,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         num_rows = adata.X.shape[0]
         mode = Mode.CREATE_APPEND.value
 
-        # Read the row indices into an memmap.
+        # Read the row indices into a memory map. This is done chunk by chunk.
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
         for row_start in range(0, num_rows, self.lazy_load_block_size):
             self.row_index[row_start + 1 : row_start + self.lazy_load_block_size + 1] = self.row_index[
                 row_start
             ] + adata.X[row_start : row_start + self.lazy_load_block_size].indptr[1:].astype(int)
 
-        # Read the column pointers and data values into the numpy memmaps.
+        # Read the column pointers and data values into the numpy memmaps. This is done by
+        # loading in each lazy_load_block_size rows into memory.  For each of these lazy_load_block_size
+        # rows, a numpy memory map is created.
+
         with tempfile.TemporaryDirectory(prefix="_tmp", dir=self.data_path) as tmp:
             for row_start in range(0, num_rows, self.lazy_load_block_size):
                 col_block = adata.X[row_start : row_start + self.lazy_load_block_size].indices
@@ -578,9 +585,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 temp_data_arr = data_block
                 data_mem_map_list.append(temp_data_arr)
 
+            # The data and column pointer memory maps are instantiated.
             num_elements = sum([arr.shape[0] for arr in column_mem_map_list])
             self.data, self.col_index = _create_data_col_memmaps(num_elements, Path(self.data_path), mode, self.dtypes)
             current_index = 0
+
+            # The data and column pointer memory maps are combined to form the full memory maps.
             for index in range(len(column_mem_map_list)):
                 number_elements = column_mem_map_list[index].shape[0]
                 self.col_index[current_index : current_index + number_elements] = column_mem_map_list[index]
