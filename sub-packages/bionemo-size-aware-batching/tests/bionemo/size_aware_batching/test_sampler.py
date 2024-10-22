@@ -608,3 +608,43 @@ def test_bucket_batch_sampler_with_size_aware_batch_sampler(sample_data):
 
     assert batch_lists_second_iter == ref_batch_lists_second_iter
     assert batch_lists_first_iter != ref_batch_lists_second_iter
+
+
+def test_iter_bucket_batch_sampler_with_empty_buckets(sample_data):
+    (
+        sizes,
+        _,
+        base_batch_sampler_class,
+        base_batch_sampler_shared_kwargs,
+        base_batch_sampler_individual_kwargs,
+    ) = sample_data
+
+    # the first and last buckets are empty
+    bucket_boundaries = torch.tensor([-25, 0, 25, 50])
+    batch_sampler = BucketBatchSampler(
+        sizes=sizes,
+        bucket_boundaries=bucket_boundaries,
+        base_batch_sampler_class=base_batch_sampler_class,
+        base_batch_sampler_shared_kwargs=base_batch_sampler_shared_kwargs,
+        base_batch_sampler_individual_kwargs=base_batch_sampler_individual_kwargs,
+        shuffle=False,
+    )
+    batch_lists_iter = list(iter(batch_sampler))
+    ref_batch_lists = [
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8],
+        [9, 10, 11],
+        [12, 13, 14],
+        [15, 16, 17],
+        [18, 19, 20],
+        [21, 22, 23],
+        [24],
+    ]
+    assert batch_lists_iter == ref_batch_lists
+    assert len(batch_sampler) == 9
+    assert torch.all(batch_sampler.bucket_sizes == torch.tensor([0, 25, 0]))
+    assert batch_sampler.num_samples == len(sizes)
+    assert len(batch_sampler.bucket_element_indices[0]) == 0
+    assert torch.all(torch.sort(torch.tensor(batch_sampler.bucket_element_indices[1]))[0] == torch.arange(25))
+    assert len(batch_sampler.bucket_element_indices[2]) == 0

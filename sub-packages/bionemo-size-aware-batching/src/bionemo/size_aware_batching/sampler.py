@@ -500,26 +500,19 @@ class BucketBatchSampler(Sampler[List[int]]):
         reordered_element_indices = torch.argsort(element_bucket_indices, stable=True)
 
         # bucket sizes, including the buckets for < bucket_boundaries[0] and >= bucket_boundaries[-1]
-        bucket_sizes = torch.scatter_add(
-            torch.zeros(len(bucket_boundaries) + 1, dtype=element_bucket_indices.dtype),
-            0,
-            element_bucket_indices,
-            torch.ones_like(element_bucket_indices),
-        )
+        bucket_sizes = torch.bincount(element_bucket_indices)
+        bucket_sizes = torch.nn.functional.pad(bucket_sizes, (0, len(bucket_boundaries) + 1 - bucket_sizes.size(0)))
 
         # bucket segments
         bucket_segments = torch.cumsum(bucket_sizes, dim=0)[:-1]
 
         self.bucket_element_indices = []
         # exclude the buckets for < bucket_boundaries[0] and >= bucket_boundaries[-1]
-        # remove the empty buckets
-        for bucket_idx in range(len(bucket_boundaries) - 1):
-            if bucket_segments[bucket_idx] < bucket_segments[bucket_idx + 1]:
-                self.bucket_element_indices.append(
-                    reordered_element_indices[bucket_segments[bucket_idx] : bucket_segments[bucket_idx + 1]].tolist()
-                )
-        bucket_sizes = bucket_sizes[1:-1]
-        self.bucket_sizes = bucket_sizes[bucket_sizes != 0]
+        for bucket_idx in range(self.num_buckets):
+            self.bucket_element_indices.append(
+                reordered_element_indices[bucket_segments[bucket_idx] : bucket_segments[bucket_idx + 1]].tolist()
+            )
+        self.bucket_sizes = bucket_sizes[1 : (self.num_buckets + 1)]
 
         self.num_samples = torch.sum(self.bucket_sizes).item()
         if self.num_samples == 0:
