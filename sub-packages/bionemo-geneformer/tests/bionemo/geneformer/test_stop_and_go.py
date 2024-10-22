@@ -27,7 +27,6 @@ How to adapt these tests:
 import math
 import pathlib
 import tempfile
-from functools import partial
 from typing import Any, Callable, Literal
 
 import pytorch_lightning as pl
@@ -46,7 +45,6 @@ from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.testing_utils import (
     compute_biobert_loss_singlegpu,
-    get_logged_metric,
 )
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.testing.data.load import load
@@ -128,13 +126,7 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
         exp_name="geneformer_stop_and_go",
     ):
         extra_metrics_dict = {
-            # "val_loss": compute_biobert_loss_singlegpu,
-            "reduced_train_loss": partial(get_logged_metric, metric_name="reduced_train_loss"),
-            "consumed_samples": partial(get_logged_metric, metric_name="consumed_samples"),
-            "global_step": partial(get_logged_metric, metric_name="global_step"),
-            "step": partial(get_logged_metric, metric_name="step"),
-            "grad_norm": partial(get_logged_metric, metric_name="grad_norm"),
-            # "val_loss": partial(get_logged_metric, metric_name="val_loss"),
+            "val_loss": compute_biobert_loss_singlegpu,
         }
         super().__init__(
             root_dir=root_dir,
@@ -215,6 +207,7 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
             plugins=nl.MegatronMixedPrecision(precision=MODEL_PRECISION),
         )
         return trainer
+
 
 def test_geneformer_example():
     with tempfile.TemporaryDirectory() as tmp_dir:
