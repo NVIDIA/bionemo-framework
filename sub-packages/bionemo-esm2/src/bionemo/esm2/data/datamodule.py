@@ -16,7 +16,7 @@
 
 import functools
 import os
-from typing import Literal
+from typing import Any, Dict, Literal
 
 import pytorch_lightning as pl
 import torch
@@ -98,6 +98,7 @@ class ESMDataModule(pl.LightningDataModule):
         self._persistent_workers = persistent_workers
         self._pin_memory = pin_memory
 
+        self.init_global_step = 0
         self.data_sampler = MegatronDataSampler(
             seq_len=max_seq_length,
             micro_batch_size=micro_batch_size,
@@ -174,6 +175,8 @@ class ESMDataModule(pl.LightningDataModule):
 
     def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
+        self.init_global_step = self.trainer.global_step
+        self.data_sampler.init_global_step = self.init_global_step
 
         return torch.utils.data.DataLoader(
             dataset,
@@ -200,3 +203,37 @@ class ESMDataModule(pl.LightningDataModule):
     def test_dataloader(self) -> EVAL_DATALOADERS:
         """Raises a not implemented error."""
         raise NotImplementedError("No test dataset provided for ESM2")
+
+    def state_dict(self) -> Dict[str, Any]:
+        """Called when saving a checkpoint, implement to generate and save datamodule state.
+
+        Returns:
+            A dictionary containing datamodule state.
+
+        """
+        consumed_samples = self.data_sampler.compute_consumed_samples(self.trainer.global_step - self.init_global_step)
+        return {"consumed_samples": consumed_samples}
+
+    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+        """Called when loading a checkpoint, implement to reload datamodule state given datamodule stat.
+
+        Args:
+            state_dict: the datamodule state returned by ``state_dict``.
+
+        """
+        try:
+            from megatron.core.num_microbatches_calculator import update_num_microbatches
+
+        except (ImportError, ModuleNotFoundError):
+            logging.warning("Megatron num_microbatches_calculator not found, using Apex version.")
+            from apex.transformer.pipeline_parallel.utils import update_num_microbatches
+
+        consumed_samples = state_dict["consumed_samples"]
+        self.data_sampler.init_consumed_samples = consumed_samples
+        self.data_sampler.prev_consumed_samples = consumed_samples
+
+        update_num_microbatches(
+            consumed_samples=consumed_samples,
+            consistency_check=False,
+        )
+        self.data_sampler.if_first_step = 1
