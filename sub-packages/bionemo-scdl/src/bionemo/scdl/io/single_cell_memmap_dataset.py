@@ -586,7 +586,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 data_mem_map_list.append(temp_data_arr)
 
             # The data and column pointer memory maps are instantiated.
-            num_elements = sum([arr.shape[0] for arr in column_mem_map_list])
+            num_elements = sum(arr.shape[0] for arr in column_mem_map_list)
             self.data, self.col_index = _create_data_col_memmaps(num_elements, Path(self.data_path), mode, self.dtypes)
             current_index = 0
 
