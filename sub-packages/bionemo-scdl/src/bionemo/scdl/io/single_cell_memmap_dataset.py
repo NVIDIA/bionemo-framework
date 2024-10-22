@@ -238,7 +238,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         num_elements: Optional[int] = None,
         num_rows: Optional[int] = None,
         mode: Mode = Mode.READ_APPEND.value,
-        size_block_load_cutoff: int = 10_000,
+        paginated_load_cutoff: int = 10_000,
         load_block_size: int = 1_000_000,
     ) -> None:
         """Instantiate the class.
@@ -250,13 +250,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             num_elements: The total number of elements in the array.
             num_rows: The number of rows in the data frame.
             mode: Whether to read or write from the data_path.
-            size_block_load_cutoff: MB Cutoff at which to blload the h5ad structure.
-            load_block_size: Number of rows to load into memory with lazy load
+            paginated_load_cutoff: MB Cutoff at which to blload the h5ad structure.
+            load_block_size: Number of rows to load into memory with paginated load
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
         self.mode: Mode = mode
-        self.size_block_load_cutoff = size_block_load_cutoff
+        self.paginated_load_cutoff = paginated_load_cutoff
         self.load_block_size = load_block_size
         # Backing arrays
         self.data: Optional[np.ndarray] = None
@@ -524,7 +524,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
         return adata.var, num_rows
 
-    def block_load_h5ad(
+    def paginated_load_h5ad(
         self,
         anndata_path: str,
     ) -> Tuple[pd.DataFrame, int]:
@@ -570,7 +570,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     shape=(len(col_block),),
                     mode=mode,
                 )
-                temp_col_arr = col_block
+                temp_col_arr = col_block[:]
 
                 column_mem_map_list.append(temp_col_arr)
                 data_block = adata.X[row_start : row_start + self.load_block_size].data
@@ -581,7 +581,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     mode=mode,
                 )
 
-                temp_data_arr = data_block
+                temp_data_arr = data_block[:]
                 data_mem_map_list.append(temp_data_arr)
 
             # The data and column pointer memory maps are instantiated.
@@ -619,10 +619,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             raise FileNotFoundError(f"Error: could not find h5ad path {anndata_path}")
         file_size_MB = os.path.getsize(anndata_path) / (1_024**2)
 
-        if file_size_MB < self.size_block_load_cutoff:
+        if file_size_MB < self.paginated_load_cutoff:
             features, num_rows = self._regular_load_h5ad(anndata_path)
         else:
-            features, num_rows = self.block_load_h5ad(anndata_path)
+            features, num_rows = self.paginated_load_h5ad(anndata_path)
         # Collect features and store in FeatureIndex
         self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
 
