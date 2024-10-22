@@ -501,8 +501,7 @@ class BucketBatchSampler(Sampler[List[int]]):
         reordered_element_indices = torch.argsort(element_bucket_indices, stable=True)
 
         # bucket sizes, including the buckets for < bucket_boundaries[0] and >= bucket_boundaries[-1]
-        bucket_sizes = torch.bincount(element_bucket_indices)
-        bucket_sizes = torch.nn.functional.pad(bucket_sizes, (0, len(bucket_boundaries) + 1 - bucket_sizes.size(0)))
+        bucket_sizes = torch.bincount(element_bucket_indices, minlength=len(bucket_boundaries) + 1)
 
         # bucket segments
         bucket_segments = torch.cumsum(bucket_sizes, dim=0)[:-1]
