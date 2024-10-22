@@ -76,11 +76,11 @@
 * **Beta** [Geneformer](https://www.nature.com/articles/s41586-023-06139-9) a foundation model for single-cell data that encodes each cell as represented by an ordered list of differentially expressed genes for that cell.
 
 ### New Features
-* **Beta** [Geneformer pretraining with custom datasets](notebooks/geneformer_cellxgene_tutorial.ipynb)
-* [Low-Rank Adaptation (LoRA) finetuning for ESM2](lora-finetuning-esm2.md)
+* **Beta** Geneformer pretraining with custom datasets
+* Low-Rank Adaptation (LoRA) finetuning for ESM2
 
 ### Bug fixes and Improvements
-* [OpenFold training improved benchmarks and validation of optimizations](models/openfold.md)
+* OpenFold training improved benchmarks and validation of optimizations
 
 ### Known Issues
 * BioNeMo Framework v24.04 container is vulnerable to [GHSA-whh8-fjgc-qp73](https://github.com/advisories/GHSA-whh8-fjgc-qp73) in onnx 1.14.0. Users are advised not to open untrusted onnx files with this image. Restrict your mount point to minimize directory traversal impact. A fix for this is scheduled in the 24.05 (May) release.
@@ -91,9 +91,9 @@
 
 ### New Features
 * [MolMIM](https://developer.nvidia.com/blog/new-models-molmim-and-diffdock-power-molecule-generation-and-molecular-docking-in-bionemo/) re-trained on more data is now available in the framework, and achieves [state of the art performance](models/molmim.md).
-* [MolMIM property guided tutorial notebook](notebooks/cma_es_guided_molecular_optimization_molmim.ipynb) covering property guided optimization using our new framework model.
-* [MolMIM training tutorial](notebooks/model_training_molmim.ipynb) available walking users through either training from scratch or from an existing checkpoint on your own data.
-* [MolMIM tutorial notebook covering molecular sampling and property prediction](notebooks/MolMIM_GenerativeAI_local_inference_with_examples.ipynb) is also now available.
+* MolMIM property guided tutorial notebook covering property guided optimization using our new framework model.
+* MolMIM training tutorial available walking users through either training from scratch or from an existing checkpoint on your own data.
+* MolMIM tutorial notebook covering molecular sampling and property prediction is also now available.
 * Numerous optimizations from [NVIDIA's entry to the MLPerf competition](https://developer.nvidia.com/blog/optimizing-openfold-training-for-drug-discovery/) have been added to OpenFold. Documentation and detailed benchmarks are works in progress and will be published in upcoming releases. This release contains the following performance optimizations:
     * Fused GEMMs in multi-head attention (MHA)
     * Non-blocking data pipeline
