@@ -55,6 +55,7 @@ def main(
     warmup_steps: int,
     limit_val_batches: int,
     val_check_interval: int,
+    log_every_n_steps: Optional[int],
     num_dataset_workers: int,
     biobert_spec_option: BiobertSpecOption,  # TODO(@farhadrgh) clarify how to parse this.
     lr: float,
@@ -183,6 +184,7 @@ def main(
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,
+        log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(precision=precision),
@@ -379,6 +381,12 @@ parser.add_argument(
     required=False,
     default=10000,
     help="Number of steps between validation. Default is 10000.",
+)
+parser.add_argument(
+    "--log-every-n-steps",
+    type=int,
+    required=False,
+    help="Number of steps between logging. Default is 50.",
 )
 parser.add_argument(
     "--min-seq-length",
@@ -582,6 +590,7 @@ if __name__ == "__main__":
         warmup_steps=args.warmup_steps,
         limit_val_batches=args.limit_val_batches,
         val_check_interval=args.val_check_interval,
+        log_every_n_steps=args.log_every_n_steps,
         num_dataset_workers=args.num_dataset_workers,
         biobert_spec_option=args.biobert_spec_option,
         lr=args.lr,
