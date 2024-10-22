@@ -215,7 +215,6 @@ class StopAndGoHarness(ABC):
                     save_top_k=2,
                     every_n_train_steps=self.val_check_interval,
                     always_save_context=True,
-                    try_restore_best_ckpt=False,
                 ),
             ]
         elif mode == "go":
@@ -230,7 +229,6 @@ class StopAndGoHarness(ABC):
                     save_top_k=2,
                     every_n_train_steps=self.val_check_interval,
                     always_save_context=True,
-                    try_restore_best_ckpt=False,
                 ),
             ]
         else:
@@ -266,7 +264,7 @@ class StopAndGoHarness(ABC):
                     ),
                 )
             except testing_callbacks.StopAndGoException:
-                raise
+                return
 
     def go(self) -> None:
         """Resumes the model from the checkpoint saved at the end of `stop()` and verifies the metadata integrity."""
