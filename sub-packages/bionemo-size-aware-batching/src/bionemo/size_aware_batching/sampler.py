@@ -31,6 +31,7 @@ Data = TypeVar("Data")
 BatchCollated = TypeVar("BatchCollated")
 Real = Union[int, float]
 TorchIntegerDataTypes = {torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64}  # type: ignore
+S = TypeVar("S", bound=Sampler)
 
 
 def size_aware_batching(
@@ -365,7 +366,7 @@ class BucketBatchSampler(Sampler[List[int]]):
         self,
         sizes: torch.Tensor,
         bucket_boundaries: torch.Tensor,
-        base_batch_sampler_class: Type[Sampler],
+        base_batch_sampler_class: Type[S],
         base_batch_sampler_shared_kwargs: Optional[Dict[str, Any]] = None,
         base_batch_sampler_individual_kwargs: Optional[Dict[str, Iterable]] = None,
         shuffle: Optional[bool] = True,
