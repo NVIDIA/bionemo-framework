@@ -137,7 +137,7 @@ def _create_row_memmaps(
 ) -> np.ndarray:
     """Records a pointer into the data and column arrays."""
     return np.memmap(
-        f"{memmap_dir_path}/{FileNames.ROWPTR.value}",
+        f"{str(memmap_dir_path.absolute()}/{FileNames.ROWPTR.value}",
         dtype=dtypes[f"{FileNames.ROWPTR.value}"],
         shape=(num_rows + 1,),
         mode=mode,
