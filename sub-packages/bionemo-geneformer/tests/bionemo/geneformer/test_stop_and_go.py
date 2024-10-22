@@ -26,6 +26,7 @@ How to adapt these tests:
 
 import math
 import pathlib
+import tempfile
 from typing import Literal
 
 import pytorch_lightning as pl
@@ -117,11 +118,13 @@ def geneformer_datamodule(tokenizer, seq_length, median_dict, devices, tensor_mo
 class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
     def __init__(
         self,
+        root_dir: pathlib.Path | str,
         val_check_interval=2,
         exp_name="geneformer_stop_and_go",
     ):
         extra_metrics_dict = {"val_loss": compute_biobert_loss_singlegpu}
         super().__init__(
+            root_dir=root_dir,
             extra_metrics_dict=extra_metrics_dict,
             val_check_interval=val_check_interval,
             exp_name=exp_name,
@@ -198,4 +201,5 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
 
 
 def test_geneformer_example():
-    GeneformerStopAndGoTest().run_test()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        GeneformerStopAndGoTest(root_dir=tmp_dir).run_test()
