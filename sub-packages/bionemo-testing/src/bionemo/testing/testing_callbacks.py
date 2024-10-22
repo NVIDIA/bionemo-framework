@@ -25,7 +25,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
 
-def compute_biobert_loss_singlegpu(model, dl: DataLoader):
+def compute_biobert_loss_singlegpu(model, dl: DataLoader, limit_val_batches: int = 1):
     """Computes the loss for BioBert models on a single GPU.
 
     This will not function in multi-gpu settings nor with models that do not conform to BioBert.
@@ -33,6 +33,7 @@ def compute_biobert_loss_singlegpu(model, dl: DataLoader):
     Args:
         model (torch.nn.Module): The Biobert model.
         dl (torch.utils.data.DataLoader): The data loader.
+        limit_val_batches (int): The number of batches to use for validation.
 
     Returns:
         float: The mean loss.
@@ -42,21 +43,25 @@ def compute_biobert_loss_singlegpu(model, dl: DataLoader):
     """
     n, loss = 0, 0.0
     model.eval()
-    # batch = next(iter(dl))
-    batch = model.data_step(iter(dl))
-    result = model(
-        input_ids=batch["text"].cuda(),  # 'tokens' also a valid input for MockGPTDataModule
-        attention_mask=batch["attention_mask"].cuda(),
-    )
-    loss_mask = batch["loss_mask"].cuda()
-    # Not guaranteed i guess?
-    logits = result["token_logits"]
-    target = batch["labels"].cuda()
-    loss += F.cross_entropy(logits[loss_mask].float(), target[loss_mask], reduction="sum")
-    n += loss_mask.sum()
+    for i, batch in enumerate(dl):
+        batch = model.data_step(iter(dl))
+        result = model(
+            input_ids=batch["text"].cuda(),  # 'tokens' also a valid input for MockGPTDataModule
+            attention_mask=batch["attention_mask"].cuda(),
+        )
+        loss_mask = batch["loss_mask"].cuda()
+        # Not guaranteed i guess?
+        logits = result["token_logits"]
+        target = batch["labels"].cuda()
+        loss += F.cross_entropy(logits[loss_mask].float(), target[loss_mask], reduction="sum")
+        n += loss_mask.sum()
+
+        if i >= limit_val_batches:
+            break
 
     mean_loss: float = (loss / n).detach().cpu().numpy().item()
     model.train()
+
     return mean_loss
 
 
