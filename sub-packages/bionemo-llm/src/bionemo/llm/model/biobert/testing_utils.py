@@ -57,6 +57,11 @@ def compute_biobert_loss_singlegpu(trainer: pl.Trainer, pl_module: pl.LightningM
     return mean_loss
 
 
+def get_optimizers_state(trainer: pl.Trainer, pl_module: pl.LightningModule) -> dict:
+    """Get optimizer state from each optimizer in trainer."""
+    return [optimizer.mcore_optimizer.optimizer.state_dict() for optimizer in trainer.optimizers]
+
+
 def get_logged_metric(trainer: pl.Trainer, pl_module: pl.LightningModule, metric_name: str):
     """Get logged metric from trainer."""
     metric = trainer.logged_metrics[metric_name]

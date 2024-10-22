@@ -24,6 +24,8 @@ from pytorch_lightning import Callback, LightningModule, Trainer
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
+from bionemo.llm.model.biobert.testing_utils import get_optimizers_state
+
 
 def compute_biobert_loss_singlegpu(model, dl: DataLoader, limit_val_batches: int = 1):
     """Computes the loss for BioBert models on a single GPU.
@@ -129,15 +131,19 @@ class MetadataSaveCallback(Callback):
         """
         if self.called and trainer.is_global_zero:
             # save metadata to compare to after resuming with checkpoint
-            metadata = {}
+            metadata = {
+                "optimizer_states": get_optimizers_state(trainer, pl_module),
+            }
             for metadata_key, func in self.metrics_getter.items():
                 metadata_value = func(trainer, pl_module)
                 metadata[metadata_key] = metadata_value
+
             # prepare paths for metadata save
             pickle_file_path = self.pickle_file_path
             os.makedirs(os.path.dirname(pickle_file_path), exist_ok=True)
             with open(pickle_file_path, "wb") as metadata_file:
                 pickle.dump(metadata, metadata_file)
+
             # check that pickle file was saved correctly
             assert os.path.isfile(pickle_file_path), f"No file found at {pickle_file_path}"
         else:
@@ -172,9 +178,9 @@ class TestCheckpointIntegrityCallback(Callback):
         assert os.path.isfile(pickle_file_path), f"No file found at {pickle_file_path}"
         with open(pickle_file_path, "rb") as metadata_file:
             metadata_dict = pickle.load(metadata_file)
+
         current_metadata = {}
         for metadata_key, func in self.metrics_getter.items():
-            expected_value = metadata_dict[metadata_key]
             current_value = func(trainer, pl_module)
             current_metadata[metadata_key] = current_value
 
@@ -185,5 +191,6 @@ class TestCheckpointIntegrityCallback(Callback):
             assert (
                 expected_value == current_value
             ), f"Value mismatch for key {metadata_key}: stored_value={expected_value}, current_value={current_value}"
-        # Cleanup
-        os.remove(pickle_file_path)
+
+        current_optimizer_states = get_optimizers_state(trainer, pl_module)
+        assert str(current_optimizer_states) == str(metadata_dict["optimizer_states"]), "Optimizer state mismatch."
