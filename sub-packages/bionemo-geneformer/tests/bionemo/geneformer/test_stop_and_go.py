@@ -27,7 +27,8 @@ How to adapt these tests:
 import math
 import pathlib
 import tempfile
-from typing import Literal
+from functools import partial
+from typing import Any, Callable, Literal
 
 import pytorch_lightning as pl
 import torch
@@ -37,12 +38,16 @@ from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies import MegatronStrategy
 from torch.nn import functional as F
+from typing_extensions import override
 
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
-from bionemo.llm.model.biobert.testing_utils import compute_biobert_loss_singlegpu
+from bionemo.llm.model.biobert.testing_utils import (
+    compute_biobert_loss_singlegpu,
+    get_logged_metric,
+)
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.testing.data.load import load
 from bionemo.testing.harnesses import stop_and_go
@@ -88,7 +93,7 @@ def geneformer_config():
         attention_dropout=0.1,
         share_embeddings_and_output_weights=True,
         enable_autocast=False,
-        biobert_spec_option=BiobertSpecOption.bert_layer_local_spec.value,
+        biobert_spec_option=BiobertSpecOption.bert_layer_local_spec,
         nemo1_ckpt_path=None,
     )
 
@@ -122,7 +127,15 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
         val_check_interval=2,
         exp_name="geneformer_stop_and_go",
     ):
-        extra_metrics_dict = {"val_loss": compute_biobert_loss_singlegpu}
+        extra_metrics_dict = {
+            # "val_loss": compute_biobert_loss_singlegpu,
+            "reduced_train_loss": partial(get_logged_metric, metric_name="reduced_train_loss"),
+            "consumed_samples": partial(get_logged_metric, metric_name="consumed_samples"),
+            "global_step": partial(get_logged_metric, metric_name="global_step"),
+            "step": partial(get_logged_metric, metric_name="step"),
+            "grad_norm": partial(get_logged_metric, metric_name="grad_norm"),
+            # "val_loss": partial(get_logged_metric, metric_name="val_loss"),
+        }
         super().__init__(
             root_dir=root_dir,
             extra_metrics_dict=extra_metrics_dict,
@@ -142,6 +155,7 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
             case _:
                 raise ValueError("Preprocessing must have failed.")
 
+    @override
     def setup_model(
         self, mode: Literal["stop", "go"]
     ) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
@@ -175,7 +189,10 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
         )
         return module, data, optim
 
-    def setup_trainer_and_strategy(self, mode: Literal["stop", "go"], metrics):
+    @override
+    def setup_trainer_and_strategy(
+        self, mode: Literal["stop", "go"], metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
+    ) -> pl.Trainer:
         devices, tp_size, pp_size = 1, 1, 1
         strategy = MegatronStrategy(
             tensor_model_parallel_size=tp_size,
@@ -199,7 +216,10 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
         )
         return trainer
 
-
 def test_geneformer_example():
     with tempfile.TemporaryDirectory() as tmp_dir:
         GeneformerStopAndGoTest(root_dir=tmp_dir).run_test()
+
+
+if __name__ == "__main__":
+    test_geneformer_example()

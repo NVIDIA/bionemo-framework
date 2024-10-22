@@ -15,6 +15,7 @@
 
 
 import pytorch_lightning as pl
+import torch
 import torch.nn.functional as F
 
 
@@ -54,3 +55,27 @@ def compute_biobert_loss_singlegpu(trainer: pl.Trainer, pl_module: pl.LightningM
     mean_loss: float = (loss / n).detach().cpu().numpy().item()
     model.train()
     return mean_loss
+
+
+def get_logged_metric(trainer: pl.Trainer, pl_module: pl.LightningModule, metric_name: str):
+    """Get logged metric from trainer."""
+    metric = trainer.logged_metrics[metric_name]
+    if torch.is_tensor(metric):
+        metric = metric.detach().item()
+    return metric
+
+
+def get_callback_metric(trainer: pl.Trainer, pl_module: pl.LightningModule, metric_name: str):
+    """Get callback metric from trainer."""
+    metric = trainer.callback_metrics[metric_name]
+    if torch.is_tensor(metric):
+        metric = metric.detach().item()
+    return metric
+
+
+def get_progress_bar_metric(trainer: pl.Trainer, pl_module: pl.LightningModule, metric_name: str):
+    """Get progress bar metric from trainer."""
+    metric = trainer.progress_bar_metrics[metric_name]
+    if torch.is_tensor(metric):
+        metric = metric.detach().item()
+    return metric
