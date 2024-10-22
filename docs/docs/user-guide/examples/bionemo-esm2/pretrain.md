@@ -1,6 +1,6 @@
 # ESM2 Pretraining
 
-This readme serves as a demo for pretraining [ESM2](https://www.science.org/doi/abs/10.1126/science.ade2574) from scratch with [UniProt](https://www.uniprot.org/) sequences.
+This tutorial serves as a demo for pretraining [ESM2](https://www.science.org/doi/abs/10.1126/science.ade2574) from scratch with [UniProt](https://www.uniprot.org/) sequences.
 
 The ESM2 model is a transformer-based protein language model that was pretrained on masked language model (MLM) task. The objective is to recover the original amino acid types of the perturbed locations from the rest of the protein sequences. Through pretraining, ESM2 learns the evolutionary information in protein sequences similar to conservation analysis and Pott's model, and predicts the optimal mutations on any given protein sequence.
 
@@ -8,9 +8,14 @@ The ESM2 model is a transformer-based protein language model that was pretrained
 
 In this tutorial, we will demonstrate how to create an ESM2 pretraining data module, and create and train a ESM2 model.
 
-All commands should be executed inside the BioNeMo docker container, which has all ESM2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`. (**Note**: This `WORKDIR` may be `/workspaces/bionemo-framework` if you are using the VSCode Dev Container.) For more information on how to build or pull the BioNeMo2 container, refer to the [Access and Startup](../../getting-started/access-startup.md).
+All commands should be executed inside the BioNeMo docker container, which has all ESM2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`.  For more information on how to build or pull the BioNeMo2 container, refer to the [Initialization Guide](../../getting-started/initialization-guide.md).
+
+!!! note
+
+    This `WORKDIR` may be `/workspaces/bionemo-framework` if you are using the VSCode Dev Container.
 
 Similar to PyTorch Lightning, we have to define some key classes:
+
 1. `MegatronStrategy` - To launch and setup parallelism for [NeMo](https://github.com/NVIDIA/NeMo/tree/main) and [Megatron-LM](https://github.com/NVIDIA/Megatron-LM).
 2. `Trainer` - To configure training configurations and logging.
 3. `ESMDataModule` - To load pretraining training and validation data with mapped UniRef90 sequences to UniRef50 clusters.
@@ -96,7 +101,7 @@ download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source ngc  # test data
 # download_bionemo_data esm2/fulldata_esm2_pretrain:2.0 --source ngc  # full data (~80GB)
 ```
 
-On top of the path to the data directory, BioNeMo2 data module requires global and micro batch sizes to ensure that the input tensors are initialized correctly across model-parallel ranks (see [megatron_datasets.md](../../background/megatron_datasets.md)).
+On top of the path to the data directory, BioNeMo2 data module requires global and micro batch sizes to ensure that the input tensors are initialized correctly across model-parallel ranks (see [Megatron Dataset Considerations](../../background/megatron_datasets.md)).
 
 ```python
 from bionemo.esm2.data.datamodule import ESMDataModule
@@ -130,11 +135,11 @@ data = ESMDataModule(
 )
 ```
 
-**Note:** `RandomMaskStrategy`
+!!! note "`RandomMaskStrategy`"
 
-When trained on MLM objective, the loss function randomly includes 15% of the tokens, within which 80% are masked, 10% are replaced with a random token, and 10% are kept unchanged. Since the vocabulary includes amino acids as well as special tokens, part of the protein sequence may be replaced by a special token. This is the default in both BioNeMo2 and HuggingFace ESM2 implementation.
+    When trained on MLM objective, the loss function randomly includes 15% of the tokens, within which 80% are masked, 10% are replaced with a random token, and 10% are kept unchanged. Since the vocabulary includes amino acids as well as special tokens, part of the protein sequence may be replaced by a special token. This is the default in both BioNeMo2 and HuggingFace ESM2 implementation.
 
-To enforce amino-acid-only replacement, users can pass `random_mask_strategy=RandomMaskStrategy.AMINO_ACID_ONLY` to `ESMDataModule`.
+    To enforce amino-acid-only replacement, users can pass `random_mask_strategy=RandomMaskStrategy.AMINO_ACID_ONLY` to `ESMDataModule`.
 
 ## 4. ESM2Config
 Instead of initializing the whole model on each rank, sharded models are lazily created on the target rank with the help of a configuration object. `ESM2Config` is a dataclass that envelopes architecture parameters (such as `num_layers`) and the specification of each torch module (`ModuleSpec`) in the transformer, which are accelerated with flash and fused attentions in [TransformerEngine](https://github.com/NVIDIA/TransformerEngine). While we can initialize a model from `ESM2Config`, its setup is only completed in under `trainer.setup`, which is called on individual devices.
@@ -205,12 +210,12 @@ model: BionemoLightningModule = biobert_lightning_module(
 )
 ```
 
-**Note:** `ModuleSpec`
+!!! note "`ModuleSpec`"
 
     `ModelSpec` decides what torch modules are used in the transformer layers. By default, BioNeMo2 accelerates ESM2 architecture with TransformerEngine layers. Users can define their own `ModelSpec` for customized transformer layers. See [`get_biobert_spec`](https://github.com/NVIDIA/bionemo-framework/blob/main/sub-packages/bionemo-llm/src/bionemo/llm/model/biobert/transformer_specs.py#L61).
 
 
-**Note:** `BionemoLightningModule`
+!!! note "`BionemoLightningModule`"
 
     Since the model is lazily initialized in the target rank, breakpoints for debugging purposes should be added after `trainer.setup`.
 
@@ -274,7 +279,11 @@ llm.train(
 
 Or simply call `esm2_pretrain.py` directly.
 ```bash
-DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source pbss)
+# Enable fused attention in transformer engine for speed-up
+export NVTE_FUSED_ATTN=1
+export NVTE_FLASH_ATTN=0
+
+DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source ngc)
 
 python scripts/protein/esm2/esm2_pretrain.py \
     --train-cluster-path ${DATA_DIR}/2024_03_sanity/train_clusters_sanity.parquet \
@@ -294,3 +303,7 @@ python scripts/protein/esm2/esm2_pretrain.py \
     --num-attention-head 20 \
     --ffn-hidden-size 5120
 ```
+
+!!! note "Non-critical Warnings from Command Line Runs"
+
+    Users might experience `torch._dynamo.convert_frame` warning messages and depreciation warning on `async_grad_allreduce` from Megatron-LM. Users can safely ignore them and is non-critical to pretraining.
