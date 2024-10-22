@@ -212,7 +212,3 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
 def test_geneformer_example():
     with tempfile.TemporaryDirectory() as tmp_dir:
         GeneformerStopAndGoTest(root_dir=tmp_dir).run_test()
-
-
-if __name__ == "__main__":
-    test_geneformer_example()
