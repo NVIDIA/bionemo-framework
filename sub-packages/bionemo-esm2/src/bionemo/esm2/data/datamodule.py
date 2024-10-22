@@ -16,21 +16,20 @@
 
 import functools
 import os
-from typing import Any, Dict, Literal
+from typing import Literal
 
 import pytorch_lightning as pl
-import torch
-import torch.utils.data
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 
 from bionemo.esm2.data import dataset, tokenizer
 from bionemo.llm.data import collate
+from bionemo.llm.data.datamodule import DataloaderWithMode, DatamoduleMixin
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
-class ESMDataModule(pl.LightningDataModule):
+class ESMDataModule(pl.LightningDataModule, DatamoduleMixin):
     """LightningDataModule wrapper of `ESMDataset`."""
 
     def __init__(
@@ -98,7 +97,6 @@ class ESMDataModule(pl.LightningDataModule):
         self._persistent_workers = persistent_workers
         self._pin_memory = pin_memory
 
-        self.init_global_step = 0
         self.data_sampler = MegatronDataSampler(
             seq_len=max_seq_length,
             micro_batch_size=micro_batch_size,
@@ -173,12 +171,12 @@ class ESMDataModule(pl.LightningDataModule):
             hasattr(self, "trainer") and self.trainer is not None
         ), "Setup should be completed when trainer and config are attached."
 
-    def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
+    def _create_dataloader(self, dataset, **kwargs) -> DataloaderWithMode:
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
         self.init_global_step = self.trainer.global_step
         self.data_sampler.init_global_step = self.init_global_step
 
-        return torch.utils.data.DataLoader(
+        return DataloaderWithMode(
             dataset,
             num_workers=self._num_workers,
             pin_memory=self._pin_memory,
@@ -194,46 +192,12 @@ class ESMDataModule(pl.LightningDataModule):
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:
         """Returns the dataloader for training data."""
-        return self._create_dataloader(self._train_ds)
+        return self._create_dataloader(self._train_ds, mode="train")
 
     def val_dataloader(self) -> EVAL_DATALOADERS:
         """Returns the dataloader for validation data."""
-        return self._create_dataloader(self._valid_ds)
+        return self._create_dataloader(self._valid_ds, mode="valid")
 
     def test_dataloader(self) -> EVAL_DATALOADERS:
         """Raises a not implemented error."""
         raise NotImplementedError("No test dataset provided for ESM2")
-
-    def state_dict(self) -> Dict[str, Any]:
-        """Called when saving a checkpoint, implement to generate and save datamodule state.
-
-        Returns:
-            A dictionary containing datamodule state.
-
-        """
-        consumed_samples = self.data_sampler.compute_consumed_samples(self.trainer.global_step - self.init_global_step)
-        return {"consumed_samples": consumed_samples}
-
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
-        """Called when loading a checkpoint, implement to reload datamodule state given datamodule stat.
-
-        Args:
-            state_dict: the datamodule state returned by ``state_dict``.
-
-        """
-        try:
-            from megatron.core.num_microbatches_calculator import update_num_microbatches
-
-        except (ImportError, ModuleNotFoundError):
-            logging.warning("Megatron num_microbatches_calculator not found, using Apex version.")
-            from apex.transformer.pipeline_parallel.utils import update_num_microbatches
-
-        consumed_samples = state_dict["consumed_samples"]
-        self.data_sampler.init_consumed_samples = consumed_samples
-        self.data_sampler.prev_consumed_samples = consumed_samples
-
-        update_num_microbatches(
-            consumed_samples=consumed_samples,
-            consistency_check=False,
-        )
-        self.data_sampler.if_first_step = 1
