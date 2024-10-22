@@ -204,31 +204,31 @@ class StopAndGoHarness(ABC):
         """
         if mode == "stop":
             callbacks = [
+                nl_callbacks.ModelCheckpoint(
+                    save_last=True,
+                    monitor="reduced_train_loss",
+                    save_top_k=2,
+                    every_n_train_steps=self.val_check_interval,
+                    always_save_context=True,
+                ),
                 testing_callbacks.MetadataSaveCallback(
                     metadata_path=self.metadata_dir,
                     metrics_getter=self.metrics_getter,
                 ),
                 testing_callbacks.RaiseAfterMetadataCallback(metadata_path=self.metadata_dir),
-                nl_callbacks.ModelCheckpoint(
-                    save_last=True,
-                    monitor="reduced_train_loss",
-                    save_top_k=2,
-                    every_n_train_steps=self.val_check_interval,
-                    always_save_context=True,
-                ),
             ]
         elif mode == "go":
             # we must setup the integrity callback.
             callbacks = [
-                testing_callbacks.TestCheckpointIntegrityCallback(
-                    metadata_path=self.metadata_dir, metrics_getter=self.metrics_getter
-                ),
                 nl_callbacks.ModelCheckpoint(
                     save_last=True,
                     monitor="reduced_train_loss",
                     save_top_k=2,
                     every_n_train_steps=self.val_check_interval,
                     always_save_context=True,
+                ),
+                testing_callbacks.TestCheckpointIntegrityCallback(
+                    metadata_path=self.metadata_dir, metrics_getter=self.metrics_getter
                 ),
             ]
         else:
