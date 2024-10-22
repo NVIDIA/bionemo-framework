@@ -73,7 +73,7 @@ RUN source /usr/local/nvm/nvm.sh && \
 
 # Use UV to install python packages from the workspace. This just installs packages into the system's python
 # environment, and does not use the current uv.lock file.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=1 \
   UV_PYTHON_DOWNLOADS=never \
@@ -146,7 +146,7 @@ USER $USERNAME
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
   /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=0 \
   UV_PYTHON_DOWNLOADS=never \
