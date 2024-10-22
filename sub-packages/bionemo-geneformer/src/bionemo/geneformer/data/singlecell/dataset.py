@@ -24,6 +24,7 @@ from nemo.utils import logging
 from torch.utils.data import Dataset
 
 from bionemo.core.utils import random_utils
+from bionemo.core.data.multi_epoch_dataset import EpochIndex
 from bionemo.geneformer.data.singlecell.utils import sample_or_truncate
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import masking, types
@@ -193,11 +194,11 @@ class SingleCellDataset(Dataset):
         )
         return gene_data, col_idxs, feature_ids
 
-    def __getitem__(self, idx: int) -> types.BertSample:  # noqa: D105
-        rng = np.random.default_rng([self._seed, idx])
+    def __getitem__(self, index: EpochIndex) -> types.BertSample:  # noqa: D105
+        rng = np.random.default_rng([self._seed, index.epoch, index.idx])
 
         """Performs a lookup and the required transformation for the model"""
-        gene_data, col_idxs, feature_ids = self.lookup_cell_by_idx(idx)
+        gene_data, col_idxs, feature_ids = self.lookup_cell_by_idx(index.idx)
         return process_item(
             gene_data,
             col_idxs,
