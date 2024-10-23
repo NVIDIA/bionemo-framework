@@ -76,6 +76,7 @@ notebooks/cma_es_guided_molecular_optimization_molmim
 notebooks/custom-dataset-class-fw
 notebooks/custom-dataset-dataloader
 notebooks/custom-dataset-preprocessing-fw
+notebooks/dnabert_pretrain_custom
 notebooks/encoder-finetuning-notebook-fw
 notebooks/model_training_diffdock
 notebooks/model_training_equidock
