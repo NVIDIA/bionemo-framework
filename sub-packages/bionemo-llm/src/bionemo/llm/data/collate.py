@@ -43,6 +43,9 @@ def padding_collate_fn(
     Returns:
         A collated batch with the same dictionary input structure.
     """
+    if len(batch) == 0:
+        return {}
+
     for entry in batch:
         if entry.keys() != padding_values.keys():
             raise ValueError("All keys in inputs must match provided padding_values.")
@@ -55,7 +58,9 @@ def padding_collate_fn(
             return batched_tensors
         return torch.nn.functional.pad(batched_tensors, (0, min_length - batched_tensors.size(1)), value=padding_value)
 
-    return {k: _pad([s[k] for s in batch], padding_values[k]) for k in batch[0].keys()}  # type: ignore[return-value]
+    # TODO: only pad those keys in padding vals
+    collated_batch = {k: _pad([s[k] for s in batch], padding_values[k]) for k in batch[0].keys()}  # type: ignore[return-value]
+    return collated_batch
 
 
 def bert_padding_collate_fn(

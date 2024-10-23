@@ -17,8 +17,7 @@
 import functools
 
 import pytorch_lightning as pl
-import torch
-import torch.utils.data
+from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
@@ -163,11 +162,12 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             seed=self._seed,
         )
 
-    def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
+    def _create_dataloader(self, dataset, mode, **kwargs) -> WrappedDataLoader:
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
 
-        return torch.utils.data.DataLoader(
-            dataset,
+        return WrappedDataLoader(
+            mode=mode,
+            dataset=dataset,
             num_workers=self._num_workers,
             pin_memory=self._pin_memory,
             persistent_workers=self._persistent_workers,
@@ -183,17 +183,17 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
     def train_dataloader(self) -> TRAIN_DATALOADERS:
         """Returns the dataloader for training data."""
         assert self._train_ds is not None, "train_dataset is not provided to ESM2FineTuneDataModule"
-        return self._create_dataloader(self._train_ds)
+        return self._create_dataloader(self._train_ds, mode="train")
 
     def val_dataloader(self) -> EVAL_DATALOADERS:
         """Returns the dataloader for validation data."""
         assert self._valid_ds is not None, "valid_dataset is not provided to ESM2FineTuneDataModule"
-        return self._create_dataloader(self._valid_ds)
+        return self._create_dataloader(self._valid_ds, shuffle=False, mode="validation")
 
     def predict_dataloader(self) -> EVAL_DATALOADERS:
         """Returns the dataloader for prediction data."""
         assert self.predict_dataset is not None, "predict_dataset is not provided to ESM2FineTuneDataModule"
-        return self._create_dataloader(self.predict_dataset)
+        return self._create_dataloader(self.predict_dataset, shuffle=False, mode="predict")
 
     def test_dataloader(self) -> EVAL_DATALOADERS:
         """Raises a not implemented error."""

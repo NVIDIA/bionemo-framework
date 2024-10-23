@@ -14,6 +14,8 @@
 # limitations under the License.
 
 
+import os
+import tempfile
 from typing import Sequence
 
 import pytorch_lightning as pl
@@ -25,6 +27,7 @@ from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
 from bionemo.esm2.model.finetune.finetune_regressor import ESM2FineTuneSeqConfig, InMemorySingleValueDataset
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
+from bionemo.llm.utils.callbacks import PredictionWriter
 
 
 __all__: Sequence[str] = ("infer_model",)
@@ -49,17 +52,20 @@ def infer_model(
         tensor_model_parallel_size=1, pipeline_model_parallel_size=1, ddp="megatron", find_unused_parameters=True
     )
 
+    tempdir = tempfile.mkdtemp()
+    pred_writer = PredictionWriter("/workspaces/bionemo-framework/temp", write_interval="epoch")
     trainer = nl.Trainer(
         accelerator="gpu",
-        devices=1,
+        devices=2,
         strategy=strategy,
         num_nodes=1,
         plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
+        callbacks=[pred_writer],
     )
     module = biobert_lightning_module(config=config, tokenizer=tokenizer)
     results = trainer.predict(module, datamodule=data_module)
 
-    return results
+    return results, tempdir, trainer
 
 
 if __name__ == "__main__":
@@ -79,13 +85,7 @@ if __name__ == "__main__":
     data = [(seq, len(seq) / 100.0) for seq in artificial_sequence_data]
 
     dataset = InMemorySingleValueDataset(data)
-
-    # NOTE: Due to the current limitation in inference of NeMo lightning module, partial batches with
-    # size < global_batch_size are not being processed with predict_step(). Therefore we set the global to len(data)
-    # and choose the micro_batch_size so that global batch size is divisible by micro batch size x data parallel size
-    data_module = ESM2FineTuneDataModule(
-        predict_dataset=dataset, global_batch_size=len(data), micro_batch_size=len(data)
-    )
+    data_module = ESM2FineTuneDataModule(predict_dataset=dataset, global_batch_size=4, micro_batch_size=2)
 
     # To download a pre-trained ESM2 model that works with this inference script, run the following command...
     # $ download_bionemo_data esm2/650m:2.0 --source ngc
@@ -96,5 +96,8 @@ if __name__ == "__main__":
         # initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=list)   # reset to avoid skipping the head params
     )
 
-    results = infer_model(config, data_module)
+    results, tempdir, trainer = infer_model(config, data_module)
     print(results)
+
+    # Manually delete the directory when done
+    os.rmdir(str(tempdir))
