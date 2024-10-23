@@ -132,7 +132,9 @@ class MetadataSaveCallback(Callback):
         if self.called and trainer.is_global_zero:
             # save metadata to compare to after resuming with checkpoint
             metadata = {
-                "optimizer_states": get_optimizers_state(trainer, pl_module),
+                "optimizer_states": get_optimizers_state(
+                    trainer, pl_module
+                ),  # handle separately due to different test logic
             }
             for metadata_key, func in self.metrics_getter.items():
                 metadata_value = func(trainer, pl_module)
@@ -193,4 +195,6 @@ class TestCheckpointIntegrityCallback(Callback):
             ), f"Value mismatch for key {metadata_key}: stored_value={expected_value}, current_value={current_value}"
 
         current_optimizer_states = get_optimizers_state(trainer, pl_module)
-        assert str(current_optimizer_states) == str(metadata_dict["optimizer_states"]), "Optimizer state mismatch."
+        assert str(current_optimizer_states) == str(
+            metadata_dict["optimizer_states"]
+        ), "Optimizer state mismatch."  # TODO @sichu: implement nested tensor_dict_hash comparison
