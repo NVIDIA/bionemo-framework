@@ -14,17 +14,18 @@
 # limitations under the License.
 
 
-import os
 import pathlib
 import pickle
-from typing import Any, Callable
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List
 
-import pytorch_lightning as pl
+import torch
+from overrides import override
 from pytorch_lightning import Callback, LightningModule, Trainer
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-from bionemo.llm.model.biobert.testing_utils import get_optimizers_state
+from bionemo.llm.utils.datamodule_utils import tensor_dict_hash
 
 
 def compute_biobert_loss_singlegpu(model, dl: DataLoader, limit_val_batches: int = 1):
@@ -77,124 +78,118 @@ class RaiseAfterMetadataCallback(Callback):
     Use this callback for pytest based Stop and go tests.
     """
 
-    def __init__(self, metadata_path: pathlib.Path):  # noqa: D107
-        self.metadata_path = metadata_path
-
-    def on_train_batch_start(self, trainer: Trainer, pl_module: LightningModule, batch: Any, batch_idx: int):
-        """PTL callback that raises a StopAndGoException if metadata exists."""
-        pickle_file_path = os.path.join(self.metadata_path, "checkpoints/metadata.pkl")
-        if os.path.exists(pickle_file_path):
-            # Register the signal handler
-            raise StopAndGoException("Terminating early, checkpoint exists.")
-            # kill job afterwards
+    def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
+        if trainer.sanity_checking:
+            return
+        raise StopAndGoException()
 
 
-class MetadataSaveCallback(Callback):
-    """A callback that saves metadata about the current training at the second validation epoch."""
+class AbstractStopAndGoCallback(ABC, Callback):
+    """Abstract base class for stop-and-go callback to compare metadata before pausing and after resuming training."""
 
-    def __init__(
-        self, metadata_path: pathlib.Path, metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
-    ):
-        """Initialises callback with path and called information.
+    def __init__(self, pickle_file_path: str | pathlib.Path, mode: str = "stop"):
+        """Initialize StopAndGoCallback.
 
         Args:
-            metadata_path (pathlib.Path): Path where the metadata will be saved.
-            metrics_getter (dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]): A dictionary of metadata keys and their corresponding functions.
-
-        See Also: bionemo.testing.stop_and_go
-        """
-        self.metadata_path = metadata_path
-        self.pickle_file_path = os.path.join(self.metadata_path, "checkpoints/metadata.pkl")
-        self.called = False  # indicates if callback was already called
-        self.metrics_getter = metrics_getter
-
-    def setup(self, trainer: Trainer, pl_module: LightningModule, stage: str):
-        """Set up the testing callbacks and removes lingering metadata."""
-        super().setup(trainer, pl_module, stage)
-        if trainer.is_global_zero and os.path.exists(self.pickle_file_path):
-            os.remove(self.pickle_file_path)
-
-    def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule):
-        """Stores requisite metadata at the end of the first non-warmup validation epoch.
-
-        Executes on the second validation epoch -only- due to how warmups are handled. May not work as intended in the
-        absence of a warmup.
-
-        Args:
-            trainer (Trainer): The Lightning Trainer object.
-            pl_module (LightningModule): The LightningModule being trained.
+            pickle_file_path (str | pathlib.Path): Path to the pickle file to save metadata to.
+            mode (str, optional): Mode to run in. Must be either "stop" or "go". Defaults to "stop".
 
         Notes:
-            - If `called` is True and `trainer.is_global_zero` is True, the function saves metadata to compare after resuming with a checkpoint.
-            - The metadata is obtained using the `metrics_getter` dict and results are saved as a pickle file.
-
+            User must override get_metadata and compare_metadata, within which self.has_compared should be set to True after comparison to manually indicate that the method is overrode.
         """
-        if self.called and trainer.is_global_zero:
-            # save metadata to compare to after resuming with checkpoint
-            metadata = {
-                "optimizer_states": get_optimizers_state(
-                    trainer, pl_module
-                ),  # handle separately due to different test logic
-            }
-            for metadata_key, func in self.metrics_getter.items():
-                metadata_value = func(trainer, pl_module)
-                metadata[metadata_key] = metadata_value
+        if mode not in ["stop", "go"]:
+            raise ValueError(f"mode must be 'stop' or 'go', got {mode}")
 
-            # prepare paths for metadata save
-            pickle_file_path = self.pickle_file_path
-            os.makedirs(os.path.dirname(pickle_file_path), exist_ok=True)
-            with open(pickle_file_path, "wb") as metadata_file:
-                pickle.dump(metadata, metadata_file)
+        self.pickle_file_path = pickle_file_path
+        self.mode = mode
+        self.has_compared = False
 
-            # check that pickle file was saved correctly
-            assert os.path.isfile(pickle_file_path), f"No file found at {pickle_file_path}"
-        else:
-            # first time this callback is called is before the ModelCheckpoint callback
-            # since that one is always executed last. Therefore, we skip the first validation
-            # round and only save metadata at the second validation round
-            self.called = True
+    def write_pickle(self, data: Any):
+        """Write metadata to pickle file."""
+        with open(self.pickle_file_path, "wb") as f:
+            pickle.dump(data, f)
+
+    def load_pickle(self) -> Any:
+        """Load metadata from pickle file."""
+        with open(self.pickle_file_path, "rb") as f:
+            return pickle.load(f)
+
+    @abstractmethod
+    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
+        """Get metadata from trainer and pl_module."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+        """Compare metadata from stop and go."""
+        self.has_compared = True
+        raise NotImplementedError
+
+    def on_train_start(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
+        if self.mode == "go":
+            metadata_go = self.get_metadata(trainer, pl_module)
+            metadata_stop = self.load_pickle()
+            self.compare_metadata(metadata_stop, metadata_go)
+
+    def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
+        if not trainer.sanity_checking and self.mode == "stop":
+            metadata_stop = self.get_metadata(trainer, pl_module)
+            self.write_pickle(metadata_stop)
+
+    def teardown(self, trainer: Trainer, pl_module: LightningModule, stage: str):  # noqa: D102
+        if self.mode == "go" and not self.has_compared:
+            raise RuntimeError(
+                "self.mode = 'go' but self.has_compared is still False. Please override compare_metadata and set self.has_compared to True."
+            )
 
 
-class TestCheckpointIntegrityCallback(Callback):
-    """Callback that tests if current metrics match those saved in the associated metadata file.
+class LearningRateStateStopAndGoCallback(AbstractStopAndGoCallback):
+    """Stop-and-go callback for learning rate before pausing and after resuming training."""
 
-    This callback expects to be invoked _only_ after resuming a model that used the MetadataSaveCallback. When training begins, it checks the value of each metric and compares to the metadata stored in the metadata pickle file. Any deviances are assumed to be a failure in restoration.
-    """
+    @override
+    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> float:
+        """Get learning rate as metadata."""
+        return trainer.optimizers[0].param_groups[0]["lr"]
 
-    def __init__(
-        self, metadata_path: pathlib.Path, metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
-    ):
-        """Initialises callback with path and called information.
+    @override
+    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+        """Compare learning rates as metadata."""
+        lr_stop, lr_go = metadata_stop, metadata_go
+        assert lr_stop == lr_go
+        self.has_compared = True
 
-        Args:
-            metadata_path (pathlib.Path): Path where the metadata will be saved.
-            metrics_getter (dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]): A dictionary of metadata keys and their corresponding functions. Must be a subset of the dictionary passed to MetadataSaveCallback.
-        """
-        self.metadata_path = metadata_path
-        self.metrics_getter = metrics_getter
 
-    def on_train_start(self, trainer: Trainer, pl_module: LightningModule):
-        """Loads associated metadata and compares with current metrics."""
-        pickle_file_path = os.path.join(self.metadata_path, "checkpoints/metadata.pkl")
-        # check that pickle file exists
-        assert os.path.isfile(pickle_file_path), f"No file found at {pickle_file_path}"
-        with open(pickle_file_path, "rb") as metadata_file:
-            metadata_dict = pickle.load(metadata_file)
+class GlobalStepStateStopAndGoCallback(AbstractStopAndGoCallback):
+    """Stop-and-go callback for global_step before pausing and after resuming training."""
 
-        current_metadata = {}
-        for metadata_key, func in self.metrics_getter.items():
-            current_value = func(trainer, pl_module)
-            current_metadata[metadata_key] = current_value
+    @override
+    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> int:
+        """Get global_step as metadata."""
+        return trainer.global_step
 
-        # TODO (SKH): Ideally this would collect _all_ failures instead of failing on the first one.
-        for metadata_key in current_metadata:
-            expected_value = metadata_dict[metadata_key]
-            current_value = current_metadata[metadata_key]
-            assert (
-                expected_value == current_value
-            ), f"Value mismatch for key {metadata_key}: stored_value={expected_value}, current_value={current_value}"
+    @override
+    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+        """Compare global_step as metadata."""
+        global_step_stop, global_step_go = metadata_stop, metadata_go
+        assert global_step_stop == global_step_go
+        self.has_compared = True
 
-        current_optimizer_states = get_optimizers_state(trainer, pl_module)
-        assert str(current_optimizer_states) == str(
-            metadata_dict["optimizer_states"]
-        ), "Optimizer state mismatch."  # TODO @sichu: implement nested tensor_dict_hash comparison
+
+class OptimizerStateStopAndGoCallback(AbstractStopAndGoCallback):
+    """Stop-and-go callback to check optimizer states before pausing and after resuming training."""
+
+    @override
+    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> List[Dict[str, torch.Tensor]]:
+        """Get optimizer states as metadata."""
+        return [optimizer.mcore_optimizer.optimizer.state_dict()["state"] for optimizer in trainer.optimizers]
+
+    @override
+    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+        """Compare optimizer states as metadata."""
+        state_dicts_stop, state_dicts_go = metadata_stop, metadata_go
+        for state_dict_go, state_dict_stop in zip(state_dicts_stop, state_dicts_go):
+            assert tensor_dict_hash(state_dict_go) == tensor_dict_hash(state_dict_stop)
+            self.has_compared = True
+
+
+# TODO @sichu: add ValLossStopAndGoCallback
