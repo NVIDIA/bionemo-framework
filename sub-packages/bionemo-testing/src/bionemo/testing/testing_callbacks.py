@@ -20,6 +20,7 @@ import pickle
 from typing import Any, Callable
 
 import pytorch_lightning as pl
+from nemo.lightning.megatron_parallel import CallbackMethods, DataT, MegatronLossReduction, MegatronStep
 from pytorch_lightning import Callback, LightningModule, Trainer
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
@@ -33,7 +34,7 @@ def compute_biobert_loss_singlegpu(model, dl: DataLoader, limit_val_batches: int
     This will not function in multi-gpu settings nor with models that do not conform to BioBert.
 
     Args:
-        model (torch.nn.Module): The Biobert model.
+        model (torch.nn.Module): The BioBert model.
         dl (torch.utils.data.DataLoader): The data loader.
         limit_val_batches (int): The number of batches to use for validation.
 
@@ -95,11 +96,12 @@ class MetadataSaveCallback(Callback):
     def __init__(
         self, metadata_path: pathlib.Path, metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
     ):
-        """Initialises callback with path and called information.
+        """Initializes callback with path and called information.
 
         Args:
             metadata_path (pathlib.Path): Path where the metadata will be saved.
-            metrics_getter (dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]): A dictionary of metadata keys and their corresponding functions.
+            metrics_getter (dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]): A dictionary of metadata keys
+                and their corresponding functions.
 
         See Also: bionemo.testing.stop_and_go
         """
@@ -125,7 +127,8 @@ class MetadataSaveCallback(Callback):
             pl_module (LightningModule): The LightningModule being trained.
 
         Notes:
-            - If `called` is True and `trainer.is_global_zero` is True, the function saves metadata to compare after resuming with a checkpoint.
+            - If `called` is True and `trainer.is_global_zero` is True, the function saves metadata to compare after
+              resuming with a checkpoint.
             - The metadata is obtained using the `metrics_getter` dict and results are saved as a pickle file.
 
         """
@@ -156,17 +159,20 @@ class MetadataSaveCallback(Callback):
 class TestCheckpointIntegrityCallback(Callback):
     """Callback that tests if current metrics match those saved in the associated metadata file.
 
-    This callback expects to be invoked _only_ after resuming a model that used the MetadataSaveCallback. When training begins, it checks the value of each metric and compares to the metadata stored in the metadata pickle file. Any deviances are assumed to be a failure in restoration.
+    This callback expects to be invoked _only_ after resuming a model that used the MetadataSaveCallback. When training
+    begins, it checks the value of each metric and compares to the metadata stored in the metadata pickle file. Any
+    deviances are assumed to be a failure in restoration.
     """
 
     def __init__(
         self, metadata_path: pathlib.Path, metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
     ):
-        """Initialises callback with path and called information.
+        """Initializes callback with path and called information.
 
         Args:
             metadata_path (pathlib.Path): Path where the metadata will be saved.
-            metrics_getter (dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]): A dictionary of metadata keys and their corresponding functions. Must be a subset of the dictionary passed to MetadataSaveCallback.
+            metrics_getter (dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]): A dictionary of metadata keys
+                and their corresponding functions. Must be a subset of the dictionary passed to MetadataSaveCallback.
         """
         self.metadata_path = metadata_path
         self.metrics_getter = metrics_getter
@@ -194,3 +200,25 @@ class TestCheckpointIntegrityCallback(Callback):
 
         current_optimizer_states = get_optimizers_state(trainer, pl_module)
         assert str(current_optimizer_states) == str(metadata_dict["optimizer_states"]), "Optimizer state mismatch."
+
+
+class InputAndOutputIdentityCallback(Callback, CallbackMethods):
+    """Callback to store input and output data for comparison."""
+
+    def __init__(self):
+        """Initializes the callback."""
+        super().__init__()
+        self._inputs = []
+        self._outputs = []
+
+    def on_megatron_microbatch_end(
+        self,
+        step: MegatronStep,
+        batch: DataT,
+        forward_callback: "MegatronLossReduction",
+        output: Any,
+    ) -> None:
+        """Store the input and output data for later comparison."""
+        del step, forward_callback  # unused
+        self._inputs.append(batch)
+        self._outputs.append(output)

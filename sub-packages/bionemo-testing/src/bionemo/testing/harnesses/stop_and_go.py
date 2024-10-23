@@ -279,7 +279,7 @@ class StopAndGoHarness(ABC):
                 optim=opt,
                 resume=resume.AutoResume(
                     resume_if_exists=True,  # Looks for the -last checkpoint to continue training.
-                    resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
+                    resume_ignore_no_checkpoint=False,  # When false this will throw an error with no existing checkpoint.
                 ),
             )
 
