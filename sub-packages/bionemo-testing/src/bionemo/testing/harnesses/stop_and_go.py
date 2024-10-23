@@ -46,6 +46,7 @@ class MetricsDict(TypedDict):
 
     global_step: MetricsFn
     learning_rate: MetricsFn
+    consumed_samples: MetricsFn
 
 
 def get_learning_rate(trainer: pl.Trainer, model: pl.LightningModule) -> Any:
@@ -72,6 +73,23 @@ def get_global_step(trainer: pl.Trainer, model: pl.LightningModule) -> Any:
         Any: The global step of the model.
     """
     return trainer.global_step
+
+
+def get_consumed_samples(trainer: pl.Trainer, model: pl.LightningModule) -> Any:
+    """Returns the consumed samples of the model.
+
+    Args:
+        trainer (pl.Trainer): The PyTorch Lightning trainer.
+        model (pl.LightningModule): The PyTorch Lightning model.
+
+    Returns:
+        Any: The consumed samples of the model.
+    """
+    # TODO why state_dict can be empty despite working lines below
+    # return trainer.datamodule.state_dict()["consumed_samples"]
+    data_sampler = trainer.datamodule.data_sampler
+    consumed_samples = data_sampler.compute_consumed_samples(trainer.global_step - trainer.datamodule.init_global_step)
+    return consumed_samples
 
 
 class StopAndGoHarness(ABC):
@@ -180,7 +198,11 @@ class StopAndGoHarness(ABC):
         Returns:
             dict: A dictionary of default metrics that can be used in the StopAndGoHarness.
         """
-        return {"global_step": get_global_step, "learning_rate": get_learning_rate}
+        return {
+            "global_step": get_global_step,
+            "learning_rate": get_learning_rate,
+            "consumed_samples": get_consumed_samples,
+        }
 
     def get_callbacks(self, mode: Literal["stop", "go"]) -> list[pl.Callback]:
         """Returns a list of callbacks based on the specified mode. Base implemention provides reasonable defaults.

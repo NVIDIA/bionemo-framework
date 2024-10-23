@@ -30,7 +30,7 @@ from bionemo.core.utils import random_utils
 from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import collate
-from bionemo.llm.data.datamodule import DatamoduleMixin, DataloaderWithMode
+from bionemo.llm.data.datamodule import DataloaderWithMode, DatamoduleMixin
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
