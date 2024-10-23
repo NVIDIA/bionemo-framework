@@ -275,8 +275,7 @@ def main(
     df.to_csv(save_path / "features.csv", index=False)
     print("Done creating dataset ...")
 
-
-if __name__ == "__main__":
+def main_cli():
     parser = argparse.ArgumentParser("Converts a series of AnnData objects into a memmap format")
     parser.add_argument("--save-path", "--sp", type=str, default="./", help="save path to save memmap files")
     parser.add_argument("--data-path", "--dp", type=str, default="./data", help="path to the data")
@@ -315,6 +314,10 @@ if __name__ == "__main__":
         save_path=Path(args.save_path),
         strict=args.strict,
         num_proc=args.num_workers,
-        use_np=args.use_mp,
+        use_mp=args.use_mp,
         obs_cols=args.obs_cols,
     )
+
+
+if __name__ == "__main__":
+    main_cli()

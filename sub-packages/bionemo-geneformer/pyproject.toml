@@ -15,7 +15,11 @@ dependencies = [
     'bionemo-core',
     'bionemo-llm',
     # external
+    'cellxgene_census',
 ]
+
+[project.scripts]
+sc_memmap = "bionemo.geneformer.data.singlecell.sc_memmap:main_cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
