@@ -78,6 +78,7 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
             min_seq_length=None,
             max_seq_length=1024,
             num_workers=0,
+            persistent_workers=False,
             random_mask_strategy=RandomMaskStrategy.ALL_TOKENS,
         )
 
@@ -129,7 +130,7 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
             val_check_interval=self.val_check_interval,
             log_every_n_steps=self.val_check_interval,
             num_nodes=1,
-            callbacks=self.get_callbacks(mode=mode, metrics=metrics),
+            callbacks=self.get_callbacks(mode=mode),
             plugins=nl.MegatronMixedPrecision(precision=MODEL_PRECISION),
         )
         return trainer
@@ -142,4 +143,4 @@ def test_esm2_example(dummy_protein_dataset, dummy_parquet_train_val_inputs):
         train_database_path=dummy_protein_dataset,
         valid_cluster_path=valid_cluster_path,
         valid_database_path=dummy_protein_dataset,
-    )
+    ).run_test()
