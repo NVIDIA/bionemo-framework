@@ -64,9 +64,9 @@ class SingleCellDataModule(pl.LightningDataModule, DatamoduleMixin):
     def __init__(  # noqa: D107
         self,
         tokenizer: Tokenizer,
-        train_dataset_path: str,
-        val_dataset_path: str,
-        test_dataset_path: str,
+        train_dataset_path: str | Path,
+        val_dataset_path: str | Path,
+        test_dataset_path: str | Path,
         median_dict: dict[str, float],
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,  # 80% mask token

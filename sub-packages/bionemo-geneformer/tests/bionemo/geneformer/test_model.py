@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import functools
 import tarfile
 from copy import deepcopy
 from pathlib import Path
 from typing import List, Tuple
+from unittest import mock
 
 import pytest
 import torch
@@ -34,22 +34,18 @@ from nemo.lightning.pytorch.callbacks.peft import PEFT
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.nn import functional as F
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from bionemo.core.data.resamplers import PRNGResampleDataset
 from bionemo.core.utils.batching_utils import pad_token_ids
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.core.utils.random_utils import random_numpy_context
 from bionemo.geneformer.api import GeneformerConfig, GeneformerModel
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
-from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.model.finetune_token_regressor import (
     FineTuneSeqLenBioBertConfig,
     LoRAForGeneFormerTokenRegressor,
 )
-from bionemo.llm.data import collate
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
@@ -640,7 +636,7 @@ def _get_loss_from_model(model_config: GeneformerConfig, seed: int) -> float:
     """Shared test utility that we can use for a positive and negative control on the loss from our loaded checkpoint."""
     data_dir = Path(data_path)
     train_data_path = data_dir / "train"
-    test_data_path = data_dir / "test"
+
     with (
         torch.inference_mode(),
         megatron_parallel_state_utils.distributed_model_parallel_state(seed),
@@ -669,37 +665,38 @@ def _get_loss_from_model(model_config: GeneformerConfig, seed: int) -> float:
         #  going back to `n += 1` and `loss += F.cross_entropy(logits[loss_mask], target[loss_mask], reduction="mean")`
         #  for consistency with the old results. Then if those look good, redefine the target with our seeds and the
         #  updated dataset.
-        ds = SingleCellDataset(
-            test_data_path,
+        from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
+
+        micro_batch_size, devices = 8, 1
+
+        data_module = SingleCellDataModule(
+            train_dataset_path=data_path / "train",
+            val_dataset_path=data_path / "val",
+            test_dataset_path=data_path / "test",
             tokenizer=tokenizer,
+            seq_length=2048,
+            random_token_prob=0.1,
             median_dict=median_dict,
-            max_len=2048,
+            micro_batch_size=micro_batch_size,
+            global_batch_size=micro_batch_size * devices,
             mask_prob=0.15,
             mask_token_prob=0.8,
-            random_token_prob=0.02,
-            prepend_cls_token=True,
             seed=42,
         )
-        dss = PRNGResampleDataset(
-            ds,
-            seed=seed,
-        )
-        dl = DataLoader(
-            dataset=dss,  # pre-shuffled with our method
-            batch_size=8,
-            shuffle=False,
-            num_workers=0,
-            collate_fn=functools.partial(
-                collate.bert_padding_collate_fn,
-                padding_value=tokenizer.token_to_id(tokenizer.pad_token),
-                min_length=None,
-                max_length=2048,
-            ),
-            drop_last=False,
-        )
+
+        limit_batches = 200
+        data_module.trainer = mock.Mock()
+        data_module.trainer.max_epochs = 1
+        data_module.trainer.max_steps = 10
+        data_module.trainer.val_check_interval = 2
+        data_module.trainer.limit_val_batches = limit_batches
+        data_module.trainer.limit_test_batches = limit_batches
+
+        data_module.setup()
+        dl = data_module.test_dataloader()
+
         loss = 0
         n = 0
-        limit_batches = 200
         for i, batch in tqdm(enumerate(dl), total=len(dl)):
             # with torch.autocast(enabled=model_config.enable_autocast, dtype=model_config.autocast_dtype, device_type="cuda"):
             result = new_model(
