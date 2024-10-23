@@ -15,8 +15,9 @@
 
 
 from abc import ABC, abstractmethod
+from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable, Literal, Sequence, TypedDict
+from typing import Any, Callable, Sequence, TypedDict
 
 import nemo.lightning as nl
 import pytorch_lightning as pl
@@ -72,6 +73,14 @@ def get_global_step(trainer: pl.Trainer, model: pl.LightningModule) -> Any:
         Any: The global step of the model.
     """
     return trainer.global_step
+
+
+class Mode(Enum):
+    """Mode for stop-go testing."""
+
+    STOP = auto()
+    RESUME = auto()
+    CONTINUOUS = auto()
 
 
 class StopAndGoHarness(ABC):
@@ -143,10 +152,11 @@ class StopAndGoHarness(ABC):
             ckpt=None,
         )
 
+        self.interrupted_io_callback = testing_callbacks.InputAndOutputIdentityCallback()
+        self.continuous_io_callback = testing_callbacks.InputAndOutputIdentityCallback()
+
     @abstractmethod
-    def setup_model(
-        self, mode: Literal["stop", "go"]
-    ) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
+    def setup_model(self, mode: Mode) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
         """Constructs the model, data, and optimizer for the test harness.
 
         Optionally supports separate code paths for 'stop'/'go', although implementors are
@@ -162,7 +172,7 @@ class StopAndGoHarness(ABC):
 
     @abstractmethod
     def setup_trainer_and_strategy(
-        self, mode: Literal["stop", "go"], metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
+        self, mode: Mode, metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
     ) -> pl.Trainer:
         """Constructs the trainer object for the stop and go test.
 
@@ -182,7 +192,7 @@ class StopAndGoHarness(ABC):
         """
         return {"global_step": get_global_step, "learning_rate": get_learning_rate}
 
-    def get_callbacks(self, mode: Literal["stop", "go"]) -> list[pl.Callback]:
+    def get_callbacks(self, mode: Mode) -> list[pl.Callback]:
         """Returns a list of callbacks based on the specified mode. Base implemention provides reasonable defaults.
 
         To extend this method, call the super and append to the callbacks, depending on which mode you are in:
@@ -202,7 +212,7 @@ class StopAndGoHarness(ABC):
         Raises:
             ValueError: If the mode is neither 'stop' nor 'go'.
         """
-        if mode == "stop":
+        if mode is Mode.STOP:
             callbacks = [
                 nl_callbacks.ModelCheckpoint(
                     save_last=True,
@@ -216,21 +226,19 @@ class StopAndGoHarness(ABC):
                     metrics_getter=self.metrics_getter,
                 ),
                 testing_callbacks.RaiseAfterMetadataCallback(metadata_path=self.metadata_dir),
+                self.interrupted_io_callback,
             ]
-        elif mode == "go":
+        elif mode is Mode.RESUME:
             # we must setup the integrity callback.
             callbacks = [
-                nl_callbacks.ModelCheckpoint(
-                    save_last=True,
-                    monitor="reduced_train_loss",
-                    save_top_k=2,
-                    every_n_train_steps=self.val_check_interval,
-                    always_save_context=True,
-                ),
                 testing_callbacks.TestCheckpointIntegrityCallback(
                     metadata_path=self.metadata_dir, metrics_getter=self.metrics_getter
                 ),
+                self.interrupted_io_callback,
             ]
+        elif mode is Mode.CONTINUOUS:
+            # No checkpoint callback needed.
+            callbacks = [self.continuous_io_callback]
         else:
             raise ValueError("mode must be 'stop' or 'go'")
 
@@ -248,8 +256,8 @@ class StopAndGoHarness(ABC):
         Raises:
             testing_callbacks.StopAndGoException: If a stop and go exception occurs during training.
         """
-        model, data, opt = self.setup_model(mode="stop")
-        trainer = self.setup_trainer_and_strategy("stop", self.metrics_getter)
+        model, data, opt = self.setup_model(mode=Mode.STOP)
+        trainer = self.setup_trainer_and_strategy(Mode.STOP, self.metrics_getter)
         with distributed_model_parallel_state():
             try:
                 llm.train(
@@ -266,10 +274,10 @@ class StopAndGoHarness(ABC):
             except testing_callbacks.StopAndGoException:
                 return
 
-    def go(self) -> None:
+    def resume(self) -> None:
         """Resumes the model from the checkpoint saved at the end of `stop()` and verifies the metadata integrity."""
-        model, data, opt = self.setup_model(mode="go")
-        trainer = self.setup_trainer_and_strategy("go", self.metrics_getter)
+        model, data, opt = self.setup_model(mode=Mode.RESUME)
+        trainer = self.setup_trainer_and_strategy(Mode.RESUME, self.metrics_getter)
         with distributed_model_parallel_state():
             llm.train(
                 model=model,
@@ -283,8 +291,35 @@ class StopAndGoHarness(ABC):
                 ),
             )
 
+    def continuous(self) -> None:
+        """Trains the model continuously for the entire interval."""
+        model, data, opt = self.setup_model(mode=Mode.CONTINUOUS)
+        trainer = self.setup_trainer_and_strategy(Mode.CONTINUOUS, self.metrics_getter)
+        with distributed_model_parallel_state():
+            llm.train(
+                model=model,
+                data=data,
+                trainer=trainer,
+                log=self.nemo_logger,
+                optim=opt,
+                resume=None,
+            )
+
     # Finally, execution is a simple stop => go.
     def run_test(self):
         """Executes the stop => go process."""
+        self.continuous()
         self.stop()
-        self.go()
+        self.resume()
+
+        # Make sure these are non-zero.
+        assert len(self.interrupted_io_callback.inputs)
+        assert len(self.interrupted_io_callback.outputs)
+
+        # Make sure the number of inputs matches the number of outputs.
+        assert len(self.interrupted_io_callback.inputs) == len(self.interrupted_io_callback.outputs)
+        assert len(self.continuous_io_callback.inputs) == len(self.continuous_io_callback.outputs)
+
+        # Make sure the amount of data seen by the model is the same.
+        assert len(self.interrupted_io_callback.inputs) == len(self.continuous_io_callback.inputs)
+        assert len(self.interrupted_io_callback.outputs) == len(self.continuous_io_callback.outputs)

@@ -20,6 +20,7 @@ import pickle
 from typing import Any, Callable
 
 import pytorch_lightning as pl
+from nemo.lightning import io
 from nemo.lightning.megatron_parallel import CallbackMethods, DataT, MegatronLossReduction, MegatronStep
 from pytorch_lightning import Callback, LightningModule, Trainer
 from torch.nn import functional as F
@@ -202,14 +203,14 @@ class TestCheckpointIntegrityCallback(Callback):
         assert str(current_optimizer_states) == str(metadata_dict["optimizer_states"]), "Optimizer state mismatch."
 
 
-class InputAndOutputIdentityCallback(Callback, CallbackMethods):
+class InputAndOutputIdentityCallback(Callback, CallbackMethods, io.IOMixin):
     """Callback to store input and output data for comparison."""
 
     def __init__(self):
         """Initializes the callback."""
         super().__init__()
-        self._inputs = []
-        self._outputs = []
+        self.inputs = []
+        self.outputs = []
 
     def on_megatron_microbatch_end(
         self,
@@ -220,5 +221,9 @@ class InputAndOutputIdentityCallback(Callback, CallbackMethods):
     ) -> None:
         """Store the input and output data for later comparison."""
         del step, forward_callback  # unused
-        self._inputs.append(batch)
-        self._outputs.append(output)
+        self.inputs.append(batch)
+        self.outputs.append(output)
+
+    def __deepcopy__(self, memo):
+        """Don't actually attempt to copy this data when this callback is being serialized."""
+        ...

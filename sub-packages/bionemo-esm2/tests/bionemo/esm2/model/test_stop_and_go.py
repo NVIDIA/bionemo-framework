@@ -138,9 +138,19 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
 
 def test_esm2_example(dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
-    ESM2StopAndGoTest(
+    stop_go_test = ESM2StopAndGoTest(
         train_cluster_path=train_cluster_path,
         train_database_path=dummy_protein_dataset,
         valid_cluster_path=valid_cluster_path,
         valid_database_path=dummy_protein_dataset,
-    ).run_test()
+    )
+
+    stop_go_test.run_test()
+
+    assert len(stop_go_test.interrupted_io_callback.inputs)
+    assert len(stop_go_test.interrupted_io_callback.outputs)
+
+    assert len(stop_go_test.interrupted_io_callback.inputs) == len(stop_go_test.interrupted_io_callback.outputs)
+
+    assert len(stop_go_test.interrupted_io_callback.inputs) == len(stop_go_test.continuous_io_callback.inputs)
+    assert len(stop_go_test.interrupted_io_callback.outputs) == len(stop_go_test.continuous_io_callback.outputs)
