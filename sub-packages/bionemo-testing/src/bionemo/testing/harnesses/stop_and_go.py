@@ -233,11 +233,19 @@ class StopAndGoHarness(ABC):
                     every_n_train_steps=self.val_check_interval,
                     always_save_context=True,
                 ),
-                testing_callbacks.MetadataSaveCallback(
-                    metadata_path=self.metadata_dir,
-                    metrics_getter=self.metrics_getter,
+                testing_callbacks.LearningRateStateStopAndGoCallback(
+                    pickle_file_path=self.metadata_dir / "learning_rate.pkl",
+                    mode="stop",
                 ),
-                testing_callbacks.RaiseAfterMetadataCallback(metadata_path=self.metadata_dir),
+                testing_callbacks.GlobalStepStateStopAndGoCallback(
+                    pickle_file_path=self.metadata_dir / "global_step.pkl",
+                    mode="stop",
+                ),
+                testing_callbacks.OptimizerStateStopAndGoCallback(
+                    pickle_file_path=self.metadata_dir / "optimizer_state.pkl",
+                    mode="stop",
+                ),
+                testing_callbacks.RaiseAfterMetadataCallback(),
             ]
         elif mode == "go":
             # we must setup the integrity callback.
@@ -249,8 +257,17 @@ class StopAndGoHarness(ABC):
                     every_n_train_steps=self.val_check_interval,
                     always_save_context=True,
                 ),
-                testing_callbacks.TestCheckpointIntegrityCallback(
-                    metadata_path=self.metadata_dir, metrics_getter=self.metrics_getter
+                testing_callbacks.LearningRateStateStopAndGoCallback(
+                    pickle_file_path=self.metadata_dir / "learning_rate.pkl",
+                    mode="go",
+                ),
+                testing_callbacks.GlobalStepStateStopAndGoCallback(
+                    pickle_file_path=self.metadata_dir / "global_step.pkl",
+                    mode="go",
+                ),
+                testing_callbacks.OptimizerStateStopAndGoCallback(
+                    pickle_file_path=self.metadata_dir / "optimizer_state.pkl",
+                    mode="go",
                 ),
             ]
         else:

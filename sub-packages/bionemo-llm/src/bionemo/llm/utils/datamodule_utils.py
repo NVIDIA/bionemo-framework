@@ -132,11 +132,11 @@ def tensor_hash(tensor: torch.Tensor, hash_func: Optional[Callable] = None) -> s
     If no hash function is provided, SHA-256 is used by default. The function first converts the tensor to
     a contiguous array on the CPU and then to bytes before hashing.
     """
-    tensor_bytes = tensor.cpu().contiguous().numpy().tobytes()
     if hash_func is None:
-        return hashlib.sha256(tensor_bytes).hexdigest()
-    else:
-        return hash_func(tensor_bytes)
+        hash_func = hashlib.sha256
+
+    tensor_bytes = tensor.cpu().contiguous().numpy().tobytes()
+    return hash_func(tensor_bytes).hexdigest()
 
 
 def tensor_dict_hash(tensor_dict: Dict[str, torch.Tensor], hash_func: Optional[Callable] = None) -> str:
@@ -152,10 +152,18 @@ def tensor_dict_hash(tensor_dict: Dict[str, torch.Tensor], hash_func: Optional[C
     If no hash function is provided, SHA-256 is used by default. The function first converts the tensor to
     a contiguous array on the CPU and then to bytes before hashing.
     """
-    hash_value = ""
+    if hash_func is None:
+        hash_func = hashlib.sha256
+
+    hash_string = ""
     for k in sorted(tensor_dict):
-        hash_value += tensor_hash(tensor_dict[k], hash_func)
-    return hash_value
+        v = tensor_dict[k]
+        if torch.is_tensor(v):
+            hash_string += tensor_hash(v, hash_func)
+        else:
+            hash_string += tensor_dict_hash(v, hash_func)
+        hash_string = hash_func(hash_string.encode()).hexdigest()  # re-hash to limit hash value string length
+    return hash_string
 
 
 def infer_num_samples(
