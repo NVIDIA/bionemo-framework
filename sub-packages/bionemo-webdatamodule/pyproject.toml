@@ -13,10 +13,15 @@ dynamic = ["version"]
 dependencies = [
     # bionemo sub-packages
     'bionemo-core',
-    'bionemo-llm',
     # external
+    'lightning>=2.2.1',
     'webdataset==0.2.96',
 ]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
