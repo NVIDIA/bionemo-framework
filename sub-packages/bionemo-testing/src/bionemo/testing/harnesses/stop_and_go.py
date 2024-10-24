@@ -245,6 +245,10 @@ class StopAndGoHarness(ABC):
                     pickle_file_path=self.metadata_dir / "optimizer_state.pkl",
                     mode="stop",
                 ),
+                testing_callbacks.ComsumedSamplesStopAndGoCallback(
+                    pickle_file_path=self.metadata_dir / "consumed_samples.pkl",
+                    mode="stop",
+                ),
                 testing_callbacks.RaiseAfterMetadataCallback(),
             ]
         elif mode == "go":
@@ -267,6 +271,10 @@ class StopAndGoHarness(ABC):
                 ),
                 testing_callbacks.OptimizerStateStopAndGoCallback(
                     pickle_file_path=self.metadata_dir / "optimizer_state.pkl",
+                    mode="go",
+                ),
+                testing_callbacks.ComsumedSamplesStopAndGoCallback(
+                    pickle_file_path=self.metadata_dir / "consumed_samples.pkl",
                     mode="go",
                 ),
             ]
