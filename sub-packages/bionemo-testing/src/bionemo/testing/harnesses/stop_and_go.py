@@ -21,7 +21,6 @@ from abc import ABC, abstractmethod
 from typing import Dict, Literal, Sequence
 
 import nemo.lightning as nl
-import pytest
 import pytorch_lightning as pl
 from nemo.collections import llm
 from nemo.lightning import resume
