@@ -138,9 +138,7 @@ class SingleCellDataModule(MegatronDatamodule):
         )
 
     def setup(self, stage: str = "") -> None:  # noqa: D102
-        assert (
-            hasattr(self, "trainer") and self.trainer is not None
-        ), "Setup should be completed when trainer and config are attached."
+        assert getattr(self, "trainer", None) is not None, "Please only call setup after trainer is attached."
 
         # Trainer API
         max_train_steps = self.trainer.max_steps
@@ -194,6 +192,7 @@ class SingleCellDataModule(MegatronDatamodule):
         return self._create_dataloader(self._test_ds, mode="test")
 
     def _create_dataloader(self, dataset, **kwargs) -> DataloaderWithMode:
+        self.update_init_global_step()
         return DataloaderWithMode(
             dataset,
             num_workers=self.num_workers,
