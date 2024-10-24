@@ -90,6 +90,7 @@ def main(
     hidden_size: int = 1280,
     num_attention_heads: int = 20,
     ffn_hidden_size: int = 1280 * 4,
+    torch_empty_cache_steps: int = 1_000,
 ) -> None:
     """Train an ESM2 model on UR data.
 
@@ -164,6 +165,7 @@ def main(
 
     callbacks = [
         PerplexityLoggingCallback(log_train=False, log_val=True),
+        # MemoryCleanupCallback(torch_empty_cache_steps),
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
     ]
@@ -557,6 +559,13 @@ parser.add_argument(
     default=4 * 1280,
     help="FFN hidden size of the model. Default is 4 * 1280.",
 )
+parser.add_argument(
+    "--torch-empty-cache-steps",
+    type=int,
+    required=False,
+    default=1_000,
+    help="Clean up torch cache every N steps.",
+)
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -608,4 +617,5 @@ if __name__ == "__main__":
         hidden_size=args.hidden_size,
         num_attention_heads=args.num_attention_heads,
         ffn_hidden_size=args.ffn_hidden_size,
+        torch_empty_cache_steps=args.torch_empty_cache_steps,
     )

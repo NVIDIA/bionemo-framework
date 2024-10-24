@@ -15,12 +15,9 @@
 
 
 import logging
-import math
 from dataclasses import dataclass
 from typing import Callable, Literal, Optional, Sequence, Type, TypeVar
 
-import torch
-import torch.distributed
 from megatron.core import tensor_parallel
 from megatron.core.models.bert.bert_lm_head import BertLMHead
 from megatron.core.models.bert.pooler import Pooler
@@ -206,22 +203,6 @@ class ESM2Model(MegatronBioBertModel):
         return self.embedding(
             input_ids=input_ids, position_ids=position_ids, tokentype_ids=tokentype_ids, attention_mask=attention_mask
         )
-
-
-@torch.compile
-def esm_gelu_func(x: Tensor) -> Tensor:
-    """ESM2-specific gelu implementation from the original ESM repo.
-
-    !!! warning
-
-        Using F.gelu yields subtly wrong results, but only when used in combination with bias_activation_fusion=True
-        This variant will not allow you to use bias_activation_fusion=True, which may be the only accuracy benefit over
-        a native F.gelu.
-
-    Args:
-        x: input tensor of any given dimension
-    """
-    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
 
 
 ESM2ModelT = TypeVar("ESM2ModelT", bound=ESM2Model)

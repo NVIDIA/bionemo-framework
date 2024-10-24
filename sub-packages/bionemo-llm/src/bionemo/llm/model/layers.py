@@ -57,6 +57,6 @@ class ESM2QueryScaling(torch.nn.Module):  # noqa: D101
         self.hidden_size_per_attention_head = divide(projection_size, config.num_attention_heads)
         self.sqrt_val = math.sqrt(self.hidden_size_per_attention_head)
 
-    @torch.compile
+    # @torch.compile
     def forward(self, query, *args, **kwargs):  # noqa: D102
         return query / self.sqrt_val

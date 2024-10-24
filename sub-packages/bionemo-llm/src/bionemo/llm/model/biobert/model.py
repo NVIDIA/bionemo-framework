@@ -436,13 +436,13 @@ class BioBertConfig(
 
     # From megatron.core.models.gpt.bert_model.GPTModel
     fp16_lm_cross_entropy: bool = False
-    apply_rope_fusion: bool = True
+    apply_rope_fusion: bool = False
     parallel_output: bool = True
-    bias_dropout_fusion: bool = True
-    bias_activation_fusion: bool = True
-    masked_softmax_fusion: bool = True
-    persist_layer_norm: bool = True
-    get_attention_mask_from_fusion: bool = True
+    bias_dropout_fusion: bool = False
+    bias_activation_fusion: bool = False
+    masked_softmax_fusion: bool = False
+    persist_layer_norm: bool = False
+    get_attention_mask_from_fusion: bool = False
 
     share_embeddings_and_output_weights: bool = False  # try True
     make_vocab_size_divisible_by: int = 128
