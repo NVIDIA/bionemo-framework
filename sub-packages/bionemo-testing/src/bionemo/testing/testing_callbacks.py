@@ -20,6 +20,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Tuple
 
 import torch
+from nemo.lightning.data import MegatronPretrainingSampler
 from overrides import override
 from pytorch_lightning import Callback, LightningModule, Trainer
 from torch.nn import functional as F
@@ -126,7 +127,7 @@ class AbstractStopAndGoCallback(ABC, Callback):
         """Get metadata from trainer and pl_module."""
         raise NotImplementedError
 
-    def on_train_start(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
+    def on_train_epoch_start(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
         if self.mode == "go":
             self.write_pickle(mode="go", data=self.get_metadata(trainer, pl_module))
 
@@ -175,6 +176,18 @@ class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
             trainer.global_step - trainer.datamodule.init_global_step
         )
         return consumed_samples
+
+
+class TrainValInitComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
+    """Stop-and-go callback to check consumed samples before pausing and after resuming training."""
+
+    @override
+    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
+        """Get consumed samples as metadata."""
+        # return trainer.datamodule.state_dict()["consumed_samples"]  # TODO why state_dict can be empty despite working lines below
+        train_data_sampler: MegatronPretrainingSampler = trainer.train_dataloader.batch_sampler
+        val_data_sampler: MegatronPretrainingSampler = trainer.val_dataloaders.batch_sampler
+        return train_data_sampler.consumed_samples, val_data_sampler.consumed_samples
 
 
 class ManualValLossStopAndGoCallback(AbstractStopAndGoCallback):

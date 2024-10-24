@@ -16,6 +16,7 @@
 
 from typing import Any, Dict, Literal
 
+import pytorch_lightning as pl
 import torch
 import torch.utils.data
 from nemo.utils import logging
@@ -44,11 +45,12 @@ class DataloaderWithMode(torch.utils.data.DataLoader):
         self.mode = mode
 
 
-class DatamoduleMixin:
+class MegatronDatamodule(pl.LightningDataModule):
     """A mixin that adds a `state_dict` and `load_state_dict` method for datamodule training resumption in NeMo."""
 
     def __init__(self):
         """Set init_global_step to 0 for datamodule resumption."""
+        super().__init__()
         self.init_global_step = 0
 
     def state_dict(self) -> Dict[str, Any]:

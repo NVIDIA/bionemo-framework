@@ -18,18 +18,17 @@ import functools
 import os
 from typing import Literal
 
-import pytorch_lightning as pl
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 
 from bionemo.esm2.data import dataset, tokenizer
 from bionemo.llm.data import collate
-from bionemo.llm.data.datamodule import DataloaderWithMode, DatamoduleMixin
+from bionemo.llm.data.datamodule import DataloaderWithMode, MegatronDatamodule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
-class ESMDataModule(pl.LightningDataModule, DatamoduleMixin):
+class ESMDataModule(MegatronDatamodule):
     """LightningDataModule wrapper of `ESMDataset`."""
 
     def __init__(

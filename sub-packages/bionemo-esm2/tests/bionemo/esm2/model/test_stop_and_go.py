@@ -39,13 +39,13 @@ MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
 class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
     def __init__(
         self,
-        train_cluster_path,
-        train_database_path,
-        valid_cluster_path,
-        valid_database_path,
+        dummy_parquet_train_val_inputs,  # FIXME get these things in here from pytest
+        dummy_protein_dataset,  # FIXME get these things in here from pytest
         val_check_interval=2,
         exp_name="esm2_stop_and_go",
     ):
+        train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
+
         extra_metrics_dict = {"val_loss": compute_biobert_loss_singlegpu}
         super().__init__(
             extra_metrics_dict=extra_metrics_dict,
@@ -55,7 +55,7 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
 
         self.tokenizer: BioNeMoESMTokenizer = get_tokenizer()
         self.train_cluster_path: Path = train_cluster_path
-        self.train_database_path: Path = train_database_path
+        self.train_database_path: Path = dummy_protein_dataset
         self.valid_cluster_path: Path = valid_cluster_path
         self.valid_database_path: Path = valid_database_path
         self.autocast_dtype = get_autocast_dtype(MODEL_PRECISION)
@@ -134,13 +134,3 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
             plugins=nl.MegatronMixedPrecision(precision=MODEL_PRECISION),
         )
         return trainer
-
-
-def test_esm2_example(dummy_protein_dataset, dummy_parquet_train_val_inputs):
-    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
-    ESM2StopAndGoTest(
-        train_cluster_path=train_cluster_path,
-        train_database_path=dummy_protein_dataset,
-        valid_cluster_path=valid_cluster_path,
-        valid_database_path=dummy_protein_dataset,
-    ).run_test()
