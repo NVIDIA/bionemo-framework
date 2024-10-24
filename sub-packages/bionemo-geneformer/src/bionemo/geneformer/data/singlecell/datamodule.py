@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 import numpy as np
-import pytorch_lightning as pl
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
@@ -30,14 +29,14 @@ from bionemo.core.utils import random_utils
 from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import collate
-from bionemo.llm.data.datamodule import DataloaderWithMode, DatamoduleMixin
+from bionemo.llm.data.datamodule import DataloaderWithMode, MegatronDatamodule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
 __all__: Sequence[str] = ("SingleCellDataModule",)
 
 
-class SingleCellDataModule(pl.LightningDataModule, DatamoduleMixin):
+class SingleCellDataModule(MegatronDatamodule):
     """LightningDataModule wrapper of `SingleCellDataset`
 
     Args:

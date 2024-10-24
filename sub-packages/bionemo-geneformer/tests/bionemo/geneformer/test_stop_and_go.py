@@ -174,8 +174,15 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
         )
         return module, data, optim
 
-    # def test_your_custom_callback(self):
-    #     """Tests your custom metrics in stop-and-go scenario."""
-    #     callback: pl.Callback = ...
-    #     metadata_stop, meta_go = callback.load_stop_and_go_pickles()
-    #     __your_comparison_logic_here__
+    def test_train_val_init_consumed_samples(self):
+        """Override the parent test here because we know that train_consumed_go should be 8"""
+        callback: testing_callbacks.TrainValInitComsumedSamplesStopAndGoCallback = self.go_callbacks[
+            "TrainValInitComsumedSamplesStopAndGoCallback"
+        ]
+        (train_consumed_stop, val_consumed_stop), (train_consumed_go, val_consumed_go) = (
+            callback.load_stop_and_go_pickles()
+        )
+        assert val_consumed_stop == 0
+        assert val_consumed_go == 0
+        assert train_consumed_stop == 0
+        assert train_consumed_go == 8
