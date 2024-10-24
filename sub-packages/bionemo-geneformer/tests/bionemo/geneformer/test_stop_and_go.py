@@ -114,8 +114,8 @@ def geneformer_datamodule(tokenizer, seq_length, median_dict, data_path=DATA_PAT
 
 
 class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
-    num_steps: int = 4
-    val_check_interval: int = 2
+    num_steps: int = 10
+    val_check_interval: int = 4
     limit_val_batches: int = 2
     lr: float = 1e-4
     precision: Literal["16-mixed", "bf16-mixed", "32"] = MODEL_PRECISION
