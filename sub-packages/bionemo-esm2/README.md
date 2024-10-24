@@ -13,3 +13,8 @@ To run unit tests, execute:
 ```bash
 pytest -v .
 ```
+
+### Training Performance
+BioNeMo2 utilizes TransformerEngine and Megatron-LM for accelerated training. BioNeMo2 consistently outperforms in training performance compared to HuggingFace. The performance gain scales with the model size and pulls over a margin of over 15% in model flops utilization (MFU) in our 2-node A100 bf16 benchmark.
+
+![Model performance](images/multinode-benchmark.png)
