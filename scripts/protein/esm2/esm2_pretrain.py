@@ -381,6 +381,13 @@ parser.add_argument(
     help="Number of steps between validation. Default is 10000.",
 )
 parser.add_argument(
+    "--save-every-n-steps",
+    type=int,
+    required=False,
+    default=10000,
+    help="Number of steps between saving checkpoints. Default is 10000.",
+)
+parser.add_argument(
     "--min-seq-length",
     type=float_or_int_or_none,
     required=False,
@@ -598,7 +605,7 @@ if __name__ == "__main__":
         save_last_checkpoint=args.save_last_checkpoint,
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
-        save_every_n_steps=args.val_check_interval,
+        save_every_n_steps=args.save_every_n_steps,
         nsys_profiling=args.nsys_profiling,
         nsys_start_step=args.nsys_start_step,
         nsys_end_step=args.nsys_end_step,
