@@ -28,6 +28,7 @@ from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.strategies import MegatronStrategy
 
+from bionemo.llm.utils.datamodule_utils import tensor_dict_hash
 from bionemo.testing import testing_callbacks
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 
@@ -252,6 +253,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         return callbacks
 
     # stop() and go() are provided methods and run the requisite methods with the appropriate mode.
+    # TODO combine stop and go
     @classmethod
     def stop(cls) -> None:
         """Runs pre-training and 'stops' after the first checkpoint is saved.
@@ -313,32 +315,38 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         callback: testing_callbacks.LearningRateStateStopAndGoCallback = self.go_callbacks[
             "LearningRateStateStopAndGoCallback"
         ]
-        callback.compare_metadata()
+        lr_stop, lr_go = callback.load_stop_and_go_pickles()
+        assert lr_stop == lr_go
 
     def test_global_step_stop_and_go(self):
         """Tests the global step in stop-and-go scenario."""
         callback: testing_callbacks.GlobalStepStateStopAndGoCallback = self.go_callbacks[
             "GlobalStepStateStopAndGoCallback"
         ]
-        callback.compare_metadata()
+        global_step_stop, global_step_go = callback.load_stop_and_go_pickles()
+        assert global_step_stop == global_step_go
 
     def test_optimizer_state_stop_and_go(self):
         """Tests the optimizer state in stop-and-go scenario."""
         callback: testing_callbacks.OptimizerStateStopAndGoCallback = self.go_callbacks[
             "OptimizerStateStopAndGoCallback"
         ]
-        callback.compare_metadata()
+        state_dicts_stop, state_dicts_go = callback.load_stop_and_go_pickles()
+        for state_dict_go, state_dict_stop in zip(state_dicts_stop, state_dicts_go):
+            assert tensor_dict_hash(state_dict_go) == tensor_dict_hash(state_dict_stop)
 
     def test_consumed_samples_stop_and_go(self):
         """Tests the consumed samples in stop-and-go scenario."""
         callback: testing_callbacks.ComsumedSamplesStopAndGoCallback = self.go_callbacks[
             "ComsumedSamplesStopAndGoCallback"
         ]
-        callback.compare_metadata()
+        consumed_samples_stop, consumed_samples_go = callback.load_stop_and_go_pickles()
+        assert consumed_samples_stop == consumed_samples_go
 
     def test_manual_val_loss_stop_and_go(self):
         """Tests validation loss of the first batch in non-sanity-check validation epoch in stop-and-go scenario."""
         callback: testing_callbacks.ManualValLossStopAndGoCallback = self.go_callbacks[
             "ManualValLossStopAndGoCallback"
         ]
-        callback.compare_metadata()
+        val_loss_stop, val_loss_go = callback.load_stop_and_go_pickles()
+        assert val_loss_stop == val_loss_go

@@ -177,4 +177,5 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
     # def test_your_custom_callback(self):
     #     """Tests your custom metrics in stop-and-go scenario."""
     #     callback: pl.Callback = ...
-    #     callback.compare_metadata()
+    #     metadata_stop, meta_go = callback.load_stop_and_go_pickles()
+    #     __your_comparison_logic_here__
