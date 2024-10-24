@@ -26,7 +26,6 @@ How to adapt these tests:
 
 import math
 import pathlib
-import tempfile
 from typing import Any, Callable, Literal
 
 import pytorch_lightning as pl
@@ -209,6 +208,5 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
         return trainer
 
 
-def test_geneformer_example():
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        GeneformerStopAndGoTest(root_dir=tmp_dir).run_test()
+def test_geneformer_example(tmp_path):
+    GeneformerStopAndGoTest(root_dir=tmp_path).run_test()
