@@ -18,7 +18,7 @@ from math import isclose
 import pytest
 import torch
 
-from bionemo.size_aware_batching.utils import collect_cuda_peak_alloc
+from bionemo.size_aware_batching.utils import collect_cuda_peak_alloc, create_buckets
 
 
 def get_work_fn(model: torch.nn.Module, data: torch.Tensor):
@@ -88,3 +88,83 @@ def test_collect_cuda_peak_alloc_skip_oom(dataset, model_and_alloc_peak, model_h
     alloc_peaks_expected = [alloc_peaks[i] for i in range(len(alloc_peaks)) if not (i == 0 or i == 2)]
     assert features_wo02 == features_expected
     assert alloc_peaks_wo02 == alloc_peaks_expected
+
+
+def test_create_buckets_with_invalid_sizes():
+    # sizes must be torch tensor
+    with pytest.raises(TypeError):
+        create_buckets(sizes=[1, 2, 3], max_width=5, min_bucket_count=3)  # type: ignore
+    # sizes must be 1 D
+    with pytest.raises(ValueError):
+        create_buckets(sizes=torch.tensor([[1, 2], [3, 4]]), max_width=5, min_bucket_count=3)
+    # sizes data type must be integer
+    with pytest.raises(ValueError):
+        create_buckets(sizes=torch.tensor([1.0, 2.0]), max_width=5, min_bucket_count=3)
+    # empty sizes list
+    with pytest.raises(ValueError):
+        create_buckets(sizes=torch.tensor([]), max_width=5, min_bucket_count=3)
+
+
+def test_create_buckets_with_invalid_max_width():
+    # max_width should be a positive integer.
+    with pytest.raises(ValueError):
+        create_buckets(sizes=torch.tensor([1, 2, 3]), max_width=2.0, min_bucket_count=3)  # type: ignore
+    with pytest.raises(ValueError):
+        create_buckets(sizes=torch.tensor([1, 2, 3]), max_width=-1, min_bucket_count=3)
+
+
+def test_create_buckets_with_invalid_min_bucket_count():
+    # min_bucket_count should be positive integer
+    with pytest.raises(ValueError):
+        create_buckets(sizes=torch.tensor([1, 2, 3]), max_width=2, min_bucket_count=-1)
+    with pytest.raises(ValueError):
+        create_buckets(sizes=torch.tensor([1, 2, 3]), max_width=2, min_bucket_count=3.0)  # type: ignore
+
+
+def test_create_buckets_single_element():
+    buckets = create_buckets(sizes=torch.tensor([1]), max_width=2, min_bucket_count=3)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 2]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([1]))
+
+
+def test_create_buckets_multiple_elements():
+    sizes = torch.tensor([5, 3, 1, 2, 4])
+
+    buckets = create_buckets(sizes, max_width=10, min_bucket_count=5)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 6]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([5]))
+
+
+def test_create_buckets_multiple_buckets():
+    sizes = torch.arange(10)
+    buckets = create_buckets(sizes, max_width=4, min_bucket_count=10)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([0, 4, 8, 10]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([4, 4, 2]))
+
+
+def test_create_buckets_with_duplicates():
+    sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3])
+    buckets = create_buckets(sizes, max_width=4, min_bucket_count=10)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 4]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([12]))
+
+
+def test_create_buckets_with_max_width_one():
+    sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3])
+    buckets = create_buckets(sizes, max_width=1, min_bucket_count=5)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 2, 3, 4]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([3, 4, 5]))
+
+
+def test_create_buckets_with_max_width_reached():
+    sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 22, 22, 22, 22, 31])
+    buckets = create_buckets(sizes, max_width=5, min_bucket_count=10)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 6, 11, 16, 21, 26, 31, 32]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([12, 0, 0, 0, 4, 0, 1]))
+
+
+def test_create_buckets_with_min_bucket_count_reached():
+    sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 11, 11, 11, 11, 11])
+    buckets = create_buckets(sizes, max_width=20, min_bucket_count=10)
+    assert torch.allclose(buckets.bucket_boundaries, torch.tensor([1, 11, 12]))
+    assert torch.allclose(buckets.bucket_sizes, torch.tensor([12, 5]))

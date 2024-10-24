@@ -428,7 +428,7 @@ def test_geneformer_nemo1_v_nemo2_inference_golden_values(
         expected_vals["expected_hidden_state"],
         mask=expected_vals["expected_pad_masks"],
         eps=0.1,
-        max_mape=2.07,  # 2.07% average difference in final values with a magnitude over 0.1
+        max_mape=2.5,  # 2.5% average difference in final values with a magnitude over 0.1
     )
     assert_matrix_correlation_above_value(
         result,

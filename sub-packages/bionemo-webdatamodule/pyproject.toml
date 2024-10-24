@@ -13,7 +13,6 @@ dynamic = ["version"]
 dependencies = [
     # bionemo sub-packages
     'bionemo-core',
-    'bionemo-llm',
     # external
     'webdataset==0.2.96',
 ]
