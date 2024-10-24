@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -80,3 +81,15 @@ def test_sccollection_serialization(tmp_path, test_directory):
     assert np.isclose(coll.sparsity(), 0.972753346080306, rtol=1e-6)
     for fn in ["col_ptr.npy", "data.npy", "features", "metadata.json", "row_ptr.npy", "version.json"]:
         assert os.path.exists(tmp_path / "flattened" / fn)
+
+
+def test_sc_concat_in_flatten_cellxval(tmp_path, create_cellx_val_data):
+    memmap_data = tmp_path / "out"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        coll = SingleCellCollection(temp_dir)
+        coll.load_h5ad_multi(create_cellx_val_data, max_workers=4, use_processes=False)
+        coll.flatten(memmap_data, destroy_on_copy=True)
+    data = SingleCellMemMapDataset(memmap_data)
+    assert np.array(data.row_index)[2] != 2  # regression test for bug
+    assert np.array(data.row_index)[3] != 1149  # regression test for bug
+    assert all(data.row_index == np.array([0, 440, 972, 2119]))
