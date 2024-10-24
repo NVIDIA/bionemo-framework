@@ -344,7 +344,6 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         for state_dict_go, state_dict_stop in zip(state_dicts_stop, state_dicts_go):
             assert tensor_dict_hash(state_dict_go) == tensor_dict_hash(state_dict_stop)
 
-    @pytest.mark.xfail(reason="Unsure why this fails.")
     def test_consumed_samples_stop_and_go(self):
         """Tests the consumed samples in stop-and-go scenario."""
         callback: testing_callbacks.ComsumedSamplesStopAndGoCallback = self.go_callbacks[
@@ -352,6 +351,8 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         ]
         consumed_samples_stop, consumed_samples_go = callback.load_stop_and_go_pickles()
         assert consumed_samples_stop == consumed_samples_go
+        # Make sure we do not trivially pass.
+        assert consumed_samples_stop > 0
 
     def test_manual_val_loss_stop_and_go(self):
         """Tests validation loss of the first batch in non-sanity-check validation epoch in stop-and-go scenario."""
