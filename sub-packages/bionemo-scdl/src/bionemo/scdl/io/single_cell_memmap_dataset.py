@@ -23,12 +23,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import anndata as ad
+import ipdb
 import numpy as np
 import pandas as pd
 import scipy
 import torch
 
-# import ipdb
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
 
@@ -560,7 +560,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # loading in each load_block_size rows into memory.  For each of these load_block_size
         # rows, a numpy memory map is created.
         for row_start in range(0, num_rows, self.load_block_size):
-            # ipdb.set_trace()
+            ipdb.set_trace()
             col_block = adata.X[row_start : row_start + self.load_block_size].indices
             column_mem_map_list.append(col_block)
 
@@ -648,7 +648,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             features, num_rows = self.regular_load_h5ad(anndata_path)
 
         else:
-            features, num_rows = self.lazy_load_h5ad(anndata_path)
+            features, num_rows = self.paginated_load_h5ad(anndata_path)
 
         # Collect features and store in FeatureIndex
         self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
