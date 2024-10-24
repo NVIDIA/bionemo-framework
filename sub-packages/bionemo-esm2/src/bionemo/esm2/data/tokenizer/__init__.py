@@ -27,7 +27,6 @@ class BioNeMoESMTokenizer(transformers.EsmTokenizer, IOMixin):  # noqa D101
         self.__dict__.update(dict(other.__dict__))
 
 
-@functools.cache
 def get_tokenizer() -> BioNeMoESMTokenizer:
     """Get the tokenizer for the ESM2 model."""
     return BioNeMoESMTokenizer()

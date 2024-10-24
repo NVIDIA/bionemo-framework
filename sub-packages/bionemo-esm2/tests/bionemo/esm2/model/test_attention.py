@@ -25,7 +25,7 @@ from bionemo.esm2.model.attention import ESM2DotProductAttention, ESM2TEDotProdu
 from bionemo.testing import megatron_parallel_state_utils
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def config():
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         yield ESM2Config(
@@ -37,7 +37,7 @@ def config():
         )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def local_attention_layer(config: ESM2Config) -> ESM2DotProductAttention:
     return ESM2DotProductAttention(
         config=config,
@@ -47,7 +47,7 @@ def local_attention_layer(config: ESM2Config) -> ESM2DotProductAttention:
     ).eval()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def attention_layer(config: ESM2Config) -> ESM2TEDotProductAttention:
     return ESM2TEDotProductAttention(
         config=config,

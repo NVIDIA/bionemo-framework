@@ -122,7 +122,7 @@ USE_TE: bool = True
 TARGET_MEAN_LOSS: float = 2.368649959564209
 
 
-@pytest.fixture()
+@pytest.fixture
 def cells() -> List[List[str]]:
     return deepcopy(CELLS_FOR_TEST)
 

@@ -14,8 +14,6 @@
 # limitations under the License.
 
 
-from typing import Generator
-
 import pytest
 from nemo.lightning import io
 
@@ -34,12 +32,6 @@ from bionemo.esm2.model.finetune.peft import ESM2LoRA
 from bionemo.esm2.model.finetune.train import train_model
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
-
-
-@pytest.fixture(scope="module")
-def esm2_2layer_config() -> Generator[ESM2Config, None, None]:
-    with megatron_parallel_state_utils.distributed_model_parallel_state():
-        yield ESM2Config(num_layers=3, hidden_size=128)
 
 
 @pytest.fixture
@@ -62,7 +54,6 @@ def pretrain_data_module(dummy_protein_dataset, dummy_parquet_train_val_inputs):
 @pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_token_classifier(
     tmpdir,
-    esm2_2layer_config,
     tokenizer,
     pretrain_data_module,
     dummy_data_per_token_classification_ft,
@@ -76,7 +67,7 @@ def test_esm2_finetune_token_classifier(
         ckpt_path, initial_metrics, trainer = train_model(
             experiment_name="test_experiment",
             experiment_dir=tmpdir / "pretrain",
-            config=esm2_2layer_config,
+            config=ESM2Config(num_layers=3, hidden_size=128),
             data_module=pretrain_data_module,
             n_steps_train=n_steps_train,
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
@@ -134,7 +125,6 @@ def test_esm2_finetune_token_classifier(
 @pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_regressor(
     tmpdir,
-    esm2_2layer_config,
     tokenizer,
     pretrain_data_module,
     dummy_data_single_value_regression_ft,
@@ -148,7 +138,7 @@ def test_esm2_finetune_regressor(
         ckpt_path, initial_metrics, trainer = train_model(
             experiment_name="test_experiment",
             experiment_dir=tmpdir / "pretrain",
-            config=esm2_2layer_config,
+            config=ESM2Config(num_layers=3, hidden_size=128),
             data_module=pretrain_data_module,
             n_steps_train=n_steps_train,
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
