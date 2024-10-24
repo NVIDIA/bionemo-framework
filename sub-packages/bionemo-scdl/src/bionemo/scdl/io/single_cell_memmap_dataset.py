@@ -23,8 +23,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import anndata as ad
-
-# import ipdb
 import numpy as np
 import pandas as pd
 import scipy
@@ -543,84 +541,51 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             pd.DataFrame: var variables for features
             int: number of rows in the dataframe.
         """
-        column_mem_map_list = []
-        data_mem_map_list = []
-
         adata = ad.read_h5ad(anndata_path, backed=True)
 
         if not isinstance(adata.X, ad.experimental.CSRDataset):
             raise NotImplementedError("Sparse Matrix cannot be lazy-loaded.")
         num_rows = adata.X.shape[0]
-        mode = Mode.CREATE_APPEND.value
 
-        # Read the row indices into a memory map. This is done chunk by chunk.
+        self.dtypes[f"{FileNames.DATA.value}"] = adata.X.dtype
+
+        # Read the row indices into a memory map.
+        mode = Mode.CREATE_APPEND.value
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
         self.row_index[:] = adata.X.indptr.astype(int)
 
-        # Read the column pointers and data values into the numpy memmaps. This is done by
-        # loading in each load_block_size rows into memory.  For each of these load_block_size
-        # rows, a numpy memory map is created.
-        for row_start in range(0, num_rows, self.load_block_size):
-            # ipdb.set_trace()
-            col_block = adata.X[row_start : row_start + self.load_block_size].indices
-            column_mem_map_list.append(col_block)
+        # The data from each column and data chunk of the original anndata file is read in. This is saved into the final
+        # location of the memmap file in the binary file format.
+        memmap_dir_path = Path(self.data_path)
+        with (
+            open(f"{memmap_dir_path}/{FileNames.COLPTR.value}", "wb") as col_file,
+            open(f"{memmap_dir_path}/{FileNames.DATA.value}", "wb") as data_file,
+        ):
+            n_elements = 0
+            for row_start in range(0, num_rows, self.load_block_size):
+                # Write each array's data to the file in binary format
+                col_block = adata.X[row_start : row_start + self.load_block_size].indices
+                col_file.write(col_block.tobytes())
 
-            data_block = adata.X[row_start : row_start + self.load_block_size].data
-            data_mem_map_list.append(data_block)
+                data_block = adata.X[row_start : row_start + self.load_block_size].data
+                data_file.write(data_block.tobytes())
 
-            # The data and column pointer memory maps are instantiated.
-            num_elements = sum(arr.shape[0] for arr in column_mem_map_list)
-            self.data, self.col_index = _create_data_col_memmaps(num_elements, Path(self.data_path), mode, self.dtypes)
-            current_index = 0
+                n_elements += len(data_block)
 
-            # The data and column pointer memory maps are combined to form the full memory maps.
-            for index in range(len(column_mem_map_list)):
-                number_elements = column_mem_map_list[index].shape[0]
-                self.col_index[current_index : current_index + number_elements] = column_mem_map_list[index][:]
-                self.data[current_index : current_index + number_elements] = data_mem_map_list[index][:]
-                current_index += number_elements
-
-        return adata.var, num_rows
-
-    def lazy_load_h5ad(
-        self,
-        anndata_path: str,
-    ) -> Tuple[pd.DataFrame, int]:
-        """Method for block loading a larger h5ad file and converting it to the SCDL format.
-
-        This should be used in the case when the entire anndata file cannot be loaded into memory.
-        The anndata is loaded into memory load_block_size number of rows at a time. Each chunk
-        is converted into numpy memory maps which are then concatenated together.
-
-        Raises:
-            NotImplementedError if the data is not block loaded in the correct format.
-
-        Returns:
-            pd.DataFrame: var variables for features
-            int: number of rows in the dataframe.
-        """
-        adata = ad.read_h5ad(anndata_path, backed=True)
-
-        if not isinstance(adata.X, ad.experimental.CSRDataset):
-            raise NotImplementedError("Sparse Matrix cannot be lazy-loaded.")
-        num_rows = adata.X.shape[0]
-
-        count_data = adata.X[:]
-
-        self.dtypes[f"{FileNames.DATA.value}"] = count_data.dtype
-
-        num_elements_stored = count_data.nnz
-
-        # Create the arrays.
-        self._init_arrs(num_elements_stored, num_rows)
-        self.data[0:num_elements_stored] = count_data.data
-
-        # Store the col idx array
-        self.col_index[0:num_elements_stored] = count_data.indices.astype(int)
-
-        # Store the row idx array
-        self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
-
+        # The column and data files are re-opened as memory-mapped arrays with the final shape
+        mode = Mode.READ_APPEND.value
+        self.col_index = np.memmap(
+            f"{memmap_dir_path}/{FileNames.COLPTR.value}",
+            self.dtypes[f"{FileNames.COLPTR.value}"],
+            mode=mode,
+            shape=(n_elements,),
+        )
+        self.data = np.memmap(
+            f"{memmap_dir_path}/{FileNames.DATA.value}",
+            dtype=self.dtypes[f"{FileNames.DATA.value}"],
+            mode=mode,
+            shape=(n_elements,),
+        )
         return adata.var, num_rows
 
     def load_h5ad(
