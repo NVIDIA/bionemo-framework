@@ -51,6 +51,13 @@ class DatamoduleMixin:
         """Set init_global_step to 0 for datamodule resumption."""
         self.init_global_step = 0
 
+    def update_init_global_step(self):
+        """Please always call this when you get a new dataloader... if you forget, your resumption will not work"""
+        self.init_global_step = self.trainer.global_step  # Update the init_global_step whenever we re-init training
+        self.data_sampler.init_global_step = (
+            self.init_global_step
+        )  # Update the init_global_step whenever we re-init training
+
     def state_dict(self) -> Dict[str, Any]:
         """Called when saving a checkpoint, implement to generate and save datamodule state.
 
