@@ -110,7 +110,7 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
 
         return module, data, optimizer
 
-    def setup_trainer_and_strategy(self, mode: Literal["stop", "go"], metrics):
+    def setup_trainer(self, mode: Literal["stop", "go"], metrics):
         devices, tp_size, pp_size = 1, 1, 1
 
         strategy = nl.MegatronStrategy(

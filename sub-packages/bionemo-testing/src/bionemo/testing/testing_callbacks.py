@@ -160,7 +160,6 @@ class LearningRateStateStopAndGoCallback(AbstractStopAndGoCallback):
         """Compare learning rates as metadata."""
         lr_stop, lr_go = self.load_stop_and_go_pickles()
         assert lr_stop == lr_go
-        self.has_compared = True
 
 
 class GlobalStepStateStopAndGoCallback(AbstractStopAndGoCallback):
@@ -176,7 +175,6 @@ class GlobalStepStateStopAndGoCallback(AbstractStopAndGoCallback):
         """Compare global_step as metadata."""
         global_step_stop, global_step_go = self.load_stop_and_go_pickles()
         assert global_step_stop == global_step_go
-        self.has_compared = True
 
 
 class OptimizerStateStopAndGoCallback(AbstractStopAndGoCallback):
@@ -193,7 +191,6 @@ class OptimizerStateStopAndGoCallback(AbstractStopAndGoCallback):
         state_dicts_stop, state_dicts_go = self.load_stop_and_go_pickles()
         for state_dict_go, state_dict_stop in zip(state_dicts_stop, state_dicts_go):
             assert tensor_dict_hash(state_dict_go) == tensor_dict_hash(state_dict_stop)
-            self.has_compared = True
 
 
 class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
@@ -214,7 +211,6 @@ class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
         """Compare consumed samples as metadata."""
         consumed_samples_stop, consumed_samples_go = self.load_stop_and_go_pickles()
         assert consumed_samples_stop == consumed_samples_go
-        self.has_compared = True
 
 
 class ManualValLossStopAndGoCallback(AbstractStopAndGoCallback):
@@ -272,4 +268,3 @@ class ManualValLossStopAndGoCallback(AbstractStopAndGoCallback):
         """Compare validation loss as metadata."""
         val_loss_stop, val_loss_go = self.load_stop_and_go_pickles()
         assert val_loss_stop == val_loss_go
-        self.has_compared = True

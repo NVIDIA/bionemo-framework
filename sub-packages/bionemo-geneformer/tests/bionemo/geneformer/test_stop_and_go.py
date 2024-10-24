@@ -26,17 +26,14 @@ How to adapt these tests:
 
 import math
 import pathlib
-import tempfile
-from typing import List, Literal
+from typing import Literal
 
 import pytorch_lightning as pl
 import torch
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo import lightning as nl
-from nemo.lightning import nemo_logger
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
-from nemo.lightning.pytorch.strategies import MegatronStrategy
 from torch.nn import functional as F
 from typing_extensions import override
 
@@ -49,7 +46,6 @@ from bionemo.testing.data.load import load
 from bionemo.testing.harnesses import stop_and_go
 
 
-# TODO @sichu: move to load function
 DATA_PATH: pathlib.Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
 
 MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
@@ -118,18 +114,16 @@ def geneformer_datamodule(tokenizer, seq_length, median_dict, data_path=DATA_PAT
 
 
 class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
+    num_steps: int = 4
+    val_check_interval: int = 2
+    limit_val_batches: int = 2
+    lr: float = 1e-4
+    precision: Literal["16-mixed", "bf16-mixed", "32"] = MODEL_PRECISION
+
     @override
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.tempdir = tempfile.TemporaryDirectory()
-        cls.metadata_dir = pathlib.Path(cls.tempdir.name)
-        cls.exp_name = "geneformer_stop_and_go"
-
-        # setup run parameters
-        cls.num_steps = 4
-        cls.lr = 1e-4
-        cls.val_check_interval = 2
 
         # setup data
         train_data_path = DATA_PATH / "train"
@@ -144,29 +138,12 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
             case _:
                 raise ValueError("Preprocessing must have failed.")
 
-        # TODO move into parent method
-        # setup nemo logger
-        cls.nemo_logger: nemo_logger.NeMoLogger = nemo_logger.NeMoLogger(
-            log_dir=str(cls.tempdir),
-            name=cls.exp_name,
-            use_datetime_version=False,
-            version=None,
-            tensorboard=None,
-            wandb=None,
-            ckpt=None,
-        )
-
-        # TODO change type from list to dictionary for ease of access
-        # setup callbacks; add your custom callbacks here
-        cls.stop_callbacks: List[pl.Callback] = cls.get_default_callbacks(mode="stop")
-        cls.go_callbacks: List[pl.Callback] = cls.get_default_callbacks(mode="go")
+        # add your custom callbacks here
+        # cls.stop_callbacks["YourCustomCallback"] = YourCustomCallback(mode="stop")
+        # cls.go_callbacks["YourCustomCallback"] = YourCustomCallback(mode="go")
 
         # run stop and go
         cls.stop_and_go()
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.tempdir.cleanup()
 
     @override
     @classmethod
@@ -197,28 +174,7 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
         )
         return module, data, optim
 
-    @override
-    @classmethod
-    def setup_trainer_and_strategy(
-        cls,
-        mode: Literal["stop", "go"],
-    ) -> nl.Trainer:
-        strategy = MegatronStrategy(
-            ddp="megatron",
-            find_unused_parameters=True,
-            ckpt_include_optimizer=True,
-        )
-
-        trainer = nl.Trainer(
-            devices=1,
-            max_steps=cls.num_steps,  # Hardcoded to debug
-            accelerator="gpu",
-            strategy=strategy,
-            limit_val_batches=2,  # Hardcoded to coyp pretrain
-            val_check_interval=cls.val_check_interval,
-            log_every_n_steps=cls.val_check_interval,
-            num_nodes=1,
-            callbacks=cls.stop_callbacks if mode == "stop" else cls.go_callbacks,
-            plugins=nl.MegatronMixedPrecision(precision=MODEL_PRECISION),
-        )
-        return trainer
+    # def test_your_custom_callback(self):
+    #     """Tests your custom metrics in stop-and-go scenario."""
+    #     callback: pl.Callback = ...
+    #     callback.compare_metadata()
