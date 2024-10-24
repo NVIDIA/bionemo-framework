@@ -266,6 +266,10 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
         return_only_hidden_states: Whether to return only hidden states.
         loss_reduction_class: Loss reduction class for the model. Default to BERTMLMLossWithReduction.
     """
+    # ESM specific fields (these are repeated below)
+    use_esm_attention: bool = False  # Skip ESM2 custom attention for TE acceleration. Still passes golden value test.
+    token_dropout: bool = True
+    normalize_attention_scores: bool = False
 
     # When overriding fields in a dataclass _always_ declare types: https://github.com/python/cpython/issues/123269
     model_cls: Type[ESM2ModelT] = ESM2Model
@@ -315,6 +319,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     return_only_hidden_states: bool = False  # return logits
 
     def __post_init__(self):
+        # TODO, as a validator?
         """Check compatibility between biobert_spec_option and apply_query_key_layer_scaling post initialization."""
         super().__post_init__()
         if self.biobert_spec_option == BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec:

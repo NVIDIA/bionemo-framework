@@ -35,7 +35,7 @@ from bionemo.llm.lightning import PerplexityLoggingCallback
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
-from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
+from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
 __all__: Sequence[str] = ("main", "parser")
@@ -147,10 +147,10 @@ def main(
 
     # for wandb integration
     # Please refer to https://pytorch-lightning.readthedocs.io/en/0.7.6/api/pytorch_lightning.loggers.html"
-    wandb_options: Optional[WandbLoggerOptions] = (
+    wandb_config: Optional[WandbConfig] = (
         None
         if wandb_project is None
-        else WandbLoggerOptions(
+        else WandbConfig(
             offline=wandb_offline,
             project=wandb_project,
             entity=wandb_entity,
@@ -188,8 +188,6 @@ def main(
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
-    tokenizer = get_tokenizer()
-
     # Initialize the data module.
     data = ESMDataModule(
         train_cluster_path=train_cluster_path,
@@ -202,8 +200,10 @@ def main(
         max_seq_length=max_seq_length,
         num_workers=num_dataset_workers,
         random_mask_strategy=random_mask_strategy,
+        tokenizer=get_tokenizer(),
     )
-
+    # NOTE(SKH) added this.
+    tokenizer = data._tokenizer
     # Configure the model
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
@@ -253,7 +253,7 @@ def main(
         root_dir=result_dir,
         name=experiment_name,
         initialize_tensorboard_logger=create_tensorboard_logger,
-        wandb_kwargs=wandb_options,
+        wandb_config=wandb_config,
         ckpt_callback=checkpoint_callback,
     )
 

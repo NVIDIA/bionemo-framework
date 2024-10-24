@@ -106,6 +106,11 @@ class ESMDataModule(pl.LightningDataModule):
             rampup_batch_size=rampup_batch_size,
         )
 
+    @property
+    def tokenizer(self) -> tokenizer.BioNeMoESMTokenizer:
+        """Returns the tokenizer."""
+        return self._tokenizer
+
     def setup(self, stage: str = "") -> None:
         """Setup the ESMDataModule.
 
