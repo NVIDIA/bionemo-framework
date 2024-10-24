@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import importlib.metadata
 import json
 import os
@@ -29,6 +28,7 @@ import pandas as pd
 import scipy
 import torch
 
+# import ipdb
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
 
@@ -475,7 +475,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self,
         anndata_path: str,
     ) -> Tuple[pd.DataFrame, int]:
-        """Method for loading an h5ad file into memory and converting it to the SCDL format.
+        """Method for loading an h5ad file into memorySu and converting it to the SCDL format.
 
         Args:
             anndata_path: location of data to load
@@ -522,6 +522,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Store the row idx array
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
+
         return adata.var, num_rows
 
     def paginated_load_h5ad(
@@ -545,6 +546,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         data_mem_map_list = []
 
         adata = ad.read_h5ad(anndata_path, backed=True)
+
         if not isinstance(adata.X, ad.experimental.CSRDataset):
             raise NotImplementedError("Sparse Matrix cannot be lazy-loaded.")
         num_rows = adata.X.shape[0]
@@ -552,37 +554,18 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Read the row indices into a memory map. This is done chunk by chunk.
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
-        for row_start in range(0, num_rows, self.load_block_size):
-            self.row_index[row_start + 1 : row_start + self.load_block_size + 1] = self.row_index[row_start] + adata.X[
-                row_start : row_start + self.load_block_size
-            ].indptr[1:].astype(int)
+        self.row_index[:] = adata.X.indptr.astype(int)
 
         # Read the column pointers and data values into the numpy memmaps. This is done by
         # loading in each load_block_size rows into memory.  For each of these load_block_size
         # rows, a numpy memory map is created.
+        for row_start in range(0, num_rows, self.load_block_size):
+            # ipdb.set_trace()
+            col_block = adata.X[row_start : row_start + self.load_block_size].indices
+            column_mem_map_list.append(col_block)
 
-        with tempfile.TemporaryDirectory(prefix="_tmp", dir=self.data_path) as tmp:
-            for row_start in range(0, num_rows, self.load_block_size):
-                col_block = adata.X[row_start : row_start + self.load_block_size].indices
-                temp_col_arr = np.memmap(
-                    f"{tmp}/cols_{row_start}",
-                    dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
-                    shape=(len(col_block),),
-                    mode=mode,
-                )
-                temp_col_arr = col_block[:]
-
-                column_mem_map_list.append(temp_col_arr)
-                data_block = adata.X[row_start : row_start + self.load_block_size].data
-                temp_data_arr = np.memmap(
-                    f"{tmp}/data_{row_start}",
-                    dtype=self.dtypes[f"{FileNames.DATA.value}"],
-                    shape=(len(col_block),),
-                    mode=mode,
-                )
-
-                temp_data_arr = data_block[:]
-                data_mem_map_list.append(temp_data_arr)
+            data_block = adata.X[row_start : row_start + self.load_block_size].data
+            data_mem_map_list.append(data_block)
 
             # The data and column pointer memory maps are instantiated.
             num_elements = sum(arr.shape[0] for arr in column_mem_map_list)
@@ -592,9 +575,51 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             # The data and column pointer memory maps are combined to form the full memory maps.
             for index in range(len(column_mem_map_list)):
                 number_elements = column_mem_map_list[index].shape[0]
-                self.col_index[current_index : current_index + number_elements] = column_mem_map_list[index]
-                self.data[current_index : current_index + number_elements] = data_mem_map_list[index]
+                self.col_index[current_index : current_index + number_elements] = column_mem_map_list[index][:]
+                self.data[current_index : current_index + number_elements] = data_mem_map_list[index][:]
                 current_index += number_elements
+
+        return adata.var, num_rows
+
+    def lazy_load_h5ad(
+        self,
+        anndata_path: str,
+    ) -> Tuple[pd.DataFrame, int]:
+        """Method for block loading a larger h5ad file and converting it to the SCDL format.
+
+        This should be used in the case when the entire anndata file cannot be loaded into memory.
+        The anndata is loaded into memory load_block_size number of rows at a time. Each chunk
+        is converted into numpy memory maps which are then concatenated together.
+
+        Raises:
+            NotImplementedError if the data is not block loaded in the correct format.
+
+        Returns:
+            pd.DataFrame: var variables for features
+            int: number of rows in the dataframe.
+        """
+        adata = ad.read_h5ad(anndata_path, backed=True)
+
+        if not isinstance(adata.X, ad.experimental.CSRDataset):
+            raise NotImplementedError("Sparse Matrix cannot be lazy-loaded.")
+        num_rows = adata.X.shape[0]
+
+        count_data = adata.X[:]
+
+        self.dtypes[f"{FileNames.DATA.value}"] = count_data.dtype
+
+        num_elements_stored = count_data.nnz
+
+        # Create the arrays.
+        self._init_arrs(num_elements_stored, num_rows)
+        self.data[0:num_elements_stored] = count_data.data
+
+        # Store the col idx array
+        self.col_index[0:num_elements_stored] = count_data.indices.astype(int)
+
+        # Store the row idx array
+        self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
+
         return adata.var, num_rows
 
     def load_h5ad(
@@ -620,9 +645,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         file_size_MB = os.path.getsize(anndata_path) / (1_024**2)
 
         if file_size_MB < self.paginated_load_cutoff:
-            features, num_rows = self._regular_load_h5ad(anndata_path)
+            features, num_rows = self.regular_load_h5ad(anndata_path)
+
         else:
-            features, num_rows = self.paginated_load_h5ad(anndata_path)
+            features, num_rows = self.lazy_load_h5ad(anndata_path)
+
         # Collect features and store in FeatureIndex
         self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
 
