@@ -17,7 +17,7 @@
 import pathlib
 import pickle
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import torch
 from overrides import override
@@ -87,11 +87,11 @@ class RaiseAfterMetadataCallback(Callback):
 class AbstractStopAndGoCallback(ABC, Callback):
     """Abstract base class for stop-and-go callback to compare metadata before pausing and after resuming training."""
 
-    def __init__(self, pickle_file_path: str | pathlib.Path, mode: str = "stop"):
+    def __init__(self, pickle_directory: str | pathlib.Path, mode: str = "stop"):
         """Initialize StopAndGoCallback.
 
         Args:
-            pickle_file_path (str | pathlib.Path): Path to the pickle file to save metadata to.
+            pickle_directory (str | pathlib.Path): Directory at which the pickle file to save metadata to.
             mode (str, optional): Mode to run in. Must be either "stop" or "go". Defaults to "stop".
 
         Notes:
@@ -100,19 +100,28 @@ class AbstractStopAndGoCallback(ABC, Callback):
         if mode not in ["stop", "go"]:
             raise ValueError(f"mode must be 'stop' or 'go', got {mode}")
 
-        self.pickle_file_path = pickle_file_path
-        self.mode = mode
-        self.has_compared = False
+        if not isinstance(pickle_directory, pathlib.Path):
+            pickle_directory = pathlib.Path(pickle_directory)
 
-    def write_pickle(self, data: Any):
+        pickle_directory.mkdir(parents=True, exist_ok=True)
+        self.pickle_directory = pickle_directory
+        self.mode = mode
+
+    def write_pickle(self, mode: str, data: Any):
         """Write metadata to pickle file."""
-        with open(self.pickle_file_path, "wb") as f:
+        pickle_file_path = self.pickle_directory / f"metadata_{mode}.pkl"
+        with open(pickle_file_path, "wb") as f:
             pickle.dump(data, f)
 
-    def load_pickle(self) -> Any:
+    def load_pickle(self, mode: str) -> Any:
         """Load metadata from pickle file."""
-        with open(self.pickle_file_path, "rb") as f:
+        pickle_file_path = self.pickle_directory / f"metadata_{mode}.pkl"
+        with open(pickle_file_path, "rb") as f:
             return pickle.load(f)
+
+    def load_stop_and_go_pickles(self) -> Tuple[Any, Any]:
+        """Load both stop and go metadata from pickle files."""
+        return self.load_pickle(mode="stop"), self.load_pickle(mode="go")
 
     @abstractmethod
     def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
@@ -120,27 +129,22 @@ class AbstractStopAndGoCallback(ABC, Callback):
         raise NotImplementedError
 
     @abstractmethod
-    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+    def compare_metadata(self):
         """Compare metadata from stop and go."""
-        self.has_compared = True
+        metadata_stop, metadata_go = self.load_stop_and_go_pickles()
+        #################################
+        ### add comparison logic here ###
+        #################################
         raise NotImplementedError
 
     def on_train_start(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
         if self.mode == "go":
-            metadata_go = self.get_metadata(trainer, pl_module)
-            metadata_stop = self.load_pickle()
-            self.compare_metadata(metadata_stop, metadata_go)
+            self.write_pickle(mode="go", data=self.get_metadata(trainer, pl_module))
 
     def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
         if not trainer.sanity_checking and self.mode == "stop":
             metadata_stop = self.get_metadata(trainer, pl_module)
-            self.write_pickle(metadata_stop)
-
-    def teardown(self, trainer: Trainer, pl_module: LightningModule, stage: str):  # noqa: D102
-        if self.mode == "go" and not self.has_compared:
-            raise RuntimeError(
-                "self.mode = 'go' but self.has_compared is still False. Please override compare_metadata and set self.has_compared to True."
-            )
+            self.write_pickle(mode="stop", data=metadata_stop)
 
 
 class LearningRateStateStopAndGoCallback(AbstractStopAndGoCallback):
@@ -152,9 +156,9 @@ class LearningRateStateStopAndGoCallback(AbstractStopAndGoCallback):
         return trainer.optimizers[0].param_groups[0]["lr"]
 
     @override
-    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+    def compare_metadata(self):
         """Compare learning rates as metadata."""
-        lr_stop, lr_go = metadata_stop, metadata_go
+        lr_stop, lr_go = self.load_stop_and_go_pickles()
         assert lr_stop == lr_go
         self.has_compared = True
 
@@ -168,9 +172,9 @@ class GlobalStepStateStopAndGoCallback(AbstractStopAndGoCallback):
         return trainer.global_step
 
     @override
-    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+    def compare_metadata(self):
         """Compare global_step as metadata."""
-        global_step_stop, global_step_go = metadata_stop, metadata_go
+        global_step_stop, global_step_go = self.load_stop_and_go_pickles()
         assert global_step_stop == global_step_go
         self.has_compared = True
 
@@ -184,9 +188,9 @@ class OptimizerStateStopAndGoCallback(AbstractStopAndGoCallback):
         return [optimizer.mcore_optimizer.optimizer.state_dict()["state"] for optimizer in trainer.optimizers]
 
     @override
-    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+    def compare_metadata(self):
         """Compare optimizer states as metadata."""
-        state_dicts_stop, state_dicts_go = metadata_stop, metadata_go
+        state_dicts_stop, state_dicts_go = self.load_stop_and_go_pickles()
         for state_dict_go, state_dict_stop in zip(state_dicts_stop, state_dicts_go):
             assert tensor_dict_hash(state_dict_go) == tensor_dict_hash(state_dict_stop)
             self.has_compared = True
@@ -206,9 +210,9 @@ class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
         return consumed_samples
 
     @override
-    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+    def compare_metadata(self):
         """Compare consumed samples as metadata."""
-        consumed_samples_stop, consumed_samples_go = metadata_stop, metadata_go
+        consumed_samples_stop, consumed_samples_go = self.load_stop_and_go_pickles()
         assert consumed_samples_stop == consumed_samples_go
         self.has_compared = True
 
@@ -264,8 +268,8 @@ class ManualValLossStopAndGoCallback(AbstractStopAndGoCallback):
         return self.compute_biobert_loss_singlegpu_on_first_validation_batch(trainer, pl_module)
 
     @override
-    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+    def compare_metadata(self):
         """Compare validation loss as metadata."""
-        val_loss_stop, val_loss_go = metadata_stop, metadata_go
+        val_loss_stop, val_loss_go = self.load_stop_and_go_pickles()
         assert val_loss_stop == val_loss_go
         self.has_compared = True
