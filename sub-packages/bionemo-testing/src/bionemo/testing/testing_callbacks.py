@@ -25,8 +25,6 @@ from pytorch_lightning import Callback, LightningModule, Trainer
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-from bionemo.llm.utils.datamodule_utils import tensor_dict_hash
-
 
 def compute_biobert_loss_singlegpu(model, dl: DataLoader, limit_val_batches: int = 1):
     """Computes the loss for BioBert models on a single GPU.
@@ -128,15 +126,6 @@ class AbstractStopAndGoCallback(ABC, Callback):
         """Get metadata from trainer and pl_module."""
         raise NotImplementedError
 
-    @abstractmethod
-    def compare_metadata(self):
-        """Compare metadata from stop and go."""
-        metadata_stop, metadata_go = self.load_stop_and_go_pickles()
-        #################################
-        ### add comparison logic here ###
-        #################################
-        raise NotImplementedError
-
     def on_train_start(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
         if self.mode == "go":
             self.write_pickle(mode="go", data=self.get_metadata(trainer, pl_module))
@@ -155,12 +144,6 @@ class LearningRateStateStopAndGoCallback(AbstractStopAndGoCallback):
         """Get learning rate as metadata."""
         return trainer.optimizers[0].param_groups[0]["lr"]
 
-    @override
-    def compare_metadata(self):
-        """Compare learning rates as metadata."""
-        lr_stop, lr_go = self.load_stop_and_go_pickles()
-        assert lr_stop == lr_go
-
 
 class GlobalStepStateStopAndGoCallback(AbstractStopAndGoCallback):
     """Stop-and-go callback for global_step before pausing and after resuming training."""
@@ -170,12 +153,6 @@ class GlobalStepStateStopAndGoCallback(AbstractStopAndGoCallback):
         """Get global_step as metadata."""
         return trainer.global_step
 
-    @override
-    def compare_metadata(self):
-        """Compare global_step as metadata."""
-        global_step_stop, global_step_go = self.load_stop_and_go_pickles()
-        assert global_step_stop == global_step_go
-
 
 class OptimizerStateStopAndGoCallback(AbstractStopAndGoCallback):
     """Stop-and-go callback to check optimizer states before pausing and after resuming training."""
@@ -184,13 +161,6 @@ class OptimizerStateStopAndGoCallback(AbstractStopAndGoCallback):
     def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> List[Dict[str, torch.Tensor]]:
         """Get optimizer states as metadata."""
         return [optimizer.mcore_optimizer.optimizer.state_dict()["state"] for optimizer in trainer.optimizers]
-
-    @override
-    def compare_metadata(self):
-        """Compare optimizer states as metadata."""
-        state_dicts_stop, state_dicts_go = self.load_stop_and_go_pickles()
-        for state_dict_go, state_dict_stop in zip(state_dicts_stop, state_dicts_go):
-            assert tensor_dict_hash(state_dict_go) == tensor_dict_hash(state_dict_stop)
 
 
 class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
@@ -205,12 +175,6 @@ class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
             trainer.global_step - trainer.datamodule.init_global_step
         )
         return consumed_samples
-
-    @override
-    def compare_metadata(self):
-        """Compare consumed samples as metadata."""
-        consumed_samples_stop, consumed_samples_go = self.load_stop_and_go_pickles()
-        assert consumed_samples_stop == consumed_samples_go
 
 
 class ManualValLossStopAndGoCallback(AbstractStopAndGoCallback):
@@ -262,9 +226,3 @@ class ManualValLossStopAndGoCallback(AbstractStopAndGoCallback):
     def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
         """Get validation loss as metadata."""
         return self.compute_biobert_loss_singlegpu_on_first_validation_batch(trainer, pl_module)
-
-    @override
-    def compare_metadata(self):
-        """Compare validation loss as metadata."""
-        val_loss_stop, val_loss_go = self.load_stop_and_go_pickles()
-        assert val_loss_stop == val_loss_go
