@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import anndata as ad
-import ipdb
+
+# import ipdb
 import numpy as np
 import pandas as pd
 import scipy
@@ -560,7 +561,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # loading in each load_block_size rows into memory.  For each of these load_block_size
         # rows, a numpy memory map is created.
         for row_start in range(0, num_rows, self.load_block_size):
-            ipdb.set_trace()
+            # ipdb.set_trace()
             col_block = adata.X[row_start : row_start + self.load_block_size].indices
             column_mem_map_list.append(col_block)
 
