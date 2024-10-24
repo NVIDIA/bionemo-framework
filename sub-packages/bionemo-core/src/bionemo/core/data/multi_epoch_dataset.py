@@ -124,6 +124,8 @@ class MultiEpochDatasetResampler(Dataset[T_co]):
             raise ValueError("num_epochs must be at least 1.")
 
         rng = np.random.default_rng(self.seed)
+
+        # Initialize a vector of random seeds so that each epoch is shuffled differently.
         self.epoch_seeds = rng.integers(0, np.iinfo(np.int32).max, size=self.num_epochs)
 
     def __getitem__(self, index: int) -> T_co:
