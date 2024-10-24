@@ -80,12 +80,7 @@ if __name__ == "__main__":
 
     dataset = InMemorySingleValueDataset(data)
 
-    # NOTE: Due to the current limitation in inference of NeMo lightning module, partial batches with
-    # size < global_batch_size are not being processed with predict_step(). Therefore we set the global to len(data)
-    # and choose the micro_batch_size so that global batch size is divisible by micro batch size x data parallel size
-    data_module = ESM2FineTuneDataModule(
-        predict_dataset=dataset, global_batch_size=len(data), micro_batch_size=len(data)
-    )
+    data_module = ESM2FineTuneDataModule(predict_dataset=dataset, global_batch_size=8, micro_batch_size=8)
 
     # To download a pre-trained ESM2 model that works with this inference script, run the following command...
     # $ download_bionemo_data esm2/650m:2.0 --source ngc

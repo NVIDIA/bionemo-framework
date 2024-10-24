@@ -106,6 +106,7 @@ class ESM2FineTuneDataModule(pl.LightningDataModule):
             dataloader_type="single",  # `MegatronPretrainingRandomSampler` from "cyclic" is failing.
             rampup_batch_size=rampup_batch_size,
             output_log=predict_dataset is None,  # logging does not work with predict step
+            drop_last=predict_dataset is None,  # infer partial batches during inference
         )
 
     def setup(self, stage: str) -> None:
