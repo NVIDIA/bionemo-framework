@@ -213,4 +213,59 @@ class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
         self.has_compared = True
 
 
-# TODO @sichu: add ValLossStopAndGoCallback
+class ManualValLossStopAndGoCallback(AbstractStopAndGoCallback):
+    """Stop-and-go callback to check validation loss manually before pausing and after resuming training."""
+
+    def compute_biobert_loss_singlegpu_on_first_validation_batch(
+        self, trainer: Trainer, pl_module: LightningModule
+    ) -> float:
+        """Computes the loss for BioBert models on a single GPU on the first validation batch.
+
+        This will not function in multi-gpu settings nor with models that do not conform to BioBert.
+
+        Args:
+            trainer (pl.Trainer): The Lightning Trainer object.
+            pl_module (pl.LightningModule): The LightningModule being trained.
+
+        Returns:
+            float: The mean loss.
+
+        See Also:
+        - :class: BioBertModel
+        """
+        is_training = pl_module.training
+        dl = trainer.datamodule.val_dataloader()
+
+        with torch.no_grad():
+            n, loss = -1, 0.0
+            pl_module.eval()  # turn off dropout, etc.
+            # batch = next(iter(dl))
+            batch = pl_module.data_step(iter(dl))
+            result = pl_module(
+                input_ids=batch["text"].cuda(),  # 'tokens' also a valid input for MockGPTDataModule
+                attention_mask=batch["attention_mask"].cuda(),
+            )
+            loss_mask = batch["loss_mask"].cuda()
+            # Not guaranteed i guess?
+            logits = result["token_logits"]
+            target = batch["labels"].cuda()
+            loss += F.cross_entropy(logits[loss_mask].float(), target[loss_mask], reduction="sum")
+            n += loss_mask.sum()
+            mean_loss: float = (loss / n).detach().cpu().numpy().item()
+
+        if is_training:
+            pl_module.train()
+
+        return mean_loss
+
+    @override
+    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
+        """Get validation loss as metadata."""
+        return self.compute_biobert_loss_singlegpu_on_first_validation_batch(trainer, pl_module)
+
+    @override
+    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+        """Compare validation loss as metadata."""
+        val_loss_stop, val_loss_go = metadata_stop, metadata_go
+        assert val_loss_stop == val_loss_go
+        self.has_compared = True
