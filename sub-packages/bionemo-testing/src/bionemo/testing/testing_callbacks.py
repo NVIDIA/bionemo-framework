@@ -192,4 +192,25 @@ class OptimizerStateStopAndGoCallback(AbstractStopAndGoCallback):
             self.has_compared = True
 
 
+class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
+    """Stop-and-go callback to check consumed samples before pausing and after resuming training."""
+
+    @override
+    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
+        """Get consumed samples as metadata."""
+        # return trainer.datamodule.state_dict()["consumed_samples"]  # TODO why state_dict can be empty despite working lines below
+        data_sampler = trainer.datamodule.data_sampler
+        consumed_samples = data_sampler.compute_consumed_samples(
+            trainer.global_step - trainer.datamodule.init_global_step
+        )
+        return consumed_samples
+
+    @override
+    def compare_metadata(self, metadata_stop: Any, metadata_go: Any):
+        """Compare consumed samples as metadata."""
+        consumed_samples_stop, consumed_samples_go = metadata_stop, metadata_go
+        assert consumed_samples_stop == consumed_samples_go
+        self.has_compared = True
+
+
 # TODO @sichu: add ValLossStopAndGoCallback
