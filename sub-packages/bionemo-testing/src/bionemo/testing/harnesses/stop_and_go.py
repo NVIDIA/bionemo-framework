@@ -249,6 +249,10 @@ class StopAndGoHarness(ABC):
                     pickle_file_path=self.metadata_dir / "consumed_samples.pkl",
                     mode="stop",
                 ),
+                testing_callbacks.ManualValLossStopAndGoCallback(
+                    pickle_file_path=self.metadata_dir / "manual_val_loss.pkl",
+                    mode="stop",
+                ),
                 testing_callbacks.RaiseAfterMetadataCallback(),
             ]
         elif mode == "go":
@@ -275,6 +279,10 @@ class StopAndGoHarness(ABC):
                 ),
                 testing_callbacks.ComsumedSamplesStopAndGoCallback(
                     pickle_file_path=self.metadata_dir / "consumed_samples.pkl",
+                    mode="go",
+                ),
+                testing_callbacks.ManualValLossStopAndGoCallback(
+                    pickle_file_path=self.metadata_dir / "manual_val_loss.pkl",
                     mode="go",
                 ),
             ]
