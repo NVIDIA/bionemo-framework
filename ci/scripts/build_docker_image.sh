@@ -34,6 +34,7 @@ Options:
   -regular-docker-builder           Optional. By default the docker image is built using insecure-builder - a tool for Docker that allows you to build images with additional features like multi-platform builds, better caching mechanisms,
                                     and advanced configurations. It uses BuildKit under the hood, which is a modern build engine with improved performance and flexibility but requires more a flexible security policy.
                                     To enable a regular docker builder, use this flag. For details visit https://docs.docker.com/reference/cli/docker/buildx/build/
+  -dev                              Build the devcontainer base image, where all dependencies but no workspace packages are installed.
   -help                             Display this help message.
 
 Examples:
@@ -59,6 +60,7 @@ EOF
 USE_CACHE=false
 ONLY_IMAGE_NAME=false
 PUSH_IMAGE=false
+DEV_IMAGE=false
 USE_NIGHTLY_CACHE=false
 ALLOW_INSECURE_DOCKER_BUILDER=true
 
@@ -83,6 +85,7 @@ while [[ "$#" -gt 0 ]]; do
         -push) PUSH_IMAGE=true; shift ;;
         -print-image-name) ONLY_IMAGE_NAME=true; shift ;;
         -regular-docker-builder) ALLOW_INSECURE_DOCKER_BUILDER=false; shift ;;
+        -dev) DEV_IMAGE=true; shift ;;
         -help) display_help ;;
         *) echo "Unknown parameter: $1"; display_help ;;
     esac
@@ -154,6 +157,13 @@ if [ "$PUSH_IMAGE" = true ]; then
     PUSH_OPTION="--push"
 fi
 
+# Target option
+TARGET_OPTION=""
+if [ "$DEV_IMAGE" = true ]; then
+    echo "The image ${IMAGE_NAME} will be built from the 'dev' target."
+    TARGET_OPTION="--target dev"
+fi
+
 ## Ensure the requirements of docker and docker buildx versions are satisfied
 if ! verify_required_docker_version; then
     exit 1
@@ -173,7 +183,7 @@ docker context ls
 set -u
 # Build the Docker image
 docker buildx build $EXTRA_ARGS \
-  --provenance=false $LABELS_ARGS $CACHE_ARGS $PUSH_OPTION \
+  --provenance=false $LABELS_ARGS $CACHE_ARGS $PUSH_OPTION $TARGET_OPTION \
   -t "${IMAGE_NAME}" \
   -f "${DOCKERFILE_PATH}" .
 set +x
