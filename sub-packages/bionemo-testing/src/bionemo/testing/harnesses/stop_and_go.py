@@ -14,17 +14,16 @@
 # limitations under the License.
 
 
-from abc import ABC, abstractmethod
-from pathlib import Path
+import unittest
+from abc import ABC
 from typing import Any, Callable, Literal, Sequence, TypedDict
 
 import nemo.lightning as nl
 import pytorch_lightning as pl
 from nemo.collections import llm
-from nemo.lightning import nemo_logger, resume
+from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 
-from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.testing import testing_callbacks
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 
@@ -92,7 +91,7 @@ def get_consumed_samples(trainer: pl.Trainer, model: pl.LightningModule) -> Any:
     return consumed_samples
 
 
-class StopAndGoHarness(ABC):
+class StopAndGoHarness(ABC, unittest.TestCase):
     """Abstract base class for a stop-and-go harness.
 
     Stop and go tests act as follows:
@@ -127,43 +126,10 @@ class StopAndGoHarness(ABC):
     See Also: bionemo.testing.callbacks.
     """
 
-    def __init__(
-        self,
-        root_dir: Path | str = BIONEMO_CACHE_DIR,
-        val_check_interval: int = 2,
-        exp_name: str = "stop_and_go_harness",
-        extra_metrics_dict: dict[str, MetricsFn] | None = None,
-    ):
-        """Initializes the StopAndGoHarness object.
-
-        Args:
-            root_dir: The root directory. Defaults to Path("./").
-            val_check_interval: The validation check interval. Defaults to 2.
-            exp_name: The experiment name. Defaults to "stop_and_go_harness".
-            extra_metrics_dict: A dictionary that maps keys to 'functions capable of computing metrics in a callback.'
-                Callbacks typically have an interface where both the Trainer and LightningModule are available, meaning any metric that
-                can be computed using these are viable functions to pass in to this dictionary. By default 'global_step' and 'learning_rate' are available.
-        """
-        self.root_dir = Path(root_dir)  # Set to bionemo2_home ideally.
-        self.exp_name = exp_name
-        self.metadata_dir = self.root_dir / self.exp_name
-        self.metrics_getter: dict[str, MetricsFn] = dict(**self.get_default_metrics_dict())
-        if extra_metrics_dict is not None:
-            self.metrics_getter.update(extra_metrics_dict)
-        self.val_check_interval = val_check_interval
-        self.nemo_logger: nemo_logger.NeMoLogger = nemo_logger.NeMoLogger(
-            log_dir=str(self.root_dir),
-            name=self.exp_name,
-            use_datetime_version=False,
-            version=None,
-            tensorboard=None,
-            wandb=None,
-            ckpt=None,
-        )
-
-    @abstractmethod
+    @classmethod
+    # @abstractmethod
     def setup_model(
-        self, mode: Literal["stop", "go"]
+        cls, mode: Literal["stop", "go"]
     ) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
         """Constructs the model, data, and optimizer for the test harness.
 
@@ -178,21 +144,8 @@ class StopAndGoHarness(ABC):
         """
         raise NotImplementedError()
 
-    @abstractmethod
-    def setup_trainer_and_strategy(
-        self, mode: Literal["stop", "go"], metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
-    ) -> pl.Trainer:
-        """Constructs the trainer object for the stop and go test.
-
-        This method invokes the get_callbacks method to get the appropriate callbacks for the mode and passes it to the trainer.
-
-        Args:
-            mode: The mode indicating whether to stop or go.
-            metrics_getter: A dictionary of functions that computes the metrics.
-        """
-        raise NotImplementedError()
-
-    def get_default_metrics_dict(self) -> MetricsDict:
+    @classmethod
+    def get_default_metrics_dict(cls) -> MetricsDict:
         """Returns a dictionary of default metrics that can be used in the StopAndGoHarness.
 
         Returns:
@@ -204,7 +157,8 @@ class StopAndGoHarness(ABC):
             "consumed_samples": get_consumed_samples,
         }
 
-    def get_callbacks(self, mode: Literal["stop", "go"]) -> list[pl.Callback]:
+    @classmethod
+    def get_default_callbacks(cls, mode: Literal["stop", "go"]) -> list[pl.Callback]:
         """Returns a list of callbacks based on the specified mode. Base implemention provides reasonable defaults.
 
         To extend this method, call the super and append to the callbacks, depending on which mode you are in:
@@ -230,27 +184,27 @@ class StopAndGoHarness(ABC):
                     save_last=True,
                     monitor="reduced_train_loss",
                     save_top_k=2,
-                    every_n_train_steps=self.val_check_interval,
+                    every_n_train_steps=cls.val_check_interval,
                     always_save_context=True,
                 ),
                 testing_callbacks.LearningRateStateStopAndGoCallback(
-                    pickle_file_path=self.metadata_dir / "learning_rate.pkl",
+                    pickle_directory=cls.metadata_dir / "learning_rate.pkl",
                     mode="stop",
                 ),
                 testing_callbacks.GlobalStepStateStopAndGoCallback(
-                    pickle_file_path=self.metadata_dir / "global_step.pkl",
+                    pickle_directory=cls.metadata_dir / "global_step.pkl",
                     mode="stop",
                 ),
                 testing_callbacks.OptimizerStateStopAndGoCallback(
-                    pickle_file_path=self.metadata_dir / "optimizer_state.pkl",
+                    pickle_directory=cls.metadata_dir / "optimizer_state.pkl",
                     mode="stop",
                 ),
                 testing_callbacks.ComsumedSamplesStopAndGoCallback(
-                    pickle_file_path=self.metadata_dir / "consumed_samples.pkl",
+                    pickle_directory=cls.metadata_dir / "consumed_samples.pkl",
                     mode="stop",
                 ),
                 testing_callbacks.ManualValLossStopAndGoCallback(
-                    pickle_file_path=self.metadata_dir / "manual_val_loss.pkl",
+                    pickle_directory=cls.metadata_dir / "manual_val_loss.pkl",
                     mode="stop",
                 ),
                 testing_callbacks.RaiseAfterMetadataCallback(),
@@ -262,27 +216,27 @@ class StopAndGoHarness(ABC):
                     save_last=True,
                     monitor="reduced_train_loss",
                     save_top_k=2,
-                    every_n_train_steps=self.val_check_interval,
+                    every_n_train_steps=cls.val_check_interval,
                     always_save_context=True,
                 ),
                 testing_callbacks.LearningRateStateStopAndGoCallback(
-                    pickle_file_path=self.metadata_dir / "learning_rate.pkl",
+                    pickle_directory=cls.metadata_dir / "learning_rate.pkl",
                     mode="go",
                 ),
                 testing_callbacks.GlobalStepStateStopAndGoCallback(
-                    pickle_file_path=self.metadata_dir / "global_step.pkl",
+                    pickle_directory=cls.metadata_dir / "global_step.pkl",
                     mode="go",
                 ),
                 testing_callbacks.OptimizerStateStopAndGoCallback(
-                    pickle_file_path=self.metadata_dir / "optimizer_state.pkl",
+                    pickle_directory=cls.metadata_dir / "optimizer_state.pkl",
                     mode="go",
                 ),
                 testing_callbacks.ComsumedSamplesStopAndGoCallback(
-                    pickle_file_path=self.metadata_dir / "consumed_samples.pkl",
+                    pickle_directory=cls.metadata_dir / "consumed_samples.pkl",
                     mode="go",
                 ),
                 testing_callbacks.ManualValLossStopAndGoCallback(
-                    pickle_file_path=self.metadata_dir / "manual_val_loss.pkl",
+                    pickle_directory=cls.metadata_dir / "manual_val_loss.pkl",
                     mode="go",
                 ),
             ]
@@ -292,7 +246,8 @@ class StopAndGoHarness(ABC):
         return callbacks
 
     # stop() and go() are provided methods and run the requisite methods with the appropriate mode.
-    def stop(self) -> None:
+    @classmethod
+    def stop(cls) -> None:
         """Runs pre-training and 'stops' after the first checkpoint is saved.
 
         This method sets up the model, data, and optimizer for the "stop" mode.
@@ -303,15 +258,15 @@ class StopAndGoHarness(ABC):
         Raises:
             testing_callbacks.StopAndGoException: If a stop and go exception occurs during training.
         """
-        model, data, opt = self.setup_model(mode="stop")
-        trainer = self.setup_trainer_and_strategy("stop", self.metrics_getter)
+        model, data, opt = cls.setup_model(mode="stop")
+        trainer = cls.setup_trainer_and_strategy("stop")
         with distributed_model_parallel_state():
             try:
                 llm.train(
                     model=model,
                     data=data,
                     trainer=trainer,
-                    log=self.nemo_logger,
+                    log=cls.nemo_logger,
                     optim=opt,
                     resume=resume.AutoResume(
                         resume_if_exists=False,  # Looks for the -last checkpoint to continue training.
@@ -321,16 +276,17 @@ class StopAndGoHarness(ABC):
             except testing_callbacks.StopAndGoException:
                 return
 
-    def go(self) -> None:
+    @classmethod
+    def go(cls) -> None:
         """Resumes the model from the checkpoint saved at the end of `stop()` and verifies the metadata integrity."""
-        model, data, opt = self.setup_model(mode="go")
-        trainer = self.setup_trainer_and_strategy("go", self.metrics_getter)
+        model, data, opt = cls.setup_model(mode="go")
+        trainer = cls.setup_trainer_and_strategy("go")
         with distributed_model_parallel_state():
             llm.train(
                 model=model,
                 data=data,
                 trainer=trainer,
-                log=self.nemo_logger,
+                log=cls.nemo_logger,
                 optim=opt,
                 resume=resume.AutoResume(
                     resume_if_exists=True,  # Looks for the -last checkpoint to continue training.
@@ -339,7 +295,34 @@ class StopAndGoHarness(ABC):
             )
 
     # Finally, execution is a simple stop => go.
-    def run_test(self):
+    @classmethod
+    def stop_and_go(cls):
         """Executes the stop => go process."""
-        self.stop()
-        self.go()
+        cls.stop()
+        cls.go()
+
+    # should we hide shared tests?
+    def test_learning_rate_stop_and_go(self):
+        """Tests the learning rate stop and go functionality."""
+        callback: testing_callbacks.LearningRateStateStopAndGoCallback = self.__class__.go_callbacks[1]
+        callback.compare_metadata()
+
+    def test_global_step_stop_and_go(self):
+        """Tests the global step in stop-and-go scenario."""
+        callback: testing_callbacks.GlobalStepStateStopAndGoCallback = self.__class__.go_callbacks[2]
+        callback.compare_metadata()
+
+    def test_optimizer_state_stop_and_go(self):
+        """Tests the optimizer state in stop-and-go scenario."""
+        callback: testing_callbacks.OptimizerStateStopAndGoCallback = self.__class__.go_callbacks[3]
+        callback.compare_metadata()
+
+    def test_consumed_samples_stop_and_go(self):
+        """Tests the consumed samples in stop-and-go scenario."""
+        callback: testing_callbacks.ComsumedSamplesStopAndGoCallback = self.__class__.go_callbacks[4]
+        callback.compare_metadata()
+
+    def test_manual_val_loss_stop_and_go(self):
+        """Tests validation loss of the first batch in non-sanity-check validation epoch in stop-and-go scenario."""
+        callback: testing_callbacks.ManualValLossStopAndGoCallback = self.__class__.go_callbacks[5]
+        callback.compare_metadata()

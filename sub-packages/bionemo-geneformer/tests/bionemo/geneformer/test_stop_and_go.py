@@ -26,12 +26,14 @@ How to adapt these tests:
 
 import math
 import pathlib
-from typing import Any, Callable, Literal
+import tempfile
+from typing import List, Literal
 
 import pytorch_lightning as pl
 import torch
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo import lightning as nl
+from nemo.lightning import nemo_logger
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies import MegatronStrategy
@@ -42,15 +44,13 @@ from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
-from bionemo.llm.model.biobert.testing_utils import (
-    compute_biobert_loss_singlegpu,
-)
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.testing.data.load import load
 from bionemo.testing.harnesses import stop_and_go
 
 
-data_path: pathlib.Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
+# TODO @sichu: move to load function
+DATA_PATH: pathlib.Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
 
 MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
 USE_TE: bool = False  # TODO use this for high level decisions around whether we're ready to switch to TE
@@ -95,12 +95,12 @@ def geneformer_config():
     )
 
 
-def geneformer_datamodule(tokenizer, seq_length, median_dict, devices, tensor_model_parallel_size, data_path):
+def geneformer_datamodule(tokenizer, seq_length, median_dict, data_path=DATA_PATH):
     from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 
     num_dataset_workers = 0
     data = SingleCellDataModule(
-        seq_length=128,
+        seq_length=seq_length,
         tokenizer=tokenizer,
         train_dataset_path=data_path / "train",
         val_dataset_path=data_path / "val",
@@ -108,7 +108,7 @@ def geneformer_datamodule(tokenizer, seq_length, median_dict, devices, tensor_mo
         random_token_prob=0.1,  # this is the incorrect setting we originally used.
         median_dict=median_dict,
         micro_batch_size=2,
-        global_batch_size=2 * int(devices),  # micro batch size times divices
+        global_batch_size=2 * 1,  # micro batch size times divices
         # persistent workers is supported when num_dataset_workers > 0
         persistent_workers=num_dataset_workers > 0,
         pin_memory=False,
@@ -118,23 +118,21 @@ def geneformer_datamodule(tokenizer, seq_length, median_dict, devices, tensor_mo
 
 
 class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
-    def __init__(
-        self,
-        root_dir: pathlib.Path | str,
-        val_check_interval=2,
-        exp_name="geneformer_stop_and_go",
-    ):
-        extra_metrics_dict = {
-            "val_loss": compute_biobert_loss_singlegpu,
-        }
-        super().__init__(
-            root_dir=root_dir,
-            extra_metrics_dict=extra_metrics_dict,
-            val_check_interval=val_check_interval,
-            exp_name=exp_name,
-        )
-        self.data_dir: pathlib.Path = data_path
-        train_data_path = self.data_dir / "train"
+    @override
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.tempdir = tempfile.TemporaryDirectory()
+        cls.metadata_dir = pathlib.Path(cls.tempdir.name)
+        cls.exp_name = "geneformer_stop_and_go"
+
+        # setup run parameters
+        cls.num_steps = 4
+        cls.lr = 1e-4
+        cls.val_check_interval = 2
+
+        # setup data
+        train_data_path = DATA_PATH / "train"
         preprocessor = GeneformerPreprocess(
             download_directory=train_data_path,
             medians_file_path=train_data_path / "medians.json",
@@ -142,71 +140,85 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
         )
         match preprocessor.preprocess():
             case {"tokenizer": tokenizer, "median_dict": median_dict}:
-                self.tokenizer, self.median_dict = tokenizer, median_dict
+                cls.tokenizer, cls.median_dict = tokenizer, median_dict
             case _:
                 raise ValueError("Preprocessing must have failed.")
 
+        # TODO move into parent method
+        # setup nemo logger
+        cls.nemo_logger: nemo_logger.NeMoLogger = nemo_logger.NeMoLogger(
+            log_dir=str(cls.tempdir),
+            name=cls.exp_name,
+            use_datetime_version=False,
+            version=None,
+            tensorboard=None,
+            wandb=None,
+            ckpt=None,
+        )
+
+        # TODO change type from list to dictionary for ease of access
+        # setup callbacks; add your custom callbacks here
+        cls.stop_callbacks: List[pl.Callback] = cls.get_default_callbacks(mode="stop")
+        cls.go_callbacks: List[pl.Callback] = cls.get_default_callbacks(mode="go")
+
+        # run stop and go
+        cls.stop_and_go()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.tempdir.cleanup()
+
     @override
+    @classmethod
     def setup_model(
-        self, mode: Literal["stop", "go"]
+        cls, mode: Literal["stop", "go"]
     ) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
-        devices, tp_size = 1, 1
-        num_steps = 4
-        lr = 1e-4
         optim = MegatronOptimizerModule(
             config=OptimizerConfig(
-                lr=lr,
+                lr=cls.lr,
                 optimizer="adam",
                 use_distributed_optimizer=True,
             ),
             lr_scheduler=CosineAnnealingScheduler(
-                max_steps=num_steps,
-                min_lr=lr / 100,
-                warmup_steps=int(math.ceil(num_steps * 0.1)),
+                max_steps=cls.num_steps,
+                min_lr=cls.lr / 100,
+                warmup_steps=int(math.ceil(cls.num_steps * 0.1)),
                 interval="step",
                 monitor="reduced_train_loss",
-                constant_steps=int(math.ceil(num_steps * 0.1)),
+                constant_steps=int(math.ceil(cls.num_steps * 0.1)),
             ),
         )
-        module = biobert_lightning_module(config=geneformer_config(), tokenizer=self.tokenizer, optimizer=optim)
+        module = biobert_lightning_module(config=geneformer_config(), tokenizer=cls.tokenizer, optimizer=optim)
 
         data = geneformer_datamodule(
-            self.tokenizer,
-            128,
-            self.median_dict,
-            devices=devices,
-            tensor_model_parallel_size=tp_size,
-            data_path=self.data_dir,
+            tokenizer=cls.tokenizer,
+            seq_length=128,
+            median_dict=cls.median_dict,
         )
         return module, data, optim
 
     @override
+    @classmethod
     def setup_trainer_and_strategy(
-        self, mode: Literal["stop", "go"], metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
-    ) -> pl.Trainer:
-        devices, tp_size, pp_size = 1, 1, 1
+        cls,
+        mode: Literal["stop", "go"],
+    ) -> nl.Trainer:
         strategy = MegatronStrategy(
-            tensor_model_parallel_size=tp_size,
-            pipeline_model_parallel_size=pp_size,
             ddp="megatron",
             find_unused_parameters=True,
             ckpt_include_optimizer=True,
         )
 
         trainer = nl.Trainer(
-            devices=devices,
-            max_steps=4,  # Hardcoded to debug
+            devices=1,
+            max_steps=cls.num_steps,  # Hardcoded to debug
             accelerator="gpu",
             strategy=strategy,
             limit_val_batches=2,  # Hardcoded to coyp pretrain
-            val_check_interval=self.val_check_interval,
-            log_every_n_steps=self.val_check_interval,
+            val_check_interval=cls.val_check_interval,
+            log_every_n_steps=cls.val_check_interval,
             num_nodes=1,
-            callbacks=self.get_callbacks(mode=mode),
+            callbacks=cls.stop_callbacks if mode == "stop" else cls.go_callbacks,
             plugins=nl.MegatronMixedPrecision(precision=MODEL_PRECISION),
         )
         return trainer
-
-
-def test_geneformer_example(tmp_path):
-    GeneformerStopAndGoTest(root_dir=tmp_path).run_test()
