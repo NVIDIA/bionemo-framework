@@ -168,7 +168,7 @@ class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
     """Stop-and-go callback to check consumed samples before pausing and after resuming training."""
 
     @override
-    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
+    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> int:
         """Get consumed samples as metadata."""
         # return trainer.datamodule.state_dict()["consumed_samples"]  # TODO why state_dict can be empty despite working lines below
         data_sampler = trainer.datamodule.data_sampler
