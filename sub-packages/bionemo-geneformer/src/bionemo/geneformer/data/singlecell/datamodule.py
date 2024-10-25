@@ -171,13 +171,13 @@ class SingleCellDataModule(MegatronDataModule):
         self._test_ds = self._sample_and_shuffle_dataset(self._test_dataset_ori, num_test_samples, "test")
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:  # noqa: D102
-        return self._create_dataloader(self._train_ds)
+        return self._create_dataloader(self._train_ds, mode="train")
 
     def val_dataloader(self) -> EVAL_DATALOADERS:  # noqa: D102
         return self._create_dataloader(self._validation_ds, mode="validation")
 
     def test_dataloader(self) -> EVAL_DATALOADERS:  # noqa: D102
-        return self._create_dataloader(self._test_ds)
+        return self._create_dataloader(self._test_ds, mode="test")
 
     def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:
         """Create dataloader for train, validation, and test stages.
