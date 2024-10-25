@@ -20,12 +20,12 @@ import pytorch_lightning as pl
 from nemo.utils import logging
 
 
-class MegatronDatamodule(pl.LightningDataModule):
+class MegatronDataModule(pl.LightningDataModule):
     """A mixin that adds a `state_dict` and `load_state_dict` method for datamodule training resumption in NeMo."""
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         """Set init_global_step to 0 for datamodule resumption."""
-        super().__init__()
+        super().__init__(*args, **kwargs)
         self.init_global_step = 0
 
     def update_init_global_step(self):
@@ -42,7 +42,6 @@ class MegatronDatamodule(pl.LightningDataModule):
             A dictionary containing datamodule state.
 
         """
-        # TODO @sichu can silently fail and return None in Callbacks
         consumed_samples = self.data_sampler.compute_consumed_samples(self.trainer.global_step - self.init_global_step)
         return {"consumed_samples": consumed_samples}
 

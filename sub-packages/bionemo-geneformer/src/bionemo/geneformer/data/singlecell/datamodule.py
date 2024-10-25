@@ -16,9 +16,10 @@
 
 import functools
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Literal, Optional, Sequence
 
 import numpy as np
+from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
@@ -30,14 +31,16 @@ from bionemo.core.utils import random_utils
 from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import collate
-from bionemo.llm.data.datamodule import MegatronDatamodule
+from bionemo.llm.data.datamodule import MegatronDataModule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
+
+Mode = Literal["train", "validation", "test"]
 
 __all__: Sequence[str] = ("SingleCellDataModule",)
 
 
-class SingleCellDataModule(MegatronDatamodule):
+class SingleCellDataModule(MegatronDataModule):
     """LightningDataModule wrapper of `SingleCellDataset`
 
     Args:
@@ -192,9 +195,17 @@ class SingleCellDataModule(MegatronDatamodule):
     def test_dataloader(self) -> EVAL_DATALOADERS:  # noqa: D102
         return self._create_dataloader(self._test_ds, mode="test")
 
-    def _create_dataloader(self, dataset, **kwargs) -> WrappedDataLoader:
+    def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:
+        """Create dataloader for train, validation, and test stages.
+
+        Args:
+            dataset: The dataset to create the dataloader for.
+            mode: Stage of training, which is used to determined if consumed_samples in MegatronPretrainingSampler should be initialized to 0 (validation/test), or be set to the previous value from state_dict in case of checkpoint resumption (train).
+            **kwargs: Additional arguments to pass to the dataloader.
+        """
         self.update_init_global_step()
         return WrappedDataLoader(
+            mode=mode,
             dataset=dataset,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,

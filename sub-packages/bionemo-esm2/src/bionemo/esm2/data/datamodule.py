@@ -19,17 +19,21 @@ import os
 from typing import Literal
 
 from nemo.lightning.data import WrappedDataLoader
+from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 
 from bionemo.esm2.data import dataset, tokenizer
 from bionemo.llm.data import collate
-from bionemo.llm.data.datamodule import MegatronDatamodule
+from bionemo.llm.data.datamodule import MegatronDataModule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
-class ESMDataModule(MegatronDatamodule):
+Mode = Literal["train", "validation", "test"]
+
+
+class ESMDataModule(MegatronDataModule):
     """LightningDataModule wrapper of `ESMDataset`."""
 
     def __init__(
@@ -171,12 +175,21 @@ class ESMDataModule(MegatronDatamodule):
             hasattr(self, "trainer") and self.trainer is not None
         ), "Setup should be completed when trainer and config are attached."
 
-    def _create_dataloader(self, dataset, **kwargs) -> WrappedDataLoader:
+    def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:
+        """Create dataloader for train, validation, and test stages.
+
+        Args:
+            dataset: The dataset to create the dataloader for.
+            mode: Stage of training, which is used to determined if consumed_samples in MegatronPretrainingSampler should be initialized to 0 (validation/test), or be set to the previous value from state_dict in case of checkpoint resumption (train).
+            **kwargs: Additional arguments to pass to the dataloader.
+        """
+        self.update_init_global_step()
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
         self.init_global_step = self.trainer.global_step
         self.data_sampler.init_global_step = self.init_global_step
 
         return WrappedDataLoader(
+            mode=mode,
             dataset=dataset,
             num_workers=self._num_workers,
             pin_memory=self._pin_memory,
