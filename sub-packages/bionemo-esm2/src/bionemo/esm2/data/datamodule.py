@@ -171,12 +171,12 @@ class ESMDataModule(MegatronDatamodule):
             hasattr(self, "trainer") and self.trainer is not None
         ), "Setup should be completed when trainer and config are attached."
 
-    def _create_dataloader(self, dataset, **kwargs) -> WrappedDataLoader:
+    def _create_dataloader(self, dataset, mode: Literal["train", "validation", "test"]) -> WrappedDataLoader:
+        self.update_init_global_step()
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
-        self.init_global_step = self.trainer.global_step
-        self.data_sampler.init_global_step = self.init_global_step
 
         return WrappedDataLoader(
+            mode=mode,
             dataset=dataset,
             num_workers=self._num_workers,
             pin_memory=self._pin_memory,
@@ -187,7 +187,6 @@ class ESMDataModule(MegatronDatamodule):
                 min_length=self._min_seq_length,
                 max_length=self._max_seq_length,
             ),
-            **kwargs,
         )
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:
