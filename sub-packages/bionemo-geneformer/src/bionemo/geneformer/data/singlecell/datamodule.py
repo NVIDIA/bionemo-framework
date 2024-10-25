@@ -24,7 +24,6 @@ from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 from tokenizers import Tokenizer
-from torch.utils.data import DataLoader
 
 from bionemo.core.data.resamplers import PRNGResampleDataset
 from bionemo.core.utils import random_utils
