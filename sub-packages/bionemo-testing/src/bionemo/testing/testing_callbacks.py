@@ -29,6 +29,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
 from bionemo.testing.harnesses.mode import Mode
+from bionemo.testing.torch import recursive_detach
 
 
 def compute_biobert_loss_singlegpu(model, dl: DataLoader, limit_val_batches: int = 1):
@@ -185,7 +186,7 @@ class OptimizerStateStopAndGoCallback(AbstractStopAndGoCallback):
         return [optimizer.mcore_optimizer.optimizer.state_dict()["state"] for optimizer in trainer.optimizers]
 
 
-class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
+class ConsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
     """Stop-and-go callback to check consumed samples before pausing and after resuming training."""
 
     @override
@@ -199,7 +200,7 @@ class ComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
         return consumed_samples
 
 
-class TrainValInitComsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
+class TrainValInitConsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
     """Stop-and-go callback to check consumed samples before pausing and after resuming training."""
 
     @override
@@ -268,8 +269,10 @@ class InputAndOutputIdentityCallback(Callback, CallbackMethods, io.IOMixin):
     def __init__(self):
         """Initializes the callback."""
         super().__init__()
-        self.inputs = []
-        self.outputs = []
+        self.train_inputs = []
+        self.train_outputs = []
+        self.valid_inputs = []
+        self.valid_outputs = []
 
     def on_megatron_microbatch_end(
         self,
@@ -279,9 +282,19 @@ class InputAndOutputIdentityCallback(Callback, CallbackMethods, io.IOMixin):
         output: Any,
     ) -> None:
         """Store the input and output data for later comparison."""
-        del step, forward_callback  # unused
-        self.inputs.append(batch)
-        self.outputs.append(output)
+        if step.trainer.sanity_checking:
+            return
+
+        elif step.trainer.training:
+            self.train_inputs.append(recursive_detach(batch))
+            self.train_outputs.append(recursive_detach(output))
+
+        elif step.trainer.validating:
+            self.valid_inputs.append(recursive_detach(batch))
+            self.valid_outputs.append(recursive_detach(output))
+
+        else:
+            raise RuntimeError(f"Unexpected Mode: {step.trainer.state.stage}")
 
     def __deepcopy__(self, memo):
         """Don't actually attempt to copy this data when this callback is being serialized."""

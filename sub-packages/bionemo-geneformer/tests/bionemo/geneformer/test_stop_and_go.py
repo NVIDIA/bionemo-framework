@@ -176,7 +176,7 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
 
     def test_train_val_init_consumed_samples(self):
         """Override the parent test here because we know that train_consumed_go should be 8"""
-        callback: testing_callbacks.TrainValInitComsumedSamplesStopAndGoCallback = self.go_callbacks[
+        callback: testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback = self.resume_callbacks[
             "TrainValInitComsumedSamplesStopAndGoCallback"
         ]
         (
