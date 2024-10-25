@@ -21,15 +21,19 @@ import pytorch_lightning as pl
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
+from typing_extensions import override
 
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
-from bionemo.esm2.data.dataset import RandomMaskStrategy
+from bionemo.esm2.data.dataset import (
+    RandomMaskStrategy,
+    create_dummy_parquet_train_val_inputs,
+    create_dummy_protein_dataset,
+)
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
-from bionemo.llm.model.biobert.testing_utils import compute_biobert_loss_singlegpu
 from bionemo.testing.harnesses import stop_and_go
 
 
@@ -37,43 +41,43 @@ MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
 
 
 class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
-    def __init__(
-        self,
-        dummy_parquet_train_val_inputs,  # FIXME get these things in here from pytest
-        dummy_protein_dataset,  # FIXME get these things in here from pytest
-        val_check_interval=2,
-        exp_name="esm2_stop_and_go",
-    ):
-        train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
+    num_steps: int = 10
+    val_check_interval: int = 4
+    limit_val_batches: int = 2
+    lr: float = 1e-4
+    precision: Literal["16-mixed", "bf16-mixed", "32"] = get_autocast_dtype(MODEL_PRECISION)
 
-        extra_metrics_dict = {"val_loss": compute_biobert_loss_singlegpu}
-        super().__init__(
-            extra_metrics_dict=extra_metrics_dict,
-            val_check_interval=val_check_interval,
-            exp_name=exp_name,
-        )
+    @override
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.data_dir = Path(cls.tempdir.name) / "data"
+        cls.data_dir.mkdir(parents=True, exist_ok=True)
 
-        self.tokenizer: BioNeMoESMTokenizer = get_tokenizer()
-        self.train_cluster_path: Path = train_cluster_path
-        self.train_database_path: Path = dummy_protein_dataset
-        self.valid_cluster_path: Path = valid_cluster_path
-        self.valid_database_path: Path = valid_database_path
-        self.autocast_dtype = get_autocast_dtype(MODEL_PRECISION)
+        # setup data
+        cls.train_cluster_path, cls.valid_cluster_path = create_dummy_parquet_train_val_inputs(cls.data_dir)
+        cls.train_database_path = create_dummy_protein_dataset(cls.data_dir)
+        cls.valid_database_path = cls.train_database_path
+        cls.tokenizer: BioNeMoESMTokenizer = get_tokenizer()
 
+        # add your custom callbacks here
+        # cls.stop_callbacks["YourCustomCallback"] = YourCustomCallback(mode="stop")
+        # cls.go_callbacks["YourCustomCallback"] = YourCustomCallback(mode="go")
+
+        # run stop and go
+        cls.stop_and_go()
+
+    @classmethod
     def setup_model(
-        self, mode: Literal["stop", "go"]
+        cls, mode: Literal["stop", "go"]
     ) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
-        devices = 1
-        num_steps = 4
-        lr = 1e-4
-
         # build data module
         data = ESMDataModule(
-            train_cluster_path=self.train_cluster_path,
-            train_database_path=self.train_database_path,
-            valid_cluster_path=self.valid_cluster_path,
-            valid_database_path=self.valid_database_path,
-            global_batch_size=2 * int(devices),
+            train_cluster_path=cls.train_cluster_path,
+            train_database_path=cls.train_database_path,
+            valid_cluster_path=cls.valid_cluster_path,
+            valid_database_path=cls.valid_database_path,
+            global_batch_size=2,
             micro_batch_size=2,
             min_seq_length=None,
             max_seq_length=1024,
@@ -85,7 +89,7 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
         # build optimizer
         optimizer = MegatronOptimizerModule(
             config=OptimizerConfig(
-                lr=lr,
+                lr=cls.lr,
                 optimizer="adam",  # fused_adam not supported
                 use_distributed_optimizer=True,
                 weight_decay=0.01,
@@ -93,7 +97,7 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
                 adam_beta2=0.98,
             ),
             lr_scheduler=WarmupAnnealDecayHoldScheduler(
-                warmup_steps=50, max_steps=num_steps, max_lr=lr, min_lr=lr / 10.0, anneal_percentage=0.10
+                warmup_steps=50, max_steps=cls.num_steps, max_lr=cls.lr, min_lr=cls.lr / 10.0, anneal_percentage=0.10
             ),
         )
 
@@ -101,36 +105,11 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
         config = ESM2Config(
             num_layers=3,
             hidden_size=128,
-            params_dtype=self.autocast_dtype,
-            pipeline_dtype=self.autocast_dtype,
-            autocast_dtype=self.autocast_dtype,
+            params_dtype=cls.precision,
+            pipeline_dtype=cls.precision,
+            autocast_dtype=cls.precision,
         )
         # Build lightning module
-        module = biobert_lightning_module(config=config, tokenizer=self.tokenizer, optimizer=optimizer)
+        module = biobert_lightning_module(config=config, tokenizer=cls.tokenizer, optimizer=optimizer)
 
         return module, data, optimizer
-
-    def setup_trainer(self, mode: Literal["stop", "go"], metrics):
-        devices, tp_size, pp_size = 1, 1, 1
-
-        strategy = nl.MegatronStrategy(
-            tensor_model_parallel_size=tp_size,
-            pipeline_model_parallel_size=pp_size,
-            ddp="megatron",
-            find_unused_parameters=True,
-            ckpt_include_optimizer=True,
-        )
-
-        trainer = nl.Trainer(
-            devices=devices,
-            max_steps=4,
-            accelerator="gpu",
-            strategy=strategy,
-            limit_val_batches=2,
-            val_check_interval=self.val_check_interval,
-            log_every_n_steps=self.val_check_interval,
-            num_nodes=1,
-            callbacks=self.get_default_callbacks(mode=mode),
-            plugins=nl.MegatronMixedPrecision(precision=MODEL_PRECISION),
-        )
-        return trainer

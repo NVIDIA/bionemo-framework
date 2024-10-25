@@ -18,7 +18,7 @@ import os
 import sqlite3
 from enum import Enum
 from pathlib import Path
-from typing import Sequence, TypeVar
+from typing import Sequence, Tuple, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -30,6 +30,59 @@ from bionemo.core.utils import random_utils
 from bionemo.esm2.data import tokenizer
 from bionemo.llm.data import masking
 from bionemo.llm.data.types import BertSample
+
+
+def create_dummy_parquet_train_val_inputs(tmp_path: Path) -> Tuple[Path, Path]:
+    """Create a mock protein train and val cluster parquet."""
+    train_cluster_path = tmp_path / "train_clusters.parquet"
+    train_clusters = pd.DataFrame(
+        {
+            "ur90_id": [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]],
+        }
+    )
+    train_clusters.to_parquet(train_cluster_path)
+
+    valid_cluster_path = tmp_path / "valid_clusters.parquet"
+    valid_clusters = pd.DataFrame(
+        {
+            "ur50_id": ["UniRef50_A", "UniRef50_B", "UniRef90_A", "UniRef90_B"],
+        }
+    )
+    valid_clusters.to_parquet(valid_cluster_path)
+    return train_cluster_path, valid_cluster_path
+
+
+def create_dummy_protein_dataset(tmp_path) -> Path:
+    """Create a mock protein dataset."""
+    if not isinstance(tmp_path, Path):
+        tmp_path = Path(str(tmp_path))
+
+    db_file = tmp_path / "protein_dataset.db"
+    conn = sqlite3.connect(str(db_file))
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE protein (
+            id TEXT PRIMARY KEY,
+            sequence TEXT
+        )
+    """
+    )
+
+    proteins = [
+        ("UniRef90_A", "ACDEFGHIKLMNPQRSTVWY"),
+        ("UniRef90_B", "DEFGHIKLMNPQRSTVWYAC"),
+        ("UniRef90_C", "MGHIKLMNPQRSTVWYACDE"),
+        ("UniRef50_A", "MKTVRQERLKSIVRI"),
+        ("UniRef50_B", "MRILERSKEPVSGAQLA"),
+    ]
+    cursor.executemany("INSERT INTO protein VALUES (?, ?)", proteins)
+
+    conn.commit()
+    conn.close()
+
+    return db_file
 
 
 class RandomMaskStrategy(str, Enum):

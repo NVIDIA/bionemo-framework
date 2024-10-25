@@ -90,7 +90,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
     def setUpClass(cls) -> None:
         """Sets up the class by creating a temporary directory, metadata_dir, exp_name and callbacks."""
         cls.tempdir = tempfile.TemporaryDirectory()
-        cls.metadata_dir = pathlib.Path(cls.tempdir.name)
+        cls.metadata_dir = pathlib.Path(cls.tempdir.name) / "metadata"
         cls.exp_name = cls.__name__
 
         cls.stop_callbacks: Dict[str, pl.Callback] = cls.get_default_callbacks(mode="stop")
