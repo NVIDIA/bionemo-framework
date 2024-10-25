@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import argparse
 import contextlib
 import shutil
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional, Sequence, TextIO
 
 import boto3
 import ngcsdk
@@ -30,6 +30,9 @@ from tqdm import tqdm
 
 from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.testing.data.resource import Resource, get_all_resources
+
+
+__all__: Sequence[str] = ("load",)
 
 
 def default_pbss_client():
@@ -195,10 +198,20 @@ def _get_processor(extension: str, unpack: bool | None, decompress: bool | None)
         return None
 
 
-def main_cli():
-    """Allows a user to get a specific artifact from the command line."""
-    import argparse
+def print_resources(*, output_source: TextIO = sys.stdout) -> None:
+    """Prints all available downloadable resources & their sources to STDOUT."""
+    print("#resource_name\tsource_options", file=output_source)
+    for resource_name, resource in sorted(get_all_resources().items()):
+        sources = []
+        if resource.ngc is not None:
+            sources.append("ngc")
+        if resource.pbss is not None:
+            sources.append("pbss")
+        print(f"{resource_name}\t{','.join(sources)}", file=output_source)
 
+
+def entrypoint():
+    """Allows a user to get a specific artifact from the command line."""
     parser = argparse.ArgumentParser(
         description="Retrieve the local path to the requested artifact name or list resources."
     )
@@ -220,31 +233,63 @@ def main_cli():
         type=str,
         choices=["pbss", "ngc"],
         default="ngc",
-        help='Backend to use, NVIDIA users should set this to "pbss".',
+        help='Backend to use, Internal NVIDIA users can set this to "pbss".',
     )
 
-    # Parse the command line arguments
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        default=False,
+        help="Download all resources. Ignores all other options.",
+    )
     args = parser.parse_args()
-
-    if args.list_resources:
-        print("#resource_name\tsource_options")
-        for resource_name, resource in sorted(get_all_resources().items()):
-            sources = []
-            if resource.ngc is not None:
-                sources.append("ngc")
-            if resource.pbss is not None:
-                sources.append("pbss")
-            print(f"{resource_name}\t{','.join(sources)}")
-        sys.exit(0)  # Successful exit
-    elif args.artifact_name:
-        # Redirect stdout from the subprocess calls to stderr
-        with contextlib.redirect_stdout(sys.stderr):
-            local_path = load(args.artifact_name, source=args.source)
-        # Print the result
-        print(str(local_path.absolute()))
-    else:
-        parser.error("You must provide an artifact name if --list-resources is not set.")
+    maybe_error = main(
+        download_all=args.all,
+        list_resources=args.list_resources,
+        artifact_name=args.artifact_name,
+        source=args.source,
+    )
+    if maybe_error is not None:
+        parser.error(maybe_error)
 
 
 if __name__ == "__main__":
-    main_cli()
+    entrypoint()
+
+
+def main(
+    download_all: bool, list_resources: bool, artifact_name: str, source: Literal["pbss", "ngc"]
+) -> Optional[str]:
+    """Main download script logic: parameters are 1:1 with CLI flags. Returns string describing error on failure."""
+    if download_all:
+        print("Downloading all resources:", file=sys.stderr)
+        print_resources(output_source=sys.stderr)
+        print("-" * 80, file=sys.stderr)
+
+        resource_to_local: dict[str, Path] = {}
+        for resource_name in tqdm(
+            sorted(get_all_resources()),
+            desc="Downloading Resources",
+        ):
+            with contextlib.redirect_stdout(sys.stderr):
+                local_path = load(resource_name, source=source)
+            resource_to_local[resource_name] = local_path
+
+        print("-" * 80, file=sys.stderr)
+        print("All resources downloaded:", file=sys.stderr)
+        for resource_name, local_path in sorted(resource_to_local.items()):
+            print(f"  {resource_name}: {str(local_path.absolute())}", file=sys.stderr)
+
+    elif list_resources:
+        print_resources(output_source=sys.stdout)
+
+    elif artifact_name is not None and len(artifact_name) > 0:
+        # Get the local path for the provided artifact name
+        with contextlib.redirect_stdout(sys.stderr):
+            local_path = load(artifact_name, source=source)
+
+        # Print the result => CLI use assumes that we can get the single downloaded resource's path on STDOUT
+        print(str(local_path.absolute()))
+
+    else:
+        return "You must provide an artifact name if --list-resources or --all is not set!"

@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
-download_bionemo_data = "bionemo.testing.data.load:main_cli"
+download_bionemo_data = "bionemo.testing.data.load:entrypoint"
 
 # Make sure that the resource yaml files are being packaged alongside the python files.
 [tool.setuptools.package-data]
