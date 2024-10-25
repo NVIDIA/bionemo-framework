@@ -881,7 +881,7 @@ def _train_model_get_ckpt(
 
 @pytest.mark.needs_gpu
 def test_continue_from_checkpoint_geneformer(
-    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 50, batch_size: int = 16
+    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 100, batch_size: int = 16
 ):
     base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
 
@@ -910,7 +910,7 @@ def test_continue_from_checkpoint_geneformer(
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert initial_trainer.model.config.num_layers == n_layers_test
-        assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
+        assert sum(initial_metrics.collection_train["loss"][:5]) > sum(initial_metrics.collection_train["loss"][-5:])
     with megatron_parallel_state_utils.distributed_model_parallel_state(43):
         # NOTE all other hparams will be pulled from this checkpoint.
         update_base_geneformer_config = GeneformerConfig(
@@ -934,7 +934,7 @@ def test_continue_from_checkpoint_geneformer(
 
 @pytest.mark.needs_gpu
 def test_finetune_geneformer(
-    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 50, batch_size: int = 16
+    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 100, batch_size: int = 16
 ):
     base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
 
@@ -963,7 +963,7 @@ def test_finetune_geneformer(
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert initial_trainer.model.config.num_layers == n_layers_test
-        assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
+        assert sum(initial_metrics.collection_train["loss"][:5]) > sum(initial_metrics.collection_train["loss"][-5:])
     with megatron_parallel_state_utils.distributed_model_parallel_state(43):
         ft_geneformer_config = FineTuneSeqLenBioBertConfig(
             # All other hparams will be pulled from this checkpoint, aside from those in `override_parent_fields``
@@ -981,7 +981,9 @@ def test_finetune_geneformer(
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert ft_trainer.model.config.num_layers == n_layers_test
-        assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
+        assert sum(simple_ft_metrics.collection_train["loss"][:5]) > sum(
+            simple_ft_metrics.collection_train["loss"][-5:]
+        )
 
 
 @pytest.mark.needs_gpu
