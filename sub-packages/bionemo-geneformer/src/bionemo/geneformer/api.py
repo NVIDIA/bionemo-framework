@@ -14,7 +14,9 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Sequence, Type
+from typing import Callable, Sequence, Type
+
+from torch.nn import functional as F
 
 from bionemo.geneformer.model.finetune_token_regressor import FineTuneSeqLenBioBertConfig
 from bionemo.llm.api import MegatronLossType
@@ -39,4 +41,27 @@ class GeneformerConfig(BioBertConfig[GeneformerModel, MegatronLossType], iom.IOM
     directly, as your parameters will likely be reset to this method's parameters silently.
     """
 
+    num_layers: int = 6
+    hidden_size: int = 256
+    ffn_hidden_size: int = 512
+    num_attention_heads: int = 4
+    seq_length: int = 2048
+    fp32_residual_connection: bool = False
+    hidden_dropout: float = 0.02
+    attention_dropout: float = 0.1  # NeMo1 hard-coded, differs from publication of ReLU
+    init_method_std: float = 0.02
+    apply_query_key_layer_scaling: bool = False
+    make_vocab_size_divisible_by: int = 128
+    masked_softmax_fusion: bool = True
+    fp16_lm_cross_entropy: bool = False
+    layernorm_zero_centered_gamma: bool = False
+    layernorm_epsilon: float = 1.0e-12
+    activation_func: Callable = F.gelu  # NeMo1 hard-coded, differes from publication of ReLU
+    qk_layernorm: bool = False
+    apply_residual_connection_post_layernorm: bool = False  # False is new default, True was BERT pub.
+    bias_activation_fusion: bool = True
+    bias_dropout_fusion: bool = True
+    get_attention_mask_from_fusion: bool = True
+    share_embeddings_and_output_weights: bool = True
+    enable_autocast: bool = False
     model_cls: Type[GeneformerModel] = GeneformerModel

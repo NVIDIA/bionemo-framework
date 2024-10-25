@@ -444,6 +444,9 @@ class BioBertConfig(
     persist_layer_norm: bool = True
     get_attention_mask_from_fusion: bool = True
 
+    hidden_dropout: float = 0.02  # Geneformer default value
+    attention_dropout: float = 0.1  # NeMo1 default value
+
     share_embeddings_and_output_weights: bool = False  # try True
     make_vocab_size_divisible_by: int = 128
     position_embedding_type: PositionEmbeddingKinds = "learned_absolute"
