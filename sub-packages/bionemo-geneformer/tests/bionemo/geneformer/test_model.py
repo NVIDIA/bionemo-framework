@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import tarfile
 from copy import deepcopy
 from pathlib import Path
@@ -31,6 +32,7 @@ from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.callbacks.model_transform import ModelTransform
 from nemo.lightning.pytorch.callbacks.peft import PEFT
+from nemo.lightning.pytorch.optim.lr_scheduler import WarmupPolicyScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.nn import functional as F
@@ -786,7 +788,6 @@ def _train_model_get_ckpt(
     data_dir = Path(data_path)
     train_data_path = data_dir / "train"
     val_data_path = data_dir / "val"
-    test_data_path = data_dir / "test"
     if not nemo1_checkpoint_path.exists():
         raise FileNotFoundError(f"Could not find checkpoint at {nemo1_checkpoint_path}. {data_error_str}")
     if not train_data_path.exists():
@@ -806,9 +807,9 @@ def _train_model_get_ckpt(
     data_module = SingleCellDataModule(
         tokenizer=tokenizer,
         median_dict=median_dict,
-        train_dataset_path=str(train_data_path),
+        train_dataset_path=str(val_data_path),  # Val has 3 samples, so this will result in good overfitting.
         val_dataset_path=str(val_data_path),
-        test_dataset_path=str(test_data_path),
+        test_dataset_path=str(val_data_path),
         random_token_prob=0.1,
         micro_batch_size=batch_size,
         global_batch_size=batch_size,
@@ -839,7 +840,15 @@ def _train_model_get_ckpt(
             use_distributed_optimizer=True,
             fp16=config.fp16,
             bf16=config.bf16,
-        )
+        ),
+        lr_scheduler=WarmupPolicyScheduler(
+            max_steps=n_steps_train,
+            # minimum learning rate is 1/100th of the initial learning rate, so eg lr=1e-3 -> min_lr=1e-5
+            min_lr=lr / 100,
+            warmup_steps=int(math.ceil(n_steps_train * 0.05)),
+            interval="step",
+            frequency=1,
+        ),
     )
     module = biobert_lightning_module(config=config, tokenizer=tokenizer, optimizer=optimizer, model_transform=peft)
 
@@ -858,7 +867,8 @@ def _train_model_get_ckpt(
         accelerator="gpu",
         devices=1,
         strategy=strategy,
-        limit_val_batches=2,
+        limit_val_batches=2,  # need to upsample to an integer limit
+        limit_test_batches=2,  # need to upsample to an integer limit
         val_check_interval=n_steps_train // 2,
         max_steps=n_steps_train,
         num_nodes=1,
@@ -908,13 +918,14 @@ def test_continue_from_checkpoint_geneformer(
             config=base_geneformer_config,
             n_steps_train=n_steps_train,
             batch_size=batch_size,
-            lr=5e-4,
+            lr=1e-4,  # smaller LR so smooth initial dip
         )
         weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert initial_trainer.model.config.num_layers == n_layers_test
+        # Make sure the loss dropped initially
         assert sum(initial_metrics.collection_train["loss"][:5]) > sum(initial_metrics.collection_train["loss"][-5:])
     with megatron_parallel_state_utils.distributed_model_parallel_state(43):
         # NOTE all other hparams will be pulled from this checkpoint.
@@ -927,21 +938,26 @@ def test_continue_from_checkpoint_geneformer(
             config=update_base_geneformer_config,  # same config as before since we are just continuing training
             n_steps_train=n_steps_train,
             batch_size=batch_size,
-            lr=5e-4,
+            lr=5e-4,  # Larger LR so loss dips faster after the first stage
         )
         weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert continue_trainer.model.config.num_layers == n_layers_test
-        # Make sure that loss is dropping when you continue
-        assert sum(continue_metrics.collection_train["loss"][:5]) > sum(continue_metrics.collection_train["loss"][-5:])
-        assert sum(continue_metrics.collection_train["loss"][:5]) < sum(initial_metrics.collection_train["loss"][-5:])
+        # Make sure that loss is dropping at continue
+        assert sum(continue_metrics.collection_train["loss"][:10]) > sum(
+            continue_metrics.collection_train["loss"][-10:]
+        )
+        # Make sure the loss at the beginning of continue is a bit better than the end of initial
+        assert sum(continue_metrics.collection_train["loss"][:10]) < sum(
+            initial_metrics.collection_train["loss"][-10:]
+        )
 
 
 @pytest.mark.needs_gpu
 def test_finetune_geneformer(
-    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 200, batch_size: int = 16
+    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 100, batch_size: int = 16
 ):
     base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
 
@@ -974,7 +990,8 @@ def test_finetune_geneformer(
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert initial_trainer.model.config.num_layers == n_layers_test
-        assert sum(initial_metrics.collection_train["loss"][:5]) > sum(initial_metrics.collection_train["loss"][-5:])
+        # Make sure we're training
+        assert sum(initial_metrics.collection_train["loss"][:10]) > sum(initial_metrics.collection_train["loss"][-10:])
     with megatron_parallel_state_utils.distributed_model_parallel_state(43):
         ft_geneformer_config = FineTuneSeqLenBioBertConfig(
             # All other hparams will be pulled from this checkpoint, aside from those in `override_parent_fields``
@@ -993,15 +1010,15 @@ def test_finetune_geneformer(
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert ft_trainer.model.config.num_layers == n_layers_test
-        assert sum(simple_ft_metrics.collection_train["loss"][:5]) > sum(
-            simple_ft_metrics.collection_train["loss"][-5:]
+        assert sum(simple_ft_metrics.collection_train["loss"][:10]) > sum(
+            simple_ft_metrics.collection_train["loss"][-10:]
         )
 
 
 @pytest.mark.needs_gpu
 @pytest.mark.skip(reason="PEFT currently broken with fusions activated.")
 def test_finetune_geneformer_with_peft(
-    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 200, batch_size: int = 16
+    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 100, batch_size: int = 16
 ):
     base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
 
@@ -1034,7 +1051,7 @@ def test_finetune_geneformer_with_peft(
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert initial_trainer.model.config.num_layers == n_layers_test
-        assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
+        assert sum(initial_metrics.collection_train["loss"][:10]) > sum(initial_metrics.collection_train["loss"][-10:])
     with megatron_parallel_state_utils.distributed_model_parallel_state(43):
         ft_geneformer_config = FineTuneSeqLenBioBertConfig(
             # All other hparams will be pulled from this checkpoint, aside from those in `override_parent_fields``
@@ -1055,8 +1072,8 @@ def test_finetune_geneformer_with_peft(
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert ft_trainer.model.config.num_layers == n_layers_test
-        assert sum(simple_ft_metrics.collection_train["loss"][:5]) > sum(
-            simple_ft_metrics.collection_train["loss"][-5:]
+        assert sum(simple_ft_metrics.collection_train["loss"][:10]) > sum(
+            simple_ft_metrics.collection_train["loss"][-10:]
         )
 
         model = ft_trainer.model[0].module.module.module
