@@ -25,7 +25,7 @@ from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADER
 
 from bionemo.esm2.data import dataset, tokenizer
 from bionemo.llm.data import collate
-from bionemo.llm.data.datamodule import MegatronDatamodule
+from bionemo.llm.data.datamodule import MegatronDataModule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
@@ -180,6 +180,7 @@ class ESMDataModule(MegatronDataModule):
         Args:
             dataset: The dataset to create the dataloader for.
             mode: Stage of training, which is used to determined if consumed_samples in MegatronPretrainingSampler should be initialized to 0 (validation/test), or be set to the previous value from state_dict in case of checkpoint resumption (train).
+            **kwargs: Additional arguments to pass to the dataloader.
         """
         self.update_init_global_step()
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
