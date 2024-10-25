@@ -21,30 +21,7 @@ import torch.utils.data
 from nemo.utils import logging
 
 
-class DataloaderWithMode(torch.utils.data.DataLoader):
-    """DataLoader wrapper that adds a `mode` attribute."""
-
-    def __init__(
-        self,
-        dataset: torch.utils.data.Dataset,
-        mode: Literal["train", "valid", "test"],
-        **kwargs: Any,
-    ):
-        """Initialize DataloaderWithMode.
-
-        Args:
-            dataset (torch.utils.data.Dataset): Dataset to be fed into DataLoader.
-            mode (str): Mode of the DataLoader to enable correct training resumption with datamodule state dict. Must be one of "train", "valid", or "test".
-            **kwargs (Any): Keyword arguments to be passed to torch.utils.data.DataLoader.
-        """
-        super().__init__(dataset, **kwargs)
-
-        if mode not in ["train", "valid", "test"]:
-            raise ValueError(f"Mode must be one of 'train', 'valid', or 'test', but got {mode}")
-        self.mode = mode
-
-
-class DatamoduleMixin:
+class MegatronDatamodule(pl.LightningDataModule):
     """A mixin that adds a `state_dict` and `load_state_dict` method for datamodule training resumption in NeMo."""
 
     def __post_init__(self):
@@ -52,7 +29,7 @@ class DatamoduleMixin:
         self.init_global_step = 0
 
     def update_init_global_step(self):
-        """Please always call this when you get a new dataloader... if you forget, your resumption will not work"""
+        """Please always call this when you get a new dataloader... if you forget, your resumption will not work."""
         self.init_global_step = self.trainer.global_step  # Update the init_global_step whenever we re-init training
         self.data_sampler.init_global_step = (
             self.init_global_step
