@@ -606,7 +606,6 @@ if __name__ == "__main__":
         save_last_checkpoint=args.save_last_checkpoint,
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
-        save_every_n_steps=args.save_every_n_steps,
         nsys_profiling=args.nsys_profiling,
         nsys_start_step=args.nsys_start_step,
         nsys_end_step=args.nsys_end_step,
