@@ -22,6 +22,8 @@ from typing import Generic, NamedTuple, Protocol, Sequence, TypeVar
 import numpy as np
 from torch.utils.data import Dataset
 
+from bionemo.core.data.permute import permute
+
 
 __all__: Sequence[str] = (
     "EpochIndex",
@@ -121,24 +123,28 @@ class MultiEpochDatasetResampler(Dataset[T_co]):
         if self.num_epochs < 1:
             raise ValueError("num_epochs must be at least 1.")
 
-        self._samples = []
-        for epoch in range(self.num_epochs):
-            rng = np.random.default_rng([self.seed, epoch])
-            epoch_samples = np.arange(len(self.dataset))
-            if self.shuffle:
-                rng.shuffle(epoch_samples)
-            self._samples.extend((EpochIndex(epoch, idx) for idx in epoch_samples))
+        rng = np.random.default_rng(self.seed)
 
-        # Truncate the samples to the desired length.
-        self._samples = self._samples[: self.num_samples]
+        # Initialize a vector of random seeds so that each epoch is shuffled differently.
+        self.epoch_seeds = rng.integers(0, np.iinfo(np.int32).max, size=self.num_epochs)
 
     def __getitem__(self, index: int) -> T_co:
         """Get the sample at the given index."""
-        return self.dataset[self._samples[index]]
+        if index not in range(len(self)):
+            raise IndexError(f"Index {index} out of bounds for dataset of length {len(self)}.")
+        return self.dataset[self._global_index_to_permuted_local_index(index)]
 
     def __len__(self) -> int:
         """Return the length of the resampled dataset."""
-        return len(self._samples)
+        return self.num_samples  # type: ignore
+
+    def _global_index_to_permuted_local_index(self, index: int) -> EpochIndex:
+        """Convert a global index to an epoch index."""
+        epoch = index // len(self.dataset)
+        idx = index % len(self.dataset)
+        if self.shuffle:
+            idx = permute(idx, len(self.dataset), self.epoch_seeds[epoch])
+        return EpochIndex(epoch, idx)
 
 
 @dataclass

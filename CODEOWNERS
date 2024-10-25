@@ -27,7 +27,7 @@
 # @polinabinder1 - Polina Binder
 # @pstjohn - Peter St. John
 # @sichu2023 - Simon Chu
-# @skothenhill-nv-nv - Steven Kothen-Hill
+# @skothenhill-nv - Steven Kothen-Hill
 # @trvachov - Timur Rvachov
 # @yzhang123 - Yang Zhang
 
@@ -35,59 +35,59 @@
 #
 ## LEGAL
 #
-LICENSE @dorotat-nv @jstjohn @malcolmgreaves @ntadimeti @trvachov
-license_header @dorotat-nv @jstjohn @malcolmgreaves @ntadimeti @trvachov
+LICENSE @dorotat-nv @jstjohn @malcolmgreaves @trvachov
+license_header @dorotat-nv @jstjohn @malcolmgreaves @trvachov
 
 
 #
 ## DOCUMENTATION
 #
-README.md @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
-docs @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn
+README.md @dorotat-nv @jstjohn @malcolmgreaves @pstjohn
+docs @dorotat-nv @jstjohn @malcolmgreaves @pstjohn
 # These 2 are symlinks: actual content is under docs/
 CODE-REVIEW.md @jstjohn @malcolmgreaves @pstjohn @trvachov
 CONTRIBUTING.md @jstjohn @malcolmgreaves @pstjohn @trvachov
-docs/CODE-REVIEW.md  @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn @trvachov
-docs/CONTRIBUTING.md @dorotat-nv @jstjohn @malcolmgreaves @jomitchellnv @pstjohn @trvachov
+docs/CODE-REVIEW.md  @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov
+docs/CONTRIBUTING.md @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov
 
 
 #
 ## INFRASTRUCTURE
 #
-#.gitignore
-#.dockerignore
+.gitignore @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+.dockerignore @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 .devcontainer @dorotat-nv @malcolmgreaves @pstjohn
-CODEOWNERS @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @trvachov
-Dockerfile @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-justfile  @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-internal/ @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-3rdparty       @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-pyproject.toml @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-requirements-cve.txt @dorotat-nv  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-requirements-dev.txt @dorotat-nv  @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-requirements-test.txt @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-tach.yml @jomitchellnv @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-.secrets.baseline @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-ci/ @dorotat-nv @pstjohn
-.nspect-allowlist.toml @dorotat-nv @jomitchellnv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+CODEOWNERS @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov
+Dockerfile @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+justfile  @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+internal/ @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+3rdparty       @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+pyproject.toml @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+requirements-cve.txt @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+requirements-dev.txt @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+requirements-test.txt @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+tach.yml @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+.secrets.baseline @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+ci/ @dorotat-nv @malcolmgreaves @pstjohn
+.nspect-allowlist.toml @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 
 #
 ## LIBRARY CODE
 #
-scripts @jomitchellnv @jstjohn @malcolmgreaves @skothenhill-nv
+scripts @jstjohn @malcolmgreaves @skothenhill-nv
 
-sub-packages/bionemo-fw @DejunL @dorotat-nv @farhadrgh @guoqing-zhou @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+sub-packages/bionemo-fw @DejunL @dorotat-nv @farhadrgh @guoqing-zhou @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
 
-sub-packages/bionemo-testing @dorotat-nv @farhadrgh @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+sub-packages/bionemo-testing @dorotat-nv @farhadrgh @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
 
-sub-packages/bionemo-core @DejunL @dorotat-nv @farhadrgh @guoqing-zhou @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+sub-packages/bionemo-core @DejunL @dorotat-nv @farhadrgh @guoqing-zhou @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
 
-sub-packages/bionemo-llm @farhadrgh @dorotat-nv @gwarmstrong @jomitchellnv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
+sub-packages/bionemo-llm @farhadrgh @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
 
 sub-packages/bionemo-geometric @DejunL @guoqing-zhou @jstjohn @malcolmgreaves
 
-sub-packages/bionemo-example_model @jomitchellnv @jstjohn @malcolmgreaves @skothenhill-nv
+sub-packages/bionemo-example_model @jstjohn @malcolmgreaves @skothenhill-nv
 
 sub-packages/bionemo-geneformer @jstjohn @malcolmgreaves @skothenhill-nv
 
-sub-packages/bionemo-scdl @jomitchellnv @jstjohn @malcolmgreaves @polinabinder1 @skothenhill-nv
+sub-packages/bionemo-scdl @jstjohn @malcolmgreaves @polinabinder1 @skothenhill-nv
