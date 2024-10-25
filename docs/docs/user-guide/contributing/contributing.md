@@ -1,7 +1,7 @@
 # Contributing Guidelines
 
 !!! note
-    For code review standards please see [CODE-REVIEW](CODE-REVIEW.md)
+    For code review standards please see the [Code Review](code-review.md) page.
 
     For all PRs, an approved NVIDIA staff member must sign off and trigger the continuous integration (CI) tests.
     These are initiated by the member commenting `/build-ci` directly on the PR. All PRs must have successful CI runs and
@@ -63,6 +63,11 @@ repository (unless external constraints prevent it).
 
 
 ## Pull Request (PR) Guidelines
+
+### Labeling Your PR
+
+If you are an external contributor (not an NVIDIA employee), please add the `contribution` label to your PR before submitting. Labels can be accessed in the right sidebar of the GitHub user interface when creating or editing a PR.
+
 ### Signing Your Work
 
 * We require that all contributors "sign-off" on their commits (not GPG signing, just adding the `-s | --signoff`

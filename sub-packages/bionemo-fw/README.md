@@ -6,8 +6,8 @@ The `bionemo-fw` Python package contains framework-spanning code under the `bion
 All other namespaces of the BioNeMo Framework (`bionemo.*`) are dependencies of this package.
 
 ## Developer Setup
-After following the setup specified in the [README](../../README.md), you may install this project's
-code in your environment via executing:
+After following the setup specified in the [README](https://github.com/NVIDIA/bionemo-framework/blob/main/README.md),
+you may install this project's code in your environment via executing:
 ```bash
 pip install -e .
 ```

@@ -15,15 +15,28 @@
 
 import gc
 import sys
-from typing import Callable, Iterable, List, Optional, Sequence, Tuple, TypeVar
+from typing import Callable, Iterable, List, NamedTuple, Optional, Sequence, Tuple, TypeVar
 
 import torch
 
 
-__all__: Sequence[str] = ("collect_cuda_peak_alloc",)
+__all__: Sequence[str] = ("collect_cuda_peak_alloc", "create_buckets", "Buckets")
 
 Data = TypeVar("Data")
 Feature = TypeVar("Feature")
+TorchIntegerDataTypes = {torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64}
+
+
+class Buckets(NamedTuple):
+    """A container for storing bucket boundaries and sizes.
+
+    Attributes:
+        bucket_boundaries (torch.Tensor): A 1D tensor with the boundaries of all the bucket.
+        bucket_sizes (torch.Tensor): The number of elements in each bucket.
+    """
+
+    bucket_boundaries: torch.Tensor
+    bucket_sizes: torch.Tensor
 
 
 def collect_cuda_peak_alloc(
@@ -131,3 +144,121 @@ def collect_cuda_peak_alloc(
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats(device)
     return features, alloc_peaks
+
+
+def create_buckets(sizes: torch.Tensor, max_width: int, min_bucket_count: int) -> Buckets:
+    """Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket count.
+
+    It will return a named tuple containing the bucket boundaries and the actual bucket sizes.
+    e.g. torch.tensor([0, 5, 7]), torch.tensor([3,2]): specifies 2 buckets: one with range 0<= sizes < 5, width=5 and 3 elements
+    and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
+
+
+    Args:
+        sizes: An 1D tensor of integers.
+        max_width: The maximum width of a bucket, should be a positive integer.
+        min_bucket_count: The minimum count of a bucket, should be a positive integer.
+            Bucket size may be smaller than min_bucket_count if its width reaches max_width.
+
+    Raises:
+        ValueError: If the provided sizes is empty, or not integers.
+        ValueError: If max_width is not a positive integer or min_bucket_count is not a positive integer.
+
+    Returns:
+        A namedtuple containing bucket boundaries in ascending order and the number of elements in each bucket.
+
+    ---------
+
+    Examples:
+    ```python
+    >>> import torch
+    >>> from bionemo.size_aware_batching.utils import create_buckets
+
+    >>> sizes = torch.tensor([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 22, 22, 22, 22])
+    >>> buckets = create_buckets(sizes, max_width=5, min_bucket_count=10)
+    >>> # 5 buckets: 1 <= sizes < 6, 6 <= sizes < 11, 11 <= sizes < 16, 16 <= sizes < 21, 21 <= sizes < 23
+    >>> print(buckets.bucket_boundaries)
+    tensor([ 1,  6, 11, 16, 21, 23])
+
+    >>> # each with 12, 0, 0, 0, 4 elements respectively.
+    >>> print(buckets.bucket_sizes)
+    tensor([12,  0,  0,  0,  4])
+
+    >>> sizes = torch.arange(20)
+    >>> # min_bucket_count is used to control bucket size
+    >>> buckets = create_buckets(sizes, max_width=10, min_bucket_count=5)
+    >>> print(buckets.bucket_boundaries)
+    tensor([ 0,  5, 10, 15, 20])
+
+    >>> print(buckets.bucket_sizes)
+    tensor([5, 5, 5, 5])
+    ```
+
+    """
+    if not torch.is_tensor(sizes):
+        raise TypeError(f"sizes should be a torch tensor, but got sizes={sizes}")
+
+    if sizes.ndim != 1:
+        raise ValueError(f"sizes should be a 1D tensor, but got sizes with shape {sizes.shape}")
+
+    if sizes.dtype not in TorchIntegerDataTypes:
+        raise ValueError(f"sizes should contain only integers, but got sizes.dtype={sizes.dtype}")
+
+    if len(sizes) == 0:
+        raise ValueError("sizes should not be empty")
+
+    if not isinstance(max_width, int) or max_width <= 0:
+        raise ValueError(f"max_width should be a positive integer but got max_width={max_width}")
+
+    if not isinstance(min_bucket_count, int) or min_bucket_count <= 0:
+        raise ValueError(f"min_bucket_count should be a positive integer but got min_bucket_count={min_bucket_count}")
+
+    unique_values, counts = torch.unique(sizes, return_counts=True, sorted=True)
+
+    bucket_boundaries = [unique_values[0]]
+    bucket_sizes = []
+    start = 0
+    end = 0
+    upper_bound = unique_values[0] + 1
+    bucket_count = 0
+
+    while start < len(unique_values):
+        while (
+            end < len(unique_values)
+            and bucket_count < min_bucket_count
+            and unique_values[end] - bucket_boundaries[-1] < max_width
+        ):
+            bucket_count += counts[end]
+            end += 1
+
+        bucket_sizes.append(sum(counts[start:end]))
+        if end == len(unique_values):
+            upper_bound = unique_values[-1] + 1
+        else:
+            upper_bound = unique_values[end]
+
+        # Adjust the end of the range to ensure that no width exceeds 'max_width'
+        n_empty_buckets = (upper_bound - bucket_boundaries[-1]) // max_width
+        if n_empty_buckets > 0:
+            bucket_boundaries.extend(
+                list(
+                    range(
+                        bucket_boundaries[-1] + max_width,
+                        bucket_boundaries[-1] + max_width * (n_empty_buckets + 1),
+                        max_width,
+                    )
+                )
+            )
+            bucket_sizes.extend([0] * (n_empty_buckets - 1))
+        else:
+            bucket_boundaries.append(upper_bound)
+
+        start = end
+        end = start + 1
+        # index start may be out of bounds
+        bucket_count = counts[start:end].sum()
+
+    bucket_boundaries = torch.tensor(bucket_boundaries)
+    bucket_sizes = torch.tensor(bucket_sizes)
+
+    return Buckets(bucket_boundaries, bucket_sizes)
