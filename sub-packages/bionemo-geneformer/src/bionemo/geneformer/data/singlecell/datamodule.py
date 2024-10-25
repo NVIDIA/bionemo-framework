@@ -30,7 +30,7 @@ from bionemo.core.utils import random_utils
 from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import collate
-from bionemo.llm.data.datamodule import MegatronDatamodule
+from bionemo.llm.data.datamodule import MegatronDataModule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
@@ -180,6 +180,13 @@ class SingleCellDataModule(MegatronDataModule):
         return self._create_dataloader(self._test_ds)
 
     def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:
+        """Create dataloader for train, validation, and test stages.
+
+        Args:
+            dataset: The dataset to create the dataloader for.
+            mode: Stage of training, which is used to determined if consumed_samples in MegatronPretrainingSampler should be initialized to 0 (validation/test), or be set to the previous value from state_dict in case of checkpoint resumption (train).
+            **kwargs: Additional arguments to pass to the dataloader.
+        """
         self.update_init_global_step()
         return WrappedDataLoader(
             mode=mode,
