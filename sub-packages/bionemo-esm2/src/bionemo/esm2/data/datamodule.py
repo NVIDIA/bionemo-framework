@@ -185,8 +185,6 @@ class ESMDataModule(MegatronDataModule):
         """
         self.update_init_global_step()
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
-        self.init_global_step = self.trainer.global_step
-        self.data_sampler.init_global_step = self.init_global_step
 
         return WrappedDataLoader(
             mode=mode,
