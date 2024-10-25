@@ -30,6 +30,7 @@ from nemo.lightning.pytorch.strategies import MegatronStrategy
 
 from bionemo.llm.utils.datamodule_utils import tensor_dict_hash
 from bionemo.testing import testing_callbacks
+from bionemo.testing.harnesses.mode import Mode
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 
 
@@ -39,9 +40,11 @@ __all__: Sequence[str] = ("StopAndGoHarness",)
 class StopAndGoHarness(ABC, unittest.TestCase):
     """Abstract base class for a stop-and-go harness.
 
-    Users should override cls.setup_model and update cls.setUpClass to customize the downstream test cases. Metadata are collected through callbacks and users can add new unit tests by comparing the metadata in stop/go stages.
+    Users should override cls.setup_model and update cls.setUpClass to customize the downstream test cases. Metadata are
+    collected through callbacks and users can add new unit tests by comparing the metadata in stop/go stages.
 
-    By default, learning rate, global step, optimizer state, consumed samples, model weights through validation loss are tested, and are accessible through cls.{stop,go}_callbacks.
+    By default, learning rate, global step, optimizer state, consumed samples, model weights through validation loss are
+    tested, and are accessible through cls.{stop,go}_callbacks.
 
     Stop and go tests act as follows:
         - setup a clean model for a brief training run, set StopAndGoCallback(s) to track.
@@ -51,19 +54,20 @@ class StopAndGoHarness(ABC, unittest.TestCase):
 
     Considerations when implementing this class:
         - devices, pipeline_model_parallel, and tensor_model_parallel may impact the setup of DataModule. Certain
-            datasets expect a known global batch size, which depends on the number of devices and conditional
-            tensor model parallel/ pipeline model parallel settings. By default, we are testing only on single device without parallelism.
+            datasets expect a known global batch size, which depends on the number of devices and conditional tensor
+            model parallel/ pipeline model parallel settings. By default, we are testing only on single device without
+            parallelism.
         - 'mode' is useful in some cases, but not in all cases. Implement conditions based on these when useful. As an
             example, it may be useful to implement a test that stops and resumes.
             - changing callbacks to test metadata integrity (core feature of stop-and-go tests).
             - changing the model construction to use different hyperparameters.
             - ... etc
             Each of the above tests cases may be useful for automated testing of various expected behavior.
-        - stop() and go(), or collectively stop_and_go() are provided methods which execute the actual tests, leveraging the conditions
-            in the various setup methods, respecting 'mode' where necessary.
+        - stop() and resume(), or collectively stop_and_go() are provided methods which execute the actual tests,
+          leveraging the conditions in the various setup methods, respecting 'mode' where necessary.
 
     Attributes:
-        root_di: The root directory.
+        root_dir: The root directory.
         val_check_interval: The validation check interval. Stored as an attribute to ensure consistency.
         exp_name: The experiment name.
         extra_metrics_dict: A dictionary of metrics and their corresponding functions.
@@ -93,11 +97,11 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         cls.metadata_dir = pathlib.Path(cls.tempdir.name) / "metadata"
         cls.exp_name = cls.__name__
 
-        cls.stop_callbacks: Dict[str, pl.Callback] = cls.get_default_callbacks(mode="stop")
-        cls.go_callbacks: Dict[str, pl.Callback] = cls.get_default_callbacks(mode="go")
+        cls.stop_callbacks: Dict[str, pl.Callback] = cls.get_default_callbacks(mode=Mode.STOP)
+        cls.go_callbacks: Dict[str, pl.Callback] = cls.get_default_callbacks(mode=Mode.RESUME)
 
         cls.nemo_logger = NeMoLogger(
-            log_dir=str(cls.tempdir),
+            log_dir=cls.tempdir.name,
             name=cls.exp_name,
             use_datetime_version=False,
             version=None,
@@ -106,6 +110,9 @@ class StopAndGoHarness(ABC, unittest.TestCase):
             ckpt=None,
         )
 
+        cls.interrupted_io_callback = testing_callbacks.InputAndOutputIdentityCallback()
+        cls.continuous_io_callback = testing_callbacks.InputAndOutputIdentityCallback()
+
     @classmethod
     def tearDownClass(cls) -> None:
         """Tears down the class by cleaning up the temporary directory."""
@@ -113,9 +120,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
 
     @classmethod
     @abstractmethod
-    def setup_model(
-        cls, mode: Literal["stop", "go"]
-    ) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
+    def setup_model(cls, mode: Mode) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
         """Constructs the model, data, and optimizer for the test harness.
 
         Optionally supports separate code paths for 'stop'/'go', although implementors are
@@ -132,15 +137,15 @@ class StopAndGoHarness(ABC, unittest.TestCase):
     @classmethod
     def setup_trainer(
         cls,
-        mode: Literal["stop", "go"],
+        mode: Mode,
     ) -> nl.Trainer:
         """Setup trainer by passing stop/go callbacks according to mode.
 
         Args:
-            mode (Literal["stop", "go"]): The mode indicating whether to stop or go.
+            mode (Mode): The mode indicating whether to stop or go.
 
         Returns:
-            (nl.Trainer): NeMo Lightninig trainer object.
+            (nl.Trainer): NeMo Lightning trainer object.
         """
         strategy = MegatronStrategy(
             ddp="megatron",
@@ -148,7 +153,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
             ckpt_include_optimizer=True,
         )
 
-        callbacks = cls.stop_callbacks if mode == "stop" else cls.go_callbacks
+        callbacks = cls.stop_callbacks if mode == Mode.STOP else cls.go_callbacks
         callbacks = list(callbacks.values())
         trainer = nl.Trainer(
             devices=1,
@@ -165,7 +170,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         return trainer
 
     @classmethod
-    def get_default_callbacks(cls, mode: Literal["stop", "go"]) -> Dict[str, pl.Callback]:
+    def get_default_callbacks(cls, mode: Mode) -> Dict[str, pl.Callback]:
         """Returns a list of callbacks based on the specified mode. Base implemention provides reasonable defaults.
 
         To extend this method, call the super and append to the callbacks, depending on which mode you are in:
@@ -185,7 +190,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         Raises:
             ValueError: If the mode is neither 'stop' nor 'go'.
         """
-        if mode == "stop":
+        if mode == Mode.STOP:
             callbacks = {
                 "ModelCheckpoint": nl_callbacks.ModelCheckpoint(
                     save_last=True,
@@ -196,31 +201,31 @@ class StopAndGoHarness(ABC, unittest.TestCase):
                 ),
                 "LearningRateStateStopAndGoCallback": testing_callbacks.LearningRateStateStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "learning_rate",
-                    mode="stop",
+                    mode=Mode.STOP,
                 ),
                 "GlobalStepStateStopAndGoCallback": testing_callbacks.GlobalStepStateStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "global_step",
-                    mode="stop",
+                    mode=Mode.STOP,
                 ),
                 "OptimizerStateStopAndGoCallback": testing_callbacks.OptimizerStateStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "optimizer_state",
-                    mode="stop",
+                    mode=Mode.STOP,
                 ),
                 "ComsumedSamplesStopAndGoCallback": testing_callbacks.ComsumedSamplesStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "consumed_samples",
-                    mode="stop",
+                    mode=Mode.STOP,
                 ),
                 "TrainValInitComsumedSamplesStopAndGoCallback": testing_callbacks.TrainValInitComsumedSamplesStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "train_val_init_consumed_samples",
-                    mode="stop",
+                    mode=Mode.STOP,
                 ),
                 "ManualValLossStopAndGoCallback": testing_callbacks.ManualValLossStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "manual_val_loss",
-                    mode="stop",
+                    mode=Mode.STOP,
                 ),
                 "RaiseAfterMetadataCallback": testing_callbacks.RaiseAfterMetadataCallback(),
             }
-        elif mode == "go":
+        elif mode == Mode.RESUME:
             # we must setup the integrity callback.
             callbacks = {
                 "ModelCheckpoint": nl_callbacks.ModelCheckpoint(
@@ -232,27 +237,27 @@ class StopAndGoHarness(ABC, unittest.TestCase):
                 ),
                 "LearningRateStateStopAndGoCallback": testing_callbacks.LearningRateStateStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "learning_rate",
-                    mode="go",
+                    mode=Mode.RESUME,
                 ),
                 "GlobalStepStateStopAndGoCallback": testing_callbacks.GlobalStepStateStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "global_step",
-                    mode="go",
+                    mode=Mode.RESUME,
                 ),
                 "OptimizerStateStopAndGoCallback": testing_callbacks.OptimizerStateStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "optimizer_state",
-                    mode="go",
+                    mode=Mode.RESUME,
                 ),
                 "ComsumedSamplesStopAndGoCallback": testing_callbacks.ComsumedSamplesStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "consumed_samples",
-                    mode="go",
+                    mode=Mode.RESUME,
                 ),
                 "TrainValInitComsumedSamplesStopAndGoCallback": testing_callbacks.TrainValInitComsumedSamplesStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "train_val_init_consumed_samples",
-                    mode="go",
+                    mode=Mode.RESUME,
                 ),
                 "ManualValLossStopAndGoCallback": testing_callbacks.ManualValLossStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "manual_val_loss",
-                    mode="go",
+                    mode=Mode.RESUME,
                 ),
             }
         else:
@@ -265,16 +270,16 @@ class StopAndGoHarness(ABC, unittest.TestCase):
     def stop(cls) -> None:
         """Runs pre-training and 'stops' after the first checkpoint is saved.
 
-        This method sets up the model, data, and optimizer for the "stop" mode.
-        It then sets up the trainer and strategy for the "stop" mode with the given metrics.
+        This method sets up the model, data, and optimizer for the Mode.STOP mode.
+        It then sets up the trainer and strategy for the Mode.STOP mode with the given metrics.
         The training process is executed using the `llm.train` function, passing the model, data, trainer, logger, optimizer, and resume options.
         If a `testing_callbacks.StopAndGoException` is raised during training, it is caught and no action is taken.
 
         Raises:
             testing_callbacks.StopAndGoException: If a stop and go exception occurs during training.
         """
-        model, data, opt = cls.setup_model(mode="stop")
-        trainer = cls.setup_trainer("stop")
+        model, data, opt = cls.setup_model(mode=Mode.STOP)
+        trainer = cls.setup_trainer(Mode.STOP)
         with distributed_model_parallel_state():
             try:
                 llm.train(
@@ -292,10 +297,10 @@ class StopAndGoHarness(ABC, unittest.TestCase):
                 return
 
     @classmethod
-    def go(cls) -> None:
+    def resume(cls) -> None:
         """Resumes the model from the checkpoint saved at the end of `stop()` and verifies the metadata integrity."""
-        model, data, opt = cls.setup_model(mode="go")
-        trainer = cls.setup_trainer("go")
+        model, data, opt = cls.setup_model(mode=Mode.RESUME)
+        trainer = cls.setup_trainer(Mode.RESUME)
         with distributed_model_parallel_state():
             llm.train(
                 model=model,
@@ -309,12 +314,18 @@ class StopAndGoHarness(ABC, unittest.TestCase):
                 ),
             )
 
+    @classmethod
+    def continuous(cls) -> None:
+        """Trains the model in one continuous path without stopping."""
+        ...
+
     # Finally, execution is a simple stop => go.
     @classmethod
-    def stop_and_go(cls):
+    def run_stop_and_go(cls):
         """Executes the stop => go process."""
+        cls.continuous()
         cls.stop()
-        cls.go()
+        cls.resume()
 
     # should we hide shared tests?
     def test_learning_rate_stop_and_go(self):
@@ -365,9 +376,10 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         callback: testing_callbacks.TrainValInitComsumedSamplesStopAndGoCallback = self.go_callbacks[
             "TrainValInitComsumedSamplesStopAndGoCallback"
         ]
-        (train_consumed_stop, val_consumed_stop), (train_consumed_go, val_consumed_go) = (
-            callback.load_stop_and_go_pickles()
-        )
+        (
+            (train_consumed_stop, val_consumed_stop),
+            (train_consumed_go, val_consumed_go),
+        ) = callback.load_stop_and_go_pickles()
         assert val_consumed_stop == 0
         assert val_consumed_go == 0
         assert train_consumed_stop == 0

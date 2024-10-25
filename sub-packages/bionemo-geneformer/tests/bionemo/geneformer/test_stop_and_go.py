@@ -45,6 +45,7 @@ from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.testing import testing_callbacks
 from bionemo.testing.data.load import load
 from bionemo.testing.harnesses import stop_and_go
+from bionemo.testing.harnesses.mode import Mode
 
 
 DATA_PATH: pathlib.Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
@@ -140,17 +141,15 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
                 raise ValueError("Preprocessing must have failed.")
 
         # add your custom callbacks here
-        # cls.stop_callbacks["YourCustomCallback"] = YourCustomCallback(mode="stop")
-        # cls.go_callbacks["YourCustomCallback"] = YourCustomCallback(mode="go")
+        # cls.stop_callbacks["YourCustomCallback"] = YourCustomCallback(mode=Mode.STOP)
+        # cls.go_callbacks["YourCustomCallback"] = YourCustomCallback(mode=Mode.RESUME)
 
         # run stop and go
-        cls.stop_and_go()
+        cls.run_stop_and_go()
 
     @override
     @classmethod
-    def setup_model(
-        cls, mode: Literal["stop", "go"]
-    ) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
+    def setup_model(cls, mode: Mode) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
         optim = MegatronOptimizerModule(
             config=OptimizerConfig(
                 lr=cls.lr,
@@ -180,9 +179,10 @@ class GeneformerStopAndGoTest(stop_and_go.StopAndGoHarness):
         callback: testing_callbacks.TrainValInitComsumedSamplesStopAndGoCallback = self.go_callbacks[
             "TrainValInitComsumedSamplesStopAndGoCallback"
         ]
-        (train_consumed_stop, val_consumed_stop), (train_consumed_go, val_consumed_go) = (
-            callback.load_stop_and_go_pickles()
-        )
+        (
+            (train_consumed_stop, val_consumed_stop),
+            (train_consumed_go, val_consumed_go),
+        ) = callback.load_stop_and_go_pickles()
         assert val_consumed_stop == 0
         assert val_consumed_go == 0
         assert train_consumed_stop == 0

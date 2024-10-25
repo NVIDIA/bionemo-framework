@@ -20,11 +20,15 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Tuple
 
 import torch
+from nemo.lightning import io
 from nemo.lightning.data import MegatronPretrainingSampler
+from nemo.lightning.megatron_parallel import CallbackMethods, DataT, MegatronLossReduction, MegatronStep
 from overrides import override
 from pytorch_lightning import Callback, LightningModule, Trainer
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
+
+from bionemo.testing.harnesses.mode import Mode
 
 
 def compute_biobert_loss_singlegpu(model, dl: DataLoader, limit_val_batches: int = 1):
@@ -103,17 +107,17 @@ class AbstractStopAndGoCallback(ABC, Callback):
     Override these behaviors if necessary.
     """
 
-    def __init__(self, pickle_directory: str | pathlib.Path, mode: str = "stop"):
+    def __init__(self, pickle_directory: str | pathlib.Path, mode: Mode = Mode.STOP):
         """Initialize StopAndGoCallback.
 
         Args:
             pickle_directory (str | pathlib.Path): Directory at which the pickle file to save metadata to.
-            mode (str, optional): Mode to run in. Must be either "stop" or "go". Defaults to "stop".
+            mode (str, optional): Mode to run in. Must be either Mode.STOP or Mode.RESUME. Defaults to Mode.STOP.
 
         Notes:
             User must override get_metadata and compare_metadata, within which self.has_compared should be set to True after comparison to manually indicate that the method is overrode.
         """
-        if mode not in ["stop", "go"]:
+        if mode not in [Mode.STOP, Mode.RESUME]:
             raise ValueError(f"mode must be 'stop' or 'go', got {mode}")
 
         if not isinstance(pickle_directory, pathlib.Path):
@@ -123,13 +127,13 @@ class AbstractStopAndGoCallback(ABC, Callback):
         self.pickle_directory = pickle_directory
         self.mode = mode
 
-    def write_pickle(self, mode: str, data: Any):
+    def write_pickle(self, mode: Mode, data: Any):
         """Write metadata to pickle file."""
         pickle_file_path = self.pickle_directory / f"metadata_{mode}.pkl"
         with open(pickle_file_path, "wb") as f:
             pickle.dump(data, f)
 
-    def load_pickle(self, mode: str) -> Any:
+    def load_pickle(self, mode: Mode) -> Any:
         """Load metadata from pickle file."""
         pickle_file_path = self.pickle_directory / f"metadata_{mode}.pkl"
         with open(pickle_file_path, "rb") as f:
@@ -137,7 +141,7 @@ class AbstractStopAndGoCallback(ABC, Callback):
 
     def load_stop_and_go_pickles(self) -> Tuple[Any, Any]:
         """Load both stop and go metadata from pickle files."""
-        return self.load_pickle(mode="stop"), self.load_pickle(mode="go")
+        return self.load_pickle(mode=Mode.STOP), self.load_pickle(mode=Mode.RESUME)
 
     @abstractmethod
     def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
@@ -145,13 +149,13 @@ class AbstractStopAndGoCallback(ABC, Callback):
         raise NotImplementedError
 
     def on_train_epoch_start(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
-        if self.mode == "go":
-            self.write_pickle(mode="go", data=self.get_metadata(trainer, pl_module))
+        if self.mode == Mode.RESUME:
+            self.write_pickle(mode=Mode.RESUME, data=self.get_metadata(trainer, pl_module))
 
     def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
-        if not trainer.sanity_checking and self.mode == "stop":
+        if not trainer.sanity_checking and self.mode == Mode.STOP:
             metadata_stop = self.get_metadata(trainer, pl_module)
-            self.write_pickle(mode="stop", data=metadata_stop)
+            self.write_pickle(mode=Mode.STOP, data=metadata_stop)
 
 
 class LearningRateStateStopAndGoCallback(AbstractStopAndGoCallback):
@@ -256,3 +260,29 @@ class ManualValLossStopAndGoCallback(AbstractStopAndGoCallback):
     def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
         """Get validation loss as metadata."""
         return self.compute_biobert_loss_singlegpu_on_first_validation_batch(trainer, pl_module)
+
+
+class InputAndOutputIdentityCallback(Callback, CallbackMethods, io.IOMixin):
+    """Callback to store input and output data for comparison."""
+
+    def __init__(self):
+        """Initializes the callback."""
+        super().__init__()
+        self.inputs = []
+        self.outputs = []
+
+    def on_megatron_microbatch_end(
+        self,
+        step: MegatronStep,
+        batch: DataT,
+        forward_callback: "MegatronLossReduction",
+        output: Any,
+    ) -> None:
+        """Store the input and output data for later comparison."""
+        del step, forward_callback  # unused
+        self.inputs.append(batch)
+        self.outputs.append(output)
+
+    def __deepcopy__(self, memo):
+        """Don't actually attempt to copy this data when this callback is being serialized."""
+        ...

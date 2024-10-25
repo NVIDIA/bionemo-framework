@@ -35,6 +35,7 @@ from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.testing.harnesses import stop_and_go
+from bionemo.testing.harnesses.mode import Mode
 
 
 MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
@@ -61,16 +62,14 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
         cls.tokenizer: BioNeMoESMTokenizer = get_tokenizer()
 
         # add your custom callbacks here
-        # cls.stop_callbacks["YourCustomCallback"] = YourCustomCallback(mode="stop")
-        # cls.go_callbacks["YourCustomCallback"] = YourCustomCallback(mode="go")
+        # cls.stop_callbacks["YourCustomCallback"] = YourCustomCallback(mode=Mode.STOP)
+        # cls.go_callbacks["YourCustomCallback"] = YourCustomCallback(mode=Mode.RESUME)
 
         # run stop and go
-        cls.stop_and_go()
+        cls.run_stop_and_go()
 
     @classmethod
-    def setup_model(
-        cls, mode: Literal["stop", "go"]
-    ) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
+    def setup_model(cls, mode: Mode) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
         # build data module
         data = ESMDataModule(
             train_cluster_path=cls.train_cluster_path,
