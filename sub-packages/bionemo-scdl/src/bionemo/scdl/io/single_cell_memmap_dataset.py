@@ -132,7 +132,7 @@ def _create_row_memmaps(
     num_rows: int,
     memmap_dir_path: Path,
     mode: Mode,
-    dtypes: Dict[str, str],
+    dtypes: Dict[FileNames, str],
 ) -> np.ndarray:
     """Records a pointer into the data and column arrays."""
     return np.memmap(
@@ -147,7 +147,7 @@ def _create_data_col_memmaps(
     num_elements: int,
     memmap_dir_path: Path,
     mode: Mode,
-    dtypes: Dict[str, str],
+    dtypes: Dict[FileNames, str],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Records a pointer into the data and column arrays."""
     # Records the value at index[i]
@@ -172,7 +172,7 @@ def _create_compressed_sparse_row_memmaps(
     num_rows: int,
     memmap_dir_path: Path,
     mode: Mode,
-    dtypes: Dict[str, str],
+    dtypes: Dict[FileNames, str],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Create a set of CSR-format numpy arrays.
 
@@ -238,7 +238,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         num_rows: Optional[int] = None,
         mode: Mode = Mode.READ_APPEND.value,
         paginated_load_cutoff: int = 10_000,
-        load_block_size: int = 1_000_000,
+        load_block_row_size: int = 1_000_000,
     ) -> None:
         """Instantiate the class.
 
@@ -249,14 +249,14 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             num_elements: The total number of elements in the array.
             num_rows: The number of rows in the data frame.
             mode: Whether to read or write from the data_path.
-            paginated_load_cutoff: MB Cutoff at which to blload the h5ad structure.
-            load_block_size: Number of rows to load into memory with paginated load
+            paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
+            load_block_row_size: Number of rows to load into memory with paginated load
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
         self.mode: Mode = mode
         self.paginated_load_cutoff = paginated_load_cutoff
-        self.load_block_size = load_block_size
+        self.load_block_row_size = load_block_row_size
         # Backing arrays
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
@@ -531,11 +531,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """Method for block loading a larger h5ad file and converting it to the SCDL format.
 
         This should be used in the case when the entire anndata file cannot be loaded into memory.
-        The anndata is loaded into memory load_block_size number of rows at a time. Each chunk
+        The anndata is loaded into memory load_block_row_size number of rows at a time. Each chunk
         is converted into numpy memory maps which are then concatenated together.
 
         Raises:
-            NotImplementedError if the data is not block loaded in the correct format.
+            NotImplementedError if the data is not loaded in the CSRDataset format.
 
         Returns:
             pd.DataFrame: var variables for features
@@ -544,7 +544,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         adata = ad.read_h5ad(anndata_path, backed=True)
 
         if not isinstance(adata.X, ad.experimental.CSRDataset):
-            raise NotImplementedError("Sparse Matrix cannot be lazy-loaded.")
+            raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
         num_rows = adata.X.shape[0]
 
         self.dtypes[f"{FileNames.DATA.value}"] = adata.X.dtype
@@ -555,19 +555,19 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.row_index[:] = adata.X.indptr.astype(int)
 
         # The data from each column and data chunk of the original anndata file is read in. This is saved into the final
-        # location of the memmap file in the binary file format.
+        # location of the memmap file. In this step, it is saved in the binary file format.
         memmap_dir_path = Path(self.data_path)
         with (
             open(f"{memmap_dir_path}/{FileNames.COLPTR.value}", "wb") as col_file,
             open(f"{memmap_dir_path}/{FileNames.DATA.value}", "wb") as data_file,
         ):
             n_elements = 0
-            for row_start in range(0, num_rows, self.load_block_size):
+            for row_start in range(0, num_rows, self.load_block_row_size):
                 # Write each array's data to the file in binary format
-                col_block = adata.X[row_start : row_start + self.load_block_size].indices
+                col_block = adata.X[row_start : row_start + self.load_block_row_size].indices
                 col_file.write(col_block.tobytes())
 
-                data_block = adata.X[row_start : row_start + self.load_block_size].data
+                data_block = adata.X[row_start : row_start + self.load_block_row_size].data
                 data_file.write(data_block.tobytes())
 
                 n_elements += len(data_block)
