@@ -85,6 +85,7 @@ class RaiseAfterMetadataCallback(Callback):
 
 class AbstractStopAndGoCallback(ABC, Callback):
     """Abstract base class for stop-and-go callback to compare metadata before pausing and after resuming training.
+
     This base class provides utility methods to help streamline stop and go comparison, as well as saving and loading metadata in pickle files.
 
     Provided methods:

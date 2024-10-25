@@ -38,14 +38,16 @@ __all__: Sequence[str] = ("StopAndGoHarness",)
 
 class StopAndGoHarness(ABC, unittest.TestCase):
     """Abstract base class for a stop-and-go harness.
-    Users should override cls.setup_model and update cls.setUpClass to customize the downstream test cases.
+
+    Users should override cls.setup_model and update cls.setUpClass to customize the downstream test cases. Metadata are collected through callbacks and users can add new unit tests by comparing the metadata in stop/go stages.
+
+    By default, learning rate, global step, optimizer state, consumed samples, model weights through validation loss are tested, and are accessible through cls.{stop,go}_callbacks.
 
     Stop and go tests act as follows:
         - setup a clean model for a brief training run, set StopAndGoCallback(s) to track.
         - interrupt training via the StopAndGoException in the callback RaiseAfterMetadataCallback.
         - train the model resumed from the checkpoint with the same StopAndGoCallback(s).
         - compare each pair of stop and go metadata in a test function for each StopAndGoCallback.
-      By default, learning rate, global step, optimizer state, consumed samples, model weights through validation loss are checked, and are accessible through cls.{stop,go}_callbacks.
 
     Considerations when implementing this class:
         - devices, pipeline_model_parallel, and tensor_model_parallel may impact the setup of DataModule. Certain
