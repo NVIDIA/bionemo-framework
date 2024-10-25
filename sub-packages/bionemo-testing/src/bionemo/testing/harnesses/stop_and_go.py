@@ -38,28 +38,26 @@ __all__: Sequence[str] = ("StopAndGoHarness",)
 
 class StopAndGoHarness(ABC, unittest.TestCase):
     """Abstract base class for a stop-and-go harness.
+    Users should override cls.setup_model and update cls.setUpClass to customize the downstream test cases.
 
     Stop and go tests act as follows:
-        - setup a clean model for a brief training run, select metrics to track.
-        - interrupt training via the StopAndGoException in the callback InterruptAfterMetadataCallback.
-        - setup a model to be resumed from the checkpoint, with the same metrics.
-        - Restore training and check that metadta matches the stored metrics in the callback CheckpointIntegrityCallback.
-      Useful metrics to check are things like learning rate, global step, validation loss, training loss, and anything
-        else that is important to the training process. If there is an unavailable metrics, a method for fetching the
-        metric should be provided in the bionemo.testing.callbacks module.
+        - setup a clean model for a brief training run, set StopAndGoCallback(s) to track.
+        - interrupt training via the StopAndGoException in the callback RaiseAfterMetadataCallback.
+        - train the model resumed from the checkpoint with the same StopAndGoCallback(s).
+        - compare each pair of stop and go metadata in a test function for each StopAndGoCallback.
+      By default, learning rate, global step, optimizer state, consumed samples, model weights through validation loss are checked, and are accessible through cls.{stop,go}_callbacks.
 
     Considerations when implementing this class:
         - devices, pipeline_model_parallel, and tensor_model_parallel may impact the setup of DataModule. Certain
             datasets expect a known global batch size, which depends on the number of devices and conditional
-            tensor model parallel/ pipeline model parallel settings.
+            tensor model parallel/ pipeline model parallel settings. By default, we are testing only on single device without parallelism.
         - 'mode' is useful in some cases, but not in all cases. Implement conditions based on these when useful. As an
-            example, it may be useful to implement a test that stops and resumes with different parallelism settings.
+            example, it may be useful to implement a test that stops and resumes.
             - changing callbacks to test metadata integrity (core feature of stop-and-go tests).
-            - changing trainer behavior to use multiple GPUs
             - changing the model construction to use different hyperparameters.
             - ... etc
             Each of the above tests cases may be useful for automated testing of various expected behavior.
-        - stop(), go(), and run_test() are provided methods which execute the actual tests, leveraging the conditions
+        - stop() and go(), or collectively stop_and_go() are provided methods which execute the actual tests, leveraging the conditions
             in the various setup methods, respecting 'mode' where necessary.
 
     Attributes:

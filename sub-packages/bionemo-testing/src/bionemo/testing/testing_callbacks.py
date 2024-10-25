@@ -84,7 +84,23 @@ class RaiseAfterMetadataCallback(Callback):
 
 
 class AbstractStopAndGoCallback(ABC, Callback):
-    """Abstract base class for stop-and-go callback to compare metadata before pausing and after resuming training."""
+    """Abstract base class for stop-and-go callback to compare metadata before pausing and after resuming training.
+    This base class provides utility methods to help streamline stop and go comparison, as well as saving and loading metadata in pickle files.
+
+    Provided methods:
+        - __init__: initializes the callback with the pickle directory and mode.
+        - write_pickle: writes metadata to a pickle file.
+        - read_pickle: reads metadata from a pickle file.
+        - load_stop_and_go_pickles: loads metadata from pickle files for both stop and go modes.
+        - compare_metadata: compares metadata from stop and go modes.
+        - get_metadata: abstract method that should be overridden to get metadata from the trainer and pl_module.
+
+    Default behaviors:
+        - in stop mode, metadata is gotten and compared on_validation_epoch_end.
+        - in go mode, metadata is gotten and saved on_train_epoch_start.
+
+    Override these behaviors if necessary.
+    """
 
     def __init__(self, pickle_directory: str | pathlib.Path, mode: str = "stop"):
         """Initialize StopAndGoCallback.
