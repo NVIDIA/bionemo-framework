@@ -179,7 +179,7 @@ class SingleCellDataModule(MegatronDataModule):
     def test_dataloader(self) -> EVAL_DATALOADERS:  # noqa: D102
         return self._create_dataloader(self._test_ds)
 
-    def _create_dataloader(self, dataset, mode: Mode) -> WrappedDataLoader:
+    def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:
         self.update_init_global_step()
         return WrappedDataLoader(
             mode=mode,
@@ -193,6 +193,7 @@ class SingleCellDataModule(MegatronDataModule):
                 min_length=None,
                 max_length=self.max_len,
             ),
+            **kwargs,
         )
 
     def _sample_and_shuffle_dataset(self, dataset: SingleCellDataset, num_samples: int, stage: str):  # noqa: D417

@@ -174,7 +174,7 @@ class ESMDataModule(MegatronDataModule):
             hasattr(self, "trainer") and self.trainer is not None
         ), "Setup should be completed when trainer and config are attached."
 
-    def _create_dataloader(self, dataset, mode: Mode) -> WrappedDataLoader:
+    def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:
         """Create dataloader for train, validation, and test stages.
 
         Args:
@@ -196,6 +196,7 @@ class ESMDataModule(MegatronDataModule):
                 min_length=self._min_seq_length,
                 max_length=self._max_seq_length,
             ),
+            **kwargs,
         )
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:
