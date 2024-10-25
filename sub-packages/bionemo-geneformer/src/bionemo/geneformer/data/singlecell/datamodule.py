@@ -16,7 +16,7 @@
 
 import functools
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Literal, Optional, Sequence
 
 import numpy as np
 from nemo.lightning.data import WrappedDataLoader
@@ -33,6 +33,8 @@ from bionemo.llm.data import collate
 from bionemo.llm.data.datamodule import MegatronDatamodule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
+
+Mode = Literal["train", "validation", "test"]
 
 __all__: Sequence[str] = ("SingleCellDataModule",)
 
@@ -177,7 +179,7 @@ class SingleCellDataModule(MegatronDatamodule):
     def test_dataloader(self) -> EVAL_DATALOADERS:  # noqa: D102
         return self._create_dataloader(self._test_ds)
 
-    def _create_dataloader(self, dataset, mode: Literal["train", "validation", "test"]) -> WrappedDataLoader:
+    def _create_dataloader(self, dataset, mode: Mode) -> WrappedDataLoader:
         self.update_init_global_step()
         return WrappedDataLoader(
             mode=mode,
