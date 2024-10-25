@@ -42,6 +42,7 @@ from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
+from bionemo.testing import testing_callbacks
 from bionemo.testing.data.load import load
 from bionemo.testing.harnesses import stop_and_go
 

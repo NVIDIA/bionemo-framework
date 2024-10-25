@@ -261,7 +261,6 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         return callbacks
 
     # stop() and go() are provided methods and run the requisite methods with the appropriate mode.
-    # TODO combine stop and go
     @classmethod
     def stop(cls) -> None:
         """Runs pre-training and 'stops' after the first checkpoint is saved.
@@ -362,6 +361,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         assert val_loss_stop == val_loss_go
 
     def test_train_val_init_consumed_samples(self):
+        """Tests the initial consumed samples in stop-and-go scenario."""
         callback: testing_callbacks.TrainValInitComsumedSamplesStopAndGoCallback = self.go_callbacks[
             "TrainValInitComsumedSamplesStopAndGoCallback"
         ]
