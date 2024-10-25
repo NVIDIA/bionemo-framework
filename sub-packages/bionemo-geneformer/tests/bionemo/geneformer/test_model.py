@@ -47,7 +47,6 @@ from bionemo.geneformer.model.finetune_token_regressor import (
     LoRAForGeneFormerTokenRegressor,
 )
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
-from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
@@ -115,7 +114,7 @@ CELLS_FOR_TEST: List[List[str]] = [
 
 MODEL_PRECISION: str = "bf16-mixed"
 USE_TE: bool = True
-TARGET_MEAN_LOSS: float = 2.368649959564209
+TARGET_MEAN_LOSS: float = 2.442256450653076
 
 
 @pytest.fixture()
@@ -135,30 +134,9 @@ def geneformer_config():
         seq_length=2048,
         fp16=autocast_dtype == torch.float16,  # normally handled by ptl precision plugin
         bf16=autocast_dtype == torch.bfloat16,  # normally handled by ptl precision plugin
-        fp32_residual_connection=False,  # TODO(@jstjohn) check this
-        hidden_dropout=0.02,
-        init_method_std=0.02,
-        kv_channels=None,
-        apply_query_key_layer_scaling=False,
-        make_vocab_size_divisible_by=128,
-        masked_softmax_fusion=True,  # TODO(@jstjohn) check this
-        fp16_lm_cross_entropy=False,
         params_dtype=autocast_dtype,
         pipeline_dtype=autocast_dtype,
         autocast_dtype=autocast_dtype,  # setting this speeds things up a lot
-        gradient_accumulation_fusion=False,  # THIS BREAKS STUFF, leave False
-        layernorm_zero_centered_gamma=False,  # TODO(@jstjohn) check this
-        layernorm_epsilon=1.0e-12,
-        activation_func=F.gelu,  # TODO(@jstjohn) check this
-        qk_layernorm=False,  # TODO(@jstjohn) check this
-        apply_residual_connection_post_layernorm=False,  # False is new default, True was BERT pub.
-        bias_activation_fusion=True,  # TODO(@jstjohn) check this
-        bias_dropout_fusion=True,  # TODO(@jstjohn) check this
-        get_attention_mask_from_fusion=True,
-        attention_dropout=0.1,  # historically ignored in nemo1, always set to 0.1
-        share_embeddings_and_output_weights=True,
-        enable_autocast=False,  # This has to be set to True if we use the mixed precision plugin
-        biobert_spec_option=BiobertSpecOption.bert_layer_with_transformer_engine_spec,
         nemo1_ckpt_path=str(nemo1_checkpoint_path),
         return_only_hidden_states=True,  # This is what we did in nemo1 for inference
     )

@@ -20,7 +20,6 @@ from typing import List, Literal, Optional, Sequence
 
 import numpy as np
 from nemo.lightning.data import WrappedDataLoader
-from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
