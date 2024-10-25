@@ -20,7 +20,7 @@ import pytorch_lightning as pl
 from nemo.utils import logging
 
 
-class MegatronDatamodule(pl.LightningDataModule):
+class MegatronDataModule(pl.LightningDataModule):
     """A mixin that adds a `state_dict` and `load_state_dict` method for datamodule training resumption in NeMo."""
 
     def __post_init__(self):
