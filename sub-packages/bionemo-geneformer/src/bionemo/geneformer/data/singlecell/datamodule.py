@@ -205,7 +205,7 @@ class SingleCellDataModule(pl.LightningDataModule):
 
         """
         # This is where re-sampling occurs.
-        return PRNGResampleDataset(
+        return PRNGResampleDataset( #replace with the MultiEpochDatasetzresampler 
             dataset,
             num_samples=num_samples,
             seed=self.seed + len(stage),
