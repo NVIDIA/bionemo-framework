@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 import numpy as np
+from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
@@ -29,7 +30,7 @@ from bionemo.core.utils import random_utils
 from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import collate
-from bionemo.llm.data.datamodule import DataloaderWithMode, MegatronDatamodule
+from bionemo.llm.data.datamodule import MegatronDatamodule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
@@ -186,15 +187,15 @@ class SingleCellDataModule(MegatronDatamodule):
         return self._create_dataloader(self._train_ds, mode="train")
 
     def val_dataloader(self) -> EVAL_DATALOADERS:  # noqa: D102
-        return self._create_dataloader(self._validation_ds, mode="valid")
+        return self._create_dataloader(self._validation_ds, mode="validation")
 
     def test_dataloader(self) -> EVAL_DATALOADERS:  # noqa: D102
         return self._create_dataloader(self._test_ds, mode="test")
 
-    def _create_dataloader(self, dataset, **kwargs) -> DataloaderWithMode:
+    def _create_dataloader(self, dataset, **kwargs) -> WrappedDataLoader:
         self.update_init_global_step()
-        return DataloaderWithMode(
-            dataset,
+        return WrappedDataLoader(
+            dataset=dataset,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.persistent_workers,

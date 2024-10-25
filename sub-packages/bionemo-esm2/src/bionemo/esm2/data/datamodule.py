@@ -18,13 +18,14 @@ import functools
 import os
 from typing import Literal
 
+from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 
 from bionemo.esm2.data import dataset, tokenizer
 from bionemo.llm.data import collate
-from bionemo.llm.data.datamodule import DataloaderWithMode, MegatronDatamodule
+from bionemo.llm.data.datamodule import MegatronDatamodule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
@@ -170,13 +171,13 @@ class ESMDataModule(MegatronDatamodule):
             hasattr(self, "trainer") and self.trainer is not None
         ), "Setup should be completed when trainer and config are attached."
 
-    def _create_dataloader(self, dataset, **kwargs) -> DataloaderWithMode:
+    def _create_dataloader(self, dataset, **kwargs) -> WrappedDataLoader:
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
         self.init_global_step = self.trainer.global_step
         self.data_sampler.init_global_step = self.init_global_step
 
-        return DataloaderWithMode(
-            dataset,
+        return WrappedDataLoader(
+            dataset=dataset,
             num_workers=self._num_workers,
             pin_memory=self._pin_memory,
             persistent_workers=self._persistent_workers,
@@ -195,7 +196,7 @@ class ESMDataModule(MegatronDatamodule):
 
     def val_dataloader(self) -> EVAL_DATALOADERS:
         """Returns the dataloader for validation data."""
-        return self._create_dataloader(self._valid_ds, mode="valid")
+        return self._create_dataloader(self._valid_ds, mode="validation")
 
     def test_dataloader(self) -> EVAL_DATALOADERS:
         """Raises a not implemented error."""
