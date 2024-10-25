@@ -81,7 +81,6 @@ def main(
     save_last_checkpoint: bool = True,
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
-    save_every_n_steps: int = 100,
     nsys_profiling: bool = False,
     nsys_start_step: int = 0,
     nsys_end_step: Optional[int] = None,
@@ -184,6 +183,7 @@ def main(
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,
+        log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(precision=precision),
@@ -245,7 +245,7 @@ def main(
         save_last=save_last_checkpoint,
         monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
         save_top_k=save_top_k,
-        every_n_train_steps=save_every_n_steps,
+        every_n_train_steps=val_check_interval,
         always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
     )
 
@@ -386,13 +386,6 @@ parser.add_argument(
     type=int,
     required=False,
     help="Number of steps between logging. Default is 50.",
-)
-parser.add_argument(
-    "--save-every-n-steps",
-    type=int,
-    required=False,
-    default=10000,
-    help="Number of steps between saving checkpoints. Default is 10000.",
 )
 parser.add_argument(
     "--min-seq-length",
