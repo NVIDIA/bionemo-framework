@@ -16,7 +16,6 @@
 
 import pathlib
 import tempfile
-import unittest
 from abc import ABC, abstractmethod
 from typing import Dict, Literal, Sequence
 
@@ -40,7 +39,7 @@ from bionemo.testing.torch import recursive_assert_approx_equal
 __all__: Sequence[str] = ("StopAndGoHarness",)
 
 
-class StopAndGoHarness(ABC, unittest.TestCase):
+class StopAndGoHarness(ABC):
     """Abstract base class for a stop-and-go harness.
 
     Users should override cls.setup_model and update cls.setUpClass to customize the downstream test cases. Metadata are
@@ -94,7 +93,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
     nemo_logger: NeMoLogger
 
     @classmethod
-    def setUpClass(cls) -> None:
+    def setup_class(cls) -> None:
         """Sets up the class by creating a temporary directory, metadata_dir, exp_name and callbacks."""
         cls.tempdir = tempfile.TemporaryDirectory()
         cls.metadata_dir = pathlib.Path(cls.tempdir.name) / "metadata"
@@ -118,7 +117,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         )
 
     @classmethod
-    def tearDownClass(cls) -> None:
+    def teardown_class(cls) -> None:
         """Tears down the class by cleaning up the temporary directory."""
         cls.tempdir.cleanup()
 

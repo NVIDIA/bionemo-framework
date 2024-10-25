@@ -41,7 +41,7 @@ from bionemo.testing.harnesses.mode import Mode
 MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
 
 
-class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
+class TestESM2StopAndGo(stop_and_go.StopAndGoHarness):
     num_steps: int = 10
     val_check_interval: int = 4
     limit_val_batches: int = 2
@@ -50,8 +50,8 @@ class ESM2StopAndGoTest(stop_and_go.StopAndGoHarness):
 
     @override
     @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
+    def setup_class(cls):
+        super().setup_class()
         cls.data_dir = Path(cls.tempdir.name) / "data"
         cls.data_dir.mkdir(parents=True, exist_ok=True)
 
