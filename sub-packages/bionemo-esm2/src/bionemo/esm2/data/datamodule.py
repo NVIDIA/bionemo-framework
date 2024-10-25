@@ -32,7 +32,7 @@ from bionemo.llm.utils.datamodule_utils import infer_num_samples
 Mode = Literal["train", "validation", "test"]
 
 
-class ESMDataModule(MegatronDatamodule):
+class ESMDataModule(MegatronDataModule):
     """LightningDataModule wrapper of `ESMDataset`."""
 
     def __init__(

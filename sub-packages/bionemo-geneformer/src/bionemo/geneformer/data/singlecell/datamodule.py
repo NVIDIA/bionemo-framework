@@ -39,7 +39,7 @@ Mode = Literal["train", "validation", "test"]
 __all__: Sequence[str] = ("SingleCellDataModule",)
 
 
-class SingleCellDataModule(MegatronDatamodule):
+class SingleCellDataModule(MegatronDataModule):
     """LightningDataModule wrapper of `SingleCellDataset`
 
     Args:
