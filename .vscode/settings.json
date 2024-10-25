@@ -8,6 +8,7 @@
         "docstrings",
         "dtype",
         "Knowledgebase",
+        "microbatches",
         "NBVAL",
         "nemo",
         "ngcsdk",

@@ -17,7 +17,7 @@
 import pathlib
 import pickle
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from nemo.lightning import io
@@ -271,8 +271,11 @@ class InputAndOutputIdentityCallback(Callback, CallbackMethods, io.IOMixin):
         super().__init__()
         self.train_inputs = []
         self.train_outputs = []
+        self.train_losses = []
+
         self.valid_inputs = []
         self.valid_outputs = []
+        self.valid_losses = []
 
     def on_megatron_microbatch_end(
         self,
@@ -292,6 +295,25 @@ class InputAndOutputIdentityCallback(Callback, CallbackMethods, io.IOMixin):
         elif step.trainer.validating:
             self.valid_inputs.append(recursive_detach(batch))
             self.valid_outputs.append(recursive_detach(output))
+
+        else:
+            raise RuntimeError(f"Unexpected Mode: {step.trainer.state.stage}")
+
+    def on_megatron_step_end(
+        self,
+        step: MegatronStep,
+        microbatch_outputs: List[Any],
+        reduced: Optional[Union[torch.Tensor, Dict[str, torch.Tensor]]] = None,
+    ) -> None:
+        """Collect the reduced data for comparison."""
+        if step.trainer.sanity_checking:
+            return
+
+        elif step.trainer.training:
+            self.train_losses.append(recursive_detach(reduced))
+
+        elif step.trainer.validating:
+            self.valid_losses.append(recursive_detach(reduced))
 
         else:
             raise RuntimeError(f"Unexpected Mode: {step.trainer.state.stage}")

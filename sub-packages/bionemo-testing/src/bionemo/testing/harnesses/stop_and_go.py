@@ -27,6 +27,7 @@ from nemo.lightning import resume
 from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.strategies import MegatronStrategy
+from nemo.utils import logging
 
 from bionemo.llm.utils.datamodule_utils import tensor_dict_hash
 from bionemo.testing import testing_callbacks
@@ -168,6 +169,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
             accelerator="gpu",
             strategy=strategy,
             limit_val_batches=cls.limit_val_batches,
+            num_sanity_val_steps=0,
             val_check_interval=cls.val_check_interval,
             log_every_n_steps=cls.val_check_interval,
             num_nodes=1,
@@ -249,7 +251,7 @@ class StopAndGoHarness(ABC, unittest.TestCase):
 
         return callbacks
 
-    # stop() and go() are provided methods and run the requisite methods with the appropriate mode.
+    # stop() and resume() are provided methods and run the requisite methods with the appropriate mode.
     @classmethod
     def stop(cls) -> None:
         """Runs pre-training and 'stops' after the first checkpoint is saved.
@@ -262,6 +264,8 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         Raises:
             testing_callbacks.StopAndGoException: If a stop and go exception occurs during training.
         """
+        logging.info("Running stop()...")
+
         model, data, opt = cls.setup_model(mode=Mode.STOP)
         trainer = cls.setup_trainer(Mode.STOP)
         with distributed_model_parallel_state():
@@ -283,6 +287,8 @@ class StopAndGoHarness(ABC, unittest.TestCase):
     @classmethod
     def resume(cls) -> None:
         """Resumes the model from the checkpoint saved at the end of `stop()` and verifies the metadata integrity."""
+        logging.info("Running resume()...")
+
         model, data, opt = cls.setup_model(mode=Mode.RESUME)
         trainer = cls.setup_trainer(Mode.RESUME)
         with distributed_model_parallel_state():
@@ -301,6 +307,8 @@ class StopAndGoHarness(ABC, unittest.TestCase):
     @classmethod
     def continuous(cls) -> None:
         """Trains the model in one continuous path without stopping."""
+        logging.info("Running continuous()...")
+
         model, data, opt = cls.setup_model(mode=Mode.CONTINUOUS)
         trainer = cls.setup_trainer(Mode.CONTINUOUS)
         with distributed_model_parallel_state():
@@ -386,6 +394,13 @@ class StopAndGoHarness(ABC, unittest.TestCase):
             self.interrupted_io_callback.train_outputs, self.continuous_io_callback.train_outputs
         )
 
+    def test_train_losses_are_identical_for_interrupted_test(self):
+        """Ensures that the training losses are identical for all microbatches."""
+        assert len(self.interrupted_io_callback.train_losses), "No train outputs found."
+        recursive_assert_approx_equal(
+            self.interrupted_io_callback.train_losses, self.continuous_io_callback.train_losses
+        )
+
     def test_valid_inputs_are_identical_for_interrupted_test(self):
         """Ensures that the input tensors for training are identical for the interrupted and continuous tests."""
         assert len(self.interrupted_io_callback.valid_inputs), "No valid inputs found."
@@ -398,4 +413,11 @@ class StopAndGoHarness(ABC, unittest.TestCase):
         assert len(self.interrupted_io_callback.valid_outputs), "No valid outputs found."
         recursive_assert_approx_equal(
             self.interrupted_io_callback.valid_outputs, self.continuous_io_callback.valid_outputs
+        )
+
+    def test_valid_losses_are_identical_for_interrupted_test(self):
+        """Ensures that the validation losses are identical for all microbatches."""
+        assert len(self.interrupted_io_callback.valid_losses), "No train outputs found."
+        recursive_assert_approx_equal(
+            self.interrupted_io_callback.valid_losses, self.continuous_io_callback.valid_losses
         )
