@@ -29,6 +29,9 @@ from bionemo.llm.data.datamodule import MegatronDatamodule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
+Mode = Literal["train", "validation", "test"]
+
+
 class ESMDataModule(MegatronDatamodule):
     """LightningDataModule wrapper of `ESMDataset`."""
 
@@ -171,7 +174,13 @@ class ESMDataModule(MegatronDatamodule):
             hasattr(self, "trainer") and self.trainer is not None
         ), "Setup should be completed when trainer and config are attached."
 
-    def _create_dataloader(self, dataset, mode: Literal["train", "validation", "test"]) -> WrappedDataLoader:
+    def _create_dataloader(self, dataset, mode: Mode) -> WrappedDataLoader:
+        """Create dataloader for train, validation, and test stages.
+
+        Args:
+            dataset: The dataset to create the dataloader for.
+            mode: Stage of training, which is used to determined if consumed_samples in MegatronPretrainingSampler should be initialized to 0 (validation/test), or be set to the previous value from state_dict in case of checkpoint resumption (train).
+        """
         self.update_init_global_step()
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
 
