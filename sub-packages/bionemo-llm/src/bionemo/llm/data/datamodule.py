@@ -14,10 +14,9 @@
 # limitations under the License.
 
 
-from typing import Any, Dict, Literal
+from typing import Any, Dict
 
-import torch
-import torch.utils.data
+import pytorch_lightning as pl
 from nemo.utils import logging
 
 
