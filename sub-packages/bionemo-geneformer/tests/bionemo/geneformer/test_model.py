@@ -813,6 +813,8 @@ def _train_model_get_ckpt(
         random_token_prob=0.1,
         micro_batch_size=batch_size,
         global_batch_size=batch_size,
+        num_workers=0,
+        persistent_workers=False,
     )
 
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
