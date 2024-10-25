@@ -25,7 +25,7 @@ class MegatronDataModule(pl.LightningDataModule):
 
     def __init__(self, *args, **kwargs):
         """Set init_global_step to 0 for datamodule resumption."""
-        super().__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.init_global_step = 0
 
     def update_init_global_step(self):
