@@ -780,6 +780,7 @@ def _train_model_get_ckpt(
     n_steps_train: int,
     batch_size: int,
     peft: PEFT | None = None,
+    lr: float = 5e-4,
 ) -> Tuple[Path, MetricTracker, nl.Trainer]:
     data_error_str = "Please download test data with:\n`python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss`"
     data_dir = Path(data_path)
@@ -833,7 +834,7 @@ def _train_model_get_ckpt(
     # ckpt_path needs to be a string for SerDe
     optimizer = MegatronOptimizerModule(
         config=OptimizerConfig(
-            lr=5e-4,
+            lr=lr,
             optimizer="adam",
             use_distributed_optimizer=True,
             fp16=config.fp16,
@@ -891,6 +892,9 @@ def test_continue_from_checkpoint_geneformer(
     base_geneformer_config.set_hparam("num_layers", n_layers_test)  # set to 3 layers
     base_geneformer_config.set_hparam("hidden_size", 128)
     base_geneformer_config.set_hparam("ffn_hidden_size", 256)
+    # Turn off dropout for this quick test
+    base_geneformer_config.set_hparam("attention_dropout", 0.0)
+    base_geneformer_config.set_hparam("hidden_dropout", 0.0)
     # Re-initialize after manually updating hidden_size/ffn_hidden_size since so many other parameters
     #  are based off of these parameters and modified in post_init of the transformer config.
     base_geneformer_config = io.reinit(base_geneformer_config)
@@ -904,6 +908,7 @@ def test_continue_from_checkpoint_geneformer(
             config=base_geneformer_config,
             n_steps_train=n_steps_train,
             batch_size=batch_size,
+            lr=5e-4,
         )
         weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
@@ -922,19 +927,21 @@ def test_continue_from_checkpoint_geneformer(
             config=update_base_geneformer_config,  # same config as before since we are just continuing training
             n_steps_train=n_steps_train,
             batch_size=batch_size,
+            lr=5e-4,
         )
         weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert continue_trainer.model.config.num_layers == n_layers_test
-        assert continue_metrics.collection_train["loss"][0] > continue_metrics.collection_train["loss"][-1]
+        # Make sure that loss is dropping when you continue
+        assert sum(continue_metrics.collection_train["loss"][:5]) > sum(continue_metrics.collection_train["loss"][-5:])
         assert sum(continue_metrics.collection_train["loss"][:5]) < sum(initial_metrics.collection_train["loss"][-5:])
 
 
 @pytest.mark.needs_gpu
 def test_finetune_geneformer(
-    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 100, batch_size: int = 16
+    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 200, batch_size: int = 16
 ):
     base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
 
@@ -944,6 +951,9 @@ def test_finetune_geneformer(
     base_geneformer_config.set_hparam("num_layers", n_layers_test)  # set to 3 layers
     base_geneformer_config.set_hparam("hidden_size", 128)
     base_geneformer_config.set_hparam("ffn_hidden_size", 256)
+    # Turn off dropout for this quick test
+    base_geneformer_config.set_hparam("attention_dropout", 0.0)
+    base_geneformer_config.set_hparam("hidden_dropout", 0.0)
     # Re-initialize after manually updating hidden_size/ffn_hidden_size since so many other parameters
     #  are based off of these parameters and modified in post_init of the transformer config.
     base_geneformer_config = io.reinit(base_geneformer_config)
@@ -957,6 +967,7 @@ def test_finetune_geneformer(
             config=base_geneformer_config,
             n_steps_train=n_steps_train,
             batch_size=batch_size,
+            lr=5e-4,
         )
         weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
@@ -975,6 +986,7 @@ def test_finetune_geneformer(
             config=ft_geneformer_config,  # same config as before since we are just continuing training
             n_steps_train=n_steps_train,
             batch_size=batch_size,
+            lr=5e-3,
         )
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
@@ -989,7 +1001,7 @@ def test_finetune_geneformer(
 @pytest.mark.needs_gpu
 @pytest.mark.skip(reason="PEFT currently broken with fusions activated.")
 def test_finetune_geneformer_with_peft(
-    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 50, batch_size: int = 16
+    tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 200, batch_size: int = 16
 ):
     base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
 
@@ -999,6 +1011,9 @@ def test_finetune_geneformer_with_peft(
     base_geneformer_config.set_hparam("num_layers", n_layers_test)  # set to 3 layers
     base_geneformer_config.set_hparam("hidden_size", 128)
     base_geneformer_config.set_hparam("ffn_hidden_size", 256)
+    # Turn off dropout for this quick test
+    base_geneformer_config.set_hparam("attention_dropout", 0.0)
+    base_geneformer_config.set_hparam("hidden_dropout", 0.0)
     # Re-initialize after manually updating hidden_size/ffn_hidden_size since so many other parameters
     #  are based off of these parameters and modified in post_init of the transformer config.
     base_geneformer_config = io.reinit(base_geneformer_config)
@@ -1012,6 +1027,7 @@ def test_finetune_geneformer_with_peft(
             config=base_geneformer_config,
             n_steps_train=n_steps_train,
             batch_size=batch_size,
+            lr=5e-4,
         )
         weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
@@ -1032,13 +1048,16 @@ def test_finetune_geneformer_with_peft(
             n_steps_train=n_steps_train,
             batch_size=batch_size,
             peft=peft,
+            lr=5e-3,
         )
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert ft_trainer.model.config.num_layers == n_layers_test
-        assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
+        assert sum(simple_ft_metrics.collection_train["loss"][:5]) > sum(
+            simple_ft_metrics.collection_train["loss"][-5:]
+        )
 
         model = ft_trainer.model[0].module.module.module
         assert all(not p.requires_grad for p in model.embedding.parameters())
