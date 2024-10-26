@@ -28,7 +28,6 @@ import math
 import pathlib
 from typing import Literal
 
-import pytest
 import pytorch_lightning as pl
 import torch
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
@@ -153,7 +152,7 @@ class TestGeneformerStopAndGo(stop_and_go.StopAndGoHarness):
 
     def test_train_val_init_consumed_samples(self):
         """Override the parent test here because we know that train_consumed_go should be 8"""
-        callback: testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback = self.resume_callbacks[
+        callback: testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback = self.callbacks[Mode.RESUME][
             "TrainValInitComsumedSamplesStopAndGoCallback"
         ]
         (
@@ -164,19 +163,3 @@ class TestGeneformerStopAndGo(stop_and_go.StopAndGoHarness):
         assert val_consumed_go == 0
         assert train_consumed_stop == 0
         assert train_consumed_go == 8
-
-    @pytest.mark.xfail(reason="These tests is currently failing until Geneformer checkpoint resumption is fixed.")
-    def test_train_outputs_are_identical_for_interrupted_test(self):
-        super().test_train_outputs_are_identical_for_interrupted_test()
-
-    @pytest.mark.xfail(reason="These tests is currently failing until Geneformer checkpoint resumption is fixed.")
-    def test_train_losses_are_identical_for_interrupted_test(self):
-        super().test_train_losses_are_identical_for_interrupted_test()
-
-    @pytest.mark.xfail(reason="These tests is currently failing until Geneformer checkpoint resumption is fixed.")
-    def test_valid_outputs_are_identical_for_interrupted_test(self):
-        super().test_valid_outputs_are_identical_for_interrupted_test()
-
-    @pytest.mark.xfail(reason="These tests is currently failing until Geneformer checkpoint resumption is fixed.")
-    def test_valid_losses_are_identical_for_interrupted_test(self):
-        super().test_valid_losses_are_identical_for_interrupted_test()

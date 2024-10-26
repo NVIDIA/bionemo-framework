@@ -320,4 +320,5 @@ class InputAndOutputIdentityCallback(Callback, CallbackMethods, io.IOMixin):
 
     def __deepcopy__(self, memo):
         """Don't actually attempt to copy this data when this callback is being serialized."""
+        # TODO: make this inherited from a base class
         ...
