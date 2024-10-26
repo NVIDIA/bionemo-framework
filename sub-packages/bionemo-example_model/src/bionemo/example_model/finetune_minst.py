@@ -18,11 +18,11 @@ import argparse
 import tempfile
 from pathlib import Path
 
-from lightning_basics import BionemoLightningModule, ExampleFineTuneConfig
 from nemo.collections import llm
 from nemo.lightning import NeMoLogger, resume
 from pytorch_lightning.loggers import TensorBoardLogger
 
+from bionemo.example_model.lightning_basics import BionemoLightningModule, ExampleFineTuneConfig
 from bionemo.example_model.pretrain_mnist import checkpoint_callback, data_module, trainer
 
 

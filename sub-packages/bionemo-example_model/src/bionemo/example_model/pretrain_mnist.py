@@ -31,14 +31,41 @@ from bionemo.example_model.lightning_basics import (
 )
 
 
+checkpoint_callback = nl_callbacks.ModelCheckpoint(
+    save_last=True,
+    save_on_train_epoch_end=True,
+    monitor="reduced_train_loss",
+    every_n_train_steps=25,
+    always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+)
+
+# Set up the data module
+data_module = MNISTDataModule(data_dir=str(BIONEMO_CACHE_DIR), batch_size=128)
+
+strategy = nl.MegatronStrategy(
+    tensor_model_parallel_size=1,
+    pipeline_model_parallel_size=1,
+    ddp="megatron",
+    find_unused_parameters=True,
+    always_save_context=True,
+)
+metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
+
+trainer = nl.Trainer(
+    accelerator="gpu",
+    devices=1,
+    strategy=strategy,
+    limit_val_batches=5,
+    val_check_interval=25,
+    max_steps=500,
+    max_epochs=10,
+    num_nodes=1,
+    log_every_n_steps=25,
+    callbacks=[metric_tracker],
+    plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
+)
+
 if __name__ == "__main__":
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_last=True,
-        save_on_train_epoch_end=True,
-        monitor="reduced_train_loss",
-        every_n_train_steps=25,
-        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-    )
     temp_dir = tempfile.TemporaryDirectory()
     save_dir = temp_dir / "pretrain"
     name = "example"
@@ -49,33 +76,9 @@ if __name__ == "__main__":
         tensorboard=TensorBoardLogger(save_dir=save_dir, name=name),
         ckpt=checkpoint_callback,
     )
-    # Set up the data module
-    data_module = MNISTDataModule(data_dir=str(BIONEMO_CACHE_DIR), batch_size=128)
 
     # Set up the training module
     lightning_module = BionemoLightningModule(config=PretrainConfig())
-    strategy = nl.MegatronStrategy(
-        tensor_model_parallel_size=1,
-        pipeline_model_parallel_size=1,
-        ddp="megatron",
-        find_unused_parameters=True,
-        always_save_context=True,
-    )
-    metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
-
-    trainer = nl.Trainer(
-        accelerator="gpu",
-        devices=1,
-        strategy=strategy,
-        limit_val_batches=5,
-        val_check_interval=25,
-        max_steps=500,
-        max_epochs=10,
-        num_nodes=1,
-        log_every_n_steps=25,
-        callbacks=[metric_tracker],
-        plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
-    )
 
     # This trains the model
     llm.train(
