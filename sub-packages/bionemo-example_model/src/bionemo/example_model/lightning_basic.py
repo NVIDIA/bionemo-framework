@@ -15,6 +15,7 @@
 
 """This is intended to be a minimal self-container NeMo2 example."""
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generic, List, Optional, Sequence, Tuple, Type, TypedDict, TypeVar
 
@@ -43,7 +44,7 @@ from bionemo.llm.utils import iomixin_utils as iom
 __all__: Sequence[str] = (
     "ExampleConfig",
     "MSELossReduction",
-    "LitAutoEncoder",
+    "BionemoLightningModule",
     "ExampleModel",
     "MNISTCustom",
     "MNISTDataModule",
@@ -386,11 +387,10 @@ class ExampleFineTuneDropParentConfig(
 
 ################################################################################
 # General training wrapper that can be re-used for all model/loss combos
-#  just specify different configs. TODO make this an ABC since it will likely
-#  not change much between models, other than the data step and forward step.
+#  just specify different configs.
 
 
-class LitAutoEncoder(pl.LightningModule, io.IOMixin, LightningPassthroughPredictionMixin):
+class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroughPredictionMixin):
     """A very basic lightning module for testing the megatron strategy and the megatron-nemo2-bionemo contract."""
 
     def __init__(self, config: MegatronBioNeMoTrainableModelConfig):
@@ -477,6 +477,48 @@ class LitAutoEncoder(pl.LightningModule, io.IOMixin, LightningPassthroughPredict
 # TODO make an ABC for nemo2 DataModules
 #  which allow us to re-use some of these common functions and not forget to implement
 #  the key things that nemo2 uses/needs.
+
+
+class MetricTracker(pl.Callback):
+    def __init__(self, metrics_to_track_val: List[str], metrics_to_track_train: List[str]):
+        self.metrics_to_track_val = metrics_to_track_val
+        self.metrics_to_track_train = metrics_to_track_train
+        self._collection_val = defaultdict(list)
+        self._collection_train = defaultdict(list)
+
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
+        if isinstance(outputs, torch.Tensor):
+            self._collection_val["unnamed"].append(outputs)
+        else:
+            for metric in self.metrics_to_track_val:
+                self._collection_val[metric].append(outputs[metric])
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
+        if isinstance(outputs, torch.Tensor):
+            self._collection_train["unnamed"].append(outputs)
+        else:
+            for metric in self.metrics_to_track_train:
+                self._collection_train[metric].append(outputs[metric])
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        elogs = trainer.logged_metrics  # access it here
+        self._collection_val["logged_metrics"].extend(elogs)
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        elogs = trainer.logged_metrics  # access it here
+        self._collection_train["logged_metrics"].extend(elogs)
+
+    @property
+    def collection_val(self) -> Dict[str, torch.Tensor | List[str]]:
+        res = {k: torch.tensor(v) for k, v in self._collection_val.items() if k != "logged_metrics"}
+        res["logged_metrics"] = self._collection_val["logged_metrics"]
+        return res
+
+    @property
+    def collection_train(self) -> Dict[str, torch.Tensor | str]:
+        res = {k: torch.tensor(v) for k, v in self._collection_train.items() if k != "logged_metrics"}
+        res["logged_metrics"] = self._collection_train["logged_metrics"]
+        return res
 
 
 class MNISTCustom(MNIST):  # noqa: D101
