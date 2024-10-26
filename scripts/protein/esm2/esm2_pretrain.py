@@ -184,6 +184,7 @@ def main(
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,
         log_every_n_steps=log_every_n_steps,
+        progress_interval=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(precision=precision),
