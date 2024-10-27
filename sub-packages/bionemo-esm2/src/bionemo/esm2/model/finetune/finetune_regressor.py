@@ -180,7 +180,7 @@ class InMemorySingleValueDataset(Dataset):
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
-        """Initializes a dataset for single-value regression fine-tuining.
+        """Initializes a dataset for single-value regression fine-tuning.
 
         This is an in-memory dataset that does not apply masking to the sequence.
 
