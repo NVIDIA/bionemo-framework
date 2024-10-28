@@ -196,6 +196,7 @@ def test_perplexity_logging_callback_with_single_microbatch_golden_value_without
         mock_megatron_step = mock.MagicMock()
         mock_megatron_step.pl_module.log.return_value = None
         mock_megatron_step.trainer.training = False
+        mock_megatron_step.trainer.sanity_checking = False
         mock_megatron_step.num_microbatches = num_microbatches
 
         # setup callback
@@ -240,6 +241,7 @@ def test_perplexity_logging_callback_with_variable_length_microbatches_golden_va
         mock_megatron_step = mock.MagicMock()
         mock_megatron_step.pl_module.log.return_value = None
         mock_megatron_step.trainer.training = False
+        mock_megatron_step.trainer.sanity_checking = False
         mock_megatron_step.num_microbatches = num_microbatches
 
         # setup callback
@@ -284,6 +286,7 @@ def test_perplexity_logging_callback_with_single_microbatch_only_log_at_pipeline
         mock_megatron_step = mock.MagicMock()
         mock_megatron_step.pl_module.log.return_value = None
         mock_megatron_step.trainer.training = False
+        mock_megatron_step.trainer.sanity_checking = False
         mock_megatron_step.num_microbatches = num_microbatches
 
         # setup callback
