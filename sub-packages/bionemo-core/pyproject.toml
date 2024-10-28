@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools-scm>=8", "setuptools>=64", "wheel"]
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -26,13 +26,8 @@ include = ["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
 
-[tool.setuptools_scm]
-root = '../..'  # Pull version information from the root directory.
-# Increment versions with `.postN` suffixes, e.g., 0.0.1.post1, 0.0.1.post2, etc., where N is the number of commits
-# between the current commit and the tag.
-version_scheme = "post-release"
-# Ignore 'dirty' repository state, e.g., uncommitted changes, since these are not reliable inside the docker container.
-local_scheme = "no-local-version"
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
 
 [tool.uv]
 cache-keys = [{ git = true }]
