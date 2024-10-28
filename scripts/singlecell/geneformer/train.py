@@ -39,7 +39,6 @@ from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.geneformer.api import FineTuneSeqLenBioBertConfig, GeneformerConfig
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
-from bionemo.llm.lightning import PerplexityLoggingCallback
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig, BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
@@ -82,6 +81,10 @@ def main(
     save_last_checkpoint: bool = True,
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
+    nsys_profiling: bool = False,
+    nsys_start_step: int = 0,
+    nsys_end_step: Optional[int] = None,
+    nsys_ranks: List[int] = [0],
     config_class: Type[BioBertConfig] = GeneformerConfig,
     log_every_n_steps: int = 50,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
@@ -164,6 +167,21 @@ def main(
             log_model=wandb_log_model,
         )
     )
+    callbacks = [
+        # Skip perplexity and disable forward output in the loss for speed
+        RichModelSummary(max_depth=4),
+        LearningRateMonitor(),
+    ]
+
+    if nsys_profiling:
+        if nsys_end_step is None:
+            nsys_end_step = num_steps
+        callbacks.append(
+            nl_callbacks.NsysCallback(
+                start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
+            )
+        )
+
     trainer = nl.Trainer(
         devices=devices,
         max_steps=num_steps,
@@ -173,11 +191,7 @@ def main(
         val_check_interval=val_check_interval,  # TODO(@jstjohn) Checkpoint saving is currently broken, fix and change this.
         log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
-        callbacks=[
-            PerplexityLoggingCallback(log_train=False, log_val=True),  # TODO(@sichu) fix this
-            RichModelSummary(max_depth=4),
-            LearningRateMonitor(),
-        ],
+        callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
@@ -491,6 +505,36 @@ parser.add_argument(
     "and alternative loss. In the future this script should also provide similar support for picking different data "
     f"modules for fine-tuning with different data types. Choices: {config_class_options.keys()}",
 )
+parser.add_argument(
+    "--nsys-profiling",
+    action="store_true",
+    default=False,
+    help="Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with `nsys`. For example: "
+    " `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop  [regular python command here]`",
+)
+# start, end, rank
+parser.add_argument(
+    "--nsys-start-step",
+    type=int,
+    required=False,
+    default=0,
+    help="Start nsys profiling after this step.",
+)
+parser.add_argument(
+    "--nsys-end-step",
+    type=int,
+    required=False,
+    help="End nsys profiling after this step.",
+)
+# rank as list of integers
+parser.add_argument(
+    "--nsys-ranks",
+    type=int,
+    nargs="+",
+    required=False,
+    default=[0],
+    help="Enable nsys profiling for these ranks.",
+)
 
 if __name__ == "__main__":
     # Parse the arguments and pull them out into local variables for ease of future refactor to a
@@ -524,6 +568,10 @@ if __name__ == "__main__":
         experiment_name=args.experiment_name,
         resume_if_exists=args.resume_if_exists,
         nemo1_init_path=args.nemo1_init_path,
+        nsys_profiling=args.nsys_profiling,
+        nsys_start_step=args.nsys_start_step,
+        nsys_end_step=args.nsys_end_step,
+        nsys_ranks=args.nsys_ranks,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
         config_class=args.training_model_config_class,
         save_last_checkpoint=args.save_last_checkpoint,

@@ -17,6 +17,7 @@ from typing import Dict, List, Literal, Sequence, Tuple, TypedDict
 
 import torch
 from megatron.core import parallel_state, tensor_parallel
+from megatron.core.fusions.fused_cross_entropy import fused_vocab_parallel_cross_entropy
 from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
 from nemo.lightning.megatron_parallel import (
     MegatronLossReduction,
@@ -144,6 +145,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         val_drop_last: bool = True,
         send_train_output: bool = False,
         send_val_output: bool = True,
+        include_forward_output_for_metrics: bool = True,
     ) -> None:
         """Initializes the Model class.
 
@@ -152,6 +154,8 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
             val_drop_last (bool, optional): Whether the last batch is configured to be dropped during validation. Defaults to True.
             send_train_output (bool): Whether to return the model output in training. Defaults to False.
             send_val_output (bool, optional): Whether to return the model output in validation. Defaults to True.
+            include_forward_output_for_metrics (bool): Some downstream metrics such as perplexity require this. It can be
+                expensive to return however, so disable this if performance is a top consideration.
         """
         # TODO(@jomitchell): Track down how we handle test. This is a common pattern in NeMo2, but these parameters seem likely
         #  to change in the future.
@@ -160,6 +164,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         self.val_drop_last = val_drop_last
         self.send_train_output = send_train_output
         self.send_val_output = send_val_output
+        self.include_forward_output_for_metrics = include_forward_output_for_metrics
 
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
@@ -179,9 +184,12 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         if "labels" not in batch:
             raise ValueError("Labels not provided in the batch. These are required for this loss computation.")
 
-        forward_out_report = {
-            k: v.detach().clone() if torch.is_tensor(v) else v for k, v in forward_out.items()
-        }  # avoid impact from inplace operation on token_logits in unreduced_token_loss_fn
+        if self.include_forward_output_for_metrics:
+            forward_out_report = {
+                k: v.detach().clone() if torch.is_tensor(v) else v for k, v in forward_out.items()
+            }  # avoid impact from inplace operation on token_logits in unreduced_token_loss_fn
+        else:
+            forward_out_report = {}
         unreduced_token_loss = unreduced_token_loss_fn(forward_out["token_logits"], batch["labels"])  # [b s]
 
         # TODO(@jstjohn) also handle different output keys, like the sequence loss.
@@ -250,13 +258,20 @@ def unreduced_token_loss_fn(logits: Tensor, labels: Tensor) -> Tensor:
     WARNING: This function does not apply a loss mask. Also, it does inplace operation on the inputs.
 
     Args:
-        logits (Tensor): The predicted logits of shape [batch_size, sequence_length, num_classes].
+        logits (Tensor): The predicted logits of shape [sequence_length, batch_size, num_classes].
         labels (Tensor): The true labels of shape [batch_size, sequence_length].
 
     Returns:
         Tensor: The unreduced token loss of shape [batch_size, sequence_length].
     """
-    return tensor_parallel.vocab_parallel_cross_entropy(logits, labels)
+    labels = labels.transpose(0, 1).contiguous()  # [b, s] -> [s, b]
+    if True:
+        loss = fused_vocab_parallel_cross_entropy(logits, labels)
+    else:
+        loss = tensor_parallel.vocab_parallel_cross_entropy(logits, labels)
+    # [s b] => [b, s]
+    loss = loss.transpose(0, 1).contiguous()
+    return loss
 
 
 def unreduced_sequence_loss_fn(self, logits: Tensor, labels: Tensor) -> Tensor:

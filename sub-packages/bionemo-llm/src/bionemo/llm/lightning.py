@@ -229,6 +229,15 @@ class BionemoLightningModule(
         self._forward_step = forward_step
         self.model_transform = model_transform
 
+        # # NVFUSER magic from NeMo1
+        # torch._C._jit_set_profiling_executor(True)
+        # torch._C._jit_set_profiling_mode(True)
+        # torch._C._jit_override_can_fuse_on_cpu(False)
+        # torch._C._jit_override_can_fuse_on_gpu(False)
+        # torch._C._jit_set_texpr_fuser_enabled(False)
+        # torch._C._jit_set_nvfuser_enabled(True)
+        # torch._C._debug_set_autodiff_subgraph_inlining(False)
+
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
 
