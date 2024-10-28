@@ -335,11 +335,20 @@ In our current benchmark, we recommend the following trainiing and device config
 | 8M         | 32     | 64               | 1                          |
 | 650M       | 64     | 32               | 1                          |
 | 3B         | 128    | 16               | 1                          |
-| 15B        | 2048   | 2                | 2                          |
+| 15B        | 2048   | 2                | 2                          |  # TODO 3.5M tokens
 
 !!! note "Additional Optimization on Micro Batch Size"
 
-    While optimizing micro batch size further might deviate from the published 2,097,152 tokens global batch size exactly, users should observe additional performance boost. For example, 650M model can be trained on a micro batch size of 48.
+    While optimizing micro batch size further might deviate from 2,097,152 tokens global batch size exactly, users should observe performance boost by fitting the largest possible micro batch size onto the device without OOM.
+
+| Model Size | Max. micro batch size | Tensor Model Parallel Size |
+|------------|-----------------------|----------------------------|
+| 8M         | 70                    | 1                          |
+| 650M       | 48                    | 1                          |
+| 3B         | 16                    | 1                          |
+| 15B        | 2                     | 2                          |
+
+Maximum micro batch sizes for these model sizes are tested on 2 nodes of A100 80GB GPUs.
 
 !!! note "Memory Allocation from Distributed Optimizer"
 
