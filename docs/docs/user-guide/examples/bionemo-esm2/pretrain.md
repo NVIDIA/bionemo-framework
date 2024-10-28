@@ -302,8 +302,17 @@ python scripts/protein/esm2/esm2_pretrain.py \
     --hidden-size 1280 \
     --num-attention-head 20 \
     --ffn-hidden-size 5120 \
-    --tensor-model-parallel-size 1
+    --tensor-model-parallel-size 1 \
+    --create-tensorboard-logger \
+    --wandb_project=__your_wandb_project__ \
+    --experiment-name=__your_wandb_experiment_name
 ```
+
+Users should be able to locate the checkpoints in `./results` and additional tracking on Weight and Biases if provided.
+
+!!! note "Weight And Biases"
+
+    If intend to use `--wandb_project`, users should log in Weight and Biases or alternatively export the environment variable `WANDB_API_KEY`. If not provided, the logger will be disabled.
 
 !!! note "Non-critical Warnings from Command Line Runs"
 
