@@ -25,7 +25,9 @@ refer to the [Hardware and Software Prerequisites](../getting-started/pre-reqs.m
 
 ### Can I contribute code or models to BioNeMo?
 
-Yes, BioNeMo is open source and we welcome contributions from organizations and individuals.
+Yes, BioNeMo is open source and we welcome contributions from organizations and individuals. For more information about
+external contributions, refer to the [Contributing](../contributing/contributing.md) and
+[Code Review](../contributing/code-review.md) pages.
 
 ### How do I report bugs or suggest new features?
 
