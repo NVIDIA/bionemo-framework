@@ -345,4 +345,4 @@ In our current benchmark, we recommend the following trainiing and device config
 
     Distributed optimizer is enabled by default for improved memory allocation. Users might observe that the same micro batch size used on multi-device pretraining results in OOM on a single device. If additional optimization is necessary, we recommend running short benchmark on the same number of devices as in the production run.
 
-[^1]: In reference to Lin, Zeming, et al in the original ESM2 publication - "Evolutionary-scale prediction of atomic-level protein structure with a language model".
+[^1]: Lin, Zeming, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, et al. “Evolutionary-Scale Prediction of Atomic-Level Protein Structure with a Language Model.” Science 379, no. 6637 (March 17, 2023): 1123–30. https://doi.org/10.1126/science.ade2574
