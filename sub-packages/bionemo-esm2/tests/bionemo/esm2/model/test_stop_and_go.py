@@ -61,10 +61,6 @@ class TestESM2StopAndGo(stop_and_go.StopAndGoHarness):
         cls.valid_database_path = cls.train_database_path
         cls.tokenizer: BioNeMoESMTokenizer = get_tokenizer()
 
-        # add your custom callbacks here
-        # cls.stop_callbacks["YourCustomCallback"] = YourCustomCallback(mode=Mode.STOP)
-        # cls.go_callbacks["YourCustomCallback"] = YourCustomCallback(mode=Mode.RESUME)
-
         # run stop and go
         cls.run_stop_and_go()
 

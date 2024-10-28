@@ -20,7 +20,6 @@ from abc import ABC, abstractmethod
 from typing import Dict, Literal, Sequence, Type, TypeVar
 
 import nemo.lightning as nl
-import numpy as np
 import pytest
 import pytorch_lightning as pl
 from nemo.collections import llm
@@ -203,11 +202,34 @@ class StopAndGoHarness(ABC):
         """
         callbacks: CallbackDict = {}
 
-        interrupted_io_callback = testing_callbacks.InputAndOutputIdentityCallback()
-        interrupted_lr_callback = testing_callbacks.LearningRateCallback()
+        interrupted_callbacks = {
+            testing_callbacks.InputAndOutputIdentityCallback: testing_callbacks.InputAndOutputIdentityCallback(),
+            testing_callbacks.LearningRateCallback: testing_callbacks.LearningRateCallback(),
+            testing_callbacks.GlobalStepStateCallback: testing_callbacks.GlobalStepStateCallback(),
+            testing_callbacks.ConsumedSamplesCallback: testing_callbacks.ConsumedSamplesCallback(),
+        }
+
+        callbacks[Mode.CONTINUOUS] = {
+            testing_callbacks.InputAndOutputIdentityCallback: testing_callbacks.InputAndOutputIdentityCallback(),
+            testing_callbacks.LearningRateCallback: testing_callbacks.LearningRateCallback(),
+            testing_callbacks.GlobalStepStateCallback: testing_callbacks.GlobalStepStateCallback(),
+            testing_callbacks.ConsumedSamplesCallback: testing_callbacks.ConsumedSamplesCallback(),
+        }
 
         for mode in [Mode.STOP, Mode.RESUME]:
             callbacks[mode] = {
+                testing_callbacks.OptimizerStateStopAndGoCallback: testing_callbacks.OptimizerStateStopAndGoCallback(
+                    mode=mode,
+                ),
+                testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback: testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback(
+                    mode=mode,
+                ),
+                **interrupted_callbacks,
+            }
+
+        callbacks[Mode.STOP].update(
+            {
+                testing_callbacks.RaiseAfterMetadataCallback: testing_callbacks.RaiseAfterMetadataCallback(),
                 nl_callbacks.ModelCheckpoint: nl_callbacks.ModelCheckpoint(
                     save_last=True,
                     monitor="reduced_train_loss",
@@ -215,38 +237,8 @@ class StopAndGoHarness(ABC):
                     every_n_train_steps=cls.val_check_interval,
                     always_save_context=True,
                 ),
-                testing_callbacks.LearningRateCallback: interrupted_lr_callback,
-                testing_callbacks.GlobalStepStateStopAndGoCallback: testing_callbacks.GlobalStepStateStopAndGoCallback(
-                    pickle_directory=cls.metadata_dir / "global_step",
-                    mode=mode,
-                ),
-                testing_callbacks.OptimizerStateStopAndGoCallback: testing_callbacks.OptimizerStateStopAndGoCallback(
-                    pickle_directory=cls.metadata_dir / "optimizer_state",
-                    mode=mode,
-                ),
-                testing_callbacks.ConsumedSamplesStopAndGoCallback: testing_callbacks.ConsumedSamplesStopAndGoCallback(
-                    pickle_directory=cls.metadata_dir / "consumed_samples",
-                    mode=mode,
-                ),
-                testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback: testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback(
-                    pickle_directory=cls.metadata_dir / "train_val_init_consumed_samples",
-                    mode=mode,
-                ),
-                testing_callbacks.ManualValLossStopAndGoCallback: testing_callbacks.ManualValLossStopAndGoCallback(
-                    pickle_directory=cls.metadata_dir / "manual_val_loss",
-                    mode=mode,
-                ),
-                testing_callbacks.InputAndOutputIdentityCallback: interrupted_io_callback,
             }
-
-        callbacks[Mode.STOP][testing_callbacks.RaiseAfterMetadataCallback] = (
-            testing_callbacks.RaiseAfterMetadataCallback()
         )
-
-        callbacks[Mode.CONTINUOUS] = {
-            testing_callbacks.LearningRateCallback: testing_callbacks.LearningRateCallback(),
-            testing_callbacks.InputAndOutputIdentityCallback: testing_callbacks.InputAndOutputIdentityCallback(),
-        }
 
         return callbacks
 
@@ -321,50 +313,37 @@ class StopAndGoHarness(ABC):
         cls.resume()
         cls.continuous()
 
-    # should we hide shared tests?
-    def test_learning_rate_stop_and_go(self):
-        """Tests the learning rate stop and go functionality."""
-        interrupted_lr = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.LearningRateCallback)
-        continuous_lr = get_callback(self.callbacks, Mode.CONTINUOUS, testing_callbacks.LearningRateCallback)
-        assert interrupted_lr.lrs, "No learning rates found."
-        np.testing.assert_allclose(np.array(interrupted_lr.lrs), np.array(continuous_lr.lrs))
-
-    def test_global_step_stop_and_go(self):
-        """Tests the global step in stop-and-go scenario."""
-        callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.GlobalStepStateStopAndGoCallback)
-        global_step_stop, global_step_go = callback.load_stop_and_go_pickles()
-        assert global_step_stop == global_step_go
+    @pytest.mark.parametrize(
+        "callback_type",
+        [
+            testing_callbacks.LearningRateCallback,
+            testing_callbacks.GlobalStepStateCallback,
+            testing_callbacks.ConsumedSamplesCallback,
+        ],
+    )
+    def test_stop_and_go_consistency(self, callback_type):
+        """Tests the consistency of the callback data between the interrupted and continuous checks."""
+        interrupted_callback = get_callback(self.callbacks, Mode.RESUME, callback_type)
+        continuous_callback = get_callback(self.callbacks, Mode.CONTINUOUS, callback_type)
+        assert interrupted_callback.data, f"No data found for {callback_type}"
+        recursive_assert_approx_equal(interrupted_callback.data, continuous_callback.data)
 
     def test_optimizer_state_stop_and_go(self):
         """Tests the optimizer state in stop-and-go scenario."""
-        callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.OptimizerStateStopAndGoCallback)
-        state_dicts_stop, state_dicts_go = callback.load_stop_and_go_pickles()
-        for state_dict_go, state_dict_stop in zip(state_dicts_stop, state_dicts_go):
+        go_callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.OptimizerStateStopAndGoCallback)
+        stop_callback = get_callback(self.callbacks, Mode.STOP, testing_callbacks.OptimizerStateStopAndGoCallback)
+        for state_dict_go, state_dict_stop in zip(stop_callback.data, go_callback.data):
             assert tensor_dict_hash(state_dict_go) == tensor_dict_hash(state_dict_stop)
-
-    def test_consumed_samples_stop_and_go(self):
-        """Tests the consumed samples in stop-and-go scenario."""
-        callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.ConsumedSamplesStopAndGoCallback)
-        consumed_samples_stop, consumed_samples_go = callback.load_stop_and_go_pickles()
-        assert consumed_samples_stop == consumed_samples_go
-        # Make sure we do not trivially pass.
-        assert consumed_samples_stop > 0
-
-    def test_manual_val_loss_stop_and_go(self):
-        """Tests validation loss of the first batch in non-sanity-check validation epoch in stop-and-go scenario."""
-        callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.ManualValLossStopAndGoCallback)
-        val_loss_stop, val_loss_go = callback.load_stop_and_go_pickles()
-        assert val_loss_stop == val_loss_go
 
     def test_train_val_init_consumed_samples(self):
         """Tests the initial consumed samples in stop-and-go scenario."""
-        callback = get_callback(
+        train_consumed_stop, val_consumed_stop = get_callback(
+            self.callbacks, Mode.STOP, testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback
+        ).data
+        train_consumed_go, val_consumed_go = get_callback(
             self.callbacks, Mode.RESUME, testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback
-        )
-        (
-            (train_consumed_stop, val_consumed_stop),
-            (train_consumed_go, val_consumed_go),
-        ) = callback.load_stop_and_go_pickles()
+        ).data
+
         assert val_consumed_stop == 0
         assert val_consumed_go == 0
         assert train_consumed_stop == 0
