@@ -319,7 +319,7 @@ This script will automatically create `./results` and store the checkpoints unde
     Users might experience `torch._dynamo.convert_frame` warning messages and depreciation warning on `async_grad_allreduce` from Megatron-LM. Users can safely ignore them and is non-critical to pretraining.
 
 ## Recommended Pretraining Configuration
-We benchmark our implementation on the following model sizes[^1].
+We benchmark our implementation on the following model sizes[^1]. These parameters are handled by
 
 | Model Size | # Layers | Hidden Size | # Attention Heads | FFN Hidden Size |
 |------------|----------|-------------|-------------------|-----------------|
@@ -335,18 +335,20 @@ In our current benchmark, we recommend the following trainiing and device config
 | 8M         | 32     | 64               | 1                          |
 | 650M       | 64     | 32               | 1                          |
 | 3B         | 128    | 16               | 1                          |
-| 15B        | 2048   | 2                | 2                          |  # TODO 3.5M tokens
+| 15B        | 3120   | 2                | 2                          |
 
-!!! note "Additional Optimization on Micro Batch Size"
+!!! note "Additional Notes on Micro Batch Size"
 
-    While optimizing micro batch size further might deviate from 2,097,152 tokens global batch size exactly, users should observe performance boost by fitting the largest possible micro batch size onto the device without OOM.
+    While the above micro batch sizes are selected in 2^n to arrive at 2,097,152 tokens global batch size, users should observe performance boost by fitting the largest possible micro batch size onto the device without OOM. The currently largest batch sizes are listed below.
 
-| Model Size | Max. micro batch size | Tensor Model Parallel Size |
-|------------|-----------------------|----------------------------|
-| 8M         | 70                    | 1                          |
-| 650M       | 48                    | 1                          |
-| 3B         | 16                    | 1                          |
-| 15B        | 2                     | 2                          |
+    | Model Size | Max. micro batch size | Tensor Model Parallel Size |
+    |------------|-----------------------|----------------------------|
+    | 8M         | 70                    | 1                          |
+    | 650M       | 48                    | 1                          |
+    | 3B         | 16                    | 1                          |
+    | 15B        | 3                     | 2                          |
+
+    The only exception is 15B model where the authors reported 3.2M tokens global batch size. We arrived at 3,194,880 tokens on 390 A100 nodes.
 
 Maximum micro batch sizes for these model sizes are tested on 2 nodes of A100 80GB GPUs.
 
