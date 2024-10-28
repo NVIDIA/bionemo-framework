@@ -61,8 +61,9 @@ def get_callback(callbacks: CallbackDict, mode: Mode, callback_type: Type[Callba
 class StopAndGoHarness(ABC):
     """Abstract base class for a stop-and-go harness.
 
-    Users should override cls.setup_model and update cls.setUpClass to customize the downstream test cases. Metadata are
-    collected through callbacks and users can add new unit tests by comparing the metadata in stop/go stages.
+    Users should override cls.setup_model and update cls.setup_class to customize the downstream test cases. Metadata
+    are collected through callbacks and users can add new unit tests by comparing the metadata for the interrupted and
+    continuous cases.
 
     By default, learning rate, global step, optimizer state, consumed samples, model weights through validation loss are
     tested, and are accessible through cls.{stop,go}_callbacks.
@@ -139,8 +140,8 @@ class StopAndGoHarness(ABC):
     def setup_model(cls, mode: Mode) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
         """Constructs the model, data, and optimizer for the test harness.
 
-        Optionally supports separate code paths for 'stop'/'go', although implementors are
-        encouraged to use the same code path for both.
+        Optionally supports separate code paths for 'stop'/'resume'/'continuous', although implementors are encouraged
+        to use the same code path for both.
 
         Args:
             mode: The mode indicating whether to stop or go.
@@ -316,9 +317,12 @@ class StopAndGoHarness(ABC):
     # Finally, execution is a simple stop => go.
     @classmethod
     def run_stop_and_go(cls):
-        """Executes the stop => go process."""
+        """Executes training both continuously and with a checkpoint interruption."""
+        # Interrupted model training
         cls.stop()
         cls.resume()
+
+        # Continuous model training.
         cls.continuous()
 
     @pytest.mark.parametrize(

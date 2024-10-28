@@ -46,7 +46,13 @@ class RaiseAfterMetadataCallback(Callback):
 
 
 class BaseInterruptedVsContinuousCallback(Callback, CallbackMethods, io.IOMixin):
-    """Base class for serializable stop-and-go callback to compare continuous to interrupted training."""
+    """Base class for serializable stop-and-go callback to compare continuous to interrupted training.
+
+    This class is used by extending a callback and collecting data into the `self.data` attribute. This data is then
+    compared between continuous and interrupted training.
+
+    See nemo.lightning.megatron_parallel.CallbackMethods for the available callback methods.
+    """
 
     def __init__(self):
         """Initializes the callback."""
@@ -175,7 +181,7 @@ class ValidLossCallback(BaseInterruptedVsContinuousCallback):
         reduced: Optional[Union[torch.Tensor, Dict[str, torch.Tensor]]] = None,
     ) -> None:
         """Get consumed samples as metadata."""
-        if step.trainer.training:
+        if step.trainer.validating:
             self.data.append(recursive_detach(reduced))
 
 
@@ -241,7 +247,12 @@ class AbstractStopAndGoCallback(ABC, BaseInterruptedVsContinuousCallback):
 
 
 class TrainValInitConsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
-    """Stop-and-go callback to check consumed samples before pausing and after resuming training."""
+    """Stop-and-go callback to check consumed samples before pausing and after resuming training.
+
+    This is currently the only callback that doesn't fit with the new pattern of directly comparing continuous and
+    interrupted training, since the dataloaders don't track their consumed_samples before and after checkpoint
+    resumption.
+    """
 
     @override
     def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
