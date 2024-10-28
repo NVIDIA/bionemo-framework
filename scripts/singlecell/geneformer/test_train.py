@@ -29,7 +29,7 @@ from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.data.load import load
 
 
-data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
+data_path: Path = load("single_cell/testdata-memmap-format") / "cellxgene_2023-12-15_small_mmap"
 
 
 def test_bionemo2_rootdir():
@@ -104,7 +104,8 @@ def test_pretrain_cli(tmpdir):
     --seq-length 128 \
     --limit-val-batches 2 \
     --micro-batch-size 2 \
-    --accumulate-grad-batches 2
+    --accumulate-grad-batches 2 \
+    --bypass-tokenizer-vocab True \
     """.strip()
     env = dict(**os.environ)  # a local copy of the environment
     env["MASTER_PORT"] = str(open_port)
