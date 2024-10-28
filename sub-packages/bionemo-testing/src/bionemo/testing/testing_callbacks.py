@@ -159,13 +159,27 @@ class AbstractStopAndGoCallback(ABC, Callback):
             self.write_pickle(mode=Mode.STOP, data=metadata_stop)
 
 
-class LearningRateStateStopAndGoCallback(AbstractStopAndGoCallback):
+class StopAndGoCallback(Callback, CallbackMethods, io.IOMixin):
+    """Base class for serializable stop-and-go callback to compare continuous to interrupted training."""
+
+    def __deepcopy__(self, memo):
+        """Don't actually attempt to copy this data when this callback is being serialized."""
+        # TODO: make this inherited from a base class
+        ...
+
+
+class LearningRateCallback(StopAndGoCallback):
     """Stop-and-go callback for learning rate before pausing and after resuming training."""
 
-    @override
-    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> float:
+    def __init__(self):
+        """Initializes the callback."""
+        self.lrs = []
+
+    def on_megatron_step_start(self, step: MegatronStep) -> MegatronStep:
         """Get learning rate as metadata."""
-        return trainer.optimizers[0].param_groups[0]["lr"]
+        if step.trainer.training:
+            self.lrs.append(step.trainer.optimizers[0].param_groups[0]["lr"])
+        return step
 
 
 class GlobalStepStateStopAndGoCallback(AbstractStopAndGoCallback):
@@ -263,7 +277,7 @@ class ManualValLossStopAndGoCallback(AbstractStopAndGoCallback):
         return self.compute_biobert_loss_singlegpu_on_first_validation_batch(trainer, pl_module)
 
 
-class InputAndOutputIdentityCallback(Callback, CallbackMethods, io.IOMixin):
+class InputAndOutputIdentityCallback(StopAndGoCallback):
     """Callback to store input and output data for comparison."""
 
     def __init__(self):
@@ -317,8 +331,3 @@ class InputAndOutputIdentityCallback(Callback, CallbackMethods, io.IOMixin):
 
         else:
             raise RuntimeError(f"Unexpected Mode: {step.trainer.state.stage}")
-
-    def __deepcopy__(self, memo):
-        """Don't actually attempt to copy this data when this callback is being serialized."""
-        # TODO: make this inherited from a base class
-        ...

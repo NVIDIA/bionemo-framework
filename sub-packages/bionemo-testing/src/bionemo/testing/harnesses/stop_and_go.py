@@ -17,9 +17,10 @@
 import pathlib
 import tempfile
 from abc import ABC, abstractmethod
-from typing import Dict, Literal, Sequence
+from typing import Dict, Literal, Sequence, Type, TypeVar
 
 import nemo.lightning as nl
+import numpy as np
 import pytest
 import pytorch_lightning as pl
 from nemo.collections import llm
@@ -37,6 +38,26 @@ from bionemo.testing.torch import recursive_assert_approx_equal
 
 
 __all__: Sequence[str] = ("StopAndGoHarness",)
+
+
+Callback = TypeVar("Callback", bound=pl.Callback)
+CallbackDict = Dict[Mode, Dict[Type[pl.Callback], pl.Callback]]
+
+
+def get_callback(callbacks: CallbackDict, mode: Mode, callback_type: Type[Callback]) -> Callback:
+    """Returns the callback with the given name and mode.
+
+    Convenience function to make type hinting easier.
+
+    Args:
+        callbacks: The dictionary of callbacks.
+        mode: The mode indicating whether to stop or go.
+        callback_type: The type of the callback.
+
+    Returns:
+        pl.Callback: The callback with the given name and mode.
+    """
+    return callbacks[mode][callback_type]  # type: ignore
 
 
 class StopAndGoHarness(ABC):
@@ -88,7 +109,7 @@ class StopAndGoHarness(ABC):
     tempdir: tempfile.TemporaryDirectory
     metadata_dir: pathlib.Path
     exp_name: str
-    callbacks: Dict[Mode, Dict[str, pl.Callback]]
+    callbacks: CallbackDict
     nemo_logger: NeMoLogger
 
     @classmethod
@@ -165,7 +186,7 @@ class StopAndGoHarness(ABC):
         return trainer
 
     @classmethod
-    def get_default_callbacks(cls) -> Dict[Mode, Dict[str, pl.Callback]]:
+    def get_default_callbacks(cls) -> CallbackDict:
         """Returns a list of callbacks based on the specified mode. Base implementation provides reasonable defaults.
 
         To extend this method, call the super and append to the callbacks, depending on which mode you are in:
@@ -180,50 +201,51 @@ class StopAndGoHarness(ABC):
             A dictionary of callbacks based on the specified mode, each of which maps a callback name to a callback
             object.
         """
-        callbacks: Dict[Mode, Dict[str, pl.Callback]] = {}
+        callbacks: CallbackDict = {}
 
         interrupted_io_callback = testing_callbacks.InputAndOutputIdentityCallback()
+        interrupted_lr_callback = testing_callbacks.LearningRateCallback()
 
         for mode in [Mode.STOP, Mode.RESUME]:
             callbacks[mode] = {
-                "ModelCheckpoint": nl_callbacks.ModelCheckpoint(
+                nl_callbacks.ModelCheckpoint: nl_callbacks.ModelCheckpoint(
                     save_last=True,
                     monitor="reduced_train_loss",
                     save_top_k=2,
                     every_n_train_steps=cls.val_check_interval,
                     always_save_context=True,
                 ),
-                "LearningRateStateStopAndGoCallback": testing_callbacks.LearningRateStateStopAndGoCallback(
-                    pickle_directory=cls.metadata_dir / "learning_rate",
-                    mode=mode,
-                ),
-                "GlobalStepStateStopAndGoCallback": testing_callbacks.GlobalStepStateStopAndGoCallback(
+                testing_callbacks.LearningRateCallback: interrupted_lr_callback,
+                testing_callbacks.GlobalStepStateStopAndGoCallback: testing_callbacks.GlobalStepStateStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "global_step",
                     mode=mode,
                 ),
-                "OptimizerStateStopAndGoCallback": testing_callbacks.OptimizerStateStopAndGoCallback(
+                testing_callbacks.OptimizerStateStopAndGoCallback: testing_callbacks.OptimizerStateStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "optimizer_state",
                     mode=mode,
                 ),
-                "ComsumedSamplesStopAndGoCallback": testing_callbacks.ConsumedSamplesStopAndGoCallback(
+                testing_callbacks.ConsumedSamplesStopAndGoCallback: testing_callbacks.ConsumedSamplesStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "consumed_samples",
                     mode=mode,
                 ),
-                "TrainValInitComsumedSamplesStopAndGoCallback": testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback(
+                testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback: testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "train_val_init_consumed_samples",
                     mode=mode,
                 ),
-                "ManualValLossStopAndGoCallback": testing_callbacks.ManualValLossStopAndGoCallback(
+                testing_callbacks.ManualValLossStopAndGoCallback: testing_callbacks.ManualValLossStopAndGoCallback(
                     pickle_directory=cls.metadata_dir / "manual_val_loss",
                     mode=mode,
                 ),
-                "InputAndOutputIdentityCallback": interrupted_io_callback,
+                testing_callbacks.InputAndOutputIdentityCallback: interrupted_io_callback,
             }
 
-        callbacks[Mode.STOP]["RaiseAfterMetadataCallback"] = testing_callbacks.RaiseAfterMetadataCallback()
+        callbacks[Mode.STOP][testing_callbacks.RaiseAfterMetadataCallback] = (
+            testing_callbacks.RaiseAfterMetadataCallback()
+        )
 
         callbacks[Mode.CONTINUOUS] = {
-            "InputAndOutputIdentityCallback": testing_callbacks.InputAndOutputIdentityCallback()
+            testing_callbacks.LearningRateCallback: testing_callbacks.LearningRateCallback(),
+            testing_callbacks.InputAndOutputIdentityCallback: testing_callbacks.InputAndOutputIdentityCallback(),
         }
 
         return callbacks
@@ -302,34 +324,27 @@ class StopAndGoHarness(ABC):
     # should we hide shared tests?
     def test_learning_rate_stop_and_go(self):
         """Tests the learning rate stop and go functionality."""
-        callback: testing_callbacks.LearningRateStateStopAndGoCallback = self.callbacks[Mode.RESUME][
-            "LearningRateStateStopAndGoCallback"
-        ]
-        lr_stop, lr_go = callback.load_stop_and_go_pickles()
-        assert lr_stop == lr_go
+        interrupted_lr = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.LearningRateCallback)
+        continuous_lr = get_callback(self.callbacks, Mode.CONTINUOUS, testing_callbacks.LearningRateCallback)
+        assert interrupted_lr.lrs, "No learning rates found."
+        np.testing.assert_allclose(np.array(interrupted_lr.lrs), np.array(continuous_lr.lrs))
 
     def test_global_step_stop_and_go(self):
         """Tests the global step in stop-and-go scenario."""
-        callback: testing_callbacks.GlobalStepStateStopAndGoCallback = self.callbacks[Mode.RESUME][
-            "GlobalStepStateStopAndGoCallback"
-        ]
+        callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.GlobalStepStateStopAndGoCallback)
         global_step_stop, global_step_go = callback.load_stop_and_go_pickles()
         assert global_step_stop == global_step_go
 
     def test_optimizer_state_stop_and_go(self):
         """Tests the optimizer state in stop-and-go scenario."""
-        callback: testing_callbacks.OptimizerStateStopAndGoCallback = self.callbacks[Mode.RESUME][
-            "OptimizerStateStopAndGoCallback"
-        ]
+        callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.OptimizerStateStopAndGoCallback)
         state_dicts_stop, state_dicts_go = callback.load_stop_and_go_pickles()
         for state_dict_go, state_dict_stop in zip(state_dicts_stop, state_dicts_go):
             assert tensor_dict_hash(state_dict_go) == tensor_dict_hash(state_dict_stop)
 
     def test_consumed_samples_stop_and_go(self):
         """Tests the consumed samples in stop-and-go scenario."""
-        callback: testing_callbacks.ConsumedSamplesStopAndGoCallback = self.callbacks[Mode.RESUME][
-            "ComsumedSamplesStopAndGoCallback"
-        ]
+        callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.ConsumedSamplesStopAndGoCallback)
         consumed_samples_stop, consumed_samples_go = callback.load_stop_and_go_pickles()
         assert consumed_samples_stop == consumed_samples_go
         # Make sure we do not trivially pass.
@@ -337,17 +352,15 @@ class StopAndGoHarness(ABC):
 
     def test_manual_val_loss_stop_and_go(self):
         """Tests validation loss of the first batch in non-sanity-check validation epoch in stop-and-go scenario."""
-        callback: testing_callbacks.ManualValLossStopAndGoCallback = self.callbacks[Mode.RESUME][
-            "ManualValLossStopAndGoCallback"
-        ]
+        callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.ManualValLossStopAndGoCallback)
         val_loss_stop, val_loss_go = callback.load_stop_and_go_pickles()
         assert val_loss_stop == val_loss_go
 
     def test_train_val_init_consumed_samples(self):
         """Tests the initial consumed samples in stop-and-go scenario."""
-        callback: testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback = self.callbacks[Mode.RESUME][
-            "TrainValInitComsumedSamplesStopAndGoCallback"
-        ]
+        callback = get_callback(
+            self.callbacks, Mode.RESUME, testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback
+        )
         (
             (train_consumed_stop, val_consumed_stop),
             (train_consumed_go, val_consumed_go),
@@ -359,33 +372,36 @@ class StopAndGoHarness(ABC):
 
     def test_train_inputs_are_identical_for_interrupted_test(self):
         """Ensures that the input tensors for training are identical for the interrupted and continuous tests."""
-        assert len(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].train_inputs
-        ), "No train inputs found."
-        recursive_assert_approx_equal(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].train_inputs,
-            self.callbacks[Mode.CONTINUOUS]["InputAndOutputIdentityCallback"].train_inputs,
-        )
+        resume_inputs = get_callback(
+            self.callbacks, Mode.RESUME, testing_callbacks.InputAndOutputIdentityCallback
+        ).train_inputs
+        continuous_inputs = get_callback(
+            self.callbacks, Mode.CONTINUOUS, testing_callbacks.InputAndOutputIdentityCallback
+        ).train_inputs
+
+        assert len(resume_inputs), "No train inputs found."
+        recursive_assert_approx_equal(resume_inputs, continuous_inputs)
 
     def test_train_outputs_are_identical_for_interrupted_test(self):
         """Ensures that the output tensors for training are identical for the interrupted and continuous tests."""
-        assert len(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].train_outputs
-        ), "No train outputs found."
-        recursive_assert_approx_equal(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].train_outputs,
-            self.callbacks[Mode.CONTINUOUS]["InputAndOutputIdentityCallback"].train_outputs,
-        )
+        resume_outputs = get_callback(
+            self.callbacks, Mode.RESUME, testing_callbacks.InputAndOutputIdentityCallback
+        ).train_inputs
+        continuous_outputs = get_callback(
+            self.callbacks, Mode.CONTINUOUS, testing_callbacks.InputAndOutputIdentityCallback
+        ).train_inputs
+        assert len(resume_outputs), "No train outputs found."
+        recursive_assert_approx_equal(resume_outputs, continuous_outputs)
 
     def test_train_losses_are_identical_for_interrupted_test(self):
         """Ensures that the training losses are identical for all microbatches."""
-        assert len(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].train_losses
-        ), "No train outputs found."
-        recursive_assert_approx_equal(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].train_losses,
-            self.callbacks[Mode.CONTINUOUS]["InputAndOutputIdentityCallback"].train_losses,
+        resume_callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.InputAndOutputIdentityCallback)
+        continuous_callback = get_callback(
+            self.callbacks, Mode.CONTINUOUS, testing_callbacks.InputAndOutputIdentityCallback
         )
+
+        assert len(resume_callback.train_losses), "No train outputs found."
+        recursive_assert_approx_equal(resume_callback.train_losses, continuous_callback.train_losses)
 
     # TODO: For some reason, validation in NeMo runs an extra batch in the case when the training is stopped and
     # resumed. Hopefully we can fix this upstream and remove the indexing based on the length of the continuous
@@ -393,39 +409,51 @@ class StopAndGoHarness(ABC):
     @pytest.mark.xfail(reason="Validation runs an extra batch in the case when training is stopped and resumed.")
     def test_identical_number_of_validation_batches(self):
         """Ensures that the input tensors for training are identical for the interrupted and continuous tests."""
-        assert len(self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].valid_inputs) == len(
-            self.callbacks[Mode.CONTINUOUS]["InputAndOutputIdentityCallback"].valid_inputs
+        resume_callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.InputAndOutputIdentityCallback)
+        continuous_callback = get_callback(
+            self.callbacks, Mode.CONTINUOUS, testing_callbacks.InputAndOutputIdentityCallback
         )
+
+        assert len(resume_callback.valid_inputs) == len(continuous_callback.valid_inputs)
 
     def test_valid_inputs_are_identical_for_interrupted_test(self):
         """Ensures that the input tensors for training are identical for the interrupted and continuous tests."""
-        assert len(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].valid_inputs
-        ), "No valid inputs found."
-        num_continuous_batches = len(self.callbacks[Mode.CONTINUOUS]["InputAndOutputIdentityCallback"].valid_inputs)
+        resume_callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.InputAndOutputIdentityCallback)
+        continuous_callback = get_callback(
+            self.callbacks, Mode.CONTINUOUS, testing_callbacks.InputAndOutputIdentityCallback
+        )
+
+        assert len(resume_callback.valid_inputs), "No valid inputs found."
+        num_continuous_batches = len(continuous_callback.valid_inputs)
         recursive_assert_approx_equal(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].valid_inputs[-num_continuous_batches:],
-            self.callbacks[Mode.CONTINUOUS]["InputAndOutputIdentityCallback"].valid_inputs,
+            resume_callback.valid_inputs[-num_continuous_batches:],
+            continuous_callback.valid_inputs,
         )
 
     def test_valid_outputs_are_identical_for_interrupted_test(self):
         """Ensures that the input tensors for training are identical for the interrupted and continuous tests."""
-        assert len(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].valid_outputs
-        ), "No valid outputs found."
-        num_continuous_batches = len(self.callbacks[Mode.CONTINUOUS]["InputAndOutputIdentityCallback"].valid_inputs)
+        resume_callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.InputAndOutputIdentityCallback)
+        continuous_callback = get_callback(
+            self.callbacks, Mode.CONTINUOUS, testing_callbacks.InputAndOutputIdentityCallback
+        )
+
+        assert len(resume_callback.valid_outputs), "No valid outputs found."
+        num_continuous_batches = len(continuous_callback.valid_inputs)
         recursive_assert_approx_equal(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].valid_outputs[-num_continuous_batches:],
-            self.callbacks[Mode.CONTINUOUS]["InputAndOutputIdentityCallback"].valid_outputs,
+            resume_callback.valid_outputs[-num_continuous_batches:],
+            continuous_callback.valid_outputs,
         )
 
     def test_valid_losses_are_identical_for_interrupted_test(self):
         """Ensures that the validation losses are identical for all microbatches."""
-        assert len(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].valid_losses
-        ), "No train outputs found."
-        num_continuous_batches = len(self.callbacks[Mode.CONTINUOUS]["InputAndOutputIdentityCallback"].valid_inputs)
+        resume_callback = get_callback(self.callbacks, Mode.RESUME, testing_callbacks.InputAndOutputIdentityCallback)
+        continuous_callback = get_callback(
+            self.callbacks, Mode.CONTINUOUS, testing_callbacks.InputAndOutputIdentityCallback
+        )
+
+        assert len(resume_callback.valid_losses), "No train outputs found."
+        num_continuous_batches = len(continuous_callback.valid_inputs)
         recursive_assert_approx_equal(
-            self.callbacks[Mode.RESUME]["InputAndOutputIdentityCallback"].valid_losses[-num_continuous_batches:],
-            self.callbacks[Mode.CONTINUOUS]["InputAndOutputIdentityCallback"].valid_losses,
+            resume_callback.valid_losses[-num_continuous_batches:],
+            continuous_callback.valid_losses,
         )
