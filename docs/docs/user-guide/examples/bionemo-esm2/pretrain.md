@@ -301,9 +301,37 @@ python scripts/protein/esm2/esm2_pretrain.py \
     --num-layers 33 \
     --hidden-size 1280 \
     --num-attention-head 20 \
-    --ffn-hidden-size 5120
+    --ffn-hidden-size 5120 \
+    --tensor-model-parallel-size 1
 ```
 
 !!! note "Non-critical Warnings from Command Line Runs"
 
     Users might experience `torch._dynamo.convert_frame` warning messages and depreciation warning on `async_grad_allreduce` from Megatron-LM. Users can safely ignore them and is non-critical to pretraining.
+
+## Recommended Pretraining Configuration
+We benchmark our implementation on the following model sizes.
+
+| Model Size | # Layers | Hidden Size | # Attention Heads | FFN Hidden Size |
+|------------|----------|-------------|-------------------|-----------------|
+| 8M         | 8        | 320         | 20                | 1280            |
+| 650M       | 33       | 1280        | 20                | 5120            |
+| 3B         | 36       | 2560        | 40                | 10240           |
+| 15B        | 48       | 5120        | 40                | 20480           |
+
+In our current benchmark, we recommend the following trainiing and device configurations on A100 80GB GPUs to match with the published 2M token global batch size.
+
+| Model Size | # GPUs | Micro Batch Size | Tensor Model Parallel Size |
+|------------|--------|------------------|----------------------------|
+| 8M         | 32     | 64               | 1                          |
+| 650M       | 64     | 32               | 1                          |
+| 3B         | 128    | 16               | 1                          |
+| 15B        | 2048   | 2                | 2                          |
+
+!!! note "Additional Optimization on Micro Batch Size"
+
+    While optimizing micro batch size further might deviate from the published 2,097,152 tokens global batch size exactly, users should observe additional performance boost. For example, 650M model can be trained on a micro batch size of 48.
+
+!!! note "Memory Allocation from Distributed Optimizer"
+
+    Distributed optimizer is enabled by default for improved memory allocation. Users might observe that the same micro batch size used on multi-device pretraining results in OOM on a single device. If additional optimization is necessary, we recommend running short benchmark on the same number of devices as in the production run.
