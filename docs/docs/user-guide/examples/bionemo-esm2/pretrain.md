@@ -308,7 +308,7 @@ python scripts/protein/esm2/esm2_pretrain.py \
     --experiment-name=__your_wandb_experiment_name
 ```
 
-Users should be able to locate the checkpoints in `./results` and additional tracking on Weight and Biases if provided.
+This script will automatically create `./results` and store the checkpoints under `esm2`. Automatic pretraining resumption is handled automatically when `--resume-if-exists` set to True, and `--restore-from-checkpoint-path` is available if users want to restore from a specific path.
 
 !!! note "Weight And Biases"
 
