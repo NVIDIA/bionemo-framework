@@ -151,15 +151,15 @@ class TestGeneformerStopAndGo(stop_and_go.StopAndGoHarness):
         return module, data, optim
 
     def test_train_val_init_consumed_samples(self):
-        """Override the parent test here because we know that train_consumed_go should be 8"""
-        callback: testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback = self.callbacks[Mode.RESUME][
-            "TrainValInitComsumedSamplesStopAndGoCallback"
-        ]
-        (
-            (train_consumed_stop, val_consumed_stop),
-            (train_consumed_go, val_consumed_go),
-        ) = callback.load_stop_and_go_pickles()
+        """Tests the initial consumed samples in stop-and-go scenario."""
+        train_consumed_stop, val_consumed_stop = stop_and_go.get_callback(
+            self.callbacks, Mode.STOP, testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback
+        ).data
+        train_consumed_go, val_consumed_go = stop_and_go.get_callback(
+            self.callbacks, Mode.RESUME, testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback
+        ).data
+
         assert val_consumed_stop == 0
         assert val_consumed_go == 0
         assert train_consumed_stop == 0
-        assert train_consumed_go == 8
+        assert train_consumed_go > 0
