@@ -319,7 +319,7 @@ Users should be able to locate the checkpoints in `./results` and additional tra
     Users might experience `torch._dynamo.convert_frame` warning messages and depreciation warning on `async_grad_allreduce` from Megatron-LM. Users can safely ignore them and is non-critical to pretraining.
 
 ## Recommended Pretraining Configuration
-We benchmark our implementation on the following model sizes.
+We benchmark our implementation on the following model sizes[^1].
 
 | Model Size | # Layers | Hidden Size | # Attention Heads | FFN Hidden Size |
 |------------|----------|-------------|-------------------|-----------------|
@@ -344,3 +344,5 @@ In our current benchmark, we recommend the following trainiing and device config
 !!! note "Memory Allocation from Distributed Optimizer"
 
     Distributed optimizer is enabled by default for improved memory allocation. Users might observe that the same micro batch size used on multi-device pretraining results in OOM on a single device. If additional optimization is necessary, we recommend running short benchmark on the same number of devices as in the production run.
+
+[^1]: In reference to Lin, Zeming, et al in the original ESM2 publication - "Evolutionary-scale prediction of atomic-level protein structure with a language model".
