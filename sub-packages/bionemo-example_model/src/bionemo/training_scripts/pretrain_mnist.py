@@ -14,22 +14,26 @@
 # limitations under the License.
 
 
-import tempfile
+from pathlib import Path
 
 from nemo.collections import llm
 from nemo.lightning import NeMoLogger, resume
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from bionemo.example_model.lightning_basics import (
+from bionemo.example_model.lightning_basic import (
     BionemoLightningModule,
     PretrainConfig,
+    checkpoint_callback,
+    data_module,
+    metric_tracker,
+    trainer,
 )
-from bionemo.training_scripts.shared_modules import checkpoint_callback, data_module, metric_tracker, trainer
 
 
 if __name__ == "__main__":
-    temp_dir = tempfile.TemporaryDirectory()
-    save_dir = temp_dir / "pretrain"
+    directory_name = "sample_models"
+    print("temp_dir", directory_name)
+    save_dir = Path(directory_name) / "pretrain"
     name = "example"
     # Setup the logger train the model
     nemo_logger = NeMoLogger(
@@ -54,7 +58,8 @@ if __name__ == "__main__":
         ),
     )
 
-pretrain_ckpt_dirpath = checkpoint_callback.last_model_path.replace(".ckpt", "")
-print(metric_tracker.collection_train["loss"])
-print(metric_tracker.collection_val["logged_metrics"])
-print(pretrain_ckpt_dirpath)
+    pretrain_ckpt_dirpath = checkpoint_callback.last_model_path.replace(".ckpt", "")
+    print("TRAIN", metric_tracker.collection_train["loss"])
+    print("TRAIN", metric_tracker.collection_train.keys())
+    print("VAL", metric_tracker.collection_val["unnamed"])
+    print(pretrain_ckpt_dirpath)

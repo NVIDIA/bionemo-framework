@@ -25,8 +25,10 @@ from megatron.core import ModelParallelConfig
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from megatron.core.transformer.enums import ModelType
 from megatron.core.transformer.module import MegatronModule
+from nemo import lightning as nl
 from nemo.lightning import io
 from nemo.lightning.megatron_parallel import MegatronLossReduction
+from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from torch import Tensor, nn
@@ -34,6 +36,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import MNIST
 
+from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.core.data.multi_epoch_dataset import EpochIndex, MultiEpochDatasetResampler
 from bionemo.llm.api import MegatronLossType
 from bionemo.llm.data.datamodule import MegatronDataModule
@@ -43,7 +46,7 @@ from bionemo.llm.utils import iomixin_utils as iom
 
 
 __all__: Sequence[str] = (
-    "ExampleConfig",
+    "PretrainConfig",
     "MSELossReduction",
     "BionemoLightningModule",
     "ExampleModel",
@@ -311,7 +314,7 @@ ExampleModelT = TypeVar("ExampleModelT", bound=ExampleModelTrunk)
 class ExampleGenericConfig(
     Generic[ExampleModelT, MegatronLossType], MegatronBioNeMoTrainableModelConfig[ExampleModelT, MegatronLossType]
 ):
-    """ExampleConfig is a dataclass that is used to configure the model.
+    """ExampleGenericConfig is a dataclass that is used to configure the model.
 
     Timers from ModelParallelConfig are required for megatron forward compatibility.
     """
@@ -350,8 +353,8 @@ class ExampleGenericConfig(
 # The configs below simply define which model class to pair with which loss, since the abstractions around getting the
 #  model and loss are handled in the ExampleGenericConfig class.
 @dataclass
-class ExampleConfig(ExampleGenericConfig["ExampleModel", "MSELossReduction"], iom.IOMixinWithGettersSetters):
-    """ExampleConfig is a dataclass that is used to configure the model.
+class PretrainConfig(ExampleGenericConfig["ExampleModel", "MSELossReduction"], iom.IOMixinWithGettersSetters):
+    """PretrainConfig is a dataclass that is used to configure the model.
 
     Timers from ModelParallelConfig are required for megatron forward compatibility.
     """
@@ -449,6 +452,14 @@ class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroug
             batch: A dictionary of data. requires `batch_idx` as default None.
             batch_idx: The index of the batch.
         """
+        return self(batch, batch_idx)
+
+    def validation_step(self, batch, batch_idx: Optional[int] = None):
+        """Alias for forward step at validation."""
+        return self(batch, batch_idx)
+
+    def predict_step(self, batch, batch_idx: Optional[int] = None):
+        """Alias for forward step at prediction."""
         return self(batch, batch_idx)
 
     def training_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
@@ -616,3 +627,39 @@ class MNISTDataModule(MegatronDataModule):  # noqa: D101
 
     def test_dataloader(self) -> DataLoader:  # noqa: D102
         return DataLoader(self.mnist_test, batch_size=self.micro_batch_size, num_workers=0)
+
+
+"""Training Elements"""
+checkpoint_callback = nl_callbacks.ModelCheckpoint(
+    save_last=True,
+    save_on_train_epoch_end=True,
+    monitor="reduced_train_loss",
+    every_n_train_steps=25,
+    always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+)
+
+# Set up the data module
+data_module = MNISTDataModule(data_dir=str(BIONEMO_CACHE_DIR), batch_size=128)
+metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
+
+strategy = nl.MegatronStrategy(
+    tensor_model_parallel_size=1,
+    pipeline_model_parallel_size=1,
+    ddp="megatron",
+    find_unused_parameters=True,
+    always_save_context=True,
+)
+
+trainer = nl.Trainer(
+    accelerator="gpu",
+    devices=1,
+    strategy=strategy,
+    limit_val_batches=5,
+    val_check_interval=1,
+    max_steps=2,
+    max_epochs=1,
+    num_nodes=1,
+    log_every_n_steps=1,
+    callbacks=[metric_tracker],
+    plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
+)

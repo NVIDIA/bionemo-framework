@@ -128,7 +128,7 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
         ckpt_path, initial_metrics = _train_model_get_ckpt(
             name="test_experiment",
             root_dir=tmpdir / "pretrain",
-            model_cfg_cls=lb.ExampleConfig,
+            model_cfg_cls=lb.PretrainConfig,
             ckpt_path=None,
             skip_weight_prefixes=set(),
             precision=precision,
@@ -137,12 +137,13 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
+        print("VALIDATION", initial_metrics.collection_val)
         assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         simple_ft_checkpoint, simple_ft_metrics = _train_model_get_ckpt(
             name="simple_finetune_experiment",
             root_dir=tmpdir / "simple_finetune",  # new checkpoint will land in a subdir of this
-            model_cfg_cls=lb.ExampleConfig,  # same config as before since we are just continuing training
+            model_cfg_cls=lb.PretrainConfig,  # same config as before since we are just continuing training
             ckpt_path=ckpt_path,  # specify the initial checkpoint path now
             skip_weight_prefixes=set(),  # no new weights in this model need skipping
             precision=precision,
