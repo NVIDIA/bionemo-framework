@@ -194,10 +194,9 @@ class SingleCellDataset(Dataset):
         )
         return gene_data, col_idxs, feature_ids
 
-    def __getitem__(self, index: EpochIndex) -> types.BertSample:  # noqa: D105
+    def __getitem__(self, index: EpochIndex) -> types.BertSample:
+        """Performs a lookup and the required transformation for the model."""
         rng = np.random.default_rng([self._seed, index.epoch, index.idx])
-
-        """Performs a lookup and the required transformation for the model"""
         gene_data, col_idxs, feature_ids = self.lookup_cell_by_idx(index.idx)
         return process_item(
             gene_data,
