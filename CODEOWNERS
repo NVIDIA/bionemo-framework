@@ -70,6 +70,7 @@ tach.yml @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 .secrets.baseline @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 ci/ @dorotat-nv @malcolmgreaves @pstjohn
 .nspect-allowlist.toml @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
+VERSION @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov
 
 #
 ## LIBRARY CODE
