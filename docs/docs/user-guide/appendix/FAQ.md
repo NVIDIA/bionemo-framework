@@ -43,4 +43,9 @@ the expected behavior.
 ### Can I train models in Jupyter notebooks using BioNeMo?
 
 At the current time, notebook-based training is not supported due to restrictions imposed by the Megatron framework that
-underpins the BioNeMo models.
+underpins the BioNeMo models. However, the user may call training scripts using a subprocess, either through the use of
+the [Python Subprocess module](https://docs.python.org/3/library/subprocess.html) or through
+Jupyter's [Shell Assignment](https://ipython.readthedocs.io/en/stable/interactive/python-ipython-diff.html#shell-assignment)
+or [Bash Cell Magic](https://ipython.readthedocs.io/en/stable/interactive/magics.html#cellmagic-bash). For the latter
+two options, we caution the user to be careful when using Python and shell variables as we have observed unpredictable
+and unreproducible behavior in certain instances.
