@@ -55,6 +55,7 @@ def main(
     warmup_steps: int,
     limit_val_batches: int,
     val_check_interval: int,
+    log_every_n_steps: Optional[int],
     num_dataset_workers: int,
     biobert_spec_option: BiobertSpecOption,  # TODO(@farhadrgh) clarify how to parse this.
     lr: float,
@@ -80,7 +81,10 @@ def main(
     save_last_checkpoint: bool = True,
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
-    save_every_n_steps: int = 100,
+    nsys_profiling: bool = False,
+    nsys_start_step: int = 0,
+    nsys_end_step: Optional[int] = None,
+    nsys_ranks: List[int] = [0],
     random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
     num_layers: int = 33,
     hidden_size: int = 1280,
@@ -158,6 +162,20 @@ def main(
         )
     )
 
+    callbacks = [
+        PerplexityLoggingCallback(log_train=False, log_val=True),
+        RichModelSummary(max_depth=4),
+        LearningRateMonitor(),
+    ]
+    if nsys_profiling:
+        if nsys_end_step is None:
+            nsys_end_step = num_steps
+        callbacks.append(
+            nl_callbacks.NsysCallback(
+                start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
+            )
+        )
+
     trainer = nl.Trainer(
         devices=devices,
         max_steps=num_steps,
@@ -165,12 +183,9 @@ def main(
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,
+        log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
-        callbacks=[
-            PerplexityLoggingCallback(log_train=False, log_val=True),
-            RichModelSummary(max_depth=4),
-            LearningRateMonitor(),
-        ],
+        callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
@@ -191,9 +206,6 @@ def main(
     )
 
     # Configure the model
-    need_megatron_variable_seq_lengths_reductions: bool = (
-        pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length
-    )  # essential for pipeline/tensor parallel
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
         num_layers=num_layers,
@@ -207,7 +219,7 @@ def main(
         nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
         # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
         initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
-        variable_seq_lengths=need_megatron_variable_seq_lengths_reductions,
+        variable_seq_lengths=min_seq_length != max_seq_length,
     )
 
     model = biobert_lightning_module(
@@ -223,7 +235,7 @@ def main(
                 adam_beta2=0.98,
             ),
             lr_scheduler=WarmupAnnealDecayHoldScheduler(
-                warmup_steps=warmup_steps, max_steps=num_steps, max_lr=lr, min_lr=lr / 10.0, anneal_percentage=0.10
+                warmup_steps=warmup_steps, max_steps=num_steps, max_lr=lr, min_lr=0.0, anneal_percentage=0.10
             ),
         ),
     )
@@ -233,7 +245,7 @@ def main(
         save_last=save_last_checkpoint,
         monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
         save_top_k=save_top_k,
-        every_n_train_steps=save_every_n_steps,
+        every_n_train_steps=val_check_interval,
         always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
     )
 
@@ -370,10 +382,17 @@ parser.add_argument(
     help="Number of steps between validation. Default is 10000.",
 )
 parser.add_argument(
-    "--min-seq-length",
+    "--log-every-n-steps",
     type=int,
     required=False,
-    help="Minimum sequence length. Sampled will be padded if less than this value.",
+    help="Number of steps between logging. Default is 50.",
+)
+parser.add_argument(
+    "--min-seq-length",
+    type=float_or_int_or_none,
+    required=False,
+    default=1024,
+    help="Minimum sequence length. Sampled will be padded if less than this value. Set 'None' to unset minimum.",
 )
 parser.add_argument(
     "--max-seq-length",
@@ -438,10 +457,24 @@ parser.add_argument(
     help="Save the best checkpoint based on the metric to monitor.",
 )
 parser.add_argument(
+    "--no-save-best-checkpoint",
+    action="store_false",
+    default=True,
+    dest="save_best_checkpoint",
+    help="Disable saving the best checkpoint based on the metric to monitor.",
+)
+parser.add_argument(
     "--save-last-checkpoint",
     action="store_true",
     default=True,
     help="Save the last checkpoint.",
+)
+parser.add_argument(
+    "--no-save-last-checkpoint",
+    action="store_false",
+    dest="save_last_checkpoint",
+    default=True,
+    help="Disable saving the last checkpoint.",
 )
 parser.add_argument(
     "--metric-to-monitor-for-checkpoints",
@@ -463,6 +496,36 @@ parser.add_argument(
     required=False,
     default=None,
     help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
+)
+parser.add_argument(
+    "--nsys-profiling",
+    action="store_true",
+    default=False,
+    help="Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with `nsys`. For example: "
+    " `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop  [regular python command here]`",
+)
+# start, end, rank
+parser.add_argument(
+    "--nsys-start-step",
+    type=int,
+    required=False,
+    default=0,
+    help="Start nsys profiling after this step.",
+)
+parser.add_argument(
+    "--nsys-end-step",
+    type=int,
+    required=False,
+    help="End nsys profiling after this step.",
+)
+# rank as list of integers
+parser.add_argument(
+    "--nsys-ranks",
+    type=int,
+    nargs="+",
+    required=False,
+    default=[0],
+    help="Enable nsys profiling for these ranks.",
 )
 
 # ESM2 specific configuration (default: 650M)
@@ -526,6 +589,7 @@ if __name__ == "__main__":
         warmup_steps=args.warmup_steps,
         limit_val_batches=args.limit_val_batches,
         val_check_interval=args.val_check_interval,
+        log_every_n_steps=args.log_every_n_steps,
         num_dataset_workers=args.num_dataset_workers,
         biobert_spec_option=args.biobert_spec_option,
         lr=args.lr,
@@ -542,7 +606,10 @@ if __name__ == "__main__":
         save_last_checkpoint=args.save_last_checkpoint,
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
-        save_every_n_steps=args.val_check_interval,
+        nsys_profiling=args.nsys_profiling,
+        nsys_start_step=args.nsys_start_step,
+        nsys_end_step=args.nsys_end_step,
+        nsys_ranks=args.nsys_ranks,
         random_mask_strategy=args.random_mask_strategy,
         num_layers=args.num_layers,
         hidden_size=args.hidden_size,

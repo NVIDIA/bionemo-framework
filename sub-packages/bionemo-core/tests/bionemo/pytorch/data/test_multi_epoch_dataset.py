@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import random
 from unittest import mock
 
 import pytest
@@ -116,3 +117,25 @@ def test_multi_epoch_dataset_wrapper_and_resampler():
     for epoch in range(3):
         for idx in range(10):
             assert resampled_dataset[epoch * 10 + idx] == dataset[idx]
+
+
+def test_multi_epoch_dataset_memory_stress_test_epochs():
+    dataset = range(1_000_000_000)
+    multi_epoch_dataset = IdentityMultiEpochDatasetWrapper(dataset)  # type: ignore
+    resampled_dataset = MultiEpochDatasetResampler(multi_epoch_dataset, num_epochs=1_000, shuffle=True)
+    assert len(resampled_dataset) == 1_000_000_000_000
+
+    for _ in range(10):
+        rand_int = random.randint(0, 1_000_000_000_000)
+        resampled_dataset[rand_int]
+
+
+def test_multi_epoch_dataset_memory_stress_test_num_samples():
+    dataset = range(1_000_000_000)
+    multi_epoch_dataset = IdentityMultiEpochDatasetWrapper(dataset)  # type: ignore
+    resampled_dataset = MultiEpochDatasetResampler(multi_epoch_dataset, num_samples=1_000_000_000_000, shuffle=True)
+    assert len(resampled_dataset) == 1_000_000_000_000
+
+    for _ in range(10):
+        rand_int = random.randint(0, 1_000_000_000_000)
+        resampled_dataset[rand_int]

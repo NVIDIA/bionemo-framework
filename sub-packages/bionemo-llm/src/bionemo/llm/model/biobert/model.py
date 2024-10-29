@@ -15,7 +15,6 @@
 
 
 import logging
-import os
 import tarfile
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -90,6 +89,12 @@ _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS 
     "sequence_parallel",
     "context_parallel_size",
     "expert_model_parallel_size",
+    "apply_rope_fusion",
+    "bias_dropout_fusion",
+    "bias_activation_fusion",
+    "attention_softmax_in_fp32",
+    "get_attention_mask_from_fusion",
+    "activation_func",  # FIXME hack: update the ESM2 checkpoint with the updated activation function and don't override
     "moe_extended_tp",
 ]
 
@@ -431,7 +436,14 @@ class BioBertConfig(
 
     # From megatron.core.models.gpt.bert_model.GPTModel
     fp16_lm_cross_entropy: bool = False
+    apply_rope_fusion: bool = True
     parallel_output: bool = True
+    bias_dropout_fusion: bool = True
+    bias_activation_fusion: bool = True
+    masked_softmax_fusion: bool = True
+    persist_layer_norm: bool = True
+    get_attention_mask_from_fusion: bool = True
+
     share_embeddings_and_output_weights: bool = False  # try True
     make_vocab_size_divisible_by: int = 128
     position_embedding_type: PositionEmbeddingKinds = "learned_absolute"
@@ -444,9 +456,6 @@ class BioBertConfig(
     num_layers: int = 6
     init_method_std: float = 0.02
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.bert_layer_with_transformer_engine_spec
-
-    # TODO: Move this to better places?
-    get_attention_mask_from_fusion: bool = False
 
     optimizer_fn: Optional[Callable[["MegatronBioBertModel"], Optimizer]] = None
     # TODO (@skothenhill,@georgea) update to use the nemo2 checkpoint mixins
@@ -479,9 +488,7 @@ class BioBertConfig(
 
         # The local specs all require the standard full attention mask. For transformer engine only the NVTE_FLASH_ATTN=0
         #  option requires this full attention mask.
-        use_full_attention_mask: bool = (
-            os.getenv("NVTE_FLASH_ATTN") == "0" or "transformer_engine" not in self.biobert_spec_option
-        )
+        use_full_attention_mask: bool = "transformer_engine" not in self.biobert_spec_option
 
         do_next_sentence = False
         if self.model_cls is None:
