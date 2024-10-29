@@ -667,7 +667,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 col_arr[cumulative_elements : cumulative_elements + mmap.number_nonzero_values()] = mmap.col_index.data
                 # Fill the row array for the span of this scmmap
                 row_arr[cumulative_rows : cumulative_rows + mmap.number_of_rows() + 1] = (
-                    mmap.row_index + int(cumulative_rows)
+                    mmap.row_index + int(cumulative_elements)
                 ).data
 
                 self._feature_index.concat(mmap._feature_index)

@@ -360,6 +360,9 @@ class PerplexityLoggingCallback(pl.Callback, CallbackMethods):
             - forward_out: dict of tensors with the following keys:
                 - token_logits: [b s vocab]
         """
+        if step.trainer.sanity_checking:  # skip sanity check
+            return
+
         if step.trainer.training and not self.log_train:
             return
 
