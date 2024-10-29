@@ -195,4 +195,4 @@ class TestGeneformerStopAndGo(stop_and_go.StopAndGoHarness):
     def test_stop_and_go_consistency(self, callback_type):
         if callback_type == testing_callbacks.TrainOutputCallback:
             pytest.xfail("Outputs are currently inconsistent in Geneformer.")
-        super().test_stop_and_go_consistency(callback_type)
+        super().test_stop_and_go_consistency_with_uneven_validation_sizes(callback_type)
