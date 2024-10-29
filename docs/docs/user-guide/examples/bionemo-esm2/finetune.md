@@ -1,21 +1,21 @@
-# ESM2 Fine-Tuning
+# ESM-2 Fine-Tuning
 
-This readme serves as a demo for implementing ESM2 Fine-tuning module, running a regression example and using the model for inference.
+This readme serves as a demo for implementing ESM-2 Fine-tuning module, running a regression example and using the model for inference.
 
-The ESM2 model is a transformer-based protein language model that has achieved state-of-the-art results in various protein-related tasks. When fine-tuning ESM2, the task head plays a crucial role. A task head refers to the additional layer or set of layers added on top of a pre-trained model, like the ESM2 transformer-based protein language model, to adapt it for a specific downstream task. As a part of transfer learning, a pre-trained model is often utilized to learn generic features from a large-scale dataset. However, these features might not be directly applicable to the specific task at hand. By incorporating a task head, which consists of learnable parameters, the model can adapt and specialize to the target task. The task head serves as a flexible and adaptable component that learns task-specific representations by leveraging the pre-trained features as a foundation. Through fine-tuning, the task head enables the model to learn and extract task-specific patterns, improving performance and addressing the nuances of the downstream task. It acts as a critical bridge between the pre-trained model and the specific task, enabling efficient and effective transfer of knowledge.
+The ESM-2 model is a transformer-based protein language model that has achieved state-of-the-art results in various protein-related tasks. When fine-tuning ESM2, the task head plays a crucial role. A task head refers to the additional layer or set of layers added on top of a pre-trained model, like the ESM-2 transformer-based protein language model, to adapt it for a specific downstream task. As a part of transfer learning, a pre-trained model is often utilized to learn generic features from a large-scale dataset. However, these features might not be directly applicable to the specific task at hand. By incorporating a task head, which consists of learnable parameters, the model can adapt and specialize to the target task. The task head serves as a flexible and adaptable component that learns task-specific representations by leveraging the pre-trained features as a foundation. Through fine-tuning, the task head enables the model to learn and extract task-specific patterns, improving performance and addressing the nuances of the downstream task. It acts as a critical bridge between the pre-trained model and the specific task, enabling efficient and effective transfer of knowledge.
 
 
 # Setup and Assumptions
 
 In this tutorial, we will demonstrate how to create a fine-tune module, train a regression task head, and use the fine-tuned model for inference.
 
-All commands should be executed inside the BioNeMo docker container, which has all ESM2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`. (**Note**: This `WORKDIR` may be `/workspaces/bionemo-framework` if you are using the VSCode Dev Container.) For more information on how to build or pull the BioNeMo2 container, refer to the [Access and Startup](../../getting-started/access-startup.md).
+All commands should be executed inside the BioNeMo docker container, which has all ESM-2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`. (**Note**: This `WORKDIR` may be `/workspaces/bionemo-framework` if you are using the VSCode Dev Container.) For more information on how to build or pull the BioNeMo2 container, refer to the [Access and Startup](../../getting-started/access-startup.md).
 
 To successfully accomplish this we need to define some key classes:
 
 1. Loss Reduction Method - To compute the supervised fine-tuning loss.
 2. Fine-Tuned Model Head - Downstream task head model.
-3. Fine-Tuned Model - Model that combines ESM2 with the task head model.
+3. Fine-Tuned Model - Model that combines ESM-2 with the task head model.
 4. Fine-Tuning Config - Configures the fine-tuning model and loss to use in the training and inference framework.
 5. Dataset - Training and inference datasets for ESM2.
 
@@ -41,7 +41,7 @@ class RegressorLossReduction(BERTMLMLossWithReduction):
 
 ## 2 - Fine-Tuned Model Head
 
-An MLP class for sequence-level regression. This class inherits `MegatronModule` and uses the fine-tune config (`TransformerConfig`) to configure the regression head for the fine-tuned ESM2 model.
+An MLP class for sequence-level regression. This class inherits `MegatronModule` and uses the fine-tune config (`TransformerConfig`) to configure the regression head for the fine-tuned ESM-2 model.
 
 ```python
 class MegatronMLPHead(MegatronModule):
@@ -60,7 +60,7 @@ class MegatronMLPHead(MegatronModule):
 
 ## 3 - Fine-Tuned Model
 
-A fine-tuned ESM2 model class for token classification tasks. This class inherits from the `ESM2Model` class and adds the custom regression head `MegatronMLPHead` the we created in the previous step. Optionally one can freeze all or parts of the encoder by parsing through the model parameters in the model constructor.
+A fine-tuned ESM-2 model class for token classification tasks. This class inherits from the `ESM2Model` class and adds the custom regression head `MegatronMLPHead` the we created in the previous step. Optionally one can freeze all or parts of the encoder by parsing through the model parameters in the model constructor.
 
 ```python
 class ESM2FineTuneSeqModel(ESM2Model):
@@ -84,12 +84,12 @@ class ESM2FineTuneSeqModel(ESM2Model):
 
 ## 4 - Fine-Tuning Config
 
-A `dataclass` that configures the fine-tuned ESM2 model. In this example `ESM2FineTuneSeqConfig` inherits from `ESM2GenericConfig` and adds custom arguments to setup the fine-tuned model. The `configure_model()` method of this `dataclass` is called within the `Lightning` module to call the model constructor with the `dataclass` arguments.
+A `dataclass` that configures the fine-tuned ESM-2 model. In this example `ESM2FineTuneSeqConfig` inherits from `ESM2GenericConfig` and adds custom arguments to setup the fine-tuned model. The `configure_model()` method of this `dataclass` is called within the `Lightning` module to call the model constructor with the `dataclass` arguments.
 
 The common arguments among different fine-tuning tasks are
 
 - `model_cls`: The fine-tune model class (`ESM2FineTuneSeqModel`)
-- `initial_ckpt_path`: BioNeMo 2.0 ESM2 pre-trained checkpoint
+- `initial_ckpt_path`: BioNeMo 2.0 ESM-2 pre-trained checkpoint
 - `initial_ckpt_skip_keys_with_these_prefixes`: skip keys when loading parameters from a checkpoint. Here we should not look for `regression_head` in the pre-trained checkpoint.
 - `get_loss_reduction_class()`: Implements selection of the appropriate `MegatronLossReduction` class, e.g. `bionemo.esm2.model.finetune.finetune_regressor.RegressorLossReduction`.
 
@@ -151,7 +151,7 @@ data_module = ESM2FineTuneDataModule(
 
 # Fine-Tuning the Regressor Task Head for ESM2
 
-Now we can put these five requirements together to fine-tune a regressor task head starting from a pre-trained ESM2 model (`pretrain_ckpt_path`). We can take advantage of a simple training loop in ```bionemo.esm2.model.fnetune.train``` and use the ```train_model()`` function to start the fine-tuning process in the following.
+Now we can put these five requirements together to fine-tune a regressor task head starting from a pre-trained ESM-2 model (`pretrain_ckpt_path`). We can take advantage of a simple training loop in ```bionemo.esm2.model.fnetune.train``` and use the ```train_model()`` function to start the fine-tuning process in the following.
 
 ```python
 # create a List[Tuple] with (sequence, target) values
@@ -198,7 +198,7 @@ This example is fully implemented in ```bionemo.esm2.model.finetune.train``` and
 python /workspace/bionemo2/sub-packages/bionemo-esm2/src/bionemo/esm2/model/finetune/train.py
 ```
 ## Notes
-1. The above example is fine-tuning a randomly initialized ESM2 model for demonstration purposes. In order to fine-tune a pre-trained ESM2 model, please download the ESM2 650M checkpoint from NGC resources using the following bash command
+1. The above example is fine-tuning a randomly initialized ESM-2 model for demonstration purposes. In order to fine-tune a pre-trained ESM-2 model, please download the ESM-2 650M checkpoint from NGC resources using the following bash command
     ```bash
     download_bionemo_data esm2/650m:2.0 --source ngc
     ```
@@ -218,7 +218,7 @@ python /workspace/bionemo2/sub-packages/bionemo-esm2/src/bionemo/esm2/model/fine
     ```
 3. We are using a small dataset of artificial sequences as our fine-tuning data in this example. You may experience over-fitting and observe no change in the validation metrics.
 
-# Fine-Tuned ESM2 Model Inference
+# Fine-Tuned ESM-2 Model Inference
 Once we have a checkpoint we can create a config object by pointing the path in `initial_ckpt_path` and use that for inference. Since we need to load all the parameters from this checkpoint (and don't skip the head) we reset the `nitial_ckpt_skip_keys_with_these_prefixes` in this config. Now we can use the ```bionemo.esm2.model.fnetune.train.infer``` to run inference on prediction dataset.
 
 ```python

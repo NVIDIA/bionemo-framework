@@ -8,10 +8,10 @@ UniProt Archive (UniParc). UniRef90 clusters these unique sequences into buckets
 a single sequence from within each cluster as the representative sequence. UniRef50 is then built by clustering these
 UniRef90 representative sequences into groups with 50% sequence similarity.
 
-## Data Used for ESM2 Pre-training
+## Data Used for ESM-2 Pre-training
 
-Since the original train/test splits from ESM2 were not available [3], we replicated the ESM2 pre-training experiments
-with UniProt's 2024_03 release. Following the approach described by the ESM2 authors, we removed artificial sequences
+Since the original train/test splits from ESM-2 were not available [3], we replicated the ESM-2 pre-training experiments
+with UniProt's 2024_03 release. Following the approach described by the ESM-2 authors, we removed artificial sequences
 and reserved 0.5% of UniRef50 clusters for validation. From the 65,672,139 UniRef50 clusters, this resulted in 328,360
 validation sequences. We then ran MMSeqs to further ensure no contamination of the training set with sequences similar
 to the validation set. This resulted in 65,182,365 training UniRef50 clusters comprising 187,382,018 UniRef90 sequences.

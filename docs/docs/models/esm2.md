@@ -123,7 +123,7 @@ checkpoints is consistent with their outputs when evaluated with the HuggingFace
 #### Single-node Training Performance
 
 <figure markdown="span">
-  ![ESM2 Single-Device Training Performance](site:assets/images/esm2/esm2_single_node_training_perf.svg){ width="350" }
+  ![ESM-2 Single-Device Training Performance](site:assets/images/esm2/esm2_single_node_training_perf.svg){ width="350" }
 </figure>
 
 The pure-pytorch baseline (compiled with `torch.compile()`) raised an out-of-memory error for batch sizes larger than 16
@@ -133,7 +133,7 @@ at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46
 #### Model Scaling
 
 <figure markdown="span">
-  ![ESM2 Model Scaling](site:assets/images/esm2/esm2_model_scaling.svg)
+  ![ESM-2 Model Scaling](site:assets/images/esm2/esm2_model_scaling.svg)
 </figure>
 
 Training ESM-2 at the 650M, 3B, and 15B model variants show improved performance with the BioNeMo2 framework over the
@@ -143,7 +143,7 @@ nodes.
 #### Device Scaling
 
 <figure markdown="span">
-  ![ESM2 Device Scaling](site:assets/images/esm2/esm2_device_scaling.svg){ width="400" }
+  ![ESM-2 Device Scaling](site:assets/images/esm2/esm2_device_scaling.svg){ width="400" }
 </figure>
 
 Training ESM-3B on 256 NVIDIA A100s on 32 nodes achieved 96.85% of the theoretical linear throughput expected from
