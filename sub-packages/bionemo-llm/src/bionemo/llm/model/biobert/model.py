@@ -80,6 +80,7 @@ logger = logging.getLogger(__file__)
 # TODO automatically determine which fields a user is trying to override in the future.
 _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS + [
     "return_only_hidden_states",
+    "include_embeddings",
     "include_hiddens",
     # Model parallelism settings! Important to override these if the user requests different settings from how
     #  a model was trained (common). See https://github.com/NVIDIA/bionemo-framework/issues/275
@@ -159,6 +160,7 @@ class MegatronBioBertModel(LanguageModule):
         seq_len_interpolation_factor: Optional[float] = None,
         add_binary_head: bool = True,
         return_embeddings: bool = False,
+        include_embeddings: bool = False,
         use_full_attention_mask: bool = False,
         include_hiddens: bool = False,
     ):
@@ -188,6 +190,7 @@ class MegatronBioBertModel(LanguageModule):
         self.position_embedding_type = position_embedding_type
         self.add_binary_head = add_binary_head
         self.return_embeddings = return_embeddings
+        self.include_embeddings = include_embeddings
         self.include_hiddens = include_hiddens
 
         # megatron core pipelining currently depends on model type
@@ -385,18 +388,20 @@ class MegatronBioBertModel(LanguageModule):
         if self.add_binary_head:
             pooled_output = self.pooler(hidden_states, 0)
 
-        if self.return_embeddings:
+        if self.return_embeddings or self.include_embeddings:
             embeddings = torch.transpose(hidden_states, 0, 1)
             masks = torch.sum(attention_mask, dim=1)
             # Collect masked embeddings.
-            output = torch.zeros(
+            output_embeddings = torch.zeros(
                 size=(embeddings.shape[0], embeddings.shape[2]),
                 dtype=embeddings.dtype,
                 device=torch.cuda.current_device(),
             )
             for i, (embedding, mask) in enumerate(zip(embeddings, masks)):
-                output[i, :] = torch.mean(embedding[1 : mask - 1], dim=0)
-            return output
+                output_embeddings[i, :] = torch.mean(embedding[1 : mask - 1], dim=0)
+
+        if self.return_embeddings:
+            return output_embeddings
 
         # logits and loss
         output_weight = None
@@ -415,6 +420,8 @@ class MegatronBioBertModel(LanguageModule):
         output = {"token_logits": logits, "binary_logits": binary_logits}
         if self.include_hiddens:
             output["hidden_states"] = hidden_states.transpose(0, 1).contiguous()  # [s b h] => [b s h]
+        if self.include_embeddings:
+            output["embeddings"] = output_embeddings
         return output
 
 
@@ -471,6 +478,7 @@ class BioBertConfig(
     #  by default all fields will be overridden.
     override_parent_fields: List[str] = field(default_factory=lambda: _OVERRIDE_BIOBERT_CONFIG_DEFAULTS)
     return_embeddings: bool = False
+    include_embeddings: bool = False
     return_only_hidden_states: bool = False
     include_hiddens: bool = False  # Include hidden layers in the output of the model
     core_attention_override: Type[torch.nn.Module] | None = None
@@ -517,6 +525,7 @@ class BioBertConfig(
             rotary_percent=self.rotary_percent,
             seq_len_interpolation_factor=self.seq_len_interpolation_factor,
             return_embeddings=self.return_embeddings,
+            include_embeddings=self.include_embeddings,
             pre_process=parallel_state.is_pipeline_first_stage(),
             post_process=parallel_state.is_pipeline_last_stage(),  # set to False for inference
             add_binary_head=do_next_sentence,
