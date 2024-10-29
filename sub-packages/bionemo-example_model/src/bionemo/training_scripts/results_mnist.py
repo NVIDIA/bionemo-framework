@@ -24,7 +24,7 @@ from bionemo.example_model.lightning_basics import (
     ExampleFineTuneConfig,
     MNISTDataModule,
 )
-from bionemo.example_model.pretrain_mnist import data_module, strategy
+from bionemo.training_scripts.shared_modules import data_module, strategy
 
 
 if __name__ == "__main__":
