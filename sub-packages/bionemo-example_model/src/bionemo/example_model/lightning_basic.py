@@ -34,8 +34,9 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import MNIST
 
-from bionemo.core.data.multi_epoch_dataset import MultiEpochDatasetResampler
+from bionemo.core.data.multi_epoch_dataset import EpochIndex, MultiEpochDatasetResampler
 from bionemo.llm.api import MegatronLossType
+from bionemo.llm.data.datamodule import MegatronDataModule
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.model.config import OVERRIDE_BIONEMO_CONFIG_DEFAULTS, MegatronBioNeMoTrainableModelConfig
 from bionemo.llm.utils import iomixin_utils as iom
@@ -46,7 +47,7 @@ __all__: Sequence[str] = (
     "MSELossReduction",
     "BionemoLightningModule",
     "ExampleModel",
-    "MNISTCustom",
+    "MNISTCustomDataset",
     "MNISTDataModule",
     "SameSizeLossDict",
     "MnistItem",
@@ -521,10 +522,11 @@ class MetricTracker(pl.Callback):
         return res
 
 
-class MNISTCustom(MNIST):  # noqa: D101
-    def __getitem__(self, index: int) -> MnistItem:
+class MNISTCustomDataset(MNIST):  # noqa: D101
+    def __getitem__(self, index: EpochIndex) -> MnistItem:
         """Wraps the getitem method of the MNIST dataset such that we return a Dict
-        instead of a Tuple or tensor.
+        instead of a Tuple or tensor. Additionally, we take in an EpochIndex is the input.
+        This is necessary for compatability with the megatron sampling.
 
         Args:
             index: The index we want to grab, an int.
@@ -532,18 +534,38 @@ class MNISTCustom(MNIST):  # noqa: D101
         Returns:
             A dict containing the data ("x"), label ("y"), and index ("idx").
         """  # noqa: D205
-        x, y = super().__getitem__(index)
+        x, y = super().__getitem__(index.idx)
 
         return {
             "data": x,
             "label": y,
-            "idx": index,
+            "idx": index.idx,
         }
 
 
 #######################################################################################
 # Data module needs a data_sampler for handling the mcore strategy nemo2 runner.
-class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
+
+
+# Custom wrapper to add class labels
+class SubsetWithClass(MNISTCustomDataset):
+    def __init__(self, subset, original_dataset):
+        super().__init__(original_dataset.root, download=True)
+        self.subset = subset
+        self.original_dataset = original_dataset
+
+    def __len__(self):
+        return len(self.subset)
+
+    def __getitem__(self, index: EpochIndex) -> MnistItem:
+        # Retrieve the original data and class from the original dataset
+        original_idx = self.subset.indices[index.idx]
+        epoch_index = EpochIndex(epoch=index.epoch, idx=original_idx)
+        values = self.original_dataset[epoch_index]
+        return values
+
+
+class MNISTDataModule(MegatronDataModule):  # noqa: D101
     def __init__(self, data_dir: str = "./", batch_size: int = 32, global_batch_size: int | None = None) -> None:  # noqa: D107
         super().__init__()
         self.data_dir = data_dir
@@ -570,17 +592,18 @@ class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
             stage: can be one of train / test / predict.
         """  # noqa: D415
         self.mnist_test = MultiEpochDatasetResampler(
-            MNISTCustom(self.data_dir, download=True, transform=transforms.ToTensor(), train=False),
+            MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=False),
             seed=43,
             shuffle=False,
         )
-        mnist_full = MNISTCustom(self.data_dir, download=True, transform=transforms.ToTensor(), train=True)
+        mnist_full = MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=True)
         mnist_train, mnist_val = torch.utils.data.random_split(
             mnist_full, [55000, 5000], generator=torch.Generator().manual_seed(42)
         )
-        self.mnist_train = MultiEpochDatasetResampler(mnist_train, seed=44, shuffle=True)
+        self.mnist_train = MultiEpochDatasetResampler(SubsetWithClass(mnist_train, mnist_full), seed=44, shuffle=True)
+
         self.mnist_val = MultiEpochDatasetResampler(
-            mnist_val,
+            SubsetWithClass(mnist_val, mnist_full),
             seed=45,
             shuffle=False,
         )

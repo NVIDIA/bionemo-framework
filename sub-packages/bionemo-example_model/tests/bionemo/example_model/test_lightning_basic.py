@@ -83,7 +83,7 @@ def _train_model_get_ckpt(
         enable_autocast=precision not in {32, "32"},
     )
 
-    lightning_module = lb.LitAutoEncoder(
+    lightning_module = lb.BionemoLightningModule(
         config=config,
     )
     strategy = nl.MegatronStrategy(
