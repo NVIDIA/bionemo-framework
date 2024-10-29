@@ -1,4 +1,4 @@
-# Writing Megatron-LM compatible datasets
+# Writing Megatron-LM compatible datamodules
 
 [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) relies on determinism in the training dataset classes to ensure
 that input tensors are initialized correctly across model-parallel ranks (see [NeMo2 Parallelism](./nemo2.md)). As a
@@ -55,6 +55,42 @@ for sample in MultiEpochDatasetResampler(dataset, num_epochs=3, shuffle=True):
     For datasets where `len(dataset)` is too large for a shuffled list of indices to comfortably fit in memory,
     [PRNGResampleDataset][bionemo.core.data.resamples.PRNGResampleDataset] offers a simple solution for shuffling a
     dataset with replacement in O(1) memory.
+
+## Training Resumption
+To ensure identical behavior with and without job interruption, BioNeMo provides [MegatronDataModule][bionemo.llm.data.datamodule.MegatronDataModule] to save and load state dict for training resumption, and provides [WrappedDataLoader][nemo.lightning.data.WrappedDataLoader] to add a `mode` attribute to [DataLoader][torch.utils.data.DataLoader].
+
+```python
+class MyDataModule(MegatronDataModule):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        ...
+
+    def train_dataloader(self):
+        return WrappedDataLoader(
+            ...,  # any other arguments for DataLoader
+            mode="train",
+        )
+
+    def val_dataloader(self):
+        return WrappedDataLoader(
+            ...,  # any other arguments for DataLoader
+            mode="validation",
+        )
+
+    def test_dataloader(self):
+        return WrappedDataLoader(
+            ...,  # any other arguments for DataLoader
+            mode="test",
+        )
+```
+
+!!! note "MegatronDataModule"
+
+    Users will see non-overlapping training curve if their datamodule is not inheritting from `MegatronDataModule`, unless similar logics are handled by the users. `MegatronDataModule` ensures that training resumes with the correct sample index instead of restarting from 0 everytime.
+
+!!! note "WrappedDataLoader"
+
+    The WrappedDataLoader class is a wrapper around the PyTorch DataLoader class that adds the `mode` attribute to the dataloader. The dataloader will resume from the last sample index only when mode is 'train'. `val_dataloader` and `test_dataloader` are unaffected.
 
 ## Testing datasets for megatron compatibility
 
