@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools-scm>=8", "setuptools>=64", "wheel"]
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -38,10 +38,8 @@ include = ["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
 
-[tool.setuptools_scm]
-root = '../..'
-version_scheme = "post-release"
-local_scheme = "no-local-version"
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
 
 [tool.uv]
 cache-keys = [{ git = true }]

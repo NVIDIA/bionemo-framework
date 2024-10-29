@@ -133,10 +133,14 @@ class SingleCellCollection(SingleCellRowDatasetCore):
             max_workers: the maximal number of workers to use
             use_processes: If True, use ProcessPoolExecutor; otherwise, use
                 ThreadPoolExecutor
+        Raises:
+            FileNotFoundError: If no h5ad files are found in the directory.
+            RuntimeError: If an error occurs in the loading of any of the h5ad files.
         """
         directory_path = Path(directory_path)
         ann_data_paths = sorted(directory_path.rglob("*.h5ad"))
-
+        if len(ann_data_paths) == 0:
+            raise FileNotFoundError(f"There a no h5ad files in {directory_path}.")
         mmap_paths = [Path(self.data_path) / Path(ann_datapath).stem for ann_datapath in ann_data_paths]
         queue = AsyncWorkQueue(max_workers=max_workers, use_processes=use_processes)
         for ann in ann_data_paths:
@@ -144,7 +148,14 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         queue.wait()
         mmaps = queue.get_task_results()
 
+        for result in mmaps:
+            if isinstance(result, Exception):
+                raise RuntimeError(f"Error in processing file {ann}: {result}") from result
+
         for mmap_path, mmap in zip(mmap_paths, mmaps):
+            if isinstance(mmap, Exception):
+                raise RuntimeError(f"Error in processing file {mmap_path}: {mmap}") from mmap
+
             self.fname_to_mmap[mmap_path] = mmap
             self._feature_index.concat(self.fname_to_mmap[mmap_path]._feature_index)
 
