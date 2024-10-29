@@ -2,7 +2,11 @@
 
 ### Is BioNeMo free to use?
 
-Yes, BioNeMo is free to use.
+Yes, BioNeMo is free to use. BioNeMo code is licensed under the Apache 2.0 License. The Apache 2.0 License is a
+permissive open-source license that allows users to freely use, modify, and distribute software. With this license,
+users have the right to use the software for any purpose, including commercial use, without requiring royalties or
+attribution. Overall, our choice of the Apache 2.0 License allows for wide adoption and use of BioNeMo, while also
+providing a high degree of freedom and flexibility for users.
 
 ### How do I install BioNeMo?
 
