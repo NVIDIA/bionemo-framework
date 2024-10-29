@@ -33,6 +33,7 @@ from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
+from nemo.utils.exp_manager import TimingCallback
 from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
@@ -170,6 +171,7 @@ def main(
     callbacks = [
         # Skip perplexity and disable forward output in the loss for speed
         RichModelSummary(max_depth=4),
+        TimingCallback(),
         LearningRateMonitor(),
     ]
 
