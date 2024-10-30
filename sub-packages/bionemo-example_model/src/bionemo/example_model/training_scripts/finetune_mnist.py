@@ -19,7 +19,7 @@ from pathlib import Path
 
 from nemo.collections import llm
 from nemo.lightning import NeMoLogger, resume
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 from bionemo.example_model.lighting.lightning_basic import (
     BionemoLightningModule,
@@ -44,6 +44,7 @@ if __name__ == "__main__":
         name=name,
         tensorboard=TensorBoardLogger(save_dir=save_dir, name=name),
         ckpt=checkpoint_callback,
+        extra_loggers=[CSVLogger(save_dir / "logs", name=name)],
     )
 
     lightning_module2 = BionemoLightningModule(

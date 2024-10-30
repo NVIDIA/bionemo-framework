@@ -472,7 +472,14 @@ class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroug
         loss_reduction.setup(batch)
         loss = loss_reduction(predictions)
         # Log the validation loss
-        self.log("val_loss", loss[1]["avg"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(
+            "val_loss",
+            loss[1]["avg"],
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
 
         return predictions
 
@@ -507,50 +514,6 @@ class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroug
 # TODO make an ABC for nemo2 DataModules
 #  which allow us to re-use some of these common functions and not forget to implement
 #  the key things that nemo2 uses/needs.
-
-"""
-class MetricTracker(pl.Callback):
-    def __init__(self, metrics_to_track_val: List[str], metrics_to_track_train: List[str]):
-        self.metrics_to_track_val = metrics_to_track_val
-        self.metrics_to_track_train = metrics_to_track_train
-        self._collection_val = defaultdict(list)
-        self._collection_train = defaultdict(list)
-
-    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
-        if isinstance(outputs, torch.Tensor):
-            self._collection_val["unnamed"].append(outputs)
-        else:
-            for metric in self.metrics_to_track_val:
-                self._collection_val[metric].append(outputs[metric])
-
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
-        if isinstance(outputs, torch.Tensor):
-            self._collection_train["unnamed"].append(outputs)
-        else:
-            for metric in self.metrics_to_track_train:
-                self._collection_train[metric].append(outputs[metric])
-
-    def on_validation_epoch_end(self, trainer, pl_module):
-        elogs = trainer.logged_metrics  # access it here
-        self._collection_val["logged_metrics"].extend(elogs)
-
-    def on_train_epoch_end(self, trainer, pl_module):
-        elogs = trainer.logged_metrics  # access it here
-        self._collection_train["logged_metrics"].extend(elogs)
-
-    @property
-    def collection_val(self) -> Dict[str, torch.Tensor | List[str]]:
-        res = {k: torch.tensor(v) for k, v in self._collection_val.items() if k != "logged_metrics"}
-        res["logged_metrics"] = self._collection_val["logged_metrics"]
-        return res
-
-    @property
-    def collection_train(self) -> Dict[str, torch.Tensor | str]:
-        res = {k: torch.tensor(v) for k, v in self._collection_train.items() if k != "logged_metrics"}
-        res["logged_metrics"] = self._collection_train["logged_metrics"]
-        return res
-
-"""
 
 
 class MNISTCustomDataset(MNIST):  # noqa: D101
@@ -666,8 +629,8 @@ trainer = nl.Trainer(
     strategy=strategy,
     limit_val_batches=5,
     val_check_interval=1,
-    max_steps=2,
-    max_epochs=1,
+    max_steps=10,
+    max_epochs=2,
     num_nodes=1,
     log_every_n_steps=1,
     plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
