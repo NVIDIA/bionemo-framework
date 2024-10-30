@@ -28,7 +28,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
-from bionemo.example_model import lightning_basic as lb
+from bionemo.example_model.lightning import lightning_basic as lb
 from bionemo.llm.model.config import MegatronBioNeMoTrainableModelConfig
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
@@ -137,7 +137,6 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
-        print("VALIDATION", initial_metrics.collection_val)
         assert initial_metrics.collection_train["loss"][0] > initial_metrics.collection_train["loss"][-1]
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         simple_ft_checkpoint, simple_ft_metrics = _train_model_get_ckpt(
@@ -174,7 +173,7 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
         drop_head_checkpoint, drop_head_ft_metrics = _train_model_get_ckpt(
             name="drop_head_finetune_experiment",
             root_dir=tmpdir / "drop_head_finetune",
-            model_cfg_cls=lb.ExampleFineTuneDropParentConfig,  # config that drops the decoder and head -> only cls now
+            model_cfg_cls=lb.ExampleFineTuneConfig,  # config that drops the decoder and head -> only cls now
             ckpt_path=add_head_checkpoint,  # cumulatively build on the config that had this cls head (optional)
             skip_weight_prefixes=set(),  # no new parameters vs prior cfg, will continue training cls head by itself
             precision=precision,
