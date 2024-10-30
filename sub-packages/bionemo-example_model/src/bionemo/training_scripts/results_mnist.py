@@ -19,18 +19,27 @@ import argparse
 from nemo import lightning as nl
 
 from bionemo.core import BIONEMO_CACHE_DIR
-from bionemo.example_model.lightning_basics import (
+from bionemo.example_model.lightning_basic import (
     BionemoLightningModule,
     ExampleFineTuneConfig,
     MNISTDataModule,
+    strategy,
 )
-from bionemo.training_scripts.shared_modules import data_module, strategy
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--finetune_dir", type=str, help="The directory with the fine-tuned model. ")
     args = parser.parse_args()
+    test_length = 10_000
+    strategy = nl.MegatronStrategy(
+        tensor_model_parallel_size=1,
+        pipeline_model_parallel_size=1,
+        ddp="megatron",
+        find_unused_parameters=True,
+        always_save_context=True,
+    )
+
     test_run_trainer = nl.Trainer(
         accelerator="gpu",
         devices=1,
@@ -41,10 +50,7 @@ if __name__ == "__main__":
     )
 
     lightning_module3 = BionemoLightningModule(config=ExampleFineTuneConfig(initial_ckpt_path=args.finetune_dir))
-
-    new_data_module = MNISTDataModule(
-        data_dir=str(BIONEMO_CACHE_DIR), batch_size=len(data_module.mnist_test), output_log=False
-    )
+    new_data_module = MNISTDataModule(data_dir=str(BIONEMO_CACHE_DIR), batch_size=test_length, output_log=False)
 
     results = test_run_trainer.predict(lightning_module3, datamodule=new_data_module)
-    print(results)
+    print(results[0].shape)

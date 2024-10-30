@@ -39,7 +39,6 @@ from torchvision.datasets import MNIST
 from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.core.data.multi_epoch_dataset import EpochIndex, MultiEpochDatasetResampler
 from bionemo.llm.api import MegatronLossType
-from bionemo.llm.data.datamodule import MegatronDataModule
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.model.config import OVERRIDE_BIONEMO_CONFIG_DEFAULTS, MegatronBioNeMoTrainableModelConfig
 from bionemo.llm.utils import iomixin_utils as iom
@@ -285,7 +284,7 @@ class ExampleFineTuneBothModel(ExampleModel):
         }
 
 
-class ExampleFineTuneDropParentModel(ExampleModelTrunk):
+class ExampleFineTuneModel(ExampleModelTrunk):
     """Example of taking the example model and replacing output task."""
 
     def __init__(self, config: ModelParallelConfig):
@@ -377,15 +376,15 @@ class ExampleFineTuneBothConfig(
 
 
 @dataclass
-class ExampleFineTuneDropParentConfig(
-    ExampleGenericConfig["ExampleFineTuneDropParentModel", "ClassifierLossReduction"], iom.IOMixinWithGettersSetters
+class ExampleFineTuneConfig(
+    ExampleGenericConfig["ExampleFineTuneConfig", "ClassifierLossReduction"], iom.IOMixinWithGettersSetters
 ):
     """ExampleConfig is a dataclass that is used to configure the model.
 
     Timers from ModelParallelConfig are required for megatron forward compatibility.
     """
 
-    model_cls: Type[ExampleFineTuneDropParentModel] = ExampleFineTuneDropParentModel
+    model_cls: Type[ExampleFineTuneModel] = ExampleFineTuneModel
     loss_cls: Type[ClassifierLossReduction] = ClassifierLossReduction
 
 
@@ -576,8 +575,11 @@ class SubsetWithClass(MNISTCustomDataset):
         return values
 
 
-class MNISTDataModule(MegatronDataModule):  # noqa: D101
-    def __init__(self, data_dir: str = "./", batch_size: int = 32, global_batch_size: int | None = None) -> None:  # noqa: D107
+class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
+    def __init__(
+        self, data_dir: str = "./", batch_size: int = 32, global_batch_size: int | None = None, output_log: bool = True
+    ) -> None:
+        """Initialize class."""
         super().__init__()
         self.data_dir = data_dir
         self.micro_batch_size = batch_size
@@ -594,6 +596,7 @@ class MNISTDataModule(MegatronDataModule):  # noqa: D101
             micro_batch_size=self.micro_batch_size,
             global_batch_size=self.global_batch_size,
             rampup_batch_size=self.rampup_batch_size,
+            output_log=output_log,
         )
 
     def setup(self, stage: str) -> None:
@@ -625,7 +628,7 @@ class MNISTDataModule(MegatronDataModule):  # noqa: D101
     def val_dataloader(self) -> DataLoader:  # noqa: D102
         return DataLoader(self.mnist_val, batch_size=self.micro_batch_size, num_workers=0)
 
-    def test_dataloader(self) -> DataLoader:  # noqa: D102
+    def predict_dataloader(self) -> DataLoader:  # noqa: D102
         return DataLoader(self.mnist_test, batch_size=self.micro_batch_size, num_workers=0)
 
 

@@ -15,25 +15,29 @@
 
 
 import argparse
-import tempfile
 from pathlib import Path
 
 from nemo.collections import llm
 from nemo.lightning import NeMoLogger, resume
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from bionemo.example_model.lightning_basics import BionemoLightningModule, ExampleFineTuneConfig
-from bionemo.training_scripts.shared_modules import checkpoint_callback, data_module, trainer
+from bionemo.example_model.lightning_basic import (
+    BionemoLightningModule,
+    ExampleFineTuneConfig,
+    checkpoint_callback,
+    data_module,
+    trainer,
+)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrain_ckpt_dirpath", type=str, help="The checkpoint directory after pre-training")
     args = parser.parse_args()
-    temp_dir = tempfile.TemporaryDirectory()
-    name = "example"
 
-    save_dir = temp_dir / "classifier"
+    name = "example"
+    directory_name = "sample_models"
+    save_dir = Path(directory_name) / "classifier"
 
     nemo_logger2 = NeMoLogger(
         log_dir=str(save_dir),
