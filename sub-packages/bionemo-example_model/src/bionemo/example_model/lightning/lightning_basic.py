@@ -205,6 +205,97 @@ class ClassifierLossReduction(MegatronLossReduction):
         return mse_losses.mean()
 
 
+#######################################################################################
+# Data methods. The dataset has no changes vs a vanilla pytorch dataset. The data module
+#  has a data_sampler in it which is a nemo2 peculiarity. Also the sampler will not
+#  shuffle your data! So you need to wrap your dataset in a dataset shuffler that maps
+#  sequential ids to random ids in your dataset.
+
+
+class MNISTCustomDataset(MNIST):  # noqa: D101
+    def __getitem__(self, index: int) -> MnistItem:
+        """Wraps the getitem method of the MNIST dataset such that we return a Dict
+        instead of a Tuple or tensor. Additionally, we take in an EpochIndex is the input.
+        This is necessary for compatability with the megatron sampling.
+
+        Args:
+            index: The index we want to grab, an int.
+
+        Returns:
+            A dict containing the data ("x"), label ("y"), and index ("idx").
+        """  # noqa: D205
+        x, y = super().__getitem__(index)
+
+        return {
+            "data": x,
+            "label": y,
+            "idx": index,
+        }
+
+
+#######################################################################################
+# Data module needs a data_sampler for handling the mcore strategy nemo2 runner.
+class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
+    def __init__(
+        self, data_dir: str = "./", batch_size: int = 32, global_batch_size: int | None = None, output_log: bool = True
+    ) -> None:
+        """Initialize class."""
+        super().__init__()
+        self.data_dir = data_dir
+        self.micro_batch_size = batch_size
+        self.global_batch_size = global_batch_size or batch_size
+        self.max_len = 1048  # Unused?
+        self.rampup_batch_size = None
+
+        #  Note that this sampler is sequential, meaning it does not do any shuffling. Let's wrap our data in a shuffler.
+        # Wraps the datasampler with the MegatronDataSampler. The MegatronDataSampler is a wrapper that allows the sampler
+        # to be used with megatron. It sets up the capability to utilize micro-batching and gradient accumulation. It is also
+        # the place where the global batch size is constructed.
+        self.data_sampler = MegatronDataSampler(
+            seq_len=self.max_len,
+            micro_batch_size=self.micro_batch_size,
+            global_batch_size=self.global_batch_size,
+            rampup_batch_size=self.rampup_batch_size,
+            output_log=output_log,
+        )
+
+    def setup(self, stage: str) -> None:
+        """Sets up the datasets
+
+        Args:
+            stage: can be one of train / test / predict.
+        """  # noqa: D415
+        self.mnist_test = MultiEpochDatasetResampler(
+            IdentityMultiEpochDatasetWrapper(
+                MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=False)
+            ),
+            seed=43,
+            shuffle=False,
+        )
+        mnist_full = MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=True)
+        mnist_train, mnist_val = torch.utils.data.random_split(
+            mnist_full, [55000, 5000], generator=torch.Generator().manual_seed(42)
+        )
+        self.mnist_train = MultiEpochDatasetResampler(
+            IdentityMultiEpochDatasetWrapper(mnist_train), seed=44, shuffle=True
+        )
+
+        self.mnist_val = MultiEpochDatasetResampler(
+            IdentityMultiEpochDatasetWrapper(mnist_val),
+            seed=45,
+            shuffle=False,
+        )
+
+    def train_dataloader(self) -> DataLoader:  # noqa: D102
+        return DataLoader(self.mnist_train, batch_size=self.micro_batch_size, num_workers=0)
+
+    def val_dataloader(self) -> DataLoader:  # noqa: D102
+        return DataLoader(self.mnist_val, batch_size=self.micro_batch_size, num_workers=0)
+
+    def predict_dataloader(self) -> DataLoader:  # noqa: D102
+        return DataLoader(self.mnist_test, batch_size=self.micro_batch_size, num_workers=0)
+
+
 #########################################################
 # Models: These need to be megatron modules. At the most basic level this just means:
 #  1. they need a config argument of type ModelParallelConfig
@@ -508,102 +599,6 @@ class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroug
     def loss_reduction_class(self) -> Type[MegatronLossReduction]:
         """Get the loss reduction class the user has specified in their config."""
         return self.config.get_loss_reduction_class()
-
-
-#######################################################################################
-# Data methods. The dataset has no changes vs a vanilla pytorch dataset. The data module
-#  has a data_sampler in it which is a nemo2 peculiarity. Also the sampler will not
-#  shuffle your data! So you need to wrap your dataset in a dataset shuffler that maps
-#  sequential ids to random ids in your dataset.
-# TODO make an ABC for nemo2 DataModules
-#  which allow us to re-use some of these common functions and not forget to implement
-#  the key things that nemo2 uses/needs.
-
-
-class MNISTCustomDataset(MNIST):  # noqa: D101
-    def __getitem__(self, index: int) -> MnistItem:
-        """Wraps the getitem method of the MNIST dataset such that we return a Dict
-        instead of a Tuple or tensor. Additionally, we take in an EpochIndex is the input.
-        This is necessary for compatability with the megatron sampling.
-
-        Args:
-            index: The index we want to grab, an int.
-
-        Returns:
-            A dict containing the data ("x"), label ("y"), and index ("idx").
-        """  # noqa: D205
-        x, y = super().__getitem__(index)
-
-        return {
-            "data": x,
-            "label": y,
-            "idx": index,
-        }
-
-
-#######################################################################################
-# Data module needs a data_sampler for handling the mcore strategy nemo2 runner.
-
-
-class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
-    def __init__(
-        self, data_dir: str = "./", batch_size: int = 32, global_batch_size: int | None = None, output_log: bool = True
-    ) -> None:
-        """Initialize class."""
-        super().__init__()
-        self.data_dir = data_dir
-        self.micro_batch_size = batch_size
-        self.global_batch_size = global_batch_size or batch_size
-        self.max_len = 1048  # Unused?
-        self.rampup_batch_size = None
-
-        #  Note that this sampler is sequential, meaning it does not do any shuffling. Let's wrap our data in a shuffler.
-        # Wraps the datasampler with the MegatronDataSampler. The MegatronDataSampler is a wrapper that allows the sampler
-        # to be used with megatron. It sets up the capability to utilize micro-batching and gradient accumulation. It is also
-        # the place where the global batch size is constructed.
-        self.data_sampler = MegatronDataSampler(
-            seq_len=self.max_len,
-            micro_batch_size=self.micro_batch_size,
-            global_batch_size=self.global_batch_size,
-            rampup_batch_size=self.rampup_batch_size,
-            output_log=output_log,
-        )
-
-    def setup(self, stage: str) -> None:
-        """Sets up the datasets
-
-        Args:
-            stage: can be one of train / test / predict.
-        """  # noqa: D415
-        self.mnist_test = MultiEpochDatasetResampler(
-            IdentityMultiEpochDatasetWrapper(
-                MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=False)
-            ),
-            seed=43,
-            shuffle=False,
-        )
-        mnist_full = MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=True)
-        mnist_train, mnist_val = torch.utils.data.random_split(
-            mnist_full, [55000, 5000], generator=torch.Generator().manual_seed(42)
-        )
-        self.mnist_train = MultiEpochDatasetResampler(
-            IdentityMultiEpochDatasetWrapper(mnist_train), seed=44, shuffle=True
-        )
-
-        self.mnist_val = MultiEpochDatasetResampler(
-            IdentityMultiEpochDatasetWrapper(mnist_val),
-            seed=45,
-            shuffle=False,
-        )
-
-    def train_dataloader(self) -> DataLoader:  # noqa: D102
-        return DataLoader(self.mnist_train, batch_size=self.micro_batch_size, num_workers=0)
-
-    def val_dataloader(self) -> DataLoader:  # noqa: D102
-        return DataLoader(self.mnist_val, batch_size=self.micro_batch_size, num_workers=0)
-
-    def predict_dataloader(self) -> DataLoader:  # noqa: D102
-        return DataLoader(self.mnist_test, batch_size=self.micro_batch_size, num_workers=0)
 
 
 """Training Elements"""

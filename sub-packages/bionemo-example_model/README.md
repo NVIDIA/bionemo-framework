@@ -23,4 +23,42 @@ First, we define a simple loss function. These should extend the MegatronLossRed
 Loss functions used here are MSELossReduction and ClassifierLossReduction. These functions return a Tensor, which contain the losses for the microbatches, and a SameSizeLossDict containing the average loss. This is a Typed Dictionary that is the return type for a loss that is computed for the entire batch, where all microbatches are the same size.
 
 # Datasets and Datamodules
-Datasets used for model training must be compatible with megatron datasets. To enable this, the ouput of a given index and epoch must be determensitic. However, we may with to have a different ordering in every epoch. To enable this, the items in the dataset should be accessible by both the epoch and the index. This can be done by accessing elements of the dataset with EpochIndex from bionemo.core.data.multi_epoch_dataset. A simple way of doing this is to wrap a dataset with IdentityMultiEpochDatasetWrapper imported from bionemo.core.data.multi_epoch_dataset. In this example, we use a custom dataset MNISTCustomDataset that wraps the getitem method of the MNIST dataset such that it return a dict instead of a Tuple or tensor.
+
+Datasets used for model training must be compatible with megatron datasets. To enable this, the ouput of a given index and epoch must be determensitic. However, we may wish to have a different ordering in every epoch. To enable this, the items in the dataset should be accessible by both the epoch and the index. This can be done by accessing elements of the dataset with EpochIndex from bionemo.core.data.multi_epoch_dataset. A simple way of doing this is to wrap a dataset with IdentityMultiEpochDatasetWrapper imported from bionemo.core.data.multi_epoch_dataset. In this example, we use a custom dataset MNISTCustomDataset that wraps the getitem method of the MNIST dataset such that it return a dict instead of a Tuple or tensor. The MNISTCustomDataset returns elements of type MnistItem, which is a TypedDict.
+
+
+In the data module/ data loader class, it's necessary to have data_sampler method to shuffle the data and that allows the sampler to be used with megatron. This is a nemo2 peculiarity. A nemo.lightning.pytorch.plugins.MegatronDataSampler is the best choice. It sets up the capability to utilize micro-batching and gradient accumulation. It is also the place where the global batch size is constructed.
+
+Also the sampler will not shuffle your data. So you need to wrap your dataset in a dataset shuffler that maps sequential ids to random ids in your dataset. This can be done with MultiEpochDatasetResampler from bionemo.core.data.multi_epoch_dataset.
+
+This is implemented in the MNISTDataModule. In the setup method of the dataloader, the train, test and validation sets are MNISTCustomDataset are wrapped in the IdentityMultiEpochDatasetWrapper. These are then wrapped in the MultiEpochDatasetResampler. TODO: add here
+
+We also define a train_dataloader, val_dataloader, and predict_dataloder methods that return the corresponding dataloaders.
+
+# Models
+
+Models need to be megatron modules. At the most basic level this just means:
+  1. They extend MegatronModule from megatron.core.transformer.module.
+  2. They need a config argument of type megatron.core.ModelParallelConfig. An easy way of implementing this is to inherit from bionemo.llm.model.config.MegatronBioNeMoTrainableModelConfig. This is a class for bionemo that supports usage with Megatron models, as NeMo2 requires. This class also inherits ModelParallelConfig.
+  3. They need a self.model_type:megatron.core.transformer.enums.ModelType enum defined (ModelType.encoder_or_decoder is probably usually fine)
+  4. def set_input_tensor(self, input_tensor) needs to be present. This is used in model parallelism. This function can be a stub/ placeholder function.
+
+ExampleModelTrunk is a base model. This returns a tensor. ExampleModel is a model that extends the base model with a few linear layers and it's used for pretrainining. This returns the output of the base model and of the full model.
+
+ExampleFineTuneModel extends the ExampleModelTrunk by adding a classification layer. This returns a tensor of logits over the 10 potential digits.
+
+# Model Configs
+The model config class is used to instatiate the model. These configs must have:
+1. A configure_model method which allows the megatron strategy to lazily initialize the model after the parallel computing environment has been setup. These also handle loading starting weights for fine-tuning cases. Additionally these configs tell the trainer which loss you want to use with a matched model.
+2. A get_loss_reduction_class method that defines the loss function.
+
+Here, a base generic config ExampleGenericConfig is defined.  PretrainConfig extends this class. This defines the model class and the loss class in:
+```
+class PretrainConfig(ExampleGenericConfig["PretrainModel", "MSELossReduction"], iom.IOMixinWithGettersSetters):
+
+    model_cls: Type[PretrainModel] = PretrainModel
+    loss_cls: Type[MSELossReduction] = MSELossReduction
+
+```
+
+Similarly, ExampleFineTuneConfig extends ExampleGenericConfig for finetuning.
