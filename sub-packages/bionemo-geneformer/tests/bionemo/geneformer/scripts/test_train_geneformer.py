@@ -33,12 +33,8 @@ data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_
 
 
 def test_bionemo2_rootdir():
-    data_error_str = (
-        "Please download test data with:\n"
-        "`python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss`"
-    )
-    assert data_path.exists(), f"Could not find test data directory.\n{data_error_str}"
-    assert data_path.is_dir(), f"Test data directory is supposed to be a directory.\n{data_error_str}"
+    assert data_path.exists(), f"Could not find test data directory."
+    assert data_path.is_dir(), f"Test data directory is supposed to be a directory."
 
 
 @pytest.mark.skip("duplicate unittest")
@@ -90,9 +86,7 @@ def test_pretrain_cli(tmpdir):
     result_dir = Path(tmpdir.mkdir("results"))
     open_port = find_free_network_port()
     # NOTE: if you need to change the following command, please update the README.md example.
-    script_dir = Path(__file__).parent
-    cmd_str = f"""python  \
-    {script_dir}/train.py     \
+    cmd_str = f"""train_geneformer     \
     --data-dir {data_path}     \
     --result-dir {result_dir}     \
     --experiment-name test_experiment     \
