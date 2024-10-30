@@ -430,13 +430,6 @@ parser.add_argument(
     help="Number of steps between logging. Default is 50.",
 )
 parser.add_argument(
-    "--log-every-n-steps",
-    type=int,
-    required=False,
-    default=50,
-    help="Number of steps between logging. Default is 50.",
-)
-parser.add_argument(
     "--seq-length",
     type=int,
     required=False,
