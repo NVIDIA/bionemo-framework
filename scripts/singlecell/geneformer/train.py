@@ -161,9 +161,12 @@ def main(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         ddp=ddp,
+        progress_interval=log_every_n_steps,
         find_unused_parameters=True,
         ckpt_include_optimizer=True,
-        progress_interval=log_every_n_steps,
+        gradient_as_bucket_view=True,
+        ckpt_async_save=True,
+        ckpt_parallel_load=True,
     )
 
     # for wandb integration
