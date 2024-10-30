@@ -54,6 +54,10 @@ __all__: Sequence[str] = (
     "MnistItem",
     "ExampleModelOutput",
     "ExampleFineTuneOutput",
+    "checkpoint_callback",
+    "data_module",
+    "strategy",
+    "trainer",
 )
 
 #############################################################################################

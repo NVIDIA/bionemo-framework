@@ -32,13 +32,6 @@ if __name__ == "__main__":
     parser.add_argument("--finetune_dir", type=str, help="The directory with the fine-tuned model. ")
     args = parser.parse_args()
     test_length = 10_000
-    strategy = nl.MegatronStrategy(
-        tensor_model_parallel_size=1,
-        pipeline_model_parallel_size=1,
-        ddp="megatron",
-        find_unused_parameters=True,
-        always_save_context=True,
-    )
 
     test_run_trainer = nl.Trainer(
         accelerator="gpu",
