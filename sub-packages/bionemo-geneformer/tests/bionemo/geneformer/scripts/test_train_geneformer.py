@@ -33,8 +33,8 @@ data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_
 
 
 def test_bionemo2_rootdir():
-    assert data_path.exists(), f"Could not find test data directory."
-    assert data_path.is_dir(), f"Test data directory is supposed to be a directory."
+    assert data_path.exists(), "Could not find test data directory."
+    assert data_path.is_dir(), "Test data directory is supposed to be a directory."
 
 
 @pytest.mark.skip("duplicate unittest")
