@@ -14,52 +14,54 @@
 # limitations under the License.
 
 
+import argparse
 from pathlib import Path
 
 from nemo.collections import llm
 from nemo.lightning import NeMoLogger, resume
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from bionemo.example_model.lightning_basic import (
+from bionemo.example_model.lighting.lightning_basic import (
     BionemoLightningModule,
-    PretrainConfig,
+    ExampleFineTuneConfig,
     checkpoint_callback,
     data_module,
-    metric_tracker,
     trainer,
 )
 
 
 if __name__ == "__main__":
-    directory_name = "sample_models"
-    print("temp_dir", directory_name)
-    save_dir = Path(directory_name) / "pretrain"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pretrain_ckpt_dirpath", type=str, help="The checkpoint directory after pre-training")
+    args = parser.parse_args()
+
     name = "example"
-    # Setup the logger train the model
-    nemo_logger = NeMoLogger(
+    directory_name = "sample_models"
+    save_dir = Path(directory_name) / "classifier"
+
+    nemo_logger2 = NeMoLogger(
         log_dir=str(save_dir),
         name=name,
         tensorboard=TensorBoardLogger(save_dir=save_dir, name=name),
         ckpt=checkpoint_callback,
     )
 
-    # Set up the training module
-    lightning_module = BionemoLightningModule(config=PretrainConfig())
-
-    # This trains the model
-    llm.train(
-        model=lightning_module,
-        data=data_module,
-        trainer=trainer,
-        log=nemo_logger,
-        resume=resume.AutoResume(
-            resume_if_exists=True,  # Looks for the -last checkpoint to continue training.
-            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
-        ),
+    lightning_module2 = BionemoLightningModule(
+        config=ExampleFineTuneConfig(
+            initial_ckpt_path=args.pretrain_ckpt_dirpath,
+            initial_ckpt_skip_keys_with_these_prefixes={"digit_classifier"},
+        )
     )
 
-    pretrain_ckpt_dirpath = checkpoint_callback.last_model_path.replace(".ckpt", "")
-    print("TRAIN", metric_tracker.collection_train["loss"])
-    print("TRAIN", metric_tracker.collection_train.keys())
-    print("VAL", metric_tracker.collection_val["unnamed"])
-    print(pretrain_ckpt_dirpath)
+    llm.train(
+        model=lightning_module2,
+        data=data_module,
+        trainer=trainer,
+        log=nemo_logger2,
+        resume=resume.AutoResume(
+            resume_if_exists=True,
+            resume_ignore_no_checkpoint=True,
+        ),
+    )
+    finetune_dir = Path(checkpoint_callback.last_model_path.replace(".ckpt", ""))
+    print(finetune_dir)

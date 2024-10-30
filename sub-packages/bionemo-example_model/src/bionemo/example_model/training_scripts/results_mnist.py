@@ -19,7 +19,7 @@ import argparse
 from nemo import lightning as nl
 
 from bionemo.core import BIONEMO_CACHE_DIR
-from bionemo.example_model.lightning_basic import (
+from bionemo.example_model.lighting.lightning_basic import (
     BionemoLightningModule,
     ExampleFineTuneConfig,
     MNISTDataModule,
@@ -53,4 +53,3 @@ if __name__ == "__main__":
     new_data_module = MNISTDataModule(data_dir=str(BIONEMO_CACHE_DIR), batch_size=test_length, output_log=False)
 
     results = test_run_trainer.predict(lightning_module3, datamodule=new_data_module)
-    print(results[0].shape)
