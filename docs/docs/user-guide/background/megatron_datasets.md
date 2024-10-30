@@ -89,11 +89,13 @@ class MyDataModule(MegatronDataModule):
 
 !!! note "MegatronDataModule"
 
-    Users will see non-overlapping training curve if their datamodule is not inheritting from `MegatronDataModule`, unless similar logics are handled by the users. `MegatronDataModule` ensures that training resumes with the correct sample index instead of restarting from 0 everytime.
+    Users will see non-overlapping training curve if their datamodule is not inheritting from `MegatronDataModule`, unless similar logics are handled by the users. In `MegatronDataModule`, `self.update_init_global_step()` must be called right before the dataloaders are returned to ensure that training resumes with the correct sample index instead of restarting from 0 everytime.
 
 !!! note "WrappedDataLoader"
 
-    The WrappedDataLoader class is a wrapper around the PyTorch DataLoader class that adds the `mode` attribute to the dataloader. The dataloader will resume from the last sample index only when mode is 'train'. `val_dataloader` and `test_dataloader` are unaffected.
+    The `WrappedDataLoader` class is a wrapper around the PyTorch DataLoader class that adds the `mode` attribute to the dataloader. The dataloader will resume from the last sample index only when mode is 'train'. `val_dataloader` and `test_dataloader` are unaffected.
+
+    WARNING: 'train' is the default value of `mode` in `WrappedDataLoader`. If not set, users might find their validation/test dataloader changes behavior by resuming from a non-zero sample index.
 
 ## Testing datasets for megatron compatibility
 
