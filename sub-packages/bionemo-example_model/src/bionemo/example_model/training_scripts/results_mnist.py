@@ -46,7 +46,6 @@ if __name__ == "__main__":
         strategy=strategy,
         num_nodes=1,
         plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
-        callbacks=None,
     )
 
     lightning_module3 = BionemoLightningModule(config=ExampleFineTuneConfig(initial_ckpt_path=args.finetune_dir))

@@ -15,7 +15,6 @@
 
 """This is intended to be a minimal self-container NeMo2 example."""
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generic, List, Optional, Sequence, Tuple, Type, TypedDict, TypeVar
 
@@ -37,7 +36,7 @@ from torchvision import transforms
 from torchvision.datasets import MNIST
 
 from bionemo.core import BIONEMO_CACHE_DIR
-from bionemo.core.data.multi_epoch_dataset import EpochIndex, MultiEpochDatasetResampler
+from bionemo.core.data.multi_epoch_dataset import IdentityMultiEpochDatasetWrapper, MultiEpochDatasetResampler
 from bionemo.llm.api import MegatronLossType
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.model.config import OVERRIDE_BIONEMO_CONFIG_DEFAULTS, MegatronBioNeMoTrainableModelConfig
@@ -451,11 +450,31 @@ class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroug
             batch: A dictionary of data. requires `batch_idx` as default None.
             batch_idx: The index of the batch.
         """
-        return self(batch, batch_idx)
+        # Forward pass
+        predictions = self(batch, batch_idx)
+
+        # Calculate loss using the training loss reduction function
+        loss_reduction = self.training_loss_reduction()
+        loss_reduction.setup(batch)
+        loss = loss_reduction(predictions)
+
+        # Log the training loss
+        self.log("train_loss", loss[1]["avg"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return predictions
 
     def validation_step(self, batch, batch_idx: Optional[int] = None):
         """Alias for forward step at validation."""
-        return self(batch, batch_idx)
+        predictions = self(batch, batch_idx)
+
+        # Calculate loss using the validation loss reduction function
+        loss_reduction = self.validation_loss_reduction()
+        loss_reduction.setup(batch)
+        loss = loss_reduction(predictions)
+        # Log the validation loss
+        self.log("val_loss", loss[1]["avg"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        return predictions
 
     def predict_step(self, batch, batch_idx: Optional[int] = None):
         """Alias for forward step at prediction."""
@@ -489,7 +508,7 @@ class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroug
 #  which allow us to re-use some of these common functions and not forget to implement
 #  the key things that nemo2 uses/needs.
 
-
+"""
 class MetricTracker(pl.Callback):
     def __init__(self, metrics_to_track_val: List[str], metrics_to_track_train: List[str]):
         self.metrics_to_track_val = metrics_to_track_val
@@ -531,9 +550,11 @@ class MetricTracker(pl.Callback):
         res["logged_metrics"] = self._collection_train["logged_metrics"]
         return res
 
+"""
+
 
 class MNISTCustomDataset(MNIST):  # noqa: D101
-    def __getitem__(self, index: EpochIndex) -> MnistItem:
+    def __getitem__(self, index: int) -> MnistItem:
         """Wraps the getitem method of the MNIST dataset such that we return a Dict
         instead of a Tuple or tensor. Additionally, we take in an EpochIndex is the input.
         This is necessary for compatability with the megatron sampling.
@@ -544,35 +565,17 @@ class MNISTCustomDataset(MNIST):  # noqa: D101
         Returns:
             A dict containing the data ("x"), label ("y"), and index ("idx").
         """  # noqa: D205
-        x, y = super().__getitem__(index.idx)
+        x, y = super().__getitem__(index)
 
         return {
             "data": x,
             "label": y,
-            "idx": index.idx,
+            "idx": index,
         }
 
 
 #######################################################################################
 # Data module needs a data_sampler for handling the mcore strategy nemo2 runner.
-
-
-# Custom wrapper to add class labels
-class SubsetWithClass(MNISTCustomDataset):
-    def __init__(self, subset, original_dataset):
-        super().__init__(original_dataset.root, download=True)
-        self.subset = subset
-        self.original_dataset = original_dataset
-
-    def __len__(self):
-        return len(self.subset)
-
-    def __getitem__(self, index: EpochIndex) -> MnistItem:
-        # Retrieve the original data and class from the original dataset
-        original_idx = self.subset.indices[index.idx]
-        epoch_index = EpochIndex(epoch=index.epoch, idx=original_idx)
-        values = self.original_dataset[epoch_index]
-        return values
 
 
 class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
@@ -606,7 +609,9 @@ class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
             stage: can be one of train / test / predict.
         """  # noqa: D415
         self.mnist_test = MultiEpochDatasetResampler(
-            MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=False),
+            IdentityMultiEpochDatasetWrapper(
+                MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=False)
+            ),
             seed=43,
             shuffle=False,
         )
@@ -614,10 +619,12 @@ class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
         mnist_train, mnist_val = torch.utils.data.random_split(
             mnist_full, [55000, 5000], generator=torch.Generator().manual_seed(42)
         )
-        self.mnist_train = MultiEpochDatasetResampler(SubsetWithClass(mnist_train, mnist_full), seed=44, shuffle=True)
+        self.mnist_train = MultiEpochDatasetResampler(
+            IdentityMultiEpochDatasetWrapper(mnist_train), seed=44, shuffle=True
+        )
 
         self.mnist_val = MultiEpochDatasetResampler(
-            SubsetWithClass(mnist_val, mnist_full),
+            IdentityMultiEpochDatasetWrapper(mnist_val),
             seed=45,
             shuffle=False,
         )
@@ -643,7 +650,7 @@ checkpoint_callback = nl_callbacks.ModelCheckpoint(
 
 # Set up the data module
 data_module = MNISTDataModule(data_dir=str(BIONEMO_CACHE_DIR), batch_size=128)
-metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
+# metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
 
 strategy = nl.MegatronStrategy(
     tensor_model_parallel_size=1,
@@ -663,6 +670,5 @@ trainer = nl.Trainer(
     max_epochs=1,
     num_nodes=1,
     log_every_n_steps=1,
-    callbacks=[metric_tracker],
     plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
 )

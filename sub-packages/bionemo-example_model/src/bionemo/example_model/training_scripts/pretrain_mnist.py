@@ -20,12 +20,11 @@ from nemo.collections import llm
 from nemo.lightning import NeMoLogger, resume
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from bionemo.example_model.lighting.lightning_basic import (
+from bionemo.example_model.lightning.lightning_basic import (
     BionemoLightningModule,
     PretrainConfig,
     checkpoint_callback,
     data_module,
-    metric_tracker,
     trainer,
 )
 
@@ -59,7 +58,4 @@ if __name__ == "__main__":
     )
 
     pretrain_ckpt_dirpath = checkpoint_callback.last_model_path.replace(".ckpt", "")
-    print("TRAIN", metric_tracker.collection_train["loss"])
-    print("TRAIN", metric_tracker.collection_train.keys())
-    print("VAL", metric_tracker.collection_val["unnamed"])
     print(pretrain_ckpt_dirpath)
