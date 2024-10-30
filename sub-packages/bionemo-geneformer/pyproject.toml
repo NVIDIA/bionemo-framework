@@ -19,7 +19,9 @@ dependencies = [
 ]
 
 [project.scripts]
-sc_memmap = "bionemo.geneformer.data.singlecell.sc_memmap:main_cli"
+sc_memmap = "bionemo.geneformer.scripts.sc_memmap:main_cli"
+infer_geneformer = "bionemo.geneformer.scripts.infer_geneformer:geneformer_infer_entrypoint"
+train_geneformer = "bionemo.geneformer.scripts.train_geneformer:entrypoint"
 
 [tool.setuptools.packages.find]
 where = ["src"]

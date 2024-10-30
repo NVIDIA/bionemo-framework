@@ -21,8 +21,8 @@ from typing import Dict
 
 import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
-from train import main, parser  # TODO: needs to be refactored to a package and imported!
 
+from bionemo.geneformer.scripts.train_geneformer import get_parser, main
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
@@ -144,6 +144,7 @@ def test_required_data_dir(required_args_reference):
     """
     required_args_reference.pop("data_dir")
     arglist = parse_kwargs_to_arglist(required_args_reference)
+    parser = get_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(arglist)
 
@@ -160,6 +161,7 @@ def test_limit_val_batches_is_float(required_args_reference, limit_val_batches):
     """
     required_args_reference["limit_val_batches"] = limit_val_batches
     arglist = parse_kwargs_to_arglist(required_args_reference)
+    parser = get_parser()
     parser.parse_args(arglist)
 
 
@@ -174,6 +176,7 @@ def test_limit_val_batches_is_float_string(required_args_reference, limit_val_ba
     """
     required_args_reference["limit_val_batches"] = limit_val_batches
     arglist = parse_kwargs_to_arglist(required_args_reference)
+    parser = get_parser()
     parser.parse_args(arglist)
 
 
@@ -187,6 +190,7 @@ def test_limit_val_batches_is_none(required_args_reference, limit_val_batches):
     """
     required_args_reference["limit_val_batches"] = limit_val_batches
     arglist = parse_kwargs_to_arglist(required_args_reference)
+    parser = get_parser()
     args = parser.parse_args(arglist)
     assert args.limit_val_batches is None
 
@@ -202,4 +206,5 @@ def test_limit_val_batches_is_int(required_args_reference, limit_val_batches):
     """
     required_args_reference["limit_val_batches"] = limit_val_batches
     arglist = parse_kwargs_to_arglist(required_args_reference)
+    parser = get_parser()
     parser.parse_args(arglist)
