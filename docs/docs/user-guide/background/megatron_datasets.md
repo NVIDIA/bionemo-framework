@@ -66,18 +66,21 @@ class MyDataModule(MegatronDataModule):
         ...
 
     def train_dataloader(self):
+        self.update_init_global_step()  # required to set the correct `global_step` for resumption
         return WrappedDataLoader(
             ...,  # any other arguments for DataLoader
             mode="train",
         )
 
     def val_dataloader(self):
+        self.update_init_global_step()  # required to set the correct `global_step` for resumption
         return WrappedDataLoader(
             ...,  # any other arguments for DataLoader
             mode="validation",
         )
 
     def test_dataloader(self):
+        self.update_init_global_step()  # required to set the correct `global_step` for resumption
         return WrappedDataLoader(
             ...,  # any other arguments for DataLoader
             mode="test",
