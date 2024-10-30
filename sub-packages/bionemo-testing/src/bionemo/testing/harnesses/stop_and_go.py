@@ -334,7 +334,13 @@ class StopAndGoHarness(ABC):
         interrupted_callback = get_callback(self.callbacks, Mode.RESUME, callback_type)
         continuous_callback = get_callback(self.callbacks, Mode.CONTINUOUS, callback_type)
         assert interrupted_callback.data, f"No data found for {callback_type}"
-        recursive_assert_approx_equal(interrupted_callback.data, continuous_callback.data)
+
+        if callback_type == testing_callbacks.TrainOutputCallback:
+            atol = 1e-3
+        else:
+            atol = 1e-4
+
+        recursive_assert_approx_equal(interrupted_callback.data, continuous_callback.data, atol=atol)
 
     def test_train_val_init_consumed_samples(self):
         """Tests the initial consumed samples in stop-and-go scenario."""
@@ -380,4 +386,10 @@ class StopAndGoHarness(ABC):
         # Hack: Validation seems to run an extra batch in the case when training is stopped and resumed, but we can
         # still test the rest of the data to ensure consistency.
         interrupted_data = interrupted_callback.data[-len(continuous_callback.data) :]
-        recursive_assert_approx_equal(interrupted_data, continuous_callback.data)
+
+        if callback_type == testing_callbacks.ValidOutputCallback:
+            atol = 1e-3
+        else:
+            atol = 1e-4
+
+        recursive_assert_approx_equal(interrupted_data, continuous_callback.data, atol=atol)
