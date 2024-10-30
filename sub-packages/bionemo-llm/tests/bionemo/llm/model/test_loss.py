@@ -111,7 +111,9 @@ def test_loss_equivalency_bionemo_vs_pytorch():
         # Second, check bionemo loss where model outputs logits
         bionemo_loss_fn = bionemo_loss.BERTMLMLossWithReduction()
         bionemo_model_output = {
-            "token_logits": logits,
+            "token_logits": logits.transpose(
+                0, 1
+            ).contiguous(),  # bionemo loss function also wants logits s,b like nemo.
         }
         bionemo_batch = {
             "loss_mask": loss_mask,
@@ -142,7 +144,7 @@ def test_vocab_parallel_cross_entropy_golden_value(seed: int = 42):
 
         # 2. tensor_parallel.vocab_parallel_cross_entropy
         unreduced_token_loss = unreduced_token_loss_fn(
-            logits=microbatch_outputs[0]["forward_out"]["token_logits"].clone(),
+            logits=microbatch_outputs[0]["forward_out"]["token_logits"].transpose(0, 1).contiguous().clone(),
             labels=microbatch_outputs[0]["batch"]["labels"].clone(),
         )
 
