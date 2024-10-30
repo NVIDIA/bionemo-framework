@@ -35,20 +35,6 @@ __all__: Sequence[str] = (
 GeneformerModel = MegatronBioBertModel
 
 
-class BERTMLMLossWithReductionNoForwardOut(BERTMLMLossWithReduction):
-    def __init__(
-        self,
-        validation_step: bool = False,
-        val_drop_last: bool = True,
-        send_train_output: bool = False,
-        send_val_output: bool = False,
-        include_forward_output_for_metrics: bool = False,
-    ) -> None:
-        super().__init__(
-            validation_step, val_drop_last, send_train_output, send_val_output, include_forward_output_for_metrics
-        )
-
-
 @dataclass
 class GeneformerConfig(BioBertConfig[GeneformerModel, MegatronLossType], iom.IOMixinWithGettersSetters):
     """A geneformer config.
@@ -90,4 +76,4 @@ class GeneformerConfig(BioBertConfig[GeneformerModel, MegatronLossType], iom.IOM
 
     enable_autocast: bool = False
     model_cls: Type[GeneformerModel] = GeneformerModel
-    loss_reduction_class: Type[MegatronLossType] = BERTMLMLossWithReductionNoForwardOut
+    loss_reduction_class: Type[MegatronLossType] = BERTMLMLossWithReduction

@@ -88,7 +88,6 @@ def main(
     nsys_ranks: List[int] = [0],
     config_class: Type[BioBertConfig] = GeneformerConfig,
     log_every_n_steps: int = 50,
-    log_every_n_steps: int = 50,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
     """Train a Geneformer model on single cell data.
@@ -152,7 +151,6 @@ def main(
         find_unused_parameters=True,
         ckpt_include_optimizer=True,
         progress_interval=log_every_n_steps,
-        progress_interval=log_every_n_steps,
     )
 
     # for wandb integration
@@ -194,7 +192,6 @@ def main(
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,  # TODO(@jstjohn) Checkpoint saving is currently broken, fix and change this.
-        log_every_n_steps=log_every_n_steps,
         log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
@@ -276,7 +273,6 @@ def main(
         save_last=save_last_checkpoint,
         monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
         save_top_k=save_top_k,
-        every_n_train_steps=val_check_interval,
         every_n_train_steps=val_check_interval,
         always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
     )
@@ -592,6 +588,5 @@ if __name__ == "__main__":
         save_last_checkpoint=args.save_last_checkpoint,
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
-        log_every_n_steps=args.log_every_n_steps,
         log_every_n_steps=args.log_every_n_steps,
     )
