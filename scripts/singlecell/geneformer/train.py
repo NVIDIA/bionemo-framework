@@ -153,6 +153,7 @@ def main(
             overlap_grad_reduce=True,
             overlap_param_gather=True,
             average_in_collective=True,
+            use_distributed_optimizer=True,  # this should inherit from the optimizer config, but just in case...
         )
     else:
         ddp = "megatron"  # this will launch DistributedDataParallelConfig(check_for_nan_in_grad=True).
