@@ -25,7 +25,7 @@ from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 from tokenizers import Tokenizer
 
-from bionemo.core.data.resamplers import PRNGResampleDataset
+from bionemo.core.data.multi_epoch_dataset import MultiEpochDatasetResampler
 from bionemo.core.utils import random_utils
 from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
@@ -66,9 +66,9 @@ class SingleCellDataModule(MegatronDataModule):
     def __init__(  # noqa: D107
         self,
         tokenizer: Tokenizer,
-        train_dataset_path: str,
-        val_dataset_path: str,
-        test_dataset_path: str,
+        train_dataset_path: str | Path,
+        val_dataset_path: str | Path,
+        test_dataset_path: str | Path,
         median_dict: dict[str, float],
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,  # 80% mask token
@@ -166,9 +166,24 @@ class SingleCellDataModule(MegatronDataModule):
         )
 
         # This happens exactly once during setup.
-        self._train_ds = self._sample_and_shuffle_dataset(self._train_dataset_ori, num_train_samples, "train")
-        self._validation_ds = self._sample_and_shuffle_dataset(self._val_dataset_ori, num_val_samples, "val")
-        self._test_ds = self._sample_and_shuffle_dataset(self._test_dataset_ori, num_test_samples, "test")
+        self._train_ds = MultiEpochDatasetResampler(
+            self._train_dataset_ori,
+            num_samples=num_train_samples,
+            shuffle=True,
+            seed=self.seed,
+        )
+        self._validation_ds = MultiEpochDatasetResampler(
+            self._val_dataset_ori,
+            num_samples=num_val_samples,
+            shuffle=False,
+            seed=self.seed,
+        )
+        self._test_ds = MultiEpochDatasetResampler(
+            self._test_dataset_ori,
+            num_samples=num_test_samples,
+            shuffle=False,
+            seed=self.seed,
+        )
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:  # noqa: D102
         return self._create_dataloader(self._train_ds, mode="train")
@@ -201,21 +216,4 @@ class SingleCellDataModule(MegatronDataModule):
                 max_length=self.max_len,
             ),
             **kwargs,
-        )
-
-    def _sample_and_shuffle_dataset(self, dataset: SingleCellDataset, num_samples: int, stage: str):  # noqa: D417
-        """Sample the training dataset.
-
-        Args:
-            dataset (torch.utils.data.Dataset): The dataset to sample from
-
-        Returns:
-            ResamplingMappedDataset: Resampled dataset
-
-        """
-        # This is where re-sampling occurs.
-        return PRNGResampleDataset(
-            dataset,
-            num_samples=num_samples,
-            seed=self.seed + len(stage),
         )

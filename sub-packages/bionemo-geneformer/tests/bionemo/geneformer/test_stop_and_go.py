@@ -28,7 +28,6 @@ import math
 import pathlib
 from typing import Literal
 
-import pytest
 import pytorch_lightning as pl
 import torch
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
@@ -164,35 +163,3 @@ class TestGeneformerStopAndGo(stop_and_go.StopAndGoHarness):
         assert val_consumed_go == 0
         assert train_consumed_stop == 0
         assert train_consumed_go > 0
-
-    # Delete the following lines once we've merged the rest of the geneformer fixes.
-
-    @pytest.mark.parametrize(
-        "callback_type",
-        [
-            testing_callbacks.ValidInputCallback,
-            testing_callbacks.ValidOutputCallback,
-            testing_callbacks.ValidLossCallback,
-        ],
-    )
-    def test_stop_and_go_consistency_with_uneven_validation_sizes(self, callback_type):
-        if callback_type == testing_callbacks.ValidOutputCallback:
-            pytest.xfail("Outputs are currently inconsistent in Geneformer.")
-        super().test_stop_and_go_consistency_with_uneven_validation_sizes(callback_type)
-
-    @pytest.mark.parametrize(
-        "callback_type",
-        [
-            testing_callbacks.LearningRateCallback,
-            testing_callbacks.GlobalStepStateCallback,
-            testing_callbacks.ConsumedSamplesCallback,
-            testing_callbacks.OptimizerStateCallback,
-            testing_callbacks.TrainInputCallback,
-            testing_callbacks.TrainOutputCallback,
-            testing_callbacks.TrainLossCallback,
-        ],
-    )
-    def test_stop_and_go_consistency(self, callback_type):
-        if callback_type == testing_callbacks.TrainOutputCallback:
-            pytest.xfail("Outputs are currently inconsistent in Geneformer.")
-        super().test_stop_and_go_consistency_with_uneven_validation_sizes(callback_type)
