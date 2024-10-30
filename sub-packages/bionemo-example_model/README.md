@@ -31,7 +31,9 @@ In the data module/ data loader class, it's necessary to have data_sampler metho
 
 Also the sampler will not shuffle your data. So you need to wrap your dataset in a dataset shuffler that maps sequential ids to random ids in your dataset. This can be done with MultiEpochDatasetResampler from bionemo.core.data.multi_epoch_dataset.
 
-This is implemented in the MNISTDataModule. In the setup method of the dataloader, the train, test and validation sets are MNISTCustomDataset are wrapped in the IdentityMultiEpochDatasetWrapper. These are then wrapped in the MultiEpochDatasetResampler. TODO: add here
+
+This is implemented in the MNISTDataModule. In the setup method of the dataloader, the train, test and validation sets are MNISTCustomDataset are wrapped in the IdentityMultiEpochDatasetWrapper. These are then wrapped in the MultiEpochDatasetResampler. More information about MegatronCompatability and how to set up more complicated datasets can be found in docs.user-guide.background.megatron_datasets.md
+
 
 We also define a train_dataloader, val_dataloader, and predict_dataloder methods that return the corresponding dataloaders.
 
@@ -48,6 +50,7 @@ ExampleModelTrunk is a base model. This returns a tensor. ExampleModel is a mode
 ExampleFineTuneModel extends the ExampleModelTrunk by adding a classification layer. This returns a tensor of logits over the 10 potential digits.
 
 # Model Configs
+
 The model config class is used to instatiate the model. These configs must have:
 1. A configure_model method which allows the megatron strategy to lazily initialize the model after the parallel computing environment has been setup. These also handle loading starting weights for fine-tuning cases. Additionally these configs tell the trainer which loss you want to use with a matched model.
 2. A get_loss_reduction_class method that defines the loss function.
@@ -62,3 +65,19 @@ class PretrainConfig(ExampleGenericConfig["PretrainModel", "MSELossReduction"], 
 ```
 
 Similarly, ExampleFineTuneConfig extends ExampleGenericConfig for finetuning.
+
+# Training Module
+It is helfpul to have a training module that interits pl.LightningModule which organizes the model architecture, training, validation, and testing logic while abstracting away boilerplate code, enabling easier and more scalable training. This wrapper can be used for all model and loss combinations specified in the config.
+Here, we define BionemoLightningModule.
+
+In this example, training_step and predict_step define the training, validation, and prediction loops are independent of the forward method. In nemo:
+
+1. NeMo's Strategy overrides the train_step, validation_step and prediction_step methods.
+2. The strategies' training step will call the forward method of the model.
+3. That forward method then calls the wrapped forward step of MegatronParallel which wraps the forward method of the model.
+4. That wrapped forward step is then executed inside the Mcore scheduler, which calls the `_forward_step` method from the MegatronParallel class.
+5. Which then calls the training_step, validation_step and prediction_step function here.
+
+Additionally, during these steps, we log the validation, testing, and training loss. This is done similarly to https://lightning.ai/docs/torchmetrics/stable/pages/lightning.html. These logs can then be exported to wandb, or other metric viewers. For more complicated tracking, it may be necessary to use pytorch callbacks: https://lightning.ai/docs/pytorch/stable/extensions/callbacks.html.
+
+Further a loss_reduction_class, training_loss_reduction, validation_loss_reduction, and test_loss_reduction are defined based on what's in the config. Additionally,  configure_model is definated based on the config.
