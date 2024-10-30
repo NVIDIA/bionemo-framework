@@ -16,7 +16,6 @@
 
 import pytest
 
-from bionemo.esm2.data.dataset import create_dummy_parquet_train_val_inputs, create_dummy_protein_dataset
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.testing.data.esm2 import create_mock_parquet_train_val_inputs, create_mock_protein_dataset
 

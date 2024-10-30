@@ -177,9 +177,6 @@ export MY_DATA_SOURCE="pbss"
 export NVTE_FUSED_ATTN=1
 export NVTE_FLASH_ATTN=0
 
-export NGC_CLI_ORG=nvidian
-export NGC_CLI_API_KEY=__your_ngc_api_key__
-
 TEST_DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source $MY_DATA_SOURCE); \
 ESM2_650M_CKPT=$(download_bionemo_data esm2/650m:2.0 --source $MY_DATA_SOURCE); \
 python  \

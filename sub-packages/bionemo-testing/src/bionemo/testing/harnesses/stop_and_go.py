@@ -68,12 +68,6 @@ class StopAndGoHarness(ABC):
     By default, learning rate, global step, optimizer state, consumed samples, input and output tensors, and loss are
     compared. Users can add additional metrics by adding new callbacks to `cls.callbacks` and associated test functions.
 
-    Users should override cls.setup_model and update cls.setUpClass to customize the downstream test cases. Metadata are
-    collected through callbacks and users can add new unit tests by comparing the metadata in stop/go stages.
-
-    By default, learning rate, global step, optimizer state, consumed samples, model weights through validation loss are
-    tested, and are accessible through cls.{stop,go}_callbacks.
-
     Stop and go tests act as follows:
         - setup a clean model for a brief training run, set callbacks to track.
         - interrupt training via the StopAndGoException in the callback Raise.

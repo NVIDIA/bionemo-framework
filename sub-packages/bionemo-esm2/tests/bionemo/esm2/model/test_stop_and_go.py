@@ -26,11 +26,7 @@ from typing_extensions import override
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
-from bionemo.esm2.data.dataset import (
-    RandomMaskStrategy,
-    create_dummy_parquet_train_val_inputs,
-    create_dummy_protein_dataset,
-)
+from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
