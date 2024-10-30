@@ -259,7 +259,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
             return loss_for_microbatch * cp_size, {"avg": reduced_loss}
 
 
-def unreduced_token_loss_fn(logits: Tensor, labels: Tensor) -> Tensor:
+def unreduced_token_loss_fn(logits: Tensor, labels: Tensor, cross_entropy_loss_fusion: bool = True) -> Tensor:
     """Computes the unreduced token loss given the logits and labels without regard to the loss mask.
 
     WARNING: This function does not apply a loss mask. Also, it does inplace operation on the inputs.
@@ -267,12 +267,14 @@ def unreduced_token_loss_fn(logits: Tensor, labels: Tensor) -> Tensor:
     Args:
         logits (Tensor): The predicted logits of shape [sequence_length, batch_size, num_classes].
         labels (Tensor): The true labels of shape [batch_size, sequence_length].
+        cross_entropy_loss_fusion (bool): If True, use the fused kernel version of vocab parallel cross entropy. This
+            should generally be preferred as it packs more operations into a single kernel on the GPU.
 
     Returns:
         Tensor: The unreduced token loss of shape [batch_size, sequence_length].
     """
     labels = labels.transpose(0, 1).contiguous()  # [b, s] -> [s, b]
-    if True:
+    if cross_entropy_loss_fusion:
         loss = fused_vocab_parallel_cross_entropy(logits, labels)
     else:
         loss = tensor_parallel.vocab_parallel_cross_entropy(logits, labels)
