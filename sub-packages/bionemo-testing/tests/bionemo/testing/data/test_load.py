@@ -42,12 +42,16 @@ def test_load_raises_error_on_invalid_tag(tmp_path):
 
 
 def test_load_cli():
+    # It looks like there's some issues with our NGC resources, but this is blocking CI. TODO: Revert to ngc when these
+    # resources are available.
     result = subprocess.run(
-        ["download_bionemo_data", "--source", "ngc", "single_cell/testdata-20240506"],
+        # ["download_bionemo_data", "--source", "ngc", "single_cell/testdata-20240506"],
+        ["download_bionemo_data", "--source", "pbss", "single_cell/testdata-20240506"],
         stdout=subprocess.PIPE,  # Capture stdout
         stderr=subprocess.PIPE,  # Capture stderr (optional)
         text=True,  # Return output as string rather than bytes
     )
+    assert result.returncode == 0
     path = Path(result.stdout.strip())
     assert path.exists()
     assert path.is_dir()
