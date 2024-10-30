@@ -125,7 +125,10 @@ def main(
         restore_from_checkpoint_path (path): If set, restores the model from the directory passed in. Expects the
             checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
         log_every_n_steps (int): log at this interval.
-        log_every_n_steps (int): log at this interval.
+        gc_interval (int): if a value > 0 is provided, this will turn off automatic garbage collection and only run
+            at this requested interval of train/val steps. This will likely slow down single GPU runs.
+        aligned_megatron_ddp (bool): if activated, this will activate a number of communication optimizations that are
+            good for clusters. This will likely slow down single node runs though.
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -249,7 +252,6 @@ def main(
         num_workers=num_dataset_workers,
     )
     geneformer_config = config_class(
-        # TODO let users set different num layers/model shapes here to support bigger/smaller architectures
         # TODO let users set different num layers/model shapes here to support bigger/smaller architectures
         num_layers=6,
         hidden_size=256,
