@@ -1,4 +1,4 @@
-# Writing Megatron-LM compatible datasets
+# Writing Megatron-LM Compatible Datamodules
 
 [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) relies on determinism in the training dataset classes to ensure
 that input tensors are initialized correctly across model-parallel ranks (see [NeMo2 Parallelism](./nemo2.md)). As a
@@ -7,7 +7,7 @@ augmentation, masking, etc. can cause `dataset[i]` to return random results for 
 contract.
 
 
-## Multi-Epoch training
+## Multi-Epoch Training
 
 One training regime where this limitation is most apparent is is multi-epoch training, where standard training recipes
 would apply different random masks or different data augmentation strategies each time the data is encountered. BioNeMo
@@ -56,7 +56,48 @@ for sample in MultiEpochDatasetResampler(dataset, num_epochs=3, shuffle=True):
     [PRNGResampleDataset][bionemo.core.data.resamples.PRNGResampleDataset] offers a simple solution for shuffling a
     dataset with replacement in O(1) memory.
 
-## Testing datasets for megatron compatibility
+## Training Resumption
+To ensure identical behavior with and without job interruption, BioNeMo provides [MegatronDataModule][bionemo.llm.data.datamodule.MegatronDataModule] to save and load state dict for training resumption, and provides [WrappedDataLoader][nemo.lightning.data.WrappedDataLoader] to add a `mode` attribute to [DataLoader][torch.utils.data.DataLoader].
+
+```python
+class MyDataModule(MegatronDataModule):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        ...
+
+    def train_dataloader(self):
+        self.update_init_global_step()  # required to set the correct `global_step` for resumption
+        return WrappedDataLoader(
+            ...,  # any other arguments for DataLoader
+            mode="train",
+        )
+
+    def val_dataloader(self):
+        self.update_init_global_step()  # required to set the correct `global_step` for resumption
+        return WrappedDataLoader(
+            ...,  # any other arguments for DataLoader
+            mode="validation",
+        )
+
+    def test_dataloader(self):
+        self.update_init_global_step()  # required to set the correct `global_step` for resumption
+        return WrappedDataLoader(
+            ...,  # any other arguments for DataLoader
+            mode="test",
+        )
+```
+
+!!! note "MegatronDataModule"
+
+    Users will see non-overlapping training curve if their datamodule is not inheritting from `MegatronDataModule`, unless similar logics are handled by the users. In `MegatronDataModule`, `self.update_init_global_step()` must be called right before the dataloaders are returned to ensure that training resumes with the correct sample index instead of restarting from 0 everytime. We recommend users to inherit from `MegatronDataModule` similar to the pattern above.
+
+!!! note "WrappedDataLoader"
+
+    The `WrappedDataLoader` class is a wrapper around the PyTorch DataLoader class that adds the `mode` attribute to the dataloader. The dataloader will resume from the last sample index only when mode is 'train'. `val_dataloader` and `test_dataloader` are unaffected.
+
+    WARNING: 'train' is the default value of `mode` in `WrappedDataLoader`. If not set, users might find their validation/test dataloader changes behavior by resuming from a non-zero sample index.
+
+## Testing Datasets For Megatron Compatibility
 
 BioNeMo also provides utility functions for test suites to validate that datasets conform to the megatron data model.
 The [assert_dataset_compatible_with_megatron][bionemo.testing.data_utils.assert_dataset_compatible_with_megatron]
