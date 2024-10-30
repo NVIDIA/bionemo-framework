@@ -25,6 +25,7 @@ import math
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Type, get_args
 
+from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -88,6 +89,8 @@ def main(
     nsys_ranks: List[int] = [0],
     config_class: Type[BioBertConfig] = GeneformerConfig,
     log_every_n_steps: int = 50,
+    gc_interval: int = 0,
+    aligned_megatron_ddp: bool = False,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
     """Train a Geneformer model on single cell data.
@@ -143,11 +146,21 @@ def main(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
     )
+    if aligned_megatron_ddp:
+        ddp: str | DistributedDataParallelConfig = DistributedDataParallelConfig(
+            check_for_nan_in_grad=True,
+            grad_reduce_in_fp32=False,
+            overlap_grad_reduce=True,
+            overlap_param_gather=True,
+            average_in_collective=True,
+        )
+    else:
+        ddp = "megatron"  # this will launch DistributedDataParallelConfig(check_for_nan_in_grad=True).
 
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
-        ddp="megatron",
+        ddp=ddp,
         find_unused_parameters=True,
         ckpt_include_optimizer=True,
         progress_interval=log_every_n_steps,
@@ -176,6 +189,11 @@ def main(
         LearningRateMonitor(),
     ]
 
+    if gc_interval > 0:
+        callbacks.append(
+            nl_callbacks.GarbageCollectionCallback(gc_interval_train=gc_interval, gc_interval_val=gc_interval)
+        )
+
     if nsys_profiling:
         if nsys_end_step is None:
             nsys_end_step = num_steps
@@ -195,6 +213,7 @@ def main(
         log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
+        use_distributed_sampler=False,
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
@@ -547,6 +566,23 @@ parser.add_argument(
     help="Enable nsys profiling for these ranks.",
 )
 
+parser.add_argument(
+    "--gc-interval",
+    type=int,
+    required=False,
+    default=0,
+    help="Run garbage collection on the cluster every --gc-interval steps, 0 to disable (default). Keeping gc interval"
+    " in sync this way on large cluster runs is important for training performance.",
+)
+
+parser.add_argument(
+    "--aligned-megatron-ddp",
+    action="store_true",
+    default=False,
+    help="By default param overlap/etc is disabled in megatron, this enables all of those settings. This is probably "
+    "good for cluster performance.",
+)
+
 if __name__ == "__main__":
     # Parse the arguments and pull them out into local variables for ease of future refactor to a
     #   config management system.
@@ -589,4 +625,6 @@ if __name__ == "__main__":
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
         log_every_n_steps=args.log_every_n_steps,
+        gc_interval=args.gc_interval,
+        aligned_megatron_ddp=args.aligned_megatron_ddp,
     )
