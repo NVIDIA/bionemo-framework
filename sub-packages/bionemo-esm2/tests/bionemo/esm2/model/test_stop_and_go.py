@@ -34,6 +34,7 @@ from bionemo.esm2.data.dataset import (
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
+from bionemo.testing.data.esm2 import create_mock_parquet_train_val_inputs, create_mock_protein_dataset
 from bionemo.testing.harnesses import stop_and_go
 from bionemo.testing.harnesses.mode import Mode
 
@@ -56,8 +57,8 @@ class TestESM2StopAndGo(stop_and_go.StopAndGoHarness):
         cls.data_dir.mkdir(parents=True, exist_ok=True)
 
         # setup data
-        cls.train_cluster_path, cls.valid_cluster_path = create_dummy_parquet_train_val_inputs(cls.data_dir)
-        cls.train_database_path = create_dummy_protein_dataset(cls.data_dir)
+        cls.train_cluster_path, cls.valid_cluster_path = create_mock_parquet_train_val_inputs(cls.data_dir)
+        cls.train_database_path = create_mock_protein_dataset(cls.data_dir)
         cls.valid_database_path = cls.train_database_path
         cls.tokenizer: BioNeMoESMTokenizer = get_tokenizer()
 

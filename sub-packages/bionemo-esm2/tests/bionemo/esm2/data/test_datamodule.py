@@ -20,7 +20,7 @@ import torch.utils.data
 from nemo.lightning.data import MegatronPretrainingRandomSampler, MegatronPretrainingSampler
 
 from bionemo.esm2.data.datamodule import ESMDataModule
-from bionemo.llm.utils.datamodule_utils import tensor_dict_hash
+from bionemo.testing.torch import recursive_assert_approx_equal
 
 
 def test_create_esm_datamodule_raises_without_trainer(dummy_protein_dataset, dummy_parquet_train_val_inputs):
@@ -342,7 +342,6 @@ def test_create_esm_datamodule_valid_dataloaders_has_consistent_samples_per_epoc
     """
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
     micro_batch_size = 2
-    is_ordered = False  # allow random sampling to be independent between epoches
 
     # Initialize the data module.
     data_module = ESMDataModule(
@@ -365,17 +364,9 @@ def test_create_esm_datamodule_valid_dataloaders_has_consistent_samples_per_epoc
 
     data_module.setup()
 
-    # hash values from batches of the first epoch
-    batch_hashes1 = [tensor_dict_hash(batch) for batch in data_module.val_dataloader()]
-
-    if is_ordered:  # second epoch should have exactly the same output including order
-        for batch in data_module.val_dataloader():
-            batch_hash = tensor_dict_hash(batch)
-            assert batch_hash == batch_hashes1.pop()
-    else:  # second epoch should have the same output but can be reshuffled
-        batch_hashes1 = set(batch_hashes1)
-        batch_hashes2 = {tensor_dict_hash(batch) for batch in data_module.val_dataloader()}
-        assert batch_hashes1 == batch_hashes2
+    # Make sure two passes through the val_dataloader are identical.
+    batches_1 = list(data_module.val_dataloader())
+    recursive_assert_approx_equal(batches_1, data_module.val_dataloader())
 
 
 def test_create_esm_datamodule_train_dataloaders_with_sequential_epoch_sampling(
@@ -413,11 +404,9 @@ def test_create_esm_datamodule_train_dataloaders_with_sequential_epoch_sampling(
 
     assert isinstance(train_dataloader.batch_sampler, MegatronPretrainingSampler)
 
-    batch_hashes1 = [tensor_dict_hash(batch) for batch in train_dataloader]
-    batch_hashes2 = [tensor_dict_hash(batch) for batch in train_dataloader]
-
-    for batch1, batch2 in zip(batch_hashes1, batch_hashes2):
-        assert batch1 == batch2
+    # Make sure two passes through the train_dataloader are identical.
+    batches_1 = list(train_dataloader)
+    recursive_assert_approx_equal(batches_1, train_dataloader)
 
 
 def test_create_esm_datamodule_train_dataloaders_with_random_epoch_sampling(
@@ -455,8 +444,8 @@ def test_create_esm_datamodule_train_dataloaders_with_random_epoch_sampling(
 
     assert isinstance(train_dataloader.batch_sampler, MegatronPretrainingRandomSampler)
 
-    batch_hashes1 = [tensor_dict_hash(batch) for batch in train_dataloader]
-    batch_hashes2 = [tensor_dict_hash(batch) for batch in train_dataloader]
+    batches_1 = list(train_dataloader)
 
-    for batch1, batch2 in zip(batch_hashes1, batch_hashes2):
-        assert batch1 != batch2
+    for batch1, batch2 in zip(batches_1, train_dataloader, strict=True):
+        with pytest.raises(AssertionError):
+            recursive_assert_approx_equal(batch1, batch2)

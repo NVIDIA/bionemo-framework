@@ -14,10 +14,7 @@
 # limitations under the License.
 
 
-import hashlib
-from typing import Any, Callable, Dict, List, Optional, Union
-
-import torch
+from typing import Any, Dict, List, Union
 
 
 def float_or_int_or_none(value: Union[str, float, int, None]) -> Union[float, int, None]:
@@ -117,53 +114,6 @@ def infer_global_batch_size(
     data_parallel_size = world_size // model_parallel_size
     global_batch_size = micro_batch_size * data_parallel_size * accumulate_grad_batches
     return global_batch_size
-
-
-def tensor_hash(tensor: torch.Tensor, hash_func: Optional[Callable] = None) -> str:
-    """Generates a hash for the given tensor using the specified hash function.
-
-    Args:
-        tensor (torch.Tensor): The input tensor to be hashed.
-        hash_func (Optional[Callable]): An optional hash function to use. If None, defaults to SHA-256.
-
-    Returns:
-        str: The resulting hash string.
-
-    If no hash function is provided, SHA-256 is used by default. The function first converts the tensor to
-    a contiguous array on the CPU and then to bytes before hashing.
-    """
-    if hash_func is None:
-        hash_func = hashlib.sha256
-
-    tensor_bytes = tensor.cpu().contiguous().numpy().tobytes()
-    return hash_func(tensor_bytes).hexdigest()
-
-
-def tensor_dict_hash(tensor_dict: Dict[str, torch.Tensor], hash_func: Optional[Callable] = None) -> str:
-    """Generates a hash for the given tensor dictionary using the specified hash function.
-
-    Args:
-        tensor_dict (Dict[str, torch.Tensor]): The input tensor dictionary to be hashed.
-        hash_func (Optional[Callable]): An optional hash function to use. If None, defaults to SHA-256.
-
-    Returns:
-        str: The resulting hash string.
-
-    If no hash function is provided, SHA-256 is used by default. The function first converts the tensor to
-    a contiguous array on the CPU and then to bytes before hashing.
-    """
-    if hash_func is None:
-        hash_func = hashlib.sha256
-
-    hash_string = ""
-    for k in sorted(tensor_dict):
-        v = tensor_dict[k]
-        if torch.is_tensor(v):
-            hash_string += tensor_hash(v, hash_func)
-        else:
-            hash_string += tensor_dict_hash(v, hash_func)
-        hash_string = hash_func(hash_string.encode()).hexdigest()  # re-hash to limit hash value string length
-    return hash_string
 
 
 def infer_num_samples(
