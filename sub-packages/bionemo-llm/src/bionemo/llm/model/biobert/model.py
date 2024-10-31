@@ -97,6 +97,7 @@ _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS 
     "get_attention_mask_from_fusion",
     "activation_func",  # FIXME hack: update the ESM2 checkpoint with the updated activation function and don't override
     "moe_extended_tp",
+    "skip_logits",
 ]
 
 # A copy that we do not use internally. Useful for external users who want to
@@ -163,6 +164,7 @@ class MegatronBioBertModel(LanguageModule):
         include_embeddings: bool = False,
         use_full_attention_mask: bool = False,
         include_hiddens: bool = False,
+        skip_logits: bool = False,  # Useful for inference time.
     ):
         # TODO (@jstjohn) come up with a cleaner way for this model to return a set of things the user wants.
         #  hidden states, embeddings, logits, etc. The defaults should work for training but we need to make it
@@ -192,6 +194,7 @@ class MegatronBioBertModel(LanguageModule):
         self.return_embeddings = return_embeddings
         self.include_embeddings = include_embeddings
         self.include_hiddens = include_hiddens
+        self.skip_logits = skip_logits
 
         # megatron core pipelining currently depends on model type
         self.model_type = ModelType.encoder_or_decoder
@@ -409,14 +412,18 @@ class MegatronBioBertModel(LanguageModule):
             output_weight = self.shared_embedding_or_output_weight()
 
         hidden_states_after_lm_head = self.lm_head(hidden_states=hidden_states)
-        logits, _ = self.output_layer(hidden_states_after_lm_head, weight=output_weight)
+        if not self.skip_logits:
+            logits, _ = self.output_layer(hidden_states_after_lm_head, weight=output_weight)
+        else:
+            logits = None
 
         binary_logits = None
         if self.binary_head is not None:
             binary_logits = self.binary_head(pooled_output)
 
         # [s b h] => [b s h]  # move batch to the first dimension after forward
-        logits = logits.transpose(0, 1).contiguous()
+        if logits is not None:
+            logits = logits.transpose(0, 1).contiguous()
         output = {"token_logits": logits, "binary_logits": binary_logits}
         if self.include_hiddens:
             output["hidden_states"] = hidden_states.transpose(0, 1).contiguous()  # [s b h] => [b s h]
@@ -481,6 +488,7 @@ class BioBertConfig(
     include_embeddings: bool = False
     return_only_hidden_states: bool = False
     include_hiddens: bool = False  # Include hidden layers in the output of the model
+    skip_logits: bool = False  # useful for inference
     core_attention_override: Type[torch.nn.Module] | None = None
 
     # loss reduction class
@@ -531,6 +539,7 @@ class BioBertConfig(
             add_binary_head=do_next_sentence,
             use_full_attention_mask=use_full_attention_mask,
             include_hiddens=self.include_hiddens,
+            skip_logits=self.skip_logits,
         )
         # TODO (@skothenhill) this is a hack to load the old checkpoint.
         # This should be removed once we have a proper checkpoint conversion

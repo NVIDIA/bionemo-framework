@@ -41,6 +41,7 @@ def infer_model(
     results_path: Path,
     include_hiddens: bool = False,
     include_embeddings: bool = False,
+    include_logits: bool = False,
     micro_batch_size: int = 64,
     accumulate_grad_batches: int = 1,
     precision: PrecisionTypes = "bf16-mixed",
@@ -110,6 +111,7 @@ def infer_model(
         autocast_dtype=get_autocast_dtype(precision),
         include_hiddens=include_hiddens,
         include_embeddings=include_embeddings,
+        skip_logits=not include_logits,
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         initial_ckpt_path=str(checkpoint_path),
@@ -138,6 +140,7 @@ def esm2_infer_entrypoint():
         results_path=args.results_path,
         include_hiddens=args.include_hiddens,
         include_embeddings=args.include_embeddings,
+        include_logits=args.include_logits,
         micro_batch_size=args.micro_batch_size,
         accumulate_grad_batches=args.accumulate_grad_batches,
         precision=args.precision,
@@ -211,17 +214,18 @@ def get_parser():
     )
     parser.add_argument(
         "--include-hiddens",
-        type=bool,
-        required=False,
+        action="store_true",
         default=False,
         help="Include hiddens in output of inference",
     )
     parser.add_argument(
         "--include-embeddings",
-        type=bool,
-        required=False,
+        action="store_true",
         default=False,
         help="Include embeddings in output of inference",
+    )
+    parser.add_argument(
+        "--include-logits", action="store_true", default=False, help="Include per-token logits in output."
     )
     parser.add_argument(
         "--accumulate-grad-batches",
