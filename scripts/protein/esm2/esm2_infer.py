@@ -27,6 +27,7 @@ from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule, InMemoryCSVDataset
 from bionemo.esm2.model.finetune.finetune_regressor import ESM2FineTuneSeqConfig
 from bionemo.esm2.model.finetune.finetune_token_classifier import ESM2FineTuneTokenConfig
+from bionemo.llm.lightning import batch_collator
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
@@ -101,7 +102,7 @@ def infer_model(
     )
 
     dataset = InMemoryCSVDataset(data_path=data_path)
-    data_module = ESM2FineTuneDataModule(
+    datamodule = ESM2FineTuneDataModule(
         predict_dataset=dataset, micro_batch_size=micro_batch_size, global_batch_size=global_batch_size
     )
 
@@ -119,13 +120,11 @@ def infer_model(
 
     tokenizer = get_tokenizer()
     module = biobert_lightning_module(config=config, tokenizer=tokenizer)
-    results = trainer.predict(module, datamodule=data_module)
 
-    assert isinstance(results, list) and len(results) == 1
-    results_dict = results[0]
+    results_dict = batch_collator(trainer.predict(module, datamodule=datamodule, return_predictions=True))
     non_none_keys = [key for key, val in results_dict.items() if val is not None]
     print(f"Writing output {str(non_none_keys)} into {results_path}")
-    torch.save(results[0], results_path)
+    torch.save(results_dict, results_path)
 
 
 def esm2_infer_entrypoint():
