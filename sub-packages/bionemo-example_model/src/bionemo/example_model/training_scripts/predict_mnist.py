@@ -64,5 +64,5 @@ if __name__ == "__main__":
     parser.add_argument("--finetune_dir", type=str, help="The directory with the fine-tuned model. ")
     args = parser.parse_args()
     test_length = 10_000
-    results = run_predict(args.finetune_dir)
+    results = run_predict(args.finetune_dir, test_length)
     print(results)

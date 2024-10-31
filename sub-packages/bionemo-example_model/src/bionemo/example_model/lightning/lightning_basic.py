@@ -25,7 +25,6 @@ from megatron.core import ModelParallelConfig
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from megatron.core.transformer.enums import ModelType
 from megatron.core.transformer.module import MegatronModule
-from nemo import lightning as nl
 from nemo.lightning import io
 from nemo.lightning.megatron_parallel import MegatronLossReduction
 from nemo.lightning.pytorch import callbacks as nl_callbacks
@@ -57,8 +56,6 @@ __all__: Sequence[str] = (
     "ExampleFineTuneOutput",
     "checkpoint_callback",
     "data_module",
-    "strategy",
-    "trainer",
 )
 
 #############################################################################################
@@ -307,7 +304,6 @@ class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
 #  1. they need a config argument of type ModelParallelConfig
 #  2. they need a self.model_type:ModelType enum defined (ModelType.encoder_or_decoder is probably usually fine)
 #  3. def set_input_tensor(self, input_tensor) needs to be present. This is used in model parallelism
-# TODO add example where we specify things like shape etc to the model so it's clear how we recommend how to do this.
 
 
 class ExampleModelTrunk(MegatronModule):
@@ -619,24 +615,3 @@ checkpoint_callback = nl_callbacks.ModelCheckpoint(
 # Set up the data module
 data_module = MNISTDataModule(data_dir=str(BIONEMO_CACHE_DIR), batch_size=128)
 # metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
-
-strategy = nl.MegatronStrategy(
-    tensor_model_parallel_size=1,
-    pipeline_model_parallel_size=1,
-    ddp="megatron",
-    find_unused_parameters=True,
-    always_save_context=True,
-)
-
-trainer = nl.Trainer(
-    accelerator="gpu",
-    devices=1,
-    strategy=strategy,
-    limit_val_batches=5,
-    val_check_interval=1,
-    max_steps=10,
-    max_epochs=2,
-    num_nodes=1,
-    log_every_n_steps=1,
-    plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
-)

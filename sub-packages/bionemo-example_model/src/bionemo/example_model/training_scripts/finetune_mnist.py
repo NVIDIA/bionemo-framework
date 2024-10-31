@@ -17,20 +17,20 @@
 import argparse
 from pathlib import Path
 
+from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import NeMoLogger, resume
+from nemo.lightning.pytorch import callbacks as nl_callbacks
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 from bionemo.example_model.lightning.lightning_basic import (
     BionemoLightningModule,
     ExampleFineTuneConfig,
-    checkpoint_callback,
     data_module,
-    trainer,
 )
 
 
-def run_finetune(checkpoint_dir: str, name: str, directory_name):
+def run_finetune(checkpoint_dir: str, name: str, directory_name: str):
     """Run the finetuning step.
 
     Args:
@@ -41,6 +41,13 @@ def run_finetune(checkpoint_dir: str, name: str, directory_name):
         str: the path of the trained model.
     """
     save_dir = Path(directory_name) / "classifier"
+    checkpoint_callback = nl_callbacks.ModelCheckpoint(
+        save_last=True,
+        save_on_train_epoch_end=True,
+        monitor="reduced_train_loss",
+        every_n_train_steps=25,
+        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+    )
 
     nemo_logger2 = NeMoLogger(
         log_dir=str(save_dir),
@@ -55,6 +62,27 @@ def run_finetune(checkpoint_dir: str, name: str, directory_name):
             initial_ckpt_path=checkpoint_dir,
             initial_ckpt_skip_keys_with_these_prefixes={"digit_classifier"},
         )
+    )
+
+    strategy = nl.MegatronStrategy(
+        tensor_model_parallel_size=1,
+        pipeline_model_parallel_size=1,
+        ddp="megatron",
+        find_unused_parameters=True,
+        always_save_context=True,
+    )
+
+    trainer = nl.Trainer(
+        accelerator="gpu",
+        devices=1,
+        strategy=strategy,
+        limit_val_batches=5,
+        val_check_interval=1,
+        max_steps=10,
+        max_epochs=2,
+        num_nodes=1,
+        log_every_n_steps=1,
+        plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
     )
 
     llm.train(

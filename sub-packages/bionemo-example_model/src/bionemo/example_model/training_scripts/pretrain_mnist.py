@@ -16,6 +16,7 @@
 
 from pathlib import Path
 
+from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import NeMoLogger, resume
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
@@ -25,7 +26,6 @@ from bionemo.example_model.lightning.lightning_basic import (
     PretrainConfig,
     checkpoint_callback,
     data_module,
-    trainer,
 )
 
 
@@ -39,6 +39,8 @@ def run_pretrain(name: str, directory_name: str):
         str: the path of the trained model.
     """
     # Setup the logger train the model
+    save_dir = Path(directory_name) / "pretrain"
+
     nemo_logger = NeMoLogger(
         log_dir=str(save_dir),
         name=name,
@@ -49,6 +51,26 @@ def run_pretrain(name: str, directory_name: str):
 
     # Set up the training module
     lightning_module = BionemoLightningModule(config=PretrainConfig())
+    strategy = nl.MegatronStrategy(
+        tensor_model_parallel_size=1,
+        pipeline_model_parallel_size=1,
+        ddp="megatron",
+        find_unused_parameters=True,
+        always_save_context=True,
+    )
+
+    trainer = nl.Trainer(
+        accelerator="gpu",
+        devices=1,
+        strategy=strategy,
+        limit_val_batches=5,
+        val_check_interval=1,
+        max_steps=10,
+        max_epochs=2,
+        num_nodes=1,
+        log_every_n_steps=1,
+        plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
+    )
 
     # This trains the model
     llm.train(
@@ -61,11 +83,11 @@ def run_pretrain(name: str, directory_name: str):
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
     )
+    return Path(checkpoint_callback.last_model_path.replace(".ckpt", ""))
 
 
 if __name__ == "__main__":
     directory_name = "sample_models"
-    save_dir = Path(directory_name) / "pretrain"
     name = "example"
     pretrain_ckpt_dirpath = run_pretrain(name, directory_name)
 
