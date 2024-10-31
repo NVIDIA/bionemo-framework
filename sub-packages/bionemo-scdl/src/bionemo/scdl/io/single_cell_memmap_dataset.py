@@ -131,7 +131,7 @@ def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:
 def _create_row_memmaps(
     num_rows: int,
     memmap_dir_path: Path,
-    mode: Mode,
+    mode: str,
     dtypes: Dict[FileNames, str],
 ) -> np.ndarray:
     """Records a pointer into the data and column arrays."""
@@ -146,7 +146,7 @@ def _create_row_memmaps(
 def _create_data_col_memmaps(
     num_elements: int,
     memmap_dir_path: Path,
-    mode: Mode,
+    mode: str,
     dtypes: Dict[FileNames, str],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Records a pointer into the data and column arrays."""
@@ -171,7 +171,7 @@ def _create_compressed_sparse_row_memmaps(
     num_elements: int,
     num_rows: int,
     memmap_dir_path: Path,
-    mode: Mode,
+    mode: str,
     dtypes: Dict[FileNames, str],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Create a set of CSR-format numpy arrays.
@@ -236,7 +236,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         h5ad_path: Optional[str] = None,
         num_elements: Optional[int] = None,
         num_rows: Optional[int] = None,
-        mode: Mode = Mode.READ_APPEND.value,
+        mode: str = Mode.READ_APPEND.value,
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
     ) -> None:
@@ -254,7 +254,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
-        self.mode: Mode = mode
+        self.mode: str = mode
         self.paginated_load_cutoff = paginated_load_cutoff
         self.load_block_row_size = load_block_row_size
         # Backing arrays
@@ -756,7 +756,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 )
 
         # Set our mode:
-        self.mode: Mode = Mode.READ_APPEND.value
+        self.mode: str = Mode.READ_APPEND.value
 
         mmaps = []
         mmaps.extend(other_dataset)
