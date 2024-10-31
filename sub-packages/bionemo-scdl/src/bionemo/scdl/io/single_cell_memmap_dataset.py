@@ -131,7 +131,7 @@ def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:
 def _create_row_memmaps(
     num_rows: int,
     memmap_dir_path: Path,
-    mode: str,
+    mode: Mode,
     dtypes: Dict[FileNames, str],
 ) -> np.ndarray:
     """Records a pointer into the data and column arrays."""
@@ -139,14 +139,14 @@ def _create_row_memmaps(
         f"{str(memmap_dir_path.absolute())}/{FileNames.ROWPTR.value}",
         dtype=dtypes[f"{FileNames.ROWPTR.value}"],
         shape=(num_rows + 1,),
-        mode=mode,
+        mode=mode.value,
     )
 
 
 def _create_data_col_memmaps(
     num_elements: int,
     memmap_dir_path: Path,
-    mode: str,
+    mode: Mode,
     dtypes: Dict[FileNames, str],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Records a pointer into the data and column arrays."""
@@ -162,7 +162,7 @@ def _create_data_col_memmaps(
         f"{memmap_dir_path}/{FileNames.COLPTR.value}",
         dtype=dtypes[f"{FileNames.COLPTR.value}"],
         shape=(num_elements,),
-        mode=mode,
+        mode=mode.value,
     )
     return data_arr, col_arr
 
@@ -171,7 +171,7 @@ def _create_compressed_sparse_row_memmaps(
     num_elements: int,
     num_rows: int,
     memmap_dir_path: Path,
-    mode: str,
+    mode: Mode,
     dtypes: Dict[FileNames, str],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Create a set of CSR-format numpy arrays.
@@ -236,7 +236,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         h5ad_path: Optional[str] = None,
         num_elements: Optional[int] = None,
         num_rows: Optional[int] = None,
-        mode: str = Mode.READ_APPEND.value,
+        mode: Mode = Mode.READ_APPEND,
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
     ) -> None:
@@ -254,7 +254,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
-        self.mode: str = mode
+        self.mode: Mode = mode
         self.paginated_load_cutoff = paginated_load_cutoff
         self.load_block_row_size = load_block_row_size
         # Backing arrays
@@ -277,7 +277,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             f"{FileNames.ROWPTR.value}": "uint64",
         }
 
-        if mode == Mode.CREATE_APPEND.value and os.path.exists(data_path):
+        if mode == Mode.CREATE_APPEND and os.path.exists(data_path):
             raise FileExistsError(f"Output directory already exists: {data_path}")
 
         if h5ad_path is not None and (data_path is not None and os.path.exists(data_path)):
@@ -315,7 +315,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 json.dump(self.version(), vfi)
 
     def _init_arrs(self, num_elements: int, num_rows: int) -> None:
-        self.mode = Mode.CREATE_APPEND.value
+        self.mode = Mode.CREATE_APPEND
         data_arr, col_arr, row_arr = _create_compressed_sparse_row_memmaps(
             num_elements=num_elements,
             num_rows=num_rows,
@@ -437,7 +437,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                                     with  SingleCellMemMapDataset(<path to data that will be created>, h5ad_path=<path to h5ad file>"""
             )
         self.data_path = stored_path
-        self.mode = Mode.READ_APPEND.value
+        self.mode = Mode.READ_APPEND
 
         # Metadata is required, so we must check if it exists and fail if not.
         if not os.path.exists(f"{self.data_path}/{FileNames.METADATA.value}"):
@@ -550,7 +550,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.dtypes[f"{FileNames.DATA.value}"] = adata.X.dtype
 
         # Read the row indices into a memory map.
-        mode = Mode.CREATE_APPEND.value
+        mode = Mode.CREATE_APPEND
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
         self.row_index[:] = adata.X.indptr.astype(int)
 
@@ -573,7 +573,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 n_elements += len(data_block)
 
         # The column and data files are re-opened as memory-mapped arrays with the final shape
-        mode = Mode.READ_APPEND.value
+        mode = Mode.READ_APPEND
         self.col_index = np.memmap(
             f"{memmap_dir_path}/{FileNames.COLPTR.value}",
             self.dtypes[f"{FileNames.COLPTR.value}"],
@@ -756,7 +756,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 )
 
         # Set our mode:
-        self.mode: str = Mode.READ_APPEND.value
+        self.mode: Mode = Mode.READ_APPEND
 
         mmaps = []
         mmaps.extend(other_dataset)
@@ -772,7 +772,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 num_elements=total_num_elements,
                 num_rows=total_num_rows,
                 memmap_dir_path=Path(tmp),
-                mode=Mode.CREATE_APPEND.value,
+                mode=Mode.CREATE_APPEND,
                 dtypes=self.dtypes,
             )
             # Copy the data from self and other into the new arrays.
