@@ -65,8 +65,8 @@ class RegressorLossReduction(BERTMLMLossWithReduction):
                 backpropagation and the ReductionT will be passed to the reduce method
                 (which currently only works for logging.).
         """
-        targets = batch["labels"]  # [b, 1]
         regression_output = forward_out["regression_output"]
+        targets = batch["labels"].to(dtype=regression_output.dtype)  # [b, 1]
 
         cp_size = parallel_state.get_context_parallel_world_size()
         if cp_size == 1:
