@@ -18,7 +18,7 @@ Some distinctions of Megatron/NeMo are:
 
 
 # Loss Functions
-First, we define a simple loss function. These should extend the `MegatronLossReduction` class. The output of forward and backward passes happen in parallel. There should be a forward function that calculates the loss defined. The reduce function is required.'
+First, we define a simple loss function. These should extend the `MegatronLossReduction` class. The output of forward and backward passes happen in parallel. There should be a forward function that calculates the loss defined. The reduce function is required.
 
 Loss functions used here are `MSELossReduction` and `ClassifierLossReduction`. These functions return a Tensor, which contain the losses for the microbatches, and a `SameSizeLossDict` containing the average loss. This is a Typed Dictionary that is the return type for a loss that is computed for the entire batch, where all microbatches are the same size.
 
