@@ -89,7 +89,7 @@ In `bionemo.example_model.lightning.lightning_basic` a checkpoint_callback varia
 
 We also specify a training strategy (strategy) of type `nemo.lightning.MegatronStrategy`. This strategy implements model parallelism using NVIDIA's Megatron-LM framework. It supports various forms of parallelism including tensor model parallelism, pipeline model parallelism, sequence parallelism, and expert parallelism for efficient training of large language models.
 
-We spcify a trainer of type `nemo.lightning.Trainer`, which is an extension of the pytorch lightning trainer. This is where the devices, validation intervals, maximal steps, maximal number of epochs, and how frequently to log are specified.
+We specify a trainer of type `nemo.lightning.Trainer`, which is an extension of the pytorch lightning trainer. This is where the devices, validation intervals, maximal steps, maximal number of epochs, and how frequently to log are specified.
 
 We can now proceed to training. The first pre-training scripts is `bionemo/example_model/training_scripts/pretrain_mnist.py`
 Here, we specify a nemo-logger. We can set TensorBoard and WandB logging, along with extra loggers. Here, we specify a `CSVLogger` from pytorch_lightning.loggers.
