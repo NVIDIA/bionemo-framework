@@ -213,23 +213,23 @@ class ClassifierLossReduction(MegatronLossReduction):
 
 
 class MNISTCustomDataset(MNIST):  # noqa: D101
-    def __getitem__(self, index: int) -> MnistItem:
+    def __getitem__(self, idx: int) -> MnistItem:
         """Wraps the getitem method of the MNIST dataset such that we return a Dict
         instead of a Tuple or tensor. Additionally, we take in an EpochIndex is the input.
         This is necessary for compatability with the megatron sampling.
 
         Args:
-            index: The index we want to grab, an int.
+            idx: The index we want to grab, an int.
 
         Returns:
             A dict containing the data ("x"), label ("y"), and index ("idx").
         """  # noqa: D205
-        x, y = super().__getitem__(index)
+        data, label = super().__getitem__(idx)
 
         return {
-            "data": x,
-            "label": y,
-            "idx": index,
+            "data": data,
+            "label": label,
+            "idx": idx,
         }
 
 
