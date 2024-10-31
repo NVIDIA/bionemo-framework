@@ -129,6 +129,7 @@ def main(
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
+    val_check_interval = min(val_check_interval, num_steps)  # Training will fail if val_check_interval > num_steps
 
     # Setup train/test/val data paths
     train_data_path = data_dir / "train"
@@ -180,6 +181,7 @@ def main(
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,  # TODO(@jstjohn) Checkpoint saving is currently broken, fix and change this.
         log_every_n_steps=log_every_n_steps,
+        use_distributed_sampler=False,
         num_nodes=num_nodes,
         callbacks=[
             PerplexityLoggingCallback(log_train=False, log_val=True),  # TODO(@sichu) fix this

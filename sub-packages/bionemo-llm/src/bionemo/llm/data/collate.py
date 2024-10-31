@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import logging
 from typing import Sequence, TypeVar
 
 import torch
@@ -21,7 +22,10 @@ import torch
 from bionemo.llm.data import types
 
 
+logger = logging.getLogger(__name__)
+
 _T = TypeVar("_T", bound=dict[str, torch.Tensor])
+_warned_once: bool = False
 
 
 def padding_collate_fn(
@@ -43,9 +47,13 @@ def padding_collate_fn(
     Returns:
         A collated batch with the same dictionary input structure.
     """
+    global _warned_once
     for entry in batch:
         if entry.keys() != padding_values.keys():
-            raise ValueError("All keys in inputs must match provided padding_values.")
+            if not _warned_once:
+                missing_keys = {k for k in entry.keys() if k not in padding_values}
+                logger.warning(f"The following keys were not in padding_values and will be ignored: {missing_keys}.")
+                _warned_once = True
 
     def _pad(tensors, padding_value):
         if max_length is not None:
@@ -55,7 +63,12 @@ def padding_collate_fn(
             return batched_tensors
         return torch.nn.functional.pad(batched_tensors, (0, min_length - batched_tensors.size(1)), value=padding_value)
 
-    return {k: _pad([s[k] for s in batch], padding_values[k]) for k in batch[0].keys()}  # type: ignore[return-value]
+    return {
+        k: _pad([s[k] for s in batch], padding_values[k])
+        if k in padding_values
+        else torch.stack([s[k] for s in batch])
+        for k in batch[0].keys()
+    }  # type: ignore[return-value]
 
 
 def bert_padding_collate_fn(

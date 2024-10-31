@@ -112,7 +112,7 @@ class SingleCellDataModule(MegatronDataModule):
 
         rng = np.random.default_rng(seed)
         if self.data_path_train is not None:
-            assert self.data_path_predict is not None and self.data_path_val is not None
+            assert self.data_path_val is not None and self.data_path_test is not None
             self._train_dataset_ori = SingleCellDataset(
                 self.data_path_train,
                 self.tokenizer,
@@ -145,6 +145,7 @@ class SingleCellDataModule(MegatronDataModule):
             )
             self._predict_dataset_ori = None
         else:
+            assert self.data_path_predict is not None
             self._predict_dataset_ori = SingleCellDataset(
                 self.data_path_predict,
                 self.tokenizer,
@@ -241,7 +242,7 @@ class SingleCellDataModule(MegatronDataModule):
     def test_dataloader(self) -> EVAL_DATALOADERS:  # noqa: D102
         return self._create_dataloader(self._test_ds, mode="test")
 
-    def predict_dataloader(self) -> EVAL_DATALOADERS:
+    def predict_dataloader(self) -> EVAL_DATALOADERS:  # noqa: D102
         return self._create_dataloader(self._predict_ds, mode="predict", drop_last=False)
 
     def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:

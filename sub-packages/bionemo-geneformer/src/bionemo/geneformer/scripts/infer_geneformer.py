@@ -50,6 +50,7 @@ def infer_model(
     num_dataset_workers: int = 0,
     config_class: Type[BioBertConfig] = GeneformerConfig,
 ) -> None:
+    """Inference function (requires DDP and only training data that fits in memory)."""
     train_data_path: Path = (
         load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
     )
