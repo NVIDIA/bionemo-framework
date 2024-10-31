@@ -29,15 +29,20 @@ from bionemo.example_model.lightning.lightning_basic import (
 )
 
 
-if __name__ == "__main__":
-    directory_name = "sample_models"
-    save_dir = Path(directory_name) / "pretrain"
-    name = "example"
+def run_pretrain(name: str, directory_name: str):
+    """Run the pretraining step.
+
+    Args:
+        name: The experiment name.
+        directory_name: The directory to write the output
+    Returns:
+        str: the path of the trained model.
+    """
     # Setup the logger train the model
     nemo_logger = NeMoLogger(
         log_dir=str(save_dir),
         name=name,
-        tensorboard=TensorBoardLogger(save_dir=save_dir, name=name),
+        tensorboard=TensorBoardLogger(save_dir=directory_name, name=name),
         ckpt=checkpoint_callback,
         extra_loggers=[CSVLogger(save_dir / "logs", name=name)],
     )
@@ -57,5 +62,11 @@ if __name__ == "__main__":
         ),
     )
 
-    pretrain_ckpt_dirpath = checkpoint_callback.last_model_path.replace(".ckpt", "")
+
+if __name__ == "__main__":
+    directory_name = "sample_models"
+    save_dir = Path(directory_name) / "pretrain"
+    name = "example"
+    pretrain_ckpt_dirpath = run_pretrain(name, directory_name)
+
     print(pretrain_ckpt_dirpath)

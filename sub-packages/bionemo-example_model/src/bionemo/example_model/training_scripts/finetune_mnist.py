@@ -30,13 +30,16 @@ from bionemo.example_model.lightning.lightning_basic import (
 )
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--pretrain_ckpt_dirpath", type=str, help="The checkpoint directory after pre-training")
-    args = parser.parse_args()
+def run_finetune(checkpoint_dir: str, name: str, directory_name):
+    """Run the finetuning step.
 
-    name = "example"
-    directory_name = "sample_models"
+    Args:
+        checkpoint_dir: The directory with the previous model
+        name: The experiment name.
+        directory_name: The directory to write the output
+    Returns:
+        str: the path of the trained model.
+    """
     save_dir = Path(directory_name) / "classifier"
 
     nemo_logger2 = NeMoLogger(
@@ -49,7 +52,7 @@ if __name__ == "__main__":
 
     lightning_module2 = BionemoLightningModule(
         config=ExampleFineTuneConfig(
-            initial_ckpt_path=args.pretrain_ckpt_dirpath,
+            initial_ckpt_path=checkpoint_dir,
             initial_ckpt_skip_keys_with_these_prefixes={"digit_classifier"},
         )
     )
@@ -65,4 +68,15 @@ if __name__ == "__main__":
         ),
     )
     finetune_dir = Path(checkpoint_callback.last_model_path.replace(".ckpt", ""))
+    return finetune_dir
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pretrain_ckpt_dirpath", type=str, help="The checkpoint directory after pre-training")
+    args = parser.parse_args()
+
+    name = "example"
+    directory_name = "sample_models"
+    finetune_dir = run_finetune(args.pretrain_ckpt_dirpath, name, directory_name)
     print(finetune_dir)

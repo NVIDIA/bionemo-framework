@@ -26,11 +26,16 @@ from bionemo.example_model.lightning.lightning_basic import (
 )
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--finetune_dir", type=str, help="The directory with the fine-tuned model. ")
-    args = parser.parse_args()
-    test_length = 10_000
+def run_predict(finetune_dir: str, test_length: int):
+    """Run the prediction step.
+
+    Args:
+        finetune_dir: The directory with the previous step
+        test_length: The length of the test step.
+
+    Returns:
+        tensor: the outputs of the model.
+    """
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=1,
         pipeline_model_parallel_size=1,
@@ -47,8 +52,17 @@ if __name__ == "__main__":
         plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
     )
 
-    lightning_module3 = BionemoLightningModule(config=ExampleFineTuneConfig(initial_ckpt_path=args.finetune_dir))
+    lightning_module3 = BionemoLightningModule(config=ExampleFineTuneConfig(initial_ckpt_path=finetune_dir))
     new_data_module = MNISTDataModule(data_dir=str(BIONEMO_CACHE_DIR), batch_size=test_length, output_log=False)
 
     results = test_run_trainer.predict(lightning_module3, datamodule=new_data_module)
+    return results
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--finetune_dir", type=str, help="The directory with the fine-tuned model. ")
+    args = parser.parse_args()
+    test_length = 10_000
+    results = run_predict(args.finetune_dir)
     print(results)
