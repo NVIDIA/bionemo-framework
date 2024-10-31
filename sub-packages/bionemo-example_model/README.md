@@ -40,10 +40,11 @@ We also define a train_dataloader, val_dataloader, and predict_dataloader method
 # Models
 
 Models need to be Megatron modules. At the most basic level this just means:
-  1. They extend `MegatronModule` from megatron.core.transformer.module.
-  2. They need a config argument of type `megatron.core.ModelParallelConfig`. An easy way of implementing this is to inherit from `bionemo.llm.model.config.MegatronBioNeMoTrainableModelConfig`. This is a class for BioNeMo that supports usage with Megatron models, as NeMo2 requires. This class also inherits `ModelParallelConfig`.
-  3. They need a self.`model_type:megatron.core.transformer.enums.ModelType` enum defined (`ModelType.encoder_or_decoder` is probably usually fine)
-  4. def set_input_tensor(self, input_tensor) needs to be present. This is used in model parallelism. This function can be a stub/placeholder function.
+
+1. They extend `MegatronModule` from megatron.core.transformer.module.
+2. They need a config argument of type `megatron.core.ModelParallelConfig`. An easy way of implementing this is to inherit from `bionemo.llm.model.config.MegatronBioNeMoTrainableModelConfig`. This is a class for BioNeMo that supports usage with Megatron models, as NeMo2 requires. This class also inherits `ModelParallelConfig`.
+3. They need a self.`model_type:megatron.core.transformer.enums.ModelType` enum defined (`ModelType.encoder_or_decoder` is usually fine)
+4. def set_input_tensor(self, input_tensor) needs to be present. This is used in model parallelism. This function can be a stub/placeholder function.
 
 `ExampleModelTrunk` is a base model. This returns a tensor. `ExampleModel` is a model that extends the base model with a few linear layers and it is used for pretrainining. This returns the output of the base model and of the full model.
 
