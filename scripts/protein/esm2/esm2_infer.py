@@ -14,17 +14,21 @@
 # limitations under the License.
 
 import argparse
+import os
 from pathlib import Path
-from typing import Sequence, get_args
+from typing import Dict, Sequence, Type, get_args
 
 import torch
 from nemo import lightning as nl
 
-from bionemo.core.utils.dtypes import PrecisionTypes
+from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule, InMemoryCSVDataset
+from bionemo.esm2.model.finetune.finetune_regressor import ESM2FineTuneSeqConfig
+from bionemo.esm2.model.finetune.finetune_token_classifier import ESM2FineTuneTokenConfig
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
+from bionemo.llm.model.biobert.model import BioBertConfig
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 
 
@@ -44,6 +48,7 @@ def infer_model(
     pipeline_model_parallel_size: int = 1,
     devices: int = 1,
     num_nodes: int = 1,
+    config_class: Type[BioBertConfig] = ESM2Config,
 ) -> None:
     """Runs inference on a BioNeMo ESM2 model using PyTorch Lightning.
 
@@ -60,7 +65,14 @@ def infer_model(
         pipeline_model_parallel_size (int, optional): Pipeline model parallel size for distributed inference. Defaults to 1.
         devices (int, optional): Number of devices to use for inference. Defaults to 1.
         num_nodes (int, optional): Number of nodes to use for distributed inference. Defaults to 1.
+        config_class (Type[BioBertConfig]): The config class for configuring the model using checkpoint provided
     """
+    if os.path.isdir(results_path):
+        results_path = results_path / "esm2_inference_results.pt"
+    else:
+        _, extension = os.path.splitext(results_path)
+        results_path = results_path if extension == ".pt" else results_path / ".pt"
+
     # Setup the strategy and trainer
     global_batch_size = infer_global_batch_size(
         micro_batch_size=micro_batch_size,
@@ -83,6 +95,7 @@ def infer_model(
         devices=devices,
         strategy=strategy,
         num_nodes=num_nodes,
+        callbacks=[],  # TODO: @farhadr Add PredictionWriter for DDP
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
@@ -91,12 +104,15 @@ def infer_model(
         predict_dataset=dataset, micro_batch_size=micro_batch_size, global_batch_size=global_batch_size
     )
 
-    config = ESM2Config(
+    config = config_class(
+        params_dtype=get_autocast_dtype(precision),
+        pipeline_dtype=get_autocast_dtype(precision),
+        autocast_dtype=get_autocast_dtype(precision),
         include_hiddens=include_hiddens,
         include_embeddings=include_embeddings,
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
-        initial_ckpt_path=checkpoint_path,
+        initial_ckpt_path=str(checkpoint_path),
     )
 
     tokenizer = get_tokenizer()
@@ -110,90 +126,13 @@ def infer_model(
     torch.save(results[0], results_path)
 
 
-parser = argparse.ArgumentParser(description="Infer ESM2.")
-parser.add_argument(
-    "--checkpoint-path",
-    type=Path,
-    required=True,
-    help="Path to the ESM2 pretrained checkpoint",
-)
-parser.add_argument(
-    "--data-path",
-    type=Path,
-    required=True,
-    help="Path to the CSV file containing sequences and label columns",
-)
-parser.add_argument("--results-path", type=Path, required=True, help="Path to the results file.")
-
-parser.add_argument(
-    "--precision",
-    type=str,
-    choices=get_args(PrecisionTypes),
-    required=False,
-    default="bf16-mixed",
-    help="Precision type to use for training.",
-)
-parser.add_argument(
-    "--num-gpus",
-    type=int,
-    required=False,
-    default=1,
-    help="Number of GPUs to use for training. Default is 1.",
-)
-parser.add_argument(
-    "--num-nodes",
-    type=int,
-    required=False,
-    default=1,
-    help="Number of nodes to use for training. Default is 1.",
-)
-parser.add_argument(
-    "--micro-batch-size",
-    type=int,
-    required=False,
-    default=2,
-    help="Micro-batch size. Global batch size is inferred from this.",
-)
-parser.add_argument(
-    "--pipeline-model-parallel-size",
-    type=int,
-    required=False,
-    default=1,
-    help="Pipeline model parallel size. Default is 1.",
-)
-parser.add_argument(
-    "--tensor-model-parallel-size",
-    type=int,
-    required=False,
-    default=1,
-    help="Tensor model parallel size. Default is 1.",
-)
-parser.add_argument(
-    "--include-hiddens",
-    type=bool,
-    required=False,
-    default=False,
-    help="Include hiddens in output of inference",
-)
-parser.add_argument(
-    "--include-embeddings",
-    type=bool,
-    required=False,
-    default=False,
-    help="Include embeddings in output of inference",
-)
-parser.add_argument(
-    "--accumulate-grad-batches",
-    type=int,
-    required=False,
-    default=1,
-    help="Gradient accumulation steps. Global batch size is inferred from this.",
-)
-
-if __name__ == "__main__":
+def esm2_infer_entrypoint():
+    """Entrypoint for running inference on a geneformer checkpoint and data."""
+    # 1. get arguments
+    parser = get_parser()
     args = parser.parse_args()
-
-    results = infer_model(
+    # 2. Call infer with args
+    infer_model(
         data_path=args.data_path,
         checkpoint_path=args.checkpoint_path,
         results_path=args.results_path,
@@ -206,4 +145,117 @@ if __name__ == "__main__":
         pipeline_model_parallel_size=args.pipeline_model_parallel_size,
         devices=args.num_gpus,
         num_nodes=args.num_nodes,
+        config_class=args.config_class,
     )
+
+
+def get_parser():
+    """Return the cli parser for this tool."""
+    parser = argparse.ArgumentParser(description="Infer ESM2.")
+    parser.add_argument(
+        "--checkpoint-path",
+        type=Path,
+        required=True,
+        help="Path to the ESM2 pretrained checkpoint",
+    )
+    parser.add_argument(
+        "--data-path",
+        type=Path,
+        required=True,
+        help="Path to the CSV file containing sequences and label columns",
+    )
+    parser.add_argument("--results-path", type=Path, required=True, help="Path to the results file.")
+
+    parser.add_argument(
+        "--precision",
+        type=str,
+        choices=get_args(PrecisionTypes),
+        required=False,
+        default="bf16-mixed",
+        help="Precision type to use for training.",
+    )
+    parser.add_argument(
+        "--num-gpus",
+        type=int,
+        required=False,
+        default=1,
+        help="Number of GPUs to use for training. Default is 1.",
+    )
+    parser.add_argument(
+        "--num-nodes",
+        type=int,
+        required=False,
+        default=1,
+        help="Number of nodes to use for training. Default is 1.",
+    )
+    parser.add_argument(
+        "--micro-batch-size",
+        type=int,
+        required=False,
+        default=2,
+        help="Micro-batch size. Global batch size is inferred from this.",
+    )
+    parser.add_argument(
+        "--pipeline-model-parallel-size",
+        type=int,
+        required=False,
+        default=1,
+        help="Pipeline model parallel size. Default is 1.",
+    )
+    parser.add_argument(
+        "--tensor-model-parallel-size",
+        type=int,
+        required=False,
+        default=1,
+        help="Tensor model parallel size. Default is 1.",
+    )
+    parser.add_argument(
+        "--include-hiddens",
+        type=bool,
+        required=False,
+        default=False,
+        help="Include hiddens in output of inference",
+    )
+    parser.add_argument(
+        "--include-embeddings",
+        type=bool,
+        required=False,
+        default=False,
+        help="Include embeddings in output of inference",
+    )
+    parser.add_argument(
+        "--accumulate-grad-batches",
+        type=int,
+        required=False,
+        default=1,
+        help="Gradient accumulation steps. Global batch size is inferred from this.",
+    )
+    config_class_options: Dict[str, Type[BioBertConfig]] = {
+        "ESM2Config": ESM2Config,
+        "ESM2FineTuneSeqConfig": ESM2FineTuneSeqConfig,
+        "ESM2FineTuneTokenConfig": ESM2FineTuneTokenConfig,
+    }
+
+    def config_class_type(desc: str) -> Type[BioBertConfig]:
+        try:
+            return config_class_options[desc]
+        except KeyError:
+            raise argparse.ArgumentTypeError(
+                f"Do not recognize key {desc}, valid options are: {config_class_options.keys()}"
+            )
+
+    parser.add_argument(
+        "--config-class",
+        type=config_class_type,
+        default="ESM2Config",
+        help="Model configs link model classes with losses, and handle model initialization (including from a prior "
+        "checkpoint). This is how you can fine-tune a model. First train with one config class that points to one model "
+        "class and loss, then implement and provide an alternative config class that points to a variant of that model "
+        "and alternative loss. In the future this script should also provide similar support for picking different data "
+        f"modules for fine-tuning with different data types. Choices: {config_class_options.keys()}",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    esm2_infer_entrypoint()
