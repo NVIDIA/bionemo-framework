@@ -67,6 +67,7 @@ class PretrainConfig(ExampleGenericConfig["PretrainModel", "MSELossReduction"], 
 Similarly, ExampleFineTuneConfig extends ExampleGenericConfig for finetuning.
 
 # Training Module
+
 It is helfpul to have a training module that interits pl.LightningModule which organizes the model architecture, training, validation, and testing logic while abstracting away boilerplate code, enabling easier and more scalable training. This wrapper can be used for all model and loss combinations specified in the config.
 Here, we define BionemoLightningModule.
 
@@ -80,4 +81,34 @@ In this example, training_step and predict_step define the training, validation,
 
 Additionally, during these steps, we log the validation, testing, and training loss. This is done similarly to https://lightning.ai/docs/torchmetrics/stable/pages/lightning.html. These logs can then be exported to wandb, or other metric viewers. For more complicated tracking, it may be necessary to use pytorch callbacks: https://lightning.ai/docs/pytorch/stable/extensions/callbacks.html.
 
-Further a loss_reduction_class, training_loss_reduction, validation_loss_reduction, and test_loss_reduction are defined based on what's in the config. Additionally,  configure_model is definated based on the config.
+Further loss_reduction_class(), training_loss_reduction(), validation_loss_reduction(), and test_loss_reduction() are defined based on what's in the config. Additionally,  configure_model() is definated based on the config.
+
+# Training the models
+In `bionemo.example_model.lightning.lightning_basic` a checkpoint_callback variable is defined. This enables .nemo file-like checkpointing.
+
+We also specify a training strategy (strategy) of type nemo.lightning.MegatronStrategy. This strategy implements model parallelism using NVIDIA's Megatron-LM framework. It supports various forms of parallelism including tensor model parallelism, pipeline model parallelism, sequence parallelism, and expert parallelism for efficient training of large language models.
+
+We spcify a trainer of type nemo.lightning.Trainer, which is an extension of the pytorch lightning trainer. This is where the devices, validation intervals, maximal steps, maximal number of epochs, and how frequently to log are specified.
+
+We can now proceed to training. The first pre-training scripts is `bionemo/example_model/training_scripts/pretrain_mnist.py`
+Here, we specify a nemo-logger. We can set TensorBoard and WandB logging, along with extra loggers. Here, we specify a CSVLogger from pytorch_lightning.loggers.
+
+Then, we train the model with the BionemoLightningModule, MNISTDataModule, trainer and nemo_logger.
+
+This script will print out the location of the final model: <pretrain_directory>
+
+Then we can run a finetuning-script:
+```
+python src/bionemo/example_model/training_scripts/training_scripts/finetune_mnist.py ---pretrain_ckpt_dirpath <pretrain_directory>
+```
+
+A nuance here is that in the config file, we specify the initial checkpoint path, along with which keys to skip. In the previous model checkpoint, we did not have a head labelled "digit_classifier", so we specify it as a headed to be skipped.
+This script will print the location of the finetuned directory: <finetune_dir>.
+
+Finally, we can run a classification task with
+```
+
+python src/bionemo/example_model/training_scripts/results_mnist.py  --finetune_dir <finetune_dir>.
+```
+
+The results can be viewed with TensorBoardLogger if that is configured, or as a CSV file created by the CSVLogger.

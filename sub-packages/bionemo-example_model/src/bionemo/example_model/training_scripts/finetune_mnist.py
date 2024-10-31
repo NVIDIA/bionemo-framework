@@ -21,7 +21,7 @@ from nemo.collections import llm
 from nemo.lightning import NeMoLogger, resume
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
-from bionemo.example_model.lighting.lightning_basic import (
+from bionemo.example_model.lightning.lightning_basic import (
     BionemoLightningModule,
     ExampleFineTuneConfig,
     checkpoint_callback,
