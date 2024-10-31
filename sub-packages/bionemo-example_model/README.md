@@ -4,7 +4,7 @@
 
 This is a minimalist package containing an example model that makes use of bionemo2/nemo conventions. It contains the necessary models, dataloaders, datasets, and custom loss fucntions. The referenced classes and function are in `bionemo.example_model.lightning.lightning_basic`.
 
-This tutorial demonstrates the creation of a simple MNIST model. This should be run in a BioNeMo contaner. For this tutorial, we will reuse elements from the BioNeMo example_model package.
+This tutorial demonstrates the creation of a simple MNIST model. This should be run in a BioNeMo container. For this tutorial, we will reuse elements from the BioNeMo example_model package.
 
 
 `Megatron`/`NeMo` modules and datasets are special derivatives of PyTorch modules and datasets that extend and accelerate the distributed training and inference capabilities of PyTorch.
