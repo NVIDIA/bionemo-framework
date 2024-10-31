@@ -17,9 +17,7 @@ from pathlib import Path
 from typing import Dict, Type, get_args
 
 import torch
-from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
-from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.utils import logging
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
@@ -131,18 +129,6 @@ def infer_model(
     model = biobert_lightning_module(
         geneformer_config,
         tokenizer=tokenizer,
-        # This part doesn't matter
-        optimizer=MegatronOptimizerModule(
-            config=OptimizerConfig(
-                lr=1e-3,
-                # TODO(@jstjohn) try decoupled_lr
-                optimizer="adam",
-                use_distributed_optimizer=True,
-                # Pass through fp16/bf16 settings to avoid errors around model having bf16 enabled but optimizer not.
-                fp16=geneformer_config.fp16,
-                bf16=geneformer_config.bf16,
-            ),
-        ),
     )
 
     results_dict = batch_collator(trainer.predict(model, datamodule=data, return_predictions=True))
