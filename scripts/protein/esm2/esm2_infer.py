@@ -36,10 +36,18 @@ from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 __all__: Sequence[str] = ("infer_model",)
 
 
+SUPPORTED_CONFIGS = {
+    "ESM2Config": ESM2Config,
+    "ESM2FineTuneSeqConfig": ESM2FineTuneSeqConfig,
+    "ESM2FineTuneTokenConfig": ESM2FineTuneTokenConfig,
+}
+
+
 def infer_model(
     data_path: Path,
     checkpoint_path: Path,
     results_path: Path,
+    min_seq_length: int = 1024,
     include_hiddens: bool = False,
     include_embeddings: bool = False,
     include_logits: bool = False,
@@ -58,6 +66,7 @@ def infer_model(
         data_path (Path): Path to the input data.
         checkpoint_path (Path): Path to the model checkpoint.
         results_path (Path): Path to save the inference results.
+        min_seq_length (int): minimum sequence length to be padded. This should be at least equal to the length of largest sequence in the dataset
         include_hiddens (bool, optional): Whether to include hidden states in the output. Defaults to False.
         include_embeddings (bool, optional): Whether to include embeddings in the output. Defaults to False.
         micro_batch_size (int, optional): Micro batch size for inference. Defaults to 64.
@@ -103,7 +112,10 @@ def infer_model(
 
     dataset = InMemoryCSVDataset(data_path=data_path)
     datamodule = ESM2FineTuneDataModule(
-        predict_dataset=dataset, micro_batch_size=micro_batch_size, global_batch_size=global_batch_size
+        predict_dataset=dataset,
+        micro_batch_size=micro_batch_size,
+        global_batch_size=global_batch_size,
+        min_seq_length=min_seq_length,
     )
 
     config = config_class(
@@ -121,7 +133,8 @@ def infer_model(
     tokenizer = get_tokenizer()
     module = biobert_lightning_module(config=config, tokenizer=tokenizer)
 
-    results_dict = batch_collator(trainer.predict(module, datamodule=datamodule, return_predictions=True))
+    predictions = trainer.predict(module, datamodule=datamodule, return_predictions=True)
+    results_dict = batch_collator(predictions)
     non_none_keys = [key for key, val in results_dict.items() if val is not None]
     print(f"Writing output {str(non_none_keys)} into {results_path}")
     torch.save(results_dict, results_path)
@@ -233,11 +246,7 @@ def get_parser():
         default=1,
         help="Gradient accumulation steps. Global batch size is inferred from this.",
     )
-    config_class_options: Dict[str, Type[BioBertConfig]] = {
-        "ESM2Config": ESM2Config,
-        "ESM2FineTuneSeqConfig": ESM2FineTuneSeqConfig,
-        "ESM2FineTuneTokenConfig": ESM2FineTuneTokenConfig,
-    }
+    config_class_options: Dict[str, Type[BioBertConfig]] = SUPPORTED_CONFIGS
 
     def config_class_type(desc: str) -> Type[BioBertConfig]:
         try:
