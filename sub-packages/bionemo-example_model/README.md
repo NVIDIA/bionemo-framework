@@ -52,7 +52,7 @@ Models need to be Megatron modules. At the most basic level this just means:
 
 # Model Configs
 
-The model config class is used to instatiate the model. These configs must have:
+The model config class is used to instantiate the model. These configs must have:
 1. A configure_model method which allows the Megatron strategy to lazily initialize the model after the parallel computing environment has been setup. These also handle loading starting weights for fine-tuning cases. Additionally these configs tell the trainer which loss you want to use with a matched model.
 2. A get_loss_reduction_class method that defines the loss function.
 
