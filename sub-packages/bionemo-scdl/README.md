@@ -37,15 +37,13 @@ data = SingleCellMemMapDataset("97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308e
 
 ```
 
-At this point, the `data` variable can be used. In the future, it can be accessed by simply passing in the SCDL location:
-```python
-reloaded_data = SingleCellMemMapDataset("97e_scmm")
-```
-
 This creates a SingleCellMemMapDataset that is stored at 97e_scmm in large, memory-mapped arrays
 that enables fast access of datasets larger than the available amount of RAM on a system.
 
-If the dataset is large, the anndata file can be lazy-loaded and then read in based on chunks of rows in a paginated manner. This can be done by setting the parameters in SingleCellMemMapDataset
+If the dataset is large, the anndata file can be lazy-loaded and then read in based on chunks of rows in a paginated manner. This can be done by setting the parameters when instantiating the SingleCellMemMapDataset:
+- `paginated_load_cutoff`, which sets the minimal file size in megabytes at which an anndata file will be read in in a paginated manner.
+- `load_block_row_size`, which is the number of rows that are read into memory at a given time.
+
 ### Interrogating single cell datasets and exploring the API
 
 ```python
@@ -117,10 +115,11 @@ The examples directory contains various examples for utilizing SCDL.
 
 ### Converting existing Cell x Gene data to SCDL
 
-To convert existing AnnData files from CellxGene, you can either write your own
-script using the SCDL API or utilize the convenience script `convert_h5ad_to_scdl`.
+If there are multiple AnnData files, they can be converted into a single SingleCellMemMapDataset. If the hdf5 directory has one or more AnnData files, the SingleCellCollection class crawls the filesystem to recursively find AnnData files (with the h5ad extension).
 
-This script crawls the filesystem to recursively find AnnData files (with the h5ad extension) and converts them to a single SingleCellMemMapDataset. Here's an example:
+To convert existing AnnData files, you can either write your own script using the SCDL API or utilize the convenience script `convert_h5ad_to_scdl`.
+
+Here's an example:
 
 ```bash
 convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
