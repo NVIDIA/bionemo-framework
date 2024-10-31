@@ -210,18 +210,20 @@ class ClassifierLossReduction(MegatronLossReduction):
 #  sequential ids to random ids in your dataset.
 
 
-class MNISTCustomDataset(MNIST):  # noqa: D101
+class MNISTCustomDataset(MNIST):
+    """A Wrapper for the MNIST Dataset."""
+
     def __getitem__(self, idx: int) -> MnistItem:
-        """Wraps the getitem method of the MNIST dataset such that we return a Dict
-        instead of a Tuple or tensor. Additionally, we take in an EpochIndex is the input.
-        This is necessary for compatability with the megatron sampling.
+        """Wraps the getitem method of the MNIST dataset such that we return a Dict.
+
+        This is instead of a Tuple or tensor.
 
         Args:
             idx: The index we want to grab, an int.
 
         Returns:
             A dict containing the data ("x"), label ("y"), and index ("idx").
-        """  # noqa: D205
+        """
         data, label = super().__getitem__(idx)
 
         return {
@@ -233,7 +235,19 @@ class MNISTCustomDataset(MNIST):  # noqa: D101
 
 #######################################################################################
 # Data module needs a data_sampler for handling the mcore strategy nemo2 runner.
-class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
+class MNISTDataModule(pl.LightningDataModule):
+    """A Megatron Compatible Data Module for MNIST.
+
+    Attributes:
+    data_dir: data directory
+    micro_batch_size: batch_size
+    global_batch_size: global batch size
+    max_len: maximal sequence length for megatron sampler
+    rampup_batch_size: ramp up batch size
+    num_workers: number of workers
+    data_sampler: data_sampler set to be a megatron one
+    """
+
     def __init__(
         self,
         data_dir: str | os.PathLike = str(BIONEMO_CACHE_DIR),
@@ -242,12 +256,21 @@ class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
         global_batch_size: int | None = None,
         output_log: bool = True,
     ) -> None:
-        """Initialize class."""
+        """Initialize class.
+
+        Args:
+            data_dir: data directory
+            batch_size: batch_size
+            global_batch_size: global batch size
+            num_workers: number of workers
+            output_log: whether to output logs
+
+        """
         super().__init__()
         self.data_dir = data_dir
         self.micro_batch_size = batch_size
         self.global_batch_size = global_batch_size or batch_size
-        self.max_len = 1048  # Unused?
+        self.max_len = 1048
         self.rampup_batch_size = None
         self.num_workers = num_workers
         #  Note that this sampler is sequential, meaning it does not do any shuffling. Let's wrap our data in a shuffler.
@@ -263,11 +286,11 @@ class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
         )
 
     def setup(self, stage: str) -> None:
-        """Sets up the datasets
+        """Sets up the datasets.
 
         Args:
             stage: can be one of train / test / predict.
-        """  # noqa: D415
+        """
         self.mnist_test = MultiEpochDatasetResampler(
             IdentityMultiEpochDatasetWrapper(
                 MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=False)
@@ -289,13 +312,16 @@ class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
             shuffle=False,
         )
 
-    def train_dataloader(self) -> DataLoader:  # noqa: D102
+    def train_dataloader(self) -> DataLoader:
+        """Returns the training dataloader."""
         return DataLoader(self.mnist_train, batch_size=self.micro_batch_size, num_workers=self.num_workers)
 
-    def val_dataloader(self) -> DataLoader:  # noqa: D102
+    def val_dataloader(self) -> DataLoader:
+        """Returns the validation dataloader."""
         return DataLoader(self.mnist_val, batch_size=self.micro_batch_size, num_workers=self.num_workers)
 
-    def predict_dataloader(self) -> DataLoader:  # noqa: D102
+    def predict_dataloader(self) -> DataLoader:
+        """Returns the prediction dataloader."""
         return DataLoader(self.mnist_test, batch_size=self.micro_batch_size, num_workers=self.num_workers)
 
 
@@ -334,7 +360,9 @@ class ExampleModelTrunk(MegatronModule):
         pass
 
 
-class ExampleModel(ExampleModelTrunk):  # noqa: D101
+class ExampleModel(ExampleModelTrunk):
+    """An example model."""
+
     def __init__(self, config: ModelParallelConfig) -> None:
         """Constructor of the model.
 
@@ -584,18 +612,32 @@ class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroug
         """Alias for forward step at prediction."""
         return self(batch, batch_idx)
 
-    def training_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
-        # This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss
+    def training_loss_reduction(self) -> MegatronLossReduction:
+        """This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss.
+
+        Returns:
+        A MegatronLossReduction
+        """
         return self.loss_reduction_class()()
 
-    def validation_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
+    def validation_loss_reduction(self) -> MegatronLossReduction:
+        """This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss.
+
+        Returns:
+        A MegatronLossReduction
+        """
         return self.loss_reduction_class()()
 
-    def test_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
+    def test_loss_reduction(self) -> MegatronLossReduction:
+        """This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss.
+
+        Returns:
+        A MegatronLossReduction
+        """
         return self.loss_reduction_class()()
 
-    def configure_model(self) -> None:  # noqa: D102
-        # Called lazily by the megatron strategy.
+    def configure_model(self) -> None:
+        """This configures the model. It is called lazily by the megatron strategy."""
         self.module = self.config.configure_model()
 
     def loss_reduction_class(self) -> Type[MegatronLossReduction]:
