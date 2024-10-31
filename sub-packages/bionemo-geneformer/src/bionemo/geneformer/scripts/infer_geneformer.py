@@ -51,9 +51,11 @@ def infer_model(
     config_class: Type[BioBertConfig] = GeneformerConfig,
 ) -> None:
     """Inference function (requires DDP and only training data that fits in memory)."""
+    # This is just used to get the tokenizer :(
     train_data_path: Path = (
         load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
     )
+
     # Setup the strategy and trainer
     pipeline_model_parallel_size = 1
     tensor_model_parallel_size = 1
@@ -119,7 +121,7 @@ def infer_model(
         pipeline_dtype=get_autocast_dtype(precision),
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
         # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
-        initial_ckpt_path=str(checkpoint_path),
+        initial_ckpt_path=str(checkpoint_path) if checkpoint_path is not None else None,
         include_embeddings=include_embeddings,
         include_hiddens=include_hiddens,
         skip_logits=not include_logits,
@@ -187,9 +189,9 @@ def get_parser():
     parser.add_argument(
         "--checkpoint-path",
         type=Path,
-        required=True,
+        required=False,
         default=None,
-        help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
+        help="Path to the checkpoint directory to restore from.",
     )
     parser.add_argument(
         "--precision",
