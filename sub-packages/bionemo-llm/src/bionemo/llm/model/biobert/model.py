@@ -195,6 +195,7 @@ class MegatronBioBertModel(LanguageModule):
         self.return_embeddings = return_embeddings
         self.include_embeddings = include_embeddings
         self.include_hiddens = include_hiddens
+        self.skip_logits = skip_logits
 
         # megatron core pipelining currently depends on model type
         self.model_type = ModelType.encoder_or_decoder
