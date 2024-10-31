@@ -35,7 +35,7 @@ Also the sampler will not shuffle your data. So you need to wrap your dataset in
 This is implemented in the `MNISTDataModule`. In the setup method of the dataloader, the train, test and validation sets are `MNISTCustomDataset` are wrapped in the `IdentityMultiEpochDatasetWrapper`. These are then wrapped in the `MultiEpochDatasetResampler`. More information about `MegatronCompatability` and how to set up more complicated datasets can be found in docs.user-guide.background.megatron_datasets.md
 
 
-We also define a train_dataloader, val_dataloader, and predict_dataloder methods that return the corresponding dataloaders.
+We also define a train_dataloader, val_dataloader, and predict_dataloader methods that return the corresponding dataloaders.
 
 # Models
 
