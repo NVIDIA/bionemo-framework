@@ -15,6 +15,7 @@
 
 """This is intended to be a minimal self-container NeMo2 example."""
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generic, List, Optional, Sequence, Tuple, Type, TypedDict, TypeVar
 
@@ -237,7 +238,12 @@ class MNISTCustomDataset(MNIST):  # noqa: D101
 # Data module needs a data_sampler for handling the mcore strategy nemo2 runner.
 class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
     def __init__(
-        self, data_dir: str = "./", batch_size: int = 32, global_batch_size: int | None = None, output_log: bool = True
+        self,
+        data_dir: str | os.PathLike = str(BIONEMO_CACHE_DIR),
+        batch_size: int = 32,
+        num_workers: int = 0,
+        global_batch_size: int | None = None,
+        output_log: bool = True,
     ) -> None:
         """Initialize class."""
         super().__init__()
@@ -246,7 +252,7 @@ class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
         self.global_batch_size = global_batch_size or batch_size
         self.max_len = 1048  # Unused?
         self.rampup_batch_size = None
-
+        self.num_workers = num_workers
         #  Note that this sampler is sequential, meaning it does not do any shuffling. Let's wrap our data in a shuffler.
         # Wraps the datasampler with the MegatronDataSampler. The MegatronDataSampler is a wrapper that allows the sampler
         # to be used with megatron. It sets up the capability to utilize micro-batching and gradient accumulation. It is also
@@ -287,13 +293,13 @@ class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
         )
 
     def train_dataloader(self) -> DataLoader:  # noqa: D102
-        return DataLoader(self.mnist_train, batch_size=self.micro_batch_size, num_workers=0)
+        return DataLoader(self.mnist_train, batch_size=self.micro_batch_size, num_workers=self.num_workers)
 
     def val_dataloader(self) -> DataLoader:  # noqa: D102
-        return DataLoader(self.mnist_val, batch_size=self.micro_batch_size, num_workers=0)
+        return DataLoader(self.mnist_val, batch_size=self.micro_batch_size, num_workers=self.num_workers)
 
     def predict_dataloader(self) -> DataLoader:  # noqa: D102
-        return DataLoader(self.mnist_test, batch_size=self.micro_batch_size, num_workers=0)
+        return DataLoader(self.mnist_test, batch_size=self.micro_batch_size, num_workers=self.num_workers)
 
 
 #########################################################

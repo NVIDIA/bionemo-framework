@@ -87,7 +87,7 @@ Further `loss_reduction_class()`, `training_loss_reduction()`, `validation_loss_
 # Training the models
 In `bionemo.example_model.lightning.lightning_basic` a checkpoint_callback variable is defined. This enables .nemo file-like checkpointing.
 
-We also specify a training strategy (strategy) of type `nemo.lightning.MegatronStrategy`. This strategy implements model parallelism using NVIDIA's Megatron-LM framework. It supports various forms of parallelism including tensor model parallelism, pipeline model parallelism, sequence parallelism, and expert parallelism for efficient training of large language models.
+We also specify a training strategy of type `nemo.lightning.MegatronStrategy`. This strategy implements model parallelism using NVIDIA's Megatron-LM framework. It supports various forms of parallelism including tensor model parallelism, pipeline model parallelism, sequence parallelism, and expert parallelism for efficient training of large language models.
 
 We specify a trainer of type `nemo.lightning.Trainer`, which is an extension of the pytorch lightning trainer. This is where the devices, validation intervals, maximal steps, maximal number of epochs, and how frequently to log are specified.
 
@@ -109,7 +109,7 @@ This script will print the location of the finetuned directory: <finetune_dir>.
 Finally, we can run a classification task with
 ```
 
-python src/bionemo/example_model/training_scripts/results_mnist.py  --finetune_dir <finetune_dir>.
+python src/bionemo/example_model/training_scripts/predict_mnist.py  --finetune_dir <finetune_dir>.
 ```
 
 The results can be viewed with TensorBoardLogger if that is configured, or as a CSV file created by the CSVLogger.
