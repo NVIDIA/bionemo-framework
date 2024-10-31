@@ -123,6 +123,7 @@ def infer_model(
         include_embeddings=include_embeddings,
         include_hiddens=include_hiddens,
         skip_logits=not include_logits,
+        initial_ckpt_skip_keys_with_these_prefixes=[],  # load everything from the checkpoint.
     )
     # The lightning class owns a copy of the actual model, and a loss function, both of which are configured
     #  and lazily returned by the `geneformer_config` object defined above.
