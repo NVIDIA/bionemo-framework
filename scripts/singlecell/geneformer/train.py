@@ -83,6 +83,7 @@ def main(
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
     config_class: Type[BioBertConfig] = GeneformerConfig,
+    bypass_tokenizer_vocab: bool = False,
     log_every_n_steps: int = 50,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
@@ -207,6 +208,7 @@ def main(
         persistent_workers=num_dataset_workers > 0,
         pin_memory=False,
         num_workers=num_dataset_workers,
+        bypass_tokenizer_vocab=bypass_tokenizer_vocab,
     )
     geneformer_config = config_class(
         # TODO let users set different num layers/model shapes here to support bigger/smaller architectures
@@ -464,6 +466,13 @@ parser.add_argument(
     default=None,
     help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
 )
+parser.add_argument(
+    "--bypass-tokenizer-vocab",
+    type=Path,
+    required=False,
+    default=False,
+    help="Bypass whether the SingleCellDataLoaderhrows an error when a gene ensemble id is not in the tokenizer vocab. Defaults to False (so the error is thrown by default).",
+)
 
 # TODO consider whether nemo.run or some other method can simplify this config class lookup.
 config_class_options: Dict[str, Type[BioBertConfig]] = {
@@ -530,4 +539,5 @@ if __name__ == "__main__":
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
         log_every_n_steps=args.log_every_n_steps,
+        bypass_tokenizer_vocab=args.bypass_tokenizer_vocab,
     )

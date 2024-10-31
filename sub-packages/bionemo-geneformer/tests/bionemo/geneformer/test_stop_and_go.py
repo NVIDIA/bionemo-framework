@@ -46,7 +46,7 @@ from bionemo.testing.harnesses import stop_and_go
 from bionemo.testing.harnesses.mode import Mode
 
 
-DATA_PATH: pathlib.Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
+DATA_PATH: pathlib.Path = load("single_cell/testdata-memmap-format") / "cellxgene_2023-12-15_small_mmap"
 
 MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
 SEQ_LEN: int = 1024
@@ -87,6 +87,7 @@ def geneformer_datamodule(tokenizer, seq_length, median_dict, data_path=DATA_PAT
         persistent_workers=num_dataset_workers > 0,
         pin_memory=False,
         num_workers=num_dataset_workers,
+        bypass_tokenizer_vocab=True,
     )
     return data
 
