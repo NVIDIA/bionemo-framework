@@ -5,9 +5,10 @@
 Bionemo-scdl provides an independent pytorch-compatible dataset class for single cell data with a consistent API. Bionemo-scdl is developed and maintained by NVIDIA. This package can be run independently from bionemo. It improves upon simple AnnData-based dataset classes in the following ways:
 
 - A consistent API across input formats that is promised to be consistent across package versions.
-- Improved performance when loading large datasets.
+- Improved performance when loading large datasets. It allows for loading and fast itteration of large datasets.
+- Ability to use datasets that are much, much larger than memory. This is due to the fact that the datasets are stored in a numpy memory-mapped format.
+- Additionally, conversion of large (significantly larger than memory) anndata files into the SCDL format.
 - [Future] Full support for ragged arrays (i.e., datasets with different feature counts; currently only a subset of the API functionality is supported for ragged arrays).
-- Ability to use datasets that are much, much larger than memory.
 - [Future] Support for improved compression.
 
 Bionemo-scdl's API resembles that of AnnData, so code changes are minimal.
@@ -35,9 +36,16 @@ from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 data = SingleCellMemMapDataset("97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad")
 
 ```
+
+At this point, the `data` variable can be used. In the future, it can be accessed by simply passing in the SCDL location:
+```python
+reloaded_data = SingleCellMemMapDataset("97e_scmm")
+```
+
 This creates a SingleCellMemMapDataset that is stored at 97e_scmm in large, memory-mapped arrays
 that enables fast access of datasets larger than the available amount of RAM on a system.
 
+If the dataset is large, the anndata file can be lazy-loaded and then read in based on chunks of rows in a paginated manner. This can be done by setting the parameters in SingleCellMemMapDataset
 ### Interrogating single cell datasets and exploring the API
 
 ```python
