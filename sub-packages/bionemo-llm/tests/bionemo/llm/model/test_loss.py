@@ -136,20 +136,20 @@ def test_vocab_parallel_cross_entropy_golden_value(seed: int = 42):
 
         # 1. torch.nn.functional
         loss = torch.nn.functional.cross_entropy(
-            input=microbatch_outputs[0]["forward_out"]["token_logits"].permute(1, 2, 0),
-            target=microbatch_outputs[0]["batch"]["labels"].permute(1, 0),
+            input=microbatch_outputs[0]["forward_out"]["token_logits"].transpose(0, 1).contiguous().reshape(1024, 2),
+            target=microbatch_outputs[0]["batch"]["labels"].flatten(),
             reduction="none",
             ignore_index=-100,
-        ).transpose(0, 1)
+        )
 
         # 2. tensor_parallel.vocab_parallel_cross_entropy
         unreduced_token_loss = unreduced_token_loss_fn(
-            logits=microbatch_outputs[0]["forward_out"]["token_logits"].transpose(0, 1).contiguous().clone(),
-            labels=microbatch_outputs[0]["batch"]["labels"].clone(),
+            logits=microbatch_outputs[0]["forward_out"]["token_logits"],
+            labels=microbatch_outputs[0]["batch"]["labels"],
         )
 
         torch.testing.assert_close(
-            unreduced_token_loss,
+            unreduced_token_loss.flatten(),
             loss,
         )
 
