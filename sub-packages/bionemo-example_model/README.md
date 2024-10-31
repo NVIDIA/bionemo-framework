@@ -69,7 +69,7 @@ Similarly, `ExampleFineTuneConfig` extends `ExampleGenericConfig` for finetuning
 
 # Training Module
 
-It is helfpul to have a training module that interits `pl.LightningModule` which organizes the model architecture, training, validation, and testing logic while abstracting away boilerplate code, enabling easier and more scalable training. This wrapper can be used for all model and loss combinations specified in the config.
+It is helfpul to have a training module that inherits from `pl.LightningModule` which organizes the model architecture, training, validation, and testing logic while abstracting away boilerplate code, enabling easier and more scalable training. This wrapper can be used for all model and loss combinations specified in the config.
 Here, we define `BionemoLightningModule`.
 
 In this example, training_step and predict_step define the training, validation, and prediction loops are independent of the forward method. In nemo:
