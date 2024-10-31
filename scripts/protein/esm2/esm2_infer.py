@@ -128,6 +128,7 @@ def infer_model(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         initial_ckpt_path=str(checkpoint_path),
+        initial_ckpt_skip_keys_with_these_prefixes=[],  # load everything from the checkpoint.
     )
 
     tokenizer = get_tokenizer()
