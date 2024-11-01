@@ -117,7 +117,7 @@ def batch_collator(batches: Optional[Union[Tuple[ReductionT], List[ReductionT]]]
             return tuple(batch_collator([batch[i] for batch in batches]) for i in range(len(batches[0])))
         case [list(), *_]:
             return [batch_collator([batch[i] for batch in batches]) for i in range(len(batches[0]))]
-        case None:
+        case [None, *_]:
             return None
         case []:
             raise ValueError("Cannot process an empty sequence")

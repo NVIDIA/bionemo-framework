@@ -71,8 +71,10 @@ class ESM2Model(MegatronBioBertModel):
         seq_len_interpolation_factor: Optional[float] = None,
         add_binary_head: bool = True,
         return_embeddings: bool = False,
+        include_embeddings: bool = False,
         use_full_attention_mask: bool = False,
         include_hiddens: bool = False,
+        skip_logits: bool = False,
     ) -> None:
         """Initialize the ESM2 model.
 
@@ -95,8 +97,10 @@ class ESM2Model(MegatronBioBertModel):
             seq_len_interpolation_factor (Optional[float]): Interpolation factor for sequence length. Defaults to None.
             add_binary_head (bool): Whether to add a binary head. Defaults to True.
             return_embeddings (bool): Whether to return embeddings. Defaults to False.
+            include_embeddings (bool): Whether to include embeddings in the output dictionary. Defaults to False.
             use_full_attention_mask (bool): Whether to use full attention mask. Defaults to False.
-            include_hiddens: Whether to include hidden states in the output dictionary. Defaults to False.
+            include_hiddens (bool): Whether to include hidden states in the output dictionary. Defaults to False.
+            skip_logits (bool): Skip writing the token logits in output dict
         """
         super(MegatronBioBertModel, self).__init__(config=config)
         self.post_process = post_process
@@ -119,7 +123,9 @@ class ESM2Model(MegatronBioBertModel):
         self.position_embedding_type = position_embedding_type
         self.add_binary_head = add_binary_head
         self.return_embeddings = return_embeddings
+        self.include_embeddings = include_embeddings
         self.include_hiddens = include_hiddens
+        self.skip_logits = skip_logits
 
         # megatron core pipelining currently depends on model type
         self.model_type = ModelType.encoder_or_decoder
@@ -312,6 +318,8 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     # TODO (@jstjohn) come up with a cleaner way in the biobert module to return user requested
     #  things as part of the workflow for inference and fine-tuning.
     return_embeddings: bool = False
+    include_embeddings: bool = False
+    skip_logits: bool = False
     return_only_hidden_states: bool = False  # return logits
 
     def __post_init__(self):
