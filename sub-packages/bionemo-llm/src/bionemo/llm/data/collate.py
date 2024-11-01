@@ -54,7 +54,7 @@ def padding_collate_fn(
                 extra_keys = {k for k in entry.keys() if k not in padding_values}
                 missing_keys = {k for k in padding_values.keys() if k not in entry}
                 logger.warning(
-                    f"Extra keys in batch that will not be padded: {extra_keys}. Extra keys in batch: {missing_keys}"
+                    f"Extra keys in batch that will not be padded: {extra_keys}. Missing keys in batch: {missing_keys}"
                 )
                 _warned_once = True
 

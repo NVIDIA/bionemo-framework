@@ -48,7 +48,7 @@ def test_padding_collate_with_missing_key_warns(caplog):
     log_lines = caplog.text.strip("\n").split("\n")
     assert len(log_lines) == 1, f"Expected one line, got: {log_lines}"
     assert log_lines[0].endswith(
-        "Extra keys in batch that will not be padded: set(). Extra keys in batch: {'other_key'}"
+        "Extra keys in batch that will not be padded: set(). Missing keys in batch: {'other_key'}"
     )
     assert log_lines[0].startswith("WARNING")
 
