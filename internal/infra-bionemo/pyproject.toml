@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "infra-bionemo"
 version = "0.1.0"
-authors = []
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 description = "Internal library of utilities and programs for BioNeMo-related infrastructure."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,18 +16,17 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Private :: Do Not Upload",
 ]
-dynamic = ["dependencies"]
+dependencies = [
+    "click>=8.1.7,<9.0.0",
+    "tomli>=2.0.2",
+    "tomli_w>=1.1.0",
+]
 
 [project.scripts]
 license-check = "infra_bionemo.license_check:entrypoint"
 create-bionemo-project = "infra_bionemo.new_project.exe.bionemo_subpackage:entrypoint"
 create-py-project = "infra_bionemo.new_project.exe.simple:entrypoint"
 create-namespaced-project = "infra_bionemo.new_project.exe.namespace:entrypoint"
-
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
-# NOTE: Since this project uses the popular src-layout convention, packages are automatically
-#       discovered. All packages that are subject to distribution live under src/.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
