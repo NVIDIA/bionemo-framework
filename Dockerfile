@@ -172,6 +172,7 @@ FROM dev AS development
 
 WORKDIR /workspace/bionemo2
 COPY --from=bionemo2-base /workspace/bionemo2/ .
+COPY ./internal ./internal
 # because of the `rm -rf ./3rdparty` in bionemo2-base
 COPY ./3rdparty ./3rdparty
 USER root
