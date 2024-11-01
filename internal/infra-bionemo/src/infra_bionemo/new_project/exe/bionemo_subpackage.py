@@ -127,7 +127,13 @@ def _add_dependency(bionemo_fw_pyproject_toml: Path, full_project_name: str) -> 
             "bionemo-fw's pyproject.toml is invalid! No project.dependencies section found in: "
             f"{bionemo_fw_pyproject_toml}"
         )
-    fw_toml["projects"]["dependencies"].append(full_project_name)
+    if not isinstance(fw_toml["project"]["dependencies"], list):
+        raise ValueError(
+            "bionemo-fw's pyproject.toml is invalid! The project.dependencies section is not a list, it is a "
+            f'{type(fw_toml["project"]["dependencies"])=}, found in: '
+            f"{bionemo_fw_pyproject_toml}"
+        )
+    fw_toml["project"]["dependencies"].append(full_project_name)
 
     fw_toml_s = tomli_w.dumps(fw_toml)
     with open(str(bionemo_fw_pyproject_toml), "wt") as wt:
