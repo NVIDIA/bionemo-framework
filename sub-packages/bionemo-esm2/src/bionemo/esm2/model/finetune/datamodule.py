@@ -49,7 +49,8 @@ class InMemoryCSVDataset(Dataset):
     ):
         """Initializes a dataset for single-value regression fine-tuning.
 
-        This is an in-memory dataset that does not apply masking to the sequence.
+        This is an in-memory dataset that does not apply masking to the sequence. But keeps track of <mask> in the
+        dataset sequences provided.
 
         Args:
             data_path (str | os.PathLike): A path to the CSV file containing sequences.
@@ -143,9 +144,6 @@ class ESM2FineTuneDataModule(MegatronDataModule):
         persistent_workers: bool = True,
         pin_memory: bool = True,
         rampup_batch_size: list[int] | None = None,
-        mask_prob: float = 0.15,
-        mask_token_prob: float = 0.8,
-        mask_random_prob: float = 0.1,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
     ) -> None:
         """Initialize the ESM2FineTuneDataModule.
@@ -163,9 +161,6 @@ class ESM2FineTuneDataModule(MegatronDataModule):
             persistent_workers: Whether to persist the worker processes. Defaults to True.
             pin_memory: Whether to pin the data in memory. Defaults to True.
             rampup_batch_size: The batch size ramp-up schedule. Defaults to None.
-            mask_prob: The probability of masking a token. Defaults to 0.15.
-            mask_token_prob: The probability of replacing a masked token with a [MASK] token. Defaults to 0.8.
-            mask_random_prob: The probability of replacing a masked token with a random token. Defaults to 0.1.
             tokenizer: The tokenizer to use for tokenization. Defaults to the BioNeMoESMTokenizer.
 
         Returns:
@@ -180,9 +175,6 @@ class ESM2FineTuneDataModule(MegatronDataModule):
         self._seed = seed
         self._min_seq_length = min_seq_length
         self._max_seq_length = max_seq_length
-        self._mask_prob = mask_prob
-        self._mask_token_prob = mask_token_prob
-        self._mask_random_prob = mask_random_prob
         self._tokenizer = tokenizer
 
         self._micro_batch_size = micro_batch_size
