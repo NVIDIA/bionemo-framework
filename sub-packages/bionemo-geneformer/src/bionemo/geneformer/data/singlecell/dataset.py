@@ -87,6 +87,7 @@ class SingleCellDataset(Dataset):
         mask_token_prob: float = 0.8,
         random_token_prob: float = 0.1,
         prepend_cls_token: bool = True,
+        eos_token: int | None = None,
         assert_increasing_columns: bool = True,
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
@@ -98,6 +99,7 @@ class SingleCellDataset(Dataset):
         self.mask_prob = mask_prob
         self.prepend_cls_token = prepend_cls_token
         self._seed = seed
+        self.eos_token = eos_token
         # check if column indices are increasing for looking up genes. This is a way of spotting if the sc_memmap.py
         #  script produced properly strctured sparse files.
         self.assert_increasing_columns = assert_increasing_columns
@@ -210,6 +212,7 @@ class SingleCellDataset(Dataset):
             mask_prob=self.mask_prob,
             random_token_prob=self.random_token_prob,
             prepend_cls_token=self.prepend_cls_token,
+            eos_token=self.eos_token,
         )
 
 
@@ -227,6 +230,7 @@ def process_item(  # noqa: D417
     target_sum: int = 10000,
     normalize: bool = True,
     prepend_cls_token: bool = True,
+    eos_token: None | int = None,
 ) -> types.BertSample:
     """Process a single item in the dataset.
 
@@ -308,7 +312,7 @@ def process_item(  # noqa: D417
                 labels=labels,
                 loss_mask=loss_mask,
                 cls_token=tokenizer.token_to_id(tokenizer.cls_token),
-                eos_token=None,
+                eos_token=eos_token,
             )
 
         # NeMo megatron assumes this return structure.
