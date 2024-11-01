@@ -233,6 +233,7 @@ class MegatronBioBertModel(LanguageModule):
                 self.vocab_size,
                 config=config,
                 init_method=config.init_method,
+                is_expert=False,
                 bias=True,
                 skip_bias_add=False,
                 gather_output=not self.parallel_output,
@@ -290,7 +291,6 @@ class MegatronBioBertModel(LanguageModule):
         seq_length = token_ids.size(1)
         position_ids = torch.arange(seq_length, dtype=torch.long, device=token_ids.device)
         position_ids = position_ids.unsqueeze(0).expand_as(token_ids)
-
         return position_ids
 
     def embedding_forward(
@@ -379,6 +379,7 @@ class MegatronBioBertModel(LanguageModule):
             inference_params=inference_params,
             rotary_pos_emb=rotary_pos_emb,
         )
+
         if not self.post_process:
             return hidden_states
 
@@ -410,8 +411,7 @@ class MegatronBioBertModel(LanguageModule):
         if self.binary_head is not None:
             binary_logits = self.binary_head(pooled_output)
 
-        # [s b h] => [b s h]  # move batch to the first dimension after forward
-        logits = logits.transpose(0, 1).contiguous()
+        # [s b h], the loss downstream will move this into b,s
         output = {"token_logits": logits, "binary_logits": binary_logits}
         if self.include_hiddens:
             output["hidden_states"] = hidden_states.transpose(0, 1).contiguous()  # [s b h] => [b s h]
@@ -489,7 +489,6 @@ class BioBertConfig(
         # The local specs all require the standard full attention mask. For transformer engine only the NVTE_FLASH_ATTN=0
         #  option requires this full attention mask.
         use_full_attention_mask: bool = "transformer_engine" not in self.biobert_spec_option
-
         do_next_sentence = False
         if self.model_cls is None:
             raise ValueError(
