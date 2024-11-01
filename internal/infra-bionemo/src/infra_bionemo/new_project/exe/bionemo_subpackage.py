@@ -81,7 +81,8 @@ def main(*, project_name: str, loc_sub_pack: str, relax_name_check: bool) -> Non
     check(project_name)
 
     internal_deps = []
-    for component in ["bionemo-llm", "bionemo-geometric"]:
+    # UPDATE THIS LIST WITH NEW bionemo-* COMPONENT LIBRARIES!
+    for component in ["bionemo-llm"]:
         if ask_yes_or_no(f"🤔 Do you want to depend on {component} ?"):
             internal_deps.append(f"-e ../{component}")
 
