@@ -29,17 +29,10 @@ from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.data.load import load
 
 
-@pytest.fixture
-def data_path() -> Path:
-    """Gets the path to the directory with with cellx small dataset in Single Cell Memmap format.
-
-    Returns:
-        A Path object that is the directory with the specified test data.
-    """
-    return load("single_cell/testdata-memmap-format") / "cellxgene_2023-12-15_small_mmap"
+data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
 
 
-def test_bionemo2_rootdir(data_path):
+def test_bionemo2_rootdir():
     data_error_str = (
         "Please download test data with:\n"
         "`python scripts/download_artifacts.py --models all --model_dir ./models --data all --data_dir ./ --verbose --source pbss`"
@@ -49,7 +42,7 @@ def test_bionemo2_rootdir(data_path):
 
 
 @pytest.mark.skip("duplicate unittest")
-def test_main_runs(tmpdir, data_path):
+def test_main_runs(tmpdir):
     result_dir = Path(tmpdir.mkdir("results"))
 
     with megatron_parallel_state_utils.distributed_model_parallel_state():
@@ -93,7 +86,7 @@ def test_main_runs(tmpdir, data_path):
     ).is_file(), "Could not find experiment log."
 
 
-def test_pretrain_cli(tmpdir, data_path):
+def test_pretrain_cli(tmpdir):
     result_dir = Path(tmpdir.mkdir("results"))
     open_port = find_free_network_port()
     # NOTE: if you need to change the following command, please update the README.md example.
@@ -111,8 +104,7 @@ def test_pretrain_cli(tmpdir, data_path):
     --seq-length 128 \
     --limit-val-batches 2 \
     --micro-batch-size 2 \
-    --accumulate-grad-batches 2 \
-    --bypass-tokenizer-vocab True \
+    --accumulate-grad-batches 2
     """.strip()
     env = dict(**os.environ)  # a local copy of the environment
     env["MASTER_PORT"] = str(open_port)

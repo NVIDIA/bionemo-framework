@@ -261,6 +261,17 @@ pip install -r dev-requirements.txt --user
 python ./scripts/license_check.py --modify --replace --license-header ./license_header -c sub-packages/ -c docs/ -c scripts/ -c ci/ -c internal/
 ```
 
+## Updating the secrets baseline file
+
+If false-positives are raised by the [detect-secrets](https://github.com/Yelp/detect-secrets) pre-commit hook, they can
+be added to the baseline files by running the following commands:
+
+```bash
+detect-secrets scan --baseline .secrets.baseline --exclude-files '(.*\.ipynb|.*\.baseline)$'
+detect-secrets scan --baseline .secrets-nb.baseline --exclude-files '^.(?!.*\.ipynb)' --exclude-lines '"(hash|id|image/\w+)":.*'
+```
+
+The resulting altered baseline files should then be committed.
 
 # UV-based python packaging
 
