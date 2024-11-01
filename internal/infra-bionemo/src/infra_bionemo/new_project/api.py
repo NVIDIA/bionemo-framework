@@ -23,7 +23,7 @@ from typing import List, Sequence
 from infra_bionemo.license_check import is_valid_python
 from infra_bionemo.new_project.templates import (
     pyproject_toml_setuptools,
-    pyproject_toml_uv_setuptools,
+    pyproject_toml_subproject,
     pytest_example,
     readme_md,
     requirements_txt,
@@ -35,6 +35,7 @@ __all__: Sequence[str] = (
     "File",
     "Dir",
     "create_on_filesystem",
+    "bionemo_subproject_structure",
     "namespace_py_project_structure",
     "py_project_structure",
     "check",
@@ -104,7 +105,6 @@ def namespace_py_project_structure(
     add_test_reqs: bool = False,
     add_dev_reqs: bool = False,
     prefix_test_dirs: bool = False,
-    use_uv: bool = False,
 ) -> Dir:
     """Virtual representation of files and folders for a namespaced Python project.
 
@@ -135,7 +135,6 @@ def namespace_py_project_structure(
         add_dev_reqs: If true, includes a `File` for `requirements-dev.txt` populated with `ruff` & `ipdb`.
         prefix_test_dirs: If present, then "test_" is prefixed to the name of each directory created under `tests/`
                           with "_" as the word separator.
-        use_uv: If true, adds support for using uv. Otherwise, uses setuptools only.
 
     Returns:
         Virtual representation of simple Python project on a filesystem.
@@ -159,7 +158,7 @@ def namespace_py_project_structure(
             File("README.md", readme_md(base_module, project_name)),
             File(
                 "pyproject.toml",
-                (pyproject_toml_uv_setuptools if use_uv else pyproject_toml_setuptools)(module_name, project_name),
+                pyproject_toml_setuptools(module_name, project_name),
             ),
             File("requirements.txt", requirements_txt(dependencies)),
             Dir(
@@ -207,6 +206,96 @@ def namespace_py_project_structure(
     return project
 
 
+def bionemo_subproject_structure(
+    base_name: str,
+    project_module_name: str,
+    internal_dependencies: List[str],
+) -> Dir:
+    """Virtual representation of files and folders for a bionemo sub-project Python project.
+
+    The returned `Dir` represents the entire directory containing a namespaced Python project. Such a project needs
+    things like a place to store the Python packages and modules (`src/`), a place for unit tests (`tests/`),
+    files to list project infrastructure (`pyproject.toml`) and documentation (`README.md`).
+
+    It also needs to have the right directory setup to support PEP 420 namespace packages. Of note, the `src/`
+    directory will contain a directory for the namespace (`base_name`) that will **not** have a `__init__.py` file.
+    However, its sub-package directories (first, the Python-friendly version of `project_module_name`) **will** have
+    `__init__.py` files like regular Python packages do.
+
+    Note, unlike :func:`py_project_structure`, this function defaults to exclude the test & development dependencies
+    under `requirements-test.txt` and `requirements-dev.txt`, respectively. Additionally, this function will include the
+    `setup.py` file by default.
+
+    Args:
+        base_name: The namespace package name. The import name for the project will follow `base_name.*`.
+                   Note, however, that when used as a Python name, this value will have `-` converted to `_`.
+        project_module_name: Used in the project infrastructure & documentation files. It's also used to create the
+                             first differentiated namespaced Python package and initial unit test file. This will be
+                             the first sub-package created under the `base_name` namespace. Note, however, that when
+                             used as a Python name, this value will have `-` converted to `_`.
+        internal_dependencies: Other bionemo subprojects to depend on.
+
+    Returns:
+        Virtual representation of simple Python project on a filesystem.
+
+    Raises:
+        ValueError If the :param:`base_name` or :param:`project_module_name` is not a valid Python identifier.
+        ValueError If the :param:`internal_dependeices` are not all bionemo sub-projects.
+    """
+    check(base_name)
+    check(project_module_name)
+
+    project_name = f"{base_name}-{project_module_name}"
+
+    base_module = convert(base_name)
+    module_name = convert(project_module_name)
+
+    project = Dir(
+        name=project_name,
+        contents=[
+            File("README.md", readme_md(base_module, project_name)),
+            File(
+                "pyproject.toml",
+                pyproject_toml_subproject(module_name, internal_dependencies),
+            ),
+            Dir(
+                "src",
+                contents=[
+                    Dir(
+                        name=base_module,
+                        contents=[
+                            Dir(
+                                name=module_name,
+                                contents=[
+                                    File("__init__.py", contents=""),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            ),
+            Dir(
+                "tests",
+                contents=[
+                    Dir(
+                        name=f"{base_module}",
+                        contents=[
+                            Dir(
+                                name=f"{module_name}",
+                                contents=[
+                                    File(f"test_TODO_{base_module}_{module_name}.py", contents=pytest_example())
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            ),
+        ],
+    )
+
+    return project
+
+
 def py_project_structure(
     project_name: str,
     dependencies: List[str],
@@ -214,7 +303,6 @@ def py_project_structure(
     add_test_reqs: bool = True,
     add_dev_reqs: bool = True,
     prefix_test_dirs: bool = True,
-    use_uv: bool = False,
 ) -> Dir:
     """Virtual representation of files and folders for a simple, non-namespaced Python project.
 
@@ -236,7 +324,6 @@ def py_project_structure(
         add_dev_reqs: If true, includes a `File` for `requirements-dev.txt` populated with `ruff` & `ipdb`.
         prefix_test_dirs: If present, then "test_" is prefixed to the name of each directory created under `tests/`
                            with "_" as the word separator.
-        use_uv: If true, adds support for using uv. Otherwise, uses setuptools only.
 
     Returns:
         Virtual representation of simple Python project on a filesystem.
@@ -256,7 +343,7 @@ def py_project_structure(
             File("README.md", readme_md(module_name, project_name)),
             File(
                 "pyproject.toml",
-                (pyproject_toml_uv_setuptools if use_uv else pyproject_toml_setuptools)(module_name, project_name),
+                pyproject_toml_setuptools(module_name, project_name),
             ),
             File("requirements.txt", requirements_txt(dependencies)),
             Dir(

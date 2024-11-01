@@ -14,7 +14,7 @@
 # limitations under the License.
 import sys
 from string import Template
-from typing import List, Sequence
+from typing import Sequence
 
 
 __all__: Sequence[str] = (
@@ -49,12 +49,12 @@ def pyproject_toml_setuptools(package_name: str, project_name: str) -> str:
         raise ValueError("😱 Creation of pyproject.toml failed!") from e
 
 
-def pyproject_toml_subproject(package_name: str, internal_deps: Sequence[str]) -> str:
+def pyproject_toml_subproject(package_name: str, internal_dependencies: Sequence[str]) -> str:
     """A pyproject.toml suitable as a bionemo sub-project.
 
     Args:
         package_name: name of the project's Python package.
-        internal_deps: list of other bionemo sub-projects to depend on.
+        internal_dependencies: list of other bionemo sub-projects to depend on.
 
     Returns:
         pyproject.toml contents that configure all aspects of the Python project. Uses setuptools and uv.
@@ -64,7 +64,7 @@ def pyproject_toml_subproject(package_name: str, internal_deps: Sequence[str]) -
         ValueError if providing a non-bionemo internal dependency.
     """
     ok_internal_deps = []
-    for x in internal_deps:
+    for x in internal_dependencies:
         x = x.strip()
         if len(x) == 0 or not x.startswith("bionemo-"):
             raise ValueError(f"Invalid internal dependency: {x}")
@@ -87,7 +87,7 @@ def setup_py() -> str:
     return _setup_py
 
 
-def requirements_txt(packages: List[str]) -> str:
+def requirements_txt(packages: Sequence[str]) -> str:
     """Contents of a simple requirements.txt style list of Python package dependencies."""
     return "\n".join(packages)
 
