@@ -52,7 +52,6 @@ def infer_model(
     include_embeddings: bool = False,
     include_logits: bool = False,
     micro_batch_size: int = 64,
-    accumulate_grad_batches: int = 1,
     precision: PrecisionTypes = "bf16-mixed",
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
@@ -70,7 +69,6 @@ def infer_model(
         include_hiddens (bool, optional): Whether to include hidden states in the output. Defaults to False.
         include_embeddings (bool, optional): Whether to include embeddings in the output. Defaults to False.
         micro_batch_size (int, optional): Micro batch size for inference. Defaults to 64.
-        accumulate_grad_batches (int, optional): Number of batches to accumulate gradients (not applicable for inference). Defaults to 1.
         precision (PrecisionTypes, optional): Precision type for inference. Defaults to "bf16-mixed".
         tensor_model_parallel_size (int, optional): Tensor model parallel size for distributed inference. Defaults to 1.
         pipeline_model_parallel_size (int, optional): Pipeline model parallel size for distributed inference. Defaults to 1.
@@ -89,7 +87,6 @@ def infer_model(
         micro_batch_size=micro_batch_size,
         num_nodes=num_nodes,
         devices=devices,
-        accumulate_grad_batches=accumulate_grad_batches,
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
     )
@@ -155,7 +152,6 @@ def esm2_infer_entrypoint():
         include_embeddings=args.include_embeddings,
         include_logits=args.include_logits,
         micro_batch_size=args.micro_batch_size,
-        accumulate_grad_batches=args.accumulate_grad_batches,
         precision=args.precision,
         tensor_model_parallel_size=args.tensor_model_parallel_size,
         pipeline_model_parallel_size=args.pipeline_model_parallel_size,
@@ -239,13 +235,6 @@ def get_parser():
     )
     parser.add_argument(
         "--include-logits", action="store_true", default=False, help="Include per-token logits in output."
-    )
-    parser.add_argument(
-        "--accumulate-grad-batches",
-        type=int,
-        required=False,
-        default=1,
-        help="Gradient accumulation steps. Global batch size is inferred from this.",
     )
     config_class_options: Dict[str, Type[BioBertConfig]] = SUPPORTED_CONFIGS
 
