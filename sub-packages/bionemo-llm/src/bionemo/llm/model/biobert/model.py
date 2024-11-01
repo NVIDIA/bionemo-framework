@@ -423,9 +423,6 @@ class MegatronBioBertModel(LanguageModule):
         if self.binary_head is not None:
             binary_logits = self.binary_head(pooled_output)
 
-        # [s b h] => [b s h]  # move batch to the first dimension after forward
-        if logits is not None:
-            logits = logits.transpose(0, 1).contiguous()
         output = {"token_logits": logits, "binary_logits": binary_logits}
         if self.include_hiddens:
             output["hidden_states"] = hidden_states.transpose(0, 1).contiguous()  # [s b h] => [b s h]
