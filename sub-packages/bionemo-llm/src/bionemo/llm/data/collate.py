@@ -48,7 +48,14 @@ def padding_collate_fn(
         A collated batch with the same dictionary input structure.
     """
     global _warned_once
+    keys: set[str] | None = None
     for entry in batch:
+        # First check that we have sane batches where keys align with each other.
+        if keys is None:
+            keys = set(entry.keys())
+        else:
+            if set(entry.keys()) != keys:
+                raise ValueError(f"All keys in inputs must match each other. Got: {[sorted(e.keys()) for e in batch]}")
         if entry.keys() != padding_values.keys():
             if not _warned_once:
                 extra_keys = {k for k in entry.keys() if k not in padding_values}
