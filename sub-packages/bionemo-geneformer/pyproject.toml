@@ -14,6 +14,7 @@ dependencies = [
     # bionemo sub-packages
     'bionemo-core',
     'bionemo-llm',
+    'bionemo-testing',  # needed for getting the tokenizer from NGC
     # external
     'cellxgene_census',
 ]
