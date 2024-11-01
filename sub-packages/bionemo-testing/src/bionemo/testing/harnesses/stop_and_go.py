@@ -14,94 +14,85 @@
 # limitations under the License.
 
 
+import pathlib
+import tempfile
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Any, Callable, Literal, Sequence, TypedDict
+from typing import Dict, Literal, Sequence, Type, TypeVar
 
 import nemo.lightning as nl
+import pytest
 import pytorch_lightning as pl
 from nemo.collections import llm
-from nemo.lightning import nemo_logger, resume
+from nemo.lightning import resume
+from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.strategies import MegatronStrategy
+from nemo.utils import logging
 
-from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.testing import testing_callbacks
+from bionemo.testing.harnesses.mode import Mode
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
+from bionemo.testing.torch import recursive_assert_approx_equal
 
 
-__all__: Sequence[str] = (
-    "get_learning_rate",
-    "get_global_step",
-    "StopAndGoHarness",
-    "MetricsFn",
-    "MetricsDict",
-)
-
-MetricsFn = Callable[[pl.Trainer, pl.LightningModule], Any]
-"""A metrics producing function."""
+__all__: Sequence[str] = ("StopAndGoHarness", "get_callback", "CallbackDict")
 
 
-class MetricsDict(TypedDict):
-    """Default metrics dict."""
-
-    global_step: MetricsFn
-    learning_rate: MetricsFn
+Callback = TypeVar("Callback", bound=pl.Callback)
+CallbackDict = Dict[Mode, Dict[Type[pl.Callback], pl.Callback]]
 
 
-def get_learning_rate(trainer: pl.Trainer, model: pl.LightningModule) -> Any:
-    """Returns the learning rate of the model.
+def get_callback(callbacks: CallbackDict, mode: Mode, callback_type: Type[Callback]) -> Callback:
+    """Returns the callback with the given name and mode.
+
+    Convenience function to make type hinting easier.
 
     Args:
-        trainer (pl.Trainer): The PyTorch Lightning trainer.
-        model (pl.LightningModule): The PyTorch Lightning model.
+        callbacks: The dictionary of callbacks.
+        mode: The mode indicating whether to stop or go.
+        callback_type: The type of the callback.
 
     Returns:
-        Any: The learning rate of the model.
+        pl.Callback: The callback with the given name and mode.
     """
-    return trainer.optimizers[0].param_groups[0]["lr"]
-
-
-def get_global_step(trainer: pl.Trainer, model: pl.LightningModule) -> Any:
-    """Returns the global step of the model.
-
-    Args:
-        trainer (pl.Trainer): The PyTorch Lightning trainer.
-        model (pl.LightningModule): The PyTorch Lightning model.
-
-    Returns:
-        Any: The global step of the model.
-    """
-    return trainer.global_step
+    return callbacks[mode][callback_type]  # type: ignore
 
 
 class StopAndGoHarness(ABC):
-    """Abstract base class for a stop-and-go harness.
+    """Abstract base class for testing consistency between interrupted and continuous training.
+
+    Users should override cls.setup_model and update cls.setup_class to customize the downstream test cases. Metadata
+    are collected through callbacks and users can add new unit tests by comparing the metadata for the interrupted and
+    continuous cases.
+
+    By default, learning rate, global step, optimizer state, consumed samples, input and output tensors, and loss are
+    compared. Users can add additional metrics by adding new callbacks to `cls.callbacks` and associated test functions.
 
     Stop and go tests act as follows:
-        - setup a clean model for a brief training run, select metrics to track.
-        - interrupt training via the StopAndGoException in the callback InterruptAfterMetadataCallback.
-        - setup a model to be resumed from the checkpoint, with the same metrics.
-        - Restore training and check that metadta matches the stored metrics in the callback CheckpointIntegrityCallback.
-      Useful metrics to check are things like learning rate, global step, validation loss, training loss, and anything
-        else that is important to the training process. If there is an unavailable metrics, a method for fetching the
-        metric should be provided in the bionemo.testing.callbacks module.
+        - setup a clean model for a brief training run, set callbacks to track.
+        - interrupt training via the StopAndGoException in the callback Raise.
+        - train the model resumed from the checkpoint with the same set of callbacks.
+        - train the model continuously without interruption with a new set of the same callbacks.
+        - compare each pair of interrupted and continuous callbacks to check for equality.
 
     Considerations when implementing this class:
+        - The derived test name should start with `Test`, and test methods should start with `test_` to enable pytest
+          discovery.
         - devices, pipeline_model_parallel, and tensor_model_parallel may impact the setup of DataModule. Certain
-            datasets expect a known global batch size, which depends on the number of devices and conditional
-            tensor model parallel/ pipeline model parallel settings.
+            datasets expect a known global batch size, which depends on the number of devices and conditional tensor
+            model parallel/ pipeline model parallel settings. By default, we are testing only on single device without
+            parallelism.
         - 'mode' is useful in some cases, but not in all cases. Implement conditions based on these when useful. As an
-            example, it may be useful to implement a test that stops and resumes with different parallelism settings.
+            example, it may be useful to implement a test that stops and resumes.
             - changing callbacks to test metadata integrity (core feature of stop-and-go tests).
-            - changing trainer behavior to use multiple GPUs
             - changing the model construction to use different hyperparameters.
             - ... etc
             Each of the above tests cases may be useful for automated testing of various expected behavior.
-        - stop(), go(), and run_test() are provided methods which execute the actual tests, leveraging the conditions
-            in the various setup methods, respecting 'mode' where necessary.
+        - stop(), resume(), continuous() or collectively run_stop_and_go() are provided methods which execute the actual
+          tests, leveraging the conditions in the various setup methods, respecting 'mode' where necessary.
 
     Attributes:
-        root_di: The root directory.
+        root_dir: The root directory.
         val_check_interval: The validation check interval. Stored as an attribute to ensure consistency.
         exp_name: The experiment name.
         extra_metrics_dict: A dictionary of metrics and their corresponding functions.
@@ -109,33 +100,32 @@ class StopAndGoHarness(ABC):
     See Also: bionemo.testing.callbacks.
     """
 
-    def __init__(
-        self,
-        root_dir: Path | str = BIONEMO_CACHE_DIR,
-        val_check_interval: int = 2,
-        exp_name: str = "stop_and_go_harness",
-        extra_metrics_dict: dict[str, MetricsFn] | None = None,
-    ):
-        """Initializes the StopAndGoHarness object.
+    # class variables that need to be overridden
+    num_steps: int
+    val_check_interval: int
+    limit_val_batches: int
+    lr: float = 1e-4
+    precision: Literal["16-mixed", "bf16-mixed", "32"]
 
-        Args:
-            root_dir: The root directory. Defaults to Path("./").
-            val_check_interval: The validation check interval. Defaults to 2.
-            exp_name: The experiment name. Defaults to "stop_and_go_harness".
-            extra_metrics_dict: A dictionary that maps keys to 'functions capable of computing metrics in a callback.'
-                Callbacks typically have an interface where both the Trainer and LightningModule are available, meaning any metric that
-                can be computed using these are viable functions to pass in to this dictionary. By default 'global_step' and 'learning_rate' are available.
-        """
-        self.root_dir = Path(root_dir)  # Set to bionemo2_home ideally.
-        self.exp_name = exp_name
-        self.metadata_dir = self.root_dir / self.exp_name
-        self.metrics_getter: dict[str, MetricsFn] = dict(**self.get_default_metrics_dict())
-        if extra_metrics_dict is not None:
-            self.metrics_getter.update(extra_metrics_dict)
-        self.val_check_interval = val_check_interval
-        self.nemo_logger: nemo_logger.NeMoLogger = nemo_logger.NeMoLogger(
-            log_dir=str(self.root_dir),
-            name=self.exp_name,
+    # class variables that will be setup in setUpClass
+    tempdir: tempfile.TemporaryDirectory
+    metadata_dir: pathlib.Path
+    exp_name: str
+    callbacks: CallbackDict
+    nemo_logger: NeMoLogger
+
+    @classmethod
+    def setup_class(cls) -> None:
+        """Sets up the class by creating a temporary directory, metadata_dir, exp_name and callbacks."""
+        cls.tempdir = tempfile.TemporaryDirectory()
+        cls.metadata_dir = pathlib.Path(cls.tempdir.name) / "metadata"
+        cls.exp_name = cls.__name__
+
+        cls.callbacks = cls.get_default_callbacks()
+
+        cls.nemo_logger = NeMoLogger(
+            log_dir=cls.tempdir.name,
+            name=cls.exp_name,
             use_datetime_version=False,
             version=None,
             tensorboard=None,
@@ -143,14 +133,18 @@ class StopAndGoHarness(ABC):
             ckpt=None,
         )
 
+    @classmethod
+    def teardown_class(cls) -> None:
+        """Tears down the class by cleaning up the temporary directory."""
+        cls.tempdir.cleanup()
+
+    @classmethod
     @abstractmethod
-    def setup_model(
-        self, mode: Literal["stop", "go"]
-    ) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
+    def setup_model(cls, mode: Mode) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
         """Constructs the model, data, and optimizer for the test harness.
 
-        Optionally supports separate code paths for 'stop'/'go', although implementors are
-        encouraged to use the same code path for both.
+        Optionally supports separate code paths for 'stop'/'resume'/'continuous', although implementors are encouraged
+        to use the same code path for both.
 
         Args:
             mode: The mode indicating whether to stop or go.
@@ -160,105 +154,120 @@ class StopAndGoHarness(ABC):
         """
         raise NotImplementedError()
 
-    @abstractmethod
-    def setup_trainer_and_strategy(
-        self, mode: Literal["stop", "go"], metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
-    ) -> pl.Trainer:
-        """Constructs the trainer object for the stop and go test.
-
-        This method invokes the get_callbacks method to get the appropriate callbacks for the mode and passes it to the trainer.
+    @classmethod
+    def setup_trainer(
+        cls,
+        mode: Mode,
+    ) -> nl.Trainer:
+        """Setup trainer by passing stop, resume, or continuous callbacks according to mode.
 
         Args:
-            mode: The mode indicating whether to stop or go.
-            metrics_getter: A dictionary of functions that computes the metrics.
-        """
-        raise NotImplementedError()
-
-    def get_default_metrics_dict(self) -> MetricsDict:
-        """Returns a dictionary of default metrics that can be used in the StopAndGoHarness.
+            mode (Mode): The mode indicating whether to stop, resume, or train continuously.
 
         Returns:
-            dict: A dictionary of default metrics that can be used in the StopAndGoHarness.
+            (nl.Trainer): NeMo Lightning trainer object.
         """
-        return {"global_step": get_global_step, "learning_rate": get_learning_rate}
+        strategy = MegatronStrategy(
+            ddp="megatron",
+            find_unused_parameters=True,
+            ckpt_include_optimizer=True,
+        )
 
-    def get_callbacks(self, mode: Literal["stop", "go"]) -> list[pl.Callback]:
-        """Returns a list of callbacks based on the specified mode. Base implemention provides reasonable defaults.
+        trainer = nl.Trainer(
+            devices=1,
+            max_steps=cls.num_steps,
+            accelerator="gpu",
+            strategy=strategy,
+            limit_val_batches=cls.limit_val_batches,
+            val_check_interval=cls.val_check_interval,
+            log_every_n_steps=cls.val_check_interval,
+            num_nodes=1,
+            callbacks=list(cls.callbacks[mode].values()),
+            plugins=nl.MegatronMixedPrecision(precision=cls.precision),
+        )
+        return trainer
+
+    @classmethod
+    def get_default_callbacks(cls) -> CallbackDict:
+        """Returns a list of callbacks based on the specified mode. Base implementation provides reasonable defaults.
 
         To extend this method, call the super and append to the callbacks, depending on which mode you are in:
 
         ```python
-        callbacks = super().get_callbacks(mode, metrics)
-        callbacks.append(MyCustomCallback())
+        callbacks = super().get_callbacks()
+        callbacks[mode]["MyCustomCallback"] = MyCustomCallback()
         return callbacks
         ```
 
-        Args:
-            mode: The mode indicating whether to stop or go.
-
         Returns:
-            list: A list of callbacks based on the specified mode.
-
-        Raises:
-            ValueError: If the mode is neither 'stop' nor 'go'.
+            A dictionary of callbacks based on the specified mode, each of which maps a callback name to a callback
+            object.
         """
-        if mode == "stop":
-            callbacks = [
-                testing_callbacks.MetadataSaveCallback(
-                    metadata_path=self.metadata_dir,
-                    metrics_getter=self.metrics_getter,
-                ),
-                testing_callbacks.RaiseAfterMetadataCallback(metadata_path=self.metadata_dir),
-                nl_callbacks.ModelCheckpoint(
+        callbacks: CallbackDict = {}
+
+        def make_callbacks() -> Dict[Type[pl.Callback], pl.Callback]:
+            return {
+                testing_callbacks.LearningRateCallback: testing_callbacks.LearningRateCallback(),
+                testing_callbacks.GlobalStepStateCallback: testing_callbacks.GlobalStepStateCallback(),
+                testing_callbacks.ConsumedSamplesCallback: testing_callbacks.ConsumedSamplesCallback(),
+                testing_callbacks.OptimizerStateCallback: testing_callbacks.OptimizerStateCallback(),
+                testing_callbacks.TrainInputCallback: testing_callbacks.TrainInputCallback(),
+                testing_callbacks.TrainOutputCallback: testing_callbacks.TrainOutputCallback(),
+                testing_callbacks.TrainLossCallback: testing_callbacks.TrainLossCallback(),
+                testing_callbacks.ValidInputCallback: testing_callbacks.ValidInputCallback(),
+                testing_callbacks.ValidOutputCallback: testing_callbacks.ValidOutputCallback(),
+                testing_callbacks.ValidLossCallback: testing_callbacks.ValidLossCallback(),
+            }
+
+        interrupted_callbacks = make_callbacks()
+        callbacks[Mode.CONTINUOUS] = make_callbacks()
+
+        for mode in [Mode.STOP, Mode.RESUME]:
+            consumed_samples_cls = testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback
+            callbacks[mode] = {
+                consumed_samples_cls: consumed_samples_cls(mode=mode),
+                **interrupted_callbacks,
+            }
+
+        callbacks[Mode.STOP].update(
+            {
+                testing_callbacks.RaiseAfterMetadataCallback: testing_callbacks.RaiseAfterMetadataCallback(),
+                nl_callbacks.ModelCheckpoint: nl_callbacks.ModelCheckpoint(
                     save_last=True,
                     monitor="reduced_train_loss",
                     save_top_k=2,
-                    every_n_train_steps=self.val_check_interval,
+                    every_n_train_steps=cls.val_check_interval,
                     always_save_context=True,
-                    try_restore_best_ckpt=False,
                 ),
-            ]
-        elif mode == "go":
-            # we must setup the integrity callback.
-            callbacks = [
-                testing_callbacks.TestCheckpointIntegrityCallback(
-                    metadata_path=self.metadata_dir, metrics_getter=self.metrics_getter
-                ),
-                nl_callbacks.ModelCheckpoint(
-                    save_last=True,
-                    monitor="reduced_train_loss",
-                    save_top_k=2,
-                    every_n_train_steps=self.val_check_interval,
-                    always_save_context=True,
-                    try_restore_best_ckpt=False,
-                ),
-            ]
-        else:
-            raise ValueError("mode must be 'stop' or 'go'")
+            }
+        )
 
         return callbacks
 
-    # stop() and go() are provided methods and run the requisite methods with the appropriate mode.
-    def stop(self) -> None:
+    # stop() and resume() are provided methods and run the requisite methods with the appropriate mode.
+    @classmethod
+    def stop(cls) -> None:
         """Runs pre-training and 'stops' after the first checkpoint is saved.
 
-        This method sets up the model, data, and optimizer for the "stop" mode.
-        It then sets up the trainer and strategy for the "stop" mode with the given metrics.
+        This method sets up the model, data, and optimizer for the Mode.STOP mode.
+        It then sets up the trainer and strategy for the Mode.STOP mode with the given metrics.
         The training process is executed using the `llm.train` function, passing the model, data, trainer, logger, optimizer, and resume options.
         If a `testing_callbacks.StopAndGoException` is raised during training, it is caught and no action is taken.
 
         Raises:
             testing_callbacks.StopAndGoException: If a stop and go exception occurs during training.
         """
-        model, data, opt = self.setup_model(mode="stop")
-        trainer = self.setup_trainer_and_strategy("stop", self.metrics_getter)
+        logging.info("Running stop()...")
+
+        model, data, opt = cls.setup_model(mode=Mode.STOP)
+        trainer = cls.setup_trainer(Mode.STOP)
         with distributed_model_parallel_state():
             try:
                 llm.train(
                     model=model,
                     data=data,
                     trainer=trainer,
-                    log=self.nemo_logger,
+                    log=cls.nemo_logger,
                     optim=opt,
                     resume=resume.AutoResume(
                         resume_if_exists=False,  # Looks for the -last checkpoint to continue training.
@@ -266,27 +275,121 @@ class StopAndGoHarness(ABC):
                     ),
                 )
             except testing_callbacks.StopAndGoException:
-                raise
+                return
 
-    def go(self) -> None:
+    @classmethod
+    def resume(cls) -> None:
         """Resumes the model from the checkpoint saved at the end of `stop()` and verifies the metadata integrity."""
-        model, data, opt = self.setup_model(mode="go")
-        trainer = self.setup_trainer_and_strategy("go", self.metrics_getter)
+        logging.info("Running resume()...")
+
+        model, data, opt = cls.setup_model(mode=Mode.RESUME)
+        trainer = cls.setup_trainer(Mode.RESUME)
         with distributed_model_parallel_state():
             llm.train(
                 model=model,
                 data=data,
                 trainer=trainer,
-                log=self.nemo_logger,
+                log=cls.nemo_logger,
                 optim=opt,
                 resume=resume.AutoResume(
                     resume_if_exists=True,  # Looks for the -last checkpoint to continue training.
-                    resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
+                    resume_ignore_no_checkpoint=False,  # When false this will throw an error with no existing checkpoint.
                 ),
             )
 
-    # Finally, execution is a simple stop => go.
-    def run_test(self):
-        """Executes the stop => go process."""
-        self.stop()
-        self.go()
+    @classmethod
+    def continuous(cls) -> None:
+        """Trains the model in one continuous path without stopping."""
+        logging.info("Running continuous()...")
+
+        model, data, opt = cls.setup_model(mode=Mode.CONTINUOUS)
+        trainer = cls.setup_trainer(Mode.CONTINUOUS)
+        with distributed_model_parallel_state():
+            llm.train(model=model, data=data, trainer=trainer, log=cls.nemo_logger, optim=opt)
+
+    @classmethod
+    def run_stop_and_go(cls):
+        """Executes training both continuously and with a checkpoint interruption."""
+        # Interrupted model training
+        cls.stop()
+        cls.resume()
+
+        # Continuous model training.
+        cls.continuous()
+
+    @pytest.mark.parametrize(
+        "callback_type",
+        [
+            testing_callbacks.LearningRateCallback,
+            testing_callbacks.GlobalStepStateCallback,
+            testing_callbacks.ConsumedSamplesCallback,
+            testing_callbacks.OptimizerStateCallback,
+            testing_callbacks.TrainInputCallback,
+            testing_callbacks.TrainOutputCallback,
+            testing_callbacks.TrainLossCallback,
+        ],
+    )
+    def test_stop_and_go_consistency(self, callback_type):
+        """Tests the consistency of the callback data between the interrupted and continuous checks."""
+        interrupted_callback = get_callback(self.callbacks, Mode.RESUME, callback_type)
+        continuous_callback = get_callback(self.callbacks, Mode.CONTINUOUS, callback_type)
+        assert interrupted_callback.data, f"No data found for {callback_type}"
+
+        if callback_type == testing_callbacks.TrainOutputCallback:
+            atol = 1e-3
+        else:
+            atol = 1e-4
+
+        recursive_assert_approx_equal(interrupted_callback.data, continuous_callback.data, atol=atol)
+
+    def test_train_val_init_consumed_samples(self):
+        """Tests the initial consumed samples in stop-and-go scenario."""
+        train_consumed_stop, val_consumed_stop = get_callback(
+            self.callbacks, Mode.STOP, testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback
+        ).data
+        train_consumed_go, val_consumed_go = get_callback(
+            self.callbacks, Mode.RESUME, testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback
+        ).data
+
+        assert val_consumed_stop == 0
+        assert val_consumed_go == 0
+        assert train_consumed_stop == 0
+        assert train_consumed_go > 0
+
+    # TODO: For some reason, validation in NeMo runs an extra batch in the case when the training is stopped and
+    # resumed. Hopefully we can fix this upstream and remove the indexing based on the length of the continuous
+    # validation batches.
+    @pytest.mark.xfail(reason="Validation runs an extra batch in the case when training is stopped and resumed.")
+    def test_identical_number_of_validation_batches(self):
+        """Ensures that the input tensors for training are identical for the interrupted and continuous tests."""
+        callback_type = testing_callbacks.ValidInputCallback
+        interrupted_callback = get_callback(self.callbacks, Mode.RESUME, callback_type)
+        continuous_callback = get_callback(self.callbacks, Mode.CONTINUOUS, callback_type)
+        assert interrupted_callback.data, f"No data found for {callback_type}"
+        recursive_assert_approx_equal(interrupted_callback.data, continuous_callback.data)
+        assert len(interrupted_callback.data) == len(continuous_callback.data)
+
+    @pytest.mark.parametrize(
+        "callback_type",
+        [
+            testing_callbacks.ValidInputCallback,
+            testing_callbacks.ValidOutputCallback,
+            testing_callbacks.ValidLossCallback,
+        ],
+    )
+    def test_stop_and_go_consistency_with_uneven_validation_sizes(self, callback_type):
+        """Ensures that the input tensors for training are identical for the interrupted and continuous tests."""
+        interrupted_callback = get_callback(self.callbacks, Mode.RESUME, callback_type)
+        continuous_callback = get_callback(self.callbacks, Mode.CONTINUOUS, callback_type)
+        assert interrupted_callback.data, f"No data found for {callback_type}"
+
+        # Hack: Validation seems to run an extra batch in the case when training is stopped and resumed, but we can
+        # still test the rest of the data to ensure consistency.
+        interrupted_data = interrupted_callback.data[-len(continuous_callback.data) :]
+
+        if callback_type == testing_callbacks.ValidOutputCallback:
+            atol = 1e-3
+        else:
+            atol = 1e-4
+
+        recursive_assert_approx_equal(interrupted_data, continuous_callback.data, atol=atol)

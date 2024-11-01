@@ -1,14 +1,14 @@
-# ESM2 Pretraining
+# ESM-2 Pretraining
 
 This tutorial serves as a demo for pretraining [ESM2](https://www.science.org/doi/abs/10.1126/science.ade2574) from scratch with [UniProt](https://www.uniprot.org/) sequences.
 
-The ESM2 model is a transformer-based protein language model that was pretrained on masked language model (MLM) task. The objective is to recover the original amino acid types of the perturbed locations from the rest of the protein sequences. Through pretraining, ESM2 learns the evolutionary information in protein sequences similar to conservation analysis and Pott's model, and predicts the optimal mutations on any given protein sequence.
+The ESM-2 model is a transformer-based protein language model that was pretrained on masked language model (MLM) task. The objective is to recover the original amino acid types of the perturbed locations from the rest of the protein sequences. Through pretraining, ESM-2 learns the evolutionary information in protein sequences similar to conservation analysis and Pott's model, and predicts the optimal mutations on any given protein sequence.
 
 # Setup and Assumptions
 
-In this tutorial, we will demonstrate how to create an ESM2 pretraining data module, and create and train a ESM2 model.
+In this tutorial, we will demonstrate how to create an ESM-2 pretraining data module, and create and train a ESM-2 model.
 
-All commands should be executed inside the BioNeMo docker container, which has all ESM2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`.  For more information on how to build or pull the BioNeMo2 container, refer to the [Initialization Guide](../../getting-started/initialization-guide.md).
+All commands should be executed inside the BioNeMo docker container, which has all ESM-2 dependencies pre-installed. This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`.  For more information on how to build or pull the BioNeMo2 container, refer to the [Initialization Guide](../../getting-started/initialization-guide.md).
 
 !!! note
 
@@ -19,7 +19,7 @@ Similar to PyTorch Lightning, we have to define some key classes:
 1. `MegatronStrategy` - To launch and setup parallelism for [NeMo](https://github.com/NVIDIA/NeMo/tree/main) and [Megatron-LM](https://github.com/NVIDIA/Megatron-LM).
 2. `Trainer` - To configure training configurations and logging.
 3. `ESMDataModule` - To load pretraining training and validation data with mapped UniRef90 sequences to UniRef50 clusters.
-4. `ESM2Config` - To configure the ESM2 model as `BionemoLightningModule`.
+4. `ESM2Config` - To configure the ESM-2 model as `BionemoLightningModule`.
 
 ## 1 - MegatronStrategy
 BioNeMo2 supports data parallel (DP), tensor parallel (TP) and pipeline parallel (PP) for training large models. Instead of `DDPStrategy` in PyTorch Lightning, we use `MegatronStrategy` to launch and setup parallelism for NeMo and Megatron-LM.
@@ -94,7 +94,7 @@ print(PrecisionTypes)  # show all possible precision types
 ```
 
 ## 3 - ESMDataModule
-Before instantiating with data module, we can first download the testing ESM2 pretraining data with `download_bionemo_data`. The command line will download the data if we haven't yet, and will return the path to the testing data, which is needed to instantiate `ESMDataModule`.
+Before instantiating with data module, we can first download the testing ESM-2 pretraining data with `download_bionemo_data`. The command line will download the data if we haven't yet, and will return the path to the testing data, which is needed to instantiate `ESMDataModule`.
 
 ```bash
 download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source ngc  # test data
@@ -137,7 +137,7 @@ data = ESMDataModule(
 
 !!! note "`RandomMaskStrategy`"
 
-    When trained on MLM objective, the loss function randomly includes 15% of the tokens, within which 80% are masked, 10% are replaced with a random token, and 10% are kept unchanged. Since the vocabulary includes amino acids as well as special tokens, part of the protein sequence may be replaced by a special token. This is the default in both BioNeMo2 and HuggingFace ESM2 implementation.
+    When trained on MLM objective, the loss function randomly includes 15% of the tokens, within which 80% are masked, 10% are replaced with a random token, and 10% are kept unchanged. Since the vocabulary includes amino acids as well as special tokens, part of the protein sequence may be replaced by a special token. This is the default in both BioNeMo2 and HuggingFace ESM-2 implementation.
 
     To enforce amino-acid-only replacement, users can pass `random_mask_strategy=RandomMaskStrategy.AMINO_ACID_ONLY` to `ESMDataModule`.
 
@@ -156,7 +156,7 @@ from bionemo.llm.lightning import BionemoLightningModule
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 
-# ESM2 650M config
+# ESM-2 650M config
 num_layers = 33
 hidden_size = 1280
 num_attention_heads = 20
@@ -212,7 +212,7 @@ model: BionemoLightningModule = biobert_lightning_module(
 
 !!! note "`ModuleSpec`"
 
-    `ModelSpec` decides what torch modules are used in the transformer layers. By default, BioNeMo2 accelerates ESM2 architecture with TransformerEngine layers. Users can define their own `ModelSpec` for customized transformer layers. See [`get_biobert_spec`](https://github.com/NVIDIA/bionemo-framework/blob/main/sub-packages/bionemo-llm/src/bionemo/llm/model/biobert/transformer_specs.py#L61).
+    `ModelSpec` decides what torch modules are used in the transformer layers. By default, BioNeMo2 accelerates ESM-2 architecture with TransformerEngine layers. Users can define their own `ModelSpec` for customized transformer layers. See [`get_biobert_spec`](https://github.com/NVIDIA/bionemo-framework/blob/main/sub-packages/bionemo-llm/src/bionemo/llm/model/biobert/transformer_specs.py#L61).
 
 
 !!! note "`BionemoLightningModule`"
@@ -301,9 +301,59 @@ python scripts/protein/esm2/esm2_pretrain.py \
     --num-layers 33 \
     --hidden-size 1280 \
     --num-attention-head 20 \
-    --ffn-hidden-size 5120
+    --ffn-hidden-size 5120 \
+    --tensor-model-parallel-size 1 \
+    --create-tensorboard-logger \
+    --wandb_project=__your_wandb_project__ \
+    --experiment-name=__your_wandb_experiment_name
 ```
+
+This script will automatically create `./results` and store the checkpoints under `esm2`. Automatic pretraining resumption is handled automatically when `--resume-if-exists` set to True, and `--restore-from-checkpoint-path` is available if users want to restore from a specific path.
+
+!!! note "Weight And Biases"
+
+    If intend to use `--wandb_project`, users should log in Weight and Biases or alternatively export the environment variable `WANDB_API_KEY`. If not provided, the logger will be disabled.
 
 !!! note "Non-critical Warnings from Command Line Runs"
 
     Users might experience `torch._dynamo.convert_frame` warning messages and depreciation warning on `async_grad_allreduce` from Megatron-LM. Users can safely ignore them and is non-critical to pretraining.
+
+## Recommended Pretraining Configuration
+We benchmark our implementation on the following model sizes[^1]. These parameters are handled by
+
+| Model Size | # Layers | Hidden Size | # Attention Heads | FFN Hidden Size |
+|------------|----------|-------------|-------------------|-----------------|
+| 8M         | 8        | 320         | 20                | 1280            |
+| 650M       | 33       | 1280        | 20                | 5120            |
+| 3B         | 36       | 2560        | 40                | 10240           |
+| 15B        | 48       | 5120        | 40                | 20480           |
+
+In our current benchmark, we recommend the following trainiing and device configurations on A100 80GB GPUs to match with the published 2M token global batch size.
+
+| Model Size | # GPUs | Micro Batch Size | Tensor Model Parallel Size |
+|------------|--------|------------------|----------------------------|
+| 8M         | 32     | 64               | 1                          |
+| 650M       | 64     | 32               | 1                          |
+| 3B         | 128    | 16               | 1                          |
+| 15B        | 3120   | 2                | 2                          |
+
+!!! note "Additional Notes on Micro Batch Size"
+
+    While the above micro batch sizes are selected in 2^n to arrive at 2,097,152 tokens global batch size, users should observe performance boost by fitting the largest possible micro batch size onto the device without OOM. The currently largest batch sizes are listed below.
+
+    | Model Size | Max. micro batch size | Tensor Model Parallel Size |
+    |------------|-----------------------|----------------------------|
+    | 8M         | 70                    | 1                          |
+    | 650M       | 48                    | 1                          |
+    | 3B         | 16                    | 1                          |
+    | 15B        | 3                     | 2                          |
+
+    The only exception is 15B model where the authors reported 3.2M tokens global batch size. We arrived at 3,194,880 tokens on 390 A100 nodes.
+
+Maximum micro batch sizes for these model sizes are tested on 2 nodes of A100 80GB GPUs.
+
+!!! note "Memory Allocation from Distributed Optimizer"
+
+    Distributed optimizer is enabled by default for improved memory allocation. Users might observe that the same micro batch size used on multi-device pretraining results in OOM on a single device. If additional optimization is necessary, we recommend running short benchmark on the same number of devices as in the production run.
+
+[^1]: Lin, Zeming, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, et al. “Evolutionary-Scale Prediction of Atomic-Level Protein Structure with a Language Model.” Science 379, no. 6637 (March 17, 2023): 1123–30. https://doi.org/10.1126/science.ade2574

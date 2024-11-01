@@ -17,7 +17,9 @@ import os
 import tempfile
 from pathlib import Path
 
+import anndata as ad
 import numpy as np
+import pytest
 
 from bionemo.scdl.io.single_cell_collection import SingleCellCollection
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
@@ -93,3 +95,25 @@ def test_sc_concat_in_flatten_cellxval(tmp_path, create_cellx_val_data):
     assert np.array(data.row_index)[2] != 2  # regression test for bug
     assert np.array(data.row_index)[3] != 1149  # regression test for bug
     assert all(data.row_index == np.array([0, 440, 972, 2119]))
+
+
+def test_sc_empty_directory_error(tmp_path):
+    coll = SingleCellCollection(tmp_path)
+    with pytest.raises(FileNotFoundError, match=rf"There a no h5ad files in {tmp_path}."):
+        coll.load_h5ad_multi(tmp_path, max_workers=4, use_processes=False)
+
+
+def test_sc_failed_process(tmp_path):
+    adata_path = tmp_path / "adata"
+    empty_adata = ad.AnnData()
+    adata_path.mkdir(parents=True, exist_ok=True)
+
+    # Save the empty object to a .h5ad file
+    empty_fn = Path(adata_path) / "empty_file.h5ad"
+    empty_adata.write(empty_fn)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        coll = SingleCellCollection(temp_dir)
+    with pytest.raises(
+        RuntimeError, match=rf"Error in processing file {empty_fn}: Error: dense matrix loading not yet implemented."
+    ):
+        coll.load_h5ad_multi(adata_path, max_workers=4, use_processes=False)

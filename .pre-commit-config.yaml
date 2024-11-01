@@ -17,8 +17,12 @@ repos:
     rev: v1.5.0
     hooks:
       - id: detect-secrets
-        args: ["--baseline", ".secrets.baseline"]
+        name: detect-secrets (everything but notebooks)
+        args: ['--baseline', '.secrets.baseline', '--exclude-files', '(.*\.ipynb|.*\.baseline)$', ]
         exclude: package.lock.json
+      - id: detect-secrets
+        name: detect-secrets (notebooks only)
+        args: ['--baseline', '.secrets-nb.baseline', '--exclude-files', '^.(?!.*\.ipynb)', '--exclude-lines', '"(hash|id|image/\w+)":.*', ]
   - repo: local
     hooks:
       - id: license-header-check

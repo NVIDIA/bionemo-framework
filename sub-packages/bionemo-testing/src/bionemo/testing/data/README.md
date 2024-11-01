@@ -32,7 +32,7 @@ example, in `esm2.yaml`:
   sha256: 1e38063cafa808306329428dd17ea6df78c9e5d6b3d2caf04237c555a1f131b7
   owner: Farhad Ramezanghorbani <farhadr@nvidia.com>
   description: >
-    A pretrained 650M parameter ESM2 model.
+    A pretrained 650M parameter ESM-2 model.
     See https://ngc.nvidia.com/catalog/models/nvidia:clara:esm2nv650m.
 ```
 
