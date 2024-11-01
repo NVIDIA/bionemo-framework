@@ -107,7 +107,7 @@ def test_create_bionemo_cli(tmpdir, monkeypatch):
 
     (sub_packages / "bionemo-fw").mkdir(parents=True, exist_ok=True)
 
-    # no requirements.txt in bionemo-fw dir!
+    # no pyproject.toml in bionemo-fw dir!
     with raises(ValueError):
         main_bionemo_sub(
             project_name="bionemo-supermodel",
@@ -115,6 +115,7 @@ def test_create_bionemo_cli(tmpdir, monkeypatch):
             relax_name_check=False,
         )
 
+    # create & add basic pyproject.toml structure that's checked
     bionemo_fw_pyproject_toml = sub_packages / "bionemo-fw" / "pyproject.toml"
     bionemo_fw_pyproject_toml.touch(exist_ok=True)
     with open(str(bionemo_fw_pyproject_toml), "wt") as wt:

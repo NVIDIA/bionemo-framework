@@ -21,7 +21,7 @@ import click
 import tomli
 import tomli_w
 
-from infra_bionemo.new_project.api import check, create_on_filesystem, namespace_py_project_structure
+from infra_bionemo.new_project.api import bionemo_subproject_structure, check, create_on_filesystem
 from infra_bionemo.new_project.utils import ask_yes_or_no
 
 
@@ -86,16 +86,11 @@ def main(*, project_name: str, loc_sub_pack: str, relax_name_check: bool) -> Non
     # UPDATE THIS LIST WITH NEW bionemo-* COMPONENT LIBRARIES!
     for component in ["bionemo-llm"]:
         if ask_yes_or_no(f"🤔 Do you want to depend on {component} ?"):
-            internal_deps.append(f"-e ../{component}")
+            internal_deps.append(component)
 
-    new_project_representation = namespace_py_project_structure(
-        base_name="bionemo",
-        project_module_name=project_name,
-        dependencies=internal_deps,
-        add_setup_py=False,
-        add_test_reqs=False,
-        add_dev_reqs=False,
-        prefix_test_dirs=False,
+    new_project_representation = bionemo_subproject_structure(
+        subproject_name=project_name,
+        internal_dependencies=internal_deps,
     )
 
     print("🔨 Creating new project on file system.")
