@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Sequence
 
 import click
+import tomli
+import tomli_w
 
 from infra_bionemo.new_project.api import check, create_on_filesystem, namespace_py_project_structure
 from infra_bionemo.new_project.utils import ask_yes_or_no
@@ -72,10 +74,10 @@ def main(*, project_name: str, loc_sub_pack: str, relax_name_check: bool) -> Non
             "❌ bionemo-fw is missing from sub-packages! "
             f"Check that this exists: {location_sub_packages / 'bionemo-fw'}"
         )
-    bionemo_fw_reqs = bionemo_fw / "requirements.txt"
-    if not bionemo_fw_reqs.is_file():
+    bionemo_fw_pyproject_toml = bionemo_fw / "pyproject.toml"
+    if not bionemo_fw_pyproject_toml.is_file():
         raise ValueError(
-            "❌ bionemo-fw is missing its requirements.txt file. " f"Cannot add {full_project_name} as a dependency!"
+            f"❌ bionemo-fw is missing its pyproject.toml file. Cannot add {full_project_name} as a dependency!"
         )
 
     check(project_name)
@@ -102,8 +104,7 @@ def main(*, project_name: str, loc_sub_pack: str, relax_name_check: bool) -> Non
         create_on_filesystem(location_sub_packages, new_project_representation)
 
         # add to bionemo-fw's requirements
-        with open(str(bionemo_fw_reqs), "at") as wt:
-            wt.write(f"\n-e ../{full_project_name}\n")
+        _add_dependency(bionemo_fw_pyproject_toml, full_project_name)
 
     except Exception:  # pragma: no cover
         print("❌ ERROR: failed to create! Cleaning up.")
@@ -111,6 +112,26 @@ def main(*, project_name: str, loc_sub_pack: str, relax_name_check: bool) -> Non
         raise
 
     print(f"✅ Created {full_project_name} and added as a dependency to the bionemo-fw package 🎉")
+
+
+def _add_dependency(bionemo_fw_pyproject_toml: Path, full_project_name: str) -> None:
+    with open(str(bionemo_fw_pyproject_toml), "rb") as rb:
+        fw_toml = tomli.load(rb)
+
+    if "project" not in fw_toml:
+        raise ValueError(
+            "bionemo-fw's pyproject.toml is invalid! No project section found in: " f"{bionemo_fw_pyproject_toml}"
+        )
+    if "dependencies" not in fw_toml["project"]:
+        raise ValueError(
+            "bionemo-fw's pyproject.toml is invalid! No project.dependencies section found in: "
+            f"{bionemo_fw_pyproject_toml}"
+        )
+    fw_toml["projects"]["dependencies"].append(full_project_name)
+
+    fw_toml_s = tomli_w.dumps(fw_toml)
+    with open(str(bionemo_fw_pyproject_toml), "wt") as wt:
+        wt.write(fw_toml_s)
 
 
 if __name__ == "__main__":
