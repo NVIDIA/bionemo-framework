@@ -108,59 +108,39 @@ def pytest_example() -> str:
     return _pytest_example
 
 
-_pyproject_toml_uv_setuptools: str = """
+_pyproject_toml_subproject: str = """
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
-# For guidance, see: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
 [project]
 name = "${project_name}"
-version = "0.0.0"
-authors = []
-description = ""
 readme = "README.md"
+description = ""
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
-keywords = []
-license = {file = "LICENSE"}
-classifiers = [
-    "Programming Language :: Python :: 3.10",
-    "Private :: Do Not Upload",
+license = { file = "LICENSE" }
+version = { file = "VERSION" }
+dependencies = [
+    # internal
+    'bionemo-core',
+    # external
 ]
-dynamic = ["dependencies"]
 
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-filterwarnings = [ "ignore::DeprecationWarning",]
 
 [tool.coverage.run]
 source = ["${package_name}"]
 
-[tool.black]
-line-length = 120
-target-version = ['py310']
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bionemo.*"]
+namespaces = true
+exclude = ["test*."]
 
-[tool.ruff]
-lint.ignore = ["C901", "E741", "E501",]
-# Run `ruff linter` for a description of what selection means.
-lint.select = ["C", "E", "F", "I", "W",]
-line-length = 120
+[tool.uv]
+cache-keys = [{ git = true }]
+"""
 
-# Ignore import violations in all `__init__.py` files.
-[tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["E402", "F401", "F403", "F811",]
-
-[tool.ruff.lint.isort]
-lines-after-imports = 2
-known-first-party = ["${package_name}"]
-
-[tool.ruff.lint.pydocstyle]
-convention = "google"
-
-""".strip()
 
 _pyproject_toml_setuptools: str = """
 [build-system]
