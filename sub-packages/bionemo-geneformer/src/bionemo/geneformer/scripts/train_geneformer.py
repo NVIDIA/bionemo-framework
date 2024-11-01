@@ -133,6 +133,12 @@ def main(
         restore_from_checkpoint_path (path): If set, restores the model from the directory passed in. Expects the
             checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
         log_every_n_steps (int): log at this interval.
+        nsys_profiling (bool): Whether to enable the nsys profiling callback hooks. You still need to execute the
+            function with nsys on the command line, but this enables more useful outputs in your nsys profiles, as
+            well as control over which step ranges are captured.
+        nsys_start_step (int): Step to start profiling.
+        nsys_ranks (list[int]): GPU/node ranks to profile. Defaults to [0] (only main gpu.)
+        nsys_end_step (int): Step to stop profiling.
         gc_interval (int): if a value > 0 is provided, this will turn off automatic garbage collection and only run
             at this requested interval of train/val steps. This will likely slow down single GPU runs.
         aligned_megatron_ddp (bool): if activated, this will activate a number of communication optimizations that are
@@ -227,7 +233,6 @@ def main(
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,  # TODO(@jstjohn) Checkpoint saving is currently broken, fix and change this.
         log_every_n_steps=log_every_n_steps,
-        use_distributed_sampler=False,
         num_nodes=num_nodes,
         callbacks=callbacks,
         use_distributed_sampler=False,
