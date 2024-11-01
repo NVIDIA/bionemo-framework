@@ -212,7 +212,7 @@ class SingleCellDataModule(MegatronDataModule):
             collate_fn=functools.partial(
                 collate.bert_padding_collate_fn,
                 padding_value=self.tokenizer.token_to_id(GeneTokenizer.pad_token),
-                min_length=None,
+                min_length=self.max_len,
                 max_length=self.max_len,
             ),
             **kwargs,
