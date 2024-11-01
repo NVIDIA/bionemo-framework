@@ -53,7 +53,7 @@ def test_batch_collate_list():
 
 
 def test_batch_collate_none():
-    assert batch_collator(None) is None
+    assert batch_collator([None, None]) is None
 
 
 def test_batch_collator_tensor_fails():

@@ -79,7 +79,7 @@ class SingleCellDataset(Dataset):
 
     def __init__(  # noqa: D107
         self,
-        data_path: str,
+        data_path: str | Path,
         tokenizer: Any,
         median_dict: Optional[dict] = None,
         max_len: int = 1024,

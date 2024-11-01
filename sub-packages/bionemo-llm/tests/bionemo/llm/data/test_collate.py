@@ -33,7 +33,7 @@ def test_padding_collate_fn():
     assert torch.all(torch.eq(collated_batch["my_key"], torch.tensor([[1, 2, 3, -1, -1], [4, 5, 6, 7, 8]])))
 
 
-def test_padding_collate_with_missing_key_raises():
+def test_padding_collate_with_missing_keys_raises(caplog):
     sample1 = {
         "my_key": torch.tensor([1, 2, 3]),
     }
@@ -42,8 +42,30 @@ def test_padding_collate_with_missing_key_raises():
         "other_key": torch.tensor([1, 2, 3]),
     }
     batch = [sample1, sample2]
-    with pytest.raises(ValueError, match="All keys in inputs must match provided padding_values."):
-        padding_collate_fn(batch, padding_values={"my_key": -1, "other_key": -1})
+    with pytest.raises(ValueError, match="All keys in inputs must match each other."):
+        padding_collate_fn(batch, padding_values={"my_key": -1})
+
+
+def test_padding_collate_with_mismatched_padding_values_warns(caplog):
+    sample1 = {
+        "my_key": torch.tensor([1, 2, 3]),
+        "other_key": torch.tensor([1, 2, 3, 4]),
+    }
+    sample2 = {
+        "my_key": torch.tensor([4, 5, 6, 7, 8]),
+        "other_key": torch.tensor([1, 2, 3]),
+    }
+    batch = [sample1, sample2]
+
+    padding_collate_fn(batch, padding_values={"my_key": -1, "other_key": -1, "missing_key": 3})
+    # Call 2x and check that we logged once
+    padding_collate_fn(batch, padding_values={"my_key": -1, "other_key": -1, "missing_key": 3})
+    log_lines = caplog.text.strip("\n").split("\n")
+    assert len(log_lines) == 1, f"Expected one line, got: {log_lines}"
+    assert log_lines[0].endswith(
+        "Extra keys in batch that will not be padded: set(). Missing keys in batch: {'missing_key'}"
+    )
+    assert log_lines[0].startswith("WARNING")
 
 
 def test_bert_padding_collate_fn():
