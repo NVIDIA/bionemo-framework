@@ -51,8 +51,11 @@ def padding_collate_fn(
     for entry in batch:
         if entry.keys() != padding_values.keys():
             if not _warned_once:
-                missing_keys = {k for k in entry.keys() if k not in padding_values}
-                logger.warning(f"The following keys were not in padding_values and will be ignored: {missing_keys}.")
+                extra_keys = {k for k in entry.keys() if k not in padding_values}
+                missing_keys = {k for k in padding_values.keys() if k not in entry}
+                logger.warning(
+                    f"Extra keys in batch that will not be padded: {extra_keys}. Extra keys in batch: {missing_keys}"
+                )
                 _warned_once = True
 
     def _pad(tensors, padding_value):
