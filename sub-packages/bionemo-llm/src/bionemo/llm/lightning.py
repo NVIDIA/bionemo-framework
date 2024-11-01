@@ -84,8 +84,13 @@ def get_dtype_device(torch_object) -> Tuple[torch.dtype, torch.device]:  # noqa:
 
 
 # NOTE(SKH): These types are all wrong, but are close. The inner type must always be a Tensor, but the outer container should be generic.
-def batch_collator(batches: Optional[Union[Tuple[ReductionT], List[ReductionT]]]) -> Optional[ReductionT]:
+def batch_collator(
+    batches: Optional[Union[Tuple[ReductionT], List[ReductionT]]],
+    batch_dim: int = 0,
+    batch_dim_key_defaults: dict[str, int] = {"token_logits": 1},
+) -> Optional[ReductionT]:
     """Takes a sequence of batches and collates them into a single batch.
+
         This is distinct from the standard pytorch default_collator since it does
         not add the batch dimension, it's assumed the batch
         dimension is already present in the input, as would be the case when
@@ -104,21 +109,46 @@ def batch_collator(batches: Optional[Union[Tuple[ReductionT], List[ReductionT]]]
 
     Args:
         batches (Optional[Sequence[ReductionT]]): sequence of batches to collate into a single batch.
+        batch_dim: If you know that the batch dim for the batch you are concatenating is not the 0th dimension (for
+            example it is sequence first) then supply that dimension.
+        batch_dim_key_defaults (dictionary of keys to integers): If your batch is a dictionary and you know that some
+            keys have non-standard (0) batch dimensions, supply those here. By default "token_logits" has batch dim 1
+            and otherwise all keys are assumed to have batch dim 0.
 
     Returns:
         A single batch of the same type as the elements of your input sequence.
-    """  # noqa: D205
+    """
     match batches:
-        case [Tensor(), *_]:
-            return torch.cat(batches, dim=0)
-        case [dict(), *_]:
-            return {key: batch_collator([batch[key] for batch in batches]) for key in batches[0]}
-        case [tuple(), *_]:
-            return tuple(batch_collator([batch[i] for batch in batches]) for i in range(len(batches[0])))
-        case [list(), *_]:
-            return [batch_collator([batch[i] for batch in batches]) for i in range(len(batches[0]))]
+        # Handle base-cases for batch concatenation, either a list of None or a list of tensors
         case [None, *_]:
             return None
+        case [Tensor(), *_]:
+            return torch.cat(batches, dim=batch_dim)
+        # Next 3 calls are the recursive calls into the sub-structures of the batch. We handle dictionaries, tuples, and lists
+        case [dict(), *_]:
+            return {
+                key: batch_collator(
+                    [batch[key] for batch in batches],
+                    batch_dim=batch_dim_key_defaults.get(key, 0),
+                    batch_dim_key_defaults=batch_dim_key_defaults,
+                )
+                for key in batches[0]
+            }
+        case [tuple(), *_]:
+            return tuple(
+                batch_collator(
+                    [batch[i] for batch in batches], batch_dim=batch_dim, batch_dim_key_defaults=batch_dim_key_defaults
+                )
+                for i in range(len(batches[0]))
+            )
+        case [list(), *_]:
+            return [
+                batch_collator(
+                    [batch[i] for batch in batches], batch_dim=batch_dim, batch_dim_key_defaults=batch_dim_key_defaults
+                )
+                for i in range(len(batches[0]))
+            ]
+        # Final cases shouldn't happen, an empty sequence (no batches), or "other".
         case []:
             raise ValueError("Cannot process an empty sequence")
         case _:

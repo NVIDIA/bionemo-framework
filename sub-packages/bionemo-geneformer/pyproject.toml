@@ -14,8 +14,15 @@ dependencies = [
     # bionemo sub-packages
     'bionemo-core',
     'bionemo-llm',
+    'bionemo-testing',  # needed for getting the tokenizer from NGC
     # external
+    'cellxgene_census',
 ]
+
+[project.scripts]
+sc_memmap = "bionemo.geneformer.scripts.sc_memmap:main_cli"
+infer_geneformer = "bionemo.geneformer.scripts.infer_geneformer:geneformer_infer_entrypoint"
+train_geneformer = "bionemo.geneformer.scripts.train_geneformer:entrypoint"
 
 [tool.setuptools.packages.find]
 where = ["src"]

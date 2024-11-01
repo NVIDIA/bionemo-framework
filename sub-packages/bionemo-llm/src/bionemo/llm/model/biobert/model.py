@@ -173,6 +173,7 @@ class MegatronBioBertModel(LanguageModule):
         super(MegatronBioBertModel, self).__init__(config=config)
         self.post_process = post_process
         self.add_binary_head = add_binary_head
+        self.skip_logits = skip_logits
         if return_embeddings:
             assert self.post_process, "only return embeddings on the last pipeline stage"
         # `b` = batch, `s` = sequence.

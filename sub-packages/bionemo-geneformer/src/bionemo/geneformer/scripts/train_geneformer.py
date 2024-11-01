@@ -47,7 +47,7 @@ from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_globa
 from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
 
 
-__all__: Sequence[str] = ("main", "parser")
+__all__: Sequence[str] = ("main", "get_parser")
 
 
 def main(
@@ -103,8 +103,8 @@ def main(
         result_dir (Path): directory to store results, logs and checkpoints
         num_steps (int): number of steps to train the model for
         limit_val_batches (int): limit the number of validation global batches to this many
-        val_check_interval (int): number of steps to periodically check the validation loss and save num_dataset_workers (
-       int): num dataset workers
+        val_check_interval (int): number of steps to periodically check the validation loss and save
+        num_dataset_workers (int): num dataset workers
         biobert_spec_option (BiobertSpecOption): the biobert spec option (architecture) to use for this run
         lr (float): learning rate
         micro_batch_size (int): micro batch size, from this and parallelism settings we infer the global batch size
@@ -112,6 +112,14 @@ def main(
         cosine_hold_frac (float): fraction of steps to hold the minimum learning rate at the end of the run
         experiment_name (str): experiment name, this is the name used for the wandb run, and the sub-directory of the
             result_dir that stores the logs and checkpoints.
+        accumulate_grad_batches (int): if requested, gradients are only updated every `accumulate_grad_batches` steps.
+        config_class (Type[BioBertConfig]): which model config do you want to train?
+        metric_to_monitor_for_checkpoints (str): which metric do you want to monitor for checkpoints?
+        nemo1_init_path (str): if you have a nemo1 checkpoint you want to initialize the model weights from, you can
+            provide that. Note that settings are not pulled from the model.
+        precision (str): desired training precision
+        save_last_checkpoint (bool): if you want the last checkpoint saved
+        save_top_k (int): if you want the top k checkpoints all saved.
         resume_if_exists (bool): attempt to resume if the checkpoint exists [FIXME @skothenhill this doesn't work yet]
         wandb_entity (str): The team posting this run (default: your username or your default team)
         wandb_project (str): The name of the project to which this run will belong.
@@ -125,6 +133,12 @@ def main(
         restore_from_checkpoint_path (path): If set, restores the model from the directory passed in. Expects the
             checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
         log_every_n_steps (int): log at this interval.
+        nsys_profiling (bool): Whether to enable the nsys profiling callback hooks. You still need to execute the
+            function with nsys on the command line, but this enables more useful outputs in your nsys profiles, as
+            well as control over which step ranges are captured.
+        nsys_start_step (int): Step to start profiling.
+        nsys_ranks (list[int]): GPU/node ranks to profile. Defaults to [0] (only main gpu.)
+        nsys_end_step (int): Step to stop profiling.
         gc_interval (int): if a value > 0 is provided, this will turn off automatic garbage collection and only run
             at this requested interval of train/val steps. This will likely slow down single GPU runs.
         aligned_megatron_ddp (bool): if activated, this will activate a number of communication optimizations that are
@@ -132,6 +146,7 @@ def main(
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
+    val_check_interval = min(val_check_interval, num_steps)  # Training will fail if val_check_interval > num_steps
 
     # Setup train/test/val data paths
     train_data_path = data_dir / "train"
@@ -325,264 +340,271 @@ def main(
     )
 
 
-parser = argparse.ArgumentParser(description="Pretrain Geneformer with single cell data.")
-parser.add_argument(
-    "--data-dir",
-    type=Path,
-    required=True,
-    help="Path to the data base directory, for example this might be "
-    "/workspace/bionemo2/data/cellxgene_2023-12-15_small",
-)
-parser.add_argument(
-    "--precision",
-    type=str,
-    choices=get_args(PrecisionTypes),
-    required=False,
-    default="bf16-mixed",
-    help="Precision type to use for training.",
-)
-parser.add_argument(
-    "--lr",
-    type=float,
-    required=False,
-    default=1e-4,
-    help="Learning rate for training. Default is 1e-4. With bigger global batches try 1e-3",
-)
-parser.add_argument(
-    "--create-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."
-)
-# FIXME (@skothenhill) figure out how checkpointing and resumption should work with the new nemo trainer
-parser.add_argument(
-    "--resume-if-exists", action="store_true", default=False, help="Resume training if a checkpoint exists."
-)
-parser.add_argument(
-    "--result-dir", type=Path, required=False, default=Path("./results"), help="Path to the result directory."
-)
-parser.add_argument(
-    "--experiment-name", type=str, required=False, default="geneformer", help="Name of the experiment."
-)
-parser.add_argument("--wandb-entity", type=str, default=None, help="The team posting this run")
-parser.add_argument("--wandb-project", type=str, default=None, help="Wandb project name ")
-parser.add_argument("--wandb-tags", nargs="+", type=str, default=None, help="Tags associated with this run")
-parser.add_argument(
-    "--wandb-group", type=str, default=None, help="A unique string shared by all runs in a given group"
-)
-parser.add_argument(
-    "--wandb-id", type=str, default=None, help="Sets the version, mainly used to resume a previous run"
-)
-parser.add_argument("--wandb-anonymous", action="store_true", help="Enable or explicitly disable anonymous logging")
-parser.add_argument(
-    "--wandb-log-model", action="store_true", help="Save checkpoints in wandb dir to upload on W&B servers"
-)
-parser.add_argument("--wandb-offline", action="store_true", help="Use wandb in offline mode")
-parser.add_argument(
-    "--cosine-rampup-frac",
-    type=float,
-    required=False,
-    default=0.01,
-    help="Fraction of steps in which to ramp up the learning rate. Default is 0.01.",
-)
-parser.add_argument(
-    "--cosine-hold-frac",
-    type=float,
-    required=False,
-    default=0.05,
-    help="Fraction of final steps in which to hold the minimum LR. Default is 0.05.",
-)
+def get_parser():
+    """Return the cli parser for this tool."""
+    parser = argparse.ArgumentParser(description="Pretrain Geneformer with single cell data.")
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        required=True,
+        help="Path to the data base directory, for example this might be "
+        "/workspace/bionemo2/data/cellxgene_2023-12-15_small",
+    )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        choices=get_args(PrecisionTypes),
+        required=False,
+        default="bf16-mixed",
+        help="Precision type to use for training.",
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        required=False,
+        default=1e-4,
+        help="Learning rate for training. Default is 1e-4. With bigger global batches try 1e-3",
+    )
+    parser.add_argument(
+        "--create-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."
+    )
+    # FIXME (@skothenhill) figure out how checkpointing and resumption should work with the new nemo trainer
+    parser.add_argument(
+        "--resume-if-exists", action="store_true", default=False, help="Resume training if a checkpoint exists."
+    )
+    parser.add_argument(
+        "--result-dir", type=Path, required=False, default=Path("./results"), help="Path to the result directory."
+    )
+    parser.add_argument(
+        "--experiment-name", type=str, required=False, default="geneformer", help="Name of the experiment."
+    )
+    parser.add_argument("--wandb-entity", type=str, default=None, help="The team posting this run")
+    parser.add_argument("--wandb-project", type=str, default=None, help="Wandb project name ")
+    parser.add_argument("--wandb-tags", nargs="+", type=str, default=None, help="Tags associated with this run")
+    parser.add_argument(
+        "--wandb-group", type=str, default=None, help="A unique string shared by all runs in a given group"
+    )
+    parser.add_argument(
+        "--wandb-id", type=str, default=None, help="Sets the version, mainly used to resume a previous run"
+    )
+    parser.add_argument(
+        "--wandb-anonymous", action="store_true", help="Enable or explicitly disable anonymous logging"
+    )
+    parser.add_argument(
+        "--wandb-log-model", action="store_true", help="Save checkpoints in wandb dir to upload on W&B servers"
+    )
+    parser.add_argument("--wandb-offline", action="store_true", help="Use wandb in offline mode")
+    parser.add_argument(
+        "--cosine-rampup-frac",
+        type=float,
+        required=False,
+        default=0.01,
+        help="Fraction of steps in which to ramp up the learning rate. Default is 0.01.",
+    )
+    parser.add_argument(
+        "--cosine-hold-frac",
+        type=float,
+        required=False,
+        default=0.05,
+        help="Fraction of final steps in which to hold the minimum LR. Default is 0.05.",
+    )
 
-parser.add_argument(
-    "--num-gpus",
-    type=int,
-    required=False,
-    default=1,
-    help="Number of GPUs to use for training. Default is 1.",
-)
-parser.add_argument(
-    "--num-nodes",
-    type=int,
-    required=False,
-    default=1,
-    help="Number of nodes to use for training. Default is 1.",
-)
-parser.add_argument(
-    "--num-steps",
-    type=int,
-    required=False,
-    default=10000,
-    help="Number of steps to use for training. Default is 10000.",
-)
-parser.add_argument(
-    "--num-dataset-workers",
-    type=int,
-    required=False,
-    default=0,
-    help="Number of steps to use for training. Default is 0.",
-)
-parser.add_argument(
-    "--val-check-interval",
-    type=int,
-    required=False,
-    default=10000,
-    help="Number of steps to use for training. Default is 10000.",
-)
-parser.add_argument(
-    "--log-every-n-steps",
-    type=int,
-    required=False,
-    default=50,
-    help="Number of steps between logging. Default is 50.",
-)
-parser.add_argument(
-    "--seq-length",
-    type=int,
-    required=False,
-    default=2048,
-    help="Sequence length of cell. Default is 2048.",
-)
-parser.add_argument(
-    "--limit-val-batches",
-    type=float_or_int_or_none,
-    required=False,
-    default=2,
-    help="Number of global batches used for validation if int. Fraction of validation dataset if float. Default is 2.",
-)
-parser.add_argument(
-    "--micro-batch-size",
-    type=int,
-    required=False,
-    default=64,
-    help="Micro-batch size. Global batch size is inferred from this.",
-)
-parser.add_argument(
-    "--accumulate-grad-batches",
-    type=int,
-    required=False,
-    default=1,
-    help="Gradient accumulation steps. Global batch size is inferred from this.",
-)
-parser.add_argument(
-    "--biobert-spec-option",
-    type=BiobertSpecOption,
-    choices=[e.value for e in BiobertSpecOption],
-    required=False,
-    default=BiobertSpecOption.bert_layer_with_transformer_engine_spec.value,
-    help="Biobert spec option to use for the model. Default is 'bert_layer_with_transformer_engine_spec'.",
-)
-parser.add_argument(
-    "--nemo1-init-path",
-    type=Path,
-    required=False,
-    help="Path to nemo1 file, if desired to load at init time.",
-)
-parser.add_argument(
-    "--save-best-checkpoint",
-    action="store_true",
-    default=True,
-    help="Save the best checkpoint based on the metric to monitor.",
-)
-parser.add_argument(
-    "--save-last-checkpoint",
-    action="store_true",
-    default=True,
-    help="Save the last checkpoint.",
-)
-parser.add_argument(
-    "--metric-to-monitor-for-checkpoints",
-    type=str,
-    required=False,
-    default="val_loss",
-    help="The metric to monitor for checkpointing.",
-)
-parser.add_argument(
-    "--save-top-k",
-    type=int,
-    required=False,
-    default=2,
-    help="Save the top k checkpoints.",
-)
-parser.add_argument(
-    "--restore-from-checkpoint-path",
-    type=Path,
-    required=False,
-    default=None,
-    help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
-)
+    parser.add_argument(
+        "--num-gpus",
+        type=int,
+        required=False,
+        default=1,
+        help="Number of GPUs to use for training. Default is 1.",
+    )
+    parser.add_argument(
+        "--num-nodes",
+        type=int,
+        required=False,
+        default=1,
+        help="Number of nodes to use for training. Default is 1.",
+    )
+    parser.add_argument(
+        "--num-steps",
+        type=int,
+        required=False,
+        default=10000,
+        help="Number of steps to use for training. Default is 10000.",
+    )
+    parser.add_argument(
+        "--num-dataset-workers",
+        type=int,
+        required=False,
+        default=0,
+        help="Number of steps to use for training. Default is 0.",
+    )
+    parser.add_argument(
+        "--val-check-interval",
+        type=int,
+        required=False,
+        default=10000,
+        help="Number of steps to use for training. Default is 10000.",
+    )
+    parser.add_argument(
+        "--log-every-n-steps",
+        type=int,
+        required=False,
+        default=50,
+        help="Number of steps between logging. Default is 50.",
+    )
+    parser.add_argument(
+        "--seq-length",
+        type=int,
+        required=False,
+        default=2048,
+        help="Sequence length of cell. Default is 2048.",
+    )
+    parser.add_argument(
+        "--limit-val-batches",
+        type=float_or_int_or_none,
+        required=False,
+        default=2,
+        help="Number of global batches used for validation if int. Fraction of validation dataset if float. Default is 2.",
+    )
+    parser.add_argument(
+        "--micro-batch-size",
+        type=int,
+        required=False,
+        default=64,
+        help="Micro-batch size. Global batch size is inferred from this.",
+    )
+    parser.add_argument(
+        "--accumulate-grad-batches",
+        type=int,
+        required=False,
+        default=1,
+        help="Gradient accumulation steps. Global batch size is inferred from this.",
+    )
+    parser.add_argument(
+        "--biobert-spec-option",
+        type=BiobertSpecOption,
+        choices=[e.value for e in BiobertSpecOption],
+        required=False,
+        default=BiobertSpecOption.bert_layer_with_transformer_engine_spec.value,
+        help="Biobert spec option to use for the model. Default is 'bert_layer_with_transformer_engine_spec'.",
+    )
+    parser.add_argument(
+        "--nemo1-init-path",
+        type=Path,
+        required=False,
+        help="Path to nemo1 file, if desired to load at init time.",
+    )
+    parser.add_argument(
+        "--save-best-checkpoint",
+        action="store_true",
+        default=True,
+        help="Save the best checkpoint based on the metric to monitor.",
+    )
+    parser.add_argument(
+        "--save-last-checkpoint",
+        action="store_true",
+        default=True,
+        help="Save the last checkpoint.",
+    )
+    parser.add_argument(
+        "--metric-to-monitor-for-checkpoints",
+        type=str,
+        required=False,
+        default="val_loss",
+        help="The metric to monitor for checkpointing.",
+    )
+    parser.add_argument(
+        "--save-top-k",
+        type=int,
+        required=False,
+        default=2,
+        help="Save the top k checkpoints.",
+    )
+    parser.add_argument(
+        "--restore-from-checkpoint-path",
+        type=Path,
+        required=False,
+        default=None,
+        help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
+    )
 
-# TODO consider whether nemo.run or some other method can simplify this config class lookup.
-config_class_options: Dict[str, Type[BioBertConfig]] = {
-    "GeneformerConfig": GeneformerConfig,
-    "FineTuneSeqLenBioBertConfig": FineTuneSeqLenBioBertConfig,
-}
+    # TODO consider whether nemo.run or some other method can simplify this config class lookup.
+    config_class_options: Dict[str, Type[BioBertConfig]] = {
+        "GeneformerConfig": GeneformerConfig,
+        "FineTuneSeqLenBioBertConfig": FineTuneSeqLenBioBertConfig,
+    }
+
+    def config_class_type(desc: str) -> Type[BioBertConfig]:
+        try:
+            return config_class_options[desc]
+        except KeyError:
+            raise argparse.ArgumentTypeError(
+                f"Do not recognize key {desc}, valid options are: {config_class_options.keys()}"
+            )
+
+    parser.add_argument(
+        "--training-model-config-class",
+        type=config_class_type,
+        default="GeneformerConfig",
+        help="Model configs link model classes with losses, and handle model initialization (including from a prior "
+        "checkpoint). This is how you can fine-tune a model. First train with one config class that points to one model "
+        "class and loss, then implement and provide an alternative config class that points to a variant of that model "
+        "and alternative loss. In the future this script should also provide similar support for picking different data "
+        f"modules for fine-tuning with different data types. Choices: {config_class_options.keys()}",
+    )
+
+    parser.add_argument(
+        "--nsys-profiling",
+        action="store_true",
+        default=False,
+        help="Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with `nsys`. For example: "
+        " `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop  [regular python command here]`",
+    )
+    # start, end, rank
+    parser.add_argument(
+        "--nsys-start-step",
+        type=int,
+        required=False,
+        default=0,
+        help="Start nsys profiling after this step.",
+    )
+    parser.add_argument(
+        "--nsys-end-step",
+        type=int,
+        required=False,
+        help="End nsys profiling after this step.",
+    )
+    # rank as list of integers
+    parser.add_argument(
+        "--nsys-ranks",
+        type=int,
+        nargs="+",
+        required=False,
+        default=[0],
+        help="Enable nsys profiling for these ranks.",
+    )
+
+    parser.add_argument(
+        "--gc-interval",
+        type=int,
+        required=False,
+        default=0,
+        help="Run garbage collection on the cluster every --gc-interval steps, 0 to disable (default). Keeping gc interval"
+        " in sync this way on large cluster runs is important for training performance.",
+    )
+
+    parser.add_argument(
+        "--aligned-megatron-ddp",
+        action="store_true",
+        default=False,
+        help="By default param overlap/etc is disabled in megatron, this enables all of those settings. This is probably "
+        "good for cluster performance.",
+    )
+
+    return parser
 
 
-def config_class_type(desc: str) -> Type[BioBertConfig]:
-    try:
-        return config_class_options[desc]
-    except KeyError:
-        raise argparse.ArgumentTypeError(
-            f"Do not recognize key {desc}, valid options are: {config_class_options.keys()}"
-        )
-
-
-parser.add_argument(
-    "--training-model-config-class",
-    type=config_class_type,
-    default="GeneformerConfig",
-    help="Model configs link model classes with losses, and handle model initialization (including from a prior "
-    "checkpoint). This is how you can fine-tune a model. First train with one config class that points to one model "
-    "class and loss, then implement and provide an alternative config class that points to a variant of that model "
-    "and alternative loss. In the future this script should also provide similar support for picking different data "
-    f"modules for fine-tuning with different data types. Choices: {config_class_options.keys()}",
-)
-parser.add_argument(
-    "--nsys-profiling",
-    action="store_true",
-    default=False,
-    help="Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with `nsys`. For example: "
-    " `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop  [regular python command here]`",
-)
-# start, end, rank
-parser.add_argument(
-    "--nsys-start-step",
-    type=int,
-    required=False,
-    default=0,
-    help="Start nsys profiling after this step.",
-)
-parser.add_argument(
-    "--nsys-end-step",
-    type=int,
-    required=False,
-    help="End nsys profiling after this step.",
-)
-# rank as list of integers
-parser.add_argument(
-    "--nsys-ranks",
-    type=int,
-    nargs="+",
-    required=False,
-    default=[0],
-    help="Enable nsys profiling for these ranks.",
-)
-
-parser.add_argument(
-    "--gc-interval",
-    type=int,
-    required=False,
-    default=0,
-    help="Run garbage collection on the cluster every --gc-interval steps, 0 to disable (default). Keeping gc interval"
-    " in sync this way on large cluster runs is important for training performance.",
-)
-
-parser.add_argument(
-    "--aligned-megatron-ddp",
-    action="store_true",
-    default=False,
-    help="By default param overlap/etc is disabled in megatron, this enables all of those settings. This is probably "
-    "good for cluster performance.",
-)
-
-if __name__ == "__main__":
+def entrypoint():
+    parser = get_parser()
     # Parse the arguments and pull them out into local variables for ease of future refactor to a
     #   config management system.
     args = parser.parse_args()
@@ -627,3 +649,7 @@ if __name__ == "__main__":
         gc_interval=args.gc_interval,
         aligned_megatron_ddp=args.aligned_megatron_ddp,
     )
+
+
+if __name__ == "__main__":
+    entrypoint()

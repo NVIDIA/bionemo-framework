@@ -148,5 +148,7 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences):
     assert all(key in results for key in keys_included)
     assert results["binary_logits"] is None
     assert results["embeddings"].shape[0] == len(dummy_protein_sequences)
-    # TODO: fix this @farhadr; batch_collator concat along the 1st dim which is not batch for logits
-    # assert results["hidden_states"].shape[:-1] == (len(dummy_protein_sequences), max_dataset_seq_len)
+    # hidden_states are [batch, sequence, hidden_dim]
+    assert results["hidden_states"].shape[:-1] == (len(dummy_protein_sequences), max_dataset_seq_len)
+    # token_logits are [sequence, batch, num_tokens]
+    assert results["token_logits"].shape[:-1] == (max_dataset_seq_len, len(dummy_protein_sequences))
