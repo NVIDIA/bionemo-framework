@@ -26,6 +26,7 @@ from infra_bionemo.new_project.api import (
     convert,
     create_on_filesystem,
     namespace_py_project_structure,
+    py_project_structure,
 )
 
 
@@ -92,9 +93,9 @@ def test_bionemo_subproject():
     d = bionemo_subproject_structure("geneformer-extras", ["bionemo-llm", "bionemo-geometric"])
     _assert_has_core_toplevel(d)
     assert not _has_file_by_name("setup.py", d, descend=False)
+    assert not _has_file_by_name("requirements.txt", d, descend=False)
     assert not _has_file_by_name("requirements-test.txt", d, descend=False)
     assert not _has_file_by_name("requirements-dev.txt", d, descend=False)
-    assert _has_file_by_name("pyproject.toml", d, descend=False)
     assert _has_file_by_name("__init__.py", d, descend=True)
     assert _has_file_by_name("test_TODO_bionemo_geneformer_extras.py", d, descend=True)
     assert _has_dir_by_name("bionemo", d, descend=True)
@@ -104,6 +105,7 @@ def test_bionemo_subproject():
 def test_namespace_project():
     d = namespace_py_project_structure("bionemo", "geneformer-extras", ["nemo", "megatron"])
     _assert_has_core_toplevel(d)
+    assert _has_file_by_name("requirements.txt", d, descend=False)
     assert _has_file_by_name("setup.py", d, descend=False)
     assert not _has_file_by_name("requirements-test.txt", d, descend=False)
     assert not _has_file_by_name("requirements-dev.txt", d, descend=False)
@@ -126,10 +128,29 @@ def test_namespace_project():
     assert _has_dir_by_name("test_geneformer_extras", d, descend=True)
 
 
+def test_py_project_structure():
+    d = py_project_structure(
+        "bionemo-geneformer-extras",
+        ["pandas", "sklearn", "pydantic"],
+        add_setup_py=True,
+        add_test_reqs=True,
+        add_dev_reqs=True,
+        prefix_test_dirs=True,
+    )
+    _assert_has_core_toplevel(d)
+    assert _has_file_by_name("requirements.txt", d, descend=False)
+    assert _has_file_by_name("setup.py", d, descend=False)
+    assert _has_file_by_name("requirements-test.txt", d, descend=False)
+    assert _has_file_by_name("requirements-dev.txt", d, descend=False)
+    assert _has_file_by_name("__init__.py", d, descend=True)
+    assert _has_file_by_name("test_TODO_bionemo_geneformer_extras.py", d, descend=True)
+    assert _has_dir_by_name("bionemo", d, descend=True)
+    assert _has_dir_by_name("geneformer_extras", d, descend=True)
+
+
 def _assert_has_core_toplevel(x: Dir):
     assert _has_file_by_name("README.md", x, descend=False)
     assert _has_file_by_name("pyproject.toml", x, descend=False)
-    assert _has_file_by_name("requirements.txt", x, descend=False)
     assert _has_dir_by_name("src", x, descend=False)
     assert _has_dir_by_name("tests", x, descend=False)
 
