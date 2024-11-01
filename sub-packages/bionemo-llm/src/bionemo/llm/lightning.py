@@ -321,10 +321,17 @@ class PerplexityLoggingCallback(pl.Callback, CallbackMethods):
         self.log_val = log_val
 
     def _pad_to_max_length(
-        self, microbatch_outputs: List[Dict[str, Dict[str, Tensor]]], key1: str, key2: str, pad_value: int = 0
+        self,
+        microbatch_outputs: List[Dict[str, Dict[str, Tensor]]],
+        key1: str,
+        key2: str,
+        pad_value: int = 0,
+        seq_dim: int = 1,
+        batch_dim: int = 0,
     ) -> Tensor:
         """Pad tensors to max length in microbatch_outputs."""
-        max_sequence_length: int = max(output[key1][key2].size(1) for output in microbatch_outputs)
+        assert seq_dim != batch_dim, "Forgot to set one of seq_dim, batch_dim, they are equal!"
+        max_sequence_length: int = max(output[key1][key2].shape[seq_dim] for output in microbatch_outputs)
 
         tensors: List[Tensor] = []
         for microbatch_output in microbatch_outputs:
@@ -332,16 +339,20 @@ class PerplexityLoggingCallback(pl.Callback, CallbackMethods):
             assert (
                 tensor.dim() >= 2
             ), f"Tensor in microbatch_outputs must have at least 2 dimensions, but got {tensor.dim()} dimensions"
+            pad_size = [(0, 0)] * tensor.dim()
+            pad_size[seq_dim] = (0, max_sequence_length - tensor.shape[seq_dim])
+            # Flatten pad size list for F.pad
+            pad_size_flat = [item for sublist in reversed(pad_size) for item in sublist]
             tensors.append(
                 torch.nn.functional.pad(  # padding reverse in order
                     tensor,
-                    (0, 0) * (tensor.dim() - 2)
-                    + (0, max_sequence_length - tensor.shape[1], 0, 0),  # [b s *] -> [* s b]
+                    pad_size_flat,
+                    mode="constant",
                     value=pad_value,
                 )
             )
 
-        return torch.cat(tensors, dim=0)  # concat on batch dim
+        return torch.cat(tensors, dim=batch_dim)  # concat on batch dim
 
     @override
     def on_megatron_reduce_microbatches_end(
@@ -376,12 +387,14 @@ class PerplexityLoggingCallback(pl.Callback, CallbackMethods):
         ), "microbatch_outputs length does not match num_microbatches"
         labels = self._pad_to_max_length(microbatch_outputs, "batch", "labels", pad_value=-100)
         loss_mask = self._pad_to_max_length(microbatch_outputs, "batch", "loss_mask")
-        token_logits = self._pad_to_max_length(microbatch_outputs, "forward_out", "token_logits")
+        token_logits = self._pad_to_max_length(
+            microbatch_outputs, "forward_out", "token_logits", seq_dim=0, batch_dim=1
+        )
 
         unreduced_token_loss = unreduced_token_loss_fn(
-            token_logits.clone(),  # unreduced_token_loss_fn has inplace operation on token_logits
-            labels.clone(),
-        )  # [b s]
+            token_logits.clone(),  # [s,b] as expected unreduced_token_loss_fn has inplace operation on token_logits
+            labels.clone(),  # [b,s] as expected
+        )  # [b s] is the return
 
         cp_size = parallel_state.get_context_parallel_world_size()
         if cp_size == 1:
