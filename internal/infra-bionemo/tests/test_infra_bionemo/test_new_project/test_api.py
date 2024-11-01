@@ -128,24 +128,25 @@ def test_namespace_project():
     assert _has_dir_by_name("test_geneformer_extras", d, descend=True)
 
 
-def test_py_project_structure():
-    d = py_project_structure(
-        "bionemo-geneformer-extras",
-        ["pandas", "sklearn", "pydantic"],
-        add_setup_py=True,
-        add_test_reqs=True,
-        add_dev_reqs=True,
-        prefix_test_dirs=True,
-    )
+def test_simple_project():
+    d = py_project_structure("infra-bionemo", ["nltk"])
     _assert_has_core_toplevel(d)
     assert _has_file_by_name("requirements.txt", d, descend=False)
-    assert _has_file_by_name("setup.py", d, descend=False)
+    assert not _has_file_by_name("setup.py", d, descend=False)
     assert _has_file_by_name("requirements-test.txt", d, descend=False)
     assert _has_file_by_name("requirements-dev.txt", d, descend=False)
     assert _has_file_by_name("__init__.py", d, descend=True)
-    assert _has_file_by_name("test_TODO_bionemo_geneformer_extras.py", d, descend=True)
-    assert _has_dir_by_name("bionemo", d, descend=True)
-    assert _has_dir_by_name("geneformer_extras", d, descend=True)
+    assert _has_file_by_name("test_TODO_infra_bionemo.py", d, descend=True)
+    assert _has_dir_by_name("infra_bionemo", d, descend=True)
+
+    d = py_project_structure(
+        "infra-bionemo",
+        ["nltk"],
+        add_setup_py=True,
+        prefix_test_dirs=True,
+    )
+    assert _has_file_by_name("setup.py", d, descend=False)
+    assert _has_dir_by_name("test_infra_bionemo", d, descend=True)
 
 
 def _assert_has_core_toplevel(x: Dir):
