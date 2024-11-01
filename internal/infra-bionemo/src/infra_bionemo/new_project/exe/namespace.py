@@ -31,7 +31,6 @@ def main(
     module: str,
     location: str,
     no_test_append: bool,
-    use_uv: bool,
 ) -> None:
     loc = Path(location)
     project_name = f"{namespace}-{module}"
@@ -53,7 +52,6 @@ def main(
         add_test_reqs=True,
         add_dev_reqs=True,
         prefix_test_dirs=not no_test_append,
-        use_uv=use_uv,
     )
 
     print("🔨 Creating new namespace Python project on file system.")
@@ -79,18 +77,11 @@ def main(
     is_flag=True,
     help="If present, do not append 'test_' to the name of each directory created under 'tests/'",
 )
-@click.option(
-    "--use-uv",
-    "-u",
-    is_flag=True,
-    help="If present, add uv support. Otherwise only use setuptools.",
-)
 def entrypoint(
     namespace: str,
     module: str,
     location: str,
     no_test_append: bool,
-    use_uv: bool,
 ) -> None:
     main(**locals())  # pragma: no cover
 

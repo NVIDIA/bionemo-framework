@@ -93,7 +93,6 @@ def main(*, project_name: str, loc_sub_pack: str, relax_name_check: bool) -> Non
         add_test_reqs=False,
         add_dev_reqs=False,
         prefix_test_dirs=False,
-        use_uv=True,
     )
 
     print("🔨 Creating new project on file system.")
