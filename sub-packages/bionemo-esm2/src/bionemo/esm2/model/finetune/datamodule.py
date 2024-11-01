@@ -16,7 +16,7 @@
 
 import functools
 import os
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -123,6 +123,9 @@ class InMemoryCSVDataset(Dataset):
         return tensor.flatten()  # type: ignore
 
 
+DATASET_TYPES = Union[InMemoryPerTokenValueDataset, InMemorySingleValueDataset, InMemoryCSVDataset, None]
+
+
 class ESM2FineTuneDataModule(MegatronDataModule):
     """A PyTorch Lightning DataModule for fine-tuning ESM2 models.
 
@@ -132,9 +135,9 @@ class ESM2FineTuneDataModule(MegatronDataModule):
 
     def __init__(
         self,
-        train_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset | None = None,
-        valid_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset | None = None,
-        predict_dataset: InMemoryPerTokenValueDataset | InMemorySingleValueDataset | None = None,
+        train_dataset: DATASET_TYPES = None,
+        valid_dataset: DATASET_TYPES = None,
+        predict_dataset: DATASET_TYPES = None,
         seed: int = 42,
         min_seq_length: int | None = None,
         max_seq_length: int = 1024,

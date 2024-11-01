@@ -19,8 +19,11 @@ import pandas as pd
 import pytest
 import torch
 from esm2_infer import infer_model
+from torch.utils.data import DataLoader
 
 from bionemo.esm2.api import ESM2Config
+from bionemo.esm2.data.tokenizer import get_tokenizer
+from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule, InMemoryCSVDataset
 from bionemo.testing.data.load import load
 
 
@@ -55,6 +58,66 @@ def dummy_protein_csv(tmp_path, dummy_protein_sequences):
     # Save the DataFrame to a CSV file
     df.to_csv(csv_file, index=False)
     return csv_file
+
+
+@pytest.fixture
+def dataset(dummy_protein_csv):
+    return InMemoryCSVDataset(dummy_protein_csv)
+
+
+@pytest.fixture
+def data_module(dataset):
+    return ESM2FineTuneDataModule(predict_dataset=dataset)
+
+
+def test_in_memory_csv_dataset(dataset):
+    assert len(dataset) > 0
+    sample = dataset[0]
+    assert isinstance(sample, dict)
+    assert "text" in sample
+    assert "labels" in sample
+
+
+def test_in_memory_csv_dataset_load_data(dataset, dummy_protein_csv):
+    sequences, labels = dataset.load_data(dummy_protein_csv)
+    assert isinstance(sequences, list)
+    assert isinstance(labels, list)
+
+
+def test_esm2_fine_tune_data_module_init(data_module):
+    assert data_module.train_dataset is None
+    assert data_module.valid_dataset is None
+    assert data_module.predict_dataset is not None
+
+
+def test_esm2_fine_tune_data_module_predict_dataloader(data_module):
+    predict_dataloader = data_module.predict_dataloader()
+    assert isinstance(predict_dataloader, DataLoader)
+    batch = next(iter(predict_dataloader))
+    assert isinstance(batch, dict)
+    assert "text" in batch
+
+
+def test_esm2_fine_tune_data_module_setup(data_module):
+    with pytest.raises(RuntimeError):
+        data_module.setup("fit")
+
+
+def test_esm2_fine_tune_data_module_train_dataloader(data_module):
+    with pytest.raises(AttributeError):
+        data_module.train_dataloader()
+
+
+def test_esm2_fine_tune_data_module_val_dataloader(data_module):
+    with pytest.raises(AttributeError):
+        data_module.val_dataloader()
+
+
+def test_in_memory_csv_dataset_tokenizer():
+    tokenizer = get_tokenizer()
+    sequence = "sequence"
+    tokenized_sequence = tokenizer.encode(sequence, add_special_tokens=True, return_tensors="pt")
+    assert isinstance(tokenized_sequence, torch.Tensor)
 
 
 # TODO: @pytest.mark.parametrize("config_class_name", list(SUPPORTED_CONFIGS))
