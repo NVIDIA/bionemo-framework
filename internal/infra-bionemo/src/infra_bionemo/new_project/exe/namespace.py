@@ -73,7 +73,6 @@ def main(
 @click.option("--location", "-l", type=str, required=True, help="Location to create new project.", default=".")
 @click.option(
     "--no-test-append",
-    "-l",
     is_flag=True,
     help="If present, do not append 'test_' to the name of each directory created under 'tests/'",
 )
