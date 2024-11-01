@@ -12,14 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import sys
 from string import Template
 from typing import List, Sequence
 
 
 __all__: Sequence[str] = (
     "pyproject_toml_setuptools",
-    "pyproject_toml_uv_setuptools",
+    "pyproject_toml_subproject",
     "setup_py",
     "requirements_txt",
     "readme_md",
@@ -49,26 +49,37 @@ def pyproject_toml_setuptools(package_name: str, project_name: str) -> str:
         raise ValueError("😱 Creation of pyproject.toml failed!") from e
 
 
-def pyproject_toml_uv_setuptools(package_name: str, project_name: str) -> str:
-    """A pyproject.toml contents that configures a Python project according to PEP-517 & PEP-518 with setuptools & uv.
+def pyproject_toml_subproject(package_name: str, internal_deps: Sequence[str]) -> str:
+    """A pyproject.toml suitable as a bionemo sub-project.
 
     Args:
         package_name: name of the project's Python package.
-        project_name: name of the Python project.
+        internal_deps: list of other bionemo sub-projects to depend on.
 
     Returns:
         pyproject.toml contents that configure all aspects of the Python project. Uses setuptools and uv.
 
     Raises:
         ValueError wrapping any encountered exception.
+        ValueError if providing a non-bionemo internal dependency.
     """
+    ok_internal_deps = []
+    for x in internal_deps:
+        x = x.strip()
+        if len(x) == 0 or not x.startswith("bionemo-"):
+            raise ValueError(f"Invalid internal dependency: {x}")
+        if x == "bionemo-core":
+            print("bionemo-core is always a dependency, ignoring redundant inclusion", file=sys.stderr)
+        else:
+            ok_internal_deps.append(x)
+
     try:
-        return Template(_pyproject_toml_setuptools).substitute(
+        return Template(_pyproject_toml_subproject).substitute(
             package_name=package_name,
-            project_name=project_name,
+            internal_deps=",".join(ok_internal_deps),
         )
     except Exception as e:  # pragma: no cover
-        raise ValueError("😱 Creation of pyproject.toml failed!") from e
+        raise ValueError("😱 Creation of pyproject.toml for bionemo sub-project failed!") from e
 
 
 def setup_py() -> str:
@@ -123,13 +134,9 @@ license = { file = "LICENSE" }
 version = { file = "VERSION" }
 dependencies = [
     # internal
-    'bionemo-core',
+    'bionemo-core', ${internal_deps}
     # external
 ]
-
-
-[tool.coverage.run]
-source = ["${package_name}"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
