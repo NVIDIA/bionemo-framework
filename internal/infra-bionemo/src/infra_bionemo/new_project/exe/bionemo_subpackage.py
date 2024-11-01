@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import shutil
 from pathlib import Path
 from typing import Sequence
@@ -82,10 +81,7 @@ def main(*, project_name: str, loc_sub_pack: str, relax_name_check: bool) -> Non
     check(project_name)
 
     internal_deps = []
-    for component in (
-        "bionemo-llm",
-        "bionemo-geometric",
-    ):
+    for component in ["bionemo-llm"]:  # , 'bionemo-geometric', 'bionemo-serve']:
         if ask_yes_or_no(f"🤔 Do you want to depend on {component} ?"):
             internal_deps.append(f"-e ../{component}")
 
