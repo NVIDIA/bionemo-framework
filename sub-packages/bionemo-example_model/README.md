@@ -32,7 +32,7 @@ In the data module/data loader class, it is necessary to have a data_sampler met
 Also the sampler will not shuffle your data. So you need to wrap your dataset in a dataset shuffler that maps sequential IDs to random IDs in your dataset. This can be done with `MultiEpochDatasetResampler` from `bionemo.core.data.multi_epoch_dataset`.
 
 
-This is implemented in the `MNISTDataModule`. In the setup method of the dataloader, the train, test and validation sets are `MNISTCustomDataset` are wrapped in the `IdentityMultiEpochDatasetWrapper`. These are then wrapped in the `MultiEpochDatasetResampler`. More information about `MegatronCompatability` and how to set up more complicated datasets can be found in `docs.user-guide.background.megatron_datasets.md`.
+This is implemented in the `MNISTDataModule`. In the setup method of the dataloader, the train, test and validation sets are `MNISTCustomDataset` are wrapped in the `IdentityMultiEpochDatasetWrapper`. These are then wrapped in the `MultiEpochDatasetResampler`. More information about `MegatronCompatability` and how to set up more complicated datasets can be found in [`docs.user-guide.background.megatron_datasets.md`](https://docs.nvidia.com/bionemo-framework/latest/user-guide/background/megatron_datasets/).
 
 
 We also define a `train_dataloader`, `val_dataloader`, and `predict_dataloader` methods that return the corresponding dataloaders.
