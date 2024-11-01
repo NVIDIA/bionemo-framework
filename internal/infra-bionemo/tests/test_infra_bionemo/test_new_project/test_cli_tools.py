@@ -16,6 +16,7 @@
 import io
 from pathlib import Path
 
+import tomli_w
 from pytest import raises
 
 from infra_bionemo.new_project.exe.bionemo_subpackage import main as main_bionemo_sub
@@ -114,7 +115,10 @@ def test_create_bionemo_cli(tmpdir, monkeypatch):
             relax_name_check=False,
         )
 
-    (sub_packages / "bionemo-fw" / "pyproject.toml").touch(exist_ok=True)
+    bionemo_fw_pyproject_toml = sub_packages / "bionemo-fw" / "pyproject.toml"
+    bionemo_fw_pyproject_toml.touch(exist_ok=True)
+    with open(str(bionemo_fw_pyproject_toml), "wt") as wt:
+        wt.write(tomli_w.dumps({"project": {"dependencies": []}}))
 
     with monkeypatch.context() as ctx:
         ctx.setattr("sys.stdin", io.StringIO("y"))
