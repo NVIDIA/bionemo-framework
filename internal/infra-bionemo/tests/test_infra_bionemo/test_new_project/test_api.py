@@ -21,6 +21,7 @@ from pytest import mark, raises
 from infra_bionemo.new_project.api import (
     Dir,
     File,
+    bionemo_subproject_structure,
     check,
     convert,
     create_on_filesystem,
@@ -85,6 +86,12 @@ def test_project_name_check(project_name):
 def test_module_name_convert(input_, expected):
     actual = convert(input_)
     assert actual == expected, f"{input_=} did not convert into {expected=}, instead was {actual=}"
+
+
+def test_bionemo_subproject():
+    d = bionemo_subproject_structure(
+        "bionemo",
+    )
 
 
 def test_namespace_project():

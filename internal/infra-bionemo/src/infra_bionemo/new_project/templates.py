@@ -49,11 +49,11 @@ def pyproject_toml_setuptools(package_name: str, project_name: str) -> str:
         raise ValueError("😱 Creation of pyproject.toml failed!") from e
 
 
-def pyproject_toml_subproject(package_name: str, internal_dependencies: Sequence[str]) -> str:
+def pyproject_toml_subproject(subproject_name: str, internal_dependencies: Sequence[str]) -> str:
     """A pyproject.toml suitable as a bionemo sub-project.
 
     Args:
-        package_name: name of the project's Python package.
+        subproject_name: name of the project's Python package, not the top-level namespaced one.
         internal_dependencies: list of other bionemo sub-projects to depend on.
 
     Returns:
@@ -75,7 +75,7 @@ def pyproject_toml_subproject(package_name: str, internal_dependencies: Sequence
 
     try:
         return Template(_pyproject_toml_subproject).substitute(
-            package_name=package_name,
+            subproject_name=subproject_name,
             internal_deps=",".join(ok_internal_deps),
         )
     except Exception as e:  # pragma: no cover
@@ -125,7 +125,7 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "${project_name}"
+name = "bionemo-${subproject_name}"
 readme = "README.md"
 description = ""
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]

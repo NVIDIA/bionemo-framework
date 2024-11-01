@@ -207,32 +207,19 @@ def namespace_py_project_structure(
 
 
 def bionemo_subproject_structure(
-    base_name: str,
-    project_module_name: str,
+    subproject_name: str,
     internal_dependencies: List[str],
 ) -> Dir:
     """Virtual representation of files and folders for a bionemo sub-project Python project.
 
-    The returned `Dir` represents the entire directory containing a namespaced Python project. Such a project needs
-    things like a place to store the Python packages and modules (`src/`), a place for unit tests (`tests/`),
-    files to list project infrastructure (`pyproject.toml`) and documentation (`README.md`).
-
-    It also needs to have the right directory setup to support PEP 420 namespace packages. Of note, the `src/`
-    directory will contain a directory for the namespace (`base_name`) that will **not** have a `__init__.py` file.
-    However, its sub-package directories (first, the Python-friendly version of `project_module_name`) **will** have
-    `__init__.py` files like regular Python packages do.
-
-    Note, unlike :func:`py_project_structure`, this function defaults to exclude the test & development dependencies
-    under `requirements-test.txt` and `requirements-dev.txt`, respectively. Additionally, this function will include the
-    `setup.py` file by default.
+    Very similar to :func:`namespace_py_project_structure`, but specific for creating new sub-projects in
+    the bionemo framework repository. Like that function, the returned `Dir` represents the entire directory
+    containing a namespaced Python project, with files and subdirectories set up for  PEP 420 namespace packages.
 
     Args:
-        base_name: The namespace package name. The import name for the project will follow `base_name.*`.
-                   Note, however, that when used as a Python name, this value will have `-` converted to `_`.
-        project_module_name: Used in the project infrastructure & documentation files. It's also used to create the
-                             first differentiated namespaced Python package and initial unit test file. This will be
-                             the first sub-package created under the `base_name` namespace. Note, however, that when
-                             used as a Python name, this value will have `-` converted to `_`.
+        subproject_name: The bionemo sub-package name. Note the directory will be `bionemo-<this value>` and the
+                         Python import path will be `import bionemo.<this value>`.
+                         When used as a Python name, this value will have `-` converted to `_`.
         internal_dependencies: Other bionemo subprojects to depend on.
 
     Returns:
@@ -240,15 +227,19 @@ def bionemo_subproject_structure(
 
     Raises:
         ValueError If the :param:`base_name` or :param:`project_module_name` is not a valid Python identifier.
-        ValueError If the :param:`internal_dependeices` are not all bionemo sub-projects.
+        ValueError If the :param:`internal_dependencies` are not all bionemo sub-projects.
     """
+    # TODO some mild refactoring necessary to this and namespace project creation
+    #      most logic is the same, but we want to have a private function to do it and then
+    #      call that with the right checking from these 2 public-facing functions
+    base_name = "bionemo"
     check(base_name)
-    check(project_module_name)
+    check(subproject_name)
 
-    project_name = f"{base_name}-{project_module_name}"
+    project_name = f"{base_name}-{subproject_name}"
 
     base_module = convert(base_name)
-    module_name = convert(project_module_name)
+    module_name = convert(subproject_name)
 
     project = Dir(
         name=project_name,
@@ -256,7 +247,7 @@ def bionemo_subproject_structure(
             File("README.md", readme_md(base_module, project_name)),
             File(
                 "pyproject.toml",
-                pyproject_toml_subproject(module_name, internal_dependencies),
+                pyproject_toml_subproject(subproject_name, internal_dependencies),
             ),
             Dir(
                 "src",
