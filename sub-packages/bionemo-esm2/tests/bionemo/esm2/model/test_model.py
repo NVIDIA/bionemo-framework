@@ -117,7 +117,8 @@ def _compute_loss(model, dataloader, vocab_size=None):
 
         # bionemo ESM2 vocab_size
         if vocab_size is not None:
-            logits = result["token_logits"][..., :vocab_size]
+            # token_logits is s,b and for simplicity here let's transpose to b,s. In general this reduces performance.
+            logits = result["token_logits"].transpose(0, 1).contiguous()[..., :vocab_size]
         else:
             logits = result.logits
 
@@ -200,7 +201,8 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         model = esm2_650M_config_w_ckpt.configure_model(get_tokenizer()).cuda()
         model.eval()
         result = model(input_ids, attention_mask)
-        logits = result["token_logits"][..., : tokenizer.vocab_size]
+        # token_logits is s,b and for simplicity here let's transpose to b,s. In general this reduces performance.
+        logits = result["token_logits"].transpose(0, 1).contiguous()[..., : tokenizer.vocab_size]
         logits = logits * attention_mask.unsqueeze(-1)  # incorporate masking logic
 
         # free GPU RAM
