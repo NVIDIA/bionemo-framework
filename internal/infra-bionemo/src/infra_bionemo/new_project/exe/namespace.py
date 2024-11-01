@@ -25,31 +25,13 @@ from infra_bionemo.new_project.api import check, create_on_filesystem, namespace
 __all__: Sequence[str] = ()
 
 
-@click.command(help="Create a new bionemo sub-package project")
-@click.option("--namespace", "-n", type=str, required=True, help="Name of new Python base namespace.")
-@click.option("--module", "-m", type=str, required=True, help="Name of new Python subpackage in the namespace.")
-@click.option("--location", "-l", type=str, required=True, help="Location to create new project.", default=".")
-@click.option(
-    "--no-test-append",
-    "-l",
-    is_flag=True,
-    help="If present, do not append 'test_' to the name of each directory created under 'tests/'",
-)
-def entrypoint(
-    namespace: str,
-    module: str,
-    location: str,
-    no_test_append: bool,
-) -> None:
-    main(**locals())  # pragma: no cover
-
-
 def main(
     *,
     namespace: str,
     module: str,
     location: str,
     no_test_append: bool,
+    use_uv: bool,
 ) -> None:
     loc = Path(location)
     project_name = f"{namespace}-{module}"
@@ -71,6 +53,7 @@ def main(
         add_test_reqs=True,
         add_dev_reqs=True,
         prefix_test_dirs=not no_test_append,
+        use_uv=use_uv,
     )
 
     print("🔨 Creating new namespace Python project on file system.")
@@ -84,6 +67,32 @@ def main(
         raise
 
     print(f"✅ Created namespaced {project_name} in {loc} 🎉")
+
+
+@click.command(help="Create a new bionemo sub-package project")
+@click.option("--namespace", "-n", type=str, required=True, help="Name of new Python base namespace.")
+@click.option("--module", "-m", type=str, required=True, help="Name of new Python subpackage in the namespace.")
+@click.option("--location", "-l", type=str, required=True, help="Location to create new project.", default=".")
+@click.option(
+    "--no-test-append",
+    "-l",
+    is_flag=True,
+    help="If present, do not append 'test_' to the name of each directory created under 'tests/'",
+)
+@click.option(
+    "--use-uv",
+    "-u",
+    is_flag=True,
+    help="If present, add uv support. Otherwise only use setuptools.",
+)
+def entrypoint(
+    namespace: str,
+    module: str,
+    location: str,
+    no_test_append: bool,
+    use_uv: bool,
+) -> None:
+    main(**locals())  # pragma: no cover
 
 
 if __name__ == "__main__":

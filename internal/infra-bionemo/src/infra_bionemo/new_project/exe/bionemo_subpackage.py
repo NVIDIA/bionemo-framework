@@ -81,7 +81,7 @@ def main(*, project_name: str, loc_sub_pack: str, relax_name_check: bool) -> Non
     check(project_name)
 
     internal_deps = []
-    for component in ["bionemo-llm"]:  # , 'bionemo-geometric', 'bionemo-serve']:
+    for component in ["bionemo-llm", "bionemo-geometric"]:
         if ask_yes_or_no(f"🤔 Do you want to depend on {component} ?"):
             internal_deps.append(f"-e ../{component}")
 
@@ -89,10 +89,11 @@ def main(*, project_name: str, loc_sub_pack: str, relax_name_check: bool) -> Non
         base_name="bionemo",
         project_module_name=project_name,
         dependencies=internal_deps,
-        add_setup_py=True,
+        add_setup_py=False,
         add_test_reqs=False,
         add_dev_reqs=False,
         prefix_test_dirs=False,
+        use_uv=True,
     )
 
     print("🔨 Creating new project on file system.")

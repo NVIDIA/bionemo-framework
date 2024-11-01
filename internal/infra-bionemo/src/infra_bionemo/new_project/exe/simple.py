@@ -28,11 +28,12 @@ __all__: Sequence[str] = ()
 @click.command(help="Create a Python project")
 @click.option("--project-name", "-p", type=str, required=True, help="Name of new Python project & module.")
 @click.option("--location", "-l", type=str, required=True, help="Location to create new project.", default=".")
-def entrypoint(project_name: str, location: str) -> None:
+@click.option("--use-uv", "-u", is_flag=True, help="If present, add uv support. Otherwise only use setuptools.")
+def entrypoint(project_name: str, location: str, use_uv: bool) -> None:
     main(**locals())  # pragma: no cover
 
 
-def main(*, project_name: str, location: str) -> None:
+def main(*, project_name: str, location: str, use_uv: bool) -> None:
     loc = Path(location)
     print(f"🔨 Creating {loc}/{project_name}")
 
@@ -50,6 +51,7 @@ def main(*, project_name: str, location: str) -> None:
         add_test_reqs=True,
         add_dev_reqs=True,
         prefix_test_dirs=True,
+        use_uv=use_uv,
     )
 
     print("🔨 Creating new project on file system.")
