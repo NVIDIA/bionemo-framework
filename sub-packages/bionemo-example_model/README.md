@@ -48,7 +48,7 @@ Models need to be Megatron modules. At the most basic level this just means:
 
 The following models are implemented in `bionemo.example_model.lightning.lightning_basic`.
 
-`ExampleModelTrunk` is a base model. This returns a tensor. `ExampleModel` is a model that extends the base model with a few linear layers and it is used for pretrainining. This returns the output of the base model and of the full model.
+`ExampleModelTrunk` is a base model. This returns a tensor. `ExampleModel` is a model that extends the base model with a few linear layers and it is used for pretraining. This returns the output of the base model and of the full model.
 
 `ExampleFineTuneModel` extends the `ExampleModelTrunk` by adding a classification layer. This returns a tensor of logits over the 10 potential digits.
 
