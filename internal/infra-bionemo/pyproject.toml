@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 # For guidance, see: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
 [project]
 name = "infra-bionemo"
-version = "0.0.0"
+version = "0.1.0"
 authors = []
 description = "Internal library of utilities and programs for BioNeMo-related infrastructure."
 readme = "README.md"
@@ -21,6 +21,8 @@ dynamic = ["dependencies"]
 [project.scripts]
 license-check = "infra_bionemo.license_check:entrypoint"
 create-bionemo-project = "infra_bionemo.new_project.exe.bionemo_subpackage:entrypoint"
+create-py-project = "infra_bionemo.new_project.exe.simple:entrypoint"
+create-namespaced-project = "infra_bionemo.new_project.exe.namespace:entrypoint"
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
