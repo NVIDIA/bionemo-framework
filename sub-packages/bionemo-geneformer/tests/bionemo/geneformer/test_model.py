@@ -685,7 +685,7 @@ def _get_loss_from_model(model_config: GeneformerConfig, seed: int) -> float:
             )
             loss_mask = batch["loss_mask"].cuda()
             # token_logits is s,b and for simplicity here let's transpose to b,s. In general this reduces performance.
-            logits = result["token_logits"].transpose(0, 1).contiguous()
+            logits = result["token_logits"]
             target = batch["labels"].cuda()
 
             loss += F.cross_entropy(logits[loss_mask].float(), target[loss_mask], reduction="sum")
