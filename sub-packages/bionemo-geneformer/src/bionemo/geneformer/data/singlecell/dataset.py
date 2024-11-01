@@ -289,34 +289,34 @@ def process_item(  # noqa: D417
 
     # - select max_len subset, set sample to false so it doesnt permute the already rank ordered expression values.
     token_ids = sample_or_truncate(token_ids, max_len, sample=False)
-
-    masked_tokens, labels, loss_mask = masking.apply_bert_pretraining_mask(
-        tokenized_sequence=torch.from_numpy(token_ids),
-        random_seed=int(random_utils.get_seed_from_rng(rng)),
-        mask_config=masking.BertMaskConfig(
-            tokenizer=tokenizer,
-            random_tokens=range(5, len(tokenizer.vocab)),
-            mask_prob=mask_prob,
-            mask_token_prob=mask_token_prob,
-            random_token_prob=random_token_prob,
-        ),
-    )
-
-    if prepend_cls_token:
-        masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
-            sequence=masked_tokens,
-            labels=labels,
-            loss_mask=loss_mask,
-            cls_token=tokenizer.token_to_id(tokenizer.cls_token),
-            eos_token=None,
+    with torch.no_grad(), torch.device("cpu"):
+        masked_tokens, labels, loss_mask = masking.apply_bert_pretraining_mask(
+            tokenized_sequence=torch.from_numpy(token_ids),
+            random_seed=int(random_utils.get_seed_from_rng(rng)),
+            mask_config=masking.BertMaskConfig(
+                tokenizer=tokenizer,
+                random_tokens=range(5, len(tokenizer.vocab)),
+                mask_prob=mask_prob,
+                mask_token_prob=mask_token_prob,
+                random_token_prob=random_token_prob,
+            ),
         )
 
-    # NeMo megatron assumes this return structure.
-    return {
-        "text": masked_tokens,
-        "types": torch.zeros_like(masked_tokens, dtype=torch.int64),
-        "attention_mask": torch.ones_like(masked_tokens, dtype=torch.int64),
-        "labels": labels,
-        "loss_mask": loss_mask,
-        "is_random": torch.zeros_like(masked_tokens, dtype=torch.int64),
-    }
+        if prepend_cls_token:
+            masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
+                sequence=masked_tokens,
+                labels=labels,
+                loss_mask=loss_mask,
+                cls_token=tokenizer.token_to_id(tokenizer.cls_token),
+                eos_token=None,
+            )
+
+        # NeMo megatron assumes this return structure.
+        return {
+            "text": masked_tokens,
+            "types": torch.zeros_like(masked_tokens, dtype=torch.int64),
+            "attention_mask": torch.ones_like(masked_tokens, dtype=torch.int64),
+            "labels": labels,
+            "loss_mask": loss_mask,
+            "is_random": torch.zeros_like(masked_tokens, dtype=torch.int64),
+        }
