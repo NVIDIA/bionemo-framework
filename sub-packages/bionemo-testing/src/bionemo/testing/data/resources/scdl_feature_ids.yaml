@@ -1,0 +1,5 @@
+- tag: sample_scdl_feature_ids
+  pbss: "s3://bionemo-ci/test-data/scdl_feat_ids_sample_updated.tar.gz"
+  sha256: 07a35a7b901919593c071edc6848c3d9a0f01cfe2bba6a74ff0e5302ea1247cf # pragma: allowlist secret
+  owner: Savitha Srinivasan <savithas@nvidia.com>
+  description: Sample test data for SCDL with feature IDs appended.
