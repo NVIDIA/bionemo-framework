@@ -64,11 +64,11 @@ def run_pretrain(name: str, directory_name: str):
         devices=1,
         strategy=strategy,
         limit_val_batches=5,
-        val_check_interval=1,
-        max_steps=10,
-        max_epochs=2,
+        val_check_interval=5,
+        max_steps=100,
+        max_epochs=10,
         num_nodes=1,
-        log_every_n_steps=1,
+        log_every_n_steps=5,
         plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
     )
 
