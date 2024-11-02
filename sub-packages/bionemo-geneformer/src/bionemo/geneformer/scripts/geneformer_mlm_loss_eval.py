@@ -31,7 +31,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Dict, Type
 
-import numpy as np
 import torch
 import torch.distributed
 import torch.utils
@@ -173,7 +172,7 @@ def main(
 
         ds_nv = SingleCellDataset(
             dataset_path,
-            tokenizer=tokenizer_filt,
+            tokenizer=tokenizer,  # TODO replace with the filtered one.
             median_dict=median_dict,
             max_len=2048,
             mask_prob=mask_prob,
@@ -183,7 +182,7 @@ def main(
             dataset_path,
             hf_tokenizer,
             median_dict,
-            max_len=4096,
+            max_len=2048,
             mask_prob=mask_prob,
             eos_token=hf_tokenizer.token_to_id(hf_tokenizer.sep_token),  # Stored in the special token
             seed=seed,
@@ -220,31 +219,31 @@ def main(
         )
 
         with torch.no_grad():
-            dl_hf_iter = iter(dl_hf)
+            # dl_hf_iter = iter(dl_hf)
             dl_nv_iter = iter(dl_nv)
-            loss_hf = 0.0
-            n_hf = 0
+            # loss_hf = 0.0
+            # n_hf = 0
             loss_nv = 0.0
             n_nv = 0
             nv_device = geneformer_nv_inferer.module.embedding.position_embeddings.weight.device
-            hf_device = hf_model.device
+            # hf_device = hf_model.device
             for b_idx in trange(len(dl_hf)):
-                np.random.seed(b_idx)
-                batch_hf = {k: v.to(hf_device) for k, v in next(dl_hf_iter).items()}
-                np.random.seed(b_idx)
+                # np.random.seed(b_idx)
+                # batch_hf = {k: v.to(hf_device) for k, v in next(dl_hf_iter).items()}
+                # np.random.seed(b_idx)
                 batch_nv = {k: v.to(nv_device) for k, v in next(dl_nv_iter).items()}
-                logits_hf = hf_model(batch_hf["text"].long(), batch_hf["attention_mask"])
-                loss_hf += (
-                    torch.nn.functional.cross_entropy(
-                        logits_hf[batch_hf["loss_mask"]],
-                        batch_hf["labels"][batch_hf["loss_mask"]],
-                        reduction="sum",
-                    )
-                    .cpu()
-                    .sum()
-                    .item()
-                )
-                n_hf += batch_hf["loss_mask"].sum().cpu().item()
+                # logits_hf = hf_model(batch_hf["text"].long(), batch_hf["attention_mask"])
+                # loss_hf += (
+                #     torch.nn.functional.cross_entropy(
+                #         logits_hf[batch_hf["loss_mask"]],
+                #         batch_hf["labels"][batch_hf["loss_mask"]],
+                #         reduction="sum",
+                #     )
+                #     .cpu()
+                #     .sum()
+                #     .item()
+                # )
+                # n_hf += batch_hf["loss_mask"].sum().cpu().item()
 
                 logits_nv = (
                     geneformer_nv_inferer(batch_nv["text"], batch_nv["attention_mask"])["token_logits"]
@@ -262,7 +261,9 @@ def main(
                     .item()
                 )
                 n_nv += batch_nv["loss_mask"].sum().cpu().item()
-        print(f"HF mean loss: {loss_hf / n_hf}, NV mean loss: {loss_nv / n_nv}")
+        print(f"NV mean loss: {loss_nv / n_nv}")
+        # print(f"The following loss is not valid in our script, do not report this number:", file=sys.stderr)
+        # print(f"FIXME: HF mean loss: {loss_hf / n_hf} FIXME", file=sys.stderr)
 
 
 def entrypoint():

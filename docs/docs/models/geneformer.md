@@ -1,9 +1,11 @@
 # Geneformer
-NOTE: this document references performance numbers and runtime engines that are from the bionemo v1 variant of the model.
-These numbers will be updated in a coming release to reflect the new bionemo v2 codebase. The model architecture and
-training information will be the same, as checkpoints are converted from bionemo v1 format to v2 format, however
-performance benchmarks need to be updated to reflect the latest code. Accuracy should be the same within small epsilon
-since we have tests in place showing model equivalency between the two versions.
+!!! note "Current checkpoints trained in BioNeMo1"
+
+    This document references performance numbers and runtime engines that are from the bionemo v1 variant of the model.
+    These numbers will be updated in a coming release to reflect the new bionemo v2 codebase. The model architecture and
+    training information will be the same, as checkpoints are converted from bionemo v1 format to v2 format. Benchmarks below
+    are annotated with which version of bionemo generated them. Accuracy should be the same within small epsilon
+    since we have tests in place showing model equivalency between the two versions.
 
 ## Model Overview
 
@@ -158,6 +160,15 @@ NVIDIA believes Trustworthy AI is a shared responsibility and we have establishe
 This checkpoint was trained for approximately 11 epochs through the CELLxGENE split. Training was performed on 8 servers with 8 A100 GPUs each for a total of 115430 steps of per-gpu micro batch size 32 and global batch size of 2048. Training took a total of 1 day, 20 hours and 19 minutes of wallclock time. As can be seen in the following image, training and validation curves both decreased fairly smoothly throughout the course of training. In fact validation (blue) and training (orange) loss were both still decreasing at the end of 11 epochs through the dataset. The model could likely be trained for more epochs without overfitting.
 ![Validation and training losses both decreased smoothly through training](../assets/old_images/sc_fm/geneformer-10m-240530-val-train-loss.png)
 
+!!! note "Training curves from BioNeMo1"
+
+    Note that these curves were generated on BioNeMo1. We see the same general training curves in our initial testing of
+    BioNeMo2 however. In the following figure the blue line is the previous training run of the 10M model and the
+    red curve is an equivalent training run on BioNeMo2. As we release new checkpoints they will be trained on BioNeMo2.
+
+    ![Training curve equivalence](../assets/images/geneformer/loss_curve_new_v_old_geneformer_64_node_10M.png)
+
+
 ### geneformer-106M-240530
 
 This checkpoint was trained for approximately 11 epochs through the CELLxGENE split. Training was performed on 16 servers with 8 A100 GPUs each for a total of 115430 steps of per-gpu micro batch size 16 and global batch size of 2048. Training took a total of 3 days, 18 hours and 55 minutes of wallclock time. As can be seen in the following image, training and validation curves both decreased fairly smoothly throughout the course of training. In fact validation (blue) and training (orange) loss were both still decreasing at the end of 11 epochs through the dataset. The model could likely be trained for more epochs without overfitting.
@@ -165,6 +176,11 @@ This checkpoint was trained for approximately 11 epochs through the CELLxGENE sp
 
 Additionally, validation loss decreased both faster and continued to decrease at the same improved rate throughout training in the 106M parameter model (red) as compared to the 10M parameter model (blue). It would be interesting to test even larger models to see if we continue to observe improved performance in larger models.
 ![106M parameter model outperformed 10M parameter model](../assets/old_images/sc_fm/geneformer-240530-val-comparison.png)
+
+!! note "Training curves from BioNeMo1"
+
+    As stated in the previous section, the figures are from our BioNeMo1 code base where these checkpoints were originally
+    trained. As we release new checkpoints they will be trained on BioNeMo2.
 
 ## Benchmarking
 
@@ -176,9 +192,17 @@ The following describes the bert MLM token loss. Like in the original BERT paper
 
 | Model Description      | Token Loss (lower is better) |
 | ---------------------- | ---------------------------- |
-| Baseline geneformer    | 3.35                         |
-| geneformer-10M-240530  | 2.79                         |
-| geneformer-106M-240530 | 2.50                         |
+| Baseline geneformer    | ~~3.35~~                     |
+| geneformer-10M-240530  | 2.64                         |
+| geneformer-106M-240530 | 2.34                         |
+
+!!! bug "baseline Geneformer"
+
+    [Geneformer](https://huggingface.co/ctheodoris/Geneformer) was recently updated on hugging face. The number reported
+    above for geneformer is from an old model on an older eval set. Back when we had our evaluation set up for this
+    older geneformer model (on 2024/05/13), our weights on that dataset were 2.79 for the 10M model and 2.50 for the
+    106M model. On the latest evaluation set and data we perform slightly better, but we are not yet able to
+    update the geneformer numbers with these latest datasets.
 
 #### Downstream task accuracy
 
@@ -191,11 +215,19 @@ Elmentaite et al. (2020), Developmental Cell. This dataset contains approximatel
 
 For more details see the example notebook titled Geneformer-celltype-classification-example.ipynb
 
-![F1-score for both released models, a random baseline, and a PCA based transformation of the raw expression.](../assets/old_images/sc_fm/F1-score-models.png)
-![Average accuracy across cell types for both released models, a random baseline, and a PCA based transformation of the raw expression.](../assets/old_images/sc_fm/average-accuracy-models.png)
+![F1-score for both released models, a random baseline, and a PCA based transformation of the raw expression.](../assets/images/geneformer/F1-score-models.png)
+![Average accuracy across cell types for both released models, a random baseline, and a PCA based transformation of the raw expression.](../assets/images/geneformer/average-accuracy-models.png)
 
 ### Performance Benchmarks
 
 The 106M parameter variant of Geneformer achieves over 50 TFLOPS per GPU during training. This is consistent whether trained with 1 or 8 A100s.
 
 ![TFLOPs per GPU (A100) shows improved utilization by 106M variant](../assets/old_images/sc_fm/model_tflops_per_gpu_chart_tight_layout.png)
+
+!!! bug "TFLOPS from BioNeMo1"
+
+    We have observed an approximately 10% degradation in training performance comparing the 10M geneformer model on
+    the new bionemo2 repository vs the old bionemo1 codebase. We are working to address this change and make them
+    comparable or better in terms of cluster performance. The numbers above are from the original BioNeMo1 model card.
+
+    ![64 GPU training time 10% slower training time in BioNeMo2 vs BioNeMo1](../assets/images/geneformer/tflops_bionemo1_vs_bionemo2.png)
