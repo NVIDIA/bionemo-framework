@@ -353,14 +353,15 @@ def _profile_sc_dataset():
             logging.error("Preprocessing failed.")
     scd = SingleCellDataset(data_path=data_path, tokenizer=tokenizer, median_dict=median_dict, max_len=2048, seed=321)
     n_epochs = 1
-    start = time.time()
-    idxs = list(range(len(scd) * n_epochs))
+    len_dataset: int = len(scd)
+    idxs = list(range(len_dataset * n_epochs))
     random.seed(315)
     random.shuffle(idxs)
+    start = time.time()
     for i in tqdm(idxs):
-        _ = scd[EpochIndex(idx=i % n_epochs, epoch=i // len(scd))]
+        _ = scd[EpochIndex(idx=i % len_dataset, epoch=i // len_dataset)]
     stop = time.time()
-    print(f"Processed {len(scd)} rows in {stop - start} seconds")
+    print(f"Processed {len_dataset * n_epochs} rows in {stop - start} seconds")
 
 
 if __name__ == "__main__":
