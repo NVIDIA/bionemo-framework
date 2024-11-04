@@ -200,9 +200,9 @@ The following describes the bert MLM token loss. Like in the original BERT paper
 
     [Geneformer](https://huggingface.co/ctheodoris/Geneformer) was recently updated on hugging face. The number reported
     above for geneformer is from an old model on an older eval set. Back when we had our evaluation set up for this
-    older geneformer model (on 2024/05/13), our weights on that dataset were 2.79 for the 10M model and 2.50 for the
-    106M model. On the latest evaluation set and data we perform slightly better, but we are not yet able to
-    update the geneformer numbers with these latest datasets.
+    older geneformer model (on 2024/05/13), our masked-language model loss on that dataset was 2.79 for the 10M model 
+    and 2.50 for the  106M model. On the latest evaluation set and data we perform slightly better, but we do not yet 
+    have updated geneformer numbers with these updated datasets.
 
 #### Downstream task accuracy
 
