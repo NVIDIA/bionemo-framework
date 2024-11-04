@@ -285,17 +285,19 @@ def process_item(  # noqa: D417
 
     gene_names = feature_ids[gene_idxs]
 
-    gene_expression, token_ids, medians = _gather_medians(
+    gene_expression_cell, token_ids, gene_expression_medians = _gather_medians(
         gene_names, gene_data, normalize, tokenizer.vocab, gene_median
     )
 
     if normalize:
         # re-order according to expression median normalized rank. descending order.
 
-        gene_expression = gene_expression / gene_expression.sum() * target_sum
-        gene_expression = gene_expression / medians.astype(float)
-        idxs = np.argsort(-gene_expression)  # sort in descending order so that the 0th position is the highest value.
-        gene_expression = gene_expression[idxs]
+        gene_expression_cell = gene_expression_cell / gene_expression_cell.sum() * target_sum
+        gene_expression_cell = gene_expression_cell / gene_expression_medians.astype(float)
+        idxs = np.argsort(
+            -gene_expression_cell
+        )  # sort in descending order so that the 0th position is the highest value.
+        gene_expression_cell = gene_expression_cell[idxs]
         token_ids = token_ids[idxs]
 
     # - select max_len subset, set sample to false so it doesnt permute the already rank ordered expression values.
