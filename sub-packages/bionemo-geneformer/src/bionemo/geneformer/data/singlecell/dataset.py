@@ -308,14 +308,15 @@ def process_item(  # noqa: D417
                 random_token_prob=random_token_prob,
             ),
         )
-
-        masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
-            sequence=masked_tokens,
-            labels=labels,
-            loss_mask=loss_mask,
-            cls_token=tokenizer.token_to_id(tokenizer.cls_token) if prepend_cls_token else None,
-            eos_token=eos_token,
-        )
+        cls_token = tokenizer.token_to_id(tokenizer.cls_token) if prepend_cls_token else None
+        if cls_token is not None or eos_token is not None:
+            masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
+                sequence=masked_tokens,
+                labels=labels,
+                loss_mask=loss_mask,
+                cls_token=cls_token,
+                eos_token=eos_token,
+            )
 
         # NeMo megatron assumes this return structure.
         return {
