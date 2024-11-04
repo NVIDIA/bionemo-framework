@@ -97,4 +97,4 @@ if __name__ == "__main__":
     )
 
     results = infer_model(config, data_module)
-    print(results)
+    print(results["regression_output"])

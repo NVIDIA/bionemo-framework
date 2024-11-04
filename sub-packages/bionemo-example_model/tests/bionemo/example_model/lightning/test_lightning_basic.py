@@ -28,7 +28,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
-from bionemo.example_model import lightning_basic as lb
+from bionemo.example_model.lightning import lightning_basic as lb
 from bionemo.llm.model.config import MegatronBioNeMoTrainableModelConfig
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
@@ -83,7 +83,7 @@ def _train_model_get_ckpt(
         enable_autocast=precision not in {32, "32"},
     )
 
-    lightning_module = lb.LitAutoEncoder(
+    lightning_module = lb.BionemoLightningModule(
         config=config,
     )
     strategy = nl.MegatronStrategy(
@@ -128,7 +128,7 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
         ckpt_path, initial_metrics = _train_model_get_ckpt(
             name="test_experiment",
             root_dir=tmpdir / "pretrain",
-            model_cfg_cls=lb.ExampleConfig,
+            model_cfg_cls=lb.PretrainConfig,
             ckpt_path=None,
             skip_weight_prefixes=set(),
             precision=precision,
@@ -142,7 +142,7 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
         simple_ft_checkpoint, simple_ft_metrics = _train_model_get_ckpt(
             name="simple_finetune_experiment",
             root_dir=tmpdir / "simple_finetune",  # new checkpoint will land in a subdir of this
-            model_cfg_cls=lb.ExampleConfig,  # same config as before since we are just continuing training
+            model_cfg_cls=lb.PretrainConfig,  # same config as before since we are just continuing training
             ckpt_path=ckpt_path,  # specify the initial checkpoint path now
             skip_weight_prefixes=set(),  # no new weights in this model need skipping
             precision=precision,
@@ -173,7 +173,7 @@ def test_train_mnist_litautoencoder_with_megatron_strategy_single_gpu(tmpdir: LE
         drop_head_checkpoint, drop_head_ft_metrics = _train_model_get_ckpt(
             name="drop_head_finetune_experiment",
             root_dir=tmpdir / "drop_head_finetune",
-            model_cfg_cls=lb.ExampleFineTuneDropParentConfig,  # config that drops the decoder and head -> only cls now
+            model_cfg_cls=lb.ExampleFineTuneConfig,  # config that drops the decoder and head -> only cls now
             ckpt_path=add_head_checkpoint,  # cumulatively build on the config that had this cls head (optional)
             skip_weight_prefixes=set(),  # no new parameters vs prior cfg, will continue training cls head by itself
             precision=precision,
