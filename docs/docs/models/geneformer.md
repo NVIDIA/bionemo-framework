@@ -192,17 +192,19 @@ The following describes the bert MLM token loss. Like in the original BERT paper
 
 | Model Description      | Token Loss (lower is better) |
 | ---------------------- | ---------------------------- |
-| Baseline geneformer    | ~~3.35~~                     |
+| Baseline geneformer    | 2.26*                        |
 | geneformer-10M-240530  | 2.64                         |
 | geneformer-106M-240530 | 2.34                         |
 
-!!! bug "Baseline Geneformer from previous version"
+!!! bug "Baseline Geneformer was recently updated on huggingface."
 
-    [Geneformer](https://huggingface.co/ctheodoris/Geneformer) was recently updated on hugging face. The number reported
-    above for geneformer is from an old model on an older eval set. Back when we had our evaluation set up for this
-    older geneformer model (on 2024/05/13), our masked-language model loss on that dataset was 2.79 for the 10M model
-    and 2.50 for the  106M model. On the latest evaluation set and data we perform slightly better, but we do not yet
-    have updated geneformer numbers with these updated datasets.
+    [Geneformer](https://huggingface.co/ctheodoris/Geneformer) was recently updated on hugging face to a new version.
+    In a future release we will make checkpoint conversion scripts available so that the public model can be ran
+    directly. Some key differences follow:
+
+     * Trained on a much larger 95M cell dataset. Our current checkpoints were trained with 23M cells.
+     * The new 12 layer baseline geneformer variant sits between our 10M and 106M parameter models in parameter count with
+      approximately 38M parameters.
 
 #### Downstream task accuracy
 

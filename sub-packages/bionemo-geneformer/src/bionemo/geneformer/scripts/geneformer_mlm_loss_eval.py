@@ -27,6 +27,7 @@
 import argparse
 import functools
 import pickle
+import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Dict, Type
@@ -118,11 +119,14 @@ def main(
     model_path: Path | None,
     hf_model_path: str,
     dataset_path: Path,
-    token_dictionary_path: Path,
+    hf_token_dictionary_path: Path,
+    hf_medians_dictionary_path: Path,
     mask_prob: float = 0.15,
     batch_size: int = 16,
     precision: str = "bf16-mixed",
     config_class: Type[BioBertConfig] = GeneformerConfig,
+    seq_len_nv: int = 2048,
+    seq_len_hf: int = 2048,
     seed: int = 513,
 ):
     """Inference function (requires DDP and only training data that fits in memory)."""
@@ -143,12 +147,13 @@ def main(
         case _:
             logging.error("Preprocessing failed.")
             assert False
-
-    with open(token_dictionary_path, "rb") as geneformer_hf_token_file:
+    with open(hf_token_dictionary_path, "rb") as geneformer_hf_token_file:
         geneformer_hf_token_dict = pickle.load(geneformer_hf_token_file)
+    with open(hf_medians_dictionary_path, "rb") as geneformer_hf_median_file:
+        geneformer_hf_medians_dict = pickle.load(geneformer_hf_median_file)
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         geneformer_nv_inferer_cfg = config_class(
-            seq_length=2048,
+            seq_length=seq_len_nv,
             params_dtype=get_autocast_dtype(precision),
             pipeline_dtype=get_autocast_dtype(precision),
             autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
@@ -163,6 +168,9 @@ def main(
         # TODO only predict with tokens that exist in both models.
 
         hf_model = GeneformerHFAdapter(hf_model_path, geneformer_hf_token_dict, tokenizer).eval().cuda(1 % n_devices)
+        hf_total_params = sum(p.numel() for p in hf_model.parameters() if p.requires_grad)
+        nv_total_params = sum(p.numel() for p in geneformer_nv_inferer.parameters() if p.requires_grad)
+        print(f"HF Model Params: {hf_total_params}, NV Model Params: {nv_total_params}", file=sys.stdout)
         tokenizer_filt = deepcopy(tokenizer)
         ori_nv_vocab_size: int = len(tokenizer.vocab)
         hf_tokenizer = hf_model.get_tokenizer()
@@ -172,17 +180,17 @@ def main(
 
         ds_nv = SingleCellDataset(
             dataset_path,
-            tokenizer=tokenizer,  # TODO replace with the filtered one.
+            tokenizer=tokenizer_filt,  # TODO replace with the filtered one.
             median_dict=median_dict,
-            max_len=2048,
+            max_len=seq_len_nv,
             mask_prob=mask_prob,
             seed=seed,
         )
         ds_hf_nvfilt = SingleCellDataset(
             dataset_path,
             hf_tokenizer,
-            median_dict,
-            max_len=2048,
+            geneformer_hf_medians_dict,
+            max_len=seq_len_hf,
             mask_prob=mask_prob,
             eos_token=hf_tokenizer.token_to_id(hf_tokenizer.sep_token),  # Stored in the special token
             seed=seed,
@@ -199,8 +207,8 @@ def main(
             collate_fn=functools.partial(
                 collate.bert_padding_collate_fn,
                 padding_value=ds_hf_nvfilt.tokenizer.pad_id,
-                min_length=4096,
-                max_length=4096,
+                min_length=seq_len_hf,
+                max_length=seq_len_hf,
             ),
         )
         dl_nv = DataLoader(
@@ -213,37 +221,35 @@ def main(
             collate_fn=functools.partial(
                 collate.bert_padding_collate_fn,
                 padding_value=ds_nv.tokenizer.pad_id,
-                min_length=2048,
-                max_length=2048,
+                min_length=seq_len_nv,
+                max_length=seq_len_nv,
             ),
         )
 
         with torch.no_grad():
-            # dl_hf_iter = iter(dl_hf)
+            dl_hf_iter = iter(dl_hf)
             dl_nv_iter = iter(dl_nv)
-            # loss_hf = 0.0
-            # n_hf = 0
+            loss_hf = 0.0
+            n_hf = 0
             loss_nv = 0.0
             n_nv = 0
             nv_device = geneformer_nv_inferer.module.embedding.position_embeddings.weight.device
-            # hf_device = hf_model.device
-            for b_idx in trange(len(dl_hf)):
-                # np.random.seed(b_idx)
-                # batch_hf = {k: v.to(hf_device) for k, v in next(dl_hf_iter).items()}
-                # np.random.seed(b_idx)
+            hf_device = hf_model.device
+            for _ in trange(len(dl_hf)):
+                batch_hf = {k: v.to(hf_device) for k, v in next(dl_hf_iter).items()}
                 batch_nv = {k: v.to(nv_device) for k, v in next(dl_nv_iter).items()}
-                # logits_hf = hf_model(batch_hf["text"].long(), batch_hf["attention_mask"])
-                # loss_hf += (
-                #     torch.nn.functional.cross_entropy(
-                #         logits_hf[batch_hf["loss_mask"]],
-                #         batch_hf["labels"][batch_hf["loss_mask"]],
-                #         reduction="sum",
-                #     )
-                #     .cpu()
-                #     .sum()
-                #     .item()
-                # )
-                # n_hf += batch_hf["loss_mask"].sum().cpu().item()
+                logits_hf = hf_model(batch_hf["text"].long(), batch_hf["attention_mask"])
+                loss_hf += (
+                    torch.nn.functional.cross_entropy(
+                        logits_hf[batch_hf["loss_mask"]],
+                        batch_hf["labels"][batch_hf["loss_mask"]],
+                        reduction="sum",
+                    )
+                    .cpu()
+                    .sum()
+                    .item()
+                )
+                n_hf += batch_hf["loss_mask"].sum().cpu().item()
 
                 logits_nv = (
                     geneformer_nv_inferer(batch_nv["text"], batch_nv["attention_mask"])["token_logits"]
@@ -262,8 +268,7 @@ def main(
                 )
                 n_nv += batch_nv["loss_mask"].sum().cpu().item()
         print(f"NV mean loss: {loss_nv / n_nv}")
-        # print(f"The following loss is not valid in our script, do not report this number:", file=sys.stderr)
-        # print(f"FIXME: HF mean loss: {loss_hf / n_hf} FIXME", file=sys.stderr)
+        print(f"HF mean loss: {loss_hf / n_hf}")
 
 
 def entrypoint():
@@ -277,10 +282,18 @@ def entrypoint():
         default=None,
     )
     parser.add_argument(
-        "--token-dictionary-path",
+        "--hf-token-dictionary-path",
         type=Path,
         help="Path to token dictionary file. "
-        "Eg `wget https://huggingface.co/ctheodoris/Geneformer/resolve/main/geneformer/token_dictionary_gc95M.pkl` "
+        "Eg `wget https://huggingface.co/ctheodoris/Geneformer/resolve/main/geneformer/token_dictionary_gc95M.pkl`"
+        "then provide the path to the downloaded file.",
+        required=True,
+    )
+    parser.add_argument(
+        "--hf-medians-dictionary-path",
+        type=Path,
+        help="Path to token dictionary file. "
+        "Eg `wget https://huggingface.co/ctheodoris/Geneformer/resolve/main/geneformer/gene_median_dictionary_gc95M.pkl` "
         "then provide the path to the downloaded file.",
         required=True,
     )
@@ -288,7 +301,13 @@ def entrypoint():
     parser.add_argument("--dataset-path", type=Path, help="Path to dataset directory", required=True)
 
     args = parser.parse_args()
-    main(args.model_path, args.hf_model_path, args.dataset_path, args.token_dictionary_path)
+    main(
+        args.model_path,
+        args.hf_model_path,
+        args.dataset_path,
+        args.hf_token_dictionary_path,
+        args.hf_medians_dictionary_path,
+    )
 
 
 if __name__ == "__main__":

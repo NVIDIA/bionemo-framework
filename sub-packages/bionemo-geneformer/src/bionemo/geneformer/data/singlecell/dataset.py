@@ -302,7 +302,7 @@ def process_item(  # noqa: D417
             random_seed=int(random_utils.get_seed_from_rng(rng)),
             mask_config=masking.BertMaskConfig(
                 tokenizer=tokenizer,
-                random_tokens=range(5, len(tokenizer.vocab)),
+                random_tokens=range(len(tokenizer.special_tokens), len(tokenizer.vocab)),
                 mask_prob=mask_prob,
                 mask_token_prob=mask_token_prob,
                 random_token_prob=random_token_prob,
