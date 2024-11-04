@@ -266,7 +266,10 @@ def process_item(  # noqa: D417
     if gene_median is None:
         raise ValueError("gene_median must be provided for this tokenizer")
 
-    max_len = max_len - 1  # - minus 1 for [CLS] token
+    if prepend_cls_token:
+        max_len = max_len - 1  # - minus 1 for [CLS] token
+    if eos_token is not None:
+        max_len = max_len - 1  # - minus 1 for [EOS] token
 
     gene_names = [feature_ids[idx] for idx in gene_idxs]
     genes, tokens, medians = [], [], []
@@ -306,14 +309,13 @@ def process_item(  # noqa: D417
             ),
         )
 
-        if prepend_cls_token:
-            masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
-                sequence=masked_tokens,
-                labels=labels,
-                loss_mask=loss_mask,
-                cls_token=tokenizer.token_to_id(tokenizer.cls_token),
-                eos_token=eos_token,
-            )
+        masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
+            sequence=masked_tokens,
+            labels=labels,
+            loss_mask=loss_mask,
+            cls_token=tokenizer.token_to_id(tokenizer.cls_token) if prepend_cls_token else None,
+            eos_token=eos_token,
+        )
 
         # NeMo megatron assumes this return structure.
         return {

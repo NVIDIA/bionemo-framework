@@ -4,7 +4,7 @@
     This document references performance numbers and runtime engines that are from the bionemo v1 variant of the model.
     These numbers will be updated in a coming release to reflect the new bionemo v2 codebase. The model architecture and
     training information will be the same, as checkpoints are converted from bionemo v1 format to v2 format. Benchmarks below
-    are annotated with which version of bionemo generated them. Accuracy should be the same within small epsilon
+    are annotated with which version of bionemo generated them. Accuracy should be the same within a small epsilon
     since we have tests in place showing model equivalency between the two versions.
 
 ## Model Overview
@@ -163,7 +163,7 @@ This checkpoint was trained for approximately 11 epochs through the CELLxGENE sp
 !!! note "Training curves from BioNeMo1"
 
     Note that these curves were generated on BioNeMo1. We see the same general training curves in our initial testing of
-    BioNeMo2 however. In the following figure the blue line is the previous training run of the 10M model and the
+    BioNeMo2, however. In the following figure the blue line is the previous training run of the 10M model and the
     red curve is an equivalent training run on BioNeMo2. As we release new checkpoints they will be trained on BioNeMo2.
 
     ![Training curve equivalence](../assets/images/geneformer/loss_curve_new_v_old_geneformer_64_node_10M.png)
@@ -196,12 +196,12 @@ The following describes the bert MLM token loss. Like in the original BERT paper
 | geneformer-10M-240530  | 2.64                         |
 | geneformer-106M-240530 | 2.34                         |
 
-!!! bug "baseline Geneformer"
+!!! bug "Baseline Geneformer from previous version"
 
     [Geneformer](https://huggingface.co/ctheodoris/Geneformer) was recently updated on hugging face. The number reported
     above for geneformer is from an old model on an older eval set. Back when we had our evaluation set up for this
-    older geneformer model (on 2024/05/13), our masked-language model loss on that dataset was 2.79 for the 10M model 
-    and 2.50 for the  106M model. On the latest evaluation set and data we perform slightly better, but we do not yet 
+    older geneformer model (on 2024/05/13), our masked-language model loss on that dataset was 2.79 for the 10M model
+    and 2.50 for the  106M model. On the latest evaluation set and data we perform slightly better, but we do not yet
     have updated geneformer numbers with these updated datasets.
 
 #### Downstream task accuracy
@@ -227,7 +227,7 @@ The 106M parameter variant of Geneformer achieves over 50 TFLOPS per GPU during 
 !!! bug "TFLOPS from BioNeMo1"
 
     We have observed an approximately 10% degradation in training performance comparing the 10M geneformer model on
-    the new bionemo2 repository vs the old bionemo1 codebase. We are working to address this change and make them
+    the new BioNeMo v2 repository vs the old BioNeMo v1 codebase. We are working to address this change and make them
     comparable or better in terms of cluster performance. The numbers above are from the original BioNeMo1 model card.
 
     ![64 GPU training time 10% slower training time in BioNeMo2 vs BioNeMo1](../assets/images/geneformer/tflops_bionemo1_vs_bionemo2.png)
