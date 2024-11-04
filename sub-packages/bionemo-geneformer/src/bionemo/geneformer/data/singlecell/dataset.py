@@ -213,6 +213,25 @@ class SingleCellDataset(Dataset):
         )
 
 
+def _gather_medians(
+    gene_names: np.ndarray,
+    gene_data: np.ndarray,
+    normalize: bool,
+    vocab: dict[str, int],
+    gene_median: dict[str, float],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Filter out genes that are not in the provided tokenizer vocab, and tokenize the gene names."""
+    genes, tokens, medians = [], [], []
+    for tok, gene in zip(gene_names, gene_data):
+        if tok in vocab:
+            tokens.append(vocab[tok])
+            genes.append(gene)
+            if normalize:
+                med = gene_median[tok]  # If not in the dictionary we default to no normalization (1)
+                medians.append(med)
+    return np.asarray(genes), np.asarray(tokens), np.asarray(medians)
+
+
 def process_item(  # noqa: D417
     gene_data: np.ndarray,
     gene_idxs: np.ndarray,
@@ -264,19 +283,9 @@ def process_item(  # noqa: D417
 
     max_len = max_len - 1  # - minus 1 for [CLS] token
 
-    gene_names = [feature_ids[idx] for idx in gene_idxs]
-    genes, tokens, medians = [], [], []
-    for tok, gene in zip(gene_names, gene_data):
-        if tok in tokenizer.vocab:
-            tokens.append(tokenizer.token_to_id(tok))
-            genes.append(gene)
-            if normalize:
-                med = gene_median.get(tok, 1)  # If not in the dictionary we default to no normalization (1)
-                medians.append(med)
+    gene_names = feature_ids[gene_idxs]
 
-    genes = np.asarray(genes)
-    token_ids = np.asarray(tokens)
-    medians = np.asarray(medians)
+    genes, token_ids, medians = _gather_medians(gene_names, gene_data, normalize, tokenizer.vocab, gene_median)
 
     if normalize:
         # re-order according to expression median normalized rank. descending order.
@@ -320,3 +329,40 @@ def process_item(  # noqa: D417
             "loss_mask": loss_mask,
             "is_random": torch.zeros_like(masked_tokens, dtype=torch.int64),
         }
+
+
+def _profile_sc_dataset():
+    import random
+    import time
+
+    from tqdm import tqdm
+
+    from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
+    from bionemo.testing.data.load import load
+
+    data_path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
+    preprocessor = GeneformerPreprocess(
+        download_directory=data_path,
+        medians_file_path=data_path / "medians.json",
+        tokenizer_vocab_path=data_path / "geneformer.vocab",
+    )
+    match preprocessor.preprocess():
+        case {"tokenizer": tokenizer, "median_dict": median_dict}:
+            logging.info("*************** Preprocessing Finished ************")
+        case _:
+            logging.error("Preprocessing failed.")
+    scd = SingleCellDataset(data_path=data_path, tokenizer=tokenizer, median_dict=median_dict, max_len=2048, seed=321)
+    n_epochs = 1
+    start = time.time()
+    idxs = list(range(len(scd) * n_epochs))
+    random.seed(315)
+    random.shuffle(idxs)
+    for i in tqdm(idxs):
+        _ = scd[EpochIndex(idx=i % n_epochs, epoch=i // len(scd))]
+    stop = time.time()
+    print(f"Processed {len(scd)} rows in {stop - start} seconds")
+
+
+if __name__ == "__main__":
+    # python -m bionemo.geneformer.data.singlecell.dataset will run this profile.
+    _profile_sc_dataset()
