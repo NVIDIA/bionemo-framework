@@ -2,7 +2,7 @@
 
 ## Package Overview
 
-BioNemo-SCDL provides an independent pytorch-compatible dataset class for single cell data with a consistent API. BioNemo-SCDL is developed and maintained by NVIDIA. This package can be run independently from bionemo. It improves upon simple AnnData-based dataset classes in the following ways:
+BioNeMo-SCDL provides an independent pytorch-compatible dataset class for single cell data with a consistent API. BioNeMo-SCDL is developed and maintained by NVIDIA. This package can be run independently from BioNeMo. It improves upon simple AnnData-based dataset classes in the following ways:
 
 - A consistent API across input formats that is promised to be consistent across package versions.
 - Improved performance when loading large datasets. It allows for loading and fast iteration of large datasets.
@@ -11,7 +11,7 @@ BioNemo-SCDL provides an independent pytorch-compatible dataset class for single
 - [Future] Full support for ragged arrays (i.e., datasets with different feature counts; currently only a subset of the API functionality is supported for ragged arrays).
 - [Future] Support for improved compression.
 
-BioNemo-SCDL's API resembles that of AnnData, so code changes are minimal.
+BioNeMo-SCDL's API resembles that of AnnData, so code changes are minimal.
 In most places a simple swap from an attribute to a function is sufficient (i.e., swapping `data.n_obs` for `data.number_of_rows()`).
 
 ## Installation
@@ -37,10 +37,10 @@ data = SingleCellMemMapDataset("97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308e
 
 ```
 
-This creates a SingleCellMemMapDataset that is stored at 97e_scmm in large, memory-mapped arrays
+This creates a `SingleCellMemMapDataset` that is stored at 97e_scmm in large, memory-mapped arrays
 that enables fast access of datasets larger than the available amount of RAM on a system.
 
-If the dataset is large, the AnnData file can be lazy-loaded and then read in based on chunks of rows in a paginated manner. This can be done by setting the parameters when instantiating the SingleCellMemMapDataset:
+If the dataset is large, the AnnData file can be lazy-loaded and then read in based on chunks of rows in a paginated manner. This can be done by setting the parameters when instantiating the `SingleCellMemMapDataset`:
 - `paginated_load_cutoff`, which sets the minimal file size in megabytes at which an AnnData file will be read in in a paginated manner.
 - `load_block_row_size`, which is the number of rows that are read into memory at a given time.
 
@@ -92,7 +92,7 @@ reloaded_data = SingleCellMemMapDataset("97e_scmm")
 SCDL implements the required functions of the PyTorch Dataset abstract class.
 You can use PyTorch-compatible DataLoaders to load batches of data from a SCDL class.
 With a batch size of 1 this can be run without a collating function. With a batch size
-greater than 1, there is a collation function (collate_sparse_matrix_batch), that will
+greater than 1, there is a collation function (`collate_sparse_matrix_batch`), that will
 collate several sparse arrays into the CSR (Compressed Sparse Row) torch tensor format.
 
 ```python
@@ -115,7 +115,7 @@ The examples directory contains various examples for utilizing SCDL.
 
 ### Converting existing Cell x Gene data to SCDL
 
-If there are multiple AnnData files, they can be converted into a single SingleCellMemMapDataset. If the hdf5 directory has one or more AnnData files, the SingleCellCollection class crawls the filesystem to recursively find AnnData files (with the h5ad extension).
+If there are multiple AnnData files, they can be converted into a single `SingleCellMemMapDataset`. If the hdf5 directory has one or more AnnData files, the `SingleCellCollection` class crawls the filesystem to recursively find AnnData files (with the h5ad extension).
 
 To convert existing AnnData files, you can either write your own script using the SCDL API or utilize the convenience script `convert_h5ad_to_scdl`.
 
