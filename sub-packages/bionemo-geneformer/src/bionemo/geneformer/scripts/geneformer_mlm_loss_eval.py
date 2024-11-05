@@ -145,7 +145,7 @@ def main(
         case {"tokenizer": tokenizer, "median_dict": median_dict}:
             logging.info("*************** Preprocessing Finished ************")
         case _:
-            logging.error("Preprocessing failed.")
+            logging.error("Failed to download the tokenizer for the NV geneformer model.")
             assert False
     with open(hf_token_dictionary_path, "rb") as geneformer_hf_token_file:
         geneformer_hf_token_dict = pickle.load(geneformer_hf_token_file)
