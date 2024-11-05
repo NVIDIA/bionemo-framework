@@ -17,7 +17,7 @@ RUN git clone https://github.com/NVIDIA/apex.git && \
   --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
 
 # Transformer Engine pre-1.7.0. 1.7 standardizes the meaning of bits in the attention mask to match
-ARG TE_COMMIT=7d576ed25266a17a7b651f2c12e8498f67e0baea
+ARG TE_COMMIT=c27ee60ec746210bcea4ec33958dbbff06706506
 RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
   cd TransformerEngine && \
   git fetch origin ${TE_COMMIT} && \
