@@ -208,8 +208,8 @@ The following describes the bert MLM token loss. Like in the original BERT paper
      * The model is trained with a 4096 context rather than a 2048 context. When forcing the model to make predictions
       with a 2048 context, the MLM loss drops to *2.76*, which is probably unfair because this may be "out of domain" for
       training. It is really hard to compare these loss numbers directly is the only take-home here.
-     * The model was trained on a set of 20275 genes, rather than the older set of 25426 genes. This would also be
-      expected to give a boost in loss since there are fewer tokens to chose from.
+     * The model was trained on a set of 20,275 genes, rather than the older set of 25,426 genes. This would also be
+      expected to give a boost in loss since there are fewer tokens to choose from.
 
 #### Downstream task accuracy
 
