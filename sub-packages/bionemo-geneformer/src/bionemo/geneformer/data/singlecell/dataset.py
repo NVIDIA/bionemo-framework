@@ -15,6 +15,8 @@
 
 
 import json
+import random
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple
 
@@ -22,12 +24,15 @@ import numpy as np
 import torch
 from nemo.utils import logging
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 from bionemo.core.data.multi_epoch_dataset import EpochIndex
 from bionemo.core.utils import random_utils
+from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.data.singlecell.utils import sample_or_truncate
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import masking, types
+from bionemo.testing.data.load import load
 
 
 __all__: Sequence[str] = (
@@ -336,14 +341,6 @@ def process_item(  # noqa: D417
 
 
 def _profile_sc_dataset():
-    import random
-    import time
-
-    from tqdm import tqdm
-
-    from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
-    from bionemo.testing.data.load import load
-
     data_path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
     preprocessor = GeneformerPreprocess(
         download_directory=data_path,
@@ -361,10 +358,10 @@ def _profile_sc_dataset():
     idxs = list(range(len_dataset * n_epochs))
     random.seed(315)
     random.shuffle(idxs)
-    start = time.time()
+    start = time.monotonic()  # Like time.time() but uses the CPU clock rather so subsequent calls will progress.
     for i in tqdm(idxs):
         _ = scd[EpochIndex(idx=i % len_dataset, epoch=i // len_dataset)]
-    stop = time.time()
+    stop = time.monotonic()
     print(f"Processed {len_dataset * n_epochs} rows in {stop - start} seconds")
 
 
