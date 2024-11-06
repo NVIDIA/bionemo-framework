@@ -144,6 +144,7 @@ def test_main_runs(monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_tra
 def test_val_dataloader_in_main_runs_with_limit_val_batches(
     monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs, limit_val_batches
 ):
+    # TODO: pydantic.
     """Ensures doesn't run out of validation samples whenever updating limit_val_batches logic.
 
     Args:

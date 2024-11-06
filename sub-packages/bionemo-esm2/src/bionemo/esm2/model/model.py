@@ -323,6 +323,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     return_only_hidden_states: bool = False  # return logits
 
     def __post_init__(self):
+        # TODO, as a validator?
         """Check compatibility between biobert_spec_option and apply_query_key_layer_scaling post initialization."""
         super().__post_init__()
         if self.biobert_spec_option == BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec:
