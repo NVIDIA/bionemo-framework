@@ -25,4 +25,4 @@ if ! set_bionemo_home; then
 fi
 
 echo "Running pytest tests"
-pytest -v --nbval-lax docs/ scripts/ sub-packages/
+pytest -v --nbval-lax --timeout 60 docs/ scripts/ sub-packages/
