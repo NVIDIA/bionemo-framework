@@ -479,6 +479,7 @@ class BioBertConfig(
     nemo1_ckpt_path: Optional[str] = None
 
     initial_ckpt_path: Optional[str] = None
+    # TODO(@jstjohn, @skothenhill) Was this supposed to be only on the child?
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=list)
     # Used if initializing from a checkpoint, set this to any fields you want to override rather than re-set.
     #  by default all fields will be overridden.

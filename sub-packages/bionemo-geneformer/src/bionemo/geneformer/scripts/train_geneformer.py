@@ -44,7 +44,7 @@ from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig, BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
-from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
+from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
 __all__: Sequence[str] = ("main", "get_parser")
@@ -190,10 +190,10 @@ def main(
 
     # for wandb integration
     # Please refer to https://pytorch-lightning.readthedocs.io/en/0.7.6/api/pytorch_lightning.loggers.html"
-    wandb_options: Optional[WandbLoggerOptions] = (
+    wandb_options: Optional[WandbConfig] = (
         None
         if wandb_project is None
-        else WandbLoggerOptions(
+        else WandbConfig(
             offline=wandb_offline,
             project=wandb_project,
             entity=wandb_entity,
@@ -322,7 +322,7 @@ def main(
         root_dir=result_dir,
         name=experiment_name,
         initialize_tensorboard_logger=create_tensorboard_logger,
-        wandb_kwargs=wandb_options,
+        wandb_config=wandb_options,
         ckpt_callback=checkpoint_callback,
     )
     llm.train(
