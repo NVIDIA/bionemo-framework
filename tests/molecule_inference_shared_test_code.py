@@ -136,7 +136,7 @@ import torch
 def run_beam_search(inferer: MolInference, smis: List[str], beam_search_method: str):
     num_samples = 3
     beam_size = 5
-    from .trt_compiler import trt_compile
+    from bionemo.utils import trt_compile
     inferer.model.enc_dec_model.enc_dec_model.eval()
     # Those TRT profiles for the decoder are gathered manually from the test run.
     # Ideally, they should be inferred from the configs.
