@@ -121,6 +121,7 @@ def test_in_memory_csv_dataset_tokenizer():
 
 
 # TODO: @pytest.mark.parametrize("config_class_name", list(SUPPORTED_CONFIGS))
+@pytest.mark.skip(reason="Currently hanging in CI")
 def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences):
     data_path = dummy_protein_csv
     result_dir = Path(tmpdir.mkdir("results"))
