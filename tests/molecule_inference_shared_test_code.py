@@ -97,18 +97,69 @@ def run_sample_not_beam(inferer: MolInference, smis: List[str], sampling_method:
         log.warning("TOO FEW VALID SAMPLES")
     assert len(valid_molecules) != 0
 
+def defval_encode(
+        self,
+        enc_input,
+        enc_attn_mask,
+):
+    return self.orig_forward(
+        enc_input,
+        enc_attn_mask,
+        layer_past=None,
+        get_key_value=False,
+        enc_self_attention_relative_position_bias=None,
+    )
+
+def defval_decode(
+        self,
+        dec_input,
+        dec_attn_mask,
+        enc_output,
+        enc_attn_mask,
+        dec_layer_past=None,
+        dec_get_key_value=False,
+        dec_self_attention_relative_position_bias=None,
+        dec_cross_attention_relative_position_bias=None,
+    ):
+    return self.orig_forward(
+        dec_input,
+        dec_attn_mask,
+        dec_output,
+        enc_attn_mask,
+        layer_past=None,
+        get_key_value=False,
+        enc_self_attention_relative_position_bias=None,
+    )
+
+import torch
 
 def run_beam_search(inferer: MolInference, smis: List[str], beam_search_method: str):
     num_samples = 3
     beam_size = 5
-    samples = inferer.sample(
+    from .trt_compiler import trt_compile
+    inferer.model.enc_dec_model.enc_dec_model.eval()
+    # Those TRT profiles for the decoder are gathered manually from the test run.
+    # Ideally, they should be inferred from the configs.
+    dec_args = {
+        "method" : "onnx",
+        "input_profiles" : [{
+            "dec_input": [[1,2,512],[64,6,512],[64,30,512]],
+            "dec_attn_mask": [[2,1],[6,64],[30,64]],
+            "enc_output": [[1,2,512],[1,6,512],[1,30,512]],
+            "enc_attn_mask": [[2,1],[6,1],[30,1]]
+        }]
+    }
+    trt_compile(inferer.model.enc_dec_model.enc_dec_model.encoder, "MolMIM-encoder", logger=log)
+    trt_compile(inferer.model.enc_dec_model.enc_dec_model.decoder, "MolMIM-decoder", logger=log, args=dec_args)
+    with torch.no_grad():
+      samples = inferer.sample(
         num_samples=num_samples,
         beam_size=beam_size,  # internally beam_size will be set to num_samples
         sampling_method=beam_search_method,
         beam_alpha=0,
         seqs=smis,
         hiddens_to_seq_kwargs={"override_generate_num_tokens": MAX_GEN_LEN},
-    )
+      )
     assert len(samples) == len(smis)
     assert len(samples[0]) == num_samples
 
