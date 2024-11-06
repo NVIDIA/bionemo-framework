@@ -65,8 +65,8 @@ class RegressorLossReduction(BERTMLMLossWithReduction):
                 backpropagation and the ReductionT will be passed to the reduce method
                 (which currently only works for logging.).
         """
-        targets = batch["labels"]  # [b, 1]
-        regression_output = forward_out
+        regression_output = forward_out["regression_output"]
+        targets = batch["labels"].to(dtype=regression_output.dtype)  # [b, 1]
 
         cp_size = parallel_state.get_context_parallel_world_size()
         if cp_size == 1:
@@ -118,15 +118,18 @@ class MegatronMLPHead(MegatronModule):
 class ESM2FineTuneSeqModel(ESM2Model):
     """ESM2 model that is suitable for fine-tuning on downstream tasks."""
 
-    def __init__(self, config, *args, post_process: bool = True, return_embeddings: bool = False, **kwargs):
+    def __init__(self, config, *args, post_process: bool = True, include_embeddings: bool = False, **kwargs):
         """Constructs an instance of the ESM2 model suitable for fine-tuning."""
-        super().__init__(config, *args, post_process=post_process, return_embeddings=True, **kwargs)
+        super().__init__(config, *args, post_process=post_process, include_embeddings=True, **kwargs)
 
         # freeze encoder parameters
         if config.encoder_frozen:
             for _, param in self.named_parameters():
                 param.requires_grad = False
 
+        self.include_embeddings_finetuning = (
+            include_embeddings  # this include_embeddings is for the final output of fine-tuning
+        )
         # If post_process is True that means that we are at the last megatron parallelism stage and we can
         #   apply the head.
         if post_process:
@@ -140,13 +143,19 @@ class ESM2FineTuneSeqModel(ESM2Model):
         if not self.post_process:
             return output  # we are not at the last pipeline stage so just return what the parent has
         # Double check that the output from the parent has everything we need to do prediction in this head.
-        if not isinstance(output, Tensor):
-            raise ValueError(f"Expected the output to be the embedding Tensor, found {output}")
-        # Get the hidden state from the parent output, and pull out the [CLS] token for this task
-        embeddings: Tensor = output
+        if not isinstance(output, dict) or "embeddings" not in output:
+            raise ValueError(
+                f"Expected to find 'embeddings' in the output, and output to be dictionary-like, found {output},\n"
+                "Make sure include_embeddings=True in the call to super().__init__"
+            )
+        # Get the embeddings from the parent output, and pull out the [CLS] token for this task
+        embeddings: Tensor = output["embeddings"]
         # Predict our 1d regression target
         regression_output = self.regression_head(embeddings)
-        return regression_output
+        if not self.include_embeddings_finetuning:
+            del output["embeddings"]
+        output["regression_output"] = regression_output
+        return output
 
 
 @dataclass
@@ -180,7 +189,7 @@ class InMemorySingleValueDataset(Dataset):
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
-        """Initializes a dataset for single-value regression fine-tuining.
+        """Initializes a dataset for single-value regression fine-tuning.
 
         This is an in-memory dataset that does not apply masking to the sequence.
 

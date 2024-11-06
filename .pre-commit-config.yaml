@@ -27,7 +27,7 @@ repos:
     hooks:
       - id: license-header-check
         name: Run license-check script
-        entry: python scripts/license_check.py -c scripts -c sub-packages --license-header ./license_header --modify
+        entry: python internal/infra-bionemo/src/infra_bionemo/license_check.py -c scripts -c sub-packages -c docs -c internal --license-header ./license_header --modify
         language: python
         additional_dependencies: ["click==8.1.7"]
         pass_filenames: false

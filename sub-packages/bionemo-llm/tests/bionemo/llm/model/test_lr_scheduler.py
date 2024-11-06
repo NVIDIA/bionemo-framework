@@ -16,7 +16,7 @@
 
 import torch
 
-from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHold, WarmupAnnealDecayHoldScheduler
+from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHold, WarmupAnnealDecayHoldScheduler
 
 
 def test_warmup_anneal_decay_hold_scheduler_exists():
