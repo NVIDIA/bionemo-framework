@@ -21,6 +21,10 @@ dependencies = [
 [tool.setuptools.package-data]
 "bionemo.esm2" = ["data/tokenizer/*.json", "data/tokenizer/*.txt"]
 
+[project.scripts]
+bionemo-esm2-train= "bionemo.esm2.run.main:main"
+bionemo-esm2-recipe= "bionemo.esm2.run.recipes:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bionemo.*"]

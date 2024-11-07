@@ -30,12 +30,12 @@ from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
-from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.lightning import PerplexityLoggingCallback
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
+from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
-from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
+from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
 __all__: Sequence[str] = ("main", "parser")
@@ -147,10 +147,10 @@ def main(
 
     # for wandb integration
     # Please refer to https://pytorch-lightning.readthedocs.io/en/0.7.6/api/pytorch_lightning.loggers.html"
-    wandb_options: Optional[WandbLoggerOptions] = (
+    wandb_config: Optional[WandbConfig] = (
         None
         if wandb_project is None
-        else WandbLoggerOptions(
+        else WandbConfig(
             offline=wandb_offline,
             project=wandb_project,
             entity=wandb_entity,
@@ -203,8 +203,8 @@ def main(
         max_seq_length=max_seq_length,
         num_workers=num_dataset_workers,
         random_mask_strategy=random_mask_strategy,
+        tokenizer=tokenizer,
     )
-
     # Configure the model
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
@@ -254,7 +254,7 @@ def main(
         root_dir=result_dir,
         name=experiment_name,
         initialize_tensorboard_logger=create_tensorboard_logger,
-        wandb_kwargs=wandb_options,
+        wandb_config=wandb_config,
         ckpt_callback=checkpoint_callback,
     )
 
