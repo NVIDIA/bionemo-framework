@@ -159,7 +159,7 @@ class MegatronBioBertModel(LanguageModule):
         position_embedding_type: PositionEmbeddingKinds = "learned_absolute",
         rotary_percent: float = 1.0,
         seq_len_interpolation_factor: Optional[float] = None,
-        add_binary_head: bool = True,
+        add_binary_head: bool = False,
         return_embeddings: bool = False,
         include_embeddings: bool = False,
         use_full_attention_mask: bool = False,
@@ -202,6 +202,11 @@ class MegatronBioBertModel(LanguageModule):
 
         # Embeddings.
         if self.pre_process:
+            self.register_buffer(
+                "bert_position_id_tensor",
+                torch.arange(max_sequence_length, dtype=torch.long, requires_grad=False).unsqueeze(0),
+                persistent=False,
+            )
             self.embedding = LanguageModelEmbedding(
                 config=self.config,
                 vocab_size=self.vocab_size,
@@ -296,9 +301,9 @@ class MegatronBioBertModel(LanguageModule):
     def bert_position_ids(self, token_ids):  # noqa: D102
         # Create position ids
         seq_length = token_ids.size(1)
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=token_ids.device)
-        position_ids = position_ids.unsqueeze(0).expand_as(token_ids)
-        return position_ids
+        if seq_length != self.max_sequence_length:
+            return self.bert_position_id_tensor[:, :seq_length]
+        return self.bert_position_id_tensor  # No need to subset so skip the slice op
 
     def embedding_forward(
         self,

@@ -73,10 +73,10 @@ def main(
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_offline: bool = False,
-    wandb_tags: Optional[List[str]] = None,
+    wandb_tags: List[str] = [],
     wandb_group: Optional[str] = None,
     wandb_id: Optional[str] = None,
-    wandb_anonymous: Optional[bool] = False,
+    wandb_anonymous: bool = False,
     wandb_log_model: bool = False,
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Path | None = None,
@@ -391,7 +391,7 @@ def get_parser():
     )
     parser.add_argument("--wandb-entity", type=str, default=None, help="The team posting this run")
     parser.add_argument("--wandb-project", type=str, default=None, help="Wandb project name ")
-    parser.add_argument("--wandb-tags", nargs="+", type=str, default=None, help="Tags associated with this run")
+    parser.add_argument("--wandb-tags", nargs="+", type=str, default=[], help="Tags associated with this run")
     parser.add_argument(
         "--wandb-group", type=str, default=None, help="A unique string shared by all runs in a given group"
     )
