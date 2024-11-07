@@ -20,7 +20,7 @@ from pathlib import Path
 
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 
-from bionemo.core.data.load import load
+from bionemo.testing.data.load import load
 
 
 data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"

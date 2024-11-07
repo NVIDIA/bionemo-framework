@@ -21,10 +21,10 @@ import torch
 from esm2_infer import infer_model
 from torch.utils.data import DataLoader
 
-from bionemo.core.data.load import load
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule, InMemoryCSVDataset
+from bionemo.testing.data.load import load
 
 
 esm2_650m_checkpoint_path = load("esm2/650m:2.0")
