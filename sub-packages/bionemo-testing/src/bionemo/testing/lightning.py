@@ -22,7 +22,10 @@ import torch
 def get_random_microbatch(
     microbatch_size: int, max_sequence_length: int, vocab_size: int, seed: int
 ) -> Dict[str, Dict[str, torch.Tensor]]:
-    """Generate random microbatches for testing."""
+    """Generate random microbatches for testing.
+
+    Note that this follows the convention that token_logits are s,b, while other fields are b,s.
+    """
     generator = torch.Generator(device=torch.cuda.current_device()).manual_seed(seed)
     labels = torch.randint(
         low=0,
@@ -40,8 +43,8 @@ def get_random_microbatch(
         generator=generator,
     )  # [b s]
     token_logits = torch.rand(
-        microbatch_size, max_sequence_length, vocab_size, device=torch.cuda.current_device(), generator=generator
-    )  # [b s v]
+        max_sequence_length, microbatch_size, vocab_size, device=torch.cuda.current_device(), generator=generator
+    )  # [s b v]
     labels[loss_mask == 0] = -100  # propagate masking to labels
     microbatch_output = {
         "batch": {"labels": labels, "loss_mask": loss_mask},

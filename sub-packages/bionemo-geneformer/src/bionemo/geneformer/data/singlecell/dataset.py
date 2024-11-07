@@ -79,7 +79,7 @@ class SingleCellDataset(Dataset):
 
     def __init__(  # noqa: D107
         self,
-        data_path: str,
+        data_path: str | Path,
         tokenizer: Any,
         median_dict: Optional[dict] = None,
         max_len: int = 1024,
@@ -87,6 +87,7 @@ class SingleCellDataset(Dataset):
         mask_token_prob: float = 0.8,
         random_token_prob: float = 0.1,
         prepend_cls_token: bool = True,
+        eos_token: int | None = None,
         assert_increasing_columns: bool = True,
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
@@ -98,6 +99,7 @@ class SingleCellDataset(Dataset):
         self.mask_prob = mask_prob
         self.prepend_cls_token = prepend_cls_token
         self._seed = seed
+        self.eos_token = eos_token
         # check if column indices are increasing for looking up genes. This is a way of spotting if the sc_memmap.py
         #  script produced properly strctured sparse files.
         self.assert_increasing_columns = assert_increasing_columns
@@ -210,6 +212,7 @@ class SingleCellDataset(Dataset):
             mask_prob=self.mask_prob,
             random_token_prob=self.random_token_prob,
             prepend_cls_token=self.prepend_cls_token,
+            eos_token=self.eos_token,
         )
 
 
@@ -227,6 +230,7 @@ def process_item(  # noqa: D417
     target_sum: int = 10000,
     normalize: bool = True,
     prepend_cls_token: bool = True,
+    eos_token: None | int = None,
 ) -> types.BertSample:
     """Process a single item in the dataset.
 
@@ -262,7 +266,10 @@ def process_item(  # noqa: D417
     if gene_median is None:
         raise ValueError("gene_median must be provided for this tokenizer")
 
-    max_len = max_len - 1  # - minus 1 for [CLS] token
+    if prepend_cls_token:
+        max_len = max_len - 1  # - minus 1 for [CLS] token
+    if eos_token is not None:
+        max_len = max_len - 1  # - minus 1 for [EOS] token
 
     gene_names = [feature_ids[idx] for idx in gene_idxs]
     genes, tokens, medians = [], [], []
@@ -289,34 +296,34 @@ def process_item(  # noqa: D417
 
     # - select max_len subset, set sample to false so it doesnt permute the already rank ordered expression values.
     token_ids = sample_or_truncate(token_ids, max_len, sample=False)
-
-    masked_tokens, labels, loss_mask = masking.apply_bert_pretraining_mask(
-        tokenized_sequence=torch.from_numpy(token_ids),
-        random_seed=int(random_utils.get_seed_from_rng(rng)),
-        mask_config=masking.BertMaskConfig(
-            tokenizer=tokenizer,
-            random_tokens=range(5, len(tokenizer.vocab)),
-            mask_prob=mask_prob,
-            mask_token_prob=mask_token_prob,
-            random_token_prob=random_token_prob,
-        ),
-    )
-
-    if prepend_cls_token:
-        masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
-            sequence=masked_tokens,
-            labels=labels,
-            loss_mask=loss_mask,
-            cls_token=tokenizer.token_to_id(tokenizer.cls_token),
-            eos_token=None,
+    with torch.no_grad(), torch.device("cpu"):
+        masked_tokens, labels, loss_mask = masking.apply_bert_pretraining_mask(
+            tokenized_sequence=torch.from_numpy(token_ids),
+            random_seed=int(random_utils.get_seed_from_rng(rng)),
+            mask_config=masking.BertMaskConfig(
+                tokenizer=tokenizer,
+                random_tokens=range(len(tokenizer.special_tokens), len(tokenizer.vocab)),
+                mask_prob=mask_prob,
+                mask_token_prob=mask_token_prob,
+                random_token_prob=random_token_prob,
+            ),
         )
+        cls_token = tokenizer.token_to_id(tokenizer.cls_token) if prepend_cls_token else None
+        if cls_token is not None or eos_token is not None:
+            masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
+                sequence=masked_tokens,
+                labels=labels,
+                loss_mask=loss_mask,
+                cls_token=cls_token,
+                eos_token=eos_token,
+            )
 
-    # NeMo megatron assumes this return structure.
-    return {
-        "text": masked_tokens,
-        "types": torch.zeros_like(masked_tokens, dtype=torch.int64),
-        "attention_mask": torch.ones_like(masked_tokens, dtype=torch.int64),
-        "labels": labels,
-        "loss_mask": loss_mask,
-        "is_random": torch.zeros_like(masked_tokens, dtype=torch.int64),
-    }
+        # NeMo megatron assumes this return structure.
+        return {
+            "text": masked_tokens,
+            "types": torch.zeros_like(masked_tokens, dtype=torch.int64),
+            "attention_mask": torch.ones_like(masked_tokens, dtype=torch.int64),
+            "labels": labels,
+            "loss_mask": loss_mask,
+            "is_random": torch.zeros_like(masked_tokens, dtype=torch.int64),
+        }

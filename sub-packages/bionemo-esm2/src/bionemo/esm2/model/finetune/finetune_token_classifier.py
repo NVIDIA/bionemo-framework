@@ -213,7 +213,7 @@ class InMemoryPerTokenValueDataset(Dataset):
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
-        """Initializes a dataset for per-token classification fine-tuining.
+        """Initializes a dataset for per-token classification fine-tuning.
 
         This is an in-memory dataset that does not apply masking to the sequence.
 

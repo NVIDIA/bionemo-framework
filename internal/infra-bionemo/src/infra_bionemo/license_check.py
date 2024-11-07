@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import ast
 import sys
 from dataclasses import dataclass
@@ -44,15 +45,20 @@ __all__: Sequence[str] = (
 )
 
 LICENSE_HEADER: str = """
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
 #
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """.strip()
 
 
@@ -62,7 +68,7 @@ class HeaderNotFound(ValueError):
 
     pyfile: Path
 
-    def __str__(self) -> str:
+    def __str__(self) -> str:  # noqa: D105
         return f"{self.pyfile.name} does not have the license header!"
 
 
@@ -79,6 +85,7 @@ Specific errors and their underlying causes:
 def license_check(
     pyfile: Path, *, license_header: str = LICENSE_HEADER, modify: bool, replace: bool = False
 ) -> Optional[LicenseCheckError]:
+    """Check Python file for license header, returning nothing on success or an error describing the failure."""
     if not pyfile.is_file():
         return IOError(f"{pyfile.name} file does not exist!")
 
@@ -133,6 +140,7 @@ def has_header(pyfile_contents: str, *, license_header: str = LICENSE_HEADER) ->
 
 def append_license_header(pyfile_contents: str, *, license_header: str = LICENSE_HEADER, n_sep_lines: int = 2) -> str:
     """Appends the :param:`license_header` to the beginning of the input Python code (:param:`pyfile_contents`).
+
     Inserts :param:`n_sep_lines` newlines between the license header & Python file contents.
     """
     spacer = "\n" * n_sep_lines
@@ -421,7 +429,7 @@ def _error(noncompliant_files: Mapping[Path, LicenseCheckError], n_files_checked
         f"files that do not have the license header!{maybe_modify_msg}\n"
     )
     for pyfile, error in noncompliant_files.items():
-        error_message += f"  {pyfile}: {error}\n"
+        error_message += f"  {str(pyfile)}: {error}\n"
     return ValueError(error_message)
 
 

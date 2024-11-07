@@ -17,6 +17,7 @@ from typing import Dict, List, Literal, Sequence, Tuple, TypedDict
 
 import torch
 from megatron.core import parallel_state, tensor_parallel
+from megatron.core.fusions.fused_cross_entropy import fused_vocab_parallel_cross_entropy
 from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
 from nemo.lightning.megatron_parallel import (
     MegatronLossReduction,
@@ -152,6 +153,8 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
             val_drop_last (bool, optional): Whether the last batch is configured to be dropped during validation. Defaults to True.
             send_train_output (bool): Whether to return the model output in training. Defaults to False.
             send_val_output (bool, optional): Whether to return the model output in validation. Defaults to True.
+            include_forward_output_for_metrics (bool): Some downstream metrics such as perplexity require this. It can be
+                expensive to return however, so disable this if performance is a top consideration.
         """
         # TODO(@jomitchell): Track down how we handle test. This is a common pattern in NeMo2, but these parameters seem likely
         #  to change in the future.
@@ -179,9 +182,21 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         if "labels" not in batch:
             raise ValueError("Labels not provided in the batch. These are required for this loss computation.")
 
-        forward_out_report = {
-            k: v.detach().clone() if torch.is_tensor(v) else v for k, v in forward_out.items()
-        }  # avoid impact from inplace operation on token_logits in unreduced_token_loss_fn
+        train_step: bool = not self.validation_step
+        # Determine if we need to capture/send forward output for downstream metrics, such as perplexity logging
+        #  this is expensive so only do if necessary.
+        send_forward_output: bool = (self.validation_step and self.send_val_output) or (
+            train_step and self.send_train_output
+        )
+
+        if send_forward_output:
+            forward_out_report = {
+                k: v.detach().clone() if torch.is_tensor(v) else v for k, v in forward_out.items()
+            }  # avoid impact from inplace operation on token_logits in unreduced_token_loss_fn
+        else:
+            forward_out_report = {}
+
+        # NOTE: token_logits is [sequence, batch] but labels and other fiels, including the loss are [batch, sequence]
         unreduced_token_loss = unreduced_token_loss_fn(forward_out["token_logits"], batch["labels"])  # [b s]
 
         # TODO(@jstjohn) also handle different output keys, like the sequence loss.
@@ -234,7 +249,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
 
         # average the losses across the data parallel group, but also return the unreduced loss
         reduced_loss = average_losses_across_data_parallel_group([loss_for_microbatch])
-        if (self.validation_step and self.send_val_output) or (not self.validation_step and self.send_train_output):
+        if send_forward_output:
             return loss_for_microbatch * cp_size, {
                 "avg": reduced_loss,
                 "batch": batch,
@@ -244,19 +259,28 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
             return loss_for_microbatch * cp_size, {"avg": reduced_loss}
 
 
-def unreduced_token_loss_fn(logits: Tensor, labels: Tensor) -> Tensor:
+def unreduced_token_loss_fn(logits: Tensor, labels: Tensor, cross_entropy_loss_fusion: bool = True) -> Tensor:
     """Computes the unreduced token loss given the logits and labels without regard to the loss mask.
 
     WARNING: This function does not apply a loss mask. Also, it does inplace operation on the inputs.
 
     Args:
-        logits (Tensor): The predicted logits of shape [batch_size, sequence_length, num_classes].
+        logits (Tensor): The predicted logits of shape [sequence_length, batch_size, num_classes].
         labels (Tensor): The true labels of shape [batch_size, sequence_length].
+        cross_entropy_loss_fusion (bool): If True, use the fused kernel version of vocab parallel cross entropy. This
+            should generally be preferred as it packs more operations into a single kernel on the GPU.
 
     Returns:
         Tensor: The unreduced token loss of shape [batch_size, sequence_length].
     """
-    return tensor_parallel.vocab_parallel_cross_entropy(logits, labels)
+    labels = labels.transpose(0, 1).contiguous()  # [b, s] -> [s, b]
+    if cross_entropy_loss_fusion:
+        loss = fused_vocab_parallel_cross_entropy(logits, labels)
+    else:
+        loss = tensor_parallel.vocab_parallel_cross_entropy(logits, labels)
+    # [s b] => [b, s]
+    loss = loss.transpose(0, 1).contiguous()
+    return loss
 
 
 def unreduced_sequence_loss_fn(self, logits: Tensor, labels: Tensor) -> Tensor:

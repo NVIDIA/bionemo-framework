@@ -15,6 +15,7 @@
 
 """This is intended to be a minimal self-container NeMo2 example."""
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generic, List, Optional, Sequence, Tuple, Type, TypedDict, TypeVar
 
@@ -26,6 +27,7 @@ from megatron.core.transformer.enums import ModelType
 from megatron.core.transformer.module import MegatronModule
 from nemo.lightning import io
 from nemo.lightning.megatron_parallel import MegatronLossReduction
+from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from torch import Tensor, nn
@@ -33,7 +35,8 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import MNIST
 
-from bionemo.core.data.resamplers import PRNGResampleDataset
+from bionemo.core import BIONEMO_CACHE_DIR
+from bionemo.core.data.multi_epoch_dataset import IdentityMultiEpochDatasetWrapper, MultiEpochDatasetResampler
 from bionemo.llm.api import MegatronLossType
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.model.config import OVERRIDE_BIONEMO_CONFIG_DEFAULTS, MegatronBioNeMoTrainableModelConfig
@@ -41,16 +44,18 @@ from bionemo.llm.utils import iomixin_utils as iom
 
 
 __all__: Sequence[str] = (
-    "ExampleConfig",
+    "PretrainConfig",
     "MSELossReduction",
-    "LitAutoEncoder",
+    "BionemoLightningModule",
     "ExampleModel",
-    "MNISTCustom",
+    "MNISTCustomDataset",
     "MNISTDataModule",
     "SameSizeLossDict",
     "MnistItem",
     "ExampleModelOutput",
     "ExampleFineTuneOutput",
+    "checkpoint_callback",
+    "data_module",
 )
 
 #############################################################################################
@@ -198,12 +203,133 @@ class ClassifierLossReduction(MegatronLossReduction):
         return mse_losses.mean()
 
 
+#######################################################################################
+# Data methods. The dataset has no changes vs a vanilla pytorch dataset. The data module
+#  has a data_sampler in it which is a nemo2 peculiarity. Also the sampler will not
+#  shuffle your data! So you need to wrap your dataset in a dataset shuffler that maps
+#  sequential ids to random ids in your dataset.
+
+
+class MNISTCustomDataset(MNIST):
+    """A Wrapper for the MNIST Dataset."""
+
+    def __getitem__(self, idx: int) -> MnistItem:
+        """Wraps the getitem method of the MNIST dataset such that we return a Dict.
+
+        This is instead of a Tuple or tensor.
+
+        Args:
+            idx: The index we want to grab, an int.
+
+        Returns:
+            A dict containing the data ("x"), label ("y"), and index ("idx").
+        """
+        data, label = super().__getitem__(idx)
+
+        return {
+            "data": data,
+            "label": label,
+            "idx": idx,
+        }
+
+
+#######################################################################################
+# Data module needs a data_sampler for handling the mcore strategy nemo2 runner.
+class MNISTDataModule(pl.LightningDataModule):
+    """A Megatron Compatible Data Module for MNIST.
+
+    Attributes:
+    data_dir: data directory
+    micro_batch_size: batch_size
+    global_batch_size: global batch size
+    max_len: maximal sequence length for megatron sampler
+    rampup_batch_size: ramp up batch size
+    num_workers: number of workers
+    data_sampler: data_sampler set to be a megatron one
+    """
+
+    def __init__(
+        self,
+        data_dir: str | os.PathLike = str(BIONEMO_CACHE_DIR),
+        batch_size: int = 32,
+        num_workers: int = 0,
+        global_batch_size: int | None = None,
+        output_log: bool = True,
+    ) -> None:
+        """Initialize class.
+
+        Args:
+            data_dir: data directory
+            batch_size: batch_size
+            global_batch_size: global batch size
+            num_workers: number of workers
+            output_log: whether to output logs
+
+        """
+        super().__init__()
+        self.data_dir = data_dir
+        self.micro_batch_size = batch_size
+        self.global_batch_size = global_batch_size or batch_size
+        self.max_len = 1048
+        self.rampup_batch_size = None
+        self.num_workers = num_workers
+        #  Note that this sampler is sequential, meaning it does not do any shuffling. Let's wrap our data in a shuffler.
+        # Wraps the datasampler with the MegatronDataSampler. The MegatronDataSampler is a wrapper that allows the sampler
+        # to be used with megatron. It sets up the capability to utilize micro-batching and gradient accumulation. It is also
+        # the place where the global batch size is constructed.
+        self.data_sampler = MegatronDataSampler(
+            seq_len=self.max_len,
+            micro_batch_size=self.micro_batch_size,
+            global_batch_size=self.global_batch_size,
+            rampup_batch_size=self.rampup_batch_size,
+            output_log=output_log,
+        )
+
+    def setup(self, stage: str) -> None:
+        """Sets up the datasets.
+
+        Args:
+            stage: can be one of train / test / predict.
+        """
+        self.mnist_test = MultiEpochDatasetResampler(
+            IdentityMultiEpochDatasetWrapper(
+                MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=False)
+            ),
+            seed=43,
+            shuffle=False,
+        )
+        mnist_full = MNISTCustomDataset(self.data_dir, download=True, transform=transforms.ToTensor(), train=True)
+        mnist_train, mnist_val = torch.utils.data.random_split(
+            mnist_full, [55000, 5000], generator=torch.Generator().manual_seed(42)
+        )
+        self.mnist_train = MultiEpochDatasetResampler(
+            IdentityMultiEpochDatasetWrapper(mnist_train), seed=44, shuffle=True
+        )
+
+        self.mnist_val = MultiEpochDatasetResampler(
+            IdentityMultiEpochDatasetWrapper(mnist_val),
+            seed=45,
+            shuffle=False,
+        )
+
+    def train_dataloader(self) -> DataLoader:
+        """Returns the training dataloader."""
+        return DataLoader(self.mnist_train, batch_size=self.micro_batch_size, num_workers=self.num_workers)
+
+    def val_dataloader(self) -> DataLoader:
+        """Returns the validation dataloader."""
+        return DataLoader(self.mnist_val, batch_size=self.micro_batch_size, num_workers=self.num_workers)
+
+    def predict_dataloader(self) -> DataLoader:
+        """Returns the prediction dataloader."""
+        return DataLoader(self.mnist_test, batch_size=self.micro_batch_size, num_workers=self.num_workers)
+
+
 #########################################################
 # Models: These need to be megatron modules. At the most basic level this just means:
 #  1. they need a config argument of type ModelParallelConfig
 #  2. they need a self.model_type:ModelType enum defined (ModelType.encoder_or_decoder is probably usually fine)
 #  3. def set_input_tensor(self, input_tensor) needs to be present. This is used in model parallelism
-# TODO add example where we specify things like shape etc to the model so it's clear how we recommend how to do this.
 
 
 class ExampleModelTrunk(MegatronModule):
@@ -234,7 +360,9 @@ class ExampleModelTrunk(MegatronModule):
         pass
 
 
-class ExampleModel(ExampleModelTrunk):  # noqa: D101
+class ExampleModel(ExampleModelTrunk):
+    """An example model."""
+
     def __init__(self, config: ModelParallelConfig) -> None:
         """Constructor of the model.
 
@@ -280,7 +408,7 @@ class ExampleFineTuneBothModel(ExampleModel):
         }
 
 
-class ExampleFineTuneDropParentModel(ExampleModelTrunk):
+class ExampleFineTuneModel(ExampleModelTrunk):
     """Example of taking the example model and replacing output task."""
 
     def __init__(self, config: ModelParallelConfig):
@@ -309,7 +437,7 @@ ExampleModelT = TypeVar("ExampleModelT", bound=ExampleModelTrunk)
 class ExampleGenericConfig(
     Generic[ExampleModelT, MegatronLossType], MegatronBioNeMoTrainableModelConfig[ExampleModelT, MegatronLossType]
 ):
-    """ExampleConfig is a dataclass that is used to configure the model.
+    """ExampleGenericConfig is a dataclass that is used to configure the model.
 
     Timers from ModelParallelConfig are required for megatron forward compatibility.
     """
@@ -348,8 +476,8 @@ class ExampleGenericConfig(
 # The configs below simply define which model class to pair with which loss, since the abstractions around getting the
 #  model and loss are handled in the ExampleGenericConfig class.
 @dataclass
-class ExampleConfig(ExampleGenericConfig["ExampleModel", "MSELossReduction"], iom.IOMixinWithGettersSetters):
-    """ExampleConfig is a dataclass that is used to configure the model.
+class PretrainConfig(ExampleGenericConfig["ExampleModel", "MSELossReduction"], iom.IOMixinWithGettersSetters):
+    """PretrainConfig is a dataclass that is used to configure the model.
 
     Timers from ModelParallelConfig are required for megatron forward compatibility.
     """
@@ -372,25 +500,24 @@ class ExampleFineTuneBothConfig(
 
 
 @dataclass
-class ExampleFineTuneDropParentConfig(
-    ExampleGenericConfig["ExampleFineTuneDropParentModel", "ClassifierLossReduction"], iom.IOMixinWithGettersSetters
+class ExampleFineTuneConfig(
+    ExampleGenericConfig["ExampleFineTuneConfig", "ClassifierLossReduction"], iom.IOMixinWithGettersSetters
 ):
     """ExampleConfig is a dataclass that is used to configure the model.
 
     Timers from ModelParallelConfig are required for megatron forward compatibility.
     """
 
-    model_cls: Type[ExampleFineTuneDropParentModel] = ExampleFineTuneDropParentModel
+    model_cls: Type[ExampleFineTuneModel] = ExampleFineTuneModel
     loss_cls: Type[ClassifierLossReduction] = ClassifierLossReduction
 
 
 ################################################################################
 # General training wrapper that can be re-used for all model/loss combos
-#  just specify different configs. TODO make this an ABC since it will likely
-#  not change much between models, other than the data step and forward step.
+#  just specify different configs.
 
 
-class LitAutoEncoder(pl.LightningModule, io.IOMixin, LightningPassthroughPredictionMixin):
+class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroughPredictionMixin):
     """A very basic lightning module for testing the megatron strategy and the megatron-nemo2-bionemo contract."""
 
     def __init__(self, config: MegatronBioNeMoTrainableModelConfig):
@@ -448,20 +575,69 @@ class LitAutoEncoder(pl.LightningModule, io.IOMixin, LightningPassthroughPredict
             batch: A dictionary of data. requires `batch_idx` as default None.
             batch_idx: The index of the batch.
         """
+        # Forward pass
+        predictions = self(batch, batch_idx)
+
+        # Calculate loss using the training loss reduction function
+        loss_reduction = self.training_loss_reduction()
+        loss_reduction.setup(batch)
+        loss = loss_reduction(predictions)
+
+        # Log the training loss
+        self.log("train_loss", loss[1]["avg"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return predictions
+
+    def validation_step(self, batch, batch_idx: Optional[int] = None):
+        """Alias for forward step at validation."""
+        predictions = self(batch, batch_idx)
+
+        # Calculate loss using the validation loss reduction function
+        loss_reduction = self.validation_loss_reduction()
+        loss_reduction.setup(batch)
+        loss = loss_reduction(predictions)
+        # Log the validation loss
+        self.log(
+            "val_loss",
+            loss[1]["avg"],
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        return predictions
+
+    def predict_step(self, batch, batch_idx: Optional[int] = None):
+        """Alias for forward step at prediction."""
         return self(batch, batch_idx)
 
-    def training_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
-        # This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss
+    def training_loss_reduction(self) -> MegatronLossReduction:
+        """This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss.
+
+        Returns:
+        A MegatronLossReduction
+        """
         return self.loss_reduction_class()()
 
-    def validation_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
+    def validation_loss_reduction(self) -> MegatronLossReduction:
+        """This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss.
+
+        Returns:
+        A MegatronLossReduction
+        """
         return self.loss_reduction_class()()
 
-    def test_loss_reduction(self) -> MegatronLossReduction:  # noqa: D102
+    def test_loss_reduction(self) -> MegatronLossReduction:
+        """This is the function that takes batch['loss_mask'] and the logits output by the model and reduces the loss.
+
+        Returns:
+        A MegatronLossReduction
+        """
         return self.loss_reduction_class()()
 
-    def configure_model(self) -> None:  # noqa: D102
-        # Called lazily by the megatron strategy.
+    def configure_model(self) -> None:
+        """This configures the model. It is called lazily by the megatron strategy."""
         self.module = self.config.configure_model()
 
     def loss_reduction_class(self) -> Type[MegatronLossReduction]:
@@ -469,79 +645,15 @@ class LitAutoEncoder(pl.LightningModule, io.IOMixin, LightningPassthroughPredict
         return self.config.get_loss_reduction_class()
 
 
-#######################################################################################
-# Data methods. The dataset has no changes vs a vanilla pytorch dataset. The data module
-#  has a data_sampler in it which is a nemo2 peculiarity. Also the sampler will not
-#  shuffle your data! So you need to wrap your dataset in a dataset shuffler that maps
-#  sequential ids to random ids in your dataset.
-# TODO make an ABC for nemo2 DataModules
-#  which allow us to re-use some of these common functions and not forget to implement
-#  the key things that nemo2 uses/needs.
+"""Training Elements"""
+checkpoint_callback = nl_callbacks.ModelCheckpoint(
+    save_last=True,
+    save_on_train_epoch_end=True,
+    monitor="reduced_train_loss",
+    every_n_train_steps=25,
+    always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+)
 
-
-class MNISTCustom(MNIST):  # noqa: D101
-    def __getitem__(self, index: int) -> MnistItem:
-        """Wraps the getitem method of the MNIST dataset such that we return a Dict
-        instead of a Tuple or tensor.
-
-        Args:
-            index: The index we want to grab, an int.
-
-        Returns:
-            A dict containing the data ("x"), label ("y"), and index ("idx").
-        """  # noqa: D205
-        x, y = super().__getitem__(index)
-
-        return {
-            "data": x,
-            "label": y,
-            "idx": index,
-        }
-
-
-#######################################################################################
-# Data module needs a data_sampler for handling the mcore strategy nemo2 runner.
-class MNISTDataModule(pl.LightningDataModule):  # noqa: D101
-    def __init__(self, data_dir: str = "./", batch_size: int = 32, global_batch_size: int | None = None) -> None:  # noqa: D107
-        super().__init__()
-        self.data_dir = data_dir
-        self.micro_batch_size = batch_size
-        self.global_batch_size = global_batch_size or batch_size
-        self.max_len = 1048  # Unused?
-        self.rampup_batch_size = None
-
-        #  Note that this sampler is sequential, meaning it does not do any shuffling. Let's wrap our data in a shuffler.
-        # Wraps the datasampler with the MegatronDataSampler. The MegatronDataSampler is a wrapper that allows the sampler
-        # to be used with megatron. It sets up the capability to utilize micro-batching and gradient accumulation. It is also
-        # the place where the global batch size is constructed.
-        self.data_sampler = MegatronDataSampler(
-            seq_len=self.max_len,
-            micro_batch_size=self.micro_batch_size,
-            global_batch_size=self.global_batch_size,
-            rampup_batch_size=self.rampup_batch_size,
-        )
-
-    def setup(self, stage: str) -> None:
-        """Sets up the datasets
-
-        Args:
-            stage: can be one of train / test / predict.
-        """  # noqa: D415
-        self.mnist_test = PRNGResampleDataset(
-            MNISTCustom(self.data_dir, download=True, transform=transforms.ToTensor(), train=False), seed=43
-        )
-        mnist_full = MNISTCustom(self.data_dir, download=True, transform=transforms.ToTensor(), train=True)
-        mnist_train, mnist_val = torch.utils.data.random_split(
-            mnist_full, [55000, 5000], generator=torch.Generator().manual_seed(42)
-        )
-        self.mnist_train = PRNGResampleDataset(mnist_train, seed=44)
-        self.mnist_val = PRNGResampleDataset(mnist_val, seed=45)
-
-    def train_dataloader(self) -> DataLoader:  # noqa: D102
-        return DataLoader(self.mnist_train, batch_size=self.micro_batch_size, num_workers=0)
-
-    def val_dataloader(self) -> DataLoader:  # noqa: D102
-        return DataLoader(self.mnist_val, batch_size=self.micro_batch_size, num_workers=0)
-
-    def test_dataloader(self) -> DataLoader:  # noqa: D102
-        return DataLoader(self.mnist_test, batch_size=self.micro_batch_size, num_workers=0)
+# Set up the data module
+data_module = MNISTDataModule(data_dir=str(BIONEMO_CACHE_DIR), batch_size=128)
+# metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
