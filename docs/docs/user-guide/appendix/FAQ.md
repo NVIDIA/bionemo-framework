@@ -11,7 +11,7 @@ while also providing a high degree of freedom and flexibility for users.
 For users that would like NVIDIA AI Enterprise support for
 [BioNeMo Framework](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework) container
 usage, refer to the
-[NVAIE Landing Page](https://www.nvidia.com/en-us/agreements/enterprise-software/product-specific-terms-for-ai-products/)
+[NVAIE Landing Page](https://www.nvidia.com/en-us/data-center/products/ai-enterprise/)
 for more information.
 
 ### How do I install BioNeMo Framework?
