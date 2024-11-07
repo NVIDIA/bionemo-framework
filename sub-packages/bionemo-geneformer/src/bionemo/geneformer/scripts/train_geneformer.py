@@ -279,6 +279,7 @@ def main(
         seq_length=seq_length,
         bias_dropout_fusion=False,
         bias_activation_fusion=False,
+        defer_embedding_wgrad_compute=pipeline_model_parallel_size > 1,
         params_dtype=get_autocast_dtype(precision),
         pipeline_dtype=get_autocast_dtype(precision),
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
