@@ -32,7 +32,7 @@ from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.data.singlecell.utils import sample_or_truncate
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import masking, types
-from bionemo.testing.data.load import load
+from bionemo.core.data.load import load
 
 
 __all__: Sequence[str] = (
