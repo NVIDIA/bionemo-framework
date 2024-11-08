@@ -231,10 +231,10 @@ The 106M parameter variant of Geneformer achieves over 50 TFLOPS per GPU during 
 
 ![TFLOPs per GPU (A100) shows improved utilization by 106M variant](../assets/old_images/sc_fm/model_tflops_per_gpu_chart_tight_layout.png)
 
-!!! bug "TFLOPS from BioNeMo1"
+!!! note "TFLOPS are from BioNeMo1, early evidence of speedups in BioNeMo2"
 
-    We have observed an approximately 10% degradation in training performance comparing the 10M geneformer model on
-    the new BioNeMo v2 repository vs the old BioNeMo v1 codebase. We are working to address this change and make them
-    comparable or better in terms of cluster performance. The numbers above are from the original BioNeMo1 model card.
-
-    ![64 GPU training time 10% slower training time in BioNeMo2 vs BioNeMo1](../assets/images/geneformer/tflops_bionemo1_vs_bionemo2.png)
+    We have observed equivalent or better performance in BioNeMo2 vs BioNeMo1 for the Geneformer model. One example is
+    a cluster run where we see a time-per step at 0.26 seconds per iteration with a batch size of 64 through Geneformer.
+    An older BioNeMo1 run that was properly configured had a time-per-step of 0.09 with a batch size of 16. When you
+    consider samples per second this would imply a significant speedup in BioNeMo2, however this is anecdotal and a
+    more thorough comparison is forthcoming.
