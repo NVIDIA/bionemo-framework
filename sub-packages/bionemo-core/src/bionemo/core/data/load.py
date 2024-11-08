@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Literal, Optional, Sequence, TextIO
 
 import boto3
+import nest_asyncio
 import ngcsdk
 import pooch
 from botocore.config import Config
@@ -87,6 +88,8 @@ class NGCDownloader:
     def __call__(self, url: str, output_file: str | Path, _: pooch.Pooch) -> None:
         """Download a file from NGC."""
         client = default_ngc_client()
+        client.configure()
+        nest_asyncio.apply()
 
         download_fns = {
             "model": client.registry.model.download_version,
