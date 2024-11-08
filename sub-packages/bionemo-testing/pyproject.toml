@@ -15,22 +15,9 @@ dependencies = [
     'bionemo-core',
     'bionemo-llm',
     # external
-    'boto3',
     'email-validator',
-    'ngcsdk',
-    'pooch',
-    'pydantic>=2.7.0',
     'pytest',
-    'pyyaml',
-    'tqdm',
 ]
-
-[project.scripts]
-download_bionemo_data = "bionemo.testing.data.load:entrypoint"
-
-# Make sure that the resource yaml files are being packaged alongside the python files.
-[tool.setuptools.package-data]
-"bionemo.testing" = ["**/*.yaml"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

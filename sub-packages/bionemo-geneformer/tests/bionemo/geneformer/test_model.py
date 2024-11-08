@@ -38,6 +38,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from torch.nn import functional as F
 from tqdm import tqdm
 
+from bionemo.core.data.load import load
 from bionemo.core.utils.batching_utils import pad_token_ids
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.core.utils.random_utils import random_numpy_context
@@ -52,7 +53,6 @@ from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
-from bionemo.testing.data.load import load
 from bionemo.testing.utils import (
     assert_matrix_correlation_above_value,
     assert_matrix_mape_below_value,
