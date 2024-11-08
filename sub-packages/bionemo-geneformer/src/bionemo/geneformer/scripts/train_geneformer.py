@@ -188,8 +188,10 @@ def main(
         find_unused_parameters=True,
         ckpt_include_optimizer=True,
         gradient_as_bucket_view=True,
-        ckpt_async_save=True,
-        ckpt_parallel_load=True,
+        # FIXME there are intermittent errors with async checkpoint saving.
+        #  see https://wandb.ai/clara-discovery/geneformer_bionemo2_goodslurm/runs/uAFi7DzI/logs
+        # ckpt_async_save=True,
+        # ckpt_parallel_load=True,
     )
 
     # for wandb integration
