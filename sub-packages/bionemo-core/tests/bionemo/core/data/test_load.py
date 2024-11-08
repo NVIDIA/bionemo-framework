@@ -23,8 +23,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from bionemo.testing.data.load import default_ngc_client, default_pbss_client, load
-from bionemo.testing.data.resource import get_all_resources
+from bionemo.core.data.load import default_ngc_client, default_pbss_client, load
+from bionemo.core.data.resource import get_all_resources
 
 
 def test_load_raises_error_on_invalid_tag(tmp_path):
@@ -98,7 +98,7 @@ def test_load_raises_with_no_ngc_url(tmp_path):
         load("foo/bar", source="ngc", resources=get_all_resources(tmp_path), cache_dir=tmp_path)  # type: ignore
 
 
-@patch("bionemo.testing.data.load._s3_download")
+@patch("bionemo.core.data.load._s3_download")
 def test_load_with_file(mocked_s3_download, tmp_path):
     (tmp_path / "foo.yaml").write_text(
         """
@@ -115,7 +115,7 @@ def test_load_with_file(mocked_s3_download, tmp_path):
     assert file_path.read_text() == "test"
 
 
-@patch("bionemo.testing.data.load._s3_download")
+@patch("bionemo.core.data.load._s3_download")
 def test_load_with_gzipped_file(mocked_s3_download, tmp_path):
     (tmp_path / "foo.yaml").write_text(
         """
@@ -137,7 +137,7 @@ def test_load_with_gzipped_file(mocked_s3_download, tmp_path):
     assert file_path.read_text() == "test"
 
 
-@patch("bionemo.testing.data.load._s3_download")
+@patch("bionemo.core.data.load._s3_download")
 def test_load_with_gzipped_file_no_decomp(mocked_s3_download, tmp_path):
     (tmp_path / "foo.yaml").write_text(
         """
@@ -163,7 +163,7 @@ def test_load_with_gzipped_file_no_decomp(mocked_s3_download, tmp_path):
         assert f.read() == "test"
 
 
-@patch("bionemo.testing.data.load._s3_download")
+@patch("bionemo.core.data.load._s3_download")
 def test_load_with_tar_directory(mocked_s3_download, tmp_path):
     (tmp_path / "foo.yaml").write_text(
         """
@@ -195,7 +195,7 @@ def test_load_with_tar_directory(mocked_s3_download, tmp_path):
     assert (file_path / "test_file").read_text() == "test"
 
 
-@patch("bionemo.testing.data.load._s3_download")
+@patch("bionemo.core.data.load._s3_download")
 def test_load_with_tar_directory_no_unpack(mocked_s3_download, tmp_path):
     (tmp_path / "foo.yaml").write_text(
         """
@@ -232,7 +232,7 @@ def test_load_with_tar_directory_no_unpack(mocked_s3_download, tmp_path):
         assert (tmp_path / "extracted/test_file").read_text() == "test"
 
 
-@patch("bionemo.testing.data.load._s3_download")
+@patch("bionemo.core.data.load._s3_download")
 def test_load_with_targz_directory(mocked_s3_download, tmp_path):
     (tmp_path / "foo.yaml").write_text(
         """
@@ -274,7 +274,7 @@ def test_default_ngc_client():
     assert clt.api_key is not None
 
 
-@patch("bionemo.testing.data.load.default_ngc_client")
+@patch("bionemo.core.data.load.default_ngc_client")
 def test_load_with_file_from_ngc_model(mocked_get_ngc_client, tmp_path):
     (tmp_path / "foo.yaml").write_text(
         """
@@ -305,7 +305,7 @@ def test_load_with_file_from_ngc_model(mocked_get_ngc_client, tmp_path):
     mocked_ngc_client.registry.model.download_version.assert_called_once()
 
 
-@patch("bionemo.testing.data.load.default_ngc_client")
+@patch("bionemo.core.data.load.default_ngc_client")
 def test_load_with_file_from_ngc_resource(mocked_get_ngc_client, tmp_path):
     (tmp_path / "foo.yaml").write_text(
         """

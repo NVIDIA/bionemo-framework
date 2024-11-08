@@ -27,6 +27,7 @@ from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTo
 from torch import Tensor
 from transformers import EsmForMaskedLM
 
+from bionemo.core.data.load import load
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.core.utils.random_utils import random_numpy_context
 from bionemo.esm2.api import ESM2Config, ESM2Model
@@ -36,7 +37,6 @@ from bionemo.esm2.model.embedding import ESM2Embedding
 from bionemo.llm.model.biobert.model import MegatronBioBertModel
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
-from bionemo.testing.data.load import load
 
 
 nemo1_checkpoint_path: Path = load("esm2/nv_650m:1.0")
