@@ -42,6 +42,7 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 from transformers import AutoModelForMaskedLM
 
+from bionemo.core.data.load import load
 from bionemo.core.data.multi_epoch_dataset import EpochIndex
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.geneformer.api import GeneformerConfig
@@ -51,7 +52,6 @@ from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import collate
 from bionemo.llm.model.biobert.model import BioBertConfig
 from bionemo.testing import megatron_parallel_state_utils
-from bionemo.testing.data.load import load
 
 
 class GeneformerHFAdapter(torch.nn.Module):
