@@ -22,11 +22,11 @@ from typing import Dict
 import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 
+from bionemo.core.data.load import load
 from bionemo.geneformer.scripts.train_geneformer import get_parser, main
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
-from bionemo.testing.data.load import load
 
 
 data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
