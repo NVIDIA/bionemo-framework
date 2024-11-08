@@ -25,6 +25,7 @@ import math
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Type, get_args
 
+import torch
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
@@ -72,10 +73,10 @@ def main(
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_offline: bool = False,
-    wandb_tags: Optional[List[str]] = None,
+    wandb_tags: List[str] | None = None,
     wandb_group: Optional[str] = None,
     wandb_id: Optional[str] = None,
-    wandb_anonymous: Optional[bool] = False,
+    wandb_anonymous: bool = False,
     wandb_log_model: bool = False,
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Path | None = None,
@@ -91,6 +92,7 @@ def main(
     log_every_n_steps: int = 50,
     gc_interval: int = 0,
     aligned_megatron_ddp: bool = False,
+    recompilation_check: bool = False,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
     """Train a Geneformer model on single cell data.
@@ -143,8 +145,12 @@ def main(
             at this requested interval of train/val steps. This will likely slow down single GPU runs.
         aligned_megatron_ddp (bool): if activated, this will activate a number of communication optimizations that are
             good for clusters. This will likely slow down single node runs though.
+        recompilation_check (bool): enable a recompilation check (only do on a small run) to verify that fused gpu
+            kernels are not being regularly recompiled, which is very expensive, with a particular model/settings.
     """
     # Create the result directory if it does not exist.
+    if wandb_tags is None:
+        wandb_tags = []
     result_dir.mkdir(parents=True, exist_ok=True)
     val_check_interval = min(val_check_interval, num_steps)  # Training will fail if val_check_interval > num_steps
 
@@ -184,8 +190,10 @@ def main(
         find_unused_parameters=True,
         ckpt_include_optimizer=True,
         gradient_as_bucket_view=True,
-        ckpt_async_save=True,
-        ckpt_parallel_load=True,
+        # FIXME there are intermittent errors with async checkpoint saving.
+        #  see https://wandb.ai/clara-discovery/geneformer_bionemo2_goodslurm/runs/uAFi7DzI/logs
+        # ckpt_async_save=True,
+        # ckpt_parallel_load=True,
     )
 
     # for wandb integration
@@ -273,6 +281,9 @@ def main(
         ffn_hidden_size=512,
         num_attention_heads=4,
         seq_length=seq_length,
+        bias_dropout_fusion=True,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
+        bias_activation_fusion=True,  # TODO same note as above. Set these to False to see recompilation go away
+        defer_embedding_wgrad_compute=pipeline_model_parallel_size > 1,
         params_dtype=get_autocast_dtype(precision),
         pipeline_dtype=get_autocast_dtype(precision),
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
@@ -325,6 +336,11 @@ def main(
         wandb_config=wandb_options,
         ckpt_callback=checkpoint_callback,
     )
+    if recompilation_check:
+        """This is _very_ useful for debugging slow forward passes. Check that your fused kernels are not
+        getting recompiled. Once verified, turn this off again.
+        """
+        torch._dynamo.config.error_on_recompile = True
     llm.train(
         model=model,
         data=data,
@@ -380,7 +396,7 @@ def get_parser():
     )
     parser.add_argument("--wandb-entity", type=str, default=None, help="The team posting this run")
     parser.add_argument("--wandb-project", type=str, default=None, help="Wandb project name ")
-    parser.add_argument("--wandb-tags", nargs="+", type=str, default=None, help="Tags associated with this run")
+    parser.add_argument("--wandb-tags", nargs="+", type=str, default=[], help="Tags associated with this run")
     parser.add_argument(
         "--wandb-group", type=str, default=None, help="A unique string shared by all runs in a given group"
     )
@@ -599,6 +615,13 @@ def get_parser():
         help="By default param overlap/etc is disabled in megatron, this enables all of those settings. This is probably "
         "good for cluster performance.",
     )
+    parser.add_argument(
+        "--recompilation-check",
+        action="store_true",
+        default=False,
+        help="Activate this and make sure a small training loop runs, this tells you that your settings are not "
+        "triggering regular recompilations which can be very expensive for fused gpu kernels.",
+    )
 
     return parser
 
@@ -648,6 +671,7 @@ def entrypoint():
         log_every_n_steps=args.log_every_n_steps,
         gc_interval=args.gc_interval,
         aligned_megatron_ddp=args.aligned_megatron_ddp,
+        recompilation_check=args.recompilation_check,
     )
 
 

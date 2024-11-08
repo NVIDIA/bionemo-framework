@@ -259,7 +259,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
             return loss_for_microbatch * cp_size, {"avg": reduced_loss}
 
 
-def unreduced_token_loss_fn(logits: Tensor, labels: Tensor, cross_entropy_loss_fusion: bool = True) -> Tensor:
+def unreduced_token_loss_fn(logits: Tensor, labels: Tensor, cross_entropy_loss_fusion: bool = False) -> Tensor:
     """Computes the unreduced token loss given the logits and labels without regard to the loss mask.
 
     WARNING: This function does not apply a loss mask. Also, it does inplace operation on the inputs.
@@ -268,7 +268,8 @@ def unreduced_token_loss_fn(logits: Tensor, labels: Tensor, cross_entropy_loss_f
         logits (Tensor): The predicted logits of shape [sequence_length, batch_size, num_classes].
         labels (Tensor): The true labels of shape [batch_size, sequence_length].
         cross_entropy_loss_fusion (bool): If True, use the fused kernel version of vocab parallel cross entropy. This
-            should generally be preferred as it packs more operations into a single kernel on the GPU.
+            should generally be preferred for speed as it packs more operations into a single kernel on the GPU. However
+            some users have observed reduced training stability when using this method.
 
     Returns:
         Tensor: The unreduced token loss of shape [batch_size, sequence_length].
