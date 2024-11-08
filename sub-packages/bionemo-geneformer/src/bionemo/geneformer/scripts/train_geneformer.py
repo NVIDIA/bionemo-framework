@@ -73,7 +73,7 @@ def main(
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_offline: bool = False,
-    wandb_tags: List[str] = [],
+    wandb_tags: List[str] | None = None,
     wandb_group: Optional[str] = None,
     wandb_id: Optional[str] = None,
     wandb_anonymous: bool = False,
@@ -149,6 +149,8 @@ def main(
             kernels are not being regularly recompiled, which is very expensive, with a particular model/settings.
     """
     # Create the result directory if it does not exist.
+    if wandb_tags is None:
+        wandb_tags = []
     result_dir.mkdir(parents=True, exist_ok=True)
     val_check_interval = min(val_check_interval, num_steps)  # Training will fail if val_check_interval > num_steps
 
