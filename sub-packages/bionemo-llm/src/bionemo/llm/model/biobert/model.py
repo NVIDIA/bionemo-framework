@@ -159,7 +159,7 @@ class MegatronBioBertModel(LanguageModule):
         position_embedding_type: PositionEmbeddingKinds = "learned_absolute",
         rotary_percent: float = 1.0,
         seq_len_interpolation_factor: Optional[float] = None,
-        add_binary_head: bool = True,
+        add_binary_head: bool = False,
         return_embeddings: bool = False,
         include_embeddings: bool = False,
         use_full_attention_mask: bool = False,
@@ -199,9 +199,13 @@ class MegatronBioBertModel(LanguageModule):
 
         # megatron core pipelining currently depends on model type
         self.model_type = ModelType.encoder_or_decoder
-
         # Embeddings.
         if self.pre_process:
+            self.register_buffer(
+                "bert_position_id_tensor",
+                torch.arange(max_sequence_length, dtype=torch.long, requires_grad=False).unsqueeze(0),
+                persistent=False,
+            )
             self.embedding = LanguageModelEmbedding(
                 config=self.config,
                 vocab_size=self.vocab_size,
@@ -230,6 +234,21 @@ class MegatronBioBertModel(LanguageModule):
         # Output
         if post_process:
             # TODO: Make sure you are passing in the mpu_vocab_size properly
+            if self.config.defer_embedding_wgrad_compute:
+                # The embedding activation buffer preserves a reference to the input activations
+                # of the final embedding projection layer GEMM. It will hold the activations for
+                # all the micro-batches of a global batch for the last pipeline stage. Once we are
+                # done with all the back props for all the microbatches for the last pipeline stage,
+                # it will be in the pipeline flush stage. During this pipeline flush we use the
+                # input activations stored in embedding activation buffer and gradient outputs
+                # stored in gradient buffer to calculate the weight gradients for the embedding
+                # final linear layer.
+                self.embedding_activation_buffer = []
+                self.grad_output_buffer = []
+            else:
+                self.embedding_activation_buffer = None
+                self.grad_output_buffer = None
+
             self.lm_head = BertLMHead(
                 config.hidden_size,
                 config,
@@ -245,6 +264,8 @@ class MegatronBioBertModel(LanguageModule):
                 skip_bias_add=False,
                 gather_output=not self.parallel_output,
                 skip_weight_param_allocation=pre_process and share_embeddings_and_output_weights,
+                embedding_activation_buffer=self.embedding_activation_buffer,
+                grad_output_buffer=self.grad_output_buffer,
             )
 
             self.binary_head = None
@@ -296,9 +317,9 @@ class MegatronBioBertModel(LanguageModule):
     def bert_position_ids(self, token_ids):  # noqa: D102
         # Create position ids
         seq_length = token_ids.size(1)
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=token_ids.device)
-        position_ids = position_ids.unsqueeze(0).expand_as(token_ids)
-        return position_ids
+        if seq_length != self.max_sequence_length:
+            return self.bert_position_id_tensor[:, :seq_length]
+        return self.bert_position_id_tensor  # No need to subset so skip the slice op
 
     def embedding_forward(
         self,
@@ -337,6 +358,7 @@ class MegatronBioBertModel(LanguageModule):
         tokentype_ids: Optional[Tensor] = None,
         lm_labels: Optional[Tensor] = None,
         inference_params: Any | None = None,
+        runtime_gather_output: Optional[bool] = None,
     ) -> BioBertOutput | Tensor:
         """Forward function of BERT model
 
@@ -415,6 +437,7 @@ class MegatronBioBertModel(LanguageModule):
 
         hidden_states_after_lm_head = self.lm_head(hidden_states=hidden_states)
         if not self.skip_logits:
+            # TODO add , runtime_gather_output=runtime_gather_output once supported in ColumnParallelLinear
             logits, _ = self.output_layer(hidden_states_after_lm_head, weight=output_weight)
         else:
             logits = None

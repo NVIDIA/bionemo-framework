@@ -85,7 +85,7 @@ AWS_ENDPOINT_URL="https://pbss.s8k.io"
 Running tests downloads the test data to a cache location when first invoked.
 
 For more information on adding new test artifacts, see the documentation in
-[`bionemo.testing.data.load`](sub-packages/bionemo-testing/src/bionemo/testing/data/README.md).
+[`bionemo.core.data.load`](sub-packages/bionemo-testing/src/bionemo/testing/data/README.md).
 
 ## Updating pinned versions of NeMo / Megatron-LM
 

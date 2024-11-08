@@ -132,6 +132,11 @@ class ESM2Model(MegatronBioBertModel):
 
         # Embeddings.
         if self.pre_process:
+            self.register_buffer(
+                "bert_position_id_tensor",
+                torch.arange(max_sequence_length, dtype=torch.long, requires_grad=False).unsqueeze(0),
+                persistent=False,
+            )
             # ESM2 Customization: ESM2Embedding instead of LanguageModelEmbedding
             # TODO: call super, overwrite the self.embedding, and setup_embeddings_and_output_layer in constructor.
             # Note: need to avoid calling setup twice: skip with super (super(skip_setup=True))

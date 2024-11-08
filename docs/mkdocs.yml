@@ -55,7 +55,7 @@ plugins:
   - macros
   - mike:
       # These fields are all optional; the defaults are as below...
-      alias_type: symlink
+      alias_type: copy
       redirect_template: null
       deploy_prefix: ""
       canonical_version: "latest"
@@ -101,7 +101,7 @@ extra:
       link: https://github.com/NVIDIA/bionemo-framework
   version:
     provider: mike
-    default: stable
+    default: latest
     alias: true
   docker_url: nvcr.io/nvidia/clara/bionemo-framework
   docker_tag: main--nightly

@@ -36,7 +36,7 @@ example, in `esm2.yaml`:
     See https://ngc.nvidia.com/catalog/models/nvidia:clara:esm2nv650m.
 ```
 
-To load these model weights during a test, use the [load][bionemo.testing.data.load.load] function with the filename and
+To load these model weights during a test, use the [load][bionemo.core.data.load.load] function with the filename and
 tag of the desired asset, which returns a path a the specified file:
 
 ```python
@@ -46,19 +46,19 @@ config = ESM2Config(nemo1_ckpt_path=path_to_my_checkpoint)
 
 If this function is called without the data available on the local machine, it will be fetched from the default source
 (currently `pbss`.) Otherwise, it will return the cached directory. To download with NGC, pass `source="ngc"` to
-[load][bionemo.testing.data.load.load].
+[load][bionemo.core.data.load.load].
 
 ## File unpacking and/or decompression
 
 All test artifacts are individual files. If a zip or tar archive is specified, it will be unpacked automatically, and
-the path to the directory will be returned via [load][bionemo.testing.data.load.load]. Compressed files ('gzip', 'bz2',
+the path to the directory will be returned via [load][bionemo.core.data.load.load]. Compressed files ('gzip', 'bz2',
 or 'xz') are automatically decompressed before they are returned. The file's compression and/or archive format is
 determined based on the filename specified in the `pbss` URL.
 
 !!! note "Files in NGC resources"
 
     NGC resources are folders, i.e., they may contain multiple files per resource.
-    [load][bionemo.testing.data.load.load] will _only_ download the filename matching the stem of the `pbss` url. The
+    [load][bionemo.core.data.load.load] will _only_ download the filename matching the stem of the `pbss` url. The
     same NGC resource can therefore be used to host multiple test assets that are used independently.
 
 
