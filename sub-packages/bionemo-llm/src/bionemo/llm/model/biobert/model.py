@@ -201,11 +201,6 @@ class MegatronBioBertModel(LanguageModule):
         self.model_type = ModelType.encoder_or_decoder
         # Embeddings.
         if self.pre_process:
-            self.register_buffer(
-                "bert_position_id_tensor",
-                torch.arange(max_sequence_length, dtype=torch.long, requires_grad=False).unsqueeze(0),
-                persistent=False,
-            )
             self.embedding = LanguageModelEmbedding(
                 config=self.config,
                 vocab_size=self.vocab_size,
@@ -317,9 +312,9 @@ class MegatronBioBertModel(LanguageModule):
     def bert_position_ids(self, token_ids):  # noqa: D102
         # Create position ids
         seq_length = token_ids.size(1)
-        if seq_length != self.max_sequence_length:
-            return self.bert_position_id_tensor[:, :seq_length]
-        return self.bert_position_id_tensor  # No need to subset so skip the slice op
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=token_ids.device)
+        position_ids = position_ids.unsqueeze(0).expand_as(token_ids)
+        return position_ids
 
     def embedding_forward(
         self,
