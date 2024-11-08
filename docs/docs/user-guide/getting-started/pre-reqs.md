@@ -35,7 +35,7 @@ The BioNeMo Framework is supported on x86 Linux systems.
 
 Please ensure that the following are installed in your desired execution environment:
 
-* Appropriate GPU drivers (minimum version: 535)
+* Appropriate GPU drivers (minimum version: 560; lower versions may be compatible, but cannot be guaranteed)
 * Docker (with GPU support, Docker Engine 19.03 or above)
 * [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 to allow Docker to access the GPUs
