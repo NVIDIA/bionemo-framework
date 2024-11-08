@@ -21,8 +21,8 @@ from pathlib import Path
 import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 
+from bionemo.core.data.load import load
 from bionemo.testing.data.esm2 import create_mock_parquet_train_val_inputs, create_mock_protein_dataset
-from bionemo.testing.data.load import load
 
 
 data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"

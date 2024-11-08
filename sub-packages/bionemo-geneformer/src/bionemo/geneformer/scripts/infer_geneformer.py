@@ -20,6 +20,7 @@ import torch
 from nemo import lightning as nl
 from nemo.utils import logging
 
+from bionemo.core.data.load import load
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.geneformer.api import FineTuneSeqLenBioBertConfig, GeneformerConfig
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
@@ -28,7 +29,6 @@ from bionemo.llm.lightning import batch_collator
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
-from bionemo.testing.data.load import load
 
 
 def infer_model(

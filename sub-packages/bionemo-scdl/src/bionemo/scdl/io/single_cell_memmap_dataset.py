@@ -552,7 +552,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Read the row indices into a memory map.
         mode = Mode.CREATE_APPEND
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
-        self.row_index[:] = adata.X.indptr.astype(int)
+        self.row_index[:] = adata.X._indptr.astype(int)
 
         # The data from each column and data chunk of the original anndata file is read in. This is saved into the final
         # location of the memmap file. In this step, it is saved in the binary file format.

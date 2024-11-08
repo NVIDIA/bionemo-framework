@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from bionemo.testing.data.load import load
+from bionemo.core.data.load import load
 
 
 @pytest.fixture
