@@ -26,13 +26,13 @@ from nemo.utils import logging
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+from bionemo.core.data.load import load
 from bionemo.core.data.multi_epoch_dataset import EpochIndex
 from bionemo.core.utils import random_utils
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.data.singlecell.utils import sample_or_truncate
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import masking, types
-from bionemo.core.data.load import load
 
 
 __all__: Sequence[str] = (
