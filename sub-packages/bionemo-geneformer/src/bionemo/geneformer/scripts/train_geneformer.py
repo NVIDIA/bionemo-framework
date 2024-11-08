@@ -277,8 +277,8 @@ def main(
         ffn_hidden_size=512,
         num_attention_heads=4,
         seq_length=seq_length,
-        bias_dropout_fusion=False,
-        bias_activation_fusion=False,
+        bias_dropout_fusion=True,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
+        bias_activation_fusion=True,  # TODO same note as above. Set these to False to see recompilation go away
         defer_embedding_wgrad_compute=pipeline_model_parallel_size > 1,
         params_dtype=get_autocast_dtype(precision),
         pipeline_dtype=get_autocast_dtype(precision),
