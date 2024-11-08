@@ -25,6 +25,7 @@ bionemo-geneformer-recipe= "bionemo.geneformer.run.recipes:main"
 sc_memmap = "bionemo.geneformer.scripts.sc_memmap:main_cli"
 infer_geneformer = "bionemo.geneformer.scripts.infer_geneformer:geneformer_infer_entrypoint"
 train_geneformer = "bionemo.geneformer.scripts.train_geneformer:entrypoint"
+geneformer_mlm_loss_eval = "bionemo.geneformer.scripts.geneformer_mlm_loss_eval:entrypoint"
 
 [tool.setuptools.packages.find]
 where = ["src"]

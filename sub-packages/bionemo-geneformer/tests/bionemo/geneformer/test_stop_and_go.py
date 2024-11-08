@@ -36,12 +36,12 @@ from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from typing_extensions import override
 
+from bionemo.core.data.load import load
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.testing import testing_callbacks
-from bionemo.testing.data.load import load
 from bionemo.testing.harnesses import stop_and_go
 from bionemo.testing.harnesses.mode import Mode
 

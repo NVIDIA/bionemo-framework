@@ -20,7 +20,7 @@ from pathlib import Path
 import pydantic
 import pytest
 
-from bionemo.testing.data.resource import Resource, get_all_resources
+from bionemo.core.data.resource import Resource, get_all_resources
 
 
 def test_get_all_resources_returns_valid_entries():
