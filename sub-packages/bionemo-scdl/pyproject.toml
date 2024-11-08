@@ -14,6 +14,7 @@ dependencies = [
     # bionemo sub-packages
     'bionemo-core',
     # external
+    'pooch',
     'anndata>=0.11.0',
     'pandas>=2.2.1',
     'pyarrow>=16.0.0',
