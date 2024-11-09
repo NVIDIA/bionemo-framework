@@ -337,7 +337,6 @@ class MegatronBioBertModel(LanguageModule):
         tokentype_ids: Optional[Tensor] = None,
         lm_labels: Optional[Tensor] = None,
         inference_params: Any | None = None,
-        runtime_gather_output: Optional[bool] = None,
     ) -> BioBertOutput | Tensor:
         """Forward function of BERT model
 
@@ -416,7 +415,6 @@ class MegatronBioBertModel(LanguageModule):
 
         hidden_states_after_lm_head = self.lm_head(hidden_states=hidden_states)
         if not self.skip_logits:
-            # TODO add , runtime_gather_output=runtime_gather_output once supported in ColumnParallelLinear
             logits, _ = self.output_layer(hidden_states_after_lm_head, weight=output_weight)
         else:
             logits = None
