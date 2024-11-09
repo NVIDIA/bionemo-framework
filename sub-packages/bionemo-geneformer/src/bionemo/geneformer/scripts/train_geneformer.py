@@ -283,7 +283,6 @@ def main(
         seq_length=seq_length,
         bias_dropout_fusion=True,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
         bias_activation_fusion=True,  # TODO same note as above. Set these to False to see recompilation go away
-        defer_embedding_wgrad_compute=pipeline_model_parallel_size > 1,
         params_dtype=get_autocast_dtype(precision),
         pipeline_dtype=get_autocast_dtype(precision),
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
