@@ -189,7 +189,6 @@ def main(
         progress_interval=log_every_n_steps,
         find_unused_parameters=True,
         ckpt_include_optimizer=True,
-        gradient_as_bucket_view=True,
         # FIXME there are intermittent errors with async checkpoint saving.
         #  see https://wandb.ai/clara-discovery/geneformer_bionemo2_goodslurm/runs/uAFi7DzI/logs
         # ckpt_async_save=True,
