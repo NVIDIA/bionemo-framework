@@ -18,7 +18,7 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 from types import MethodType
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union, Sequence
 
 import torch
 import onnx
@@ -58,6 +58,25 @@ def trt_to_torch_dtype_dict():
         trt.bool: torch.bool,
     }
 
+
+def get_profile_shapes(input_shape: Sequence[int], dynamic_batchsize: Sequence[int] | None):
+    """
+    Given a sample input shape, calculate min/opt/max shapes according to dynamic_batchsize.
+    """
+
+    def scale_batch_size(input_shape: Sequence[int], scale_num: int):
+        scale_shape = [*input_shape]
+        scale_shape[0] = scale_num
+        return scale_shape
+
+    # Use the dynamic batchsize range to generate the min, opt and max model input shape
+    if dynamic_batchsize:
+        min_input_shape = scale_batch_size(input_shape, dynamic_batchsize[0])
+        opt_input_shape = scale_batch_size(input_shape, dynamic_batchsize[1])
+        max_input_shape = scale_batch_size(input_shape, dynamic_batchsize[2])
+    else:
+        min_input_shape = opt_input_shape = max_input_shape = input_shape
+    return min_input_shape, opt_input_shape, max_input_shape
 
 def get_dynamic_axes(profiles):
     """
