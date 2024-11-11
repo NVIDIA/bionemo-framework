@@ -93,7 +93,6 @@ def main(
     gc_interval: int = 0,
     aligned_megatron_ddp: bool = False,
     recompilation_check: bool = False,
-    skip_bias_fusions: bool = False,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
     """Train a Geneformer model on single cell data.
@@ -148,11 +147,8 @@ def main(
             good for clusters. This will likely slow down single node runs though.
         recompilation_check (bool): enable a recompilation check (only do on a small run) to verify that fused gpu
             kernels are not being regularly recompiled, which is very expensive, with a particular model/settings.
-        skip_bias_fusions (bool): Disable the two bias fusions (dropout and activation) which improve performance but
-            cause recompilations. In testing they still seem to result in higher performance despite the recompilations.
     """
     # Create the result directory if it does not exist.
-    bias_fusions = not skip_bias_fusions
     if wandb_tags is None:
         wandb_tags = []
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -193,6 +189,7 @@ def main(
         progress_interval=log_every_n_steps,
         find_unused_parameters=True,
         ckpt_include_optimizer=True,
+        gradient_as_bucket_view=True,
         # FIXME there are intermittent errors with async checkpoint saving.
         #  see https://wandb.ai/clara-discovery/geneformer_bionemo2_goodslurm/runs/uAFi7DzI/logs
         # ckpt_async_save=True,
@@ -284,8 +281,9 @@ def main(
         ffn_hidden_size=512,
         num_attention_heads=4,
         seq_length=seq_length,
-        bias_dropout_fusion=bias_fusions,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
-        bias_activation_fusion=bias_fusions,  # TODO same note as above. Set these to False to see recompilation go away
+        bias_dropout_fusion=True,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
+        bias_activation_fusion=True,  # TODO same note as above. Set these to False to see recompilation go away
+        defer_embedding_wgrad_compute=pipeline_model_parallel_size > 1,
         params_dtype=get_autocast_dtype(precision),
         pipeline_dtype=get_autocast_dtype(precision),
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
@@ -624,12 +622,6 @@ def get_parser():
         help="Activate this and make sure a small training loop runs, this tells you that your settings are not "
         "triggering regular recompilations which can be very expensive for fused gpu kernels.",
     )
-    parser.add_argument(
-        "--skip-bias-fusions",
-        action="store_true",
-        default=False,
-        help="Deactivate bias fusions which seem to reduce precision but are slightly faster.",
-    )
 
     return parser
 
@@ -680,7 +672,6 @@ def entrypoint():
         gc_interval=args.gc_interval,
         aligned_megatron_ddp=args.aligned_megatron_ddp,
         recompilation_check=args.recompilation_check,
-        skip_bias_fusions=args.skip_bias_fusions,
     )
 
 
