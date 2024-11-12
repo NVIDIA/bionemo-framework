@@ -27,6 +27,7 @@ from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTo
 from torch import Tensor
 from transformers import EsmForMaskedLM
 
+from bionemo.core.data.load import load
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.core.utils.random_utils import random_numpy_context
 from bionemo.esm2.api import ESM2Config, ESM2Model
@@ -36,7 +37,6 @@ from bionemo.esm2.model.embedding import ESM2Embedding
 from bionemo.llm.model.biobert.model import MegatronBioBertModel
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
-from bionemo.testing.data.load import load
 
 
 nemo1_checkpoint_path: Path = load("esm2/nv_650m:1.0")
@@ -117,7 +117,8 @@ def _compute_loss(model, dataloader, vocab_size=None):
 
         # bionemo ESM2 vocab_size
         if vocab_size is not None:
-            logits = result["token_logits"][..., :vocab_size]
+            # token_logits is s,b and for simplicity here let's transpose to b,s. In general this reduces performance.
+            logits = result["token_logits"].transpose(0, 1).contiguous()[..., :vocab_size]
         else:
             logits = result.logits
 
@@ -200,7 +201,8 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         model = esm2_650M_config_w_ckpt.configure_model(get_tokenizer()).cuda()
         model.eval()
         result = model(input_ids, attention_mask)
-        logits = result["token_logits"][..., : tokenizer.vocab_size]
+        # token_logits is s,b and for simplicity here let's transpose to b,s. In general this reduces performance.
+        logits = result["token_logits"].transpose(0, 1).contiguous()[..., : tokenizer.vocab_size]
         logits = logits * attention_mask.unsqueeze(-1)  # incorporate masking logic
 
         # free GPU RAM

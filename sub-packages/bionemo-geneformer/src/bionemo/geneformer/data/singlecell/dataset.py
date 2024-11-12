@@ -15,6 +15,8 @@
 
 
 import json
+import random
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple
 
@@ -22,8 +24,12 @@ import numpy as np
 import torch
 from nemo.utils import logging
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
+from bionemo.core.data.load import load
+from bionemo.core.data.multi_epoch_dataset import EpochIndex
 from bionemo.core.utils import random_utils
+from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.data.singlecell.utils import sample_or_truncate
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.data import masking, types
@@ -78,7 +84,7 @@ class SingleCellDataset(Dataset):
 
     def __init__(  # noqa: D107
         self,
-        data_path: str,
+        data_path: str | Path,
         tokenizer: Any,
         median_dict: Optional[dict] = None,
         max_len: int = 1024,
@@ -86,6 +92,7 @@ class SingleCellDataset(Dataset):
         mask_token_prob: float = 0.8,
         random_token_prob: float = 0.1,
         prepend_cls_token: bool = True,
+        eos_token: int | None = None,
         assert_increasing_columns: bool = True,
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
@@ -97,6 +104,7 @@ class SingleCellDataset(Dataset):
         self.mask_prob = mask_prob
         self.prepend_cls_token = prepend_cls_token
         self._seed = seed
+        self.eos_token = eos_token
         # check if column indices are increasing for looking up genes. This is a way of spotting if the sc_memmap.py
         #  script produced properly strctured sparse files.
         self.assert_increasing_columns = assert_increasing_columns
@@ -193,11 +201,10 @@ class SingleCellDataset(Dataset):
         )
         return gene_data, col_idxs, feature_ids
 
-    def __getitem__(self, idx: int) -> types.BertSample:  # noqa: D105
-        rng = np.random.default_rng([self._seed, idx])
-
-        """Performs a lookup and the required transformation for the model"""
-        gene_data, col_idxs, feature_ids = self.lookup_cell_by_idx(idx)
+    def __getitem__(self, index: EpochIndex) -> types.BertSample:
+        """Performs a lookup and the required transformation for the model."""
+        rng = np.random.default_rng([self._seed, index.epoch, index.idx])
+        gene_data, col_idxs, feature_ids = self.lookup_cell_by_idx(index.idx)
         return process_item(
             gene_data,
             col_idxs,
@@ -210,7 +217,27 @@ class SingleCellDataset(Dataset):
             mask_prob=self.mask_prob,
             random_token_prob=self.random_token_prob,
             prepend_cls_token=self.prepend_cls_token,
+            eos_token=self.eos_token,
         )
+
+
+def _gather_medians(
+    gene_names: np.ndarray,
+    gene_data: np.ndarray,
+    normalize: bool,
+    vocab: dict[str, int],
+    gene_median: dict[str, float],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Filter out genes that are not in the provided tokenizer vocab, and tokenize the gene names."""
+    genes, tokens, medians = [], [], []
+    for tok, gene in zip(gene_names, gene_data):
+        if tok in vocab:
+            tokens.append(vocab[tok])
+            genes.append(gene)
+            if normalize:
+                med = gene_median[tok]  # If not in the dictionary we default to no normalization (1)
+                medians.append(med)
+    return np.asarray(genes), np.asarray(tokens), np.asarray(medians)
 
 
 def process_item(  # noqa: D417
@@ -227,6 +254,7 @@ def process_item(  # noqa: D417
     target_sum: int = 10000,
     normalize: bool = True,
     prepend_cls_token: bool = True,
+    eos_token: None | int = None,
 ) -> types.BertSample:
     """Process a single item in the dataset.
 
@@ -262,61 +290,88 @@ def process_item(  # noqa: D417
     if gene_median is None:
         raise ValueError("gene_median must be provided for this tokenizer")
 
-    max_len = max_len - 1  # - minus 1 for [CLS] token
+    if prepend_cls_token:
+        max_len = max_len - 1  # - minus 1 for [CLS] token
+    if eos_token is not None:
+        max_len = max_len - 1  # - minus 1 for [EOS] token
 
-    gene_names = [feature_ids[idx] for idx in gene_idxs]
-    genes, tokens, medians = [], [], []
-    for tok, gene in zip(gene_names, gene_data):
-        if tok in tokenizer.vocab:
-            tokens.append(tokenizer.token_to_id(tok))
-            genes.append(gene)
-            if normalize:
-                med = gene_median.get(tok, 1)  # If not in the dictionary we default to no normalization (1)
-                medians.append(med)
+    gene_names = feature_ids[gene_idxs]
 
-    genes = np.asarray(genes)
-    token_ids = np.asarray(tokens)
-    medians = np.asarray(medians)
+    gene_expression_cell, token_ids, gene_expression_medians = _gather_medians(
+        gene_names, gene_data, normalize, tokenizer.vocab, gene_median
+    )
 
     if normalize:
         # re-order according to expression median normalized rank. descending order.
 
-        genes = genes / genes.sum() * target_sum
-        genes = genes / medians.astype(float)
-        idxs = np.argsort(-genes)  # sort in descending order so that the 0th position is the highest value.
-        genes = genes[idxs]
+        gene_expression_cell = gene_expression_cell / gene_expression_cell.sum() * target_sum
+        gene_expression_cell = gene_expression_cell / gene_expression_medians.astype(float)
+        idxs = np.argsort(
+            -gene_expression_cell
+        )  # sort in descending order so that the 0th position is the highest value.
+        gene_expression_cell = gene_expression_cell[idxs]
         token_ids = token_ids[idxs]
 
     # - select max_len subset, set sample to false so it doesnt permute the already rank ordered expression values.
     token_ids = sample_or_truncate(token_ids, max_len, sample=False)
-
-    masked_tokens, labels, loss_mask = masking.apply_bert_pretraining_mask(
-        tokenized_sequence=torch.from_numpy(token_ids),
-        random_seed=int(random_utils.get_seed_from_rng(rng)),
-        mask_config=masking.BertMaskConfig(
-            tokenizer=tokenizer,
-            random_tokens=range(5, len(tokenizer.vocab)),
-            mask_prob=mask_prob,
-            mask_token_prob=mask_token_prob,
-            random_token_prob=random_token_prob,
-        ),
-    )
-
-    if prepend_cls_token:
-        masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
-            sequence=masked_tokens,
-            labels=labels,
-            loss_mask=loss_mask,
-            cls_token=tokenizer.token_to_id(tokenizer.cls_token),
-            eos_token=None,
+    with torch.no_grad(), torch.device("cpu"):
+        masked_tokens, labels, loss_mask = masking.apply_bert_pretraining_mask(
+            tokenized_sequence=torch.from_numpy(token_ids),
+            random_seed=int(random_utils.get_seed_from_rng(rng)),
+            mask_config=masking.BertMaskConfig(
+                tokenizer=tokenizer,
+                random_tokens=range(len(tokenizer.special_tokens), len(tokenizer.vocab)),
+                mask_prob=mask_prob,
+                mask_token_prob=mask_token_prob,
+                random_token_prob=random_token_prob,
+            ),
         )
+        cls_token = tokenizer.token_to_id(tokenizer.cls_token) if prepend_cls_token else None
+        if cls_token is not None or eos_token is not None:
+            masked_tokens, labels, loss_mask = masking.add_cls_and_eos_tokens(
+                sequence=masked_tokens,
+                labels=labels,
+                loss_mask=loss_mask,
+                cls_token=cls_token,
+                eos_token=eos_token,
+            )
 
-    # NeMo megatron assumes this return structure.
-    return {
-        "text": masked_tokens,
-        "types": torch.zeros_like(masked_tokens, dtype=torch.int64),
-        "attention_mask": torch.ones_like(masked_tokens, dtype=torch.int64),
-        "labels": labels,
-        "loss_mask": loss_mask,
-        "is_random": torch.zeros_like(masked_tokens, dtype=torch.int64),
-    }
+        # NeMo megatron assumes this return structure.
+        return {
+            "text": masked_tokens,
+            "types": torch.zeros_like(masked_tokens, dtype=torch.int64),
+            "attention_mask": torch.ones_like(masked_tokens, dtype=torch.int64),
+            "labels": labels,
+            "loss_mask": loss_mask,
+            "is_random": torch.zeros_like(masked_tokens, dtype=torch.int64),
+        }
+
+
+def _profile_sc_dataset():
+    data_path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
+    preprocessor = GeneformerPreprocess(
+        download_directory=data_path,
+        medians_file_path=data_path / "medians.json",
+        tokenizer_vocab_path=data_path / "geneformer.vocab",
+    )
+    match preprocessor.preprocess():
+        case {"tokenizer": tokenizer, "median_dict": median_dict}:
+            logging.info("*************** Preprocessing Finished ************")
+        case _:
+            logging.error("Preprocessing failed.")
+    scd = SingleCellDataset(data_path=data_path, tokenizer=tokenizer, median_dict=median_dict, max_len=2048, seed=321)
+    n_epochs = 1
+    len_dataset: int = len(scd)
+    idxs = list(range(len_dataset * n_epochs))
+    random.seed(315)
+    random.shuffle(idxs)
+    start = time.monotonic()  # Like time.time() but uses the CPU clock rather so subsequent calls will progress.
+    for i in tqdm(idxs):
+        _ = scd[EpochIndex(idx=i % len_dataset, epoch=i // len_dataset)]
+    stop = time.monotonic()
+    print(f"Processed {len_dataset * n_epochs} rows in {stop - start} seconds")
+
+
+if __name__ == "__main__":
+    # python -m bionemo.geneformer.data.singlecell.dataset will run this profile.
+    _profile_sc_dataset()

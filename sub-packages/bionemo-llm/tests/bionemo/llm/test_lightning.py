@@ -53,7 +53,7 @@ def test_batch_collate_list():
 
 
 def test_batch_collate_none():
-    assert batch_collator(None) is None
+    assert batch_collator([None, None]) is None
 
 
 def test_batch_collator_tensor_fails():
@@ -196,6 +196,7 @@ def test_perplexity_logging_callback_with_single_microbatch_golden_value_without
         mock_megatron_step = mock.MagicMock()
         mock_megatron_step.pl_module.log.return_value = None
         mock_megatron_step.trainer.training = False
+        mock_megatron_step.trainer.sanity_checking = False
         mock_megatron_step.num_microbatches = num_microbatches
 
         # setup callback
@@ -211,7 +212,7 @@ def test_perplexity_logging_callback_with_single_microbatch_golden_value_without
         metric = Perplexity(ignore_index=-100).to(torch.cuda.current_device())
         for microbatch_output in microbatch_outputs:
             metric.update(
-                microbatch_output["forward_out"]["token_logits"],
+                microbatch_output["forward_out"]["token_logits"].transpose(0, 1).contiguous(),
                 microbatch_output["batch"]["labels"],
             )
         ppl_golden_value = metric.compute()
@@ -240,6 +241,7 @@ def test_perplexity_logging_callback_with_variable_length_microbatches_golden_va
         mock_megatron_step = mock.MagicMock()
         mock_megatron_step.pl_module.log.return_value = None
         mock_megatron_step.trainer.training = False
+        mock_megatron_step.trainer.sanity_checking = False
         mock_megatron_step.num_microbatches = num_microbatches
 
         # setup callback
@@ -255,7 +257,7 @@ def test_perplexity_logging_callback_with_variable_length_microbatches_golden_va
         metric = Perplexity(ignore_index=-100).to(torch.cuda.current_device())
         for microbatch_output in microbatch_outputs:
             metric.update(
-                microbatch_output["forward_out"]["token_logits"],
+                microbatch_output["forward_out"]["token_logits"].transpose(0, 1).contiguous(),
                 microbatch_output["batch"]["labels"],
             )
         ppl_golden_value = metric.compute()
@@ -284,6 +286,7 @@ def test_perplexity_logging_callback_with_single_microbatch_only_log_at_pipeline
         mock_megatron_step = mock.MagicMock()
         mock_megatron_step.pl_module.log.return_value = None
         mock_megatron_step.trainer.training = False
+        mock_megatron_step.trainer.sanity_checking = False
         mock_megatron_step.num_microbatches = num_microbatches
 
         # setup callback
@@ -293,7 +296,7 @@ def test_perplexity_logging_callback_with_single_microbatch_only_log_at_pipeline
         metric = Perplexity(ignore_index=-100).to(torch.cuda.current_device())
         for microbatch_output in microbatch_outputs:
             metric.update(
-                microbatch_output["forward_out"]["token_logits"],
+                microbatch_output["forward_out"]["token_logits"].transpose(0, 1).contiguous(),
                 microbatch_output["batch"]["labels"],
             )
         ppl_golden_value = metric.compute()

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools-scm>=8", "setuptools>=64", "wheel"]
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -12,13 +12,28 @@ license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
     # bionemo sub-packages
+    # bionemo-core **MUST NOT** depend on any other sub-packages !!!!!
     # external
     "numpy",
     "platformdirs",
     "torch>=2.2.1",
-    'pytorch-lightning>=2.2.1',
+    'boto3',
     'lightning>=2.2.1',
+    'nest_asyncio',
+    'ngcsdk',
+    'pooch',
+    'pydantic>=2.7.0',
+    'pytorch-lightning>=2.2.1',
+    'pyyaml',
+    'tqdm',
 ]
+
+[project.scripts]
+download_bionemo_data = "bionemo.core.data.load:entrypoint"
+
+# Make sure that the resource yaml files are being packaged alongside the python files.
+[tool.setuptools.package-data]
+"bionemo.core" = ["**/*.yaml"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -26,13 +41,8 @@ include = ["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
 
-[tool.setuptools_scm]
-root = '../..'  # Pull version information from the root directory.
-# Increment versions with `.postN` suffixes, e.g., 0.0.1.post1, 0.0.1.post2, etc., where N is the number of commits
-# between the current commit and the tag.
-version_scheme = "post-release"
-# Ignore 'dirty' repository state, e.g., uncommitted changes, since these are not reliable inside the docker container.
-local_scheme = "no-local-version"
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
 
 [tool.uv]
 cache-keys = [{ git = true }]

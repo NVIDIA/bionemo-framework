@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Union, get_args
 
 import webdataset as wds
-from nemo.utils import logging
 
 
 def pickles_to_tars(
@@ -111,9 +110,10 @@ def pickles_to_tars(
                 # specification
                 sample = func_output_data(name.replace(".", "-"), suffix_to_data)
                 sink.write(sample)
-            except ModuleNotFoundError:
-                logging.exception("Dependency for parsing input pickle data not found.")
-                raise
-            except Exception:
-                logging.exception(f"Failed to write {name} into tar files.")
-                raise
+            except ModuleNotFoundError as e:
+                raise RuntimeError(
+                    "Can't process pickle file due to\
+                                   missing dependencies"
+                ) from e
+            except Exception as e:
+                raise RuntimeError(f"Failed to write {name} into tar files.") from e

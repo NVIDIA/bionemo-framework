@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools-scm>=8", "setuptools>=64", "wheel"]
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -15,22 +15,9 @@ dependencies = [
     'bionemo-core',
     'bionemo-llm',
     # external
-    'boto3',
     'email-validator',
-    'ngcsdk',
-    'pooch',
-    'pydantic>=2.7.0',
     'pytest',
-    'pyyaml',
-    'tqdm',
 ]
-
-[project.scripts]
-download_bionemo_data = "bionemo.testing.data.load:main_cli"
-
-# Make sure that the resource yaml files are being packaged alongside the python files.
-[tool.setuptools.package-data]
-"bionemo.testing" = ["**/*.yaml"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -38,10 +25,8 @@ include = ["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
 
-[tool.setuptools_scm]
-root = '../..'
-version_scheme = "post-release"
-local_scheme = "no-local-version"
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
 
 [tool.uv]
 cache-keys = [{ git = true }]

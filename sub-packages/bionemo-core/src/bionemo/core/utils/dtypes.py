@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-from typing import Literal, Sequence
+from typing import Dict, Literal, Sequence
 
 import torch
 
@@ -24,7 +24,23 @@ __all__: Sequence[str] = (
     "PrecisionTypes",
 )
 
+
+# NOTE(SKH) our precision types are a mess, but we inherit this problem from NeMo and Megatron.
 PrecisionTypes = Literal["fp16", "bf16", "fp32", "bf16-mixed", "fp32-mixed", "16-mixed", "fp16-mixed", 16, 32]
+precision_to_dtype: Dict[PrecisionTypes, torch.dtype] = {
+    "fp16": torch.float16,
+    "bf16": torch.bfloat16,
+    "fp32": torch.float32,
+    "16-mixed": torch.float16,
+    "fp16-mixed": torch.float16,
+    "bf16-mixed": torch.bfloat16,
+    "fp32-mixed": torch.float32,
+    16: torch.float16,
+    32: torch.float32,
+}
+
+# NOTE(SKH) these do not have a perfect 1-1 relationship, but we can use this to serialize/deserialize dtypes in ModelConfigs since its ultimately converted with precision_to_dtype.
+dtype_to_precision: Dict[torch.dtype, PrecisionTypes] = {v: k for k, v in precision_to_dtype.items()}
 
 
 def get_autocast_dtype(precision: PrecisionTypes) -> torch.dtype:

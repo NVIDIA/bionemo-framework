@@ -18,19 +18,21 @@ import functools
 import os
 from typing import Literal
 
-import pytorch_lightning as pl
-import torch
-import torch.utils.data
+from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 
 from bionemo.esm2.data import dataset, tokenizer
 from bionemo.llm.data import collate
+from bionemo.llm.data.datamodule import MegatronDataModule
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
-class ESMDataModule(pl.LightningDataModule):
+Mode = Literal["train", "validation", "test"]
+
+
+class ESMDataModule(MegatronDataModule):
     """LightningDataModule wrapper of `ESMDataset`."""
 
     def __init__(
@@ -106,6 +108,11 @@ class ESMDataModule(pl.LightningDataModule):
             rampup_batch_size=rampup_batch_size,
         )
 
+    @property
+    def tokenizer(self) -> tokenizer.BioNeMoESMTokenizer:
+        """Returns the tokenizer."""
+        return self._tokenizer
+
     def setup(self, stage: str = "") -> None:
         """Setup the ESMDataModule.
 
@@ -172,11 +179,20 @@ class ESMDataModule(pl.LightningDataModule):
             hasattr(self, "trainer") and self.trainer is not None
         ), "Setup should be completed when trainer and config are attached."
 
-    def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
+    def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:
+        """Create dataloader for train, validation, and test stages.
+
+        Args:
+            dataset: The dataset to create the dataloader for.
+            mode: Stage of training, which is used to determined if consumed_samples in MegatronPretrainingSampler should be initialized to 0 (validation/test), or be set to the previous value from state_dict in case of checkpoint resumption (train).
+            **kwargs: Additional arguments to pass to the dataloader.
+        """
+        self.update_init_global_step()
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
 
-        return torch.utils.data.DataLoader(
-            dataset,
+        return WrappedDataLoader(
+            mode=mode,
+            dataset=dataset,
             num_workers=self._num_workers,
             pin_memory=self._pin_memory,
             persistent_workers=self._persistent_workers,
@@ -191,11 +207,11 @@ class ESMDataModule(pl.LightningDataModule):
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:
         """Returns the dataloader for training data."""
-        return self._create_dataloader(self._train_ds)
+        return self._create_dataloader(self._train_ds, mode="train")
 
     def val_dataloader(self) -> EVAL_DATALOADERS:
         """Returns the dataloader for validation data."""
-        return self._create_dataloader(self._valid_ds)
+        return self._create_dataloader(self._valid_ds, mode="validation")
 
     def test_dataloader(self) -> EVAL_DATALOADERS:
         """Raises a not implemented error."""

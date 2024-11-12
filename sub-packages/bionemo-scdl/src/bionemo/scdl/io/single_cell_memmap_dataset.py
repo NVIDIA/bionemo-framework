@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import importlib.metadata
 import json
 import os
@@ -129,26 +128,28 @@ def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:
     return ret
 
 
-def _create_compressed_sparse_row_memmaps(
-    num_elements: int,
+def _create_row_memmaps(
     num_rows: int,
     memmap_dir_path: Path,
     mode: Mode,
-    dtypes: Dict[str, str],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Create a set of CSR-format numpy arrays.
+    dtypes: Dict[FileNames, str],
+) -> np.ndarray:
+    """Records a pointer into the data and column arrays."""
+    return np.memmap(
+        f"{str(memmap_dir_path.absolute())}/{FileNames.ROWPTR.value}",
+        dtype=dtypes[f"{FileNames.ROWPTR.value}"],
+        shape=(num_rows + 1,),
+        mode=mode.value,
+    )
 
-    They are saved to memmap_dir_path. This is an efficient way of indexing
-    into a sparse matrix. Only non- zero values of the data are stored.
-    """
-    if num_elements <= 0:
-        raise ValueError(f"n_elements is set to {num_elements}. It must be postive to create CSR matrices.")
 
-    if num_rows <= 0:
-        raise ValueError(f"num_rows is set to {num_rows}. It must be postive to create CSR matrices.")
-
-    memmap_dir_path.mkdir(parents=True, exist_ok=True)
-    # mmap new arrays
+def _create_data_col_memmaps(
+    num_elements: int,
+    memmap_dir_path: Path,
+    mode: Mode,
+    dtypes: Dict[FileNames, str],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Records a pointer into the data and column arrays."""
     # Records the value at index[i]
     data_arr = np.memmap(
         f"{memmap_dir_path}/{FileNames.DATA.value}",
@@ -161,17 +162,47 @@ def _create_compressed_sparse_row_memmaps(
         f"{memmap_dir_path}/{FileNames.COLPTR.value}",
         dtype=dtypes[f"{FileNames.COLPTR.value}"],
         shape=(num_elements,),
-        mode=mode,
+        mode=mode.value,
     )
-    # Records a pointer into the data and column arrays
-    # to get the data for a specific row, slice row_idx[idx, idx+1]
-    # and then get the elements in data[row_idx[idx]:row_idx[idx+1]]
-    # which are in the corresponding columns col_index[row_idx[idx], row_idx[row_idx+1]]
-    row_arr = np.memmap(
-        f"{memmap_dir_path}/{FileNames.ROWPTR.value}",
-        dtype=dtypes[f"{FileNames.ROWPTR.value}"],
-        shape=(num_rows + 1,),
-        mode=mode,
+    return data_arr, col_arr
+
+
+def _create_compressed_sparse_row_memmaps(
+    num_elements: int,
+    num_rows: int,
+    memmap_dir_path: Path,
+    mode: Mode,
+    dtypes: Dict[FileNames, str],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Create a set of CSR-format numpy arrays.
+
+    They are saved to memmap_dir_path. This is an efficient way of indexing
+    into a sparse matrix. Only non- zero values of the data are stored.
+
+    To get the data for a specific row, slice row_idx[idx, idx+1]
+    and then get the elements in data[row_idx[idx]:row_idx[idx+1]]
+    which are in the corresponding columns col_index[row_idx[idx], row_idx[row_idx+1]]
+
+    """
+    if num_elements <= 0:
+        raise ValueError(f"n_elements is set to {num_elements}. It must be postive to create CSR matrices.")
+
+    if num_rows <= 0:
+        raise ValueError(f"num_rows is set to {num_rows}. It must be postive to create CSR matrices.")
+
+    memmap_dir_path.mkdir(parents=True, exist_ok=True)
+    data_arr, col_arr = _create_data_col_memmaps(
+        num_elements,
+        memmap_dir_path,
+        mode,
+        dtypes,
+    )
+
+    row_arr = _create_row_memmaps(
+        num_rows,
+        memmap_dir_path,
+        mode,
+        dtypes,
     )
     return data_arr, col_arr, row_arr
 
@@ -205,7 +236,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         h5ad_path: Optional[str] = None,
         num_elements: Optional[int] = None,
         num_rows: Optional[int] = None,
-        mode: Mode = Mode.READ_APPEND.value,
+        mode: Mode = Mode.READ_APPEND,
+        paginated_load_cutoff: int = 10_000,
+        load_block_row_size: int = 1_000_000,
     ) -> None:
         """Instantiate the class.
 
@@ -214,13 +247,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             or stored.
             h5ad_path: Optional, the location of the h5_ad path.
             num_elements: The total number of elements in the array.
-            num_rows: The number of rows in the data frame
-            mode: Whether to read or write from the data_path,
+            num_rows: The number of rows in the data frame.
+            mode: Whether to read or write from the data_path.
+            paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
+            load_block_row_size: Number of rows to load into memory with paginated load
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
         self.mode: Mode = mode
-
+        self.paginated_load_cutoff = paginated_load_cutoff
+        self.load_block_row_size = load_block_row_size
         # Backing arrays
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
@@ -241,7 +277,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             f"{FileNames.ROWPTR.value}": "uint64",
         }
 
-        if mode == Mode.CREATE_APPEND.value and os.path.exists(data_path):
+        if mode == Mode.CREATE_APPEND and os.path.exists(data_path):
             raise FileExistsError(f"Output directory already exists: {data_path}")
 
         if h5ad_path is not None and (data_path is not None and os.path.exists(data_path)):
@@ -279,7 +315,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 json.dump(self.version(), vfi)
 
     def _init_arrs(self, num_elements: int, num_rows: int) -> None:
-        self.mode = Mode.CREATE_APPEND.value
+        self.mode = Mode.CREATE_APPEND
         data_arr, col_arr, row_arr = _create_compressed_sparse_row_memmaps(
             num_elements=num_elements,
             num_rows=num_rows,
@@ -401,7 +437,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                                     with  SingleCellMemMapDataset(<path to data that will be created>, h5ad_path=<path to h5ad file>"""
             )
         self.data_path = stored_path
-        self.mode = Mode.READ_APPEND.value
+        self.mode = Mode.READ_APPEND
 
         # Metadata is required, so we must check if it exists and fail if not.
         if not os.path.exists(f"{self.data_path}/{FileNames.METADATA.value}"):
@@ -434,29 +470,24 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         with open(f"{self.data_path}/{FileNames.METADATA.value}", f"{Mode.CREATE.value}") as mfi:
             json.dump(self.metadata, mfi)
 
-    def load_h5ad(
+    def regular_load_h5ad(
         self,
         anndata_path: str,
-    ) -> None:
-        """Loads an existing AnnData archive from disk.
-
-        This creates a new backing data structure which is saved.
-        Note: the storage utilized will roughly double. Currently, the data must
-        be in a scipy.sparse.spmatrix format.
+    ) -> Tuple[pd.DataFrame, int]:
+        """Method for loading an h5ad file into memorySu and converting it to the SCDL format.
 
         Args:
-            anndata_path: location of data load
+            anndata_path: location of data to load
         Raises:
-            FileNotFoundError if the data path does not exist.
-            NotImplementedError if the data is not in scipy.sparse.spmatrix
-            format
+            NotImplementedError if the data is not in scipy.sparse.spmatrix format
             ValueError it there is not count data
+        Returns:
+            pd.DataFrame: var variables for features
+            int: number of rows in the dataframe.
+
         """
-        if not os.path.exists(anndata_path):
-            raise FileNotFoundError(f"Error: could not find h5ad path {anndata_path}")
         adata = ad.read_h5ad(anndata_path)  # slow
-        # Get / set the number of rows and columns for sanity
-        # Fill the data array
+
         if not isinstance(adata.X, scipy.sparse.spmatrix):
             raise NotImplementedError("Error: dense matrix loading not yet implemented.")
 
@@ -480,10 +511,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         self.dtypes[f"{FileNames.DATA.value}"] = count_data.dtype
 
-        # Collect features and store in FeatureIndex
-        features = adata.var
-        self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
-
         # Create the arrays.
         self._init_arrs(num_elements_stored, num_rows)
         # Store data
@@ -494,6 +521,103 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Store the row idx array
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
+
+        return adata.var, num_rows
+
+    def paginated_load_h5ad(
+        self,
+        anndata_path: str,
+    ) -> Tuple[pd.DataFrame, int]:
+        """Method for block loading a larger h5ad file and converting it to the SCDL format.
+
+        This should be used in the case when the entire anndata file cannot be loaded into memory.
+        The anndata is loaded into memory load_block_row_size number of rows at a time. Each chunk
+        is converted into numpy memory maps which are then concatenated together.
+
+        Raises:
+            NotImplementedError if the data is not loaded in the CSRDataset format.
+
+        Returns:
+            pd.DataFrame: var variables for features
+            int: number of rows in the dataframe.
+        """
+        adata = ad.read_h5ad(anndata_path, backed=True)
+
+        if not isinstance(adata.X, ad.experimental.CSRDataset):
+            raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
+        num_rows = adata.X.shape[0]
+
+        self.dtypes[f"{FileNames.DATA.value}"] = adata.X.dtype
+
+        # Read the row indices into a memory map.
+        mode = Mode.CREATE_APPEND
+        self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
+        self.row_index[:] = adata.X._indptr.astype(int)
+
+        # The data from each column and data chunk of the original anndata file is read in. This is saved into the final
+        # location of the memmap file. In this step, it is saved in the binary file format.
+        memmap_dir_path = Path(self.data_path)
+        with (
+            open(f"{memmap_dir_path}/{FileNames.COLPTR.value}", "wb") as col_file,
+            open(f"{memmap_dir_path}/{FileNames.DATA.value}", "wb") as data_file,
+        ):
+            n_elements = 0
+            for row_start in range(0, num_rows, self.load_block_row_size):
+                # Write each array's data to the file in binary format
+                col_block = adata.X[row_start : row_start + self.load_block_row_size].indices
+                col_file.write(col_block.tobytes())
+
+                data_block = adata.X[row_start : row_start + self.load_block_row_size].data
+                data_file.write(data_block.tobytes())
+
+                n_elements += len(data_block)
+
+        # The column and data files are re-opened as memory-mapped arrays with the final shape
+        mode = Mode.READ_APPEND
+        self.col_index = np.memmap(
+            f"{memmap_dir_path}/{FileNames.COLPTR.value}",
+            self.dtypes[f"{FileNames.COLPTR.value}"],
+            mode=mode,
+            shape=(n_elements,),
+        )
+        self.data = np.memmap(
+            f"{memmap_dir_path}/{FileNames.DATA.value}",
+            dtype=self.dtypes[f"{FileNames.DATA.value}"],
+            mode=mode,
+            shape=(n_elements,),
+        )
+        return adata.var, num_rows
+
+    def load_h5ad(
+        self,
+        anndata_path: str,
+    ) -> None:
+        """Loads an existing AnnData archive from disk.
+
+        This creates a new backing data structure which is saved.
+        Note: the storage utilized will roughly double. Currently, the data must
+        be in a scipy.sparse.spmatrix format.
+
+        Args:
+            anndata_path: location of data to load
+        Raises:
+            FileNotFoundError if the data path does not exist.
+            NotImplementedError if the data is not in scipy.sparse.spmatrix
+            format
+            ValueError it there is not count data
+        """
+        if not os.path.exists(anndata_path):
+            raise FileNotFoundError(f"Error: could not find h5ad path {anndata_path}")
+        file_size_MB = os.path.getsize(anndata_path) / (1_024**2)
+
+        if file_size_MB < self.paginated_load_cutoff:
+            features, num_rows = self.regular_load_h5ad(anndata_path)
+
+        else:
+            features, num_rows = self.paginated_load_h5ad(anndata_path)
+
+        # Collect features and store in FeatureIndex
+        self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
 
         self.save()
 
@@ -632,7 +756,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 )
 
         # Set our mode:
-        self.mode: Mode = Mode.READ_APPEND.value
+        self.mode: Mode = Mode.READ_APPEND
 
         mmaps = []
         mmaps.extend(other_dataset)
@@ -648,7 +772,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 num_elements=total_num_elements,
                 num_rows=total_num_rows,
                 memmap_dir_path=Path(tmp),
-                mode=Mode.CREATE_APPEND.value,
+                mode=Mode.CREATE_APPEND,
                 dtypes=self.dtypes,
             )
             # Copy the data from self and other into the new arrays.
@@ -667,7 +791,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 col_arr[cumulative_elements : cumulative_elements + mmap.number_nonzero_values()] = mmap.col_index.data
                 # Fill the row array for the span of this scmmap
                 row_arr[cumulative_rows : cumulative_rows + mmap.number_of_rows() + 1] = (
-                    mmap.row_index + int(cumulative_rows)
+                    mmap.row_index + int(cumulative_elements)
                 ).data
 
                 self._feature_index.concat(mmap._feature_index)

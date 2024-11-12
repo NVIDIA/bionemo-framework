@@ -14,50 +14,19 @@
 # limitations under the License.
 
 
-import os
-import pathlib
-import pickle
-from typing import Any, Callable
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Union
 
-import pytorch_lightning as pl
+import numpy as np
+import torch
+from nemo.lightning import io
+from nemo.lightning.data import MegatronPretrainingSampler
+from nemo.lightning.megatron_parallel import CallbackMethods, DataT, MegatronLossReduction, MegatronStep
+from overrides import override
 from pytorch_lightning import Callback, LightningModule, Trainer
-from torch.nn import functional as F
-from torch.utils.data import DataLoader
 
-
-def compute_biobert_loss_singlegpu(model, dl: DataLoader):
-    """Computes the loss for BioBert models on a single GPU.
-
-    This will not function in multi-gpu settings nor with models that do not conform to BioBert.
-
-    Args:
-        model (torch.nn.Module): The Biobert model.
-        dl (torch.utils.data.DataLoader): The data loader.
-
-    Returns:
-        float: The mean loss.
-
-    See Also:
-    - :class: BioBertModel
-    """
-    n, loss = 0, 0.0
-    model.eval()
-    # batch = next(iter(dl))
-    batch = model.data_step(iter(dl))
-    result = model(
-        input_ids=batch["text"].cuda(),  # 'tokens' also a valid input for MockGPTDataModule
-        attention_mask=batch["attention_mask"].cuda(),
-    )
-    loss_mask = batch["loss_mask"].cuda()
-    # Not guaranteed i guess?
-    logits = result["token_logits"]
-    target = batch["labels"].cuda()
-    loss += F.cross_entropy(logits[loss_mask].float(), target[loss_mask], reduction="sum")
-    n += loss_mask.sum()
-
-    mean_loss: float = (loss / n).detach().cpu().numpy().item()
-    model.train()
-    return mean_loss
+from bionemo.testing.harnesses.mode import Mode
+from bionemo.testing.torch import recursive_detach
 
 
 class StopAndGoException(Exception):  # noqa: D101
@@ -65,120 +34,230 @@ class StopAndGoException(Exception):  # noqa: D101
 
 
 class RaiseAfterMetadataCallback(Callback):
-    """A callback that raises a StopAndGoException kills it if the metadata from the MetadataSaveCallback was saved successfully beforehand.
+    """A callback that raises a StopAndGoException after the validation epoch.
 
     Use this callback for pytest based Stop and go tests.
     """
 
-    def __init__(self, metadata_path: pathlib.Path):  # noqa: D107
-        self.metadata_path = metadata_path
-
-    def on_train_batch_start(self, trainer: Trainer, pl_module: LightningModule, batch: Any, batch_idx: int):
-        """PTL callback that raises a StopAndGoException if metadata exists."""
-        pickle_file_path = os.path.join(self.metadata_path, "checkpoints/metadata.pkl")
-        if os.path.exists(pickle_file_path):
-            # Register the signal handler
-            raise StopAndGoException("Terminating early, checkpoint exists.")
-            # kill job afterwards
+    def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
+        if trainer.sanity_checking:
+            return
+        raise StopAndGoException()
 
 
-class MetadataSaveCallback(Callback):
-    """A callback that saves metadata about the current training at the second validation epoch."""
+class BaseInterruptedVsContinuousCallback(Callback, CallbackMethods, io.IOMixin):
+    """Base class for serializable stop-and-go callback to compare continuous to interrupted training.
 
-    def __init__(
-        self, metadata_path: pathlib.Path, metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
-    ):
-        """Initialises callback with path and called information.
+    This class is used by extending a callback and collecting data into the `self.data` attribute. This data is then
+    compared between continuous and interrupted training.
 
-        Args:
-            metadata_path (pathlib.Path): Path where the metadata will be saved.
-            metrics_getter (dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]): A dictionary of metadata keys and their corresponding functions.
-
-        See Also: bionemo.testing.stop_and_go
-        """
-        self.metadata_path = metadata_path
-        self.pickle_file_path = os.path.join(self.metadata_path, "checkpoints/metadata.pkl")
-        self.called = False  # indicates if callback was already called
-        self.metrics_getter = metrics_getter
-
-    def setup(self, trainer: Trainer, pl_module: LightningModule, stage: str):
-        """Set up the testing callbacks and removes lingering metadata."""
-        super().setup(trainer, pl_module, stage)
-        if trainer.is_global_zero and os.path.exists(self.pickle_file_path):
-            os.remove(self.pickle_file_path)
-
-    def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule):
-        """Stores requisite metadata at the end of the first non-warmup validation epoch.
-
-        Executes on the second validation epoch -only- due to how warmups are handled. May not work as intended in the
-        absence of a warmup.
-
-        Args:
-            trainer (Trainer): The Lightning Trainer object.
-            pl_module (LightningModule): The LightningModule being trained.
-
-        Notes:
-            - If `called` is True and `trainer.is_global_zero` is True, the function saves metadata to compare after resuming with a checkpoint.
-            - The metadata is obtained using the `metrics_getter` dict and results are saved as a pickle file.
-
-        """
-        if self.called and trainer.is_global_zero:
-            # save metadata to compare to after resuming with checkpoint
-            metadata = {}
-            for metadata_key, func in self.metrics_getter.items():
-                metadata_value = func(trainer, pl_module)
-                metadata[metadata_key] = metadata_value
-            # prepare paths for metadata save
-            pickle_file_path = self.pickle_file_path
-            os.makedirs(os.path.dirname(pickle_file_path), exist_ok=True)
-            with open(pickle_file_path, "wb") as metadata_file:
-                pickle.dump(metadata, metadata_file)
-            # check that pickle file was saved correctly
-            assert os.path.isfile(pickle_file_path), f"No file found at {pickle_file_path}"
-        else:
-            # first time this callback is called is before the ModelCheckpoint callback
-            # since that one is always executed last. Therefore, we skip the first validation
-            # round and only save metadata at the second validation round
-            self.called = True
-
-
-class TestCheckpointIntegrityCallback(Callback):
-    """Callback that tests if current metrics match those saved in the associated metadata file.
-
-    This callback expects to be invoked _only_ after resuming a model that used the MetadataSaveCallback. When training begins, it checks the value of each metric and compares to the metadata stored in the metadata pickle file. Any deviances are assumed to be a failure in restoration.
+    See nemo.lightning.megatron_parallel.CallbackMethods for the available callback methods.
     """
 
-    def __init__(
-        self, metadata_path: pathlib.Path, metrics_getter: dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]
-    ):
-        """Initialises callback with path and called information.
+    def __init__(self):
+        """Initializes the callback."""
+        self.data = []
+
+    def __deepcopy__(self, memo):
+        """Don't actually attempt to copy this data when this callback is being serialized."""
+        ...
+
+
+class LearningRateCallback(BaseInterruptedVsContinuousCallback):
+    """Stop-and-go callback for learning rate before pausing and after resuming training."""
+
+    def on_megatron_step_start(self, step: MegatronStep) -> MegatronStep:
+        """Get learning rate as metadata."""
+        if step.trainer.training:
+            self.data.append(np.array(step.trainer.optimizers[0].param_groups[0]["lr"]))
+        return step
+
+
+class GlobalStepStateCallback(BaseInterruptedVsContinuousCallback):
+    """Stop-and-go callback for global_step before pausing and after resuming training."""
+
+    def on_megatron_step_start(self, step: MegatronStep) -> MegatronStep:
+        """Get learning rate as metadata."""
+        if step.trainer.training:
+            self.data.append(np.array(step.trainer.global_step))
+        return step
+
+
+class ConsumedSamplesCallback(BaseInterruptedVsContinuousCallback):
+    """Stop-and-go callback to check consumed samples before pausing and after resuming training."""
+
+    def on_megatron_step_start(self, step: MegatronStep) -> MegatronStep:
+        """Get consumed samples as metadata."""
+        if step.trainer.training:
+            data_sampler = step.trainer.datamodule.data_sampler
+            consumed_samples = data_sampler.compute_consumed_samples(
+                step.trainer.global_step - step.trainer.datamodule.init_global_step
+            )
+            self.data.append(np.array(consumed_samples))
+        return step
+
+
+class TrainInputCallback(BaseInterruptedVsContinuousCallback):
+    """Collect training input samples for comparison."""
+
+    def on_megatron_microbatch_end(
+        self,
+        step: MegatronStep,
+        batch: DataT,
+        forward_callback: "MegatronLossReduction",
+        output: Any,
+    ) -> None:
+        """Get consumed samples as metadata."""
+        if step.trainer.training:
+            self.data.append(recursive_detach(batch))
+
+
+class ValidInputCallback(BaseInterruptedVsContinuousCallback):
+    """Collect validation input samples for comparison."""
+
+    def on_megatron_microbatch_end(
+        self,
+        step: MegatronStep,
+        batch: DataT,
+        forward_callback: "MegatronLossReduction",
+        output: Any,
+    ) -> None:
+        """Get consumed samples as metadata."""
+        if step.trainer.validating:
+            self.data.append(recursive_detach(batch))
+
+
+class TrainOutputCallback(BaseInterruptedVsContinuousCallback):
+    """Collect training output samples for comparison."""
+
+    def on_megatron_microbatch_end(
+        self,
+        step: MegatronStep,
+        batch: DataT,
+        forward_callback: "MegatronLossReduction",
+        output: Any,
+    ) -> None:
+        """Get consumed samples as metadata."""
+        if step.trainer.training:
+            self.data.append(recursive_detach(output))
+
+
+class ValidOutputCallback(BaseInterruptedVsContinuousCallback):
+    """Collect validation output samples for comparison."""
+
+    def on_megatron_microbatch_end(
+        self,
+        step: MegatronStep,
+        batch: DataT,
+        forward_callback: "MegatronLossReduction",
+        output: Any,
+    ) -> None:
+        """Get consumed samples as metadata."""
+        if step.trainer.validating:
+            self.data.append(recursive_detach(output))
+
+
+class TrainLossCallback(BaseInterruptedVsContinuousCallback):
+    """Collect training loss samples for comparison."""
+
+    def on_megatron_step_end(
+        self,
+        step: MegatronStep,
+        microbatch_outputs: List[Any],
+        reduced: Optional[Union[torch.Tensor, Dict[str, torch.Tensor]]] = None,
+    ) -> None:
+        """Get consumed samples as metadata."""
+        if step.trainer.training:
+            self.data.append(recursive_detach(reduced))
+
+
+class ValidLossCallback(BaseInterruptedVsContinuousCallback):
+    """Collect training loss samples for comparison."""
+
+    def on_megatron_step_end(
+        self,
+        step: MegatronStep,
+        microbatch_outputs: List[Any],
+        reduced: Optional[Union[torch.Tensor, Dict[str, torch.Tensor]]] = None,
+    ) -> None:
+        """Get consumed samples as metadata."""
+        if step.trainer.validating:
+            self.data.append(recursive_detach(reduced))
+
+
+class OptimizerStateCallback(BaseInterruptedVsContinuousCallback):
+    """Stop-and-go callback to check optimizer states before pausing and after resuming training."""
+
+    def on_megatron_step_start(self, step: MegatronStep) -> MegatronStep:
+        """Get optimizer states as metadata."""
+        if step.trainer.training:
+            self.data.append(
+                recursive_detach(
+                    [
+                        optimizer.mcore_optimizer.optimizer.state_dict()["state"]
+                        for optimizer in step.trainer.optimizers
+                    ]
+                )
+            )
+        return step
+
+
+class AbstractStopAndGoCallback(ABC, BaseInterruptedVsContinuousCallback):
+    """Abstract base class for stop-and-go callback to compare metadata before pausing and after resuming training.
+
+    This base class provides utility methods to help streamline stop and go comparison.
+
+    Provided methods:
+        - __init__: initializes the callback with the given mode.
+        - get_metadata: abstract method that should be overridden to get metadata from the trainer and pl_module.
+
+    Default behaviors:
+        - in stop mode, metadata is gotten and compared on_validation_epoch_end.
+        - in go mode, metadata is gotten and saved on_train_epoch_start.
+
+    Override these behaviors if necessary.
+    """
+
+    def __init__(self, mode: Mode = Mode.STOP):
+        """Initialize StopAndGoCallback.
 
         Args:
-            metadata_path (pathlib.Path): Path where the metadata will be saved.
-            metrics_getter (dict[str, Callable[[pl.Trainer, pl.LightningModule], Any]]): A dictionary of metadata keys and their corresponding functions. Must be a subset of the dictionary passed to MetadataSaveCallback.
+            mode (str, optional): Mode to run in. Must be either Mode.STOP or Mode.RESUME. Defaults to Mode.STOP.
+
+        Notes:
+            User must override get_metadata to get metadata from the trainer and pl_module.
         """
-        self.metadata_path = metadata_path
-        self.metrics_getter = metrics_getter
+        if mode not in [Mode.STOP, Mode.RESUME]:
+            raise ValueError(f"mode must be 'stop' or 'go', got {mode}")
+        self.mode = mode
+        super().__init__()
 
-    def on_train_start(self, trainer: Trainer, pl_module: LightningModule):
-        """Loads associated metadata and compares with current metrics."""
-        pickle_file_path = os.path.join(self.metadata_path, "checkpoints/metadata.pkl")
-        # check that pickle file exists
-        assert os.path.isfile(pickle_file_path), f"No file found at {pickle_file_path}"
-        with open(pickle_file_path, "rb") as metadata_file:
-            metadata_dict = pickle.load(metadata_file)
-        current_metadata = {}
-        for metadata_key, func in self.metrics_getter.items():
-            expected_value = metadata_dict[metadata_key]
-            current_value = func(trainer, pl_module)
-            current_metadata[metadata_key] = current_value
+    @abstractmethod
+    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
+        """Get metadata from trainer and pl_module."""
+        raise NotImplementedError
 
-        # TODO (SKH): Ideally this would collect _all_ failures instead of failing on the first one.
-        for metadata_key in current_metadata:
-            expected_value = metadata_dict[metadata_key]
-            current_value = current_metadata[metadata_key]
-            assert (
-                expected_value == current_value
-            ), f"Value mismatch for key {metadata_key}: stored_value={expected_value}, current_value={current_value}"
-        # Cleanup
-        os.remove(pickle_file_path)
+    def on_train_epoch_start(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
+        if self.mode == Mode.RESUME:
+            self.data = self.get_metadata(trainer, pl_module)
+
+    def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
+        if not trainer.sanity_checking and self.mode == Mode.STOP:
+            self.data = self.get_metadata(trainer, pl_module)
+
+
+class TrainValInitConsumedSamplesStopAndGoCallback(AbstractStopAndGoCallback):
+    """Stop-and-go callback to check consumed samples before pausing and after resuming training.
+
+    This is currently the only callback that doesn't fit with the new pattern of directly comparing continuous and
+    interrupted training, since the dataloaders don't track their consumed_samples before and after checkpoint
+    resumption.
+    """
+
+    @override
+    def get_metadata(self, trainer: Trainer, pl_module: LightningModule) -> Any:
+        """Get consumed samples as metadata."""
+        # return trainer.datamodule.state_dict()["consumed_samples"]  # TODO why state_dict can be empty despite working lines below
+        train_data_sampler: MegatronPretrainingSampler = trainer.train_dataloader.batch_sampler
+        val_data_sampler: MegatronPretrainingSampler = trainer.val_dataloaders.batch_sampler
+        return train_data_sampler.consumed_samples, val_data_sampler.consumed_samples

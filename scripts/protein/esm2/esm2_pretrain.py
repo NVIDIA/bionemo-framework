@@ -30,12 +30,12 @@ from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
-from bionemo.esm2.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.lightning import PerplexityLoggingCallback
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
+from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
-from bionemo.llm.utils.logger_utils import WandbLoggerOptions, setup_nemo_lightning_logger
+from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
 __all__: Sequence[str] = ("main", "parser")
@@ -55,6 +55,7 @@ def main(
     warmup_steps: int,
     limit_val_batches: int,
     val_check_interval: int,
+    log_every_n_steps: Optional[int],
     num_dataset_workers: int,
     biobert_spec_option: BiobertSpecOption,  # TODO(@farhadrgh) clarify how to parse this.
     lr: float,
@@ -80,7 +81,6 @@ def main(
     save_last_checkpoint: bool = True,
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
-    save_every_n_steps: int = 100,
     nsys_profiling: bool = False,
     nsys_start_step: int = 0,
     nsys_end_step: Optional[int] = None,
@@ -147,10 +147,10 @@ def main(
 
     # for wandb integration
     # Please refer to https://pytorch-lightning.readthedocs.io/en/0.7.6/api/pytorch_lightning.loggers.html"
-    wandb_options: Optional[WandbLoggerOptions] = (
+    wandb_config: Optional[WandbConfig] = (
         None
         if wandb_project is None
-        else WandbLoggerOptions(
+        else WandbConfig(
             offline=wandb_offline,
             project=wandb_project,
             entity=wandb_entity,
@@ -183,6 +183,7 @@ def main(
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,
+        log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(precision=precision),
@@ -202,8 +203,8 @@ def main(
         max_seq_length=max_seq_length,
         num_workers=num_dataset_workers,
         random_mask_strategy=random_mask_strategy,
+        tokenizer=tokenizer,
     )
-
     # Configure the model
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
@@ -244,7 +245,7 @@ def main(
         save_last=save_last_checkpoint,
         monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
         save_top_k=save_top_k,
-        every_n_train_steps=save_every_n_steps,
+        every_n_train_steps=val_check_interval,
         always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
     )
 
@@ -253,7 +254,7 @@ def main(
         root_dir=result_dir,
         name=experiment_name,
         initialize_tensorboard_logger=create_tensorboard_logger,
-        wandb_kwargs=wandb_options,
+        wandb_config=wandb_config,
         ckpt_callback=checkpoint_callback,
     )
 
@@ -379,6 +380,12 @@ parser.add_argument(
     required=False,
     default=10000,
     help="Number of steps between validation. Default is 10000.",
+)
+parser.add_argument(
+    "--log-every-n-steps",
+    type=int,
+    required=False,
+    help="Number of steps between logging. Default is 50.",
 )
 parser.add_argument(
     "--min-seq-length",
@@ -582,6 +589,7 @@ if __name__ == "__main__":
         warmup_steps=args.warmup_steps,
         limit_val_batches=args.limit_val_batches,
         val_check_interval=args.val_check_interval,
+        log_every_n_steps=args.log_every_n_steps,
         num_dataset_workers=args.num_dataset_workers,
         biobert_spec_option=args.biobert_spec_option,
         lr=args.lr,
@@ -598,7 +606,6 @@ if __name__ == "__main__":
         save_last_checkpoint=args.save_last_checkpoint,
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
-        save_every_n_steps=args.val_check_interval,
         nsys_profiling=args.nsys_profiling,
         nsys_start_step=args.nsys_start_step,
         nsys_end_step=args.nsys_end_step,

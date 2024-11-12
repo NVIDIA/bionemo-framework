@@ -4,7 +4,7 @@
 ## BioNeMo Framework v2.0
 
 ### New Features:
-* ESM2 implementation
+* ESM-2 implementation
   * State of the art training performance and equivalent accuracy to the reference implementation
   * 650M, and 3B scale checkpoints available which mirror the reference model
   * Flexible fine-tuning examples that can be copied and modified to accomplish a wide variety of downstream tasks
@@ -62,7 +62,7 @@
 ## BioNeMo Framework v1.6
 ### New Features
 * [Model Fine-tuning] `model.freeze_layers` fine-tuning config parameter added to freeze a specified number of layers. Thank you to github user [@nehap25](https://github.com/nehap25)!
-* [ESM2]  Loading pre-trained ESM2 weights and continue pre-training on the MLM objective on a custom FASTA dataset is now supported.
+* [ESM2]  Loading pre-trained ESM-2 weights and continue pre-training on the MLM objective on a custom FASTA dataset is now supported.
 * [OpenFold] MLPerf feature 3.2 bug (mha_fused_gemm) fix has merged.
 * [OpenFold] MLPerf feature 3.10 integrated into bionemo framework.
 * [DiffDock] Updated data loading module for DiffDock model training, changing from sqlite3 backend to webdataset.
@@ -76,11 +76,11 @@
 * **Beta** [Geneformer](https://www.nature.com/articles/s41586-023-06139-9) a foundation model for single-cell data that encodes each cell as represented by an ordered list of differentially expressed genes for that cell.
 
 ### New Features
-* **Beta** [Geneformer pretraining with custom datasets](notebooks/geneformer_cellxgene_tutorial.ipynb)
-* [Low-Rank Adaptation (LoRA) finetuning for ESM2](lora-finetuning-esm2.md)
+* **Beta** Geneformer pretraining with custom datasets
+* Low-Rank Adaptation (LoRA) finetuning for ESM2
 
 ### Bug fixes and Improvements
-* [OpenFold training improved benchmarks and validation of optimizations](models/openfold.md)
+* OpenFold training improved benchmarks and validation of optimizations
 
 ### Known Issues
 * BioNeMo Framework v24.04 container is vulnerable to [GHSA-whh8-fjgc-qp73](https://github.com/advisories/GHSA-whh8-fjgc-qp73) in onnx 1.14.0. Users are advised not to open untrusted onnx files with this image. Restrict your mount point to minimize directory traversal impact. A fix for this is scheduled in the 24.05 (May) release.
@@ -91,9 +91,9 @@
 
 ### New Features
 * [MolMIM](https://developer.nvidia.com/blog/new-models-molmim-and-diffdock-power-molecule-generation-and-molecular-docking-in-bionemo/) re-trained on more data is now available in the framework, and achieves [state of the art performance](models/molmim.md).
-* [MolMIM property guided tutorial notebook](notebooks/cma_es_guided_molecular_optimization_molmim.ipynb) covering property guided optimization using our new framework model.
-* [MolMIM training tutorial](notebooks/model_training_molmim.ipynb) available walking users through either training from scratch or from an existing checkpoint on your own data.
-* [MolMIM tutorial notebook covering molecular sampling and property prediction](notebooks/MolMIM_GenerativeAI_local_inference_with_examples.ipynb) is also now available.
+* MolMIM property guided tutorial notebook covering property guided optimization using our new framework model.
+* MolMIM training tutorial available walking users through either training from scratch or from an existing checkpoint on your own data.
+* MolMIM tutorial notebook covering molecular sampling and property prediction is also now available.
 * Numerous optimizations from [NVIDIA's entry to the MLPerf competition](https://developer.nvidia.com/blog/optimizing-openfold-training-for-drug-discovery/) have been added to OpenFold. Documentation and detailed benchmarks are works in progress and will be published in upcoming releases. This release contains the following performance optimizations:
     * Fused GEMMs in multi-head attention (MHA)
     * Non-blocking data pipeline
@@ -125,7 +125,7 @@
 * Wrapper scripts for DNABERT and OpenFold to launch jobs on BCP.
 
 ### Bug fixes and Improvements
-* Interface improvements for ESM2 data ingestion and pre-processing. The interface allows for explicit specification of training, validation, and test sets. The user may set `config.model.data.default_dataset_path` to maintain prior behavior, or set `config.model.data.train.dataset_path`, `config.model.data.val.dataset_path`, `config.model.data.test.dataset_path` which may all be unique.
+* Interface improvements for ESM-2 data ingestion and pre-processing. The interface allows for explicit specification of training, validation, and test sets. The user may set `config.model.data.default_dataset_path` to maintain prior behavior, or set `config.model.data.train.dataset_path`, `config.model.data.val.dataset_path`, `config.model.data.test.dataset_path` which may all be unique.
 
 ### Known Issues
 * OpenFold training speed does not yet include [MLPerf optimizations](https://blogs.nvidia.com/blog/scaling-ai-training-mlperf/), and these will be released in the subsequent release.

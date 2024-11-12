@@ -24,6 +24,7 @@ from bionemo.esm2.api import ESM2GenericConfig
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
 from bionemo.esm2.model.finetune.finetune_regressor import ESM2FineTuneSeqConfig, InMemorySingleValueDataset
+from bionemo.llm.lightning import batch_collator
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 
 
@@ -57,7 +58,7 @@ def infer_model(
         plugins=nl.MegatronMixedPrecision(precision="bf16-mixed"),
     )
     module = biobert_lightning_module(config=config, tokenizer=tokenizer)
-    results = trainer.predict(module, datamodule=data_module)
+    results = batch_collator(trainer.predict(module, datamodule=data_module))
 
     return results
 
@@ -97,4 +98,4 @@ if __name__ == "__main__":
     )
 
     results = infer_model(config, data_module)
-    print(results)
+    print(results["regression_output"])

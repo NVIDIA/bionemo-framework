@@ -13,33 +13,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import pathlib
-from typing import Any, Dict, List, Optional, Sequence, TypedDict
+from typing import Any, Dict, List, Optional, Sequence
 
 from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nemo_callbacks
 from nemo.utils import logging
+from pydantic import BaseModel
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 
 
 __all__: Sequence[str] = (
-    "WandbLoggerOptions",
+    "WandbConfig",
     "setup_nemo_lightning_logger",
 )
 
 
-class WandbLoggerOptions(TypedDict):
+class WandbConfig(BaseModel):
     """Note: `name` controls the exp name is handled by the NeMoLogger so it is ommitted here.
     `directory` is also omitted since it is set by the NeMoLogger.
+
+    Args:
+        entity: The team posting this run (default: your username or your default team)
+        project: The name of the project to which this run will belong.
+        tags: Tags associated with this run.
+        group: A unique string shared by all runs in a given group
+        offline: Run offline (data can be streamed later to wandb servers).
+        id: Sets the version, mainly used to resume a previous run.
+        anonymous: Enables or explicitly disables anonymous logging.
     """  # noqa: D205
 
-    entity: str  # The team posting this run (default: your username or your default team)
+    entity: str | None  # The team posting this run (default: your username or your default team)
     project: str  # The name of the project to which this run will belong.
     # name: #Display name for the run. "This is handled by NeMoLogger"
     # save_dir: #Path where data is saved. "This is handled by NeMoLogger"
-    tags: List[str]  # Tags associated with this run.
-    group: str  # A unique string shared by all runs in a given group
+    tags: List[str] | None  # Tags associated with this run.
+    group: str | None  # A unique string shared by all runs in a given group
     offline: bool  # Run offline (data can be streamed later to wandb servers).
-    id: str  # Sets the version, mainly used to resume a previous run.
+    id: str | None  # Sets the version, mainly used to resume a previous run.
     anonymous: bool  # Enables or explicitly disables anonymous logging.
     log_model: bool  # Save checkpoints in wandb dir to upload on W&B servers.
 
@@ -48,17 +58,17 @@ def setup_nemo_lightning_logger(
     name: str = "default-name",
     root_dir: str | pathlib.Path = "./results",
     initialize_tensorboard_logger: bool = False,
-    wandb_kwargs: Optional[WandbLoggerOptions] = None,
+    wandb_config: Optional[WandbConfig] = None,
     ckpt_callback: Optional[nemo_callbacks.ModelCheckpoint] = None,
     **kwargs: Dict[str, Any],
 ) -> NeMoLogger:
     """Setup the logger for the experiment.
 
-    Args:
+    Arguments:
         name: The name of the experiment. Results go into `root_dir`/`name`
         root_dir: The root directory to create the `name` directory in for saving run results.
         initialize_tensorboard_logger: Whether to initialize the tensorboard logger.
-        wandb_kwargs: The kwargs for the wandb logger.
+        wandb_config: The remaining configuration options for the wandb logger.
         ckpt_callback: The checkpoint callback to use, must be a child of the pytorch lightning ModelCheckpoint callback.
             NOTE the type annotation in the underlying NeMoCheckpoint constructor is incorrect.
         **kwargs: The kwargs for the NeMoLogger.
@@ -68,8 +78,8 @@ def setup_nemo_lightning_logger(
     """
     # The directory that the logger will save to
     save_dir = pathlib.Path(root_dir) / name
-    if wandb_kwargs is not None:
-        wandb_logger = WandbLogger(save_dir=save_dir, name=name, **wandb_kwargs)
+    if wandb_config is not None:
+        wandb_logger = WandbLogger(save_dir=save_dir, name=name, **wandb_config.model_dump())
     else:
         wandb_logger = None
         logging.warning("WandB is currently turned off.")

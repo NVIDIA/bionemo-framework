@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools-scm>=8", "setuptools>=64", "wheel"]
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -15,7 +15,16 @@ dependencies = [
     'bionemo-core',
     'bionemo-llm',
     # external
+    'cellxgene_census',
 ]
+
+[project.scripts]
+bionemo-geneformer-train= "bionemo.geneformer.run.main:main"
+bionemo-geneformer-recipe= "bionemo.geneformer.run.recipes:main"
+sc_memmap = "bionemo.geneformer.scripts.sc_memmap:main_cli"
+infer_geneformer = "bionemo.geneformer.scripts.infer_geneformer:geneformer_infer_entrypoint"
+train_geneformer = "bionemo.geneformer.scripts.train_geneformer:entrypoint"
+geneformer_mlm_loss_eval = "bionemo.geneformer.scripts.geneformer_mlm_loss_eval:entrypoint"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -23,10 +32,8 @@ include = ["bionemo.*"]
 namespaces = true
 exclude = ["test*."]
 
-[tool.setuptools_scm]
-root = '../..'
-version_scheme = "post-release"
-local_scheme = "no-local-version"
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
 
 [tool.uv]
 cache-keys = [{ git = true }]
