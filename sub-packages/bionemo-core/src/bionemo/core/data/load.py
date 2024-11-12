@@ -165,6 +165,7 @@ def load(
 
     download = pooch.retrieve(
         url=str(url),
+        fname=f"{resource.sha256}-{filename}",
         known_hash=resource.sha256,
         path=cache_dir,
         downloader=download_fn,
