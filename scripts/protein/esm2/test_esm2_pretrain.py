@@ -90,8 +90,6 @@ def test_main_runs(monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_tra
     result_dir = Path(tmpdir.mkdir("results"))
 
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        monkeypatch.setenv("NVTE_FUSED_ATTN", "1")
-        monkeypatch.setenv("NVTE_FLASH_ATTN", "0")
         main(
             train_cluster_path=train_cluster_path,
             train_database_path=dummy_protein_dataset,
@@ -159,8 +157,6 @@ def test_val_dataloader_in_main_runs_with_limit_val_batches(
     result_dir = Path(tmpdir.mkdir("results"))
 
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        monkeypatch.setenv("NVTE_FUSED_ATTN", "1")
-        monkeypatch.setenv("NVTE_FLASH_ATTN", "0")
         main(
             train_cluster_path=train_cluster_path,
             train_database_path=dummy_protein_dataset,
@@ -239,9 +235,6 @@ def test_pretrain_cli(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inp
     # a local copy of the environment
     env = dict(**os.environ)
     env["MASTER_PORT"] = str(open_port)
-    env["NVTE_FUSED_ATTN"] = "1"
-    env["NVTE_FLASH_ATTN"] = "0"
-
     cmd = shlex.split(cmd_str)
     result = subprocess.run(
         cmd,

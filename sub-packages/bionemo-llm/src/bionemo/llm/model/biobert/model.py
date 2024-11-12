@@ -525,8 +525,7 @@ class BioBertConfig(
                 self.num_layers // p_size
             ) % vp_size == 0, "Make sure the number of model chunks is the same across all pipeline stages."
 
-        # The local specs all require the standard full attention mask. For transformer engine only the NVTE_FLASH_ATTN=0
-        #  option requires this full attention mask.
+        # The local specs all require the standard full attention mask.
         use_full_attention_mask: bool = "transformer_engine" not in self.biobert_spec_option
         do_next_sentence = False
         if self.model_cls is None:
