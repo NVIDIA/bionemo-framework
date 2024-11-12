@@ -85,7 +85,7 @@ AWS_ENDPOINT_URL="https://pbss.s8k.io"
 Running tests downloads the test data to a cache location when first invoked.
 
 For more information on adding new test artifacts, see the documentation in
-[`bionemo.testing.data.load`](sub-packages/bionemo-testing/src/bionemo/testing/data/README.md).
+[`bionemo.core.data.load`](sub-packages/bionemo-testing/src/bionemo/testing/data/README.md).
 
 ## Updating pinned versions of NeMo / Megatron-LM
 
@@ -186,9 +186,6 @@ export MY_DATA_SOURCE="pbss"
 
 ```bash
 # The fastest transformer engine environment variables in testing were the following two
-export NVTE_FUSED_ATTN=1
-export NVTE_FLASH_ATTN=0
-
 TEST_DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source $MY_DATA_SOURCE); \
 ESM2_650M_CKPT=$(download_bionemo_data esm2/650m:2.0 --source $MY_DATA_SOURCE); \
 
@@ -248,9 +245,6 @@ and DataModule types.
 > ⚠️ **Warning:** This setup does NO configuration of Weights and Biases. Edit your config JSON and populate it with your WandB details.
 
 ```
-export NVTE_FUSED_ATTN=1
-export NVTE_FLASH_ATTN=0
-
 bionemo-esm2-train \
 --data-config-t bionemo.esm2.run.config_models.ESM2DataConfig \
 --model-config-t bionemo.esm2.run.config_models.ExposedESM2PretrainConfig \

@@ -16,7 +16,8 @@
 		"source=${localEnv:HOME}/.aws,target=/home/bionemo/.aws,type=bind,consistency=cached",
 		"source=${localEnv:HOME}/.ngc,target=/home/bionemo/.ngc,type=bind,consistency=cached",
 		"source=${localEnv:HOME}/.cache,target=/home/bionemo/.cache,type=bind,consistency=cached",
-		"source=${localEnv:HOME}/.ssh,target=/home/bionemo/.ssh,readonly,type=bind,consistency=cached"
+		"source=${localEnv:HOME}/.ssh,target=/home/bionemo/.ssh,readonly,type=bind,consistency=cached",
+		"source=${localEnv:HOME}/.netrc,target=/home/bionemo/.netrc,readonly,type=bind,consistency=cached"
 	],
 	"containerEnv": {
 		"TMPDIR": "/tmp",

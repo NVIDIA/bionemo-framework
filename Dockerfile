@@ -166,7 +166,9 @@ RUN <<EOF
 EOF
 
 # Transformer engine attention defaults
-ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
+# FIXME the following result in unstable training curves even if they are faster
+#  see https://github.com/NVIDIA/bionemo-framework/pull/421
+#ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
 
 FROM dev AS development
 
@@ -207,4 +209,6 @@ RUN chmod 777 -R /workspace/bionemo2/
 
 # Transformer engine attention defaults
 # We have to declare this again because the devcontainer splits from the release image's base.
-ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
+# FIXME the following results in unstable training curves even if faster.
+#  See https://github.com/NVIDIA/bionemo-framework/pull/421
+#ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0

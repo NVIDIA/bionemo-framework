@@ -281,9 +281,6 @@ Or simply use the ESM2 pretrain located in `$WORKDIR/sub-packages/bionemo-esm2/s
 
 ```bash
 # Enable fused attention in transformer engine for speed-up
-export NVTE_FUSED_ATTN=1
-export NVTE_FLASH_ATTN=0
-
 DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source ngc)
 
 train_esm2 \

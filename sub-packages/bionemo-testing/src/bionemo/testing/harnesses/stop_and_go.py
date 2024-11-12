@@ -106,6 +106,8 @@ class StopAndGoHarness(ABC):
     limit_val_batches: int
     lr: float = 1e-4
     precision: Literal["16-mixed", "bf16-mixed", "32"]
+    train_val_output_atol: float = 1e-3
+    other_output_atol: float = 1e-4
 
     # class variables that will be setup in setUpClass
     tempdir: tempfile.TemporaryDirectory
@@ -336,9 +338,9 @@ class StopAndGoHarness(ABC):
         assert interrupted_callback.data, f"No data found for {callback_type}"
 
         if callback_type == testing_callbacks.TrainOutputCallback:
-            atol = 1e-3
+            atol = self.train_val_output_atol
         else:
-            atol = 1e-4
+            atol = self.other_output_atol
 
         recursive_assert_approx_equal(interrupted_callback.data, continuous_callback.data, atol=atol)
 
@@ -388,8 +390,8 @@ class StopAndGoHarness(ABC):
         interrupted_data = interrupted_callback.data[-len(continuous_callback.data) :]
 
         if callback_type == testing_callbacks.ValidOutputCallback:
-            atol = 1e-3
+            atol = self.train_val_output_atol
         else:
-            atol = 1e-4
+            atol = self.other_output_atol
 
         recursive_assert_approx_equal(interrupted_data, continuous_callback.data, atol=atol)
