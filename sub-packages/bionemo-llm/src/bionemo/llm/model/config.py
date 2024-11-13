@@ -21,7 +21,6 @@ from typing import Any, Generic, List, Protocol, Sequence, Type
 
 from megatron.core.transformer import TransformerConfig
 from nemo.lightning import io
-from nemo.lightning.io.pl import TrainerContext
 
 from bionemo.core.model.config import BionemoModelConfig, BionemoTrainableModelConfig
 from bionemo.llm.api import MegatronLossType, MegatronModelType
@@ -86,8 +85,9 @@ class MegatronBioNeMoTrainableModelConfig(
         logger.warn(f"Loading {self.initial_ckpt_path}")
         # 1. get the config
         # TODO type(self) is probably not correct, maybe make the class name of the config to load an argument?
-        cfg_trainer_ctx: TrainerContext = io.load_context(Path(initial_ckpt_path) / "context")
-        initial_config: MegatronBioNeMoTrainableModelConfig = cfg_trainer_ctx.model.config
+        initial_config: MegatronBioNeMoTrainableModelConfig = io.load_context(
+            Path(initial_ckpt_path) / "context", "model.config"
+        )
         initial_fields = {f.name for f in fields(initial_config)}
         my_fields = [f.name for f in fields(self)]
         skip_fields = set(self.override_parent_fields)
