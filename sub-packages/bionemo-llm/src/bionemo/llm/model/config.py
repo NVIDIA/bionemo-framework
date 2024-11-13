@@ -86,8 +86,8 @@ class MegatronBioNeMoTrainableModelConfig(
         # 1. get the config
         # TODO type(self) is probably not correct, maybe make the class name of the config to load an argument?
         initial_config: MegatronBioNeMoTrainableModelConfig = io.load_context(
-            Path(initial_ckpt_path) / "context", "model.config"
-        )
+            path=Path(initial_ckpt_path) / "context", subpath="model.config"
+        )  # type: ignore
         initial_fields = {f.name for f in fields(initial_config)}
         my_fields = [f.name for f in fields(self)]
         skip_fields = set(self.override_parent_fields)
