@@ -63,19 +63,19 @@ def reduce_hiddens(hiddens: Tensor, attention_mask: Tensor) -> Tensor:
     return embeddings
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def esm2_config() -> ESM2Config:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         yield ESM2Config()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def esm2_650M_config_w_ckpt() -> ESM2Config:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         yield ESM2Config(nemo1_ckpt_path=nemo1_checkpoint_path)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def esm2_model(esm2_config) -> ESM2Model:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         tokenizer = get_tokenizer()
@@ -83,7 +83,7 @@ def esm2_model(esm2_config) -> ESM2Model:
         yield model
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def sample_data() -> List[Tuple[str, str]]:
     """Generates sample protein sequences for sanity checks, including mask tokens."""
     max_length = 1022  # The maximum length of the protein sequences to be considered.

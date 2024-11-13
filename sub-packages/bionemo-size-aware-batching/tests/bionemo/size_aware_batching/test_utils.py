@@ -37,7 +37,7 @@ def get_cleanup_fn(model: torch.nn.Module):
     return cleanup
 
 
-@pytest.mark.skip(reason="Currently seems to be failing on some GPUs")
+# @pytest.mark.skip(reason="Currently seems to be failing on some GPUs")
 def test_collect_cuda_peak_alloc(dataset, model_and_alloc_peak):
     model, alloc_peak_expected = model_and_alloc_peak
     features, alloc_peaks = collect_cuda_peak_alloc(

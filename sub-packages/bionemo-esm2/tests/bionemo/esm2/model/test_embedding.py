@@ -24,12 +24,12 @@ from bionemo.llm.lightning import get_dtype_device
 from bionemo.testing import megatron_parallel_state_utils
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def tokenizer() -> BioNeMoESMTokenizer:
     yield get_tokenizer()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def embedding(tokenizer) -> ESM2Embedding:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         config = ESM2Config(seq_length=20, hidden_size=128)

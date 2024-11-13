@@ -27,7 +27,7 @@ from bionemo.webdatamodule.datamodule import PickledDataWDS, Split, WebDataModul
 from bionemo.webdatamodule.utils import pickles_to_tars
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def gen_pickle_files(tmp_path_factory):
     dir_pickles = tmp_path_factory.mktemp("pickleddatawds").as_posix()
     prefix_sample = "sample"
@@ -56,7 +56,7 @@ def gen_pickle_files(tmp_path_factory):
     )
 
 
-@pytest.fixture(scope="module", params=[1, 2])
+@pytest.fixture(params=[1, 2])
 def gen_test_data(tmp_path_factory, gen_pickle_files, request):
     dir_pickles, prefix_sample, suffixes, prefixes_pickle, n_samples_per_split = gen_pickle_files
     n_suffixes = request.param
@@ -161,17 +161,17 @@ def _create_webdatamodule(gen_test_data, num_workers=2):
     return data_module, dirs_tars_wds
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def create_webdatamodule(gen_test_data):
     return _create_webdatamodule(gen_test_data)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def create_another_webdatamodule(gen_test_data):
     return _create_webdatamodule(gen_test_data)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def create_webdatamodule_with_5_workers(gen_test_data):
     return _create_webdatamodule(gen_test_data, num_workers=5)
 
@@ -281,11 +281,11 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
     return data_module, dirs_tars_wds, n_tars_wds
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def create_pickleddatawds(tmp_path_factory, gen_test_data):
     return _create_pickleddatawds(tmp_path_factory, gen_test_data)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def create_another_pickleddatawds(tmp_path_factory, gen_test_data):
     return _create_pickleddatawds(tmp_path_factory, gen_test_data)

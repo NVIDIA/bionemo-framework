@@ -71,29 +71,29 @@ class MyModel(torch.nn.Module):
         return ans
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def size_and_dim():
     size = 5
     dim_hidden = 4
     return (size, dim_hidden)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def device():
     return torch.device("cuda:0")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def dataset(size_and_dim, device):
     return MyDataset(*size_and_dim, device)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def sampler(dataset):
     return SequentialSampler(dataset)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def get_sizeof(request):
     def sizeof(i: int) -> int:
         return ((i % 3) + 1) * 10
@@ -101,7 +101,7 @@ def get_sizeof(request):
     return sizeof
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def model_and_alloc_peak(size_and_dim, device):
     dim_io = size_and_dim[1]
     alloc_peak = 2**9 * 1024**2  # ~512MB
@@ -109,7 +109,7 @@ def model_and_alloc_peak(size_and_dim, device):
     return MyModel(dim_io, dim_hidden).to(device), alloc_peak
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def model_huge_sample02(size_and_dim, device):
     dim_io = size_and_dim[1]
     alloc_peak = 2**9 * 1024**2  # ~512MB
