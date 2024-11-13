@@ -71,6 +71,7 @@ def nemo_logger_factory(experiment_config: ExperimentConfig, wandb_config: Optio
         save_top_k=experiment_config.save_top_k,
         every_n_train_steps=experiment_config.save_every_n_steps,
         always_save_context=True,
+        filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
     )
 
     nemo_logger = setup_nemo_lightning_logger(
@@ -109,6 +110,9 @@ def setup_trainer(
         ddp="megatron",
         find_unused_parameters=True,
         ckpt_include_optimizer=True,
+        # NOTE: there are issues related to async that may occur, most recently observed due to duplicate filenames.
+        ckpt_async_save=True,
+        ckpt_parallel_load=True,
     )
     if callbacks is None:
         callbacks = [
