@@ -21,6 +21,7 @@ dependencies = [
     'bionemo-geneformer',
     'bionemo-geometric',
     'bionemo-llm',
+    'bionemo-dnadl',
     'bionemo-scdl',
     'bionemo-size-aware-batching',
     'bionemo-testing',
@@ -124,6 +125,7 @@ executionEnvironments = [
         "./3rdparty/NeMo",
         # bionemo sub-packages
         './sub-packages/bionemo-core/src',
+        "./sub-packages/bionemo-dnadl/src",
         './sub-packages/bionemo-esm2/src',
         './sub-packages/bionemo-example_model/src',
         './sub-packages/bionemo-fw/src',

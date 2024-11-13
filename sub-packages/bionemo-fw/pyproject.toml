@@ -18,6 +18,7 @@ dependencies = [
     'bionemo-geometric',
     'bionemo-llm',
     'bionemo-scdl',
+    'bionemo-dnadl',
     'bionemo-size-aware-batching',
     'bionemo-webdatamodule',
     #
