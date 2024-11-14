@@ -17,7 +17,6 @@ name: Blossom-CI
 on:
   issue_comment:
     types: [created]
-  merge_group:
   workflow_dispatch:
       inputs:
           platform:
@@ -35,38 +34,31 @@ jobs:
 
     # This job only runs for pull request comments
     if: |
-         (
-            github.event.comment.body == '/build-ci' &&
-            (
-              github.actor == 'ohadmo' ||
-              github.actor == 'trvachov' ||
-              github.actor == 'jstjohn' ||
-              github.actor == 'pstjohn' ||
-              github.actor == 'malcolmgreaves' ||
-              github.actor == 'gwarmstrong' ||
-              github.actor == 'farhadrgh' ||
-              github.actor == 'dorotat-nv' ||
-              github.actor == 'jomitchellnv' ||
-              github.actor == 'skothenhill-nv' ||
-              github.actor == 'yzhang123' ||
-              github.actor == 'ntadimeti' ||
-              github.actor == 'broland-hat' ||
-              github.actor == 'polinabinder1' ||
-              github.actor == 'camirr-nv' ||
-              github.actor == 'sichu2023' ||
-              github.actor == 'jwilber' ||
-              github.actor == 'DejunL'||
-              github.actor == 'mengliu-nvidia' ||
-              github.actor == 'gagank1' ||
-              github.actor == 'guoqing-zhou' ||
-              github.actor == 'savitha-eng' ||
-              github.actor == 'sveccham' ||
-              github.actor == 'tshimko-nv'
-            )
-          ) || (
-           github.event_name == 'merge_group'
-          )
-
+         github.event.comment.body == '/build-ci' &&
+         (github.actor == 'ohadmo' ||
+          github.actor == 'trvachov' ||
+          github.actor == 'jstjohn' ||
+          github.actor == 'pstjohn' ||
+          github.actor == 'malcolmgreaves' ||
+          github.actor == 'gwarmstrong' ||
+          github.actor == 'farhadrgh' ||
+          github.actor == 'dorotat-nv' ||
+          github.actor == 'jomitchellnv' ||
+          github.actor == 'skothenhill-nv' ||
+          github.actor == 'yzhang123' ||
+          github.actor == 'ntadimeti' ||
+          github.actor == 'broland-hat' ||
+          github.actor == 'polinabinder1' ||
+          github.actor == 'camirr-nv' ||
+          github.actor == 'sichu2023' ||
+          github.actor == 'jwilber' ||
+          github.actor == 'DejunL'||
+          github.actor == 'mengliu-nvidia' ||
+          github.actor == 'gagank1' ||
+          github.actor == 'guoqing-zhou' ||
+          github.actor == 'savitha-eng' ||
+          github.actor == 'sveccham' ||
+          github.actor == 'tshimko-nv')
     steps:
       - name: Check if comment is issued by authorized person
         run: blossom-ci
