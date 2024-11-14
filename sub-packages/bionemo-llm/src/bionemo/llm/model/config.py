@@ -82,9 +82,8 @@ class MegatronBioNeMoTrainableModelConfig(
             None, the settings are loaded into self in place, and the hyper-parameters that will later be saved into
                 a checkpoint are updated.
         """
-        logger.warn(f"Loading {self.initial_ckpt_path}")
-        # 1. get the config
-        # TODO type(self) is probably not correct, maybe make the class name of the config to load an argument?
+        logger.warning(f"Loading {self.initial_ckpt_path}")
+        # 1. get the config from the trainer io context by querying the `model.config` subpath of the trainer.
         initial_config: MegatronBioNeMoTrainableModelConfig = io.load_context(
             path=Path(initial_ckpt_path) / "context", subpath="model.config"
         )  # type: ignore

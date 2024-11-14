@@ -21,7 +21,7 @@
     to nemo2 format with https://github.com/NVIDIA/bionemo-framework/pull/180
 
 - tag: 10M_241113:2.0
-  ngc: null
+  ngc: nvidia/clara/geneformer_10m:2.1
   ngc_registry: model
   pbss: "s3://bionemo-ci/models/geneformer_10M_241113_nemo2.tar.gz" # checkpoint is a directory, this is unpacked @ dl
   sha256: fb6e70cd6bd98fb8941b5de978e95db17a6b8596f1c03f4d641a6d2ba6599757 # pragma: allowlist secret
