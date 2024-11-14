@@ -145,7 +145,7 @@ def load_weights_sharded_inplace_nemo2_to_mcore(
     sharded_state_dict = {
         _munge_key_megatron_to_nemo2(k): _munge_sharded_tensor_key_megatron_to_nemo2(v)
         for k, v in model.sharded_state_dict().items()
-        if not _key_in_filter(k, skip_keys_with_these_prefixes)
+        if not _key_in_filter(k, skip_keys_with_these_prefixes) and "_extra_state" not in k
     }
     dist_checkpointing.load(
         sharded_state_dict=sharded_state_dict,

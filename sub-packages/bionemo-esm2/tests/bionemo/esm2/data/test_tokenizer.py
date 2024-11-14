@@ -98,7 +98,7 @@ def test_tokenize_with_empty_string(tokenizer):
 
 
 def test_tokenizer_serialization(tokenizer, tmp_path):
-    tokenizer.io_dump(tmp_path / "tokenizer")
+    tokenizer.io_dump(tmp_path / "tokenizer", yaml_attrs=[])  # BioNeMoESMTokenizer takes no __init__ arguments
     deserialized_tokenizer = io.load(tmp_path / "tokenizer", tokenizer.__class__)
 
     our_tokens = deserialized_tokenizer.encode("K A <mask> I S Q", add_special_tokens=False)

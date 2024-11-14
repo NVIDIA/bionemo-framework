@@ -50,6 +50,7 @@ def train_model(
     metric_tracker: Callback | None = None,
     tokenizer: BioNeMoESMTokenizer = get_tokenizer(),
     peft: PEFT | None = None,
+    _use_rich_model_summary: bool = True,
 ) -> Tuple[Path, Callback | None, nl.Trainer]:
     """Trains a BioNeMo ESM2 model using PyTorch Lightning.
 
@@ -62,6 +63,8 @@ def train_model(
         metric_tracker: Optional callback to track metrics
         tokenizer: The tokenizer to use. Defaults to `get_tokenizer()`.
         peft: The PEFT (Parameter-Efficient Fine-Tuning) module. Defaults to None.
+        _use_rich_model_summary: Whether to use the RichModelSummary callback, omitted in our test suite until
+            https://nvbugspro.nvidia.com/bug/4959776 is resolved. Defaults to True.
 
     Returns:
         A tuple containing the path to the saved checkpoint, a MetricTracker
@@ -103,7 +106,13 @@ def train_model(
         enable_nemo_ckpt_io=True,
     )
 
-    callbacks: list[Callback] = [RichModelSummary(max_depth=4)]
+    if _use_rich_model_summary:
+        # RichModelSummary is not used in the test suite until https://nvbugspro.nvidia.com/bug/4959776 is resolved due
+        # to errors with serialization / deserialization.
+        callbacks: list[Callback] = [RichModelSummary(max_depth=4)]
+    else:
+        callbacks = []
+
     if metric_tracker is not None:
         callbacks.append(metric_tracker)
     if peft is not None:

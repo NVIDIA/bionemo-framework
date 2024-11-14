@@ -187,7 +187,10 @@ def main() -> None:
     devices, seq_length = 1, 2048
 
     strategy = nl.MegatronStrategy(
-        tensor_model_parallel_size=1, pipeline_model_parallel_size=1, pipeline_dtype=torch.float32
+        tensor_model_parallel_size=1,
+        pipeline_model_parallel_size=1,
+        pipeline_dtype=torch.float32,
+        ckpt_async_save=False,
     )
     trainer = nl.Trainer(
         devices=devices,

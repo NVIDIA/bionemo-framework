@@ -30,13 +30,11 @@ from megatron.core.tensor_parallel import get_cuda_rng_tracker
 from megatron.core.transformer.dot_product_attention import DotProductAttention
 from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.transformer_config import TransformerConfig
-from pkg_resources import packaging
+from megatron.core.utils import get_te_version, is_te_min_version
 from torch import Tensor
 
 
 __all__: Sequence[str] = ("ESM2DotProductAttention", "ESM2TEDotProductAttention")
-
-from megatron.core.extensions.transformer_engine import _te_version
 
 
 class ESM2TEDotProductAttention(TEDotProductAttention):
@@ -52,6 +50,10 @@ class ESM2TEDotProductAttention(TEDotProductAttention):
         attn_mask_type: AttnMaskType,
         attention_type: str,
         attention_dropout: float | None = None,
+        softmax_scale: float = 1.0,
+        k_channels: int | None = None,
+        v_channels: int | None = None,
+        cp_comm_type: str = "p2p",
     ):
         """Initialize ESM2TEDotProductAttention."""
         self.config = config
@@ -67,30 +69,35 @@ class ESM2TEDotProductAttention(TEDotProductAttention):
             )
 
         extra_kwargs = {}
-        if _te_version >= packaging.version.Version("0.11.0"):
+        if is_te_min_version("0.11.0"):
             extra_kwargs["num_gqa_groups"] = self.config.num_query_groups
         elif self.config.num_query_groups != self.config.num_attention_heads:
             raise ValueError(
-                f"Transformer Engine v{_te_version} does not support Grouped Query Attention, "
+                f"Transformer Engine v{get_te_version()} does not support Grouped Query Attention, "
                 f"use a newer version of Transformer Engine. "
                 f"(num_query_groups ({self.config.num_query_groups}) != "
                 f"num_attention_heads ({self.config.num_attention_heads}))"
             )
 
-        if _te_version >= packaging.version.Version("0.10.0"):
+        if is_te_min_version("0.10.0"):
             extra_kwargs["attention_type"] = attention_type
             # older version don't need attention_type
 
-        if _te_version > packaging.version.Version("0.12.0"):
+        if is_te_min_version("0.12.0", check_equality=False):
             self.te_forward_mask_type = True
 
         # Only Transformer-Engine version >= 1.0.0 supports context parallelism
-        if _te_version >= packaging.version.Version("1.0.0"):
+        if is_te_min_version("1.0.0"):
             if getattr(TEDotProductAttention, "cp_stream") is None:
                 TEDotProductAttention.cp_stream = torch.cuda.Stream()
             extra_kwargs["cp_group"] = get_context_parallel_group(check_initialized=False)
             extra_kwargs["cp_global_ranks"] = get_context_parallel_global_ranks(check_initialized=False)
             extra_kwargs["cp_stream"] = TEDotProductAttention.cp_stream
+            if is_te_min_version("1.10.0"):
+                if cp_comm_type is None:
+                    extra_kwargs["cp_comm_type"] = "p2p"
+                else:
+                    extra_kwargs["cp_comm_type"] = cp_comm_type
         else:
             assert (
                 self.config.context_parallel_size == 1
@@ -106,15 +113,26 @@ class ESM2TEDotProductAttention(TEDotProductAttention):
 
         if config.window_size is not None:
             # Check version
-            assert _te_version >= packaging.version.Version("1.2.0"), (
-                f"Transformer-Engine version ({str(_te_version)}) must be >= 1.2.0 to support"
-                "sliding window attention."
+            assert is_te_min_version("1.2.0"), (
+                f"Transformer-Engine v{get_te_version()} must be >= 1.2.0 to support" "sliding window attention."
             )
             extra_kwargs["window_size"] = config.window_size
 
+        if is_te_min_version("1.10.0"):
+            # TE 1.10.0 introduces the ability to set the different k and v channels
+            kv_channels = (
+                (k_channels, v_channels)
+                if k_channels is not None and v_channels is not None
+                else self.config.kv_channels
+            )
+        else:
+            kv_channels = self.config.kv_channels
+
+        extra_kwargs["softmax_scale"] = softmax_scale
+
         super(TEDotProductAttention, self).__init__(
             num_attention_heads=self.config.num_attention_heads,
-            kv_channels=self.config.kv_channels,
+            kv_channels=kv_channels,
             attention_dropout=(self.config.attention_dropout if attention_dropout is None else attention_dropout),
             attn_mask_type=attn_mask_type.name,
             sequence_parallel=self.config.sequence_parallel,
@@ -122,7 +140,6 @@ class ESM2TEDotProductAttention(TEDotProductAttention):
             get_rng_state_tracker=(get_cuda_rng_tracker if get_cuda_rng_tracker().is_initialized() else None),
             tp_group=get_tensor_model_parallel_group(check_initialized=False),
             layer_number=layer_number,
-            softmax_scale=1.0,  # TODO subclassing only changes softmax_scale from None to 1.0. Upstream to make this exposed without subclassing
             **extra_kwargs,
         )
 

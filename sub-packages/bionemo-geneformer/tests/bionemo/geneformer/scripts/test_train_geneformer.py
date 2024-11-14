@@ -37,7 +37,6 @@ def test_bionemo2_rootdir():
     assert data_path.is_dir(), "Test data directory is supposed to be a directory."
 
 
-@pytest.mark.skip("duplicate unittest")
 def test_main_runs(tmpdir):
     result_dir = Path(tmpdir.mkdir("results"))
 

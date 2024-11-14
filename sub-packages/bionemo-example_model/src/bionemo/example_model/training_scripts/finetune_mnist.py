@@ -44,8 +44,7 @@ def run_finetune(checkpoint_dir: str, name: str, directory_name: str):
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
         save_last=True,
         save_on_train_epoch_end=True,
-        monitor="reduced_train_loss",
-        every_n_train_steps=25,
+        monitor="val_loss",
         always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
     )
 

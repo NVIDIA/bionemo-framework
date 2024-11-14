@@ -29,11 +29,7 @@ from bionemo.testing.harnesses.mode import Mode
 from bionemo.testing.torch import recursive_detach
 
 
-class StopAndGoException(Exception):  # noqa: D101
-    pass
-
-
-class RaiseAfterMetadataCallback(Callback):
+class StopAfterValidEpochEndCallback(Callback):
     """A callback that raises a StopAndGoException after the validation epoch.
 
     Use this callback for pytest based Stop and go tests.
@@ -42,7 +38,7 @@ class RaiseAfterMetadataCallback(Callback):
     def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule):  # noqa: D102
         if trainer.sanity_checking:
             return
-        raise StopAndGoException()
+        trainer.should_stop = True
 
 
 class BaseInterruptedVsContinuousCallback(Callback, CallbackMethods, io.IOMixin):

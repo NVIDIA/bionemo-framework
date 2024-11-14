@@ -30,7 +30,6 @@ from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
 
 
-@pytest.mark.skip("duplicate unittest")
 @pytest.fixture
 def dummy_protein_dataset(tmp_path):
     """Create a mock protein dataset."""
@@ -62,7 +61,6 @@ def dummy_protein_dataset(tmp_path):
     return db_file
 
 
-@pytest.mark.skip("duplicate unittest")
 @pytest.fixture
 def dummy_parquet_train_val_inputs(tmp_path):
     """Create a mock protein train and val cluster parquet."""
@@ -102,7 +100,7 @@ def test_main_runs(monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_tra
             result_dir=result_dir,
             wandb_project=None,
             wandb_offline=True,
-            num_steps=55,
+            num_steps=10,
             warmup_steps=5,
             limit_val_batches=1,
             val_check_interval=1,

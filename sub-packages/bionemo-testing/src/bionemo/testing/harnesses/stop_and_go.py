@@ -106,8 +106,8 @@ class StopAndGoHarness(ABC):
     limit_val_batches: int
     lr: float = 1e-4
     precision: Literal["16-mixed", "bf16-mixed", "32"]
-    train_val_output_atol: float = 1e-3
-    other_output_atol: float = 1e-4
+    output_tensor_atol: float = 1e-3  # Absolute tolerance for model precision between output tensors.
+    output_tensor_rtol: float = 1e-4  # Relative tolerance for model precision between output tensors.
 
     # class variables that will be setup in setUpClass
     tempdir: tempfile.TemporaryDirectory
@@ -173,6 +173,7 @@ class StopAndGoHarness(ABC):
             ddp="megatron",
             find_unused_parameters=True,
             ckpt_include_optimizer=True,
+            ckpt_async_save=False,
         )
 
         trainer = nl.Trainer(
@@ -233,13 +234,13 @@ class StopAndGoHarness(ABC):
 
         callbacks[Mode.STOP].update(
             {
-                testing_callbacks.RaiseAfterMetadataCallback: testing_callbacks.RaiseAfterMetadataCallback(),
+                testing_callbacks.StopAfterValidEpochEndCallback: testing_callbacks.StopAfterValidEpochEndCallback(),
                 nl_callbacks.ModelCheckpoint: nl_callbacks.ModelCheckpoint(
                     save_last=True,
-                    monitor="reduced_train_loss",
+                    monitor="val_loss",
                     save_top_k=2,
-                    every_n_train_steps=cls.val_check_interval,
                     always_save_context=True,
+                    filename="{epoch}-{step}-{val_loss:.2f}",
                 ),
             }
         )
@@ -264,20 +265,17 @@ class StopAndGoHarness(ABC):
         model, data, opt = cls.setup_model(mode=Mode.STOP)
         trainer = cls.setup_trainer(Mode.STOP)
         with distributed_model_parallel_state():
-            try:
-                llm.train(
-                    model=model,
-                    data=data,
-                    trainer=trainer,
-                    log=cls.nemo_logger,
-                    optim=opt,
-                    resume=resume.AutoResume(
-                        resume_if_exists=False,  # Looks for the -last checkpoint to continue training.
-                        resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
-                    ),
-                )
-            except testing_callbacks.StopAndGoException:
-                return
+            llm.train(
+                model=model,
+                data=data,
+                trainer=trainer,
+                log=cls.nemo_logger,
+                optim=opt,
+                resume=resume.AutoResume(
+                    resume_if_exists=False,  # Looks for the -last checkpoint to continue training.
+                    resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
+                ),
+            )
 
     @classmethod
     def resume(cls) -> None:
@@ -329,6 +327,9 @@ class StopAndGoHarness(ABC):
             testing_callbacks.TrainInputCallback,
             testing_callbacks.TrainOutputCallback,
             testing_callbacks.TrainLossCallback,
+            testing_callbacks.ValidInputCallback,
+            testing_callbacks.ValidOutputCallback,
+            testing_callbacks.ValidLossCallback,
         ],
     )
     def test_stop_and_go_consistency(self, callback_type):
@@ -337,12 +338,17 @@ class StopAndGoHarness(ABC):
         continuous_callback = get_callback(self.callbacks, Mode.CONTINUOUS, callback_type)
         assert interrupted_callback.data, f"No data found for {callback_type}"
 
-        if callback_type == testing_callbacks.TrainOutputCallback:
-            atol = self.train_val_output_atol
+        if callback_type in {testing_callbacks.TrainOutputCallback, testing_callbacks.ValidOutputCallback}:
+            atol, rtol = self.output_tensor_atol, self.output_tensor_rtol
         else:
-            atol = self.other_output_atol
+            atol, rtol = 1e-4, 1e-4
 
-        recursive_assert_approx_equal(interrupted_callback.data, continuous_callback.data, atol=atol)
+        recursive_assert_approx_equal(
+            interrupted_callback.data,
+            continuous_callback.data,
+            atol=atol,
+            rtol=rtol,
+        )
 
     def test_train_val_init_consumed_samples(self):
         """Tests the initial consumed samples in stop-and-go scenario."""
@@ -358,40 +364,10 @@ class StopAndGoHarness(ABC):
         assert train_consumed_stop == 0
         assert train_consumed_go > 0
 
-    # TODO: For some reason, validation in NeMo runs an extra batch in the case when the training is stopped and
-    # resumed. Hopefully we can fix this upstream and remove the indexing based on the length of the continuous
-    # validation batches.
-    @pytest.mark.xfail(reason="Validation runs an extra batch in the case when training is stopped and resumed.")
     def test_identical_number_of_validation_batches(self):
         """Ensures that the input tensors for training are identical for the interrupted and continuous tests."""
-        callback_type = testing_callbacks.ValidInputCallback
+        callback_type = testing_callbacks.ValidLossCallback
         interrupted_callback = get_callback(self.callbacks, Mode.RESUME, callback_type)
         continuous_callback = get_callback(self.callbacks, Mode.CONTINUOUS, callback_type)
         assert interrupted_callback.data, f"No data found for {callback_type}"
-        recursive_assert_approx_equal(interrupted_callback.data, continuous_callback.data)
         assert len(interrupted_callback.data) == len(continuous_callback.data)
-
-    @pytest.mark.parametrize(
-        "callback_type",
-        [
-            testing_callbacks.ValidInputCallback,
-            testing_callbacks.ValidOutputCallback,
-            testing_callbacks.ValidLossCallback,
-        ],
-    )
-    def test_stop_and_go_consistency_with_uneven_validation_sizes(self, callback_type):
-        """Ensures that the input tensors for training are identical for the interrupted and continuous tests."""
-        interrupted_callback = get_callback(self.callbacks, Mode.RESUME, callback_type)
-        continuous_callback = get_callback(self.callbacks, Mode.CONTINUOUS, callback_type)
-        assert interrupted_callback.data, f"No data found for {callback_type}"
-
-        # Hack: Validation seems to run an extra batch in the case when training is stopped and resumed, but we can
-        # still test the rest of the data to ensure consistency.
-        interrupted_data = interrupted_callback.data[-len(continuous_callback.data) :]
-
-        if callback_type == testing_callbacks.ValidOutputCallback:
-            atol = self.train_val_output_atol
-        else:
-            atol = self.other_output_atol
-
-        recursive_assert_approx_equal(interrupted_data, continuous_callback.data, atol=atol)

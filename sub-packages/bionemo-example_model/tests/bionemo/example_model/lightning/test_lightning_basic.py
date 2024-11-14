@@ -52,10 +52,10 @@ def _train_model_get_ckpt(
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
         save_last=True,
         save_on_train_epoch_end=True,
-        monitor="reduced_train_loss",  # TODO find out how to get val_loss logged and use "val_loss",
-        every_n_train_steps=5,
+        monitor="val_loss",
         always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
         # async_save=False,  # Tries to save asynchronously, previously led to race conditions.
+        filename="{epoch}-{step}-{val_loss:.2f}",
     )
     save_dir = root_dir / name
     tb_logger = TensorBoardLogger(save_dir=save_dir, name=name)

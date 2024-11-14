@@ -329,7 +329,16 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
 
     def __post_init__(self):
         # TODO, as a validator?
-        """Check compatibility between biobert_spec_option and apply_query_key_layer_scaling post initialization."""
+        """Check configuration compatibility."""
+        # reset moe_token_dispatcher_type when variable_seq_lengths is True.
+        # must be performed before super().__post_init__()
+        if self.variable_seq_lengths and self.moe_token_dispatcher_type in ["allgather", "alltoall_seq"]:
+            logging.warning(
+                "MoE token dispatcher type 'allgather' and 'alltoall_seq' are not supported with variable sequence lengths. Setting moe_token_dispatcher_type to 'alltoall'."
+            )
+            self.moe_token_dispatcher_type = "alltoall"
+
+        # reset apply_query_key_layer_scaling based on biobert_spec_option
         super().__post_init__()
         if self.biobert_spec_option == BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec:
             self.apply_query_key_layer_scaling = False

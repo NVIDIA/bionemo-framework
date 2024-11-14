@@ -253,7 +253,6 @@ checkpoint_callback = nl_callbacks.ModelCheckpoint(
     save_last=True,
     monitor="val_loss",
     save_top_k=1,
-    every_n_train_steps=100,
     always_save_context=True,
 )
 
