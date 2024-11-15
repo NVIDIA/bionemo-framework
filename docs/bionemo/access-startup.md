@@ -44,7 +44,7 @@ docker pull $BIONEMO_IMAGE_PATH
 To automatically retrieve the latest container, you can use the following commands:
 
 ```bash
-LATEST_TAG=$(ngc registry image list --format_type=csv --column=tag nvidia/clara/bionemo-framework | tail +2 | head -1 | cut -f 2 -d',')
+LATEST_TAG=$(ngc registry image list --format_type=csv --column=tag nvidia/clara/bionemo-framework | grep "1\." | head -1 | cut -f 2 -d',')
 
 BIONEMO_IMAGE_PATH=nvcr.io/nvidia/clara/bionemo-framework:${LATEST_TAG}
 
