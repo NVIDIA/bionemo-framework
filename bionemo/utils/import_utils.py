@@ -11,13 +11,16 @@
 """
 Utilities and types for defining networks, these depend on PyTorch.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
 from importlib import import_module
 from typing import Any
 
+
 OPTIONAL_IMPORT_MSG_FMT = "{}"
+
 
 def min_version(the_module: Any, min_version_str: str = "", *_args: Any) -> bool:
     """
@@ -39,7 +42,6 @@ def exact_version(the_module: Any, version_str: str = "", *_args: Any) -> bool:
     Returns True if the module's __version__ matches version_str
     """
     if not hasattr(the_module, "__version__"):
-        warnings.warn(f"{the_module} has no attribute __version__ in exact_version check.")
         return False
     return bool(the_module.__version__ == version_str)
 
@@ -54,10 +56,12 @@ class InvalidPyTorchVersionError(Exception):
         message = f"{name} requires PyTorch version {required_version} or later"
         super().__init__(message)
 
+
 class OptionalImportError(ImportError):
     """
     Could not import APIs from an optional dependency.
     """
+
 
 def optional_import(
     module: str,
@@ -147,7 +151,6 @@ def optional_import(
         msg += f" ({exception_str})"
 
     class _LazyRaise:
-
         def __init__(self, *_args, **_kwargs):
             _default_msg = (
                 f"{msg}."
@@ -183,11 +186,9 @@ def optional_import(
         return _LazyRaise(), False
 
     class _LazyCls(_LazyRaise):
-
         def __init__(self, *_args, **kwargs):
             super().__init__()
             if not as_type.startswith("decorator"):
                 raise self._exception
 
     return _LazyCls, False
-

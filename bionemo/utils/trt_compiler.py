@@ -16,16 +16,15 @@ import os
 import tempfile
 import threading
 from collections import OrderedDict
+from logging import getLogger
 from pathlib import Path
 from types import MethodType
 from typing import Any, Dict, List, Sequence, Tuple, Union
 
 import torch
-import onnx
-
-from logging import getLogger
 
 from .import_utils import optional_import
+
 
 polygraphy, polygraphy_imported = optional_import("polygraphy")
 if polygraphy_imported:
@@ -291,7 +290,7 @@ def parse_groups(
        Tuple of Union[torch.Tensor, List[torch.Tensor]], according to the grouping in output_lists
 
     """
-    groups: Tuple[Union[torch.Tensor, List[torch.Tensor]], ...] = tuple()
+    groups: Tuple[Union[torch.Tensor, List[torch.Tensor]], ...] = ()
     cur = 0
     for l in range(len(output_lists)):
         gl = output_lists[l]
@@ -303,7 +302,7 @@ def parse_groups(
             groups = (*groups, ret[cur : cur + gl[0]])
             cur = cur + gl[0]
         elif gl[0] == -1:
-            rev_groups: Tuple[Union[torch.Tensor, List[torch.Tensor]], ...] = tuple()
+            rev_groups: Tuple[Union[torch.Tensor, List[torch.Tensor]], ...] = ()
             rcur = len(ret)
             for rl in range(len(output_lists) - 1, l, -1):
                 rgl = output_lists[rl]
@@ -411,11 +410,11 @@ class TrtCompiler:
                     self.defaults[self.argspec.args[-i - 1]] = d
 
         self.input_names = input_names
-        
+
         # replace models' method with trt_forward hook
         self.old_class_method = getattr(model, class_method)
         setattr(model, class_method, MethodType(trt_forward, model))
-        
+
         # Force engine rebuild if older than the timestamp
         if timestamp is not None and os.path.exists(self.plan_path) and os.path.getmtime(self.plan_path) < timestamp:
             os.remove(self.plan_path)
@@ -552,7 +551,7 @@ class TrtCompiler:
 
         export_args = self.export_args
         engine_bytes = None
-        
+
         if nemo_imported:
             nemo.utils.export_utils.add_casts_around_norms(model)
             nemo.utils.export_utils.replace_for_export(model)
