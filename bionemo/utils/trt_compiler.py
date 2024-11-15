@@ -18,7 +18,7 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 from types import MethodType
-from typing import Any, Dict, List, Tuple, Union, Sequence
+from typing import Any, Dict, List, Sequence, Tuple, Union
 
 import torch
 import onnx
@@ -46,8 +46,10 @@ nemo, nemo_imported = optional_import("nemo")
 lock_sm = threading.Lock()
 
 
-# Map of TRT dtype -> Torch dtype
 def trt_to_torch_dtype_dict():
+    """
+    Map of TRT dtype -> Torch dtype
+    """
     return {
         trt.int32: torch.int32,
         trt.float32: torch.float32,
@@ -77,6 +79,7 @@ def get_profile_shapes(input_shape: Sequence[int], dynamic_batchsize: Sequence[i
     else:
         min_input_shape = opt_input_shape = max_input_shape = input_shape
     return min_input_shape, opt_input_shape, max_input_shape
+
 
 def get_dynamic_axes(profiles):
     """
@@ -145,6 +148,7 @@ class TRTEngine:
         self.output_names = []
         self.dtypes = []
         self.cur_profile = 0
+        self.input_table = {}
         dtype_dict = trt_to_torch_dtype_dict()
         for idx in range(self.engine.num_io_tensors):
             binding = self.engine[idx]
@@ -187,7 +191,7 @@ class TRTEngine:
 
         def try_set_inputs():
             for binding in self.input_names:
-                t = feed_dict[binding]
+                t = feed_dict.get(self.input_table[binding], None)
                 if t is not None:
                     t = t.contiguous()
                     shape = t.shape
@@ -227,7 +231,9 @@ class TRTEngine:
                     raise ValueError("ERROR: inference failed.")
                 # capture cuda graph
                 cuassert(
-                    cudart.cudaStreamBeginCapture(stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeThreadLocal)
+                    cudart.cudaStreamBeginCapture(
+                        stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeThreadLocal
+                    )
                 )
                 self.context.execute_async_v3(stream)
                 graph = cuassert(cudart.cudaStreamEndCapture(stream))
@@ -242,22 +248,31 @@ class TRTEngine:
         return self.tensors
 
 
+def make_tensor(d):
+    """
+    Creates a new tensor from d, returns d if d is already a tensor
+    """
+    return d if isinstance(d, torch.Tensor) else torch.tensor(d).cuda()
+
+
 def unroll_input(input_names, input_example):
-    # Simulate list/tuple unrolling during ONNX export
+    """
+    Simulates list/tuple unrolling during ONNX export
+    """
     unrolled_input = {}
     for name in input_names:
         val = input_example[name]
         if val is not None:
-            if isinstance(val, list | tuple):
+            if isinstance(val, list) or isinstance(val, tuple):
                 for i in range(len(val)):
-                    unrolled_input[f"{name}_{i}"] = val[i]
+                    unrolled_input[f"{name}_{i}"] = make_tensor(val[i])
             else:
-                unrolled_input[name] = val
+                unrolled_input[name] = make_tensor(val)
     return unrolled_input
 
 
 def parse_groups(
-    ret: List[torch.Tensor], output_lists: List[int]
+    ret: List[torch.Tensor], output_lists: List[List[int]]
 ) -> Tuple[Union[torch.Tensor, List[torch.Tensor]], ...]:
     """
     Implements parsing of 'output_lists' arg of trt_compile().
@@ -276,36 +291,34 @@ def parse_groups(
        Tuple of Union[torch.Tensor, List[torch.Tensor]], according to the grouping in output_lists
 
     """
-    groups = []
+    groups: Tuple[Union[torch.Tensor, List[torch.Tensor]], ...] = tuple()
     cur = 0
     for l in range(len(output_lists)):
         gl = output_lists[l]
         assert len(gl) == 0 or len(gl) == 1
         if len(gl) == 0 or gl[0] == 0:
-            groups.append(ret[cur])
+            groups = (*groups, ret[cur])
             cur = cur + 1
         elif gl[0] > 0:
-            groups.append(ret[cur : cur + gl[0]])
+            groups = (*groups, ret[cur : cur + gl[0]])
             cur = cur + gl[0]
         elif gl[0] == -1:
-            rev_groups = []
+            rev_groups: Tuple[Union[torch.Tensor, List[torch.Tensor]], ...] = tuple()
             rcur = len(ret)
             for rl in range(len(output_lists) - 1, l, -1):
                 rgl = output_lists[rl]
                 assert len(rgl) == 0 or len(rgl) == 1
                 if len(rgl) == 0 or rgl[0] == 0:
                     rcur = rcur - 1
-                    rev_groups.append(ret[rcur])
+                    rev_groups = (*rev_groups, ret[rcur])
                 elif rgl[0] > 0:
                     rcur = rcur - rgl[0]
-                    rev_groups.append(ret[rcur : rcur + rgl[0]])
+                    rev_groups = (*rev_groups, ret[rcur : rcur + rgl[0]])
                 else:
                     raise ValueError("Two -1 lists in output")
-            groups.append(ret[cur:rcur])
-            rev_groups.reverse()
-            groups.extend(rev_groups)
+            groups = (*groups, ret[cur:rcur], *rev_groups[::-1])
             break
-    return tuple(groups)
+    return groups
 
 
 class TrtCompiler:
@@ -332,7 +345,7 @@ class TrtCompiler:
         use_cuda_graph=False,
         timestamp=None,
         fallback=False,
-        forward_override=None,
+        class_method="forward",
         logger=None,
     ):
         """
@@ -348,16 +361,16 @@ class TrtCompiler:
                     'torch_trt' may not work for some nets. Also AMP must be turned off for it to work.
             input_names: Optional list of input names. If None, will be read from the function signature.
             output_names: Optional list of output names. Note: If not None, patched forward() will return a dictionary.
-            output_lists: Optional list of output group sizes: when forward() returns Lists/Tuples, this will be a list 
-                          of their dimensions, like [[], [5], [-1]] for returning Tensor, list of 5 items and dynamic list. 
+            output_lists: Optional list of output group sizes: when forward() returns Lists/Tuples, this will be a list
+                          of their dimensions, like [[], [5], [-1]] for Tensor, list of 5 items and dynamic list.
             export_args: Optional args to pass to export method. See onnx.export() and Torch-TensorRT docs for details.
             build_args: Optional args to pass to TRT builder. See polygraphy.Config for details.
             input_profiles: Optional list of profiles for TRT builder and ONNX export.
                             Each profile is a map of the form : {"input id" : [min_shape, opt_shape, max_shape], ...}.
-            dynamic_batchsize: A sequence with three elements to define the batch size range of the input for the model to be
+            dynamic_batchsize: A sequence with three elements to define the input batch size range for the model to be
                                converted. Should be a sequence like [MIN_BATCH, OPT_BATCH, MAX_BATCH].
-            [note]: If neither input_profiles nor dynamic_batchsize specified, static shapes will be used to build TRT engine.
-            use_cuda_graph: Use CUDA Graph for inference. Note: all inputs have to be the same GPU memory between calls!
+            [note]: If neither input_profiles nor dynamic_batchsize specified, static shapes will be used.
+            use_cuda_graph: Use CUDA Graph for inference. Note: inputs have to be the same GPU memory between calls!
             timestamp: Optional timestamp to rebuild TRT engine (e.g. if config file changes).
             fallback: Allow to fall back to Pytorch when TRT inference fails (e.g, shapes exceed max profile).
         """
@@ -384,7 +397,7 @@ class TrtCompiler:
         self.fallback = fallback
         self.disabled = False
 
-        self.logger = logger or get_logger("trt_compile")
+        self.logger = logger or getLogger("trt_compile")
         self.argspec = inspect.getfullargspec(model.forward)
         # Normally we read input_names from forward() but can be overridden
         if input_names is None:
@@ -394,11 +407,15 @@ class TrtCompiler:
             for i in range(len(self.argspec.defaults)):
                 d = self.argspec.defaults[-i - 1]
                 if d is not None:
-                    d = torch.tensor(d).cuda()
-                self.defaults[self.argspec.args[-i - 1]] = d
-        self.input_names = input_names
-        self.old_forward = model.forward
+                    d = make_tensor(d)
+                    self.defaults[self.argspec.args[-i - 1]] = d
 
+        self.input_names = input_names
+        
+        # replace models' method with trt_forward hook
+        self.old_class_method = getattr(model, class_method)
+        setattr(model, class_method, MethodType(trt_forward, model))
+        
         # Force engine rebuild if older than the timestamp
         if timestamp is not None and os.path.exists(self.plan_path) and os.path.getmtime(self.plan_path) < timestamp:
             os.remove(self.plan_path)
@@ -416,7 +433,16 @@ class TrtCompiler:
         """
         try:
             self.engine = TRTEngine(self.plan_path, self.logger)
-            self.logger.info(f"Engine loaded, inputs:{self.engine.input_names}")
+            # Make sure we have names correct
+            input_table = {}
+            for name in self.engine.input_names:
+                if name.startswith("__") and name not in self.input_names:
+                    orig_name = name[2:]
+                else:
+                    orig_name = name
+                input_table[name] = orig_name
+            self.engine.input_table = input_table
+            self.logger.info(f"Engine loaded, inputs:{self.engine.input_table}")
         except Exception as e:
             self.logger.info(f"Exception while loading the engine:\n{e}")
 
@@ -437,9 +463,9 @@ class TrtCompiler:
             args.update(self._inputs_to_dict(argv))
 
         if self.engine is None and not self.disabled:
-            # Restore original forward for export
-            new_forward = model.forward
-            model.forward = self.old_forward
+            # For export, set model.forward to be the method we override
+            cur_forward = model.forward
+            model.forward = self.old_class_method
             try:
                 self._load_engine()
                 if self.engine is None:
@@ -461,8 +487,8 @@ class TrtCompiler:
                     del param
                 # Call empty_cache to release GPU memory
                 torch.cuda.empty_cache()
-            # restore TRT hook
-            model.forward = new_forward
+            # restore model's forward
+            model.forward = cur_forward
         # Run the engine
         try:
             if self.engine is not None:
@@ -569,7 +595,7 @@ class TrtCompiler:
                             sh = sh[1:]
                             profile[id] = [[dbs[0], *sh], [dbs[1], *sh], [dbs[2], *sh]]
 
-                    if isinstance(val, list | tuple):
+                    if isinstance(val, list) or isinstance(val, tuple):
                         for i in range(len(val)):
                             add_profile(f"{id}_{i}", val[i])
                     elif isinstance(val, torch.Tensor):
@@ -583,25 +609,28 @@ class TrtCompiler:
 
             # Use temporary directory for easy cleanup in case of external weights
             with tempfile.TemporaryDirectory() as tmpdir:
-                unrolled_input = unroll_input(self.input_names, input_example)
+                if export_args.get("dynamo", False):
+                    input_names = None
+                else:
+                    input_names = list(unroll_input(self.input_names, input_example).keys())
                 onnx_path = str(Path(tmpdir) / "model.onnx")
                 self.logger.info(
-                    f"Exporting to {onnx_path}:\nunrolled_inputs={list(unrolled_input.keys())}\n"
+                    f"Exporting to {onnx_path}:\n"
                     + f"output_names={self.output_names}\ninput_names={self.input_names}\nexport args: {export_args}"
                 )
                 torch.onnx.export(
                     model,
-                    input_example,
+                    (input_example,),
                     onnx_path,
-                    input_names=list(unrolled_input.keys()),
+                    input_names=input_names,
                     output_names=self.output_names,
                     **export_args,
                 )
-                onnx_model = onnx.load(onnx_path)
                 if polygraphy_imported:
-                    from polygraphy.backend.onnx.loader import fold_constants
-                    fold_constants(onnx_model, size_threshold=16*1000*1000)
+                    from polygraphy.backend.onnx.loader import fold_constants, onnx_from_path, save_onnx
 
+                    onnx_model = fold_constants(onnx_from_path(onnx_path), size_threshold=16 * 1000 * 1000)
+                    save_onnx(onnx_model, onnx_path)
                 self.logger.info("Export to ONNX successful.")
                 engine_bytes = self._onnx_to_trt(onnx_path)
         if engine_bytes:
@@ -664,7 +693,6 @@ def trt_compile(
                 model.orig_forward = model.forward
                 wrapper = TrtCompiler(model, path + ".plan", logger=logger, **args)
                 model._trt_compiler = wrapper
-                model.forward = MethodType(trt_forward, model)
 
         def find_sub(parent, submodule):
             idx = submodule.find(".")
