@@ -46,6 +46,7 @@ def download_models_for_test(tmpdir_factory):
     shutil.rmtree(pbss_download_path)
 
 
+@pytest.mark.xfail(reason="Logging into NGC is not required to download artifacts in BioNeMo.")
 @pytest.mark.internal
 @pytest.mark.integration_test
 def test_ngc_pbss_data_sync(download_models_for_test):
