@@ -1,4 +1,4 @@
-# Model Overview
+# DSMBind
 
 ## Description:
 DSMBind [1,2] is an energy-based model that has been trained on protein-ligand complexes to predict binding affinities. The model produces comparative values that are useful for ranking protein-ligand binding affinities. This model is for research and development only. <br>
