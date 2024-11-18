@@ -1,6 +1,5 @@
 # BioNeMo Framework (v2.0)
 
-
 NVIDIA BioNeMo Framework is a collection of programming tools, libraries, and models for computational drug discovery. It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources for the fastest performance on the market. You can access BioNeMo Framework as a free community resource here in this repository or learn more at https://www.nvidia.com/en-us/clara/bionemo/ about getting an enterprise license for improved expert-level support.
 
 
@@ -194,13 +193,10 @@ export MY_DATA_SOURCE="pbss"
 
 ```bash
 # The fastest transformer engine environment variables in testing were the following two
-export NVTE_FUSED_ATTN=1
-export NVTE_FLASH_ATTN=0
-
 TEST_DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source $MY_DATA_SOURCE); \
 ESM2_650M_CKPT=$(download_bionemo_data esm2/650m:2.0 --source $MY_DATA_SOURCE); \
-python  \
-    scripts/protein/esm2/esm2_pretrain.py     \
+
+train_esm2     \
     --train-cluster-path ${TEST_DATA_DIR}/2024_03_sanity/train_clusters_sanity.parquet     \
     --train-database-path ${TEST_DATA_DIR}/2024_03_sanity/train_sanity.db     \
     --valid-cluster-path ${TEST_DATA_DIR}/2024_03_sanity/valid_clusters.parquet     \
@@ -256,9 +252,6 @@ and DataModule types.
 > ⚠️ **Warning:** This setup does NO configuration of Weights and Biases. Edit your config JSON and populate it with your WandB details.
 
 ```
-export NVTE_FUSED_ATTN=1
-export NVTE_FLASH_ATTN=0
-
 bionemo-esm2-train \
 --data-config-t bionemo.esm2.run.config_models.ESM2DataConfig \
 --model-config-t bionemo.esm2.run.config_models.ExposedESM2PretrainConfig \
