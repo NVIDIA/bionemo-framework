@@ -1,10 +1,18 @@
 # BioNeMo Framework (v2.0)
 
+
 NVIDIA BioNeMo Framework is a collection of programming tools, libraries, and models for computational drug discovery. It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources for the fastest performance on the market. You can access BioNeMo Framework as a free community resource here in this repository or learn more at https://www.nvidia.com/en-us/clara/bionemo/ about getting an enterprise license for improved expert-level support.
 
 
 `bionemo2` code is partitioned into independently installable namespace packages.
 These are located under the `sub-packages/` directory. Please refer to [PEP 420 – Implicit Namespace Packages](https://peps.python.org/pep-0420/) for details.
+
+**Documentation and Release Information**
+The latest released container for the BioNeMo Framework is available for download through [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework). Comprehensive documentation, including user guides, API references, and troubleshooting information, can be found in our official documentation set at:
+https://docs.nvidia.com/bionemo-framework/latest/
+For those interested in exploring the latest developments and features not yet included in the released container, we also maintain an up-to-date documentation set that reflects the current state of the `main` branch. This in-progress documentation can be accessed at:
+https://nvidia.github.io/bionemo-framework/
+Please note that while this documentation is generally accurate and helpful, it may contain references to features or APIs not yet stabilized or released. As always, we appreciate feedback on our documentation and strive to continually improve its quality.
 
 ## Developing and Developer Certificate of Origin (DCO)
 By contributing to this repo you acknowledge that either this is your original work, or have the right to submit the work
@@ -186,10 +194,13 @@ export MY_DATA_SOURCE="pbss"
 
 ```bash
 # The fastest transformer engine environment variables in testing were the following two
+export NVTE_FUSED_ATTN=1
+export NVTE_FLASH_ATTN=0
+
 TEST_DATA_DIR=$(download_bionemo_data esm2/testdata_esm2_pretrain:2.0 --source $MY_DATA_SOURCE); \
 ESM2_650M_CKPT=$(download_bionemo_data esm2/650m:2.0 --source $MY_DATA_SOURCE); \
-
-train_esm2     \
+python  \
+    scripts/protein/esm2/esm2_pretrain.py     \
     --train-cluster-path ${TEST_DATA_DIR}/2024_03_sanity/train_clusters_sanity.parquet     \
     --train-database-path ${TEST_DATA_DIR}/2024_03_sanity/train_sanity.db     \
     --valid-cluster-path ${TEST_DATA_DIR}/2024_03_sanity/valid_clusters.parquet     \
@@ -245,6 +256,9 @@ and DataModule types.
 > ⚠️ **Warning:** This setup does NO configuration of Weights and Biases. Edit your config JSON and populate it with your WandB details.
 
 ```
+export NVTE_FUSED_ATTN=1
+export NVTE_FLASH_ATTN=0
+
 bionemo-esm2-train \
 --data-config-t bionemo.esm2.run.config_models.ESM2DataConfig \
 --model-config-t bionemo.esm2.run.config_models.ExposedESM2PretrainConfig \
