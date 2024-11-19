@@ -26,6 +26,7 @@ dependencies = [
     'pytorch-lightning>=2.2.1',
     'pyyaml',
     'tqdm',
+    'pillow>=10.3.0'
 ]
 
 [project.scripts]
