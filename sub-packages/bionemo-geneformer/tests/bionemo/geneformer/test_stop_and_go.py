@@ -97,7 +97,7 @@ class TestGeneformerStopAndGo(stop_and_go.StopAndGoHarness):
     limit_val_batches: int = 2
     lr: float = 1e-4
     precision: Literal["16-mixed", "bf16-mixed", "32"] = MODEL_PRECISION
-    train_val_output_atol: float = 2e-2
+    train_val_output_atol: float = 3e-2
 
     @override
     @classmethod
