@@ -179,7 +179,7 @@ n_steps_train = 50
 seed = 42
 
 # To download a 650M pre-trained ESM2 model
-pretrain_ckpt_path = load("esm2/650m:2.0", source="ngc")
+pretrain_ckpt_path = load("esm2/650m:2.0")
 
 config = ESM2FineTuneSeqConfig(
     initial_ckpt_path=str(pretrain_ckpt_path)
@@ -202,7 +202,7 @@ python -m bionemo.esm2.model.finetune.train
 ## Notes
 1. The above example is fine-tuning a 650M ESM-2 model. The pre-trained checkpoints can be downloaded from NGC resources using either the following bash command or the `load` function in `bionemo.core.data.load` as shown above.
     ```bash
-    download_bionemo_data esm2/650m:2.0 --source ngc
+    download_bionemo_data esm2/650m:2.0
     ```
     and pass the output path (e.g. `.../.cache/bionemo/975d29ee980fcb08c97401bbdfdcf8ce-esm2_650M_nemo2.tar.gz.untar`) as an argument into `initial_ckpt_path` while setting the config object:
     ```python
