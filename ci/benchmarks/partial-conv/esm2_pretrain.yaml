@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 1800
+time_limit: 14400
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -19,13 +19,13 @@ script_args:
   precision:
     value: [bf16-mixed]
   nodes:
-    value: [1, 2]
+    value: [4]
   gpus:
     value: 8
   batch_size:
-    value: 2
+    value: 16
   max_steps:
-    value: 50
+    value: 500000
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-${model}/src/bionemo/${model}/scripts/train_esm2.py \
     --train-cluster-path=${data_path}/train_clusters.parquet \
@@ -35,7 +35,7 @@ script: |-
     --micro-batch-size=${batch_size} \
     --num-nodes=${nodes} \
     --num-gpus=${gpus} \
-    --val-check-interval=${max_steps} \
+    --val-check-interval=1000 \
     --limit-val-batches=1 \
     --num-steps=${max_steps} \
     --min-seq-length=1024 \
@@ -50,4 +50,4 @@ script: |-
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name} \
     --wandb-job-type=${pipeline_label} \
-    --log-every-n-steps=5;
+    --log-every-n-steps=50;
