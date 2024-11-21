@@ -72,6 +72,7 @@ class ESM2Model(MegatronBioBertModel):
         add_binary_head: bool = True,
         return_embeddings: bool = False,
         include_embeddings: bool = False,
+        include_input_ids: bool = False,
         use_full_attention_mask: bool = False,
         include_hiddens: bool = False,
         skip_logits: bool = False,
@@ -98,6 +99,7 @@ class ESM2Model(MegatronBioBertModel):
             add_binary_head (bool): Whether to add a binary head. Defaults to True.
             return_embeddings (bool): Whether to return embeddings. Defaults to False.
             include_embeddings (bool): Whether to include embeddings in the output dictionary. Defaults to False.
+            include_input_ids (bool): Whether to include input_ids in the output dictionary. Defaults to False.
             use_full_attention_mask (bool): Whether to use full attention mask. Defaults to False.
             include_hiddens (bool): Whether to include hidden states in the output dictionary. Defaults to False.
             skip_logits (bool): Skip writing the token logits in output dict
@@ -125,6 +127,7 @@ class ESM2Model(MegatronBioBertModel):
         self.return_embeddings = return_embeddings
         self.include_embeddings = include_embeddings
         self.include_hiddens = include_hiddens
+        self.include_input_ids = include_input_ids
         self.skip_logits = skip_logits
 
         # megatron core pipelining currently depends on model type
