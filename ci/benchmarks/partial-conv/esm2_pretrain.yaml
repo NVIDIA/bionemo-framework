@@ -1,7 +1,9 @@
-time_limit: 14400
+time_limit: 3600
 script_args:
   # All arguments referenced in the script string must be specified here. Please reference the script arguments by ${kay_name} or {key_name}
   # Arguments not referenced in the script string must have the 'arg' field specified.
+  workspace:
+    value: /workspace/bionemo2
   model:
     value: esm2
   variant:
@@ -15,28 +17,26 @@ script_args:
   batch_size:
     value: 16
   max_steps:
-    value: 10000
+    value: 50
 script: |-
-    export NVTE_FUSED_ATTN=1; export NVTE_FLASH_ATTN=0; python scripts/${variant}/${model}/${model}_${variant}.py \
+      python /workspace/bionemo2/sub-packages/bionemo-esm2/src/bionemo/esm2/scripts/train_esm2.py \
+      --create-tensorboard-logger \
+      --wandb-project=${project_name} \
       --train-cluster-path=/data/train_clusters.parquet \
       --train-database-path=/data/train.db \
       --valid-cluster-path=/data/valid_clusters.parquet \
       --valid-database-path=/data/validation.db \
-      --precision=${precision}
-      --num-nodes=${nodes} \
-      --num-gpus=${gpus} \
+      --micro-batch-size=16 \
+      --num-nodes=${num_nodes} \
+      --num-gpus=${devices} \
+      --val-check-interval=50 \
+      --limit-val-batches=1 \
+      --result-dir=/result \
+      --experiment-name=${experiment_name} \
+      --num-steps=${max_steps} \
       --min-seq-length=1024 \
       --max-seq-length=1024 \
-      --val-check-interval=10000 \
-      --limit-val-batches=1.0 \
-      --num-steps=${max_steps} \
-      --metric-to-monitor-for-checkpoints=val_loss \
-      --random-mask-strategy=all_tokens \
-      --micro-batch-size=${batch_size} \
-      --num-layers=36 \
-      --hidden-size=2560 \
-      --num-attention-heads=40 \
-      --ffn-hidden-size=10240 \
-      --create-tensorboard-logger \
-      --wandb-project=${wandb_project_name} \
-      --experiment-name=${wandb_run_name}
+      --num-layers=33 \
+      --hidden-size=1280 \
+      --num-attention-heads=20 \
+      --ffn-hidden-size=5120;

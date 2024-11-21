@@ -70,6 +70,7 @@ def main(
     wandb_offline: bool = False,
     wandb_tags: Optional[List[str]] = None,
     wandb_group: Optional[str] = None,
+    wandb_job_type: Optional[str] = None,
     wandb_id: Optional[str] = None,
     wandb_anonymous: Optional[bool] = False,
     wandb_log_model: bool = False,
@@ -124,6 +125,7 @@ def main(
         wandb_offline (bool): Run offline (data can be streamed later to wandb servers).
         wandb_tags (Optional[List[str]]): Tags associated with this run
         wandb_group (Optional[str]): A unique string shared by all runs in a given group
+        wandb_job_type (Optional[str]): Type of run, which is useful when you're grouping runs together into larger experiments using group.
         wandb_id (Optional[str]): Sets the version, mainly used to resume a previous run
         wandb_anonymous (Optional[bool]): Enables or explicitly disables anonymous logging
         wandb_log_model (bool): Save checkpoints in wandb dir to upload on W&B servers
@@ -182,6 +184,7 @@ def main(
             entity=wandb_entity,
             tags=wandb_tags,
             group=wandb_group,
+            job_type=wandb_job_type,
             id=wandb_id,
             anonymous=wandb_anonymous,
             log_model=wandb_log_model,
@@ -325,6 +328,7 @@ def train_esm2_entrypoint():
         wandb_project=args.wandb_project,
         wandb_tags=args.wandb_tags,
         wandb_group=args.wandb_group,
+        wandb_job_type=args.wandb_job_type,
         wandb_id=args.wandb_id,
         wandb_anonymous=args.wandb_anonymous,
         wandb_log_model=args.wandb_log_model,
@@ -431,6 +435,12 @@ def get_parser():
     parser.add_argument("--wandb-tags", nargs="+", type=str, default=None, help="Tags associated with this run")
     parser.add_argument(
         "--wandb-group", type=str, default=None, help="A unique string shared by all runs in a given group"
+    )
+    parser.add_argument(
+        "--wandb-job-type",
+        type=str,
+        default=None,
+        help="the type of run, which is useful when you're grouping runs together into larger experiments using group",
     )
     parser.add_argument(
         "--wandb-id", type=str, default=None, help="Sets the version, mainly used to resume a previous run"
