@@ -17,6 +17,7 @@ import argparse
 from pathlib import Path
 from typing import List, Optional, Sequence, get_args
 
+from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -158,10 +159,15 @@ def main(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
     )
 
+    # ddp = "megatron"  # this will launch DistributedDataParallelConfig(check_for_nan_in_grad=True).
+    ddp = DistributedDataParallelConfig(
+        grad_reduce_in_fp32=True,
+        check_for_nan_in_grad=True,
+    )
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
-        ddp="megatron",
+        ddp=ddp,
         find_unused_parameters=True,
         ckpt_include_optimizer=True,
         # NOTE: there are issues related to async that may occur, most recently observed due to duplicate filenames.
@@ -258,6 +264,7 @@ def main(
                 weight_decay=0.01,
                 adam_beta1=0.9,
                 adam_beta2=0.98,
+                adam_eps=1e-5,  # default of 1e-8 creates instability
             ),
             lr_scheduler=WarmupAnnealDecayHoldScheduler(
                 warmup_steps=warmup_steps, max_steps=num_steps, max_lr=lr, min_lr=0.0, anneal_percentage=0.10
