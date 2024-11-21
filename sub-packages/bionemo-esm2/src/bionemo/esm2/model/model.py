@@ -327,6 +327,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     #  things as part of the workflow for inference and fine-tuning.
     return_embeddings: bool = False
     include_embeddings: bool = False
+    include_input_ids: bool = False
     skip_logits: bool = False
     return_only_hidden_states: bool = False  # return logits
 

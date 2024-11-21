@@ -135,6 +135,7 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences):
         min_seq_length=max_dataset_seq_len,
         include_hiddens=True,
         include_embeddings=True,
+        include_input_ids=True,
         include_logits=True,
         micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
         # config_class=SUPPORTED_CONFIGS[config_class_name],

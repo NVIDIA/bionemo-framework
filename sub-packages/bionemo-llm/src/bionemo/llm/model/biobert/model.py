@@ -81,6 +81,7 @@ logger = logging.getLogger(__file__)
 _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS + [
     "return_only_hidden_states",
     "include_embeddings",
+    "include_input_ids",
     "include_hiddens",
     # Model parallelism settings! Important to override these if the user requests different settings from how
     #  a model was trained (common). See https://github.com/NVIDIA/bionemo-framework/issues/275
