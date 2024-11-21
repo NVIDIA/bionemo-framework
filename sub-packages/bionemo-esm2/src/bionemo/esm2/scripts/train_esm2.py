@@ -440,7 +440,7 @@ def get_parser():
         "--wandb-job-type",
         type=str,
         default=None,
-        help="the type of run, which is useful when you're grouping runs together into larger experiments using group",
+        help="the type of run, which is useful when you're grouping runs together into larger experiments using group.",
     )
     parser.add_argument(
         "--wandb-id", type=str, default=None, help="Sets the version, mainly used to resume a previous run"

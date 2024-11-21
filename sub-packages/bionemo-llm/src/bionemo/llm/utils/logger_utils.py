@@ -48,9 +48,7 @@ class WandbConfig(BaseModel):
     # save_dir: #Path where data is saved. "This is handled by NeMoLogger"
     tags: List[str] | None  # Tags associated with this run.
     group: str | None  # A unique string shared by all runs in a given group.
-    job_type: (
-        None  # Type of run, which is useful when you're grouping runs together into larger experiments using group.
-    )
+    job_type: str | None  # Type of run, which is useful when you're grouping runs together into larger experiments.
     offline: bool  # Run offline (data can be streamed later to wandb servers).
     id: str | None  # Sets the version, mainly used to resume a previous run.
     anonymous: bool  # Enables or explicitly disables anonymous logging.
