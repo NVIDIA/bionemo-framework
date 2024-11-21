@@ -221,7 +221,7 @@ python -m bionemo.esm2.model.finetune.train
 3. We are using a small dataset of artificial sequences as our fine-tuning data in this example. You may experience over-fitting and observe no change in the validation metrics.
 
 # Fine-Tuned ESM-2 Model Inference
-Now we can use the ```bionemo.esm2.model.fnetune.train.infer``` to run inference on an example prediction dataset.
+Now we can use ```bionemo.esm2.model.finetune.train.infer``` to run inference on an example prediction dataset.
 Record the checkpoint path reported at the end of the finetuning run, after executing `python -m bionemo.esm2.model.finetune.train` (e.g. `/tmp/tmp1b5wlnba/finetune_regressor/checkpoints/finetune_regressor--reduced_train_loss=0.0016-epoch=0-last`) and use that as an argument to inference script (`--checkpoint-path`).
 
 We download a CSV example dataset of articical sequences for this inference example. Please refer to [ESM-2 Inference](./inference) tutorial for detailed explanation of the arguments and how to create your own CSV file.
