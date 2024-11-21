@@ -1,42 +1,53 @@
-time_limit: 3600
+scope: partial-conv
+time_limit: 1800
 script_args:
-  # All arguments referenced in the script string must be specified here. Please reference the script arguments by ${kay_name} or {key_name}
+  # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
+  # See jet/core/configs.py for the specification of the configuration class
   workspace:
     value: /workspace/bionemo2
+    key_segment: False
+  data_path:
+    value: /data/20240809_uniref_2024_03/data
+    key_segment: False
   model:
     value: esm2
   variant:
-    value: pretrain
+    value: train
+  config_name:
+    value: 650M
   precision:
-    value: bf16-mixed
+    value: [bf16-mixed]
   nodes:
-    value: 4
+    value: [1, 2]
   gpus:
     value: 8
   batch_size:
-    value: 16
+    value: 2
   max_steps:
     value: 50
 script: |-
-      python /workspace/bionemo2/sub-packages/bionemo-esm2/src/bionemo/esm2/scripts/train_esm2.py \
-      --create-tensorboard-logger \
-      --wandb-project=${project_name} \
-      --train-cluster-path=/data/train_clusters.parquet \
-      --train-database-path=/data/train.db \
-      --valid-cluster-path=/data/valid_clusters.parquet \
-      --valid-database-path=/data/validation.db \
-      --micro-batch-size=16 \
-      --num-nodes=${num_nodes} \
-      --num-gpus=${devices} \
-      --val-check-interval=50 \
-      --limit-val-batches=1 \
-      --result-dir=/result \
-      --experiment-name=${experiment_name} \
-      --num-steps=${max_steps} \
-      --min-seq-length=1024 \
-      --max-seq-length=1024 \
-      --num-layers=33 \
-      --hidden-size=1280 \
-      --num-attention-heads=20 \
-      --ffn-hidden-size=5120;
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-${model}/src/bionemo/${model}/scripts/train_esm2.py \
+    --train-cluster-path=${data_path}/train_clusters.parquet \
+    --train-database-path=${data_path}/train.db \
+    --valid-cluster-path=${data_path}/valid_clusters.parquet \
+    --valid-database-path=${data_path}/validation.db \
+    --micro-batch-size=${batch_size} \
+    --num-nodes=${nodes} \
+    --num-gpus=${gpus} \
+    --val-check-interval=${max_steps} \
+    --limit-val-batches=1 \
+    --num-steps=${max_steps} \
+    --min-seq-length=1024 \
+    --max-seq-length=1024 \
+    --num-layers=33 \
+    --hidden-size=1280 \
+    --num-attention-heads=20 \
+    --ffn-hidden-size=5120 \
+    --create-tensorboard-logger \
+    --experiment-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+    --result-dir=${tensorboard_dir} \
+    --wandb-project=${wandb_project_name} \
+    --wandb-group=${model}_${variant}_${config_name} \
+    --wandb-job-type=${pipeline_label} \
+    --log-every-n-steps=5;
