@@ -54,6 +54,7 @@ def pretrain_data_module(dummy_protein_dataset, dummy_parquet_train_val_inputs):
         micro_batch_size=4,
         min_seq_length=None,
         max_seq_length=1024,
+        num_workers=1,
     )
     yield data_module
 

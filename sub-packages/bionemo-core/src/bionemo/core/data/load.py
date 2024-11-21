@@ -15,6 +15,7 @@
 
 import argparse
 import contextlib
+import os
 import shutil
 import sys
 import tempfile
@@ -39,6 +40,8 @@ __all__: Sequence[str] = (
     "default_pbss_client",
     "NGCDownloader",
 )
+SourceOptions = Literal["ngc", "pbss"]
+DEFAULT_SOURCE: SourceOptions = os.environ.get("BIONEMO_DATA_SOURCE", "ngc")  # type: ignore
 
 
 def default_pbss_client():
@@ -109,7 +112,7 @@ class NGCDownloader:
 
 def load(
     model_or_data_tag: str,
-    source: Literal["ngc", "pbss"] = "pbss",
+    source: SourceOptions = DEFAULT_SOURCE,
     resources: dict[str, Resource] | None = None,
     cache_dir: Path | None = None,
 ) -> Path:
