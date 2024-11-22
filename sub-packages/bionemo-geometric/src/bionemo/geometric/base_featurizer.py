@@ -74,10 +74,7 @@ def get_boolean_atomic_prop(atom: Atom, prop_list=None) -> List[bool]:
     Returns:
         list: A list of boolean values corresponding to the requested properties.
     """
-    if prop_list is not None:
-        _prop_list = prop_list
-    else:
-        _prop_list = atom.GetPropNames()
+    _prop_list = prop_list if prop_list else atom.GetPropNames()
 
     return [atom.GetBoolProp(prop) for prop in _prop_list]
 
