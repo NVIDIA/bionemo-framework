@@ -249,6 +249,7 @@ def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet
             min_seq_length=None,
             max_seq_length=1024,
             seed=seed,
+            num_workers=1,
         )
         assert data_module is not None
         data_module.trainer = mock.Mock()
