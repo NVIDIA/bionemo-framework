@@ -1,13 +1,10 @@
-use std::fs::File;
-use pyo3::prelude::*;
 use memmap2::Mmap;
-use std::io;
 use noodles_fasta::{self as fasta, fai};
-use noodles_fasta::fai::Record;
-use noodles_core::region::Region;
-use std::path::{Path};
+use pyo3::prelude::*;
+use std::fs::File;
+use std::io;
+use std::path::Path;
 
-// Expose the Record struct so we can package it nicely in Python.
 #[pyclass]
 #[derive(Clone)]
 struct PyRecord {
@@ -71,145 +68,85 @@ impl From<&fai::Record> for PyRecord {
     }
 }
 
-#[pyclass]
-struct _IndexedFastaReader {
-    reader: fasta::io::IndexedReader<fasta::io::BufReader<File>>,
+fn fai_record_end_offset(record: &fai::Record) -> usize {
+    // gets the offset for the end of the record, as its not available in the index.
+
+    let length = record.length() - 1;
+    let num_full_lines = length / record.line_bases();
+    let num_bases_remain = length % record.line_bases();
+
+    let bytes_to_last_line_in_record = num_full_lines * record.line_width();
+
+    let bytes_to_end = bytes_to_last_line_in_record + num_bases_remain;
+
+    return (record.offset() + bytes_to_end) as usize;
 }
 
-#[pymethods]
-impl _IndexedFastaReader {
-    #[new]
-    fn new(fasta_path: &str) -> PyResult<Self> {
-        let fai_path = fasta_path.to_string() + ".fai";
-        let fai_path = Path::new(&fai_path);  // Convert back to a Path
+fn query_end_offset(
+    record: &fai::Record,
+    interval: &noodles_core::region::Interval,
+) -> io::Result<usize> {
+    // This is lifted from how we compute offset for start position, should be the same.
+    let end = interval
+        .end() // Extract the end position
+        .map(|position| usize::from(position) - 1)
+        .unwrap_or_default(); // Default to 0 if unbounded
 
+    // TODO: technically a region with no end is valid, but we pretend its not!
+    // subtract 1 to get back to zero based indexing.
+    let end = u64::try_from(end).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
-        let fasta_path = Path::new(fasta_path);
-        // let fai_path = fasta_path.with_extension("fai");
+    let pos = record.offset() // Start of the contig in bytes
+        + end / record.line_bases() * record.line_width() // Full lines before `end`
+        + end % record.line_bases(); // Byte offset within the last line
 
-        // Check if the .fai index file exists; if not, create it.
-        if !fai_path.exists() {
-            // Generate the index by reading the FASTA file
-            let index = fasta::io::index(fasta_path)
-                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to create index: {}", e)))?;
-
-            // Write the index to the .fai file
-            let fai_file = File::create(&fai_path)
-                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to create .fai file: {}", e)))?;
-
-            let mut writer = fai::Writer::new(fai_file);
-            writer.write_index(&index)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to write .fai index: {}", e)))?;
-        }
-
-
-        let reader = fasta::io::indexed_reader::Builder::default()
-            .build_from_path(fasta_path)
-            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to create indexed reader: {}", e)))?;
-        
-        Ok(_IndexedFastaReader { reader })
-    }
-
-    fn query_region(&mut self, region_str: &str) -> PyResult<String> {
-        let region: noodles_core::region::Region = region_str.parse()
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid region: {}", e)))?;
-
-        let query_result = self.reader.query(&region)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to query region: {}", e)))?;
-
-        
-        Ok(
-            String::from_utf8_lossy(
-                query_result.sequence().as_ref()
-            ).to_string()
-        )
-    }
-
-    fn records(&self) -> Vec<PyRecord> {
-        // get all the entries in the index, useful for building bounds in python land.
-        self.reader
-            .index()
-            .as_ref()
-            .iter()
-            .map(|record| PyRecord::from(record))
-            .collect()
-    }
-    
+    Ok(pos as usize)
 }
-
-
-
-fn region_length(region: &noodles_core::region::Region) -> Option<usize> {
-    // We expect region to have both a start and an end, and end > start.
-    // for the usecase where a user has only start or is empty, we do not expect to use this method. These return
-    //  the entire sequence from start or the entire reference.
-    let interval = region.interval();
-    match (interval.start(), interval.end()) {
-        (Some(start), Some(end)) => {
-            let len = end.get() - start.get();
-            if len > 0 {
-                Some(len as usize)
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
-}
-
-fn fai_record_end_in_bytes(record: &fai::Record) -> usize {
-    // compute the end byte for this record excluding the newline and carriage return.
-    // gonna need some tests here
-    let num_bases_remain = record.length() % record.line_bases();
-    let num_full_lines = record.length() / record.line_bases();
-    let bytes_to_end = (num_full_lines * record.line_width() + num_bases_remain);
-    return bytes_to_end as usize
-}
-
 
 fn read_sequence_mmap(index: &fai::Index, reader: &Mmap, region_str: &str) -> io::Result<Vec<u8>> {
-    let region: noodles_core::region::Region = region_str.parse()
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid region: {}", e)))?;
-        
-    // the string -> region transform happens on the region FromStr implementation, nice one rust!
-    let start: u64 = index.query(&region)?; // byte offset for the start of this contig + sequence.
+    let region: noodles_core::region::Region = region_str.parse().map_err(|e| {
+        pyo3::exceptions::PyValueError::new_err(format!("{} Invalid region: {}", e, region_str))
+    })?;
 
-    // but we actually want the parameters for this guy too...
-    let record = index.as_ref()
-            .iter()
-            .find(|record| record.name() == region.name())
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("invalid reference sequence name: {}", region.name(),),
-                )
-            })?;
+    // byte offset for the start of this contig + sequence.
+    let start = index.query(&region)?;
 
-    if let Some(len) = region_length(&region){
-        // Mental math, if we have the region length, we can compute the end of the record by adding the newline characters
-       
+    // index record for this contig.
+    let record = index
+        .as_ref()
+        .iter()
+        .find(|record| record.name() == region.name())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid reference sequence name: {}", region.name(),),
+            )
+        })?;
 
-        let mut result = vec![];
-        let _ = read_sequence_limit(
-            reader,
-            start as usize,
-            len,
-            record.line_bases() as usize,
-            record.line_width() as usize,
-            fai_record_end_in_bytes(record),
-            &mut result,
-        );
-        return Ok(result);
-    } 
-    else {
-        // not really an IO error but whatever.
-        return io::Result::Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid region"));
-    }
+    // byte offset for the end of this query
+    let mut end = query_end_offset(record, &region.interval())?;
+    // byte offset for the end of this record, we want to take the smaller of these two, as sometimes we can have silly queries like chr1:1-9999999999999999
+    let rec_end = fai_record_end_offset(record);
+    end = end.min(fai_record_end_offset(record));
+
+    // call out to our reader and populate the result.
+    let mut result = vec![];
+    let _ = read_sequence_limit(
+        reader,
+        start as usize,
+        end as usize, // last offset for the sequence
+        record.line_bases() as usize,
+        record.line_width() as usize,
+        record.offset() as usize,
+        &mut result,
+    );
+    return Ok(result);
 }
 
 #[pyclass]
 struct IndexedMmapFastaReader {
     mmap_reader: memmap2::Mmap,
+    index: fai::Index,
 }
 
 #[pymethods]
@@ -217,87 +154,121 @@ impl IndexedMmapFastaReader {
     #[new]
     fn new(fasta_path: &str) -> PyResult<Self> {
         let fai_path = fasta_path.to_string() + ".fai";
-        let fai_path = Path::new(&fai_path);  // Convert back to a Path
+        let fai_path = Path::new(&fai_path); // Convert back to a Path
         let fasta_path = Path::new(fasta_path);
 
         // Check if the .fai index file exists; if not, create it.
         if !fai_path.exists() {
             // Generate the index by reading the FASTA file
-            let index = fasta::io::index(fasta_path)
-                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to create index: {}", e)))?;
+            let index: fai::Index = fasta::io::index(fasta_path).map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!("Failed to create index: {}", e))
+            })?;
 
             // Write the index to the .fai file
-            let fai_file = File::create(&fai_path)
-                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to create .fai file: {}", e)))?;
+            let fai_file = File::create(&fai_path).map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!("Failed to create .fai file: {}", e))
+            })?;
 
             let mut writer = fai::Writer::new(fai_file);
-            writer.write_index(&index)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to write .fai index: {}", e)))?;
+            writer.write_index(&index).map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Failed to write .fai index: {}",
+                    e
+                ))
+            })?;
         }
 
-        // TODO this is where we load our shit
+        let index: fai::Index = fasta::io::index(fasta_path).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("Failed to create index: {}", e))
+        })?;
+
         let fd = File::open(fasta_path)?;
         let mmap_reader = unsafe { memmap2::MmapOptions::new().map(&fd) }?;
-        
-        Ok(IndexedMmapFastaReader { mmap_reader })
+
+        Ok(IndexedMmapFastaReader { mmap_reader, index })
     }
+    fn records(&self) -> Vec<PyRecord> {
+        // return a list of records for the index.
+        self.index
+            .as_ref()
+            .iter()
+            .map(|record| PyRecord::from(record))
+            .collect()
+    }
+
+    fn read_sequence_mmap(&self, region_str: &str) -> PyResult<String> {
+        // given a region string, query the value inside the mmap.
+        let query_result = &read_sequence_mmap(&self.index, &self.mmap_reader, region_str)?;
+        let result = String::from_utf8_lossy(query_result).into_owned();
+        return Ok(result);
+    }
+}
+
+fn bases_remaining_in_first_line_read(
+    region_start: usize,
+    start: usize,
+    line_bases: usize,
+    line_width: usize,
+) -> usize {
+    // Compute the number of bytes from start to the end of the line, half interval.
+    //      this means the returned position will the byte offset of a newline.
+
+    let lines_to_start = (start - region_start) / line_width;
+    let current_line_start = (line_width * lines_to_start) + region_start;
+    let bases_we_skip = start - current_line_start;
+    let bases_left_in_line = line_bases - bases_we_skip;
+
+    return bases_left_in_line;
 }
 
 fn read_sequence_limit(
     mmap: &Mmap,         // Memory-mapped file
     start: usize,        // Start position in the file (from the index)
-    max_bases: usize,    // Maximum number of bases to read
+    end: usize,          // bases to read
     line_bases: usize,   // Number of bases per line (from the `.fai` index)
     line_width: usize,   // Number of bases per line (from the `.fai` index)
-    record_end: usize,   // End position of the record in the file (from the index)
+    region_start: usize, // position where the region starts so we can determine the line starts.
     buf: &mut Vec<u8>,   // Buffer to store the sequence
 ) -> io::Result<usize> {
+    // Reads all of the nucleotides from the `start` offset to the `end` offset.
+    //   The approach roughly goes like this:
+    //       1) read as many bytes as we can until the first newline. This is done analytically so we can make batch reads.
+    //       2) read as many complete lines as we can, skipping newlines. Again this is done analytically.
+    //       3) read any remaining nucleotides.
 
-    let mut read_count = 0;
     let mut position = start;
-    let junk_offset = line_width - line_bases;
 
-    while read_count < max_bases && position < mmap.len() && position < record_end {
-        
-        // get the end of the read, basically if we hit the end of the record or end of the file, we stop at that position.
-        let line_end  = if record_end < (position + line_bases) {
-           // Note this will have newlines and extra junk
-           record_end - junk_offset
-        } else if mmap.len() < (position + line_bases) {
-           // Note this will have newlines and extra junk
-           // we are at the end of the file
-           mmap.len() - junk_offset
-        } else{
-            position + line_bases
-        };
+    // if we are in the middle of a line, figure out how far to the end
+    let mut first_read_to_end =
+        position + bases_remaining_in_first_line_read(region_start, start, line_bases, line_width);
 
-        // Get the slice for this line
-        let line = &mmap[position..line_end];
-
-        let base_start = position;
-        let base_end = if max_bases - read_count < line_bases {
-            // we have less than a full line remaining to read
-            base_start + (max_bases - read_count)
-        } else {
-            // just take the full line (minus newline etc).
-            base_start + line_bases
-        };
-
-        // Add the bases to the buffer
-        buf.extend_from_slice(&line[base_start..base_end]);
-
-        // Update the read count and position
-        let new_bases_read = base_end - base_start;
-        read_count += new_bases_read;
-        position += new_bases_read;
-
-        // Skip over the remaining part of the line (newlines, etc.)
-        position += junk_offset
+    // Handle the special case where we are a subset of a line
+    if first_read_to_end > end {
+        buf.extend_from_slice(&mmap[position..end + 1]);
+        return Ok(1);
+    } else {
+        // otherwise, read to the end of the line
+        buf.extend_from_slice(&mmap[position..first_read_to_end]);
+        let bytes_read = first_read_to_end - position;
+        position = position + bytes_read + (line_width - line_bases);
     }
 
-    Ok(read_count)
-}
+    // figure out how many full lines are left.
+    let full_lines_to_read = (end - position) / line_width;
+    let mut full_lines_read: usize = 0;
 
+    // read as many full lines as we can
+    while full_lines_read < full_lines_to_read {
+        buf.extend_from_slice(&mmap[position..position + line_bases]);
+        full_lines_read += 1;
+        position += line_width;
+    }
+
+    // if there are any bytes left, read them.
+    let remaining_bytes = (end + 1) - position;
+    buf.extend_from_slice(&mmap[position..position + remaining_bytes]);
+    Ok(full_lines_read)
+}
 
 #[pymodule]
 fn noodles_fasta_wrapper(_: Python, m: &PyModule) -> PyResult<()> {
@@ -305,3 +276,136 @@ fn noodles_fasta_wrapper(_: Python, m: &PyModule) -> PyResult<()> {
     Ok(())
 }
 
+#[test]
+fn test_query_end_offset() {
+    // tests a single row, end of line position
+    let record = fai::Record::new("chr1", 12, 6, 12, 13);
+
+    let region_str = "chr1:1-12";
+    let region: noodles_core::region::Region = region_str.parse().unwrap();
+
+    let result = query_end_offset(&record, &region.interval()).unwrap();
+    // 01 02 03 04 05
+    // 06 07 08 09 10 11 12 13 14 15 16 [17] 18
+    assert_eq!(result, 17);
+
+    let record = fai::Record::new("chr1", 24, 6, 12, 13);
+    let region_str = "chr1:1-24";
+    let region: noodles_core::region::Region = region_str.parse().unwrap();
+
+    let result = query_end_offset(&record, &region.interval()).unwrap();
+    // 01 02 03 04 05
+    // 06 07 08 09 10 11 12 13 14 15 16  17  18
+    // 19 20 21 22 23 24 25 26 27 28 29 [30] 31
+    assert_eq!(result, 30);
+
+    // tests a three row, beginning of line position
+    let record = fai::Record::new("chr1", 25, 6, 12, 13);
+    let region_str = "chr1:1-25";
+    let region: noodles_core::region::Region = region_str.parse().unwrap();
+
+    let result = query_end_offset(&record, &region.interval()).unwrap();
+    //  01 02 03 04 05
+    //  06 07 08 09 10 11 12 13 14 15 16 17 18
+    //  19 20 21 22 23 24 25 26 27 28 29 30 31
+    // [32] 33
+    assert_eq!(result, 32);
+
+    // tests a random position within a row.
+    let region_str = "chr1:1-6";
+    let region: noodles_core::region::Region = region_str.parse().unwrap();
+
+    let result = query_end_offset(&record, &region.interval()).unwrap();
+    // 01 02 03 04 05
+    // 06 07 08 09 10 [11] 12 13 14 15 16 17 18
+    assert_eq!(result, 11);
+}
+
+#[test]
+fn test_fai_record_end_offset() {
+    // tests a single row, end of line position
+    let record = fai::Record::new("chr1", 12, 6, 12, 13);
+
+    // expect 17 because offset is 6, 12 characters to read, this is the offset OF THE LAST CHAR, it IS NOT a bound (e.g its inclusive)
+    let result = fai_record_end_offset(&record);
+    // 01 02 03 04 05
+    // 06 07 08 09 10 11 12 13 14 15 16 [17] 18
+    // 19 20 21 22 23 24 25 26 27 28 29  30  31
+    assert_eq!(result, 17);
+
+    // tests a two row, end of line position
+    let record = fai::Record::new("chr1", 24, 6, 12, 13);
+    let result = fai_record_end_offset(&record);
+    // 01 02 03 04 05
+    // 06 07 08 09 10 11 12 13 14 15 16  17  18
+    // 19 20 21 22 23 24 25 26 27 28 29 [30] 31
+    assert_eq!(result, 30);
+
+    // tests a three row, beginning of line position
+    let record = fai::Record::new("chr1", 25, 6, 12, 13);
+    let result = fai_record_end_offset(&record);
+    //  01 02 03 04 05
+    //  06 07 08 09 10 11 12 13 14 15 16 17 18
+    //  19 20 21 22 23 24 25 26 27 28 29 30 31
+    // [32] 33
+    assert_eq!(result, 32);
+
+    // tests a two row, middle of line position
+    let record = fai::Record::new("chr1", 20, 6, 12, 13);
+    let result = fai_record_end_offset(&record);
+    //  01 02 03 04 05
+    //  06 07 08 09 10 11 12  13  14 15 16 17 18
+    //  19 20 21 22 23 24 25 [26] 27 28 29 30 31
+    assert_eq!(result, 26);
+
+    let record = fai::Record::new("chr1", 12, 6, 12, 13);
+}
+
+#[test]
+fn test_bases_remaining_in_first_line_read() {
+    // >seq1
+    // ACGTACACGTAC
+    // ACGTACGTACGT
+
+    //  01 02 03 04 05
+    //  06 07 08  09  10 11 12 13 14 15 16 17 18
+    //  19 20 21 [22] 23 24 25 26 27 28 29 30 31
+    //
+    // region_start = 6
+    // start = 22 (16 in base space)
+    // line_width = 13
+    // line_bases = 12
+
+    // tests a three row, beginning of line position
+    let record = fai::Record::new("chr1", 25, 6, 12, 13);
+    let start = 22;
+    let result = bases_remaining_in_first_line_read(
+        record.offset() as usize,
+        start,
+        record.line_bases() as usize,
+        record.line_width() as usize,
+    );
+    assert_eq!(result, 9);
+
+    let start = 6;
+    // mem[6:6+12]
+    // this is the null case, where first base is the first character
+    let result = bases_remaining_in_first_line_read(
+        record.offset() as usize,
+        start,
+        record.line_bases() as usize,
+        record.line_width() as usize,
+    );
+    assert_eq!(result, record.line_bases() as usize); // should be equal to line_bases since we need to read the whole line.
+
+    // now we are at the very last character
+    let start = 17;
+    let result = bases_remaining_in_first_line_read(
+        record.offset() as usize,
+        start,
+        record.line_bases() as usize,
+        record.line_width() as usize,
+    );
+    // expect the last position, so the read will be just 1!
+    assert_eq!(result, 1);
+}

@@ -22,7 +22,7 @@ bindings = "pyo3"
 compatibility = "linux"
 python-source = "src"
 # we could make this bionemo.noodles.fasta_wrapper, but that would require it to be its own namespaced package.
-module-name = "bionemo._noodles_fasta_wrapper"
+module-name = "bionemo.noodles_fasta_wrapper"
 version = { file = "VERSION" }
 
 [tool.setuptools.packages.find]

@@ -1,41 +1,142 @@
 import pytest
 from bionemo.noodles.nvfaidx import NvFaidx
+from bionemo.noodles import IndexedMmapFastaReader
 import os
 import tempfile
 import random
 import pyfaidx
 import torch
 
+def test_memmap_index_iso():
+    # This tests a specific edge case that was failing.
+    fasta_path = 'sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta'
+    index = IndexedMmapFastaReader(fasta_path)
+
+    assert index.read_sequence_mmap('chr4:1-10000') == 'CCCCCCCCCCCCACGT'
+    assert index.read_sequence_mmap('chr4:1-17') == 'CCCCCCCCCCCCACGT'
+
+def test_memmap_index():
+    # This should probably be a test in rust land.
+    fasta_path = 'sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta'
+    index = IndexedMmapFastaReader(fasta_path)
+    assert index.read_sequence_mmap('chr1:1-1') == 'A'
+    assert index.read_sequence_mmap('chr1:1-2') == 'AC'
+    assert index.read_sequence_mmap('chr1:1-100000') == 'ACTGACTGACTG'
+    assert index.read_sequence_mmap('chr2:1-2') == 'GG'
+    assert index.read_sequence_mmap('chr2:1-1000000') == 'GGTCAAGGTCAA'
+    # Recall to get python based indexing we add 1 to both start and end, so 1-13 is a 12 character string(full sequence)
+    assert index.read_sequence_mmap('chr2:1-11') == 'GGTCAAGGTCA'
+    assert index.read_sequence_mmap('chr2:1-12') == 'GGTCAAGGTCAA'
+    assert index.read_sequence_mmap('chr2:1-13') == 'GGTCAAGGTCAA'
+
+    assert index.read_sequence_mmap('chr3:1-2') == 'AG'
+    assert index.read_sequence_mmap('chr3:1-13') == 'AGTCAAGGTCCAC'
+    assert index.read_sequence_mmap('chr3:1-14') == 'AGTCAAGGTCCACG' # adds first character from next line
+    assert index.read_sequence_mmap('chr3:1-83') == 'AGTCAAGGTCCACGTCAAGGTCCCGGTCAAGGTCCGTGTCAAGGTCCTAGTCAAGGTCAACGTCAAGGTCACGGTCAAGGTCA'
+    assert index.read_sequence_mmap('chr3:1-84') == 'AGTCAAGGTCCACGTCAAGGTCCCGGTCAAGGTCCGTGTCAAGGTCCTAGTCAAGGTCAACGTCAAGGTCACGGTCAAGGTCAG'
+    assert index.read_sequence_mmap('chr3:1-10000') == 'AGTCAAGGTCCACGTCAAGGTCCCGGTCAAGGTCCGTGTCAAGGTCCTAGTCAAGGTCAACGTCAAGGTCACGGTCAAGGTCAG'
+    assert index.read_sequence_mmap('chr3:84-84') == 'G'
+
+    # Handles End of Index 
+    # Full sequence
+    assert index.read_sequence_mmap('chr5:1-1000000') == 'A'
+    # Only one char, should succeed
+    assert index.read_sequence_mmap('chr5:1-2') == 'A'
+
+
+    # Handles end of multi line but non-full sequence entry
+    # Full sequence
+    assert index.read_sequence_mmap('chr4:1-16') == 'CCCCCCCCCCCCACGT'
+    assert index.read_sequence_mmap('chr4:1-17') == 'CCCCCCCCCCCCACGT'
+    assert index.read_sequence_mmap('chr4:1-1000000') == 'CCCCCCCCCCCCACGT'
+
+    assert index.read_sequence_mmap('chr4:1-17') == 'CCCCCCCCCCCCACGT'
+
+    assert index.read_sequence_mmap('chr4:3-16') == 'CCCCCCCCCCACGT'
+    assert index.read_sequence_mmap('chr4:17-17') == ''
 
 def test_getitem_bounds():
     # NOTE make this the correct path, check this file in since we are checking exactness of queries.
     index = NvFaidx('sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta')
     # first element
     assert index['chr1'][0] == 'A'
+    # normal, in range, query
+    assert index['chr1'][1:4] == 'CTG'
+    # Going beyond the max bound in a slice should truncate at the end of the sequence
+    assert index['chr1'][1:10000] == 'CTGACTGACTG'
     # Slice up to the last element
     assert index['chr1'][0:-1] == 'ACTGACTGACT'
     # equivalent to above
     assert index['chr1'][:-1] == 'ACTGACTGACT'
     # -1 should get the last element
     assert index['chr1'][-1:] == 'G'
-    # normal, in range, query
-    assert index['chr1'][1:4] == 'CTG'
-    # Going beyond the max bound in a slice should truncate at the end of the sequence
-    assert index['chr1'][1:10000] == 'CTGACTGACTG'
+
+def test_nvfaidx_python_interface():
+    # This should probably be a test in rust land.
+    index = NvFaidx('sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta')
+    assert index['chr1'][0:1] == 'A'
+    assert index['chr1'][0:2] == 'AC'
+    assert index['chr1'][0:100000] == 'ACTGACTGACTG'
+    assert index['chr2'][0:2] == 'GG'
+    assert index['chr2'][0:100000] == 'GGTCAAGGTCAA'
+
+    assert index['chr3'][0:2] == 'AG'
+    assert index['chr3'][0:13] == 'AGTCAAGGTCCAC'
+    # in progress
+    assert index['chr3'][0:14] == 'AGTCAAGGTCCACG' # adds first character from next line
+    assert index['chr3'][0:83] == 'AGTCAAGGTCCACGTCAAGGTCCCGGTCAAGGTCCGTGTCAAGGTCCTAGTCAAGGTCAACGTCAAGGTCACGGTCAAGGTCA'
+    assert index['chr3'][0:84] == 'AGTCAAGGTCCACGTCAAGGTCCCGGTCAAGGTCCGTGTCAAGGTCCTAGTCAAGGTCAACGTCAAGGTCACGGTCAAGGTCAG'
+    assert index['chr3'][0:10000] == 'AGTCAAGGTCCACGTCAAGGTCCCGGTCAAGGTCCGTGTCAAGGTCCTAGTCAAGGTCAACGTCAAGGTCACGGTCAAGGTCAG'
+    assert index['chr3'][83:84] == 'G'
+
+    # Handles End of Index 
+    # Full sequence
+    assert index['chr5'][0:1000000] == 'A'
+    # chr5 has one char, even though this spans 2, it returns len(1)
+    assert index['chr5'][0:2] == 'A'
+
+
+    # Handles end of multi line but non-full sequence entry
+    # Full sequence
+    assert index['chr4'][0:16] == 'CCCCCCCCCCCCACGT'
+    assert index['chr4'][0:17] == 'CCCCCCCCCCCCACGT'
+    assert index['chr4'][0:1000000] == 'CCCCCCCCCCCCACGT'
+
+    # This one failing is bad, it means we are not calculating the newlines correctly in some conditions.
+    assert index['chr4'][0:17] == 'CCCCCCCCCCCCACGT'
+
+    # Should see this is out of bounds and return empty or throw an error
+    # assert index['chr4'][17:17] == ''
+
+def test_generated_failure():
+    # 'contig2'1000-2000
+    fasta = '/workspaces/bionemo-framework/test.fasta'
+    nvfaidx_fasta = NvFaidx(fasta)
+    seq1 = nvfaidx_fasta['contig2'][1000:2000]
+    seq2 = nvfaidx_fasta.reader.read_sequence_mmap('contig2:1001-2000')
+    breakpoint()
+    assert seq1 == seq2
 
 def test_pyfaidx_nvfaidx_equivalence():
     fasta = create_test_fasta(num_seqs=2, seq_length=200000)
     pyfaidx_fasta = pyfaidx.Fasta(fasta)
     nvfaidx_fasta = NvFaidx(fasta)
 
-
+    correct = 0
     for i in range(100):
-        # Deterministically generate regions to generate
+        # Deterministically generate regions to grab
         seqid = f"contig{i % 2 + 1}"
         start = i * 1000
         end = start + 1000
 
-        assert pyfaidx_fasta[seqid][start:end] == nvfaidx_fasta[seqid][start:end]
+        if not pyfaidx_fasta[seqid][start:end] == nvfaidx_fasta[seqid][start:end]:
+            print('py', pyfaidx_fasta[seqid][start:end])
+            print('nv', nvfaidx_fasta[seqid][start:end])
+            py_seq = pyfaidx_fasta[seqid][start:end]
+            nv_seq = nvfaidx_fasta[seqid][start:end]
+            breakpoint()
+            raise Exception(f"Pyfaidx and NvFaidx do not match. {correct=}")
+        correct += 1
 
 class TestDataset(torch.utils.data.Dataset):
     def __init__(self, fasta_path, fasta_cls):
@@ -51,8 +152,9 @@ class TestDataset(torch.utils.data.Dataset):
         return str(self.fasta['contig1'][150000:160000])
 
 
+@pytest.mark.skip
 @pytest.mark.xfail(reason="This is a known failure mode for pyfaidx that we are trying to prevent with nvfaidx.")
-def test_parallel_index_creation_pyfaidx():
+def _test_parallel_index_creation_pyfaidx():
     ''' 
     PyFaidx is a python replacement for faidx that provides a dictionary-like interface to reference genomes. Pyfaidx 
     is not process safe, and therefore does not play nice with pytorch dataloaders.
@@ -79,8 +181,6 @@ def test_parallel_index_creation_pyfaidx():
 
 def test_parallel_index_creation_nvfaidx():
     fasta = create_test_fasta(num_seqs=2, seq_length=200000)
-
-    # NOTE: worker_init_fn could also be a way to handle this, where we let it instantiate its own reader.
 
     dl = torch.utils.data.DataLoader(TestDataset(fasta, fasta_cls = NvFaidx), batch_size=32, num_workers=16)
     max_i = 1000
@@ -223,4 +323,5 @@ def create_test_fasta(num_seqs=2, seq_length=1000):
     
     return fasta_path
 
-test_parallel_index_creation_nvfaidx()
+# test_pyfaidx_nvfaidx_equivalence()
+test_generated_failure()

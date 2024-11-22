@@ -1,4 +1,4 @@
-from bionemo.noodles_fasta_wrapper import IndexedFastaReader
+from bionemo.noodles import IndexedMmapFastaReader
 
 
 class SequenceAccessor:
@@ -30,7 +30,7 @@ class SequenceAccessor:
 
             # Construct region string
             region_str = f"{self.seqid}:{start + 1}-{stop}"  # +1 for 1-based indexing
-            return self.reader.query_region(region_str)
+            return self.reader.read_sequence_mmap(region_str)
 
         elif isinstance(key, int):
             # Normalize single integer for negative indexing
@@ -43,7 +43,7 @@ class SequenceAccessor:
 
             # Query single nucleotide by creating a 1-length region
             region_str = f"{self.seqid}:{key + 1}-{key + 1}"  # +1 for 1-based indexing
-            return self.reader.query_region(region_str)
+            return self.reader.read_sequence_mmap(region_str)
 
         else:
             raise TypeError("Index must be an integer or a slice.")
@@ -52,7 +52,7 @@ class SequenceAccessor:
 class NvFaidx:
     def __init__(self, fasta_path):
         # NOTE: you cannot escape the unsafety here by instantiating in a way thats lazy. Need to get rid of the BufReader
-        self.reader = IndexedFastaReader(fasta_path)
+        self.reader = IndexedMmapFastaReader(fasta_path)
         self.records = {record.name: record for record in self.reader.records()}
 
     def __getitem__(self, seqid):
