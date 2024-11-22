@@ -114,7 +114,6 @@ def test_generated_failure():
     nvfaidx_fasta = NvFaidx(fasta)
     seq1 = nvfaidx_fasta['contig2'][1000:2000]
     seq2 = nvfaidx_fasta.reader.read_sequence_mmap('contig2:1001-2000')
-    breakpoint()
     assert seq1 == seq2
 
 def test_pyfaidx_nvfaidx_equivalence():
@@ -130,11 +129,6 @@ def test_pyfaidx_nvfaidx_equivalence():
         end = start + 1000
 
         if not pyfaidx_fasta[seqid][start:end] == nvfaidx_fasta[seqid][start:end]:
-            print('py', pyfaidx_fasta[seqid][start:end])
-            print('nv', nvfaidx_fasta[seqid][start:end])
-            py_seq = pyfaidx_fasta[seqid][start:end]
-            nv_seq = nvfaidx_fasta[seqid][start:end]
-            breakpoint()
             raise Exception(f"Pyfaidx and NvFaidx do not match. {correct=}")
         correct += 1
 
@@ -237,7 +231,7 @@ def demo_failure_mode():
 def measure_index_creation_time():
     '''Observed performance.
 
-    13.8x speedup for NvFaidx when using --release.
+    8x speedup for NvFaidx when using
     '''
     import time
     # Too slow gen a big genome
@@ -265,10 +259,7 @@ def measure_index_creation_time():
 def measure_query_time():
     '''Observed perf:
 
-    1.5x faster nvfaidx with --release when doing queries directly.
-    1.3x faster nvfaidx with cargo --release when doing queries through our SequenceAccessor implementation in python land.
-
-    NOTE: perf is slower for NvFaidx when not built with --release
+    2.3x faster nvfaidx when doing queries through our SequenceAccessor implementation in python land.
     '''
     import time
     num_iters = 1000
@@ -323,5 +314,5 @@ def create_test_fasta(num_seqs=2, seq_length=1000):
     
     return fasta_path
 
-# test_pyfaidx_nvfaidx_equivalence()
-test_generated_failure()
+measure_query_time()
+measure_index_creation_time()
