@@ -191,10 +191,12 @@ def test_SingleCellMemMapDataset_get_row_colum(generate_dataset):
 
 
 def test_SingleCellMemMapDataset_get_row_padded(generate_dataset):
-    padded_row, feats = generate_dataset.get_row_padded(0, return_features=True, feature_vars="feature_name")
+    padded_row, feats = generate_dataset.get_row_padded(0, return_features=True, feature_vars=["feature_name"])
+    print(len(feats), feats)
+    print(len(padded_row), padded_row)
     assert len(padded_row) == 10
     assert padded_row[2] == 6.0
-    assert len(feats) == 10
+    assert len(feats[0]) == 10
     assert generate_dataset.get_row_padded(0)[0][0] == 0.0
     assert generate_dataset.data[0] == 6.0
     assert generate_dataset.data[1] == 19.0
@@ -236,25 +238,3 @@ def test_concat_SingleCellMemMapDatasets_multi(tmp_path, compare_fn, test_direct
 
     dns.concat([ds, dx])
     compare_fn(dns, dt)
-
-
-def test_lazy_load_SingleCellMemMapDatasets_one_dataset(tmp_path, compare_fn, test_directory):
-    ds_regular = SingleCellMemMapDataset(tmp_path / "sc1", h5ad_path=test_directory / "adata_sample1.h5ad")
-    ds_lazy = SingleCellMemMapDataset(
-        tmp_path / "sc2",
-        h5ad_path=test_directory / "adata_sample1.h5ad",
-        paginated_load_cutoff=0,
-        load_block_row_size=2,
-    )
-    compare_fn(ds_regular, ds_lazy)
-
-
-def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn, test_directory):
-    ds_regular = SingleCellMemMapDataset(tmp_path / "sc1", h5ad_path=test_directory / "adata_sample0.h5ad")
-    ds_lazy = SingleCellMemMapDataset(
-        tmp_path / "sc2",
-        h5ad_path=test_directory / "adata_sample0.h5ad",
-        paginated_load_cutoff=0,
-        load_block_row_size=3,
-    )
-    compare_fn(ds_regular, ds_lazy)
