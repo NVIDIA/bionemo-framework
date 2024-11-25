@@ -14,9 +14,8 @@
 # limitations under the License.
 
 
-from typing import Optional, Iterable
+from typing import Iterable, Optional
 
-from rdkit import Chem
 from rdkit.Chem import Mol
 
 from bionemo.geometric.base_featurizer import BaseBondFeaturizer
@@ -39,7 +38,6 @@ class RingFeaturizer(BaseBondFeaturizer):
 
     def get_bond_features(self, mol: Mol, bond_indices: Optional[Iterable]) -> list[int]:
         """Computes ring sizes a bonds of the molecule are present in."""
-
         _bond_indices = bond_indices if bond_indices else range(mol.GetNumBonds())
 
         ri = mol.GetRingInfo()

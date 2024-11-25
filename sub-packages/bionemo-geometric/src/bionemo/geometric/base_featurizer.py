@@ -15,7 +15,7 @@
 
 
 from abc import ABC, abstractmethod, abstractproperty
-from typing import List, Protocol, Optional, Iterable
+from typing import Iterable, List, Optional
 
 from rdkit.Chem import Atom, Mol
 

@@ -15,20 +15,17 @@
 
 
 from pathlib import Path
+from typing import Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
 from rdkit import Chem
-from rdkit.Chem import Atom, Mol, rdMolDescriptors
+from rdkit.Chem import Mol, rdMolDescriptors
 from rdkit.Chem.rdchem import ChiralType, HybridizationType
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
-from typing import Optional, Iterable, List
 from bionemo.geometric.base_featurizer import (
     BaseAtomFeaturizer,
-    get_boolean_atomic_prop,
-    get_double_atomic_prop,
-    one_hot_enc,
 )
 
 
@@ -58,7 +55,7 @@ class AtomicNumberFeaturizer(BaseAtomFeaturizer):
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [mol.GetAtomWithIdx(a).GetAtomicNum() for a in _atom_indices]
 
-    
+
 class DegreeFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its degree (excluding hydrogens) of connectivity."""
 
@@ -191,18 +188,17 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
 
 
 class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
-
     def __init__(self) -> None:
         """Initializes AtomicRadiusFeaturizer class."""
         self.min_val = [
-            0.0, # Bond radius
-            0.28, # Covalent radius
-            1.2, # van der Waals radius
-            ]
+            0.0,  # Bond radius
+            0.28,  # Covalent radius
+            1.2,  # van der Waals radius
+        ]
         self.max_val = [
-            2.4, # Bond radius
-            2.6, # Covalent radius
-            3.0, # van der Waals radius
+            2.4,  # Bond radius
+            2.6,  # Covalent radius
+            3.0,  # van der Waals radius
         ]
 
     @property
@@ -220,7 +216,6 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
         """Computes bond radius, covalent radius, and van der Waals radius without normalization."""
-
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
 
         feats = []
@@ -253,17 +248,21 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
         self.ie_dict = self.data_df["IonizationEnergy"].to_dict()
         self.ea_dict = self.data_df["ElectronAffinity"].to_dict()
 
-        self._min_val = np.array([
-            self.data_df["Electronegativity"].min(),
-            self.data_df["IonizationEnergy"].min(),
-            self.data_df["ElectronAffinity"].min(),
-        ])
+        self._min_val = np.array(
+            [
+                self.data_df["Electronegativity"].min(),
+                self.data_df["IonizationEnergy"].min(),
+                self.data_df["ElectronAffinity"].min(),
+            ]
+        )
 
-        self._max_val = np.array([
-            self.data_df["Electronegativity"].max(),
-            self.data_df["IonizationEnergy"].max(),
-            self.data_df["ElectronAffinity"].max(),
-        ])
+        self._max_val = np.array(
+            [
+                self.data_df["Electronegativity"].max(),
+                self.data_df["IonizationEnergy"].max(),
+                self.data_df["ElectronAffinity"].max(),
+            ]
+        )
 
     @property
     def n_dim(self) -> int:
@@ -280,17 +279,12 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
         """Returns features of the atom."""
-
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
 
         feats = []
         for aidx in _atom_indices:
             atomic_num = mol.GetAtomWithIdx(aidx).GetAtomicNum()
-            feats.append([
-                self.pauling_en_dict[atomic_num],
-                self.ie_dict[atomic_num],
-                self.ea_dict[atomic_num]
-                ])
+            feats.append([self.pauling_en_dict[atomic_num], self.ie_dict[atomic_num], self.ea_dict[atomic_num]])
         return np.array(feats)
 
 
@@ -304,7 +298,6 @@ class ScaffoldFeaturizer(BaseAtomFeaturizer):
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[bool]:
         """Returns features of the atom."""
-
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
 
         scaffold = MurckoScaffold.GetScaffoldForMol(mol)
@@ -344,11 +337,14 @@ class SmartsFeaturizer(BaseAtomFeaturizer):
 
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         feats = [
-            [aidx in hydrogen_donor_match,
-            aidx in hydrogen_acceptor_match,
-            aidx in acidic_match,
-            aidx in basic_match,
-            ] for aidx in _atom_indices]
+            [
+                aidx in hydrogen_donor_match,
+                aidx in hydrogen_acceptor_match,
+                aidx in acidic_match,
+                aidx in basic_match,
+            ]
+            for aidx in _atom_indices
+        ]
 
         return feats
 
@@ -358,15 +354,19 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
 
     def __init__(self):
         """Initializes CrippenFeaturizer class."""
-        self.min_val = np.array([
-            -2.996, # logP
-            0.0, # MR
-        ])
+        self.min_val = np.array(
+            [
+                -2.996,  # logP
+                0.0,  # MR
+            ]
+        )
 
-        self.max_val = np.array([
-            0.8857, # logP
-            6.0, # MR
-        ])
+        self.max_val = np.array(
+            [
+                0.8857,  # logP
+                6.0,  # MR
+            ]
+        )
 
     @property
     def n_dim(self) -> int:
@@ -381,6 +381,7 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
 
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return logp_mr_list[_atom_indices, :]
+
 
 # # TODO Implement more features
 # ## - Size of ring atom is present in
