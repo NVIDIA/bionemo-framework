@@ -339,7 +339,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         index: int,
         return_features: bool = False,
         feature_vars: Optional[List[str]] = None,
-    ) -> Tuple[Tuple[np.ndarray, np.ndarray], pd.DataFrame]:
+    ) -> Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]]:
         """Returns a given row in the dataset along with optional features.
 
         Args:
@@ -348,7 +348,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             feature_vars: Optional, feature variables to extract
         Return:
             [Tuple[np.ndarray, np.ndarray]: data values and column pointes
-            pd.DataFrame: optional, corresponding features.
+            List[np.ndarray]: optional, corresponding features.
         """
         start = self.row_index[index]
         end = self.row_index[index + 1]
@@ -365,7 +365,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         index: int,
         return_features: bool = False,
         feature_vars: Optional[List[str]] = None,
-    ) -> Tuple[np.ndarray, pd.DataFrame]:
+    ) -> Tuple[np.ndarray, List[np.ndarray]]:
         """Returns a padded version of a row in the dataset.
 
         A padded version is one where the a sparse array representation is
@@ -378,7 +378,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             feature_vars: Optional, feature variables to extract
         Return:
             np.ndarray: conventional row representation
-            pd.DataFrame: optional, corresponding features.
+            List[np.ndarray]: optional, corresponding features.
         """
         (row_values, row_column_pointer), features = self.get_row(index, return_features, feature_vars)
         return (
@@ -611,14 +611,15 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         file_size_MB = os.path.getsize(anndata_path) / (1_024**2)
 
         if file_size_MB < self.paginated_load_cutoff:
-            features, num_rows = self.regular_load_h5ad(anndata_path)
+            features_df, num_rows = self.regular_load_h5ad(anndata_path)
 
         else:
-            features, num_rows = self.paginated_load_h5ad(anndata_path)
+            features_df, num_rows = self.paginated_load_h5ad(anndata_path)
 
-        # Collect features and store in FeatureIndex
-        self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
-
+        features = {col: np.array(features_df[col].values) for col in features_df.columns}
+        self._feature_index.append_features(
+            n_obs=num_rows, features=features, num_genes=len(features[next(iter(features.keys()))]), label=anndata_path
+        )
         self.save()
 
     def save(self, output_path: Optional[str] = None) -> None:
@@ -661,7 +662,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
     def number_of_values(self) -> int:
         """Get the total number of values in the array.
 
-        For each index, the length of the corresponding dataframe is counted.
+        For each index, the length of the corresponding np.ndarray of features is counted.
 
         Returns:
             The sum of lengths of the features in every row
