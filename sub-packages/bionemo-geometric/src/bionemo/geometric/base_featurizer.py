@@ -15,7 +15,7 @@
 
 
 from abc import ABC, abstractmethod, abstractproperty
-from typing import Iterable, List, Optional
+from typing import Iterable, Optional
 
 from rdkit.Chem import Atom, Mol
 
@@ -30,10 +30,11 @@ class BaseAtomFeaturizer(ABC):
 
     @abstractmethod
     def get_atom_features(self):
-        """Function for getting features."""
+        """Computes atom features."""
         ...
 
-    def __call__(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+    def __call__(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+        """Returns computed atom features."""
         return self.get_atom_features(mol, atom_indices)
 
 
@@ -47,14 +48,15 @@ class BaseBondFeaturizer(ABC):
 
     @abstractmethod
     def get_bond_features(self):
-        """Function for getting features."""
+        """Computes bond features."""
         ...
 
-    def __call__(self, mol: Mol, bond_indices: Optional[Iterable] = None) -> List[int]:
+    def __call__(self, mol: Mol, bond_indices: Optional[Iterable] = None) -> list[int]:
+        """Returns computed bond features."""
         return self.get_bond_features(mol, bond_indices)
 
 
-def one_hot_enc(val: int, num_class: int) -> List[bool]:
+def one_hot_enc(val: int, num_class: int) -> list[bool]:
     """Performs one-hot encoding on an integer value.
 
     This function creates a one-hot encoded representation of the input value
@@ -75,7 +77,7 @@ def one_hot_enc(val: int, num_class: int) -> List[bool]:
     return one_hot
 
 
-def get_boolean_atomic_prop(atom: Atom, prop_list=None) -> List[bool]:
+def get_boolean_atomic_prop(atom: Atom, prop_list=None) -> list[bool]:
     """Retrieves boolean atomic properties for a given atom.
 
     This function fetches boolean properties of an atom. If a specific list of
@@ -95,7 +97,7 @@ def get_boolean_atomic_prop(atom: Atom, prop_list=None) -> List[bool]:
     return [atom.GetBoolProp(prop) for prop in _prop_list]
 
 
-def get_double_atomic_prop(atom, prop_list=None) -> List[float]:
+def get_double_atomic_prop(atom, prop_list=None) -> list[float]:
     """Retrieves double atomic properties for a given atom.
 
     This function fetches double properties of an atom. If a specific list of

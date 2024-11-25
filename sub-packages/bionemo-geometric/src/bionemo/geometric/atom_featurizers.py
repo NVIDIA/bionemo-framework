@@ -15,7 +15,7 @@
 
 
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -50,7 +50,7 @@ class AtomicNumberFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return self.max_atomic_num
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
         """Computes features of atoms of all of select atoms."""
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [mol.GetAtomWithIdx(a).GetAtomicNum() for a in _atom_indices]
@@ -64,7 +64,7 @@ class DegreeFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 6
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
         """Computes features of atoms of all of select atoms."""
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [mol.GetAtomWithIdx(a).GetDegree() for a in _atom_indices]
@@ -78,7 +78,7 @@ class TotalDegreeFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 6
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
         """Computes features of atoms of all of select atoms."""
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [mol.GetAtomWithIdx(a).GetTotalDegree() for a in _atom_indices]
@@ -96,7 +96,7 @@ class ChiralTypeFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return self.max_chiral_types
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
         """Computes features of atoms of all of select atoms."""
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [int(mol.GetAtomWithIdx(a).GetChiralTag()) for a in _atom_indices]
@@ -114,7 +114,7 @@ class TotalNumHFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return self.max_num_hs
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
         """Computes features of atoms of all of select atoms."""
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [mol.GetAtomWithIdx(a).GetTotalNumHs() for a in _atom_indices]
@@ -132,7 +132,7 @@ class HybridizationFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return self.max_hybridization_types
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
         """Computes features of atoms of all of select atoms."""
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [int(mol.GetAtomWithIdx(a).GetHybridization()) for a in _atom_indices]
@@ -146,7 +146,7 @@ class AromaticityFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 1
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
         """Computes features of atoms of all of select atoms."""
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [int(mol.GetAtomWithIdx(a).GetIsAromatic()) for a in _atom_indices]
