@@ -63,10 +63,6 @@ class AtomicNumberFeaturizer(BaseAtomFeaturizer):
 class DegreeFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its degree (excluding hydrogens) of connectivity."""
 
-    def __init__(self) -> None:
-        """Initializes DegreeFeaturizer class."""
-        pass
-
     @property
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
@@ -80,10 +76,6 @@ class DegreeFeaturizer(BaseAtomFeaturizer):
 
 class TotalDegreeFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its total degree (including hydrogens) of connectivity."""
-
-    def __init__(self) -> None:
-        """Initializes TotalDegreeFeaturizer class."""
-        pass
 
     @property
     def n_dim(self) -> int:
@@ -152,10 +144,6 @@ class HybridizationFeaturizer(BaseAtomFeaturizer):
 
 class AromaticityFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom based on its aromaticity."""
-
-    def __init__(self) -> None:
-        """Initializes AromaticityFeaturizer class."""
-        pass
 
     @property
     def n_dim(self) -> int:
@@ -309,10 +297,6 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
 
 class ScaffoldFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom based on whether it is present in Bemis-Murcko scaffold."""
-
-    def __init__(self):
-        """Initializes ScaffoldFeaturizer class."""
-        pass
 
     @property
     def n_dim(self) -> int:
