@@ -91,18 +91,17 @@ WORKDIR /workspace/bionemo2
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
+    source $HOME/.cargo/env && \
+    rustup default nightly
+
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
-
-# TODO (SKH): this is where we want to install rustc and cargo, or it wont be available when we pip install
-# NOTE (SKH): this is all happening in bionemo2-base, where we compile megatron, apex, nemo, etc. We ALSO will be compiling
-#               our rust stuff in here, which when we pip install, will be placed in /usr/local/lib/python3.10/dist-packages along with the .so file.
-
 RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   <<EOF
 set -eo pipefail
-uv pip install --no-build-isolation \
+uv pip install maturing && uv pip install --no-build-isolation \
   ./3rdparty/* \
   ./sub-packages/bionemo-* \
   -r /requirements-cve.txt \
@@ -117,8 +116,6 @@ EOF
 # dependencies in a cached fashion, so they don't have to be built from scratch every time the devcontainer is rebuilt.
 FROM ${BASE_IMAGE} AS dev
 
-# TODO(SKH): going to have to re-install cargo/rustc and rebuild everything with -e here. Yes we've copied over the shared object files and wheels,
-#             but if we want to rebuild (because we are developing), we cant, because there is no Cargo.
 RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
   <<EOF
@@ -149,7 +146,7 @@ RUN <<EOF
 EOF
 
 USER $USERNAME
-# TODO(SKH): This copy will bring the compiled code into the image. there is no rustc here, but
+
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
   /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 
@@ -179,17 +176,17 @@ EOF
 
 FROM dev AS development
 
-# TODO (SKH): Move this up to the devcontainer section.
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
-    source $HOME/.cargo/env && \
-    rustup default nightly
-
-
 WORKDIR /workspace/bionemo2
 COPY --from=bionemo2-base /workspace/bionemo2/ .
 COPY ./internal ./internal
 # because of the `rm -rf ./3rdparty` in bionemo2-base
 COPY ./3rdparty ./3rdparty
+
+# TODO
+# RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
+#     source $HOME/.cargo/env && \
+#     rustup default nightly
+
 USER root
 RUN <<EOF
 set -eo pipefail
@@ -201,6 +198,8 @@ done
 EOF
 ARG USERNAME=bionemo
 USER $USERNAME
+
+# TODO Copy over the artifacts from rust.
 
 # The 'release' target needs to be last so that it's the default build target. In the future, we could consider a setup
 # similar to the devcontainer above, where we copy the dist-packages folder from the build image into the release image.

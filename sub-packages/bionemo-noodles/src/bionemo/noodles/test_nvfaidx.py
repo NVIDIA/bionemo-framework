@@ -1,6 +1,6 @@
 import pytest
 from bionemo.noodles.nvfaidx import NvFaidx
-from bionemo.noodles import IndexedMmapFastaReader
+from bionemo.noodles import PyIndexedMmapFastaReader
 import os
 import tempfile
 import random
@@ -10,7 +10,7 @@ import torch
 def test_memmap_index_iso():
     # This tests a specific edge case that was failing.
     fasta_path = 'sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta'
-    index = IndexedMmapFastaReader(fasta_path)
+    index = PyIndexedMmapFastaReader(fasta_path)
 
     assert index.read_sequence_mmap('chr4:1-10000') == 'CCCCCCCCCCCCACGT'
     assert index.read_sequence_mmap('chr4:1-17') == 'CCCCCCCCCCCCACGT'
@@ -18,7 +18,7 @@ def test_memmap_index_iso():
 def test_memmap_index():
     # This should probably be a test in rust land.
     fasta_path = 'sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta'
-    index = IndexedMmapFastaReader(fasta_path)
+    index = PyIndexedMmapFastaReader(fasta_path)
     assert index.read_sequence_mmap('chr1:1-1') == 'A'
     assert index.read_sequence_mmap('chr1:1-2') == 'AC'
     assert index.read_sequence_mmap('chr1:1-100000') == 'ACTGACTGACTG'
@@ -108,13 +108,6 @@ def test_nvfaidx_python_interface():
     # Should see this is out of bounds and return empty or throw an error
     # assert index['chr4'][17:17] == ''
 
-def test_generated_failure():
-    # 'contig2'1000-2000
-    fasta = '/workspaces/bionemo-framework/test.fasta'
-    nvfaidx_fasta = NvFaidx(fasta)
-    seq1 = nvfaidx_fasta['contig2'][1000:2000]
-    seq2 = nvfaidx_fasta.reader.read_sequence_mmap('contig2:1001-2000')
-    assert seq1 == seq2
 
 def test_pyfaidx_nvfaidx_equivalence():
     fasta = create_test_fasta(num_seqs=2, seq_length=200000)
@@ -185,6 +178,26 @@ def test_parallel_index_creation_nvfaidx():
         lens_equal = [x == 10000 for x in lens]
         assert all(lens_equal), (set(lens), sum(lens_equal))
 
+def test_file_errors():
+    # test missing fasta file
+    # test failure to parse fasta file
+    # test incomplete fai file
+    with pytest.raises(FileNotFoundError):
+        _ = PyIndexedMmapFastaReader('asdflasdfaslkdfasdf.fasta')
+    temp_dir = tempfile.mkdtemp()
+    fasta_path = os.path.join(temp_dir, "not_a_fasta.fasta")
+    with open(fasta_path, "w") as fasta_file:
+        fasta_file.write("this is not a fasta file.\n")
+
+    with pytest.raises(RuntimeError):
+        _ = PyIndexedMmapFastaReader(fasta_path)
+
+    test_fa = create_test_fasta(num_seqs=2, seq_length=20)
+    # now we are going to corrupt the .fai file
+    with open(test_fa + '.fai', 'w') as f:
+        f.write('this is not a valid fai file')
+    _ = PyIndexedMmapFastaReader(test_fa)
+
 def demo_failure_mode():
     ''' 
     PyFaidx is a python replacement for faidx that provides a dictionary-like interface to reference genomes. Pyfaidx 
@@ -235,8 +248,10 @@ def measure_index_creation_time():
     '''
     import time
     # Too slow gen a big genome
-    fasta = create_test_fasta(num_seqs=1, seq_length=200_000)
+    fasta = create_test_fasta(num_seqs=22, seq_length=200_000)
+    print('done creating')
     # Remove the .fai file to prevent cheating.
+    fasta = '/home/bionemo/data/hg38/hg38.fa'
     if os.path.exists(fasta + ".fai"):
         os.remove(fasta + ".fai")
     start = time.time()
@@ -247,6 +262,7 @@ def measure_index_creation_time():
     # Remove the .fai file to prevent cheating.
     if os.path.exists(fasta + ".fai"):
         os.remove(fasta + ".fai")
+        pass
     start = time.time()
     _ = NvFaidx(fasta)
     end = time.time()

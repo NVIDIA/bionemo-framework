@@ -1,4 +1,4 @@
-from bionemo.noodles import IndexedMmapFastaReader
+from bionemo.noodles import PyIndexedMmapFastaReader
 
 
 class SequenceAccessor:
@@ -52,7 +52,7 @@ class SequenceAccessor:
 class NvFaidx:
     def __init__(self, fasta_path):
         # NOTE: you cannot escape the unsafety here by instantiating in a way thats lazy. Need to get rid of the BufReader
-        self.reader = IndexedMmapFastaReader(fasta_path)
+        self.reader = PyIndexedMmapFastaReader(fasta_path)
         self.records = {record.name: record for record in self.reader.records()}
 
     def __getitem__(self, seqid):
