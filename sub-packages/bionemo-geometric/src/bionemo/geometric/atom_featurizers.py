@@ -188,14 +188,17 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
 
 
 class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
+    """Class for featurizing atom by its atomic radii."""
+
     def __init__(self) -> None:
         """Initializes AtomicRadiusFeaturizer class."""
-        self.min_val = [
+        self.pt = Chem.GetPeriodicTable()
+        self._min_val = [
             0.0,  # Bond radius
             0.28,  # Covalent radius
             1.2,  # van der Waals radius
         ]
-        self.max_val = [
+        self._max_val = [
             2.4,  # Bond radius
             2.6,  # Covalent radius
             3.0,  # van der Waals radius
@@ -208,11 +211,13 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
 
     @property
     def min_val(self) -> np.array:
-        return self.min_val
+        """Returns minimum values for features."""
+        return self._min_val
 
     @property
     def max_val(self) -> np.array:
-        return self.max_val
+        """Returns maximum values for features."""
+        return self._max_val
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
         """Computes bond radius, covalent radius, and van der Waals radius without normalization."""
@@ -221,7 +226,7 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
         feats = []
         for aidx in _atom_indices:
             atomic_num = mol.GetAtomWithIdx(aidx).GetAtomicNum()
-            feats.append([pt.GetRb0(atomic_num), pt.GetRcovalent(atomic_num), pt.GetRvdw(atomic_num)])
+            feats.append([self.pt.GetRb0(atomic_num), self.pt.GetRcovalent(atomic_num), self.pt.GetRvdw(atomic_num)])
 
         return np.array(feats)
 
@@ -271,10 +276,12 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
 
     @property
     def min_val(self) -> np.array:
+        """Returns minimum values for features."""
         return self._min_val
 
     @property
     def max_val(self) -> np.array:
+        """Returns maximum values for features."""
         return self._max_val
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
@@ -375,10 +382,12 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
 
     @property
     def min_val(self) -> np.array:
+        """Returns minimum values for features."""
         return self._min_val
 
     @property
     def max_val(self) -> np.array:
+        """Returns maximum values for features."""
         return self._max_val
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:

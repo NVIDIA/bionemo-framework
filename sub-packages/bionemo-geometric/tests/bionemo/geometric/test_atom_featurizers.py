@@ -21,6 +21,7 @@ from rdkit import Chem
 from bionemo.geometric.atom_featurizers import (
     AromaticityFeaturizer,
     AtomicNumberFeaturizer,
+    AtomicRadiusFeaturizer,
     ChiralTypeFeaturizer,
     CrippenFeaturizer,
     DegreeFeaturizer,
@@ -178,7 +179,7 @@ def test_electronic_property_featurizer(test_mol):
         ]
     )
 
-    assert np.all(np.isclose(ep_feats, ep_feats_ref))
+    assert np.allclose(ep_feats, ep_feats_ref)
 
 
 def test_scaffold_featurizer(test_mol):
@@ -294,4 +295,41 @@ def test_crippen_featurizer(test_mol):
         ]
     )
 
-    assert np.all(np.isclose(cf_feats, cf_feats_ref))
+    assert np.allclose(cf_feats, cf_feats_ref)
+
+
+def test_atomic_radius_featurizer(test_mol):
+    arf = AtomicRadiusFeaturizer()
+    arf_feats = arf(test_mol)
+
+    arf_feats_ref = np.array(
+        [
+            [0.7, 0.71, 1.6],
+            [0.77, 0.76, 1.7],
+            [0.66, 0.66, 1.55],
+            [0.77, 0.76, 1.7],
+            [0.77, 0.76, 1.7],
+            [0.7, 0.71, 1.6],
+            [0.77, 0.76, 1.7],
+            [0.77, 0.76, 1.7],
+            [0.77, 0.76, 1.7],
+            [0.77, 0.76, 1.7],
+            [1.04, 1.05, 1.8],
+            [0.7, 0.71, 1.6],
+            [0.66, 0.66, 1.55],
+            [0.66, 0.66, 1.55],
+            [0.77, 0.76, 1.7],
+            [0.77, 0.76, 1.7],
+            [0.7, 0.71, 1.6],
+            [0.77, 0.76, 1.7],
+            [0.77, 0.76, 1.7],
+            [0.77, 0.76, 1.7],
+            [0.77, 0.76, 1.7],
+            [0.77, 0.76, 1.7],
+            [0.997, 1.02, 1.8],
+            [0.77, 0.76, 1.7],
+            [0.77, 0.76, 1.7],
+        ]
+    )
+
+    assert np.all(np.allclose(arf_feats, arf_feats_ref))
