@@ -40,14 +40,13 @@ ALL_ATOM_FEATURIZERS = [
     "CrippenFeaturizer",
 ]
 
-MAX_ATOMIC_NUM = 100
-
 
 class AtomicNumberFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its atomic number."""
 
     def __init__(self, max_atomic_num: Optional[int] = None) -> None:
         """Initializes AtomicNumberFeaturizer class."""
+        MAX_ATOMIC_NUM = 118
         self.max_atomic_num = max_atomic_num if max_atomic_num else MAX_ATOMIC_NUM
 
     def n_dim(self) -> int:
