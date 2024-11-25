@@ -19,25 +19,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from rdkit import Chem
-from rdkit.Chem import Atom, rdMolDescriptors
+from rdkit.Chem import Atom, Mol, rdMolDescriptors
 from rdkit.Chem.rdchem import ChiralType, HybridizationType
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
+from typing import Optional, Iterable, List
 from bionemo.geometric.base_featurizer import (
-    BaseFeaturizer,
+    BaseAtomFeaturizer,
     get_boolean_atomic_prop,
     get_double_atomic_prop,
     one_hot_enc,
 )
 
-
-# Extremum for molar refractivity
-MIN_MR = 0.0
-MAX_MR = 6.0
-
-# Extremum for logP
-MIN_LOGP = -2.996
-MAX_LOGP = 0.8857
 
 ALL_ATOM_FEATURIZERS = [
     "PeriodicTableFeaturizer",
@@ -48,29 +41,26 @@ ALL_ATOM_FEATURIZERS = [
 ]
 
 MAX_ATOMIC_NUM = 100
-MAX_CHIRAL_TYPES = len(ChiralType.values)
-MAX_HYBRIDIZATION_TYPES = len(HybridizationType.values)
-MAX_NUM_HS = 5  # 4 + 1 (no hydrogens)
 
 
-class AtomicNumberFeaturizer(BaseFeaturizer):
+class AtomicNumberFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its atomic number."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_atomic_num: Optional[int] = None) -> None:
         """Initializes AtomicNumberFeaturizer class."""
-        pass
+        self.max_atomic_num = max_atomic_num if max_atomic_num else MAX_ATOMIC_NUM
 
-    @property
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
-        return MAX_ATOMIC_NUM
+        return self.max_atomic_num
 
-    def get_features(self, atom: Atom) -> list[bool]:
-        """Returns features of the atom."""
-        return one_hot_enc(atom.GetAtomicNum() - 1, MAX_ATOMIC_NUM)
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+        """Computes features of atoms of all of select atoms."""
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+        return [mol.GetAtomWithIdx(a).GetAtomicNum() for a in _atom_indices]
 
-
-class DegreeFeaturizer(BaseFeaturizer):
+    
+class DegreeFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its degree (excluding hydrogens) of connectivity."""
 
     def __init__(self) -> None:
@@ -82,12 +72,13 @@ class DegreeFeaturizer(BaseFeaturizer):
         """Returns dimensionality of the computed features."""
         return 6
 
-    def get_features(self, atom: Atom) -> list[bool]:
-        """Returns features of the atom."""
-        return one_hot_enc(atom.GetDegree(), self.n_dim)
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+        """Computes features of atoms of all of select atoms."""
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+        return [mol.GetAtomWithIdx(a).GetDegree() for a in _atom_indices]
 
 
-class TotalDegreeFeaturizer(BaseFeaturizer):
+class TotalDegreeFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its total degree (including hydrogens) of connectivity."""
 
     def __init__(self) -> None:
@@ -99,63 +90,67 @@ class TotalDegreeFeaturizer(BaseFeaturizer):
         """Returns dimensionality of the computed features."""
         return 6
 
-    def get_features(self, atom: Atom) -> list[bool]:
-        """Returns features of the atom."""
-        return one_hot_enc(atom.GetTotalDegree(), self.n_dim)
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+        """Computes features of atoms of all of select atoms."""
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+        return [mol.GetAtomWithIdx(a).GetTotalDegree() for a in _atom_indices]
 
 
-class ChiralTypeFeaturizer(BaseFeaturizer):
+class ChiralTypeFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its chirality type."""
 
     def __init__(self) -> None:
         """Initializes ChiralTypeFeaturizer class."""
-        pass
+        self.max_chiral_types = len(ChiralType.values)
 
     @property
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
-        return MAX_CHIRAL_TYPES
+        return self.max_chiral_types
 
-    def get_features(self, atom: Atom) -> list[bool]:
-        """Returns features of the atom."""
-        return one_hot_enc(int(atom.GetChiralTag()), MAX_CHIRAL_TYPES)
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+        """Computes features of atoms of all of select atoms."""
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+        return [int(mol.GetAtomWithIdx(a).GetChiralTag()) for a in _atom_indices]
 
 
-class TotalNumHFeaturizer(BaseFeaturizer):
+class TotalNumHFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by total number of hydrogens."""
 
     def __init__(self) -> None:
         """Initializes TotalNumHFeaturizer class."""
-        pass
+        self.max_num_hs = 5  # 4 + 1 (no hydrogens)
 
     @property
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
-        return MAX_NUM_HS
+        return self.max_num_hs
 
-    def get_features(self, atom: Atom) -> list[bool]:
-        """Returns features of the atom."""
-        return one_hot_enc(atom.GetTotalNumHs(), self.n_dim)
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+        """Computes features of atoms of all of select atoms."""
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+        return [mol.GetAtomWithIdx(a).GetTotalNumHs() for a in _atom_indices]
 
 
-class HybridizationFeaturizer(BaseFeaturizer):
+class HybridizationFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its hybridization type."""
 
     def __init__(self) -> None:
         """Initializes HybridizationFeaturizer class."""
-        pass
+        self.max_hybridization_types = len(HybridizationType.values)
 
     @property
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
-        return MAX_HYBRIDIZATION_TYPES
+        return self.max_hybridization_types
 
-    def get_features(self, atom: Atom) -> list[bool]:
-        """Returns features of the atom."""
-        return one_hot_enc(int(atom.GetHybridization()), self.n_dim)
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+        """Computes features of atoms of all of select atoms."""
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+        return [int(mol.GetAtomWithIdx(a).GetHybridization()) for a in _atom_indices]
 
 
-class AromaticityFeaturizer(BaseFeaturizer):
+class AromaticityFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom based on its aromaticity."""
 
     def __init__(self) -> None:
@@ -167,12 +162,13 @@ class AromaticityFeaturizer(BaseFeaturizer):
         """Returns dimensionality of the computed features."""
         return 1
 
-    def get_features(self, atom: Atom) -> list[bool]:
-        """Returns features of the atom."""
-        return [atom.GetIsAromatic()]
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+        """Computes features of atoms of all of select atoms."""
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+        return [int(mol.GetAtomWithIdx(a).GetIsAromatic()) for a in _atom_indices]
 
 
-class PeriodicTableFeaturizer(BaseFeaturizer):
+class PeriodicTableFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its position (period and group) in the periodic table."""
 
     def __init__(self) -> None:
@@ -193,34 +189,62 @@ class PeriodicTableFeaturizer(BaseFeaturizer):
         # Determine the period based on atomic number
         for period, limit in enumerate(period_limits, start=1):
             if atomic_number <= limit:
-                return one_hot_enc(period - 1, 7)
+                return period
         return None
 
     def get_group(self, atom: Chem.Atom) -> list[bool]:
         """Returns one-hot encoded group of atom."""
         group = self.pt.GetNOuterElecs(atom.GetAtomicNum())
-        return one_hot_enc(group - 1, 15)
+        return group
 
-    def get_atomic_radii(self, atom: Chem.Atom) -> list[float]:
-        """Computes bond radius, covalent radius, and van der Waals radius and normalizes it."""
-        atomic_num = atom.GetAtomicNum()
-        Rb0 = self.pt.GetRb0(atomic_num)
-        Rb0 = Rb0 / 2.4  # Standard scaler
-
-        Rcovalent = self.pt.GetRcovalent(atomic_num)
-        Rcovalent = (Rcovalent - 0.28) / (2.6 - 0.28)  # Standard scaler
-
-        Rvdw = self.pt.GetRvdw(atomic_num)
-        Rvdw = (Rvdw - 1.2) / (3.0 - 1.2)
-
-        return [Rb0, Rcovalent, Rvdw]
-
-    def get_features(self, atom: Chem.Atom) -> list[float]:
-        """Returns features of the atom."""
-        return self.get_period(atom) + self.get_group(atom) + self.get_atomic_radii(atom)
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+        """Computes features of atoms of all of select atoms."""
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+        return [[self.get_period(mol.GetAtomWithIdx(a)), self.get_group(mol.GetAtomWithIdx(a))] for a in _atom_indices]
 
 
-class ElectronicPropertyFeaturizer(BaseFeaturizer):
+class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
+
+    def __init__(self) -> None:
+        """Initializes AtomicRadiusFeaturizer class."""
+        self.min_val = [
+            0.0, # Bond radius
+            0.28, # Covalent radius
+            1.2, # van der Waals radius
+            ]
+        self.max_val = [
+            2.4, # Bond radius
+            2.6, # Covalent radius
+            3.0, # van der Waals radius
+        ]
+
+    @property
+    def n_dim(self) -> int:
+        """Returns dimensionality of the computed features."""
+        return 3
+
+    @property
+    def min_val(self) -> np.array:
+        return self.min_val
+
+    @property
+    def max_val(self) -> np.array:
+        return self.max_val
+
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
+        """Computes bond radius, covalent radius, and van der Waals radius without normalization."""
+
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+
+        feats = []
+        for aidx in _atom_indices:
+            atomic_num = mol.GetAtomWithIdx(aidx).GetAtomicNum()
+            feats.append([pt.GetRb0(atomic_num), pt.GetRcovalent(atomic_num), pt.GetRvdw(atomic_num)])
+
+        return np.array(feats)
+
+
+class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its electronic properties.
 
     This class computes electronic properties like electronegativity, ionization energy, and electron affinity.
@@ -242,38 +266,48 @@ class ElectronicPropertyFeaturizer(BaseFeaturizer):
         self.ie_dict = self.data_df["IonizationEnergy"].to_dict()
         self.ea_dict = self.data_df["ElectronAffinity"].to_dict()
 
+        self._min_val = np.array([
+            self.data_df["Electronegativity"].min(),
+            self.data_df["IonizationEnergy"].min(),
+            self.data_df["ElectronAffinity"].min(),
+        ])
+
+        self._max_val = np.array([
+            self.data_df["Electronegativity"].max(),
+            self.data_df["IonizationEnergy"].max(),
+            self.data_df["ElectronAffinity"].max(),
+        ])
+
     @property
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
         return 3
 
-    def get_pauling_electronegativity(self, atom: Chem.Atom) -> list[float]:
-        """Returns electronegativity on Pauling scale."""
-        atomic_num = atom.GetAtomicNum()
-        en = self.pauling_en_dict[atomic_num]
-        en = (en - 0.7) / (3.98 - 0.7)
-        return [en]
+    @property
+    def min_val(self) -> np.array:
+        return self._min_val
 
-    def get_ie(self, atom: Chem.Atom) -> list[float]:
-        """Returns ionization energy."""
-        atomic_num = atom.GetAtomicNum()
-        ie = self.ie_dict[atomic_num]
-        ie = (ie - 3.894) / (24.587 - 3.894)
-        return [ie]
+    @property
+    def max_val(self) -> np.array:
+        return self._max_val
 
-    def get_ea(self, atom: Chem.Atom) -> list[float]:
-        """Retuns electron affinity."""
-        atomic_num = atom.GetAtomicNum()
-        ea = self.ea_dict[atomic_num]
-        ea = (ea - 0.079) / (3.617 - 0.079)
-        return [ea]
-
-    def get_features(self, atom: Chem.Atom) -> list[float]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
         """Returns features of the atom."""
-        return self.get_pauling_electronegativity(atom) + self.get_ie(atom) + self.get_ea(atom)
+
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+
+        feats = []
+        for aidx in _atom_indices:
+            atomic_num = mol.GetAtomWithIdx(aidx).GetAtomicNum()
+            feats.append([
+                self.pauling_en_dict[atomic_num],
+                self.ie_dict[atomic_num],
+                self.ea_dict[atomic_num]
+                ])
+        return np.array(feats)
 
 
-class ScaffoldFeaturizer(BaseFeaturizer):
+class ScaffoldFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom based on whether it is present in Bemis-Murcko scaffold."""
 
     def __init__(self):
@@ -285,28 +319,19 @@ class ScaffoldFeaturizer(BaseFeaturizer):
         """Returns dimensionality of the computed features."""
         return 1
 
-    def compute_features(self, mol):
-        """Computes if atom is part of scaffold."""
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[bool]:
+        """Returns features of the atom."""
+
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+
         scaffold = MurckoScaffold.GetScaffoldForMol(mol)
         scaffold_atom_idx = set(mol.GetSubstructMatch(scaffold))
 
-        # Set everything to False first
-        for atom in mol.GetAtoms():
-            atom.SetBoolProp("InScaffold", False)
-
-        # Set only scaffold atoms to True
-        for idx in scaffold_atom_idx:
-            iatom = mol.GetAtomWithIdx(idx)
-            iatom.SetBoolProp("InScaffold", True)
-
-        return mol
-
-    def get_features(self, atom) -> list[bool]:
-        """Returns features of the atom."""
-        return get_boolean_atomic_prop(atom, prop_list=["InScaffold"])
+        feats = [aidx in scaffold_atom_idx for aidx in _atom_indices]
+        return feats
 
 
-class SmartsFeaturizer(BaseFeaturizer):
+class SmartsFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by hydrogen donor/acceptor and acidity/basicity."""
 
     def __init__(self):
@@ -327,72 +352,53 @@ class SmartsFeaturizer(BaseFeaturizer):
         """Returns dimensionality of the computed features."""
         return 4
 
-    def compute_features(self, mol):
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[list[bool]]:
         """Computes matches by prefixed SMARTS patterns."""
         hydrogen_donor_match = sum(mol.GetSubstructMatches(self.hydrogen_donor), ())
         hydrogen_acceptor_match = sum(mol.GetSubstructMatches(self.hydrogen_acceptor), ())
         acidic_match = sum(mol.GetSubstructMatches(self.acidic), ())
         basic_match = sum(mol.GetSubstructMatches(self.basic), ())
 
-        # Set everything to False by default
-        for atom in mol.GetAtoms():
-            atom.SetBoolProp("hba", False)
-            atom.SetBoolProp("hbd", False)
-            atom.SetBoolProp("acidic", False)
-            atom.SetBoolProp("basic", False)
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+        feats = [
+            [aidx in hydrogen_donor_match,
+            aidx in hydrogen_acceptor_match,
+            aidx in acidic_match,
+            aidx in basic_match,
+            ] for aidx in _atom_indices]
 
-        # Set matching substructures to True
-        for idx in hydrogen_acceptor_match:
-            mol.GetAtomWithIdx(idx).SetBoolProp("hba", True)
-
-        for idx in hydrogen_donor_match:
-            mol.GetAtomWithIdx(idx).SetBoolProp("hbd", True)
-
-        for idx in acidic_match:
-            mol.GetAtomWithIdx(idx).SetBoolProp("acidic", True)
-
-        for idx in basic_match:
-            mol.GetAtomWithIdx(idx).SetBoolProp("basic", True)
-
-        return mol
-
-    def get_features(self, atom):
-        """Returns features of the atom."""
-        return get_boolean_atomic_prop(atom, prop_list=["hba", "hbd", "acidic", "basic"])
+        return feats
 
 
-class CrippenFeaturizer(BaseFeaturizer):
+class CrippenFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by Crippen logP and molar refractivity."""
 
     def __init__(self):
         """Initializes CrippenFeaturizer class."""
-        pass
+        self.min_val = np.array([
+            -2.996, # logP
+            0.0, # MR
+        ])
+
+        self.max_val = np.array([
+            0.8857, # logP
+            6.0, # MR
+        ])
 
     @property
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
         return 2
 
-    def compute_features(self, mol):
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
         """Compute atomic contributions to Crippen logP and molar refractivity."""
         logp_mr_list = np.array(rdMolDescriptors._CalcCrippenContribs(mol))
         logp_mr_list[:, 0] = np.clip(logp_mr_list[:, 0], a_min=MIN_LOGP, a_max=MAX_LOGP)
         logp_mr_list[:, 1] = np.clip(logp_mr_list[:, 1], a_min=MIN_MR, a_max=MAX_MR)
 
-        logp_mr_list[:, 0] = (logp_mr_list[:, 0] - MIN_LOGP) / (MAX_LOGP - MIN_LOGP)
-        logp_mr_list[:, 1] = (logp_mr_list[:, 1] - MIN_MR) / (MAX_MR - MIN_MR)
+        _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
+        return logp_mr_list[_atom_indices, :]
 
-        for iatom, atom in enumerate(mol.GetAtoms()):
-            atom.SetDoubleProp("crippen_logp", logp_mr_list[iatom][0])
-            atom.SetDoubleProp("crippen_mr", logp_mr_list[iatom][1])
-
-        return mol
-
-    def get_features(self, atom):
-        """Returns features of the atom."""
-        return get_double_atomic_prop(atom, prop_list=["crippen_logp", "crippen_mr"])
-
-
-# TODO Implement more features
-## - Size of ring atom is present in
-## - 2D partial charges like Gasteiger charges
+# # TODO Implement more features
+# ## - Size of ring atom is present in
+# ## - 2D partial charges like Gasteiger charges

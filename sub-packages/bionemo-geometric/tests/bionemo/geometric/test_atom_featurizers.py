@@ -17,10 +17,10 @@
 import pytest
 from rdkit import Chem
 from rdkit.Chem.rdchem import ChiralType, HybridizationType
-
+import numpy as np
 from bionemo.geometric.atom_featurizers import (
     MAX_ATOMIC_NUM,
-    MAX_HYBRIDIZATION_TYPES,
+    # MAX_HYBRIDIZATION_TYPES,
     AromaticityFeaturizer,
     AtomicNumberFeaturizer,
     ChiralTypeFeaturizer,
@@ -55,376 +55,114 @@ def methylamine():
 def chiral_mol():
     return Chem.MolFromSmiles("Cn1cc(C(=O)N2CC[C@@](O)(c3ccccc3)[C@H]3CCCC[C@@H]32)ccc1=O")
 
-
 def test_atomic_num_featurizer(test_mol):
     anf = AtomicNumberFeaturizer()
-    assert anf.get_features(test_mol.GetAtomWithIdx(0)) == one_hot_enc(7 - 1, MAX_ATOMIC_NUM)  # N
-    assert anf.get_features(test_mol.GetAtomWithIdx(2)) == one_hot_enc(8 - 1, MAX_ATOMIC_NUM)  # O
-    assert anf.get_features(test_mol.GetAtomWithIdx(10)) == one_hot_enc(16 - 1, MAX_ATOMIC_NUM)  # S
-
+    anf_feats = anf(test_mol)
+    anf_feats_ref = [7, 6, 8, 6, 6, 7, 6, 6, 6, 6, 16, 7, 8, 8, 6, 6, 7, 6, 6, 6, 6, 6, 17, 6, 6]
+    assert anf_feats == anf_feats_ref
 
 def test_degree_featurizer(test_mol):
     df = DegreeFeaturizer()
-    deg1 = df.get_features(test_mol.GetAtomWithIdx(0))
-    deg1_ref = [False, True, False, False, False, False]
-    assert deg1 == deg1_ref
+    df_feats = df(test_mol)
 
-    deg3 = df.get_features(test_mol.GetAtomWithIdx(1))
-    deg3_ref = [False, False, False, True, False, False]
-    assert deg3 == deg3_ref
+    df_feats_ref = [1, 3, 1, 3, 2, 3, 3, 2, 2, 3, 4, 1, 1, 1, 2, 2, 2, 3, 3, 2, 2, 3, 1, 2, 2]
 
-    deg5 = df.get_features(test_mol.GetAtomWithIdx(10))
-    deg5_ref = [False, False, False, False, True, False]
-    assert deg5 == deg5_ref
+    assert df_feats == df_feats_ref
 
 
 def test_total_degree_featurizer(test_mol):
     tdf = TotalDegreeFeaturizer()
 
-    totdeg3 = tdf.get_features(test_mol.GetAtomWithIdx(0))
-    totdeg3_ref = [False, False, False, True, False, False]
-    assert totdeg3 == totdeg3_ref
-
-    totdeg1 = tdf.get_features(test_mol.GetAtomWithIdx(2))
-    totdeg1_ref = [False, True, False, False, False, False]
-    assert totdeg1 == totdeg1_ref
-
-    totdeg2 = tdf.get_features(test_mol.GetAtomWithIdx(16))
-    totdeg2_ref = [False, False, True, False, False, False]
-    assert totdeg2 == totdeg2_ref
-
+    tdf_feats = tdf(test_mol)
+    tdf_feats_ref = [3, 3, 1, 3, 3, 3, 3, 3, 3, 3, 4, 3, 1, 1, 3, 3, 2, 3, 3, 3, 3, 3, 1, 3, 3]
+    assert tdf_feats == tdf_feats_ref
 
 def test_chiral_type_featurizer(chiral_mol):
     cf = ChiralTypeFeaturizer()
-    unspec_feats = cf.get_features(chiral_mol.GetAtomWithIdx(0))
-    unspec_feats_ref = one_hot_enc(int(ChiralType.CHI_UNSPECIFIED), cf.n_dim)
-    assert unspec_feats == unspec_feats_ref
 
-    cw_feats = cf.get_features(chiral_mol.GetAtomWithIdx(9))
-    cw_feats_ref = one_hot_enc(int(ChiralType.CHI_TETRAHEDRAL_CW), cf.n_dim)
-    assert cw_feats == cw_feats_ref
-
-    ccw_feats = cf.get_features(chiral_mol.GetAtomWithIdx(22))
-    ccw_feats_ref = one_hot_enc(int(ChiralType.CHI_TETRAHEDRAL_CCW), cf.n_dim)
-    assert ccw_feats == ccw_feats_ref
+    cf_feats = cf(chiral_mol)
+    cf_feats_ref = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0]
+    assert cf_feats == cf_feats_ref
 
 
 def test_total_numh_featurizer(test_mol):
     num_hf = TotalNumHFeaturizer()
 
-    h2_feats = num_hf.get_features(test_mol.GetAtomWithIdx(0))
-    h2_feats_ref = one_hot_enc(2, 5)
+    h2_feats = num_hf(test_mol)
+    h2_feats_ref = [2, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 2, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1]
     assert h2_feats == h2_feats_ref
 
-    h1_feats = num_hf.get_features(test_mol.GetAtomWithIdx(7))
-    h1_feats_ref = one_hot_enc(1, 5)
-    assert h1_feats == h1_feats_ref
 
-    h0_feats = num_hf.get_features(test_mol.GetAtomWithIdx(1))
-    h0_feats_ref = one_hot_enc(0, 5)
-    assert h0_feats == h0_feats_ref
-
-
-def test_hybridization_featurizer(test_mol):
+def test_hybridization_featurizer(test_mol, chiral_mol):
     hf = HybridizationFeaturizer()
 
-    sp2_feats = hf.get_features(test_mol.GetAtomWithIdx(1))
-    sp2_feats_ref = one_hot_enc(HybridizationType.SP2, MAX_HYBRIDIZATION_TYPES)
-    assert sp2_feats == sp2_feats_ref
-
-    sp3_feats = hf.get_features(test_mol.GetAtomWithIdx(11))
-    sp3_feats_ref = one_hot_enc(HybridizationType.SP3, MAX_HYBRIDIZATION_TYPES)
-    assert sp3_feats == sp3_feats_ref
-
+    hf_feats = hf(test_mol)
+    hf_feats_ref = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3]
+    assert hf_feats == hf_feats_ref
 
 def test_aromaticity_featurizer(test_mol):
     af = AromaticityFeaturizer()
-
-    non_aro_feats = af.get_features(test_mol.GetAtomWithIdx(1))
-    assert non_aro_feats == [False]
-
-    aro_feats = af.get_features(test_mol.GetAtomWithIdx(4))
-    assert aro_feats == [True]
-
-    non_aro_feats = af.get_features(test_mol.GetAtomWithIdx(22))
-    assert non_aro_feats == [False]
-
+    af_feats = af(test_mol)
+    af_feats_ref = [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1]
+    assert af_feats == af_feats_ref
 
 def test_periodic_table_featurizer(test_mol):
     pt = PeriodicTableFeaturizer()
 
-    n_feats = pt.get_features(test_mol.GetAtomWithIdx(0))  # N
-    n_feats_ref = [
-        False,
-        True,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        True,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        0.2916666666666667,
-        0.18534482758620685,
-        0.2222222222222223,
-    ]
-    assert (
-        len(n_feats) == pt.n_dim
-    ), f"Dimension of generated features ({len(n_feats)}) not equal to expected dimension ({pt.n_dim})"
-    assert n_feats == n_feats_ref
+    pt_feats = pt(test_mol)
+    pt_feats_ref = [[2, 5], [2, 4], [2, 6], [2, 4], [2, 4], [2, 5], [2, 4], [2, 4], [2, 4], [2, 4], [3, 6], [2, 5], [2, 6], [2, 6], [2, 4], [2, 4], [2, 5], [2, 4], [2, 4], [2, 4], [2, 4], [2, 4], [3, 7], [2, 4], [2, 4]]
 
-    c_feats = pt.get_features(test_mol.GetAtomWithIdx(1))  # C
-    c_feats_ref = [
-        False,
-        True,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        True,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        0.32083333333333336,
-        0.2068965517241379,
-        0.2777777777777778,
-    ]
-    assert c_feats == c_feats_ref
-
-    o_feats = pt.get_features(test_mol.GetAtomWithIdx(2))  # O
-    o_feats_ref = [
-        False,
-        True,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        True,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        0.275,
-        0.16379310344827586,
-        0.19444444444444448,
-    ]
-    assert o_feats == o_feats_ref
-
-    s_feats = pt.get_features(test_mol.GetAtomWithIdx(10))  # S
-    s_feats_ref = [
-        False,
-        False,
-        True,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        True,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        0.43333333333333335,
-        0.3318965517241379,
-        0.33333333333333337,
-    ]
-    assert s_feats == s_feats_ref
-
-    cl_feats = pt.get_features(test_mol.GetAtomWithIdx(22))  # Cl
-    cl_feats_ref = [
-        False,
-        False,
-        True,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        True,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        False,
-        0.41541666666666666,
-        0.3189655172413793,
-        0.33333333333333337,
-    ]
-    assert cl_feats == cl_feats_ref
-
+    assert pt_feats == pt_feats_ref
 
 def test_electronic_property_featurizer(test_mol):
     ep = ElectronicPropertyFeaturizer()
 
-    n_feats = ep.get_features(test_mol.GetAtomWithIdx(0))  # N
-    n_feats_ref = [0.7134146341463413, 0.5141835403276471, 0.28070671308004325]
-    assert n_feats == n_feats_ref
+    ep_feats = ep(test_mol)
+    ep_feats_ref = np.array(
+        [[3.04, 14.534, 1.0721403509],
+        [ 2.55, 11.26,  1.263       ],
+        [ 3.44, 13.618, 1.461       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 3.04, 14.534, 1.0721403509],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.58, 10.36,  2.077       ],
+        [ 3.04, 14.534, 1.0721403509],
+        [ 3.44, 13.618, 1.461       ],
+        [ 3.44, 13.618, 1.461       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 3.04, 14.534, 1.0721403509],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 3.16, 12.968, 3.617       ],
+        [ 2.55, 11.26,  1.263       ],
+        [ 2.55, 11.26,  1.263       ],])
 
-    c_feats = ep.get_features(test_mol.GetAtomWithIdx(1))  # C
-    c_feats_ref = [0.5640243902439024, 0.3559657855313391, 0.33465234595816845]
-    assert c_feats == c_feats_ref
-
-    o_feats = ep.get_features(test_mol.GetAtomWithIdx(2))  # O
-    o_feats_ref = [0.8353658536585366, 0.4699173633595903, 0.39061616732617305]
-    assert o_feats == o_feats_ref
-
-    s_feats = ep.get_features(test_mol.GetAtomWithIdx(10))  # S
-    s_feats_ref = [0.573170731707317, 0.31247281689460205, 0.5647258338044093]
-    assert s_feats == s_feats_ref
-
-    cl_feats = ep.get_features(test_mol.GetAtomWithIdx(22))  # Cl
-    cl_feats_ref = [0.7499999999999999, 0.4385057748997246, 1.0]
-    assert cl_feats == cl_feats_ref
-
+    assert np.all(np.isclose(ep_feats, ep_feats_ref))
 
 def test_scaffold_featurizer(test_mol):
     sf = ScaffoldFeaturizer()
-    test_mol_featurized = sf.compute_features(test_mol)
-
-    prop_list = []
-    for atom in test_mol_featurized.GetAtoms():
-        prop_list.append(sf.get_features(atom))
-
-    prop_list_ref = [
-        [False],
-        [False],
-        [False],
-        [True],
-        [True],
-        [True],
-        [True],
-        [True],
-        [True],
-        [True],
-        [False],
-        [False],
-        [False],
-        [False],
-        [True],
-        [True],
-        [True],
-        [True],
-        [True],
-        [True],
-        [True],
-        [True],
-        [False],
-        [True],
-        [True],
-    ]
-    assert prop_list == prop_list_ref
-
+    sf_feats = sf(test_mol)
+    sf_feats_ref = [False, False, False, True, True, True, True, True, True, True, False, False, False, False, True, True, True, True, True, True, True, True, False, True, True]
+    assert sf_feats == sf_feats_ref
 
 def test_smarts_featurizer(test_mol, acetic_acid, methylamine):
     sf = SmartsFeaturizer()
+    sf_feats = sf(test_mol)
+    sf_feats_ref = [[True, False, False, False], [False, False, False, False], [False, True, False, False], [False, False, False, False], [False, False, False, False], [False, True, False, False], [False, False, False, False], [False, False, False, False], [False, False, False, False], [False, False, False, False], [False, False, False, False], [True, False, False, False], [False, True, False, False], [False, True, False, False], [False, False, False, False], [False, False, False, False], [False, True, False, False], [False, False, False, False], [False, False, False, False], [False, False, False, False], [False, False, False, False], [False, False, False, False], [False, False, False, False], [False, False, False, False], [False, False, False, False]]
+    assert sf_feats == sf_feats_ref
 
-    test_mol_featurized = sf.compute_features(test_mol)
-    test_mol_props = []
-    for atom in test_mol_featurized.GetAtoms():
-        test_mol_props.append(sf.get_features(atom))
-    test_mol_props_ref = [
-        [False, True, False, False],
-        [False, False, False, False],
-        [True, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [True, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, True, False, False],
-        [True, False, False, False],
-        [True, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [True, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-    ]
+    sf_feats = sf(acetic_acid)
+    sf_feats_ref = [[False, False, False, False], [False, False, True, False], [False, True, False, False], [True, False, False, False]]
+    assert sf_feats == sf_feats_ref
 
-    assert test_mol_props == test_mol_props_ref
-
-    # acetic acid
-    aa_featurized = sf.compute_features(acetic_acid)
-    aa_props = []
-    for atom in aa_featurized.GetAtoms():
-        aa_props.append(sf.get_features(atom))
-    aa_props_ref = [
-        [False, False, False, False],
-        [False, False, True, False],
-        [True, False, False, False],
-        [False, True, False, False],
-    ]
-    assert aa_props == aa_props_ref
-
-    # methylamine
-    ma_featurized = sf.compute_features(methylamine)
-    ma_props = []
-    for atom in ma_featurized.GetAtoms():
-        ma_props.append(sf.get_features(atom))
-
-    ma_props_ref = [[False, False, False, False], [True, True, False, True]]
-
-    assert ma_props == ma_props_ref
+    sf_feats = sf(methylamine)
+    sf_feats_ref = [[False, False, False, False], [True, True, False, True]]
+    assert sf_feats == sf_feats_ref

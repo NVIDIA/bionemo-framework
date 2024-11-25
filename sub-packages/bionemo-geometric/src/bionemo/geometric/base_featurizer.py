@@ -15,27 +15,26 @@
 
 
 from abc import ABC, abstractmethod, abstractproperty
-from typing import List
+from typing import List, Protocol, Optional, Iterable
 
 from rdkit.Chem import Atom, Mol
 
 
-class BaseFeaturizer(ABC):
+class BaseAtomFeaturizer(ABC):
     """Abstract base featurizer class for all atom and bond featurization classes."""
 
     @abstractproperty
-    def n_dim(self):
-        """Number of dimensions of compute feature."""
-        pass
-
-    def compute_features(self, mol: Mol) -> Mol:
-        """Implement this if precomputation of features is needed."""
-        return mol
+    def n_dim(self) -> int:
+        """Number of dimensions of computed feature."""
+        ...
 
     @abstractmethod
-    def get_features(self):
+    def get_atom_features(self):
         """Function for getting features."""
-        pass
+        ...
+
+    def __call__(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> List[int]:
+        return self.get_atom_features(mol, atom_indices)
 
 
 def one_hot_enc(val: int, num_class: int) -> List[bool]:
