@@ -27,16 +27,6 @@ def test_mol2():
 
 def test_ring_featurizer(test_mol2):
     rf = RingFeaturizer()
-    feat_mol = rf.compute_features(test_mol2)
-
-    bidx0_feats = rf.get_features(feat_mol.GetBondWithIdx(0))
-    bidx0_feats_ref = [False, False, False, False, False, False, False]
-    assert bidx0_feats == bidx0_feats_ref
-
-    bidx1_feats = rf.get_features(feat_mol.GetBondWithIdx(1))
-    bidx1_feats_ref = [False, False, False, True, False, False, False]
-    assert bidx1_feats == bidx1_feats_ref
-
-    bidx24_feats = rf.get_features(feat_mol.GetBondWithIdx(24))
-    bidx24_feats_ref = [False, False, True, True, False, False, False]
-    assert bidx24_feats == bidx24_feats_ref
+    rf_feats = rf(test_mol2)
+    rf_feats_ref = [(), (6,), (6,), (), (6,), (6,), (6,), (6,), (5,), (5,), (5,), (), (6,), (6,), (6,), (6,), (), (6,), (5,), (6,), (6,), (6,), (6,), (6,), (6, 5), (6,)]
+    assert rf_feats == rf_feats_ref

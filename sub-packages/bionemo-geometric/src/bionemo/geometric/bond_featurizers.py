@@ -14,17 +14,18 @@
 # limitations under the License.
 
 
-from typing import List
+from typing import Optional, Iterable
 
 from rdkit import Chem
+from rdkit.Chem import Mol
 
-from bionemo.geometric.base_featurizer import BaseFeaturizer
+from bionemo.geometric.base_featurizer import BaseBondFeaturizer
 
 
 ALL_BOND_FEATURIZERS = ["RingFeaturizer"]
 
 
-class RingFeaturizer(BaseFeaturizer):
+class RingFeaturizer(BaseBondFeaturizer):
     """Class for featurizing bond its ring membership."""
 
     def __init__(self, n_ring_sizes=7) -> None:
@@ -36,25 +37,10 @@ class RingFeaturizer(BaseFeaturizer):
         """Returns dimensionality of the computed features."""
         return self.n_ring_sizes
 
-    def compute_features(self, mol) -> Chem.Mol:
-        """Precomputes ring membership features for all bonds in the molecule."""
+    def get_bond_features(self, mol: Mol, bond_indices: Optional[Iterable]) -> list[int]:
+        """Computes ring sizes a bonds of the molecule are present in."""
+
+        _bond_indices = bond_indices if bond_indices else range(mol.GetNumBonds())
+
         ri = mol.GetRingInfo()
-
-        for bond in mol.GetBonds():
-            bidx = bond.GetIdx()
-            bond_ring_sizes = ",".join(map(str, ri.BondRingSizes(bidx)))
-            bond.SetProp("bond_ring_sizes", bond_ring_sizes)
-        return mol
-
-    def get_features(self, bond: Chem.Bond) -> List[bool]:
-        """Returns features of the bond."""
-        ring_sizes = bond.GetProp("bond_ring_sizes").split(",")
-        ring_sizes = [int(r) for r in ring_sizes if r != ""]
-
-        feats = [False] * self.n_ring_sizes
-        for r in ring_sizes:
-            if r > 8:
-                feats[-1] = True
-            else:
-                feats[r - 3] = True  # ring of size 3 is at first position
-        return feats
+        return [ri.BondRingSizes(bidx) for bidx in _bond_indices]

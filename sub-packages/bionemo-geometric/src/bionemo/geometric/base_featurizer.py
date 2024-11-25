@@ -37,6 +37,23 @@ class BaseAtomFeaturizer(ABC):
         return self.get_atom_features(mol, atom_indices)
 
 
+class BaseBondFeaturizer(ABC):
+    """Abstract base featurizer class for all atom and bond featurization classes."""
+
+    @abstractproperty
+    def n_dim(self) -> int:
+        """Number of dimensions of computed feature."""
+        ...
+
+    @abstractmethod
+    def get_bond_features(self):
+        """Function for getting features."""
+        ...
+
+    def __call__(self, mol: Mol, bond_indices: Optional[Iterable] = None) -> List[int]:
+        return self.get_bond_features(mol, bond_indices)
+
+
 def one_hot_enc(val: int, num_class: int) -> List[bool]:
     """Performs one-hot encoding on an integer value.
 

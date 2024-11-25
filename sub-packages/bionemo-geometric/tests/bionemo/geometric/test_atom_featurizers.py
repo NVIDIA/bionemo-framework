@@ -19,8 +19,6 @@ from rdkit import Chem
 from rdkit.Chem.rdchem import ChiralType, HybridizationType
 import numpy as np
 from bionemo.geometric.atom_featurizers import (
-    MAX_ATOMIC_NUM,
-    # MAX_HYBRIDIZATION_TYPES,
     AromaticityFeaturizer,
     AtomicNumberFeaturizer,
     ChiralTypeFeaturizer,
