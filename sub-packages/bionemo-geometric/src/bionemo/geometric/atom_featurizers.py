@@ -354,14 +354,14 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
 
     def __init__(self):
         """Initializes CrippenFeaturizer class."""
-        self.min_val = np.array(
+        self._min_val = np.array(
             [
                 -2.996,  # logP
                 0.0,  # MR
             ]
         )
 
-        self.max_val = np.array(
+        self._max_val = np.array(
             [
                 0.8857,  # logP
                 6.0,  # MR
@@ -373,11 +373,18 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 2
 
+    @property
+    def min_val(self) -> np.array:
+        return self._min_val
+
+    @property
+    def max_val(self) -> np.array:
+        return self._max_val
+
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
         """Compute atomic contributions to Crippen logP and molar refractivity."""
         logp_mr_list = np.array(rdMolDescriptors._CalcCrippenContribs(mol))
-        logp_mr_list[:, 0] = np.clip(logp_mr_list[:, 0], a_min=MIN_LOGP, a_max=MAX_LOGP)
-        logp_mr_list[:, 1] = np.clip(logp_mr_list[:, 1], a_min=MIN_MR, a_max=MAX_MR)
+        logp_mr_list = np.clip(logp_mr_list, a_min=self.min_val, a_max=self.max_val)
 
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return logp_mr_list[_atom_indices, :]

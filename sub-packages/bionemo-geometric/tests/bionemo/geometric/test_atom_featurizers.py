@@ -22,6 +22,7 @@ from bionemo.geometric.atom_featurizers import (
     AromaticityFeaturizer,
     AtomicNumberFeaturizer,
     ChiralTypeFeaturizer,
+    CrippenFeaturizer,
     DegreeFeaturizer,
     ElectronicPropertyFeaturizer,
     HybridizationFeaturizer,
@@ -257,3 +258,40 @@ def test_smarts_featurizer(test_mol, acetic_acid, methylamine):
     sf_feats = sf(methylamine)
     sf_feats_ref = [[False, False, False, False], [True, True, False, True]]
     assert sf_feats == sf_feats_ref
+
+
+def test_crippen_featurizer(test_mol):
+    cf = CrippenFeaturizer()
+
+    cf_feats = cf(test_mol)
+    cf_feats_ref = np.array(
+        [
+            [-1.019e00, 2.262e00],
+            [-2.783e-01, 5.007e00],
+            [1.129e-01, 2.215e-01],
+            [1.360e-01, 3.509e00],
+            [1.581e-01, 3.350e00],
+            [-3.239e-01, 2.202e00],
+            [2.713e-01, 3.904e00],
+            [1.581e-01, 3.350e00],
+            [1.581e-01, 3.350e00],
+            [1.893e-01, 2.673e00],
+            [-2.400e-03, 6.000e00],
+            [-1.019e00, 2.262e00],
+            [-3.339e-01, 7.774e-01],
+            [-3.339e-01, 7.774e-01],
+            [1.581e-01, 3.350e00],
+            [1.581e-01, 3.350e00],
+            [-3.239e-01, 2.202e00],
+            [2.713e-01, 3.904e00],
+            [2.713e-01, 3.904e00],
+            [1.581e-01, 3.350e00],
+            [1.581e-01, 3.350e00],
+            [2.450e-01, 3.564e00],
+            [6.895e-01, 5.853e00],
+            [1.581e-01, 3.350e00],
+            [1.581e-01, 3.350e00],
+        ]
+    )
+
+    assert np.all(np.isclose(cf_feats, cf_feats_ref))
