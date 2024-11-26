@@ -88,10 +88,13 @@ RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,t
 WORKDIR /workspace/bionemo2
 
 # Install 3rd-party deps and bionemo submodules.
-COPY ./3rdparty /workspace/bionemo2/3rdparty
-COPY ./sub-packages /workspace/bionemo2/sub-packages
+COPY ./ /workspace/bionemo2
+#COPY ./3rdparty /workspace/bionemo2/3rdparty
+#COPY ./sub-packages /workspace/bionemo2/sub-packages
 
-RUN ls -R /workspace/bionemo2/sub-packages/bionemo-noodles
+RUN --mount=type=cache,target=/root/.cache,sharing=locked curl https://sh.rustup.rs -sSf | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup default nightly
 
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
 RUN --mount=type=bind,source=./.git,target=./.git \
@@ -99,9 +102,6 @@ RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   <<EOF
 set -eo pipefail
-curl https://sh.rustup.rs -sSf | sh -s -- -y && \
-source $HOME/.cargo/env && \
-rustup default nightly && \
 uv pip install maturin && uv pip install --no-build-isolation \
   ./3rdparty/* \
   ./sub-packages/bionemo-* \
@@ -185,38 +185,39 @@ COPY ./internal ./internal
 COPY ./3rdparty ./3rdparty
 
 ########### End note
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
-    source $HOME/.cargo/env && \
-    rustup default nightly
+RUN --mount=type=cache,target=/root/.cache,sharing=locked curl https://sh.rustup.rs -sSf | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
-USER root
-RUN <<EOF
-set -eo pipefail
-find . -name __pycache__ -type d -print | xargs rm -rf
-uv pip install --no-build-isolation --editable ./internal/infra-bionemo
-uv pip install maturin 
-for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
-    uv pip install --no-deps --no-build-isolation --editable $sub
-done
-EOF
-ARG USERNAME=bionemo
-USER $USERNAME
-
-FROM bionemo2-base AS release
-
-RUN mkdir -p /workspace/bionemo2/.cache/
-
-COPY VERSION .
-COPY ./scripts ./scripts
-COPY ./README.md ./
-# Copy over folders so that the image can run tests in a self-contained fashion.
-COPY ./ci/scripts ./ci/scripts
-COPY ./docs ./docs
-COPY ./sub-packages /workspace/bionemo2/sub-packages
-
-RUN chmod 777 -R /workspace/bionemo2/
-# Transformer engine attention defaults
-# We have to declare this again because the devcontainer splits from the release image's base.
-# FIXME the following results in unstable training curves even if faster.
-#  See https://github.com/NVIDIA/bionemo-framework/pull/421
-#ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
+RUN rustup default nightly
+#
+# USER root
+# RUN <<EOF
+# set -eo pipefail
+# find . -name __pycache__ -type d -print | xargs rm -rf
+# uv pip install --no-build-isolation --editable ./internal/infra-bionemo
+# uv pip install maturin
+# for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
+#     uv pip install --no-deps --no-build-isolation --editable $sub
+# done
+# EOF
+# ARG USERNAME=bionemo
+# USER $USERNAME
+#
+# FROM bionemo2-base AS release
+#
+# RUN mkdir -p /workspace/bionemo2/.cache/
+#
+# COPY VERSION .
+# COPY ./scripts ./scripts
+# COPY ./README.md ./
+# # Copy over folders so that the image can run tests in a self-contained fashion.
+# COPY ./ci/scripts ./ci/scripts
+# COPY ./docs ./docs
+# COPY ./sub-packages /workspace/bionemo2/sub-packages
+#
+# RUN chmod 777 -R /workspace/bionemo2/
+# # Transformer engine attention defaults
+# # We have to declare this again because the devcontainer splits from the release image's base.
+# # FIXME the following results in unstable training curves even if faster.
+# #  See https://github.com/NVIDIA/bionemo-framework/pull/421
+# #ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
