@@ -12,7 +12,7 @@ All commands should be executed inside the BioNeMo docker container, which has a
 
 Alternatively,  more information on how to build or pull the BioNeMo2 container locally, refer to the [Initialization Guide](../../getting-started/initialization-guide.md).
 
-This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`.  
+This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`.
 
 !!! note
 
