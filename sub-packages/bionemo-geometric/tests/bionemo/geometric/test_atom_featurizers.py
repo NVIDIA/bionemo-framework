@@ -14,8 +14,8 @@
 # limitations under the License.
 
 
-import numpy as np
 import pytest
+import torch
 from rdkit import Chem
 
 from bionemo.geometric.atom_featurizers import (
@@ -149,7 +149,7 @@ def test_electronic_property_featurizer(test_mol):
     ep = ElectronicPropertyFeaturizer()
 
     ep_feats = ep(test_mol)
-    ep_feats_ref = np.array(
+    ep_feats_ref = torch.Tensor(
         [
             [3.04, 14.534, 1.0721403509],
             [2.55, 11.26, 1.263],
@@ -179,13 +179,13 @@ def test_electronic_property_featurizer(test_mol):
         ]
     )
 
-    assert np.allclose(ep_feats, ep_feats_ref)
+    assert torch.allclose(ep_feats, ep_feats_ref)
 
 
 def test_scaffold_featurizer(test_mol):
     sf = ScaffoldFeaturizer()
     sf_feats = sf(test_mol)
-    sf_feats_ref = [
+    sf_feats_ref = torch.tensor([
         False,
         False,
         False,
@@ -211,14 +211,14 @@ def test_scaffold_featurizer(test_mol):
         False,
         True,
         True,
-    ]
-    assert sf_feats == sf_feats_ref
+    ], dtype=torch.int)
+    assert torch.allclose(sf_feats, sf_feats_ref)
 
 
 def test_smarts_featurizer(test_mol, acetic_acid, methylamine):
     sf = SmartsFeaturizer()
     sf_feats = sf(test_mol)
-    sf_feats_ref = [
+    sf_feats_ref = torch.tensor([
         [True, False, False, False],
         [False, False, False, False],
         [False, True, False, False],
@@ -244,28 +244,28 @@ def test_smarts_featurizer(test_mol, acetic_acid, methylamine):
         [False, False, False, False],
         [False, False, False, False],
         [False, False, False, False],
-    ]
-    assert sf_feats == sf_feats_ref
+    ], dtype=torch.int)
+    assert torch.allclose(sf_feats, sf_feats_ref)
 
     sf_feats = sf(acetic_acid)
-    sf_feats_ref = [
+    sf_feats_ref = torch.tensor([
         [False, False, False, False],
         [False, False, True, False],
         [False, True, False, False],
         [True, False, False, False],
-    ]
-    assert sf_feats == sf_feats_ref
+    ], dtype=torch.int)
+    assert torch.allclose(sf_feats, sf_feats_ref)
 
     sf_feats = sf(methylamine)
-    sf_feats_ref = [[False, False, False, False], [True, True, False, True]]
-    assert sf_feats == sf_feats_ref
+    sf_feats_ref = torch.tensor([[False, False, False, False], [True, True, False, True]], dtype=torch.int)
+    assert torch.allclose(sf_feats, sf_feats_ref)
 
 
 def test_crippen_featurizer(test_mol):
     cf = CrippenFeaturizer()
 
     cf_feats = cf(test_mol)
-    cf_feats_ref = np.array(
+    cf_feats_ref = torch.Tensor(
         [
             [-1.019e00, 2.262e00],
             [-2.783e-01, 5.007e00],
@@ -295,14 +295,14 @@ def test_crippen_featurizer(test_mol):
         ]
     )
 
-    assert np.allclose(cf_feats, cf_feats_ref)
+    assert torch.allclose(cf_feats, cf_feats_ref)
 
 
 def test_atomic_radius_featurizer(test_mol):
     arf = AtomicRadiusFeaturizer()
     arf_feats = arf(test_mol)
 
-    arf_feats_ref = np.array(
+    arf_feats_ref = torch.Tensor(
         [
             [0.7, 0.71, 1.6],
             [0.77, 0.76, 1.7],
@@ -332,4 +332,4 @@ def test_atomic_radius_featurizer(test_mol):
         ]
     )
 
-    assert np.all(np.allclose(arf_feats, arf_feats_ref))
+    assert torch.allclose(arf_feats, arf_feats_ref)

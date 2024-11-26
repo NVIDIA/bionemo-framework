@@ -17,8 +17,8 @@
 from pathlib import Path
 from typing import Iterable, Optional
 
-import numpy as np
 import pandas as pd
+import torch
 from rdkit import Chem
 from rdkit.Chem import Mol, rdMolDescriptors
 from rdkit.Chem.rdchem import ChiralType, HybridizationType
@@ -257,16 +257,17 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
     def __init__(self) -> None:
         """Initializes AtomicRadiusFeaturizer class."""
         self.pt = Chem.GetPeriodicTable()
-        self._min_val = [
+        self._min_val = torch.Tensor([
             0.0,  # Bond radius
             0.28,  # Covalent radius
             1.2,  # van der Waals radius
-        ]
-        self._max_val = [
+        ])
+
+        self._max_val = torch.Tensor([
             2.4,  # Bond radius
             2.6,  # Covalent radius
             3.0,  # van der Waals radius
-        ]
+        ])
 
     @property
     def n_dim(self) -> int:
@@ -274,16 +275,16 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
         return 3
 
     @property
-    def min_val(self) -> np.array:
+    def min_val(self) -> torch.tensor:
         """Returns minimum values for features."""
         return self._min_val
 
     @property
-    def max_val(self) -> np.array:
+    def max_val(self) -> torch.tensor:
         """Returns maximum values for features."""
         return self._max_val
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.Tensor:
         """Computes bond radius, covalent radius, and van der Waals radius without normalization.
 
         Args:
@@ -291,7 +292,7 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A np.array of different atomic radii. Each atom is featurizer by bond radius, covalent radius, and van der Waals radius.
+            A torch.Tensor of different atomic radii. Each atom is featurizer by bond radius, covalent radius, and van der Waals radius.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
 
@@ -300,7 +301,7 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
             atomic_num = mol.GetAtomWithIdx(aidx).GetAtomicNum()
             feats.append([self.pt.GetRb0(atomic_num), self.pt.GetRcovalent(atomic_num), self.pt.GetRvdw(atomic_num)])
 
-        return np.array(feats)
+        return torch.Tensor(feats)
 
 
 class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
@@ -325,7 +326,7 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
         self.ie_dict = self.data_df["IonizationEnergy"].to_dict()
         self.ea_dict = self.data_df["ElectronAffinity"].to_dict()
 
-        self._min_val = np.array(
+        self._min_val = torch.Tensor(
             [
                 self.data_df["Electronegativity"].min(),
                 self.data_df["IonizationEnergy"].min(),
@@ -333,7 +334,7 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
             ]
         )
 
-        self._max_val = np.array(
+        self._max_val = torch.Tensor(
             [
                 self.data_df["Electronegativity"].max(),
                 self.data_df["IonizationEnergy"].max(),
@@ -347,16 +348,16 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
         return 3
 
     @property
-    def min_val(self) -> np.array:
+    def min_val(self) -> torch.Tensor:
         """Returns minimum values for features."""
         return self._min_val
 
     @property
-    def max_val(self) -> np.array:
+    def max_val(self) -> torch.Tensor:
         """Returns maximum values for features."""
         return self._max_val
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.Tensor:
         """Returns electronic features of the atom.
 
         Args:
@@ -364,7 +365,7 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A np.array consisting of Pauling scale electronegativity, ionization energy, and electron affinity for each atom.
+            A torch.Tensor consisting of Pauling scale electronegativity, ionization energy, and electron affinity for each atom.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
 
@@ -372,7 +373,7 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
         for aidx in _atom_indices:
             atomic_num = mol.GetAtomWithIdx(aidx).GetAtomicNum()
             feats.append([self.pauling_en_dict[atomic_num], self.ie_dict[atomic_num], self.ea_dict[atomic_num]])
-        return np.array(feats)
+        return torch.Tensor(feats)
 
 
 class ScaffoldFeaturizer(BaseAtomFeaturizer):
@@ -399,7 +400,7 @@ class ScaffoldFeaturizer(BaseAtomFeaturizer):
         scaffold_atom_idx = set(mol.GetSubstructMatch(scaffold))
 
         feats = [int(aidx in scaffold_atom_idx) for aidx in _atom_indices]
-        return feats
+        return torch.tensor(feats, dtype=torch.int)
 
 
 class SmartsFeaturizer(BaseAtomFeaturizer):
@@ -423,7 +424,7 @@ class SmartsFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 4
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[list[bool]]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes matches by prefixed SMARTS patterns.
 
         Args:
@@ -431,7 +432,7 @@ class SmartsFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            An np.array indicating if atoms are hydrogen bond donors, hydrogen bond acceptors, acidic, or basic.
+            An torch.tensor indicating if atoms are hydrogen bond donors, hydrogen bond acceptors, acidic, or basic.
         """
         hydrogen_donor_match = sum(mol.GetSubstructMatches(self.hydrogen_donor), ())
         hydrogen_acceptor_match = sum(mol.GetSubstructMatches(self.hydrogen_acceptor), ())
@@ -449,7 +450,7 @@ class SmartsFeaturizer(BaseAtomFeaturizer):
             for aidx in _atom_indices
         ]
 
-        return feats
+        return torch.tensor(feats, dtype=torch.int)
 
 
 class CrippenFeaturizer(BaseAtomFeaturizer):
@@ -457,14 +458,14 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
 
     def __init__(self):
         """Initializes CrippenFeaturizer class."""
-        self._min_val = np.array(
+        self._min_val = torch.Tensor(
             [
                 -2.996,  # logP
                 0.0,  # MR
             ]
         )
 
-        self._max_val = np.array(
+        self._max_val = torch.Tensor(
             [
                 0.8857,  # logP
                 6.0,  # MR
@@ -477,16 +478,16 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
         return 2
 
     @property
-    def min_val(self) -> np.array:
+    def min_val(self) -> torch.tensor:
         """Returns minimum values for features."""
         return self._min_val
 
     @property
-    def max_val(self) -> np.array:
+    def max_val(self) -> torch.tensor:
         """Returns maximum values for features."""
         return self._max_val
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.Tensor:
         """Compute atomic contributions to Crippen logP and molar refractivity.
 
         Args:
@@ -494,11 +495,10 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A np.array featurizing atoms by its atomic contribution to logP and molar refractivity.
+            A torch.Tensor featurizing atoms by its atomic contribution to logP and molar refractivity.
         """
-        logp_mr_list = np.array(rdMolDescriptors._CalcCrippenContribs(mol))
-        logp_mr_list = np.clip(logp_mr_list, a_min=self.min_val, a_max=self.max_val)
-
+        logp_mr_list = torch.Tensor(rdMolDescriptors._CalcCrippenContribs(mol))
+        logp_mr_list = torch.clamp(logp_mr_list, min=self.min_val, max=self.max_val)
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return logp_mr_list[_atom_indices, :]
 
