@@ -1,7 +1,9 @@
 from typing import Optional
 from bionemo.noodles import PyIndexedMmapFastaReader
 
+from typing import Sequence
 
+__all__: Sequence[str] = ("SequenceAccessor", "NvFaidx",)
 class SequenceAccessor:
     # NOTE: we could totally handle this stuff in Rust if we want.
     def __init__(self, reader, seqid, length):
