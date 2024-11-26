@@ -4,8 +4,9 @@
 
 This is a minimalist package containing an example model that makes use of bionemo2 and nemo conventions. It contains the necessary models, dataloaders, datasets, and custom loss fucntions. The referenced classes and function are in `bionemo.example_model.lightning.lightning_basic`.
 
-This tutorial demonstrates the creation of a simple MNIST model. This should be run in a BioNeMo container. For this tutorial, we will reuse elements from the BioNeMo example_model package.
+This tutorial demonstrates the creation of a simple MNIST model. This should be run in a BioNeMo container. This can also be run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy?launchableID=env-2pAQkYfripU14MfxOxZZsxwQSgp). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier so a credit card may be required. You can reach out to your NVIDIA rep for credit. TODO:[Instructions on command line]
 
+For this tutorial, we will reuse elements from the BioNeMo example_model package.
 
 `Megatron`/`NeMo` modules and datasets are special derivatives of PyTorch modules and datasets that extend and accelerate the distributed training and inference capabilities of PyTorch.
 
