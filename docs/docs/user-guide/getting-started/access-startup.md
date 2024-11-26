@@ -12,7 +12,7 @@ BioNeMo Framework and begin exploring its features and capabilities.
 ## Access the BioNeMo Framework
 
 ### Brev.Dev Access
-The container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy?launchableID=env-2pAQkYfripU14MfxOxZZsxwQSgp). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier so a credit card may be required. You can reach out to your NVIDIA rep for credit. The CLI within a BioNeMo container can be launched following the instructions under `Using Brev CLI (SSH)`. (Note: This links to the nightly release and may be out of date with these docs.)
+The BioNeMo Framework container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy?launchableID=env-2pAQkYfripU14MfxOxZZsxwQSgp). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier so a credit card may be required. You can reach out to your NVIDIA rep for credit. The CLI within a BioNeMo container can be launched following the instructions under `Using Brev CLI (SSH)`. (Note: This links to the nightly release and may be out of date with these docs.)
 that account.
 
 ### NGC Account and API Key Configuration
