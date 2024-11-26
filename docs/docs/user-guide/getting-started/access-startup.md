@@ -9,76 +9,24 @@ In this section of the documentation, we will guide you through the process of p
 setting up a local development environment. By following these steps, you will be able to quickly get started with the
 BioNeMo Framework and begin exploring its features and capabilities.
 
-## Access the BioNeMo Framework
-
-To access the BioNeMo Framework container, you will need a free NVIDIA GPU Cloud (NGC) account and an API key linked to
-that account.
-
-### NGC Account and API Key Configuration
-
-NGC is a portal of enterprise services, software, and support for artificial intelligence and high-performance computing
-(HPC) workloads. The BioNeMo Docker container is hosted on the NGC Container Registry. To pull and run a container from
-this registry, you will need to create a free NGC account and an API Key using the following steps:
-
-1. Create a free account on [NGC](https://ngc.nvidia.com/signin) and log in.
-2. At the top right, click on the **User > Setup > Generate API Key**, then click **+ Generate API Key** and
-**Confirm**. Copy and store your API Key in a secure location.
-
-You can now view the BioNeMo Framework container
-at this direct link in the
-[NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework) or by searching the
-NGC Catalog for “BioNeMo Framework”. Feel free to explore the other resources available to you in the catalog.
-
-### NGC CLI Configuration
-
-The NGC Command Line Interface (CLI) is a command-line tool for managing resources in NGC, including datasets and model
-checkpoints. You can download the CLI on your local machine using the instructions
-[on the NGC CLI website](https://org.ngc.nvidia.com/setup/installers/cli).
-
-Once you have installed the NGC CLI, run `ngc config set` at the command line to setup your NGC credentials:
-
-* **API key**: Enter your API Key
-* **CLI output**: Accept the default (ASCII format) by pressing `Enter`
-* **org**: Choose your preferred organization from the supplied list
-* **team**: Choose the team to which you have been assigned from the supplied list
-* **ace** : Choose an ACE, if applicable, otherwise press `Enter` to continue
-
-Note that the **org** and **team** are only relevant when pulling private containers/datasets from NGC created by you or
-your team. To access BioNeMo Framework, you can use the default value.
-
 ## Startup Instructions
 
 BioNeMo is compatible with a wide variety of computing environments, including both local workstations, data centers,
 and Cloud Service Providers (CSPs) such as Amazon Web Services, Microsoft Azure, Google Cloud Platform, and Oracle Cloud
-Infrastructure, and NVIDIA’s own DGX Cloud.
+Infrastructure, and NVIDIA’s own DGX Cloud. Note that exact configuration details may differ based on your preferred
+setup, but the instructions included below should provide a consistent starting point across environments.
 
 ### Running the Container on a Local Machine
 
 This section will provide instructions for running the BioNeMo Framework container on a local workstation. This process
 will involve the following steps:
 
-1. Logging into the NGC Container Registry (`nvcr.io`)
-2. Pulling the container from the registry
-3. Running a Jupyter Lab instance inside the container for local development
+1. Pulling the container from the NGC registry
+2. Running a Jupyter Lab instance inside the container for local development
 
 #### Pull Docker Container from NGC
 
-Open a command prompt on your machine and enter the following:
-
-```bash
-docker login nvcr.io
-```
-
-This command will prompt you to enter your API key. Fill in the details as shown below. Note that you should enter the
-string `$oauthtoken` as your username. Replace the password (`<YOUR_API_KEY>`) with the API key that you generated in
-the NGC Account and API Key Configuration section above:
-
-```bash
-Username: $oauthtoken
-Password: <YOUR_API_KEY>
-```
-
-You can now pull the BioNeMo Framework container using the following command:
+You now pull the BioNeMo Framework container using the following command:
 
 ```bash
 docker pull {{ docker_url }}:{{ docker_tag }}

@@ -57,9 +57,10 @@ Running this command will make these variables available for use in the `docker 
 !!! note "NGC Credentials Required for Data Download"
 
     Some of the credentials in the above `.env` file are optional for specific workflows. However, if you intend to use
-    data hosted on the NGC platform (for example, model checkpoints and example training data), you _must_ define both
-    NGC_CLI_API_KEY and NGC_CLI_ORG at container run time. The easiest way to ensure these variables are set is to use
-    the `.env` file as shown here with your specific variable definitions.
+    data hosted on the NGC platform that is not guest accessible (for example, model checkpoints and example training
+    data in private collections), you _must_ define both NGC_CLI_API_KEY and NGC_CLI_ORG at container run time. The
+    easiest way to ensure these variables are set is to use the `.env` file as shown here with your specific variable
+    definitions.
 
 Refer to the list below for an explanation of each of these variables:
 
