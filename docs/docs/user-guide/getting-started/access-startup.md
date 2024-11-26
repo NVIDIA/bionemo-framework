@@ -16,7 +16,7 @@ The BioNeMo Framework container can run in a brev.dev launchable: [![ Click here
 
 ### NGC Account and API Key Configuration
 
-Another option to access the BioNeMo Framework container is to use a free NVIDIA GPU Cloud (NGC) account and an API key linked to
+Another option to access the BioNeMo Framework container is to use a free NVIDIA GPU Cloud (NGC) account and an API key linked to that account.
 
 NGC is a portal of enterprise services, software, and support for artificial intelligence and high-performance computing
 (HPC) workloads. The BioNeMo Docker container is hosted on the NGC Container Registry. To pull and run a container from
