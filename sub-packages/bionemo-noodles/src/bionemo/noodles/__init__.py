@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from bionemo.noodles.nvfaidx import NvFaidx, SequenceAccessor
 from bionemo.noodles_fasta_wrapper import PyIndexedMmapFastaReader, PyRecord
 
 
-__all__ = ("NvFaidx", "SequenceAccessor", "PyIndexedFastaReader")
+__all__ = ("PyRecord", "PyIndexedFastaReader")

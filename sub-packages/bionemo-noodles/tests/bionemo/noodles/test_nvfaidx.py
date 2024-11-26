@@ -304,7 +304,6 @@ def measure_index_creation_time():
 
     # Too slow gen a big genome
     fasta = create_test_fasta(num_seqs=10, seq_length=200_000)
-    print("done creating")
     if os.path.exists(fasta + ".fai"):
         os.remove(fasta + ".fai")
     start = time.time()
@@ -331,9 +330,9 @@ def measure_index_creation_time():
     end = time.time()
     elapsed_existing = end - start
 
-    print(f"pyfaidx: {elapsed_pyfaidx=}")
-    print(f"nvfaidx: {elapsed_nvfaidx=}")
-    print(f"nvfaidx faster by: {elapsed_pyfaidx/elapsed_nvfaidx=}")
+    print(f"pyfaidx instantiation: {elapsed_pyfaidx=}")
+    print(f"nvfaidx instantiation: {elapsed_nvfaidx=}")
+    print(f"nvfaidx instantiation faster by: {elapsed_pyfaidx/elapsed_nvfaidx=}")
 
     print(f"NvFaidx Index creation time to disk: {elapsed_creation=}")
     print(f"NvFaidx instantiation with existing: {elapsed_existing=}")
@@ -346,14 +345,19 @@ def measure_query_time():
     """
     import time
 
+    import numpy as np
+
     num_iters = 1000
     fasta = create_test_fasta(num_seqs=10, seq_length=200000)
+
+    start_points = np.random.randint(0, 200000, size=num_iters)
+    end_points = start_points + np.random.randint(1, 1000, size=num_iters)  # Adjust range size
 
     # So we are a little slower
     fasta_idx = NvFaidx(fasta)
     start = time.time()
-    for _ in range(num_iters):
-        _ = fasta_idx["contig1"][150000:160000]
+    for i in range(num_iters):
+        _ = fasta_idx["contig1"][start_points[i] : end_points[i]]
     end = time.time()
     elapsed_nvfaidx = end - start
 
@@ -366,7 +370,7 @@ def measure_query_time():
 
     print(f"pyfaidx query/s: {elapsed_pyfaidx/num_iters=}")
     print(f"nvfaidx query/s: {elapsed_nvfaidx/num_iters=}")
-    print(f"nvfaidx faster by: {elapsed_pyfaidx/elapsed_nvfaidx=}")
+    print(f"nvfaidx query faster by: {elapsed_pyfaidx/elapsed_nvfaidx=}")
 
 
 # Utility function
@@ -397,7 +401,3 @@ def create_test_fasta(num_seqs=2, seq_length=1000):
                 fasta_file.write(sequence[j : j + 80] + "\n")
 
     return fasta_path
-
-
-# measure_query_time()
-measure_index_creation_time()

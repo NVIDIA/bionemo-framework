@@ -17,7 +17,7 @@
 from pathlib import Path
 from typing import Dict, Optional, Sequence
 
-from bionemo.noodles import PyIndexedMmapFastaReader, PyRecord
+from bionemo.noodles import PyIndexedMmapFastaReader
 
 
 __all__: Sequence[str] = (
