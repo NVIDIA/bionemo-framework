@@ -11,10 +11,13 @@ BioNeMo Framework and begin exploring its features and capabilities.
 
 ## Access the BioNeMo Framework
 
-To access the BioNeMo Framework container, you will need a free NVIDIA GPU Cloud (NGC) account and an API key linked to
+### Brev.Dev Access
+The container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy?launchableID=env-2pAQkYfripU14MfxOxZZsxwQSgp). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier so a credit card may be required. You can reach out to your NVIDIA rep for credit. The CLI within a BioNeMo container can be launched following the instructions under `Using Brev CLI (SSH)`. (Note: This links to the nightly release and may be out of date with these docs.)
 that account.
 
 ### NGC Account and API Key Configuration
+
+Another option to access the BioNeMo Framework container is to use a free NVIDIA GPU Cloud (NGC) account and an API key linked to
 
 NGC is a portal of enterprise services, software, and support for artificial intelligence and high-performance computing
 (HPC) workloads. The BioNeMo Docker container is hosted on the NGC Container Registry. To pull and run a container from
