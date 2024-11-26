@@ -15,6 +15,4 @@ noodles-core = "*"
 memmap2 = "*"
 
 [package.metadata.pyo3]
-# TODO Read the documentation on this
 name = "noodles_fasta_wrapper"
-
