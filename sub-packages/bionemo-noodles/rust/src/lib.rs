@@ -179,6 +179,7 @@ impl PyIndexedMmapFastaReader {
 #[pymodule]
 fn noodles_fasta_wrapper(_: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyIndexedMmapFastaReader>()?;
+    m.add_class::<PyRecord>()?;
     Ok(())
 }
 

@@ -7,6 +7,8 @@ import random
 import pyfaidx
 import torch
 
+
+
 def test_create_faidx():
     filename = create_test_fasta(num_seqs=2, seq_length=200)
     faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename)
@@ -53,7 +55,7 @@ def test_from_fasta_and_faidx():
     assert index.read_sequence_mmap('contig1:10-200') == index2.read_sequence_mmap('contig1:10-200')
 
 def test_memmap_index():
-    # This should probably be a test in rust land.
+    # There exists an equivalent test in Rust.
     fasta_path = 'sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta'
     index = PyIndexedMmapFastaReader(fasta_path)
     assert index.read_sequence_mmap('chr1:1-1') == 'A'
@@ -108,9 +110,9 @@ def test_getitem_bounds():
     # -1 should get the last element
     assert index['chr1'][-1:] == 'G'
 
-def test_nvfaidx_python_interface():
-    # This should probably be a test in rust land.
-    index = NvFaidx('sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta')
+def _test_faidx_generic(faidx_obj):
+    # This is a generic test that should work for both the pyfaidx and nvfaidx implementations.
+    index = faidx_obj
     assert index['chr1'][0:1] == 'A'
     assert index['chr1'][0:2] == 'AC'
     assert index['chr1'][0:100000] == 'ACTGACTGACTG'
@@ -143,15 +145,20 @@ def test_nvfaidx_python_interface():
     assert index['chr4'][0:17] == 'CCCCCCCCCCCCACGT'
 
     # Should see this is out of bounds and return empty or throw an error
-    # assert index['chr4'][17:17] == ''
+    assert index['chr4'][17:17] == ''
 
+
+def test_nvfaidx_python_interface():
+    nvfaidx_index = NvFaidx('sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta')
+    pyfaidx_index = pyfaidx.Fasta('sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta')
+    _test_faidx_generic(nvfaidx_index)
+    _test_faidx_generic(pyfaidx_index)
 
 def test_pyfaidx_nvfaidx_equivalence():
     fasta = create_test_fasta(num_seqs=2, seq_length=200000)
     pyfaidx_fasta = pyfaidx.Fasta(fasta)
     nvfaidx_fasta = NvFaidx(fasta)
 
-    correct = 0
     for i in range(100):
         # Deterministically generate regions to grab
         seqid = f"contig{i % 2 + 1}"
@@ -159,8 +166,7 @@ def test_pyfaidx_nvfaidx_equivalence():
         end = start + 1000
 
         if not pyfaidx_fasta[seqid][start:end] == nvfaidx_fasta[seqid][start:end]:
-            raise Exception(f"Pyfaidx and NvFaidx do not match. {correct=}")
-        correct += 1
+            raise Exception(f"Pyfaidx and NvFaidx do not match. correct={i}")
 
 class TestDataset(torch.utils.data.Dataset):
     def __init__(self, fasta_path, fasta_cls):
@@ -178,7 +184,7 @@ class TestDataset(torch.utils.data.Dataset):
 
 @pytest.mark.skip
 @pytest.mark.xfail(reason="This is a known failure mode for pyfaidx that we are trying to prevent with nvfaidx.")
-def _test_parallel_index_creation_pyfaidx():
+def test_parallel_index_creation_pyfaidx():
     ''' 
     PyFaidx is a python replacement for faidx that provides a dictionary-like interface to reference genomes. Pyfaidx 
     is not process safe, and therefore does not play nice with pytorch dataloaders.
@@ -240,47 +246,6 @@ def test_file_errors():
 
     # But if we create an index in memory, should work!
     _ = PyIndexedMmapFastaReader(test_fa, ignore_existing_fai=True)
-
-def demo_failure_mode():
-    ''' 
-    PyFaidx is a python replacement for faidx that provides a dictionary-like interface to reference genomes. Pyfaidx 
-    is not process safe, and therefore does not play nice with pytorch dataloaders.
-
-    Ref: https://github.com/mdshw5/pyfaidx/issues/211
-
-    Naively, this problem can be fixed by keeping index objects private to each process. However, instantiating this object can be quite slow. 
-        In the case of hg38, this can take between 20-30 seconds.
-
-    For a good solution we need three things:
-        1) Safe index creation, in multi-process or multi-node scenarios, this should be restricted to a single node where all workers block until it is complete (not implemented above)
-        2) Index object instantion must be fast.
-        3) Read-only use of the index object must be both thread safe and process safe with python.
-    '''
-    fasta = create_test_fasta(num_seqs=2, seq_length=200000)
-    dl = torch.utils.data.DataLoader(TestDataset(fasta, fasta_cls = pyfaidx.Fasta), batch_size=16, num_workers=16)
-    max_i = 1000
-    passed=True
-    failure_set = set()
-    for i, batch in enumerate(dl):
-        # assert length of all elements in batch is 10000
-        if i > max_i: break
-        lens = [len(x) for x in batch]
-        lens_equal = [x == 10000 for x in lens]
-        if not all(lens_equal):
-            passed = False
-            failure_set = set(lens)
-            break
-    print(f"pyfaidx {passed=}, {failure_set=}")
-
-    passed=True
-    failure_set = set()
-    dl = torch.utils.data.DataLoader(TestDataset(fasta, fasta_cls = NvFaidx), batch_size=16, num_workers=16)
-    for i, batch in enumerate(dl):
-        # assert length of all elements in batch is 10000
-        if i > max_i: break
-        lens = [len(x) for x in batch]
-        lens_equal = [x == 10000 for x in lens]
-    print(f"nvfaidx {passed=}, {failure_set=}")
 
 
 ## Benchmarks
