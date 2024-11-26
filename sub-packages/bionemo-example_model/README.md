@@ -4,7 +4,8 @@
 
 This is a minimalist package containing an example model that makes use of bionemo2 and nemo conventions. It contains the necessary models, dataloaders, datasets, and custom loss fucntions. The referenced classes and function are in `bionemo.example_model.lightning.lightning_basic`.
 
-This tutorial demonstrates the creation of a simple MNIST model. This should be run in a BioNeMo container. This can be run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy?launchableID=env-2pAQkYfripU14MfxOxZZsxwQSgp). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier so a credit card may be required. You can reach out to your NVIDIA rep for credit. The CLI within a BioNeMo container can be launched following the instructions under `Using Brev CLI (SSH)`. (Note: This links to the nightly release and may be out of date with these docs.)
+This tutorial demonstrates the creation of a simple MNIST model. This should be run in a BioNeMo container. The BioNeMo Framework container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)]([https://console.brev.dev/launchable/deploy?launchableID=env-2pAQkYfripU14MfxOxZZsxwQSgp](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPCVle3aYyGMbPfA61vCf1Au4X). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier so a credit card may be required. You can reach out to your NVIDIA rep for credit. Notebooks and a shell interface can be launced by clicking `Open Notebook`. (Note: This links to the nightly release and may be out of date with these docs.)
+
 
 For this tutorial, we will reuse elements from the BioNeMo example_model package.
 
