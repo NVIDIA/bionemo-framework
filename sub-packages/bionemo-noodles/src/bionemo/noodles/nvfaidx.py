@@ -1,3 +1,4 @@
+from typing import Optional
 from bionemo.noodles import PyIndexedMmapFastaReader
 
 
@@ -50,9 +51,21 @@ class SequenceAccessor:
 
 
 class NvFaidx:
-    def __init__(self, fasta_path):
-        # NOTE: you cannot escape the unsafety here by instantiating in a way thats lazy. Need to get rid of the BufReader
-        self.reader = PyIndexedMmapFastaReader(fasta_path)
+    def __init__(self, fasta_path, faidx_path: Optional[str]=None, ignore_existing_fai=True):
+        ''' Construct a dict-like object representing a memmapped, indexed FASTA file.
+
+        Args:
+            fasta_path (str): Path to the FASTA file.
+            faidx_path (str): Path to the FAI index file. If None, one will be created.
+            ignore_existing_fai (bool): If True, ignore any existing FAI file and create an in-memory index. Note that this will also ignore `faidx_path`.
+        '''
+        if ignore_existing_fai:
+            self.reader = PyIndexedMmapFastaReader(fasta_path, ignore_existing_fai=ignore_existing_fai)
+        elif faidx_path is not None:
+            self.reader = PyIndexedMmapFastaReader.from_fasta_and_faidx(fasta_path, faidx_path)
+        else:
+            self.reader = PyIndexedMmapFastaReader(fasta_path)
+
         self.records = {record.name: record for record in self.reader.records()}
 
     def __getitem__(self, seqid):

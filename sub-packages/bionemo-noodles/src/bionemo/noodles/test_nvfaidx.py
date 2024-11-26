@@ -7,13 +7,50 @@ import random
 import pyfaidx
 import torch
 
-def test_memmap_index_iso():
-    # This tests a specific edge case that was failing.
-    fasta_path = 'sub-packages/bionemo-noodles/tests/bionemo/noodles/data/sample.fasta'
-    index = PyIndexedMmapFastaReader(fasta_path)
+def test_create_faidx():
+    filename = create_test_fasta(num_seqs=2, seq_length=200)
+    faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename)
+    assert os.path.exists(faidx_filename)
+    assert faidx_filename == filename + '.fai'
 
-    assert index.read_sequence_mmap('chr4:1-10000') == 'CCCCCCCCCCCCACGT'
-    assert index.read_sequence_mmap('chr4:1-17') == 'CCCCCCCCCCCCACGT'
+    index = PyIndexedMmapFastaReader.from_fasta_and_faidx(filename, faidx_filename)
+    # By default does not build the index from an existing file, but the result should be equivalent.
+    index2 = PyIndexedMmapFastaReader(filename)
+    assert index.read_sequence_mmap('contig1:1-1') == index2.read_sequence_mmap('contig1:1-1')
+    assert index.read_sequence_mmap('contig1:1-10') == index2.read_sequence_mmap('contig1:1-10')
+    assert index.read_sequence_mmap('contig1:10-200') == index2.read_sequence_mmap('contig1:10-200')
+
+def test_from_fasta_and_faidx_no_such_faidx():
+    filename = create_test_fasta(num_seqs=2, seq_length=200)
+    faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename)
+    os.remove(faidx_filename)
+    # And this should fail.
+    with pytest.raises(FileNotFoundError):
+        _ = PyIndexedMmapFastaReader.from_fasta_and_faidx(filename, faidx_filename)
+
+def test_from_fasta_and_faidx():
+    # Smoke test, this should all work
+    filename = create_test_fasta(num_seqs=2, seq_length=200)
+    faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename)
+    index = PyIndexedMmapFastaReader.from_fasta_and_faidx(filename, faidx_filename)
+    index2 = PyIndexedMmapFastaReader(filename, ignore_existing_fai=True)
+    # Test against constructor for equivalence.
+    assert index.read_sequence_mmap('contig1:1-1') == index2.read_sequence_mmap('contig1:1-1')
+    assert index.read_sequence_mmap('contig1:1-10') == index2.read_sequence_mmap('contig1:1-10')
+    assert index.read_sequence_mmap('contig1:10-200') == index2.read_sequence_mmap('contig1:10-200')
+
+    # no we are going to rename the file, and then try again, we expect the same outcome.
+    new_faidx_name = os.path.dirname(faidx_filename) + '/asdfasdfasdf'
+    os.rename(faidx_filename, new_faidx_name)
+    # Sanity checks for our test.
+    assert not os.path.exists(faidx_filename)
+
+    # Now we expect equivalent output even though its using the asdfasdfasdf fai file, and we know the implicit one is missing.
+    index = PyIndexedMmapFastaReader.from_fasta_and_faidx(filename, new_faidx_name)
+    # Test against constructor for equivalence.
+    assert index.read_sequence_mmap('contig1:1-1') == index2.read_sequence_mmap('contig1:1-1')
+    assert index.read_sequence_mmap('contig1:1-10') == index2.read_sequence_mmap('contig1:1-10')
+    assert index.read_sequence_mmap('contig1:10-200') == index2.read_sequence_mmap('contig1:10-200')
 
 def test_memmap_index():
     # This should probably be a test in rust land.
@@ -184,19 +221,25 @@ def test_file_errors():
     # test incomplete fai file
     with pytest.raises(FileNotFoundError):
         _ = PyIndexedMmapFastaReader('asdflasdfaslkdfasdf.fasta')
+
     temp_dir = tempfile.mkdtemp()
     fasta_path = os.path.join(temp_dir, "not_a_fasta.fasta")
     with open(fasta_path, "w") as fasta_file:
         fasta_file.write("this is not a fasta file.\n")
 
+    # Should fail due to invalid fasta file when it tries to create the faidx
     with pytest.raises(RuntimeError):
-        _ = PyIndexedMmapFastaReader(fasta_path)
+        _ = PyIndexedMmapFastaReader(fasta_path, ignore_existing_fai=True)
 
     test_fa = create_test_fasta(num_seqs=2, seq_length=20)
     # now we are going to corrupt the .fai file
     with open(test_fa + '.fai', 'w') as f:
         f.write('this is not a valid fai file')
-    _ = PyIndexedMmapFastaReader(test_fa)
+    with pytest.raises(RuntimeError):
+        _ = PyIndexedMmapFastaReader(test_fa, ignore_existing_fai=False)
+
+    # But if we create an index in memory, should work!
+    _ = PyIndexedMmapFastaReader(test_fa, ignore_existing_fai=True)
 
 def demo_failure_mode():
     ''' 
@@ -248,10 +291,8 @@ def measure_index_creation_time():
     '''
     import time
     # Too slow gen a big genome
-    fasta = create_test_fasta(num_seqs=22, seq_length=200_000)
+    fasta = create_test_fasta(num_seqs=10, seq_length=200_000)
     print('done creating')
-    # Remove the .fai file to prevent cheating.
-    fasta = '/home/bionemo/data/hg38/hg38.fa'
     if os.path.exists(fasta + ".fai"):
         os.remove(fasta + ".fai")
     start = time.time()
@@ -262,15 +303,28 @@ def measure_index_creation_time():
     # Remove the .fai file to prevent cheating.
     if os.path.exists(fasta + ".fai"):
         os.remove(fasta + ".fai")
-        pass
     start = time.time()
-    _ = NvFaidx(fasta)
+    _ = NvFaidx(fasta, ignore_existing_fai=True)
     end = time.time()
     elapsed_nvfaidx = end - start
+
+    # Now time the creation of the index file
+    start = time.time()
+    _ = PyIndexedMmapFastaReader.create_faidx(fasta)
+    end = time.time()
+    elapsed_creation = end - start
+
+    start = time.time()
+    NvFaidx(fasta, ignore_existing_fai=False)
+    end = time.time()
+    elapsed_existing = end - start
 
     print(f"pyfaidx: {elapsed_pyfaidx=}")
     print(f"nvfaidx: {elapsed_nvfaidx=}")
     print(f"nvfaidx faster by: {elapsed_pyfaidx/elapsed_nvfaidx=}")
+
+    print(f"NvFaidx Index creation time to disk: {elapsed_creation=}")
+    print(f"NvFaidx instantiation with existing: {elapsed_existing=}")
 
 def measure_query_time():
     '''Observed perf:
@@ -330,5 +384,5 @@ def create_test_fasta(num_seqs=2, seq_length=1000):
     
     return fasta_path
 
-measure_query_time()
+# measure_query_time()
 measure_index_creation_time()

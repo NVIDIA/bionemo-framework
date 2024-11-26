@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
+use pyo3::types::PyType;
 
 
 /// Python wrapper around the faidx Record struct.
@@ -85,8 +86,9 @@ struct PyIndexedMmapFastaReader {
 #[pymethods]
 impl PyIndexedMmapFastaReader {
     #[new]
-    fn new(fasta_path: &str) -> PyResult<Self> {
-        match IndexedMmapFastaReader::new(fasta_path) {
+    #[pyo3(signature = (fasta_path, ignore_existing_fai = true))]
+    fn new(fasta_path: &str, ignore_existing_fai: bool) -> PyResult<Self> {
+        match IndexedMmapFastaReader::new(fasta_path, ignore_existing_fai) {
             Ok(inner) => Ok(Self { inner }),
             Err(e) => {
                 let py_err = match e.kind() {
@@ -98,6 +100,37 @@ impl PyIndexedMmapFastaReader {
             }
         }
     }
+    /// Create a new IndexedMmapFastaReader from a fasta file and a fai file explicitly.
+    #[classmethod]
+    fn from_fasta_and_faidx(_cls: &PyType, fasta_filename: &str, fasta_fai_filename: &str) -> PyResult<Self> {
+        match IndexedMmapFastaReader::from_fasta_and_faidx(fasta_filename, fasta_fai_filename) {
+            Ok(inner) => Ok(Self { inner }),
+            Err(e) => {
+                let py_err = match e.kind() {
+                    std::io::ErrorKind::NotFound => pyo3::exceptions::PyFileNotFoundError::new_err(format!("{}", e)),
+                    std::io::ErrorKind::PermissionDenied => pyo3::exceptions::PyPermissionError::new_err(format!("{}", e)),
+                    _ => pyo3::exceptions::PyRuntimeError::new_err(format!("{}", e)),
+                };
+                Err(py_err)
+            }
+        }
+    }
+
+    #[staticmethod]
+    fn create_faidx(fasta_filename: &str) -> PyResult<String> {
+        match IndexedMmapFastaReader::create_faidx(fasta_filename) {
+            Ok(fai_filename) => Ok(fai_filename),
+            Err(e) => {
+                let py_err = match e.kind() {
+                    std::io::ErrorKind::AlreadyExists => pyo3::exceptions::PyFileExistsError::new_err(format!("{}", e)),
+                    std::io::ErrorKind::PermissionDenied => pyo3::exceptions::PyPermissionError::new_err(format!("{}", e)),
+                    _ => pyo3::exceptions::PyRuntimeError::new_err(format!("{}", e)),
+                };
+                Err(py_err)
+            }
+        }
+    }
+
     fn records(&self) -> Vec<PyRecord> {
         return self.inner.index
             .as_ref()
@@ -129,60 +162,64 @@ struct IndexedMmapFastaReader {
 }
 
 impl IndexedMmapFastaReader {
-    fn new(fasta_path: &str) -> std::io::Result<Self> {
-        let fai_path = fasta_path.to_string() + ".fai";
-        let fai_path = Path::new(&fai_path); // Convert back to a Path
+    fn from_fasta_and_faidx(fasta_path: &str, fasta_fai_path: &str) -> std::io::Result<Self>{
         let fasta_path = Path::new(fasta_path);
-        // Check if the .fai index file exists; if not, create it.
         if !fasta_path.exists() {
                 return Err(std::io::Error::new(std::io::ErrorKind::NotFound, format!("Fasta file {} not found", fasta_path.display())));
         }
-
-        if !fai_path.exists() {
-            // if the fai path exists, load the index from this file rather than instantiating it.
-
-
-            // Generate the index by reading the FASTA file
-            //     Error most often occurs with an ill-formed fasta, this will raise an Other kind of error, no special handling we can do here.
-            //     we whould use this when the fai_path does not already exist.
-            let index: fai::Index = fasta::io::index(fasta_path)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("For fasta file {}, Failed to create index: {}", fasta_path.display(), e)))?;
-
-            // Create a faidx file for writing.
-            //      Error will almost exclusively fail due to permissions or some other I/O issue, propagating the generic issue is correct.
-
-
-            //let fai_file = File::create(&fai_path)
-            //    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create .fai file: {}", e)))?;
-
-            // Write the index to the .fai file
-            //      Error will almost exclusively fail due to permissions or some other I/O issue, propagating the generic issue is correct.
-            // let mut writer = fai::Writer::new(fai_file);
-            // writer.write_index(&index)
-            //    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to write .fai index: {}", e)))?;
-        } 
-
-        // Read the index from the .fai file
-        //     Error will occur from either an underlying I/O issue or an ill-formed faidx file.
-        let index: fai::Index = fasta::io::index(fasta_path)?;
-
+        let index = load_index_from_filename(fasta_fai_path)?;
         let fd = File::open(fasta_path)?;
         let mmap_reader = unsafe { memmap2::MmapOptions::new().map(&fd) }?;
         Ok(IndexedMmapFastaReader{mmap_reader, index})
+    }
 
-        /*
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create index: {}", e)))?;
-            Ok(IndexedMmapFastaReader { mmap_reader, index })
-        */
+    fn from_fasta(fasta_path: &str) -> std::io::Result<Self>{
+        let fasta_path = Path::new(fasta_path);
+        let fd = File::open(fasta_path)?;
+        let index: fai::Index = fasta::io::index(fasta_path)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("For fasta file {}, Failed to create index: {}", fasta_path.display(), e)))?;
+        let mmap_reader = unsafe { memmap2::MmapOptions::new().map(&fd) }?;
+        Ok(IndexedMmapFastaReader{mmap_reader, index})
+    }
+
+    fn create_faidx(fasta_filename: &str) -> std::io::Result<String>{
+        let fasta_path = Path::new(fasta_filename);
+        let index: fai::Index = fasta::io::index(fasta_path)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("For fasta file {}, Failed to create index: {}", fasta_path.display(), e)))?;
+
+
+        let fai_filename = fasta_filename.to_string() + ".fai";
+        let fai_path = Path::new(&fai_filename); // Convert back to a Path
+        if fai_path.exists() {
+            return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("Fai file {} already exists", fai_path.display())));
         }
 
-        fn read_sequence_mmap(&self, region_str: &str) -> std::io::Result<String> {
-            // given a region string, query the value inside the mmap.
-            let query_result = &read_sequence_mmap(&self.index, &self.mmap_reader, region_str)?;
-            let result = String::from_utf8_lossy(query_result).into_owned();
-            return Ok(result);
+        let fai_file = File::create(&fai_path)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create .fai file: {}", e)))?;
+        let mut writer = fai::Writer::new(fai_file);
+        writer.write_index(&index)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to write .fai index: {}", e)))?;
+
+        return Ok(fai_filename);
+    }
+
+    fn new(fasta_path: &str, ignore_existing_fai: bool) -> std::io::Result<Self> {
+        if !ignore_existing_fai {
+            // load the .fai files if they exist
+            let fasta_fai_path = fasta_path.to_string() + ".fai";
+            Self::from_fasta_and_faidx(fasta_path, &fasta_fai_path as &str)
+        } else {
+            Self::from_fasta(fasta_path)
         }
     }
+
+    fn read_sequence_mmap(&self, region_str: &str) -> std::io::Result<String> {
+        // given a region string, query the value inside the mmap.
+        let query_result = &read_sequence_mmap(&self.index, &self.mmap_reader, region_str)?;
+        let result = String::from_utf8_lossy(query_result).into_owned();
+        return Ok(result);
+    }
+}
 
     /// gets the byte offset for the last base of the record, as its not available in the index.
     fn fai_record_end_offset(record: &fai::Record) -> usize {
@@ -289,52 +326,52 @@ impl IndexedMmapFastaReader {
         //       3) read any remaining nucleotides.
 
 
-    // some convenient unpacking
-    let line_bases: usize = index_record.line_bases() as usize;
-    let line_width: usize = index_record.line_width() as usize;
-    let region_start: usize = index_record.offset() as usize;
+        // some convenient unpacking
+        let line_bases: usize = index_record.line_bases() as usize;
+        let line_width: usize = index_record.line_width() as usize;
+        let region_start: usize = index_record.offset() as usize;
 
-    let mut position = start;
+        let mut position = start;
 
-    // if we are in the middle of a line, figure out how far to the end
-    let first_read_to_end =
-        position + bases_remaining_in_first_line_read(region_start, start, line_bases, line_width);
+        // if we are in the middle of a line, figure out how far to the end
+        let first_read_to_end =
+            position + bases_remaining_in_first_line_read(region_start, start, line_bases, line_width);
 
-    // Handle the special case where we are a subset of a line
-    if first_read_to_end > end {
-        buf.extend_from_slice(&mmap[position..end + 1]);
-        return Ok(buf.len());
-    } else {
-        // otherwise, read to the end of the line
-        buf.extend_from_slice(&mmap[position..first_read_to_end]);
-        let bytes_read = first_read_to_end - position;
-        position = position + bytes_read + (line_width - line_bases);
+        // Handle the special case where we are a subset of a line
+        if first_read_to_end > end {
+            buf.extend_from_slice(&mmap[position..end + 1]);
+            return Ok(buf.len());
+        } else {
+            // otherwise, read to the end of the line
+            buf.extend_from_slice(&mmap[position..first_read_to_end]);
+            let bytes_read = first_read_to_end - position;
+            position = position + bytes_read + (line_width - line_bases);
+        }
+
+        // figure out how many full lines are left.
+        let full_lines_to_read = (end - position) / line_width;
+        let mut full_lines_read: usize = 0;
+
+        // read as many full lines as we can
+        while full_lines_read < full_lines_to_read {
+            buf.extend_from_slice(&mmap[position..position + line_bases]);
+            full_lines_read += 1;
+            position += line_width;
+        }
+
+        // if there are any bytes left, read them.
+        let remaining_bytes = (end + 1) - position;
+        buf.extend_from_slice(&mmap[position..position + remaining_bytes]);
+        Ok(buf.len())
     }
 
-    // figure out how many full lines are left.
-    let full_lines_to_read = (end - position) / line_width;
-    let mut full_lines_read: usize = 0;
-
-    // read as many full lines as we can
-    while full_lines_read < full_lines_to_read {
-        buf.extend_from_slice(&mmap[position..position + line_bases]);
-        full_lines_read += 1;
-        position += line_width;
+    fn load_index_from_filename(fai_path: &str) -> Result<fai::Index, std::io::Error> {
+        let fai_path = PathBuf::from(fai_path);
+        let fai_fd = File::open(fai_path)?;
+        let mut reader = fai::io::Reader::new(std::io::BufReader::new(fai_fd)); // Wrap the File in a BufReader
+        let idx = reader.read_index();
+        return idx;
     }
-
-    // if there are any bytes left, read them.
-    let remaining_bytes = (end + 1) - position;
-    buf.extend_from_slice(&mmap[position..position + remaining_bytes]);
-    Ok(buf.len())
-}
-
-fn load_index_from_filename(fai_path: &str) -> Result<fai::Index, std::io::Error> {
-    let fai_path = PathBuf::from(fai_path);
-    let fai_fd = File::open(fai_path).unwrap();
-    let mut reader = fai::io::Reader::new(std::io::BufReader::new(fai_fd)); // Wrap the File in a BufReader
-    let idx = reader.read_index();
-    return idx;
-}
 
 
 #[test]
@@ -481,6 +518,12 @@ fn test_invalid_fai_fails() {
     // tests our impl to make sures it matches above
     let index = load_index_from_filename(&fai_path.to_str().unwrap());
     assert!(index.is_err());
+}
+
+#[test]
+fn test_create_from_fasta_faidx_no_fai() {
+    IndexedMmapFastaReader::from_fasta_and_faidx("tests/bionemo/noodles/data/sample.fasta", "tests/bionemo/noodles/data/sample.fasta.fai").unwrap();
+    assert!(IndexedMmapFastaReader::from_fasta_and_faidx("tests/bionemo/noodles/data/sample.fasta", "asdfasdfasdf").is_err());
 }
 
 #[test]
