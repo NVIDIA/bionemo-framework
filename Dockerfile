@@ -91,9 +91,7 @@ WORKDIR /workspace/bionemo2
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
-    source $HOME/.cargo/env && \
-    rustup default nightly
+RUN ls -R /workspace/bionemo2/sub-packages/bionemo-noodles
 
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
 RUN --mount=type=bind,source=./.git,target=./.git \
@@ -101,7 +99,10 @@ RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   <<EOF
 set -eo pipefail
-uv pip install maturing && uv pip install --no-build-isolation \
+curl https://sh.rustup.rs -sSf | sh -s -- -y && \
+source $HOME/.cargo/env && \
+rustup default nightly && \
+uv pip install maturin && uv pip install --no-build-isolation \
   ./3rdparty/* \
   ./sub-packages/bionemo-* \
   -r /requirements-cve.txt \
@@ -169,11 +170,12 @@ RUN <<EOF
   pip uninstall -y nemo_toolkit megatron_core
 EOF
 
+############## NOTE this was all 'removed' for some reason
+
 # Transformer engine attention defaults
 # FIXME the following result in unstable training curves even if they are faster
 #  see https://github.com/NVIDIA/bionemo-framework/pull/421
 #ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
-
 FROM dev AS development
 
 WORKDIR /workspace/bionemo2
@@ -182,16 +184,17 @@ COPY ./internal ./internal
 # because of the `rm -rf ./3rdparty` in bionemo2-base
 COPY ./3rdparty ./3rdparty
 
-# TODO
-# RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
-#     source $HOME/.cargo/env && \
-#     rustup default nightly
+########### End note
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y && \
+    source $HOME/.cargo/env && \
+    rustup default nightly
 
 USER root
 RUN <<EOF
 set -eo pipefail
 find . -name __pycache__ -type d -print | xargs rm -rf
 uv pip install --no-build-isolation --editable ./internal/infra-bionemo
+uv pip install maturin 
 for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
     uv pip install --no-deps --no-build-isolation --editable $sub
 done
@@ -199,12 +202,6 @@ EOF
 ARG USERNAME=bionemo
 USER $USERNAME
 
-# TODO Copy over the artifacts from rust.
-
-# The 'release' target needs to be last so that it's the default build target. In the future, we could consider a setup
-# similar to the devcontainer above, where we copy the dist-packages folder from the build image into the release image.
-# This would reduce the overall image size by reducing the number of intermediate layers. In the meantime, we match the
-# existing release image build by copying over remaining files from the repo into the container.
 FROM bionemo2-base AS release
 
 RUN mkdir -p /workspace/bionemo2/.cache/
@@ -212,13 +209,12 @@ RUN mkdir -p /workspace/bionemo2/.cache/
 COPY VERSION .
 COPY ./scripts ./scripts
 COPY ./README.md ./
-
 # Copy over folders so that the image can run tests in a self-contained fashion.
 COPY ./ci/scripts ./ci/scripts
 COPY ./docs ./docs
+COPY ./sub-packages /workspace/bionemo2/sub-packages
 
 RUN chmod 777 -R /workspace/bionemo2/
-
 # Transformer engine attention defaults
 # We have to declare this again because the devcontainer splits from the release image's base.
 # FIXME the following results in unstable training curves even if faster.
