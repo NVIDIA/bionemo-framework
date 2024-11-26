@@ -58,63 +58,62 @@ def chiral_mol():
 def test_atomic_num_featurizer(test_mol):
     anf = AtomicNumberFeaturizer()
     anf_feats = anf(test_mol)
-    anf_feats_ref = [7, 6, 8, 6, 6, 7, 6, 6, 6, 6, 16, 7, 8, 8, 6, 6, 7, 6, 6, 6, 6, 6, 17, 6, 6]
-    assert anf_feats == anf_feats_ref
+    anf_feats_ref = torch.tensor([7, 6, 8, 6, 6, 7, 6, 6, 6, 6, 16, 7, 8, 8, 6, 6, 7, 6, 6, 6, 6, 6, 17, 6, 6], dtype=torch.int)
+    assert torch.allclose(anf_feats, anf_feats_ref)
 
 
 def test_degree_featurizer(test_mol):
     df = DegreeFeaturizer()
     df_feats = df(test_mol)
 
-    df_feats_ref = [1, 3, 1, 3, 2, 3, 3, 2, 2, 3, 4, 1, 1, 1, 2, 2, 2, 3, 3, 2, 2, 3, 1, 2, 2]
-
-    assert df_feats == df_feats_ref
+    df_feats_ref = torch.tensor([1, 3, 1, 3, 2, 3, 3, 2, 2, 3, 4, 1, 1, 1, 2, 2, 2, 3, 3, 2, 2, 3, 1, 2, 2], dtype=torch.int)
+    assert torch.allclose(df_feats, df_feats_ref)
 
 
 def test_total_degree_featurizer(test_mol):
     tdf = TotalDegreeFeaturizer()
 
     tdf_feats = tdf(test_mol)
-    tdf_feats_ref = [3, 3, 1, 3, 3, 3, 3, 3, 3, 3, 4, 3, 1, 1, 3, 3, 2, 3, 3, 3, 3, 3, 1, 3, 3]
-    assert tdf_feats == tdf_feats_ref
+    tdf_feats_ref = torch.tensor([3, 3, 1, 3, 3, 3, 3, 3, 3, 3, 4, 3, 1, 1, 3, 3, 2, 3, 3, 3, 3, 3, 1, 3, 3], dtype=torch.int)
+    assert torch.allclose(tdf_feats, tdf_feats_ref)
 
 
 def test_chiral_type_featurizer(chiral_mol):
     cf = ChiralTypeFeaturizer()
 
     cf_feats = cf(chiral_mol)
-    cf_feats_ref = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0]
-    assert cf_feats == cf_feats_ref
+    cf_feats_ref = torch.tensor([0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0], dtype=torch.int)
+    assert torch.allclose(cf_feats, cf_feats_ref)
 
 
 def test_total_numh_featurizer(test_mol):
     num_hf = TotalNumHFeaturizer()
 
     h2_feats = num_hf(test_mol)
-    h2_feats_ref = [2, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 2, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1]
-    assert h2_feats == h2_feats_ref
+    h2_feats_ref = torch.tensor([2, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 2, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1], dtype=torch.int)
+    assert torch.allclose(h2_feats, h2_feats_ref)
 
 
 def test_hybridization_featurizer(test_mol, chiral_mol):
     hf = HybridizationFeaturizer()
 
     hf_feats = hf(test_mol)
-    hf_feats_ref = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3]
-    assert hf_feats == hf_feats_ref
+    hf_feats_ref = torch.tensor([3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3], dtype=torch.int)
+    assert torch.allclose(hf_feats, hf_feats_ref)
 
 
 def test_aromaticity_featurizer(test_mol):
     af = AromaticityFeaturizer()
     af_feats = af(test_mol)
-    af_feats_ref = [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1]
-    assert af_feats == af_feats_ref
+    af_feats_ref = torch.tensor([0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1], dtype=torch.int)
+    assert torch.allclose(af_feats, af_feats_ref)
 
 
 def test_periodic_table_featurizer(test_mol):
     pt = PeriodicTableFeaturizer()
 
     pt_feats = pt(test_mol)
-    pt_feats_ref = [
+    pt_feats_ref = torch.tensor([
         (2, 5),
         (2, 4),
         (2, 6),
@@ -140,9 +139,9 @@ def test_periodic_table_featurizer(test_mol):
         (3, 7),
         (2, 4),
         (2, 4),
-    ]
+    ], dtype=torch.int)
 
-    assert pt_feats == pt_feats_ref
+    assert torch.allclose(pt_feats, pt_feats_ref)
 
 
 def test_electronic_property_featurizer(test_mol):

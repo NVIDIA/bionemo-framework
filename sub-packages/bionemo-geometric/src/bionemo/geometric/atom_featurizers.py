@@ -50,7 +50,7 @@ class AtomicNumberFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return self.max_atomic_num
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
 
         Args:
@@ -58,10 +58,10 @@ class AtomicNumberFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A list of integers representing atomic numbers of atoms.
+            A torch.tensor of integers representing atomic numbers of atoms.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
-        return [mol.GetAtomWithIdx(a).GetAtomicNum() for a in _atom_indices]
+        return torch.tensor([mol.GetAtomWithIdx(a).GetAtomicNum() for a in _atom_indices], dtype=torch.int)
 
 
 class DegreeFeaturizer(BaseAtomFeaturizer):
@@ -72,7 +72,7 @@ class DegreeFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 6
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
 
         Args:
@@ -80,10 +80,10 @@ class DegreeFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A list of integers representing degree of connectivity of atoms.
+            A torch.tensor of integers representing degree of connectivity of atoms.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
-        return [mol.GetAtomWithIdx(a).GetDegree() for a in _atom_indices]
+        return torch.tensor([mol.GetAtomWithIdx(a).GetDegree() for a in _atom_indices], dtype=torch.int)
 
 
 class TotalDegreeFeaturizer(BaseAtomFeaturizer):
@@ -94,7 +94,7 @@ class TotalDegreeFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 6
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
 
         Args:
@@ -102,10 +102,10 @@ class TotalDegreeFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A list of integers representing total connectivity (including hydrogens) of atoms.
+            A torch.tensor of integers representing total connectivity (including hydrogens) of atoms.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
-        return [mol.GetAtomWithIdx(a).GetTotalDegree() for a in _atom_indices]
+        return torch.tensor([mol.GetAtomWithIdx(a).GetTotalDegree() for a in _atom_indices], dtype=torch.int)
 
 
 class ChiralTypeFeaturizer(BaseAtomFeaturizer):
@@ -120,7 +120,7 @@ class ChiralTypeFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return self.max_chiral_types
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
 
         Args:
@@ -128,10 +128,10 @@ class ChiralTypeFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A list representing chirality type of atoms as integers.
+            A torch.tensor representing chirality type of atoms as integers.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
-        return [int(mol.GetAtomWithIdx(a).GetChiralTag()) for a in _atom_indices]
+        return torch.tensor([int(mol.GetAtomWithIdx(a).GetChiralTag()) for a in _atom_indices], dtype=torch.int)
 
 
 class TotalNumHFeaturizer(BaseAtomFeaturizer):
@@ -146,7 +146,7 @@ class TotalNumHFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return self.max_num_hs
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
 
         Args:
@@ -154,10 +154,10 @@ class TotalNumHFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A list of integers representing total number of hydrogens on atoms.
+            A torch.tensor of integers representing total number of hydrogens on atoms.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
-        return [mol.GetAtomWithIdx(a).GetTotalNumHs() for a in _atom_indices]
+        return torch.tensor([mol.GetAtomWithIdx(a).GetTotalNumHs() for a in _atom_indices], dtype=torch.int)
 
 
 class HybridizationFeaturizer(BaseAtomFeaturizer):
@@ -172,7 +172,7 @@ class HybridizationFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return self.max_hybridization_types
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
 
         Args:
@@ -180,10 +180,10 @@ class HybridizationFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A list representing hybridization type of atoms as integers.
+            A torch.tensor representing hybridization type of atoms as integers.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
-        return [int(mol.GetAtomWithIdx(a).GetHybridization()) for a in _atom_indices]
+        return torch.tensor([int(mol.GetAtomWithIdx(a).GetHybridization()) for a in _atom_indices], dtype=torch.int)
 
 
 class AromaticityFeaturizer(BaseAtomFeaturizer):
@@ -194,7 +194,7 @@ class AromaticityFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 1
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
 
         Args:
@@ -202,10 +202,10 @@ class AromaticityFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A list of representing if atoms are aromatic as integers.
+            A torch.tensor of representing if atoms are aromatic as integers.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
-        return [int(mol.GetAtomWithIdx(a).GetIsAromatic()) for a in _atom_indices]
+        return torch.tensor([int(mol.GetAtomWithIdx(a).GetIsAromatic()) for a in _atom_indices], dtype=torch.int)
 
 
 class PeriodicTableFeaturizer(BaseAtomFeaturizer):
@@ -237,7 +237,7 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
         group = self.pt.GetNOuterElecs(atom.GetAtomicNum())
         return group
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[tuple[int]]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes periodic table position of atoms of all or select atoms specific in `atom_indices`.
 
         Args:
@@ -245,10 +245,10 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A list of representing positions of atoms in periodic table as a tuple (period, group).
+            A torch.tensor of representing positions of atoms in periodic table. First index represents period and second index represents group.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
-        return [(self.get_period(mol.GetAtomWithIdx(a)), self.get_group(mol.GetAtomWithIdx(a))) for a in _atom_indices]
+        return torch.tensor([(self.get_period(mol.GetAtomWithIdx(a)), self.get_group(mol.GetAtomWithIdx(a))) for a in _atom_indices], dtype=torch.int)
 
 
 class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
@@ -388,7 +388,7 @@ class ScaffoldFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 1
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Returns position of the atoms with respect to Bemis-Murcko scaffold.
 
         Args:
@@ -396,7 +396,7 @@ class ScaffoldFeaturizer(BaseAtomFeaturizer):
             atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
 
         Returns:
-            A list indicating if atoms are present in the Bemis-Murcko scaffold of the molecule.
+            A torch.tensor indicating if atoms are present in the Bemis-Murcko scaffold of the molecule.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
 
