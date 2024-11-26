@@ -257,17 +257,21 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
     def __init__(self) -> None:
         """Initializes AtomicRadiusFeaturizer class."""
         self.pt = Chem.GetPeriodicTable()
-        self._min_val = torch.Tensor([
-            0.0,  # Bond radius
-            0.28,  # Covalent radius
-            1.2,  # van der Waals radius
-        ])
+        self._min_val = torch.Tensor(
+            [
+                0.0,  # Bond radius
+                0.28,  # Covalent radius
+                1.2,  # van der Waals radius
+            ]
+        )
 
-        self._max_val = torch.Tensor([
-            2.4,  # Bond radius
-            2.6,  # Covalent radius
-            3.0,  # van der Waals radius
-        ])
+        self._max_val = torch.Tensor(
+            [
+                2.4,  # Bond radius
+                2.6,  # Covalent radius
+                3.0,  # van der Waals radius
+            ]
+        )
 
     @property
     def n_dim(self) -> int:

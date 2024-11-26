@@ -185,75 +185,84 @@ def test_electronic_property_featurizer(test_mol):
 def test_scaffold_featurizer(test_mol):
     sf = ScaffoldFeaturizer()
     sf_feats = sf(test_mol)
-    sf_feats_ref = torch.tensor([
-        False,
-        False,
-        False,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        False,
-        False,
-        False,
-        False,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        False,
-        True,
-        True,
-    ], dtype=torch.int)
+    sf_feats_ref = torch.tensor(
+        [
+            False,
+            False,
+            False,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            False,
+            False,
+            False,
+            False,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            False,
+            True,
+            True,
+        ],
+        dtype=torch.int,
+    )
     assert torch.allclose(sf_feats, sf_feats_ref)
 
 
 def test_smarts_featurizer(test_mol, acetic_acid, methylamine):
     sf = SmartsFeaturizer()
     sf_feats = sf(test_mol)
-    sf_feats_ref = torch.tensor([
-        [True, False, False, False],
-        [False, False, False, False],
-        [False, True, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, True, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [True, False, False, False],
-        [False, True, False, False],
-        [False, True, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, True, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-        [False, False, False, False],
-    ], dtype=torch.int)
+    sf_feats_ref = torch.tensor(
+        [
+            [True, False, False, False],
+            [False, False, False, False],
+            [False, True, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, True, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [True, False, False, False],
+            [False, True, False, False],
+            [False, True, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, True, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+            [False, False, False, False],
+        ],
+        dtype=torch.int,
+    )
     assert torch.allclose(sf_feats, sf_feats_ref)
 
     sf_feats = sf(acetic_acid)
-    sf_feats_ref = torch.tensor([
-        [False, False, False, False],
-        [False, False, True, False],
-        [False, True, False, False],
-        [True, False, False, False],
-    ], dtype=torch.int)
+    sf_feats_ref = torch.tensor(
+        [
+            [False, False, False, False],
+            [False, False, True, False],
+            [False, True, False, False],
+            [True, False, False, False],
+        ],
+        dtype=torch.int,
+    )
     assert torch.allclose(sf_feats, sf_feats_ref)
 
     sf_feats = sf(methylamine)
