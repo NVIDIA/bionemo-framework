@@ -51,7 +51,15 @@ class AtomicNumberFeaturizer(BaseAtomFeaturizer):
         return self.max_atomic_num
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
-        """Computes features of atoms of all of select atoms."""
+        """Computes features of atoms of all of select atoms.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A list of integers representing atomic numbers of atoms.
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [mol.GetAtomWithIdx(a).GetAtomicNum() for a in _atom_indices]
 
@@ -65,7 +73,15 @@ class DegreeFeaturizer(BaseAtomFeaturizer):
         return 6
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
-        """Computes features of atoms of all of select atoms."""
+        """Computes features of atoms of all of select atoms.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A list of integers representing degree of connectivity of atoms.
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [mol.GetAtomWithIdx(a).GetDegree() for a in _atom_indices]
 
@@ -79,7 +95,15 @@ class TotalDegreeFeaturizer(BaseAtomFeaturizer):
         return 6
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
-        """Computes features of atoms of all of select atoms."""
+        """Computes features of atoms of all of select atoms.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A list of integers representing total connectivity (including hydrogens) of atoms.
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [mol.GetAtomWithIdx(a).GetTotalDegree() for a in _atom_indices]
 
@@ -97,7 +121,15 @@ class ChiralTypeFeaturizer(BaseAtomFeaturizer):
         return self.max_chiral_types
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
-        """Computes features of atoms of all of select atoms."""
+        """Computes features of atoms of all of select atoms.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A list representing chirality type of atoms as integers.
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [int(mol.GetAtomWithIdx(a).GetChiralTag()) for a in _atom_indices]
 
@@ -115,7 +147,15 @@ class TotalNumHFeaturizer(BaseAtomFeaturizer):
         return self.max_num_hs
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
-        """Computes features of atoms of all of select atoms."""
+        """Computes features of atoms of all of select atoms.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A list of integers representing total number of hydrogens on atoms.
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [mol.GetAtomWithIdx(a).GetTotalNumHs() for a in _atom_indices]
 
@@ -133,7 +173,15 @@ class HybridizationFeaturizer(BaseAtomFeaturizer):
         return self.max_hybridization_types
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
-        """Computes features of atoms of all of select atoms."""
+        """Computes features of atoms of all of select atoms.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A list representing hybridization type of atoms as integers.
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [int(mol.GetAtomWithIdx(a).GetHybridization()) for a in _atom_indices]
 
@@ -147,7 +195,15 @@ class AromaticityFeaturizer(BaseAtomFeaturizer):
         return 1
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
-        """Computes features of atoms of all of select atoms."""
+        """Computes features of atoms of all of select atoms.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A list of representing if atoms are aromatic as integers.
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return [int(mol.GetAtomWithIdx(a).GetIsAromatic()) for a in _atom_indices]
 
@@ -164,8 +220,8 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 25
 
-    def get_period(self, atom: Chem.Atom) -> list[bool]:
-        """Returns one-hot encoded period of atom."""
+    def get_period(self, atom: Chem.Atom) -> list[int]:
+        """Returns periodic table period of atom."""
         atomic_number = atom.GetAtomicNum()
         # The number of elements per period in the periodic table
         period_limits = [2, 10, 18, 36, 54, 86, 118]
@@ -176,15 +232,23 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
                 return period
         return None
 
-    def get_group(self, atom: Chem.Atom) -> list[bool]:
-        """Returns one-hot encoded group of atom."""
+    def get_group(self, atom: Chem.Atom) -> list[int]:
+        """Returns periodic table group of atom."""
         group = self.pt.GetNOuterElecs(atom.GetAtomicNum())
         return group
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
-        """Computes features of atoms of all of select atoms."""
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[tuple[int]]:
+        """Computes periodic table position of atoms of all or select atoms specific in `atom_indices`.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A list of representing positions of atoms in periodic table as a tuple (period, group).
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
-        return [[self.get_period(mol.GetAtomWithIdx(a)), self.get_group(mol.GetAtomWithIdx(a))] for a in _atom_indices]
+        return [(self.get_period(mol.GetAtomWithIdx(a)), self.get_group(mol.GetAtomWithIdx(a))) for a in _atom_indices]
 
 
 class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
@@ -220,7 +284,15 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
         return self._max_val
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
-        """Computes bond radius, covalent radius, and van der Waals radius without normalization."""
+        """Computes bond radius, covalent radius, and van der Waals radius without normalization.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A np.array of different atomic radii. Each atom is featurizer by bond radius, covalent radius, and van der Waals radius.
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
 
         feats = []
@@ -285,7 +357,15 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
         return self._max_val
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
-        """Returns features of the atom."""
+        """Returns electronic features of the atom.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A np.array consisting of Pauling scale electronegativity, ionization energy, and electron affinity for each atom.
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
 
         feats = []
@@ -303,14 +383,22 @@ class ScaffoldFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 1
 
-    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[bool]:
-        """Returns features of the atom."""
+    def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[int]:
+        """Returns position of the atoms with respect to Bemis-Murcko scaffold.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A list indicating if atoms are present in the Bemis-Murcko scaffold of the molecule.
+        """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
 
         scaffold = MurckoScaffold.GetScaffoldForMol(mol)
         scaffold_atom_idx = set(mol.GetSubstructMatch(scaffold))
 
-        feats = [aidx in scaffold_atom_idx for aidx in _atom_indices]
+        feats = [int(aidx in scaffold_atom_idx) for aidx in _atom_indices]
         return feats
 
 
@@ -336,7 +424,15 @@ class SmartsFeaturizer(BaseAtomFeaturizer):
         return 4
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> list[list[bool]]:
-        """Computes matches by prefixed SMARTS patterns."""
+        """Computes matches by prefixed SMARTS patterns.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            An np.array indicating if atoms are hydrogen bond donors, hydrogen bond acceptors, acidic, or basic.
+        """
         hydrogen_donor_match = sum(mol.GetSubstructMatches(self.hydrogen_donor), ())
         hydrogen_acceptor_match = sum(mol.GetSubstructMatches(self.hydrogen_acceptor), ())
         acidic_match = sum(mol.GetSubstructMatches(self.acidic), ())
@@ -391,7 +487,15 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
         return self._max_val
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> np.array:
-        """Compute atomic contributions to Crippen logP and molar refractivity."""
+        """Compute atomic contributions to Crippen logP and molar refractivity.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            atom_indices: Indices of atoms for feature computation. By default, features for all atoms is computed.
+
+        Returns:
+            A np.array featurizing atoms by its atomic contribution to logP and molar refractivity.
+        """
         logp_mr_list = np.array(rdMolDescriptors._CalcCrippenContribs(mol))
         logp_mr_list = np.clip(logp_mr_list, a_min=self.min_val, a_max=self.max_val)
 

@@ -36,8 +36,16 @@ class RingFeaturizer(BaseBondFeaturizer):
         """Returns dimensionality of the computed features."""
         return self.n_ring_sizes
 
-    def get_bond_features(self, mol: Mol, bond_indices: Optional[Iterable]) -> list[int]:
-        """Computes ring sizes a bonds of the molecule are present in."""
+    def get_bond_features(self, mol: Mol, bond_indices: Optional[Iterable]) -> list[tuple[int]]:
+        """Computes ring sizes a bonds of the molecule are present in.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+            bond_indices: Indices of bonds for feature computation. By default, features for all bonds is computed.
+
+        Returns:
+            An list of tuples indicating the size of ring(s) the bonds are present in.
+        """
         _bond_indices = bond_indices if bond_indices else range(mol.GetNumBonds())
 
         ri = mol.GetRingInfo()
