@@ -214,6 +214,8 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
     def __init__(self) -> None:
         """Initializes PeriodicTableFeaturizer class."""
         self.pt = Chem.GetPeriodicTable()
+        # The number of elements per period in the periodic table
+        self.period_limits = [2, 10, 18, 36, 54, 86, 118]
 
     @property
     def n_dim(self) -> int:
@@ -223,11 +225,9 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
     def get_period(self, atom: Chem.Atom) -> list[int]:
         """Returns periodic table period of atom."""
         atomic_number = atom.GetAtomicNum()
-        # The number of elements per period in the periodic table
-        period_limits = [2, 10, 18, 36, 54, 86, 118]
-
+        
         # Determine the period based on atomic number
-        for period, limit in enumerate(period_limits, start=1):
+        for period, limit in enumerate(self.period_limits, start=1):
             if atomic_number <= limit:
                 return period
         return None
