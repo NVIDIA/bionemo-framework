@@ -238,7 +238,6 @@ COPY ./README.md ./
 # Copy over folders so that the image can run tests in a self-contained fashion.
 COPY ./ci/scripts ./ci/scripts
 COPY ./docs ./docs
-COPY ./sub-packages /workspace/bionemo2/sub-packages
 
 RUN chmod 777 -R /workspace/bionemo2/
 
