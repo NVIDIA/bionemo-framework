@@ -224,6 +224,10 @@ ARG USERNAME=bionemo
 RUN chown $USERNAME:$USERNAME -R /workspace/bionemo2/
 USER $USERNAME
 
+# The 'release' target needs to be last so that it's the default build target. In the future, we could consider a setup
+# similar to the devcontainer above, where we copy the dist-packages folder from the build image into the release image.
+# This would reduce the overall image size by reducing the number of intermediate layers. In the meantime, we match the
+# existing release image build by copying over remaining files from the repo into the container
 FROM bionemo2-base AS release
 
 RUN mkdir -p /workspace/bionemo2/.cache/
