@@ -16,6 +16,7 @@
 
 import re
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -30,10 +31,9 @@ def create_first_RowFeatureIndex() -> RowFeatureIndex:
     Returns:
         A RowFeatureIndex with known values.
     """
-
-    one_feats = pd.DataFrame({"feature_name": ["FF", "GG", "HH"], "feature_int": [1, 2, 3]})
+    one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
     index = RowFeatureIndex()
-    index.append_features(12, one_feats)
+    index.append_features(12, one_feats, len(one_feats["feature_name"]))
     return index
 
 
@@ -45,7 +45,18 @@ def create_second_RowFeatureIndex() -> RowFeatureIndex:
     Returns:
         A RowFeatureIndex with known values.
     """
+    two_feats = {
+        "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
+        "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
+        "spare": np.array([None, None, None, None, None]),
+    }
 
+    index2 = RowFeatureIndex()
+    index2.append_features(8, two_feats, len(two_feats["feature_name"]), "MY_DATAFRAME")
+    return index2
+
+
+def test_dataframe_results_in_error():
     two_feats = pd.DataFrame(
         {
             "feature_name": ["FF", "GG", "HH", "II", "ZZ"],
@@ -53,9 +64,10 @@ def create_second_RowFeatureIndex() -> RowFeatureIndex:
             "spare": [None, None, None, None, None],
         }
     )
-    index2 = RowFeatureIndex()
-    index2.append_features(8, two_feats, "MY_DATAFRAME")
-    return index2
+    index = RowFeatureIndex()
+    with pytest.raises(TypeError) as error_info:
+        index.append_features(8, two_feats, len(two_feats["feature_name"]), "MY_DATAFRAME")
+        assert "Expected a dictionary, but received a Pandas DataFrame." in str(error_info.value)
 
 
 def test_feature_index_internals_on_empty_index():
@@ -75,14 +87,13 @@ def test_feature_index_internals_on_single_index(create_first_RowFeatureIndex):
 
 
 def test_feature_index_internals_on_append(create_first_RowFeatureIndex):
-    two_feats = pd.DataFrame(
-        {
-            "feature_name": ["FF", "GG", "HH", "II", "ZZ"],
-            "gene_name": ["RET", "NTRK", "PPARG", "TSHR", "EGFR"],
-            "spare": [None, None, None, None, None],
-        }
-    )
-    create_first_RowFeatureIndex.append_features(8, two_feats, "MY_DATAFRAME")
+    one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
+    two_feats = {
+        "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
+        "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
+        "spare": np.array([None, None, None, None, None]),
+    }
+    create_first_RowFeatureIndex.append_features(8, two_feats, len(two_feats["feature_name"]), "MY_DATAFRAME")
     assert len(create_first_RowFeatureIndex) == 2
     assert create_first_RowFeatureIndex.number_vars_at_row(1) == 3
     assert create_first_RowFeatureIndex.number_vars_at_row(13) == 5
@@ -92,11 +103,14 @@ def test_feature_index_internals_on_append(create_first_RowFeatureIndex):
     assert create_first_RowFeatureIndex.number_of_values()[1] == (8 * 5)
     assert create_first_RowFeatureIndex.number_of_rows() == 20
     feats, label = create_first_RowFeatureIndex.lookup(row=3, select_features=None)
-    assert list(feats.columns) == ["feature_name", "feature_int"]
+    assert np.all(feats[0] == one_feats["feature_name"])
+    assert np.all(feats[1] == one_feats["feature_int"])
     assert label is None
     feats, label = create_first_RowFeatureIndex.lookup(row=15, select_features=None)
+    assert np.all(feats[0] == two_feats["feature_name"])
+    assert np.all(feats[1] == two_feats["gene_name"])
+    assert np.all(feats[2] == two_feats["spare"])
     assert label == "MY_DATAFRAME"
-    assert list(feats.columns) == ["feature_name", "gene_name", "spare"]
 
 
 def test_concat_length(
@@ -133,18 +147,27 @@ def test_concat_lookup_results(
     create_first_RowFeatureIndex,
     create_second_RowFeatureIndex,
 ):
+    one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
+    two_feats = {
+        "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
+        "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
+        "spare": np.array([None, None, None, None, None]),
+    }
     create_first_RowFeatureIndex.concat(create_second_RowFeatureIndex)
     feats, label = create_first_RowFeatureIndex.lookup(row=3, select_features=None)
-    assert list(feats.columns) == ["feature_name", "feature_int"]
+    assert np.all(feats[0] == one_feats["feature_name"])
+    assert np.all(feats[1] == one_feats["feature_int"])
     assert label is None
     feats, label = create_first_RowFeatureIndex.lookup(row=15, select_features=None)
+    assert np.all(feats[0] == two_feats["feature_name"])
+    assert np.all(feats[1] == two_feats["gene_name"])
+    assert np.all(feats[2] == two_feats["spare"])
     assert label == "MY_DATAFRAME"
-    assert list(feats.columns) == ["feature_name", "gene_name", "spare"]
 
 
 def test_feature_lookup_empty():
     index = RowFeatureIndex()
-    with pytest.raises(IndexError, match=r"There are no dataframes to lookup"):
+    with pytest.raises(IndexError, match=r"There are no features to lookup"):
         index.lookup(row=1)
 
 
@@ -177,4 +200,4 @@ def test_save_reload_row_feature_index_identical(
         features_one, labels_one = create_first_RowFeatureIndex.lookup(row=row, select_features=None)
         features_reload, labels_reload = index_reload.lookup(row=row, select_features=None)
         assert labels_one == labels_reload
-        pd.testing.assert_frame_equal(features_one, features_reload)
+        assert np.all(np.array(features_one, dtype=object) == np.array(features_reload))

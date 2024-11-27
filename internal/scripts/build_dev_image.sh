@@ -10,6 +10,7 @@ DOCKER_BUILDKIT=1 docker buildx build \
   -t "nvcr.io/nvidian/cvai_bnmo_trng/bionemo:dev-bionemo2-${COMMIT}" \
   --target="development" \
   --load \
+  --cache-from nvcr.io/nvidia/clara/bionemo-framework:nightly \
   --cache-to type=inline \
   --label com.nvidia.bionemo.git_sha=${COMMIT} \
   --label com.nvidia.bionemo.created_at=${DATE} \
