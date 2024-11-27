@@ -119,6 +119,7 @@ uv pip install maturin --no-build-isolation && uv pip install --no-build-isolati
   -r /requirements-test.txt
 rm -rf ./3rdparty
 rm -rf /tmp/*
+rm -rf ./sub-packages/bionemo-noodles/target
 EOF
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
@@ -239,6 +240,11 @@ COPY ./README.md ./
 COPY ./ci/scripts ./ci/scripts
 COPY ./docs ./docs
 
+COPY --from=rust-env /usr/local/cargo /usr/local/cargo
+COPY --from=rust-env /usr/local/rustup /usr/local/rustup
+
+
+# RUN rm -rf /usr/local/cargo /usr/local/rustup
 RUN chmod 777 -R /workspace/bionemo2/
 
 # Transformer engine attention defaults
