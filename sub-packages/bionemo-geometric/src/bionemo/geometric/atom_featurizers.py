@@ -283,12 +283,12 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
 
     @property
     def min_val(self) -> torch.tensor:
-        """Returns minimum values for features: bond, covalent, and vdW radius"""
+        """Returns minimum values for features: bond, covalent, and vdW radius."""
         return self._min_val
 
     @property
     def max_val(self) -> torch.tensor:
-        """Returns maximum values for features: bond, covalent, and vdW radius"""
+        """Returns maximum values for features: bond, covalent, and vdW radius."""
         return self._max_val
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.Tensor:
