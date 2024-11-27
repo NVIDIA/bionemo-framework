@@ -1,0 +1,11 @@
+# Base image with apex and transformer engine, but without NeMo or Megatron-LM.
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.02-py3
+FROM ${BASE_IMAGE} AS bionemo2-base
+
+# Use UV to install python packages from the workspace. This just installs packages into the system's python
+# environment, and does not use the current uv.lock file.
+COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
+ENV UV_LINK_MODE=copy \
+  UV_COMPILE_BYTECODE=1 \
+  UV_PYTHON_DOWNLOADS=never \
+  UV_SYSTEM_PYTHON=true

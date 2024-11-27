@@ -3,9 +3,7 @@ ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.02-py3
 FROM ${BASE_IMAGE} AS bionemo2-base
 
 # Install NeMo dependencies.
-WORKDIR /build
-
-ARG MAX_JOBS=4
+ARG MAX_JOBS=-1
 ENV MAX_JOBS=${MAX_JOBS}
 
 # See NeMo readme for the latest tested versions of these libraries
@@ -14,7 +12,8 @@ RUN git clone https://github.com/NVIDIA/apex.git && \
   cd apex && \
   git checkout ${APEX_COMMIT} && \
   pip install . -v --no-build-isolation --disable-pip-version-check --no-cache-dir \
-  --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
+  --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm" && \
+  cd .. && rm -rf apex
 
 # Transformer Engine pre-1.7.0. 1.7 standardizes the meaning of bits in the attention mask to match
 ARG TE_COMMIT=c27ee60ec746210bcea4ec33958dbbff06706506
@@ -23,53 +22,38 @@ RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
   git fetch origin ${TE_COMMIT} && \
   git checkout FETCH_HEAD && \
   git submodule init && git submodule update && \
-  NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi pip install .
+  NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi pip install .  && \
+  cd .. && rm -rf TransformerEngine
 
-# Install core apt packages.
-RUN apt-get update \
-  && apt-get install -y \
+# Install core apt packages and addressing Security Scan Vulnerabilities
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+  <<EOT
+
+set -eo pipefail
+apt-get update -qy
+apt-get install -qyy \
   libsndfile1 \
   ffmpeg \
   git \
   curl \
   pre-commit \
   sudo \
-  && rm -rf /var/lib/apt/lists/*
+  gnupg \
+  openssh-client=1:8.9p1-3ubuntu0.10
 
-RUN apt-get install -y gnupg
+apt purge -y libslurm37 libpmi2-0
+apt autoremove -y
 
-# Check the nemo dependency for causal conv1d and make sure this checkout
-# tag matches. If not, update the tag in the following line.
-RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.0.post2
-
-# Mamba dependancy installation
-RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.0.3
-
-RUN pip install hatchling   # needed to install nemo-run
-ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
-RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG}
-
-RUN mkdir -p /workspace/bionemo2/
-
-# Delete the temporary /build directory.
-WORKDIR /workspace
-RUN rm -rf /build
-
-# Addressing Security Scan Vulnerabilities
-RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
-RUN apt-get update  && \
-  apt-get install -y openssh-client=1:8.9p1-3ubuntu0.10 && \
-  rm -rf /var/lib/apt/lists/*
-RUN apt purge -y libslurm37 libpmi2-0 && \
-  apt autoremove -y
-RUN source /usr/local/nvm/nvm.sh && \
+source /usr/local/nvm/nvm.sh && \
   NODE_VER=$(nvm current) && \
   nvm deactivate && \
   nvm uninstall $NODE_VER && \
   sed -i "/NVM/d" /root/.bashrc && \
   sed -i "/nvm.sh/d" /etc/bash.bashrc
+
+rm -rf /tmp/* /var/tmp/*
+EOT
 
 # Use UV to install python packages from the workspace. This just installs packages into the system's python
 # environment, and does not use the current uv.lock file.
@@ -81,29 +65,14 @@ ENV UV_LINK_MODE=copy \
 
 # Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
-RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
+ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
+
+RUN --mount=type=bind,source=./requirements-docker.txt,target=/requirements-docker.txt \
   --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
-  uv pip install --no-build-isolation -r /requirements-pyg.txt
-
-WORKDIR /workspace/bionemo2
-
-# Install 3rd-party deps and bionemo submodules.
-COPY ./3rdparty /workspace/bionemo2/3rdparty
-COPY ./sub-packages /workspace/bionemo2/sub-packages
-
-# Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
-RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
-  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   <<EOF
-set -eo pipefail
-uv pip install --no-build-isolation \
-  ./3rdparty/* \
-  ./sub-packages/bionemo-* \
-  -r /requirements-cve.txt \
-  -r /requirements-test.txt
-rm -rf ./3rdparty
-rm -rf /tmp/*
+  set -eo pipefail
+  uv pip install --no-deps --no-build-isolation -r /requirements-docker.txt
+  uv pip install --no-deps nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMO_RUN_TAG}
 EOF
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
@@ -159,12 +128,6 @@ RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/r
   rm -rf /tmp/*
 EOF
 
-RUN <<EOF
-  set -eo pipefail
-  rm -rf /usr/local/lib/python3.10/dist-packages/bionemo*
-  pip uninstall -y nemo_toolkit megatron_core
-EOF
-
 # Transformer engine attention defaults
 # FIXME the following result in unstable training curves even if they are faster
 #  see https://github.com/NVIDIA/bionemo-framework/pull/421
@@ -194,6 +157,23 @@ USER $USERNAME
 # This would reduce the overall image size by reducing the number of intermediate layers. In the meantime, we match the
 # existing release image build by copying over remaining files from the repo into the container.
 FROM bionemo2-base AS release
+
+WORKDIR /workspace/bionemo2
+
+# Install 3rd-party deps and bionemo submodules.
+COPY ./3rdparty /workspace/bionemo2/3rdparty
+COPY ./sub-packages /workspace/bionemo2/sub-packages
+
+# Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
+RUN --mount=type=bind,source=./.git,target=./.git \
+  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
+  <<EOF
+set -eo pipefail
+uv pip install --no-deps --no-build-isolation ./3rdparty/* ./sub-packages/bionemo-*
+rm -rf ./3rdparty
+rm -rf /tmp/*
+EOF
 
 RUN mkdir -p /workspace/bionemo2/.cache/
 
