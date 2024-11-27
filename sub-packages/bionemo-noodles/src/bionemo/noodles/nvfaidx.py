@@ -27,9 +27,9 @@ __all__: Sequence[str] = (
 
 
 class SequenceAccessor:
-    """SequenceAccessor provides a dictionary-like interface to a single sequence in an indexed FASTA file. It allows
-    for random access to the sequence, either by index or by slice.
+    """SequenceAccessor provides a dictionary-like interface to a single sequence in an indexed FASTA file.
 
+    This allows for random access to the sequence, either by index, or by slice.
     """
 
     def __init__(self, reader: PyIndexedMmapFastaReader, seqid: str, length: int) -> None:
@@ -87,8 +87,8 @@ class SequenceAccessor:
 
 class NvFaidx:
     """NvFaidx is a rest + pyo3 replacement for PyFaidx that provides a dictionary-like interface to reference genomes.
-    NvFaidx is built using Noodles as a backend for Fai objects, and memory maps for backing the underlying fasta.
 
+    NvFaidx is built using Noodles as a backend for Fai objects, and memory maps for backing the underlying fasta.
     Using a backend of Memmaps provide the following benefits:
         - The kernel implements this mechanism by using page faults
         - Each read in a mmap'd file results in a page fault: there's nothing in memory to read!
@@ -148,8 +148,7 @@ class NvFaidx:
 
     @staticmethod
     def create_faidx(fasta_filename: str | Path) -> str:
-        """Create a FAI index for a FASTA file, the result is saved in the same location as `fasta_filename`, with a
-            .fai extension.
+        """Create a FAI index for a FASTA file, the result is saved in the same location as `fasta_filename`, with a .fai extension.
 
         Args:
             fasta_filename (str): Path to the FASTA file to be indexed.
