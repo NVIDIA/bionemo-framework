@@ -17,7 +17,7 @@
 from pathlib import Path
 from typing import Dict, Optional, Sequence
 
-from bionemo.noodles import PyIndexedMmapFastaReader, PyRecord
+from bionemo.noodles import PyFaidxRecord, PyIndexedMmapFastaReader
 
 
 __all__: Sequence[str] = (
@@ -118,16 +118,23 @@ class NvFaidx:
         """
         if isinstance(fasta_path, Path):
             fasta_path = str(fasta_path)
+        elif not isinstance(fasta_path, str):
+            raise TypeError(f"fasta_path must be a `str` or `pathlib.Path`, got: {type(fasta_path)}")
+
         if isinstance(faidx_path, Path):
             faidx_path = str(faidx_path)
+        elif not isinstance(faidx_path, str) and faidx_path is not None:
+            raise TypeError(f"faidx_path must be a `str`, `pathlib.Path`, or None. got: {type(faidx_path)}")
+
         if ignore_existing_fai:
             self.reader = PyIndexedMmapFastaReader(fasta_path, ignore_existing_fai=ignore_existing_fai)
         elif faidx_path is not None:
             self.reader = PyIndexedMmapFastaReader.from_fasta_and_faidx(fasta_path, faidx_path)
         else:
+            # Builds a FAIDX object in memory by default.
             self.reader = PyIndexedMmapFastaReader(fasta_path)
 
-        self.records: Dict[str, PyRecord] = {record.name: record for record in self.reader.records()}
+        self.records: Dict[str, PyFaidxRecord] = {record.name: record for record in self.reader.records()}
 
     def __getitem__(self, seqid: str) -> SequenceAccessor:  # noqa: D105
         if seqid not in self.records:

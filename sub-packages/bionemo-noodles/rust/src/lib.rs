@@ -16,7 +16,7 @@ use std::path::PathBuf;
 /// - line_width: number of bytes per line in the fasta file, including newlines, return carriages, etc.
 #[pyclass]
 #[derive(Clone)]
-struct PyRecord {
+struct PyFaidxRecord {
     name: String,
     length: u64,
     offset: u64,
@@ -25,7 +25,7 @@ struct PyRecord {
 }
 
 #[pymethods]
-impl PyRecord {
+impl PyFaidxRecord {
     #[getter]
     fn name(&self) -> &str {
         &self.name
@@ -52,20 +52,20 @@ impl PyRecord {
     }
     fn __str__(&self) -> String {
         format!(
-            "PyRecord(name={}, length={}, offset={}, line_bases={}, line_width={})",
+            "PyFaidxRecord(name={}, length={}, offset={}, line_bases={}, line_width={})",
             self.name, self.length, self.offset, self.line_bases, self.line_width
         )
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "<PyRecord name={} length={} offset={} line_bases={} line_width={}>",
+            "<PyFaidxRecord name={} length={} offset={} line_bases={} line_width={}>",
             self.name, self.length, self.offset, self.line_bases, self.line_width
         )
     }
 }
 
-impl From<&fai::Record> for PyRecord {
+impl From<&fai::Record> for PyFaidxRecord {
     fn from(record: &fai::Record) -> Self {
         Self {
             name: String::from_utf8_lossy(record.name()).to_string(),
@@ -146,13 +146,13 @@ impl PyIndexedMmapFastaReader {
         }
     }
 
-    fn records(&self) -> Vec<PyRecord> {
+    fn records(&self) -> Vec<PyFaidxRecord> {
         return self
             .inner
             .index
             .as_ref()
             .iter()
-            .map(|record| PyRecord::from(record))
+            .map(|record| PyFaidxRecord::from(record))
             .collect();
     }
     fn read_sequence_mmap(&self, region_str: &str) -> PyResult<String> {
@@ -179,7 +179,7 @@ impl PyIndexedMmapFastaReader {
 #[pymodule]
 fn noodles_fasta_wrapper(_: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyIndexedMmapFastaReader>()?;
-    m.add_class::<PyRecord>()?;
+    m.add_class::<PyFaidxRecord>()?;
     Ok(())
 }
 

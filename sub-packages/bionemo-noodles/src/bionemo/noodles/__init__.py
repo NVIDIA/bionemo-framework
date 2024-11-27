@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from bionemo.noodles_fasta_wrapper import PyIndexedMmapFastaReader, PyRecord
+from bionemo.noodles_fasta_wrapper import PyFaidxRecord, PyIndexedMmapFastaReader
 
 
-__all__ = ("PyRecord", "PyIndexedMmapFastaReader")
+__all__ = ("PyFaidxRecord", "PyIndexedMmapFastaReader")

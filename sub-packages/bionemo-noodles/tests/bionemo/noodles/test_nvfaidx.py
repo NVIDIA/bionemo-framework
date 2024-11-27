@@ -66,7 +66,7 @@ def test_from_fasta_and_faidx():
     assert index.read_sequence_mmap("contig1:1-10") == index2.read_sequence_mmap("contig1:1-10")
     assert index.read_sequence_mmap("contig1:10-200") == index2.read_sequence_mmap("contig1:10-200")
 
-    # no we are going to rename the file, and then try again, we expect the same outcome.
+    # now we are going to rename the file, and then try again, we expect the same outcome.
     new_faidx_name = os.path.dirname(faidx_filename) + "/asdfasdfasdf"
     os.rename(faidx_filename, new_faidx_name)
     # Sanity checks for our test.
@@ -144,6 +144,10 @@ def test_getitem_bounds(sample_fasta):
     assert index["chr1"][:-1] == "ACTGACTGACT"
     # -1 should get the last element
     assert index["chr1"][-1:] == "G"
+
+    # Invalid contig should throw an exception
+    with pytest.raises(KeyError):
+        index["asdfasdfasdfsadf"][-1:]
 
 
 def _test_faidx_generic(faidx_obj):
@@ -292,6 +296,11 @@ def test_file_errors():
 
     # But if we create an index in memory, should work!
     _ = PyIndexedMmapFastaReader(test_fa, ignore_existing_fai=True)
+
+    # test failure due to lack of fai
+    with pytest.raises(FileNotFoundError):
+        new_test_fasta = create_test_fasta(num_seqs=1, seq_length=200)
+        _ = PyIndexedMmapFastaReader(new_test_fasta, ignore_existing_fai=False)
 
 
 ## Benchmarks
