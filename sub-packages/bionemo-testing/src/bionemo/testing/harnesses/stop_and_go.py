@@ -314,6 +314,10 @@ class StopAndGoHarness(ABC):
         cls.stop()
         cls.resume()
 
+        # Cleanup and reinitialize the temporary directory so we don't conflict with a previous checkpoint.
+        cls.tempdir.cleanup()
+        cls.tempdir = tempfile.TemporaryDirectory()
+
         # Continuous model training.
         cls.continuous()
 
