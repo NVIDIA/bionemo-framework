@@ -1,0 +1,34 @@
+[build-system]
+
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "bionemo-noodles"
+readme = "README.md"
+description = "Python wrapper around [noodles](https://github.com/zaeleus/noodles)."
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dynamic = ["version"]
+dependencies = [
+    # internal
+    'bionemo-core',
+    # external
+]
+
+[tool.maturin]
+bindings = "cffi"
+compatibility = "linux"
+python-source = "src"
+module-name = "bionemo.noodles"
+version = { file = "VERSION" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bionemo.*"]
+namespaces = true
+exclude = ["test*."]
+
+[tool.uv]
+cache-keys = [{ git = true }]

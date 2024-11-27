@@ -43,10 +43,15 @@ depends_on = [
 path = "bionemo.fw"
 depends_on = [
     { path = "bionemo.core" },
-    { path = "bionemo.llm" },
     { path = "bionemo.esm2" },
     { path = "bionemo.geneformer" },
+    { path = "bionemo.geometric" },
+    { path = "bionemo.llm" },
+    { path = "bionemo.noodles" },
+    { path = "bionemo.scdl" },
+    { path = "bionemo.size_aware_batching" },
     { path = "bionemo.webdatamodule" },
+    { path = "bionemo.noodles" },
 ]
 
 [[modules]]
@@ -64,6 +69,12 @@ depends_on = [
 
 [[modules]]
 path = "bionemo.llm"
+depends_on = [
+    { path = "bionemo.core" },
+]
+
+[[modules]]
+path = "bionemo.noodles"
 depends_on = [
     { path = "bionemo.core" },
 ]

@@ -1,0 +1,16 @@
+[package]
+name = "noodles_fasta_wrapper"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module"] }
+noodles-fasta = "0.45.0"  # Update to the latest version of noodles
+noodles-core = "*"
+
+[package.metadata.pyo3]
+name = "noodles_fasta_wrapper"
+
