@@ -20,11 +20,11 @@ from typing import Any, Dict, Set, Tuple, Type
 import pytest
 import torch
 from _pytest.compat import LEGACY_PATH
+from lightning.pytorch.loggers import TensorBoardLogger
 from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import NeMoLogger, io, resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
-from pytorch_lightning.loggers import TensorBoardLogger
 
 from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype

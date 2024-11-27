@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch.nn.functional as F
 
 

@@ -16,7 +16,7 @@
 
 from typing import Any, Dict
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 from nemo.utils import logging
 
 

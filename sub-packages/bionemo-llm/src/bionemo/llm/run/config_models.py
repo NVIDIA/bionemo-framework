@@ -19,7 +19,7 @@ from abc import ABC, abstractmethod
 from dataclasses import field
 from typing import Any, Callable, Dict, Generic, List, Literal, Optional, Type, TypeVar
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
 from pydantic import BaseModel, field_serializer, field_validator, model_validator
 from torch.nn import functional as F

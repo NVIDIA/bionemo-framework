@@ -19,9 +19,9 @@ import tempfile
 from abc import ABC, abstractmethod
 from typing import Dict, Literal, Sequence, Type, TypeVar
 
+import lightning.pytorch as pl
 import nemo.lightning as nl
 import pytest
-import pytorch_lightning as pl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.nemo_logger import NeMoLogger

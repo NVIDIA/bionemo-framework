@@ -19,11 +19,11 @@ from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
+from lightning.pytorch import Callback, LightningModule, Trainer
 from nemo.lightning import io
 from nemo.lightning.data import MegatronPretrainingSampler
 from nemo.lightning.megatron_parallel import CallbackMethods, DataT, MegatronLossReduction, MegatronStep
 from overrides import override
-from pytorch_lightning import Callback, LightningModule, Trainer
 
 from bionemo.testing.harnesses.mode import Mode
 from bionemo.testing.torch import recursive_detach

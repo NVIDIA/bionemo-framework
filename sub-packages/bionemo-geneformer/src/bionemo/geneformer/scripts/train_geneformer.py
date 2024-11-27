@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Type, get_args
 
 import torch
+from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
@@ -36,7 +37,6 @@ from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
 from nemo.utils.exp_manager import TimingCallback
-from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.geneformer.api import FineTuneSeqLenBioBertConfig, GeneformerConfig
@@ -195,7 +195,7 @@ def main(
     )
 
     # for wandb integration
-    # Please refer to https://pytorch-lightning.readthedocs.io/en/0.7.6/api/pytorch_lightning.loggers.html"
+    # Please refer to https://pytorch-lightning.readthedocs.io/en/0.7.6/api/lightning.pytorch.loggers.html"
     wandb_options: Optional[WandbConfig] = (
         None
         if wandb_project is None

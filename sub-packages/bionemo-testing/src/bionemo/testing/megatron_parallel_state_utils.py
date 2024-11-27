@@ -36,8 +36,8 @@ from typing import Any, Iterator, Optional, Sequence
 from unittest import mock
 from unittest.mock import MagicMock
 
+import lightning.pytorch as pl
 import megatron.core.num_microbatches_calculator
-import pytorch_lightning as pl
 import torch
 import torch.distributed
 from megatron.core import parallel_state

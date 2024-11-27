@@ -18,7 +18,9 @@ import tempfile
 from pathlib import Path
 from typing import Sequence, Tuple
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
+from lightning.pytorch.callbacks import Callback, RichModelSummary
+from lightning.pytorch.loggers import TensorBoardLogger
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm as nllm
@@ -28,8 +30,6 @@ from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.callbacks.model_transform import ModelTransform
 from nemo.lightning.pytorch.callbacks.peft import PEFT
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
-from pytorch_lightning.callbacks import Callback, RichModelSummary
-from pytorch_lightning.loggers import TensorBoardLogger
 
 from bionemo.core.data.load import load
 from bionemo.esm2.api import ESM2GenericConfig

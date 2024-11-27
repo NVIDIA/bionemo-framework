@@ -18,7 +18,7 @@ from collections import defaultdict
 from typing import Dict, List
 
 import torch
-from pytorch_lightning import Callback
+from lightning.pytorch import Callback
 
 
 class MetricTracker(Callback):  # noqa: D101

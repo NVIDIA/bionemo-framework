@@ -19,6 +19,7 @@ import pathlib
 from dataclasses import field
 from typing import Optional
 
+from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -28,7 +29,6 @@ from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
 from pydantic import BaseModel
-from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 
 from bionemo.llm.lightning import BionemoLightningModule, PerplexityLoggingCallback
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module

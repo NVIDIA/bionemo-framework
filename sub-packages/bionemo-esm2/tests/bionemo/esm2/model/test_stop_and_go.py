@@ -17,7 +17,7 @@
 from pathlib import Path
 from typing import Literal
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule

@@ -17,13 +17,13 @@ import argparse
 from pathlib import Path
 from typing import List, Optional, Sequence, get_args
 
+from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
-from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
@@ -170,7 +170,7 @@ def main(
     )
 
     # for wandb integration
-    # Please refer to https://pytorch-lightning.readthedocs.io/en/0.7.6/api/pytorch_lightning.loggers.html"
+    # Please refer to https://pytorch-lightning.readthedocs.io/en/0.7.6/api/lightning.pytorch.loggers.html"
     wandb_config: Optional[WandbConfig] = (
         None
         if wandb_project is None

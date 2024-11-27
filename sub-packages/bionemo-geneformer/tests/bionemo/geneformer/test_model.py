@@ -23,6 +23,7 @@ from unittest import mock
 import pytest
 import torch
 import torch.utils.data
+from lightning.pytorch.loggers import TensorBoardLogger
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from megatron.core.transformer.module import Float16Module
 from nemo import lightning as nl
@@ -34,7 +35,6 @@ from nemo.lightning.pytorch.callbacks.model_transform import ModelTransform
 from nemo.lightning.pytorch.callbacks.peft import PEFT
 from nemo.lightning.pytorch.optim.lr_scheduler import WarmupPolicyScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
-from pytorch_lightning.loggers import TensorBoardLogger
 from torch.nn import functional as F
 from tqdm import tqdm
 

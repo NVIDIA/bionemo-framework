@@ -75,7 +75,7 @@ Similarly, `ExampleFineTuneConfig` extends `ExampleGenericConfig` for finetuning
 
 # Training Module
 
-It is helfpul to have a training module that inherits from `pytorch_lightning.LightningModule` which organizes the model architecture, training, validation, and testing logic while abstracting away boilerplate code, enabling easier and more scalable training. This wrapper can be used for all model and loss combinations specified in the config.
+It is helfpul to have a training module that inherits from `lightning.pytorch.LightningModule` which organizes the model architecture, training, validation, and testing logic while abstracting away boilerplate code, enabling easier and more scalable training. This wrapper can be used for all model and loss combinations specified in the config.
 In `bionemo.example_model.lightning.lightning_basic`, we define `BionemoLightningModule`.
 
 In this example, `training_step`, `validation_step`, and `predict_step` define the training, validation, and prediction loops are independent of the forward method. In nemo:
@@ -99,7 +99,7 @@ We specify a training strategy of type `nemo.lightning.MegatronStrategy`. This s
 
 We specify a trainer of type `nemo.lightning.Trainer`, which is an extension of the pytorch lightning trainer. This is where the devices, validation intervals, maximal steps, maximal number of epochs, and how frequently to log are specified.
 
-we specify a nemo-logger. We can set TensorBoard and WandB logging, along with extra loggers. Here, we specify a `CSVLogger` from pytorch_lightning.loggers.
+we specify a nemo-logger. We can set TensorBoard and WandB logging, along with extra loggers. Here, we specify a `CSVLogger` from lightning.pytorch.loggers.
 
 We can now proceed to training. The first pre-training scripts is `bionemo/example_model/training_scripts/pretrain_mnist.py`
 
