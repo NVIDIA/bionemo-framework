@@ -34,6 +34,8 @@ def sample_mol2():
 def test_rdkit2d_descriptor_featurizer(sample_mol, sample_mol2):
     rdf = RDkit2DDescriptorFeaturizer()
     mol_feats = rdf(sample_mol)
+
+    # 2D RDkit descriptors listed in rdkit.Chem.Descriptors.descList
     mol_feats_ref = torch.Tensor(
         [
             11.739234088578126,

@@ -28,6 +28,9 @@ def test_mol2():
 def test_ring_featurizer(test_mol2):
     rf = RingFeaturizer()
     rf_feats = rf(test_mol2)
+
+    # Reference is a list of tuples
+    # Each tuple contains the sizes of the rings the bond is present it
     rf_feats_ref = [
         (),
         (6,),
