@@ -17,9 +17,9 @@
 import pytest
 import torch
 from rdkit import Chem
-
+from rdkit.Chem import Descriptors
 from bionemo.geometric.molecule_featurizers import RDkit2DDescriptorFeaturizer
-
+import re
 
 @pytest.fixture(scope="module")
 def sample_mol():
@@ -34,6 +34,10 @@ def sample_mol2():
 def test_rdkit2d_descriptor_featurizer(sample_mol, sample_mol2):
     rdf = RDkit2DDescriptorFeaturizer()
     mol_feats = rdf(sample_mol)
+
+    # separate out int and float descriptors
+    int_desc_idx = [idx for idx, (name, _) in enumerate(Descriptors.descList) if re.search(r"(num|fr_|count)", name, re.IGNORECASE)]
+    float_desc_idx = list(set(range(len(Descriptors.descList))) - set(int_desc_idx))
 
     # 2D RDkit descriptors listed in rdkit.Chem.Descriptors.descList
     mol_feats_ref = torch.Tensor(
@@ -251,7 +255,8 @@ def test_rdkit2d_descriptor_featurizer(sample_mol, sample_mol2):
         ]
     )
 
-    assert torch.allclose(mol_feats, mol_feats_ref)
+    assert torch.allclose(mol_feats[float_desc_idx], mol_feats_ref[float_desc_idx])
+    assert torch.all(mol_feats[int_desc_idx] == mol_feats_ref[int_desc_idx])
 
     mol_feats = rdf(sample_mol2)
     mol_feats_ref = torch.Tensor(
@@ -469,4 +474,5 @@ def test_rdkit2d_descriptor_featurizer(sample_mol, sample_mol2):
         ]
     )
 
-    assert torch.allclose(mol_feats, mol_feats_ref)
+    assert torch.allclose(mol_feats[float_desc_idx], mol_feats_ref[float_desc_idx])
+    assert torch.all(mol_feats[int_desc_idx] == mol_feats_ref[int_desc_idx])
