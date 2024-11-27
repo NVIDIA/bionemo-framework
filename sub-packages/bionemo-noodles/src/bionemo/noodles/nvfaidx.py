@@ -27,9 +27,9 @@ __all__: Sequence[str] = (
 
 
 class SequenceAccessor:
-    """SequenceAccessor provides a dictionary-like interface to a single sequence in an indexed FASTA file. It allows 
+    """SequenceAccessor provides a dictionary-like interface to a single sequence in an indexed FASTA file. It allows
     for random access to the sequence, either by index or by slice.
-    
+
     """
 
     def __init__(self, reader: PyIndexedMmapFastaReader, seqid: str, length: int) -> None:
@@ -86,13 +86,13 @@ class SequenceAccessor:
 
 
 class NvFaidx:
-    """NvFaidx is a rest + pyo3 replacement for PyFaidx that provides a dictionary-like interface to reference genomes. 
+    """NvFaidx is a rest + pyo3 replacement for PyFaidx that provides a dictionary-like interface to reference genomes.
     NvFaidx is built using Noodles as a backend for Fai objects, and memory maps for backing the underlying fasta.
 
     Using a backend of Memmaps provide the following benefits:
         - The kernel implements this mechanism by using page faults
         - Each read in a mmap'd file results in a page fault: there's nothing in memory to read!
-        - The kernel handles this page fault by going to the disk, reading the file in the specified offset + index, 
+        - The kernel handles this page fault by going to the disk, reading the file in the specified offset + index,
             then returning to the user process with what it just read, preventing penalties from context switching.
 
     *Context*: PyFaidx or _any_ buffered read based index is not process safe, and therefore does not play nice with pytorch dataloaders.
@@ -101,7 +101,7 @@ class NvFaidx:
     Ref: https://github.com/mdshw5/pyfaidx/issues/211
 
     For a good solution we need three things:
-        1) Safe index creation, in multi-process or multi-node scenarios, this should be restricted to a single node 
+        1) Safe index creation, in multi-process or multi-node scenarios, this should be restricted to a single node
             where all workers block until it is complete (not implemented above)
         2) Index object instantion must be fast.
         3) Read-only use of the index object must be both thread safe and process safe with python.
@@ -113,7 +113,7 @@ class NvFaidx:
         Args:
             fasta_path (str): Path to the FASTA file.
             faidx_path (str): Path to the FAI index file. If None, one will be created.
-            ignore_existing_fai (bool): If True, ignore any existing FAI file and create an in-memory index. Note that 
+            ignore_existing_fai (bool): If True, ignore any existing FAI file and create an in-memory index. Note that
                 this will also ignore `faidx_path`.
         """
         if isinstance(fasta_path, Path):
@@ -148,7 +148,7 @@ class NvFaidx:
 
     @staticmethod
     def create_faidx(fasta_filename: str | Path) -> str:
-        """Create a FAI index for a FASTA file, the result is saved in the same location as `fasta_filename`, with a 
+        """Create a FAI index for a FASTA file, the result is saved in the same location as `fasta_filename`, with a
             .fai extension.
 
         Args:
