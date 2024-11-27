@@ -14,12 +14,15 @@
 # limitations under the License.
 
 
+import re
+
 import pytest
 import torch
 from rdkit import Chem
 from rdkit.Chem import Descriptors
+
 from bionemo.geometric.molecule_featurizers import RDkit2DDescriptorFeaturizer
-import re
+
 
 @pytest.fixture(scope="module")
 def sample_mol():
@@ -36,7 +39,9 @@ def test_rdkit2d_descriptor_featurizer(sample_mol, sample_mol2):
     mol_feats = rdf(sample_mol)
 
     # separate out int and float descriptors
-    int_desc_idx = [idx for idx, (name, _) in enumerate(Descriptors.descList) if re.search(r"(num|fr_|count)", name, re.IGNORECASE)]
+    int_desc_idx = [
+        idx for idx, (name, _) in enumerate(Descriptors.descList) if re.search(r"(num|fr_|count)", name, re.IGNORECASE)
+    ]
     float_desc_idx = list(set(range(len(Descriptors.descList))) - set(int_desc_idx))
 
     # 2D RDkit descriptors listed in rdkit.Chem.Descriptors.descList
