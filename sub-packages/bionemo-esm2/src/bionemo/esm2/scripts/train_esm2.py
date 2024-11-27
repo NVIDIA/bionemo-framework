@@ -190,6 +190,7 @@ def main(
         PerplexityLoggingCallback(log_train=False, log_val=True),
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
+        nl_callbacks.PreemptionCallback(),
     ]
     if nsys_profiling:
         if nsys_end_step is None:

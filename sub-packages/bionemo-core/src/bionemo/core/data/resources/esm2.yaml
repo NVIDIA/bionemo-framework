@@ -40,3 +40,11 @@
   sha256: 006911f92bbc0ded7ea302bbdbfab4c694b409e699c32fd49de1c527a99dba3e  # pragma: allowlist secret
   owner: Peter St John <pstjohn@nvidia.com>
   description: Test data for ESM2 pretraining.
+
+- tag: esm2_inference_testdata:2.0
+  ngc: nvidia/clara/esm2_inference_testdata:2.0  # TODO: upload to NGC
+  ngc_registry: resource
+  pbss: "s3://bionemo-ci/test_data/esm2/artificial_protein_sequences.csv"
+  sha256: 14ae3acfbf82218bc9e3e53d21a5b0594ba7c0369e169c9f1034e3fe4378d175  # pragma: allowlist secret
+  owner: Farhad Ramezanghorbani <farhadr@nvidia.com>
+  description: Test data for ESM2 inference.

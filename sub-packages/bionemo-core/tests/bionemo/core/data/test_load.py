@@ -269,6 +269,7 @@ def test_default_pbss_client():
     assert client.meta.endpoint_url == "https://pbss.s8k.io"
 
 
+@pytest.mark.xfail(reason="Logging into NGC is not required to download artifacts in BioNeMo.")
 def test_default_ngc_client():
     clt = default_ngc_client()
     assert clt.api_key is not None
