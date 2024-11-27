@@ -41,14 +41,14 @@ ALL_ATOM_FEATURIZERS = [
 class AtomicNumberFeaturizer(BaseAtomFeaturizer):
     """Class for featurizing atom by its atomic number."""
 
-    def __init__(self, max_atomic_num: Optional[int] = None) -> None:
+    def __init__(self, dim_atomic_num: Optional[int] = None) -> None:
         """Initializes AtomicNumberFeaturizer class."""
-        MAX_ATOMIC_NUM = 118
-        self.max_atomic_num = max_atomic_num if max_atomic_num else MAX_ATOMIC_NUM
+        DIM_ATOMIC_NUM = 118
+        self.dim_atomic_num = dim_atomic_num if dim_atomic_num else DIM_ATOMIC_NUM
 
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
-        return self.max_atomic_num
+        return self.dim_atomic_num
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
@@ -113,12 +113,12 @@ class ChiralTypeFeaturizer(BaseAtomFeaturizer):
 
     def __init__(self) -> None:
         """Initializes ChiralTypeFeaturizer class."""
-        self.max_chiral_types = len(ChiralType.values)
+        self.dim_chiral_types = len(ChiralType.values)
 
     @property
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
-        return self.max_chiral_types
+        return self.dim_chiral_types
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
@@ -139,12 +139,12 @@ class TotalNumHFeaturizer(BaseAtomFeaturizer):
 
     def __init__(self) -> None:
         """Initializes TotalNumHFeaturizer class."""
-        self.max_num_hs = 5  # 4 + 1 (no hydrogens)
+        self.dim_total_num_hydrogen = 5  # 4 + 1 (no hydrogens)
 
     @property
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
-        return self.max_num_hs
+        return self.dim_total_num_hydrogen
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
@@ -165,12 +165,12 @@ class HybridizationFeaturizer(BaseAtomFeaturizer):
 
     def __init__(self) -> None:
         """Initializes HybridizationFeaturizer class."""
-        self.max_hybridization_types = len(HybridizationType.values)
+        self.dim_hybridization_types = len(HybridizationType.values)
 
     @property
     def n_dim(self) -> int:
         """Returns dimensionality of the computed features."""
-        return self.max_hybridization_types
+        return self.dim_hybridization_types
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.tensor:
         """Computes features of atoms of all of select atoms.
@@ -222,7 +222,7 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
         """Returns dimensionality of the computed features."""
         return 25
 
-    def get_period(self, atom: Chem.Atom) -> list[int]:
+    def get_period(self, atom: Chem.Atom) -> int:
         """Returns periodic table period of atom."""
         atomic_number = atom.GetAtomicNum()
 
@@ -232,7 +232,7 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
                 return period
         return None
 
-    def get_group(self, atom: Chem.Atom) -> list[int]:
+    def get_group(self, atom: Chem.Atom) -> int:
         """Returns periodic table group of atom."""
         group = self.pt.GetNOuterElecs(atom.GetAtomicNum())
         return group
@@ -248,11 +248,14 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
             A torch.tensor of representing positions of atoms in periodic table. First index represents period and second index represents group.
         """
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
-        return torch.tensor([(self.get_period(mol.GetAtomWithIdx(a)), self.get_group(mol.GetAtomWithIdx(a))) for a in _atom_indices], dtype=torch.int)
+        return torch.tensor(
+            [(self.get_period(mol.GetAtomWithIdx(a)), self.get_group(mol.GetAtomWithIdx(a))) for a in _atom_indices],
+            dtype=torch.int,
+        )
 
 
 class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
-    """Class for featurizing atom by its atomic radii."""
+    """Class for featurizing atom by its bond, covalent, and vdW radii."""
 
     def __init__(self) -> None:
         """Initializes AtomicRadiusFeaturizer class."""
@@ -280,12 +283,12 @@ class AtomicRadiusFeaturizer(BaseAtomFeaturizer):
 
     @property
     def min_val(self) -> torch.tensor:
-        """Returns minimum values for features."""
+        """Returns minimum values for features: bond, covalent, and vdW radius"""
         return self._min_val
 
     @property
     def max_val(self) -> torch.tensor:
-        """Returns maximum values for features."""
+        """Returns maximum values for features: bond, covalent, and vdW radius"""
         return self._max_val
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.Tensor:
@@ -353,12 +356,12 @@ class ElectronicPropertyFeaturizer(BaseAtomFeaturizer):
 
     @property
     def min_val(self) -> torch.Tensor:
-        """Returns minimum values for features."""
+        """Returns minimum values for features: electronegativity, ionization energy, electron affinity."""
         return self._min_val
 
     @property
     def max_val(self) -> torch.Tensor:
-        """Returns maximum values for features."""
+        """Returns maximum values for features: electronegativity, ionization energy, electron affinity."""
         return self._max_val
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.Tensor:
@@ -483,12 +486,12 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
 
     @property
     def min_val(self) -> torch.tensor:
-        """Returns minimum values for features."""
+        """Returns minimum values for features: logP and molar refractivity."""
         return self._min_val
 
     @property
     def max_val(self) -> torch.tensor:
-        """Returns maximum values for features."""
+        """Returns maximum values for features: logP and molar refractivity."""
         return self._max_val
 
     def get_atom_features(self, mol: Mol, atom_indices: Optional[Iterable] = None) -> torch.Tensor:
@@ -505,8 +508,3 @@ class CrippenFeaturizer(BaseAtomFeaturizer):
         logp_mr_list = torch.clamp(logp_mr_list, min=self.min_val, max=self.max_val)
         _atom_indices = atom_indices if atom_indices else range(mol.GetNumAtoms())
         return logp_mr_list[_atom_indices, :]
-
-
-# # TODO Implement more features
-# ## - Size of ring atom is present in
-# ## - 2D partial charges like Gasteiger charges
