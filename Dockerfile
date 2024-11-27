@@ -1,5 +1,5 @@
 # Base image with apex and transformer engine, but without NeMo or Megatron-LM.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.02-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.07-py3
 FROM ${BASE_IMAGE} AS bionemo2-base
 
 # Install NeMo dependencies.
