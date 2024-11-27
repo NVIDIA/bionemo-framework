@@ -14,11 +14,12 @@
 # limitations under the License.
 
 
+import torch
 from torch_geometric.data import Data
 
 
 class MoleculeGraph(Data):
-    """A class for storing and processing molecular graph information"""
+    """A torch_geometric.data.Data class for storing and processing molecular graphs."""
 
     def __init__(self, x_n: torch.tensor, edges: torch.tensor, x_e, x_g: torch.tensor):
         """Initializes MoleculeGraph data point object.
