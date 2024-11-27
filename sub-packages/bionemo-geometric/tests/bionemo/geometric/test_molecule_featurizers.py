@@ -15,10 +15,11 @@
 
 
 import pytest
+import torch
 from rdkit import Chem
 
 from bionemo.geometric.molecule_featurizers import RDkit2DDescriptorFeaturizer
-import torch
+
 
 @pytest.fixture(scope="module")
 def sample_mol():

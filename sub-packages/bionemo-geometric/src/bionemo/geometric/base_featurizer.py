@@ -17,9 +17,8 @@
 from abc import ABC, abstractmethod, abstractproperty
 from typing import Iterable, Optional
 
-from rdkit.Chem import Atom, Mol
-import numpy as np
 import torch
+from rdkit.Chem import Atom, Mol
 
 
 class BaseAtomFeaturizer(ABC):
@@ -57,6 +56,7 @@ class BaseBondFeaturizer(ABC):
         """Returns computed bond features."""
         return self.get_bond_features(mol, bond_indices)
 
+
 class BaseMoleculeFeaturizer(ABC):
     """Abstract base featurizer class for molecule featurization classes."""
 
@@ -73,6 +73,7 @@ class BaseMoleculeFeaturizer(ABC):
     def __call__(self, mol: Mol) -> torch.Tensor:
         """Returns computed molecule features."""
         return self.get_molecule_features(mol)
+
 
 def one_hot_enc(val: int, num_class: int) -> list[bool]:
     """Performs one-hot encoding on an integer value.

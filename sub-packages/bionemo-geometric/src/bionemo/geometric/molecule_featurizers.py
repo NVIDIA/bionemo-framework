@@ -14,8 +14,9 @@
 # limitations under the License.
 
 
-from rdkit.Chem import Descriptors, Mol
 import torch
+from rdkit.Chem import Descriptors, Mol
+
 from bionemo.geometric.base_featurizer import (
     BaseMoleculeFeaturizer,
 )
