@@ -16,4 +16,4 @@
 from bionemo.noodles_fasta_wrapper import PyIndexedMmapFastaReader, PyRecord
 
 
-__all__ = ("PyRecord", "PyIndexedFastaReader")
+__all__ = ("PyRecord", "PyIndexedMmapFastaReader")
