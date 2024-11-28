@@ -23,7 +23,12 @@ from bionemo.geometric.base_featurizer import (
 
 
 class RDkit2DDescriptorFeaturizer(BaseMoleculeFeaturizer):
-    """Class for featurizing molecule by computed RDkit descriptors."""
+    """Class for featurizing molecule by computed RDkit descriptors.
+
+    Typical usage example:
+    rdf = RDkit2DDescriptorFeaturizer()
+    rdf(Chem.MolFromSmiles("CCO"))
+    """
 
     def __init__(self) -> None:
         """Initializes RDkit2DDescriptorFeaturizer class."""
@@ -35,5 +40,12 @@ class RDkit2DDescriptorFeaturizer(BaseMoleculeFeaturizer):
         return self.n_rdkit_descriptors
 
     def get_molecule_features(self, mol: Mol) -> torch.Tensor:
-        """Returns features of the molecule."""
+        """Returns features of the molecule.
+
+        Args:
+            mol: An RDkit Chem.Mol object
+
+        Returns:
+        A torch.tensor representing RDkit-computed 2D descriptors of the molecule.
+        """
         return torch.Tensor([f(mol) for desc_name, f in Descriptors.descList])
