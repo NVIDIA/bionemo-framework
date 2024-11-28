@@ -58,6 +58,8 @@ def chiral_mol():
 def test_atomic_num_featurizer(test_mol):
     anf = AtomicNumberFeaturizer()
     anf_feats = anf(test_mol)
+
+    # Indicates the atomic number of the atom
     anf_feats_ref = torch.tensor(
         [7, 6, 8, 6, 6, 7, 6, 6, 6, 6, 16, 7, 8, 8, 6, 6, 7, 6, 6, 6, 6, 6, 17, 6, 6], dtype=torch.int
     )
@@ -68,6 +70,7 @@ def test_degree_featurizer(test_mol):
     df = DegreeFeaturizer()
     df_feats = df(test_mol)
 
+    # Indicates the total degree of connectivty (excluding hydrogens) of the atom
     df_feats_ref = torch.tensor(
         [1, 3, 1, 3, 2, 3, 3, 2, 2, 3, 4, 1, 1, 1, 2, 2, 2, 3, 3, 2, 2, 3, 1, 2, 2], dtype=torch.int
     )
@@ -78,6 +81,8 @@ def test_total_degree_featurizer(test_mol):
     tdf = TotalDegreeFeaturizer()
 
     tdf_feats = tdf(test_mol)
+
+    # Indicates the total degree of connectivity (including hydrogens) of the atom
     tdf_feats_ref = torch.tensor(
         [3, 3, 1, 3, 3, 3, 3, 3, 3, 3, 4, 3, 1, 1, 3, 3, 2, 3, 3, 3, 3, 3, 1, 3, 3], dtype=torch.int
     )
@@ -88,6 +93,8 @@ def test_chiral_type_featurizer(chiral_mol):
     cf = ChiralTypeFeaturizer()
 
     cf_feats = cf(chiral_mol)
+
+    # Indicates the type of atomic chirality as an integer
     cf_feats_ref = torch.tensor(
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0], dtype=torch.int
     )
@@ -98,6 +105,8 @@ def test_total_numh_featurizer(test_mol):
     num_hf = TotalNumHFeaturizer()
 
     h2_feats = num_hf(test_mol)
+
+    # Indicates the total number of hydrogens on the atom
     h2_feats_ref = torch.tensor(
         [2, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 2, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1], dtype=torch.int
     )
@@ -108,6 +117,8 @@ def test_hybridization_featurizer(test_mol, chiral_mol):
     hf = HybridizationFeaturizer()
 
     hf_feats = hf(test_mol)
+
+    # Indicated the hybridization of the atom as an integer
     hf_feats_ref = torch.tensor(
         [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3], dtype=torch.int
     )
@@ -117,6 +128,8 @@ def test_hybridization_featurizer(test_mol, chiral_mol):
 def test_aromaticity_featurizer(test_mol):
     af = AromaticityFeaturizer()
     af_feats = af(test_mol)
+
+    # Indices if the atom is aromatic or not
     af_feats_ref = torch.tensor(
         [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1], dtype=torch.int
     )
@@ -127,6 +140,11 @@ def test_periodic_table_featurizer(test_mol):
     pt = PeriodicTableFeaturizer()
 
     pt_feats = pt(test_mol)
+
+    # The reference is a tensor of dimension 2
+    # 1st dim: Atoms in the molecule
+    # 2nd dim: [period, group] of the atom's position in the periodic table respectively.
+    # Example: pt_feats_ref[1, 0] indicates the period of the 2nd atom in the molecule.
     pt_feats_ref = torch.tensor(
         [
             (2, 5),
@@ -165,6 +183,10 @@ def test_electronic_property_featurizer(test_mol):
     ep = ElectronicPropertyFeaturizer()
 
     ep_feats = ep(test_mol)
+
+    # Reference is a tensor of dimension 2
+    # 1st dim: Atoms in the molecule
+    # 2nd dim: [electronegativity, ionization energy, electron affinity]
     ep_feats_ref = torch.Tensor(
         [
             [3.04, 14.534, 1.0721403509],
@@ -201,6 +223,8 @@ def test_electronic_property_featurizer(test_mol):
 def test_scaffold_featurizer(test_mol):
     sf = ScaffoldFeaturizer()
     sf_feats = sf(test_mol)
+
+    # Indices if atom is present in the Bemis-Murcko scaffold of the molecule
     sf_feats_ref = torch.tensor(
         [
             False,
@@ -237,6 +261,11 @@ def test_scaffold_featurizer(test_mol):
 def test_smarts_featurizer(test_mol, acetic_acid, methylamine):
     sf = SmartsFeaturizer()
     sf_feats = sf(test_mol)
+
+    # Reference is a tensor of dim 2
+    # 1st dim: Atoms in the molecules
+    # 2nd dim: [hydrogen bond donor, hydrogen bond acceptor, acidic, basic]
+
     sf_feats_ref = torch.tensor(
         [
             [True, False, False, False],
@@ -290,6 +319,10 @@ def test_crippen_featurizer(test_mol):
     cf = CrippenFeaturizer()
 
     cf_feats = cf(test_mol)
+
+    # Reference is of dimension 2
+    # 1st dimension: Atoms in the molecule
+    # 2nd dimension: [logP, molar refractivity]
     cf_feats_ref = torch.Tensor(
         [
             [-1.019e00, 2.262e00],
@@ -327,6 +360,9 @@ def test_atomic_radius_featurizer(test_mol):
     arf = AtomicRadiusFeaturizer()
     arf_feats = arf(test_mol)
 
+    # Reference is a tensor of dimension 2
+    # 1st dim: Atoms in the molecule
+    # 2nd dim: [bond radius, covalent radius, vdW radius]
     arf_feats_ref = torch.Tensor(
         [
             [0.7, 0.71, 1.6],
