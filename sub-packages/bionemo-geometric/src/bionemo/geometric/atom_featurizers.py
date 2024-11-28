@@ -226,7 +226,7 @@ class PeriodicTableFeaturizer(BaseAtomFeaturizer):
         """Returns periodic table period of atom."""
         atomic_number = atom.GetAtomicNum()
 
-        # Determine the period based on atomic number
+        # Determine the period based on atomic number.
         for period, limit in enumerate(self.period_limits, start=1):
             if atomic_number <= limit:
                 return period
