@@ -101,7 +101,7 @@ def bert_padding_collate_fn(
         "text": padding_value,
         "types": 0,
         "attention_mask": False,
-        "labels": -1,
+        "labels": -100,
         "loss_mask": False,
         "is_random": 0,
     }

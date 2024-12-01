@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, Generic, Iterable, Iterator, List, Optio
 
 import pytorch_lightning as pl
 import torch.distributed
+import torchmetrics.text
 from megatron.core import parallel_state
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo.lightning import io as nlio
@@ -258,6 +259,8 @@ class BionemoLightningModule(
         self._data_step = data_step
         self._forward_step = forward_step
         self.model_transform = model_transform
+        self.train_ppl = torchmetrics.text.Perplexity(ignore_index=-100)
+        self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=-100)
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -305,11 +308,19 @@ class BionemoLightningModule(
 
     def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
-        return self.forward_step(batch)
+        outputs = self.forward_step(batch)
+        logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
+        self.train_ppl(logits, batch["labels"])
+        self.log("train_ppl_step", self.train_ppl)
+        return outputs
 
     def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
-        return self.forward_step(batch)
+        outputs = self.forward_step(batch)
+        logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
+        self.valid_ppl(logits, batch["labels"])
+        self.log("valid_ppl_step", self.valid_ppl)
+        return outputs
 
     def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """Alias for forward_step."""
@@ -324,6 +335,14 @@ class BionemoLightningModule(
 
     def test_loss_reduction(self) -> MegatronLossType:  # noqa: D102
         return self.loss_reduction_class(validation_step=True)
+
+    def on_train_epoch_end(self):
+        """Log perplexity at the end of the epoch."""
+        self.log("train_ppl_step", self.train_ppl)
+
+    def on_valid_epoch_end(self):
+        """Log perplexity at the end of the epoch."""
+        self.log("valid_ppl_step", self.valid_ppl)
 
 
 def default_megatron_optimizer() -> MegatronOptimizerModule:
