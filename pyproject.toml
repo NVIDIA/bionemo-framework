@@ -56,6 +56,7 @@ bionemo-fw = { workspace = true }
 bionemo-geneformer = { workspace = true }
 bionemo-geometric = { workspace = true }
 bionemo-llm = { workspace = true }
+bionemo-noodles = { workspace = true }
 bionemo-scdl = { workspace = true }
 bionemo-size-aware-batching = { workspace = true }
 bionemo-testing = { workspace = true }
@@ -130,6 +131,7 @@ executionEnvironments = [
         './sub-packages/bionemo-geneformer/src',
         './sub-packages/bionemo-geometric/src',
         './sub-packages/bionemo-llm/src',
+        './sub-packages/bionemo-noodles/src',
         './sub-packages/bionemo-scdl/src',
         './sub-packages/bionemo-size-aware-batching/src',
         './sub-packages/bionemo-testing/src',
