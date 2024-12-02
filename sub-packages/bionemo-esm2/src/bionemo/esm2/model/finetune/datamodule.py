@@ -16,12 +16,13 @@
 
 import functools
 import os
-from typing import Sequence, Tuple, Union
+from typing import Literal, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.utils.data
+from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
@@ -36,6 +37,9 @@ from bionemo.llm.data import collate
 from bionemo.llm.data.datamodule import MegatronDataModule
 from bionemo.llm.data.types import BertSample
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
+
+
+Mode = Literal["train", "validation", "test", "predict"]
 
 
 class InMemoryCSVDataset(Dataset):
@@ -249,11 +253,21 @@ class ESM2FineTuneDataModule(MegatronDataModule):
             seed=self._seed,
         )
 
-    def _create_dataloader(self, dataset, **kwargs) -> torch.utils.data.DataLoader:
+    def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:
+        """Create dataloader for train, validation, and test stages.
+
+        Args:
+            dataset: The dataset to create the dataloader for.
+            mode: Stage of training, which is used to determined if consumed_samples in MegatronPretrainingSampler should be initialized to 0 (validation/test), or be set to the previous value from state_dict in case of checkpoint resumption (train).
+            **kwargs: Additional arguments to pass to the dataloader.
+        """
+        if mode not in ["predict", "test"]:
+            self.update_init_global_step()
         assert self._tokenizer.pad_token_id is not None, "Tokenizer must have a pad token id."
 
-        return torch.utils.data.DataLoader(
-            dataset,
+        return WrappedDataLoader(
+            mode=mode,
+            dataset=dataset,
             num_workers=self._num_workers,
             pin_memory=self._pin_memory,
             persistent_workers=self._persistent_workers,
@@ -269,17 +283,17 @@ class ESM2FineTuneDataModule(MegatronDataModule):
     def train_dataloader(self) -> TRAIN_DATALOADERS:
         """Returns the dataloader for training data."""
         assert self._train_ds is not None, "train_dataset is not provided to ESM2FineTuneDataModule"
-        return self._create_dataloader(self._train_ds)
+        return self._create_dataloader(self._train_ds, mode="train")
 
     def val_dataloader(self) -> EVAL_DATALOADERS:
         """Returns the dataloader for validation data."""
         assert self._valid_ds is not None, "valid_dataset is not provided to ESM2FineTuneDataModule"
-        return self._create_dataloader(self._valid_ds)
+        return self._create_dataloader(self._valid_ds, mode="validation")
 
     def predict_dataloader(self) -> EVAL_DATALOADERS:
         """Returns the dataloader for prediction data."""
         assert self.predict_dataset is not None, "predict_dataset is not provided to ESM2FineTuneDataModule"
-        return self._create_dataloader(self.predict_dataset)
+        return self._create_dataloader(self.predict_dataset, mode="predict")
 
     def test_dataloader(self) -> EVAL_DATALOADERS:
         """Raises a not implemented error."""

@@ -31,6 +31,7 @@ from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from pytorch_lightning.callbacks import Callback, RichModelSummary
 from pytorch_lightning.loggers import TensorBoardLogger
 
+from bionemo.core.data.load import load
 from bionemo.esm2.api import ESM2GenericConfig
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
@@ -147,6 +148,9 @@ def train_model(
 
 
 if __name__ == "__main__":
+    # set the results directory
+    experiment_results_dir = tempfile.TemporaryDirectory().name
+
     # create a List[Tuple] with (sequence, target) values
     artificial_sequence_data = [
         "TLILGWSDKLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
@@ -166,24 +170,20 @@ if __name__ == "__main__":
     dataset = InMemorySingleValueDataset(data)
     data_module = ESM2FineTuneDataModule(train_dataset=dataset, valid_dataset=dataset)
 
-    with tempfile.TemporaryDirectory() as experiment_tempdir_name:
-        experiment_dir = Path(experiment_tempdir_name)
-        experiment_name = "finetune_regressor"
-        n_steps_train = 50
-        seed = 42
+    experiment_name = "finetune_regressor"
+    n_steps_train = 50
+    seed = 42
 
-        # To download a pre-trained ESM2 model that works with this inference script, run the following command...
-        # $ download_bionemo_data esm2/650m:2.0 --source ngc
-        # ... and pass the output path (e.g. `.../.cache/bionemo/975d29ee980fcb08c97401bbdfdcf8ce-esm2_650M_nemo2.tar.gz.untar`)
-        # as an argument into `initial_ckpt_path` below!
-        config = ESM2FineTuneSeqConfig(
-            # initial_ckpt_path=str(pretrain_ckpt_path)
-        )
+    # To download a 650M pre-trained ESM2 model
+    pretrain_ckpt_path = load("esm2/650m:2.0", source="ngc")
 
-        checkpoint, metrics, trainer = train_model(
-            experiment_name=experiment_name,
-            experiment_dir=experiment_dir,  # new checkpoint will land in a subdir of this
-            config=config,  # same config as before since we are just continuing training
-            data_module=data_module,
-            n_steps_train=n_steps_train,
-        )
+    config = ESM2FineTuneSeqConfig(initial_ckpt_path=str(pretrain_ckpt_path))
+
+    checkpoint, metrics, trainer = train_model(
+        experiment_name=experiment_name,
+        experiment_dir=Path(experiment_results_dir),  # new checkpoint will land in a subdir of this
+        config=config,  # same config as before since we are just continuing training
+        data_module=data_module,
+        n_steps_train=n_steps_train,
+    )
+    print(f"Experiment completed with checkpoint stored at {checkpoint}")

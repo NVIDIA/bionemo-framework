@@ -453,6 +453,12 @@ class BucketBatchSampler(Sampler[List[int]]):
                 f"base_batch_sampler_class should be a batch sampler class inherited from torch.utils.data.Sampler, but got base_batch_sampler_class={base_batch_sampler_class}"
             )
 
+        base_batch_sampler_shared_kwargs = (
+            {} if base_batch_sampler_shared_kwargs is None else base_batch_sampler_shared_kwargs
+        )
+        base_batch_sampler_individual_kwargs = (
+            {} if base_batch_sampler_individual_kwargs is None else base_batch_sampler_individual_kwargs
+        )
         if not isinstance(base_batch_sampler_shared_kwargs, dict):
             raise TypeError(
                 f"base_batch_sampler_shared_kwargs should be a dictionary, but got base_batch_sampler_shared_kwargs={base_batch_sampler_shared_kwargs}"
