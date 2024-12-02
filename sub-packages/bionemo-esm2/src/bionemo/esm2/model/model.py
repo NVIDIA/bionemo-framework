@@ -76,6 +76,7 @@ class ESM2Model(MegatronBioBertModel):
         use_full_attention_mask: bool = False,
         include_hiddens: bool = False,
         skip_logits: bool = False,
+        use_bias: bool = True,
     ) -> None:
         """Initialize the ESM2 model.
 
@@ -103,6 +104,7 @@ class ESM2Model(MegatronBioBertModel):
             use_full_attention_mask (bool): Whether to use full attention mask. Defaults to False.
             include_hiddens (bool): Whether to include hidden states in the output dictionary. Defaults to False.
             skip_logits (bool): Skip writing the token logits in output dict
+            use_bias (bool): Use bias in transformer layer. Default to True.
         """
         super(MegatronBioBertModel, self).__init__(config=config)
         self.post_process = post_process
@@ -129,6 +131,7 @@ class ESM2Model(MegatronBioBertModel):
         self.include_hiddens = include_hiddens
         self.include_input_ids = include_input_ids
         self.skip_logits = skip_logits
+        self.use_bias = use_bias
 
         # megatron core pipelining currently depends on model type
         self.model_type = ModelType.encoder_or_decoder
@@ -184,7 +187,7 @@ class ESM2Model(MegatronBioBertModel):
                 self.vocab_size,
                 config=config,
                 init_method=config.init_method,
-                bias=True,
+                bias=self.use_bias,
                 skip_bias_add=False,
                 gather_output=not self.parallel_output,
                 skip_weight_param_allocation=pre_process and share_embeddings_and_output_weights,

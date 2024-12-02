@@ -141,6 +141,7 @@ class _Nemo2CompatibleLossReduceMixin:
 class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossReduction):  # noqa: D101
     def __init__(
         self,
+        cross_entropy_loss_fusion: bool = False,
         validation_step: bool = False,
         val_drop_last: bool = True,
         send_train_output: bool = False,
@@ -149,6 +150,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         """Initializes the Model class.
 
         Args:
+            cross_entropy_loss_fusion (bool): Whether to use fused cross entropy loss function. Defaults to False.
             validation_step (bool, optional): Whether this object is being applied to the validation step. Defaults to False.
             val_drop_last (bool, optional): Whether the last batch is configured to be dropped during validation. Defaults to True.
             send_train_output (bool): Whether to return the model output in training. Defaults to False.
@@ -159,6 +161,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         # TODO(@jomitchell): Track down how we handle test. This is a common pattern in NeMo2, but these parameters seem likely
         #  to change in the future.
         super().__init__()
+        self.cross_entropy_loss_fusion = cross_entropy_loss_fusion
         self.validation_step = validation_step
         self.val_drop_last = val_drop_last
         self.send_train_output = send_train_output
@@ -197,7 +200,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
             forward_out_report = {}
 
         # NOTE: token_logits is [sequence, batch] but labels and other fiels, including the loss are [batch, sequence]
-        unreduced_token_loss = unreduced_token_loss_fn(forward_out["token_logits"], batch["labels"])  # [b s]
+        unreduced_token_loss = unreduced_token_loss_fn(forward_out["token_logits"], batch["labels"], self.cross_entropy_loss_fusion)  # [b s]
 
         # TODO(@jstjohn) also handle different output keys, like the sequence loss.
 

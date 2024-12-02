@@ -18,7 +18,7 @@ import os
 import sqlite3
 from enum import Enum
 from pathlib import Path
-from typing import Sequence, TypeVar
+from typing import Sequence, TypeVar, Optional
 
 import numpy as np
 import pandas as pd
@@ -122,6 +122,7 @@ class ESMMaskedResidueDataset(Dataset):
         mask_random_prob: float = 0.1,
         random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
+        extend_sequences: Optional[int] = None,
     ) -> None:
         """Initializes the dataset.
 
@@ -140,6 +141,7 @@ class ESMMaskedResidueDataset(Dataset):
             mask_random_prob: Proportion of tokens that get assigned a random natural amino acid. Defaults to 0.1.
             random_mask_strategy: Whether to replace random masked tokens with all tokens or amino acids only. Defaults to RandomMaskStrategy.ALL_TOKENS.
             tokenizer: The input ESM tokenizer. Defaults to the standard ESM tokenizer.
+            extend_sequences: Extend sequences by n times. Default to None.
         """
         self.protein_dataset = protein_dataset
         self.clusters = clusters
@@ -161,6 +163,7 @@ class ESMMaskedResidueDataset(Dataset):
         )
 
         self.tokenizer = tokenizer
+        self.extend_sequences = extend_sequences
 
     def __len__(self) -> int:
         """Returns the number of clusters, which constitutes a single epoch."""
@@ -185,6 +188,8 @@ class ESMMaskedResidueDataset(Dataset):
 
         sequence_id = rng.choice(self.clusters[index.idx])
         sequence = self.protein_dataset[sequence_id]
+        if self.extend_sequences:
+            sequence *= self.extend_sequences
 
         # We don't want special tokens before we pass the input to the masking function; we add these in the collate_fn.
         tokenized_sequence = self._tokenize(sequence)
@@ -231,6 +236,7 @@ def create_train_dataset(
     mask_random_prob: float = 0.1,
     random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
     tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
+    extend_sequences: Optional[int] = None,
 ):
     """Creates a training dataset for ESM pretraining.
 
@@ -246,6 +252,7 @@ def create_train_dataset(
         mask_random_prob: Proportion of tokens that get assigned a random natural amino acid. Defaults to 0.1.
         random_mask_strategy: Whether to replace random masked tokens with all tokens or amino acids only. Defaults to RandomMaskStrategy.ALL_TOKENS.
         tokenizer: The input ESM tokenizer. Defaults to the standard ESM tokenizer.
+        extend_sequences: Extend sequences by n times. Defaults to None.
 
     Returns:
         A dataset for ESM pretraining.
@@ -275,6 +282,7 @@ def create_train_dataset(
         mask_random_prob=mask_random_prob,
         random_mask_strategy=random_mask_strategy,
         tokenizer=tokenizer,
+        extend_sequences=extend_sequences,
     )
 
     return MultiEpochDatasetResampler(masked_cluster_dataset, num_samples=total_samples, shuffle=True, seed=seed)
@@ -313,6 +321,7 @@ def create_valid_dataset(  # noqa: D417
     mask_random_prob: float = 0.1,
     random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS,
     tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
+    extend_sequences: Optional[int] = None,
 ):
     """Creates a validation dataset for ESM pretraining.
 
@@ -327,7 +336,8 @@ def create_valid_dataset(  # noqa: D417
         mask_token_prob: Proportion of masked tokens that get assigned the <MASK> id. Defaults to 0.8.
         mask_random_prob: Proportion of tokens that get assigned a random natural amino acid. Defaults to 0.1.
         random_masking_strategy: Whether to replace random masked tokens with all tokens or amino acids only. Defaults to RandomMaskStrategy.ALL_TOKENS.
-
+        extend_sequences: Extend sequences by n times. Default to None.
+        
     Raises:
         ValueError: If the cluster file does not exist, the database file does not exist, or the cluster file does not
             contain a "ur50_id" column.
@@ -352,6 +362,7 @@ def create_valid_dataset(  # noqa: D417
         mask_random_prob=mask_random_prob,
         random_mask_strategy=random_mask_strategy,
         tokenizer=tokenizer,
+        extend_sequences=extend_sequences,
     )
 
     return MultiEpochDatasetResampler(masked_dataset, num_samples=total_samples, shuffle=True, seed=seed)

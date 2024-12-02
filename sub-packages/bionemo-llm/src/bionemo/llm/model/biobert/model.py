@@ -267,7 +267,7 @@ class MegatronBioBertModel(LanguageModule):
                 config=config,
                 init_method=config.init_method,
                 is_expert=False,
-                bias=True,
+                bias=self.config.add_bias_linear,
                 skip_bias_add=False,
                 gather_output=not self.parallel_output,
                 skip_weight_param_allocation=pre_process and share_embeddings_and_output_weights,
@@ -613,6 +613,7 @@ class BioBertConfig(
             model.encoder.post_layer_norm = True
         return model
 
+    # TODO sichu: make self.loss_reduction_class configurable
     def get_loss_reduction_class(self) -> Type[MegatronLossType]:  # noqa: D102
         # You could optionally return a different loss reduction class here based on the config settings.
         return self.loss_reduction_class

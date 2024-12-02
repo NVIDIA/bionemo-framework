@@ -17,6 +17,7 @@ import argparse
 from pathlib import Path
 from typing import List, Optional, Sequence, get_args
 
+from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -57,7 +58,7 @@ def main(
     val_check_interval: int,
     log_every_n_steps: Optional[int],
     num_dataset_workers: int,
-    biobert_spec_option: BiobertSpecOption,  # TODO(@farhadrgh) clarify how to parse this.
+    biobert_spec_option: BiobertSpecOption,
     lr: float,
     micro_batch_size: int,
     accumulate_grad_batches: int,
@@ -81,6 +82,7 @@ def main(
     save_last_checkpoint: bool = True,
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
+    memory_profiling: Optional[str] = None,
     nsys_profiling: bool = False,
     nsys_start_step: int = 0,
     nsys_end_step: Optional[int] = None,
@@ -90,6 +92,13 @@ def main(
     hidden_size: int = 1280,
     num_attention_heads: int = 20,
     ffn_hidden_size: int = 1280 * 4,
+    add_bias_linear: bool = True,
+    layernorm_zero_centered_gamma: bool = False,
+    num_query_groups: Optional[bool] = None,
+    extend_sequences: Optional[int] = None,
+    bias_activation_fusion: bool = True,
+    bias_dropout_fusion: bool = True,
+    recompute_granularity: Optional[str] = None,
 ) -> None:
     """Train an ESM2 model on UR data.
 
@@ -135,6 +144,7 @@ def main(
         save_last_checkpoint (bool): whether to save the last checkpoint
         metric_to_monitor_for_checkpoints (str): metric to monitor for checkpoints
         save_top_k (int): number of top checkpoints to save
+        memory_profiling (Optional[str]): whether to enable memory profiling
         nsys_profiling (bool): whether to enable nsys profiling
         nsys_start_step (int): start step for nsys profiling
         nsys_end_step (Optional[int]): end step for nsys profiling
@@ -144,6 +154,12 @@ def main(
         hidden_size (int): hidden size
         num_attention_heads (int): number of attention heads
         ffn_hidden_size (int): feed forward hidden size
+        add_bias_linear (bool): add bias to attention, mlp and post_process
+        layernorm_zero_centered_gamma (bool): center layernorm gamma
+        num_query_groups (Optional[int]): Use group query attention
+        bias_activation_fusion (bool): Use bias activation fusion
+        bias_dropout_fusion (bool): Use bias dropout fusion
+        recompute_granularity (str): Activation recomputation granularity
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -158,13 +174,20 @@ def main(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
     )
 
-    strategy = nl.MegatronStrategy(
+    strategy = nl.MegatronStrategy(  # refer to nemotron recipe
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
-        ddp="megatron",
+        pipeline_dtype=get_autocast_dtype(precision),
+        ddp=DistributedDataParallelConfig(
+            check_for_nan_in_grad=True,
+            grad_reduce_in_fp32=True,
+            overlap_grad_reduce=True,
+            overlap_param_gather=True,
+            average_in_collective=True,
+        ),
         find_unused_parameters=True,
+        gradient_as_bucket_view=True,
         ckpt_include_optimizer=True,
-        # NOTE: there are issues related to async that may occur, most recently observed due to duplicate filenames.
         ckpt_async_save=True,
         ckpt_parallel_load=True,
     )
@@ -187,7 +210,7 @@ def main(
     )
 
     callbacks = [
-        PerplexityLoggingCallback(log_train=False, log_val=True),
+        # PerplexityLoggingCallback(log_train=False, log_val=True),  # TODO disabled for perf profiling
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         nl_callbacks.PreemptionCallback(),
@@ -200,6 +223,8 @@ def main(
                 start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
             )
         )
+    if memory_profiling:
+        callbacks.append(nl_callbacks.MemoryProfileCallback(dir=memory_profiling, warn_cycles=False, ranks=[0]))
 
     trainer = nl.Trainer(
         devices=devices,
@@ -211,7 +236,13 @@ def main(
         log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
-        plugins=nl.MegatronMixedPrecision(precision=precision),
+        plugins=nl.MegatronMixedPrecision(  # checked for bf16
+            precision=precision,
+            params_dtype=get_autocast_dtype(precision),
+            pipeline_dtype=get_autocast_dtype(precision),
+            autocast_enabled=False,
+            grad_reduce_in_fp32=True,
+        ),
     )
 
     tokenizer = get_tokenizer()
@@ -229,6 +260,7 @@ def main(
         num_workers=num_dataset_workers,
         random_mask_strategy=random_mask_strategy,
         tokenizer=tokenizer,
+        extend_sequences=extend_sequences,
     )
     # Configure the model
     esm2_config = ESM2Config(
@@ -237,14 +269,20 @@ def main(
         hidden_size=hidden_size,
         num_attention_heads=num_attention_heads,
         ffn_hidden_size=ffn_hidden_size,
-        params_dtype=get_autocast_dtype(precision),
-        pipeline_dtype=get_autocast_dtype(precision),
-        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
-        biobert_spec_option=biobert_spec_option,
+        params_dtype=get_autocast_dtype(precision),  # checked: not passed; default in ModelParallelConfig is torch.float32
+        pipeline_dtype=get_autocast_dtype(precision),  # checked: 16
+        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot  # checked: 16
+        biobert_spec_option=biobert_spec_option,  # checking: many differences but maybe a more empirical approach is more suitable
         nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
         # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
         initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
         variable_seq_lengths=min_seq_length != max_seq_length,
+        add_bias_linear=add_bias_linear,
+        layernorm_zero_centered_gamma=layernorm_zero_centered_gamma,
+        num_query_groups=num_query_groups,
+        bias_activation_fusion=add_bias_linear and bias_activation_fusion,  # TODO bias_dropout_add_fusion v.s. bias_dropout_fusion
+        bias_dropout_fusion=bias_dropout_fusion,
+        recompute_granularity=None if recompute_granularity == "none" else recompute_granularity,
     )
 
     model = biobert_lightning_module(
@@ -253,7 +291,7 @@ def main(
         optimizer=MegatronOptimizerModule(
             config=OptimizerConfig(
                 lr=lr,
-                optimizer="adam",  # fused_adam not supported
+                optimizer="adam",  # use fused adam from TE
                 use_distributed_optimizer=True,
                 weight_decay=0.01,
                 adam_beta1=0.9,
@@ -268,7 +306,7 @@ def main(
     # Configure our custom Checkpointer
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
         save_last=save_last_checkpoint,
-        monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+        monitor=metric_to_monitor_for_checkpoints,
         save_top_k=save_top_k,
         every_n_train_steps=val_check_interval,
         always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
@@ -341,6 +379,7 @@ def train_esm2_entrypoint():
         save_last_checkpoint=args.save_last_checkpoint,
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
         save_top_k=args.save_top_k,
+        memory_profiling=args.memory_profiling,
         nsys_profiling=args.nsys_profiling,
         nsys_start_step=args.nsys_start_step,
         nsys_end_step=args.nsys_end_step,
@@ -350,6 +389,13 @@ def train_esm2_entrypoint():
         hidden_size=args.hidden_size,
         num_attention_heads=args.num_attention_heads,
         ffn_hidden_size=args.ffn_hidden_size,
+        add_bias_linear=not args.no_add_bias_linear,
+        layernorm_zero_centered_gamma=args.layernorm_zero_centered_gamma,
+        num_query_groups=args.num_query_groups,
+        extend_sequences=args.extend_sequences,
+        bias_activation_fusion=not args.no_bias_activation_fusion,
+        bias_dropout_fusion=not args.no_bias_dropout_fusion,
+        recompute_granularity=args.recompute_granularity,
     )
 
 
@@ -584,6 +630,7 @@ def get_parser():
         default=None,
         help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
     )
+    parser.add_argument("--memory-profiling", help="Dump memory profiling to directory. Enable only when provided.")
     parser.add_argument(
         "--nsys-profiling",
         action="store_true",
@@ -650,6 +697,48 @@ def get_parser():
         required=False,
         default=4 * 1280,
         help="FFN hidden size of the model. Default is 4 * 1280.",
+    )
+    parser.add_argument(
+        "--no-add-bias-linear",
+        action="store_true",
+        default=False,
+        help="Disable bias in transformer layers (mlp, qkv and post_process). Default is False.",
+    )
+    parser.add_argument(
+        "--layernorm-zero-centered-gamma",
+        action="store_true",
+        default=False,
+        help="Whether to zero-center the gamma parameter in layer normalization. Default is False.",
+    )
+    parser.add_argument(
+        "--num-query-groups",
+        type=int,
+        required=False,
+        help="Enable num_query_groups in MegatronConfig. Default is None."
+    )
+    parser.add_argument(
+        "--extend-sequences",
+        default=None,
+        type=int,
+        help="Extend every input sequences by x times for perf profiling. Default is None."
+    )
+    parser.add_argument(
+        "--no-bias-activation-fusion",
+        action="store_true",
+        default=False,
+        help="Disable bias activation fusion. Default is False."
+    )
+    parser.add_argument(
+        "--no-bias-dropout-fusion",
+        action="store_true",
+        default=False,
+        help="Disable bias dropout fusion. Default is False."
+    )
+    parser.add_argument(
+        "--recompute-granularity",
+        type=str,
+        choices=[None, "full", "selective", "none"],
+        help="Choose granularity for activation recomputation. Default to None which means all activations are saved."
     )
     return parser
 

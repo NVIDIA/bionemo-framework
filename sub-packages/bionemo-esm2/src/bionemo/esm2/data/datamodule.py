@@ -16,7 +16,7 @@
 
 import functools
 import os
-from typing import Literal
+from typing import Literal, Optional
 
 from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
@@ -56,6 +56,7 @@ class ESMDataModule(MegatronDataModule):
         random_mask_strategy: dataset.RandomMaskStrategy = dataset.RandomMaskStrategy.ALL_TOKENS,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         dataloader_type: Literal["single", "cyclic"] = "single",
+        extend_sequences: Optional[int] = None,
     ) -> None:
         """Initialize the ESMDataModule.
 
@@ -94,6 +95,7 @@ class ESMDataModule(MegatronDataModule):
         self._mask_random_prob = mask_random_prob
         self._random_mask_strategy = random_mask_strategy
         self._tokenizer = tokenizer
+        self._extend_sequences = extend_sequences
 
         self._micro_batch_size = micro_batch_size
         self._num_workers = num_workers
@@ -152,6 +154,7 @@ class ESMDataModule(MegatronDataModule):
             mask_random_prob=self._mask_random_prob,
             random_mask_strategy=self._random_mask_strategy,
             tokenizer=self._tokenizer,
+            extend_sequences=self._extend_sequences,
         )
 
         # Create validation dataset
@@ -173,6 +176,7 @@ class ESMDataModule(MegatronDataModule):
             mask_random_prob=self._mask_random_prob,
             random_mask_strategy=self._random_mask_strategy,
             tokenizer=self._tokenizer,
+            extend_sequences=self._extend_sequences,
         )
 
         assert (
