@@ -116,7 +116,7 @@ def test_bert_padding_collate_fn_with_padding():
         "text": torch.tensor([4, 5, 6, 7, 8]),
         "types": torch.zeros((5,), dtype=torch.int64),
         "attention_mask": torch.tensor([True, True, True, True, True]),
-        "labels": torch.tensor([-1, 5, -1, 7, 8]),
+        "labels": torch.tensor([-100, 5, -100, 7, 8]),
         "loss_mask": torch.tensor([False, True, False, True, True]),
         "is_random": torch.zeros((5,), dtype=torch.int64),
     }
@@ -134,7 +134,7 @@ def test_bert_padding_collate_fn_with_padding():
             torch.tensor([[True, True, False, False, False], [True, True, True, True, True]]),
         )
     )
-    assert torch.all(torch.eq(collated_batch["labels"], torch.tensor([[7, 8, 9, -1, -1], [-1, 5, -1, 7, 8]])))
+    assert torch.all(torch.eq(collated_batch["labels"], torch.tensor([[7, 8, 9, -100, -100], [-100, 5, -100, 7, 8]])))
     assert torch.all(
         torch.eq(
             collated_batch["loss_mask"],
@@ -158,7 +158,7 @@ def test_bert_padding_collate_fn_with_max_length_truncates():
         "text": torch.tensor([4, 5, 6, 7, 8]),
         "types": torch.zeros((5,), dtype=torch.int64),
         "attention_mask": torch.tensor([True, True, True, True, True]),
-        "labels": torch.tensor([-1, 5, -1, 7, 8]),
+        "labels": torch.tensor([-100, 5, -100, 7, 8]),
         "loss_mask": torch.tensor([False, True, False, True, True]),
         "is_random": torch.zeros((5,), dtype=torch.int64),
     }
@@ -175,7 +175,7 @@ def test_bert_padding_collate_fn_with_max_length_truncates():
             collated_batch["attention_mask"], torch.tensor([[True, True, False, False], [True, True, True, True]])
         )
     )
-    assert torch.all(torch.eq(collated_batch["labels"], torch.tensor([[7, 8, 9, -1], [-1, 5, -1, 7]])))
+    assert torch.all(torch.eq(collated_batch["labels"], torch.tensor([[7, 8, 9, -100], [-100, 5, -100, 7]])))
     assert torch.all(
         torch.eq(collated_batch["loss_mask"], torch.tensor([[True, False, True, False], [False, True, False, True]]))
     )
