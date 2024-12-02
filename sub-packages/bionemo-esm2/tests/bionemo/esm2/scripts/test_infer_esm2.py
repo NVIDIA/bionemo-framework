@@ -21,6 +21,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from bionemo.core.data.load import load
+from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule, InMemoryCSVDataset
@@ -120,8 +121,8 @@ def test_in_memory_csv_dataset_tokenizer():
     assert isinstance(tokenized_sequence, torch.Tensor)
 
 
-# TODO: @pytest.mark.parametrize("config_class_name", list(SUPPORTED_CONFIGS))
-def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences):
+@pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
+def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences, precision):
     data_path = dummy_protein_csv
     result_dir = Path(tmpdir.mkdir("results"))
     results_path = result_dir / "esm2_infer_results.pt"
@@ -134,6 +135,7 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences):
         results_path=results_path,
         min_seq_length=max_dataset_seq_len,
         include_hiddens=True,
+        precision=precision,
         include_embeddings=True,
         include_input_ids=True,
         include_logits=True,
@@ -149,6 +151,7 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences):
     assert all(key in results for key in keys_included)
     assert results["binary_logits"] is None
     assert results["embeddings"].shape[0] == len(dummy_protein_sequences)
+    assert results["embeddings"].dtype == get_autocast_dtype(precision)
     # hidden_states are [batch, sequence, hidden_dim]
     assert results["hidden_states"].shape[:-1] == (len(dummy_protein_sequences), max_dataset_seq_len)
     # input_ids are [batch, sequence]
