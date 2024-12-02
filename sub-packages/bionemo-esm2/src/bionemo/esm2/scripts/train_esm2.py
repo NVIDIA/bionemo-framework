@@ -59,7 +59,7 @@ def main(
     num_dataset_workers: int,
     biobert_spec_option: BiobertSpecOption,  # TODO(@farhadrgh) clarify how to parse this.
     lr: float,
-    learning_rate_num_steps: Optional[int],
+    scheduler_num_steps: Optional[int],
     micro_batch_size: int,
     accumulate_grad_batches: int,
     experiment_name: str,
@@ -112,7 +112,7 @@ def main(
         num_dataset_workers (int): number of dataset workers
         biobert_spec_option (BiobertSpecOption): the biobert spec option (architecture) to use for this run
         lr (float): learning rate
-        learning_rate_num_steps (Optional[int]): Number of steps in learning rate scheduler. Use num_steps if not provided.
+        scheduler_num_steps (Optional[int]): Number of steps in learning rate scheduler. Use num_steps if not provided.
         micro_batch_size (int): micro batch size, from this and parallelism settings we infer the global batch size
         accumulate_grad_batches (int): number of batches to accumulate gradients for
         experiment_name (str): experiment name, this is the name used for the wandb run, and the sub-directory of the
@@ -249,8 +249,8 @@ def main(
         variable_seq_lengths=min_seq_length != max_seq_length,
     )
 
-    if learning_rate_num_steps is None:
-        learning_rate_num_steps = num_steps
+    if scheduler_num_steps is None:
+        scheduler_num_steps = num_steps
 
     model = biobert_lightning_module(
         esm2_config,
@@ -266,7 +266,7 @@ def main(
             ),
             lr_scheduler=WarmupAnnealDecayHoldScheduler(
                 warmup_steps=warmup_steps,
-                max_steps=learning_rate_num_steps,
+                max_steps=scheduler_num_steps,
                 max_lr=lr,
                 min_lr=0.0,
                 anneal_percentage=0.10,
@@ -337,7 +337,7 @@ def train_esm2_entrypoint():
         num_dataset_workers=args.num_dataset_workers,
         biobert_spec_option=args.biobert_spec_option,
         lr=args.lr,
-        learning_rate_num_steps=args.learning_rate_num_steps,
+        scheduler_num_steps=args.scheduler_num_steps,
         micro_batch_size=args.micro_batch_size,
         pipeline_model_parallel_size=args.pipeline_model_parallel_size,
         tensor_model_parallel_size=args.tensor_model_parallel_size,
@@ -409,10 +409,10 @@ def get_parser():
         help="Learning rate for training. Default is 4e-4",
     )
     parser.add_argument(
-        "--learning-rate-num-steps",
+        "--scheduler-num-steps",
         type=int,
         required=False,
-        help="Number of steps for learning rate. Will use --num-steps if not given. Default is None.",
+        help="Number of steps for learning rate scheduler. Will use --num-steps if not given. Default is None.",
     )
     parser.add_argument(
         "--create-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."
