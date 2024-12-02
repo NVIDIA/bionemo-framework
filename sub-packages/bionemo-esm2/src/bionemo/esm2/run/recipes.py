@@ -372,7 +372,7 @@ def esm2_tiny_test_recipe(args):
 
 
 class ESM2Recipes(BaseModel):
-    """Pre-baked recipes for Geneformer.
+    """Pre-baked recipes for ESM2.
 
     THIS PYDANTIC MODEL IS NOT MEANT FOR SERIALIZATION. Only used to facilitate argparse. Each recipe should take `args`
     as the only argument. We use partials so we can provide this information at runtime. Add new recipes to this model.
