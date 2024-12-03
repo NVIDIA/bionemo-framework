@@ -36,10 +36,10 @@ from bionemo.llm.run.config_models import (
 from bionemo.llm.utils.logger_utils import WandbConfig
 
 
-def esm2_base_training_config() -> TrainingConfig:
+def esm2_base_training_config(max_steps: int = 500000) -> TrainingConfig:
     """Base training config for ESM2."""
     return TrainingConfig(
-        max_steps=500000,
+        max_steps=max_steps,
         limit_val_batches=1.0,
         val_check_interval=10_000,
         precision="bf16-mixed",
@@ -134,7 +134,7 @@ def esm2_8m_recipe(args) -> MainConfig[ExposedESM2PretrainConfig, ESM2DataConfig
     return MainConfig(
         data_config=esm2_base_data_config(args),
         parallel_config=esm2_base_parallel_config(),
-        training_config=esm2_base_training_config(),  # no changes for 8m
+        training_config=esm2_base_training_config(max_steps=args.max_steps),  # no changes for 8m
         bionemo_model_config=esm2_8m_model_config(args.initial_ckpt_path),
         optim_config=esm2_base_optimizer_scheduler_config(max_steps=args.scheduler_max_steps),  # no changes for 8m
         experiment_config=esm2_8m_experiment_config(args.result_dir),
@@ -189,7 +189,7 @@ def esm2_650m_recipe(args) -> MainConfig[ExposedESM2PretrainConfig, ESM2DataConf
     return MainConfig(
         data_config=esm2_base_data_config(args),
         parallel_config=esm2_base_parallel_config(),
-        training_config=esm2_base_training_config(),  # no changes for 8m
+        training_config=esm2_base_training_config(max_steps=args.max_steps),  # no changes for 8m
         bionemo_model_config=esm2_650m_model_config(args.initial_ckpt_path),
         optim_config=esm2_base_optimizer_scheduler_config(max_steps=args.scheduler_max_steps),  # no changes for 8m
         experiment_config=esm2_650m_experiment_config(args.result_dir),
@@ -257,7 +257,7 @@ def esm2_3b_recipe(args) -> MainConfig[ExposedESM2PretrainConfig, ESM2DataConfig
     return MainConfig(
         data_config=esm2_base_data_config(args),
         parallel_config=esm2_3b_parallel_config(),
-        training_config=esm2_base_training_config(),  # no changes for 8m
+        training_config=esm2_base_training_config(max_steps=args.max_steps),  # no changes for 8m
         bionemo_model_config=esm2_3b_model_config(args.initial_ckpt_path),
         optim_config=esm2_base_optimizer_scheduler_config(max_steps=args.scheduler_max_steps),  # no changes for 8m
         experiment_config=esm2_3b_experiment_config(args.result_dir),
@@ -440,6 +440,10 @@ def main():  # noqa: D103
             required=False,
             default=None,
             help="Path to an existing to a checkpoint directory to restore an existing checkpoint. Not compatible with all recipes.",
+        )
+
+        parser.add_argument(
+            "--max-steps", type=int, required=False, default=500000, help="Max steps for training. Default to 500000."
         )
 
         parser.add_argument(
