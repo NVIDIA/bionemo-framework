@@ -15,8 +15,9 @@
 
 
 import argparse
-import json
 from typing import Optional
+
+import yaml
 
 from bionemo.esm2.run.config_models import ESM2DataConfig, ExposedESM2PretrainConfig
 from bionemo.llm.run.config_models import MainConfig
@@ -28,13 +29,13 @@ def main():  # noqa: D103
         parser = argparse.ArgumentParser(description="Run ESM2 pretraining")
         parser.add_argument("--config", type=str, required=True, help="Path to the JSON configuration file")
         parser.add_argument(
-            "--model-config-t",
+            "--model-config-cls",
             default=ExposedESM2PretrainConfig,
             required=False,
             help="fully resolvable python import path to the ModelConfig object. Builtin options are ExposedESM2PretrainConfig.",
         )
         parser.add_argument(
-            "--data-config-t",
+            "--data-config-cls",
             default=ESM2DataConfig,
             required=False,
             help="fully resolvable python import path to the ModelConfig object.",
@@ -86,32 +87,32 @@ def main():  # noqa: D103
         module = importlib.import_module(module_path)
         return getattr(module, class_name)
 
-    def load_config(config_path: str, model_config_t: Optional[str], data_config_t: Optional[str]) -> MainConfig:
+    def load_config(config_path: str, model_config_cls: Optional[str], data_config_cls: Optional[str]) -> MainConfig:
         with open(config_path, "r") as f:
-            config_dict = json.load(f)
+            config_dict = yaml.safe_load(f)
 
-        # model/data_config_t is used to select the parser dynamically.
-        if model_config_t is None or model_config_t == "ExposedESM2PretrainConfig":
-            model_config_t = ExposedESM2PretrainConfig
-        elif model_config_t == "ExposedFineTuneSeqModel":
+        # model/data_config_cls is used to select the parser dynamically.
+        if model_config_cls is None or model_config_cls == "ExposedESM2PretrainConfig":
+            model_config_cls = ExposedESM2PretrainConfig
+        elif model_config_cls == "ExposedFineTuneSeqModel":
             # Hardcoded path for those who do not know the full path
-            # model_config_t = ExposedFineTuneSeqLenBioBertConfig
+            # model_config_cls = ExposedFineTuneSeqLenBioBertConfig
             raise NotImplementedError()
-        elif model_config_t == "ExposedFineTuneTokenModel":
+        elif model_config_cls == "ExposedFineTuneTokenModel":
             raise NotImplementedError()
-        elif isinstance(model_config_t, str):
+        elif isinstance(model_config_cls, str):
             # We assume we get a string to some importable config... e.g. in the sub-package jensen, 'bionemo.jensen.configs.MyConfig'
-            model_config_t = string_to_class(model_config_t)
+            model_config_cls = string_to_class(model_config_cls)
 
-        if data_config_t is None:
-            data_config_t = ESM2DataConfig
-        elif isinstance(data_config_t, str):
-            data_config_t = string_to_class(data_config_t)
+        if data_config_cls is None:
+            data_config_cls = ESM2DataConfig
+        elif isinstance(data_config_cls, str):
+            data_config_cls = string_to_class(data_config_cls)
 
-        return MainConfig[model_config_t, data_config_t](**config_dict)
+        return MainConfig[model_config_cls, data_config_cls](**config_dict)
 
     args = parse_args()
-    config = load_config(args.config, args.model_config_t, args.data_config_t)
+    config = load_config(args.config, args.model_config_cls, args.data_config_cls)
 
     if args.nsys_profiling:
         nsys_config = NsysConfig(
