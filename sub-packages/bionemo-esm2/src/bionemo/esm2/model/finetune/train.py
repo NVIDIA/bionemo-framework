@@ -175,7 +175,7 @@ if __name__ == "__main__":
     seed = 42
 
     # To download a 650M pre-trained ESM2 model
-    pretrain_ckpt_path = load("esm2/650m:2.0", source="ngc")
+    pretrain_ckpt_path = load("esm2/650m:2.0")
 
     config = ESM2FineTuneSeqConfig(initial_ckpt_path=str(pretrain_ckpt_path))
 
