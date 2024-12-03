@@ -25,5 +25,12 @@ if ! set_bionemo_home; then
     exit 1
 fi
 
-echo "Running pytest tests"
-pytest -v --nbval-lax docs/ scripts/ sub-packages/
+python -m coverage erase
+
+for dir in docs/ scripts/ ./sub-packages/bionemo-*/; do
+    echo "Running pytest in $dir"
+    python -m coverage run --parallel-mode -m pytest -v --nbval-lax $dir
+done
+
+python -m coverage combine
+python -m coverage report
