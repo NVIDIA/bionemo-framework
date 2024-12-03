@@ -25,7 +25,7 @@ script_args:
   batch_size:
     value: 16
   max_steps:
-    value: 27500
+    value: 27000
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-${model}/src/bionemo/${model}/scripts/train_esm2.py \
     --train-cluster-path=${data_path}/train_clusters.parquet \
