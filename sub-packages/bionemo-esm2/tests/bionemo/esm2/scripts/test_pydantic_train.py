@@ -56,10 +56,10 @@ def test_pretrain_pydantic_cli(dummy_protein_dataset, dummy_parquet_train_val_in
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
     open_port = find_free_network_port()
-    config = f"{result_dir}/test_config.json"
+    config = f"{result_dir}/test_config.yaml"
 
     # Invoke with blocking
-    cmd_str = f"""bionemo-esm2-recipe --dest {config} --recipe test
+    cmd_str = f"""bionemo-esm2-recipe --dest {config} --recipe esm2_tiny_test_recipe
       --train-database-path {dummy_protein_dataset}
       --train-cluster-path {train_cluster_path}
       --valid-database-path {dummy_protein_dataset}
@@ -93,5 +93,5 @@ def test_pretrain_pydantic_cli(dummy_protein_dataset, dummy_parquet_train_val_in
     )
     if result.returncode != 0:
         raise Exception(f"Pretrain script failed:\n{cmd_str=}\n{result.stdout=}\n{result.stderr=}")
-    # NOTE this looks a lot like a magic value. But we also could do json.loads(config)['experiment_config']['experiment_name']
+    # NOTE this looks a lot like a magic value. But we also could do yaml.load(config)['experiment_config']['experiment_name']
     assert (result_dir / "default_experiment").exists(), "Could not find test experiment directory."
