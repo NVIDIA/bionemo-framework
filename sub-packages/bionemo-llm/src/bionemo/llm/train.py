@@ -203,7 +203,7 @@ def train(
     # TODO: need an abstraction for LrSchedulerConfig
     if optim_config.lr_scheduler == "cosine":
         lr_scheduler = CosineAnnealingScheduler(
-            max_steps=training_config.max_steps,
+            max_steps=training_config.max_steps if optim_config.max_steps is None else optim_config.max_steps,
             min_lr=optim_config.lr / 100,
             warmup_steps=int(math.ceil(training_config.max_steps * optim_config.cosine_rampup_frac)),
             interval=optim_config.interval,
@@ -213,7 +213,7 @@ def train(
     elif optim_config.lr_scheduler == "warmup_anneal":
         lr_scheduler = WarmupAnnealDecayHoldScheduler(
             warmup_steps=optim_config.warmup_steps,
-            max_steps=training_config.max_steps,
+            max_steps=training_config.max_steps if optim_config.max_steps is None else optim_config.max_steps,
             max_lr=optim_config.lr,
             min_lr=optim_config.lr / 10.0,
             anneal_percentage=0.10,

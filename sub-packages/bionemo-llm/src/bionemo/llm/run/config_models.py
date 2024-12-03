@@ -325,6 +325,7 @@ class OptimizerSchedulerConfig(BaseModel):
         monitor (str): Metric to monitor for learning rate adjustments. Default is "val_loss".
         warmup_steps (int): Number of warmup steps for use with the warmup annealing learning rate scheduler. Default is 0.
         lr_scheduler (Literal['warmup_anneal', 'cosine']): Type of learning rate scheduler to use. Default is 'warmup_anneal'. NOTE this is likely to change.
+        max_steps (Optional[int]): max_steps used in optimizer. Default to None which uses max_steps from TrainingConfig.
     """
 
     lr: float = 1e-4
@@ -335,6 +336,7 @@ class OptimizerSchedulerConfig(BaseModel):
     cosine_hold_frac: float = 0.05
     warmup_steps: int = 0
     lr_scheduler: Literal["warmup_anneal", "cosine"] = "warmup_anneal"
+    max_steps: Optional[int] = None
 
 
 class ExperimentConfig(BaseModel):
