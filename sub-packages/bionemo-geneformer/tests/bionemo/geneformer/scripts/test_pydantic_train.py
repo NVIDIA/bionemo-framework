@@ -42,10 +42,10 @@ def test_pretrain_cli_from_ckpt(tmpdir):
 
     open_port = find_free_network_port()
     # NOTE: if this test is ever failing, you may want to put the config somewhere easily accessible.
-    config = f"{result_dir}/test_config.json"
-    # Invoke with blocking, continue when finished (and the json config is generated)
+    config = f"{result_dir}/test_config.yaml"
+    # Invoke with blocking, continue when finished (and the yaml config is generated)
     checkpoint_path: Path = load("geneformer/10M_240530:2.0")
-    cmd_str = f"""bionemo-geneformer-recipe --dest {config} --recipe test --data-path {data_path} --result-dir {result_dir} --initial-ckpt-path {checkpoint_path}""".strip()
+    cmd_str = f"""bionemo-geneformer-recipe --dest {config} --recipe geneformer_tiny_test_recipe --data-path {data_path} --result-dir {result_dir} --initial-ckpt-path {checkpoint_path}""".strip()
     env = dict(**os.environ)  # a local copy of the environment
     env["MASTER_PORT"] = str(open_port)
     cmd = shlex.split(cmd_str)
@@ -83,9 +83,9 @@ def test_pretrain_cli(tmpdir):
     result_dir = Path(tmpdir.mkdir("results"))
 
     open_port = find_free_network_port()
-    config = f"{result_dir}/test_config.json"
+    config = f"{result_dir}/test_config.yaml"
     # Invoke with blocking
-    cmd_str = f"""bionemo-geneformer-recipe --dest {config} --recipe test --data-path {data_path} --result-dir {result_dir}""".strip()
+    cmd_str = f"""bionemo-geneformer-recipe --dest {config} --recipe geneformer_tiny_test_recipe --data-path {data_path} --result-dir {result_dir}""".strip()
     # continue when finished
     env = dict(**os.environ)  # a local copy of the environment
     env["MASTER_PORT"] = str(open_port)
@@ -113,7 +113,7 @@ def test_pretrain_cli(tmpdir):
     )
     if result.returncode != 0:
         raise Exception(f"Pretrain script failed:\n{cmd_str=}\n{result.stdout=}\n{result.stderr=}")
-    # NOTE this looks a lot like a magic value. But we also could do json.loads(config)['experiment_config']['experiment_name']
+    # NOTE this looks a lot like a magic value. But we also could do yaml.loads(config)['experiment_config']['experiment_name']
     assert (result_dir / "test-experiment").exists(), "Could not find test experiment directory."
 
 
@@ -125,10 +125,10 @@ def test_finetune_cli(tmpdir):
 
     open_port = find_free_network_port()
 
-    config = f"{result_dir}/test_config.json"
+    config = f"{result_dir}/test_config.yaml"
 
     # TODO add initial path
-    cmd_str = f"""bionemo-geneformer-recipe --dest {config} --recipe test-finetune --data-path {data_path} --result-dir {result_dir} --initial-ckpt-path {checkpoint_path}""".strip()
+    cmd_str = f"""bionemo-geneformer-recipe --dest {config} --recipe finetune_test_recipe --data-path {data_path} --result-dir {result_dir} --initial-ckpt-path {checkpoint_path}""".strip()
     # continue when finished
     env = dict(**os.environ)  # a local copy of the environment
     env["MASTER_PORT"] = str(open_port)
@@ -145,7 +145,7 @@ def test_finetune_cli(tmpdir):
     if result.returncode != 0:
         raise Exception(f"Pretrain recipe failed:\n{cmd_str=}\n{result.stdout=}\n{result.stderr=}")
 
-    cmd_str = f"bionemo-geneformer-train --conf {config} --model-config-t ExposedFineTuneSeqLenBioBertConfig"
+    cmd_str = f"bionemo-geneformer-train --conf {config} --model-config-cls ExposedFineTuneSeqLenBioBertConfig"
     env = dict(**os.environ)  # a local copy of the environment
     open_port = find_free_network_port()
     env["MASTER_PORT"] = str(open_port)

@@ -32,6 +32,8 @@ from bionemo.llm.run.config_models import (
     DataConfig,
     ExposedModelConfig,
     MainConfig,
+    deserialize_str_to_path,
+    serialize_path_or_str,
 )
 
 
@@ -63,11 +65,31 @@ class ESM2DataConfig(DataConfig[ESMDataModule]):
     valid_database_path: Path
 
     micro_batch_size: int = 8
-    result_dir: str = "./results"
+    result_dir: str | Path = "./results"
     min_seq_length: int = 128
     max_seq_length: int = 128
     random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.ALL_TOKENS
     num_dataset_workers: int = 0
+
+    @field_serializer(
+        "train_cluster_path", "train_database_path", "valid_cluster_path", "valid_database_path", "result_dir"
+    )
+    def serialize_paths(self, value: Path) -> str:  # noqa: D102
+        return serialize_path_or_str(value)
+
+    @field_validator(
+        "train_cluster_path", "train_database_path", "valid_cluster_path", "valid_database_path", "result_dir"
+    )
+    def deserialize_paths(cls, value: str) -> Path:  # noqa: D102
+        return deserialize_str_to_path(value)
+
+    @field_serializer("random_mask_strategy")
+    def serialize_spec_option(self, value: RandomMaskStrategy) -> str:  # noqa: D102
+        return value.value
+
+    @field_validator("random_mask_strategy", mode="before")
+    def deserialize_spec_option(cls, value: str) -> RandomMaskStrategy:  # noqa: D102
+        return RandomMaskStrategy(value)
 
     def construct_data_module(self, global_batch_size: int) -> ESMDataModule:
         """Constructs and returns an ESMDataModule instance with the provided global batch size.

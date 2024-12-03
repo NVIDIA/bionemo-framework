@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Type
 
 from nemo.utils import logging
+from pydantic import field_serializer, field_validator
 from tokenizers import Tokenizer
 
 from bionemo.geneformer.api import GeneformerConfig
@@ -27,6 +28,8 @@ from bionemo.geneformer.model.finetune_token_regressor import FineTuneSeqLenBioB
 from bionemo.llm.run.config_models import (
     DataConfig,
     ExposedModelConfig,
+    deserialize_str_to_path,
+    serialize_path_or_str,
 )
 
 
@@ -69,6 +72,14 @@ class GeneformerPretrainingDataConfig(DataConfig[SingleCellDataModule]):
 
     seq_length: int = 2048
     num_dataset_workers: int = 0
+
+    @field_serializer("result_dir")
+    def serialize_paths(self, value: pathlib.Path) -> str:  # noqa: D102
+        return serialize_path_or_str(value)
+
+    @field_validator("result_dir")
+    def deserialize_paths(cls, value: str) -> pathlib.Path:  # noqa: D102
+        return deserialize_str_to_path(value)
 
     @property
     def train_data_path(self) -> str:  # noqa: D102

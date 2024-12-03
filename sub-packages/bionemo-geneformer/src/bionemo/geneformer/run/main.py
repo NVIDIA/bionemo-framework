@@ -15,8 +15,9 @@
 
 
 import argparse
-import json
 from typing import Optional
+
+import yaml
 
 from bionemo.geneformer.run.config_models import (
     ExposedFineTuneSeqLenBioBertConfig,
@@ -32,16 +33,16 @@ def main():  # noqa: D103
         parser = argparse.ArgumentParser(description="Run Geneformer pretraining")
         parser.add_argument("--config", type=str, required=True, help="Path to the JSON configuration file")
         parser.add_argument(
-            "--model-config-t",
+            "--model-config-cls",
             default=ExposedGeneformerPretrainConfig,
             required=False,
-            help="fully resolvable python import path to the ModelConfig object. Builtin options are ExposedGeneformerPretrainConfig and ExposedFineTuneSeqLenBioBertConfig.",
+            help="fully resolvable python import path to the ModelConfig class. Builtin options are ExposedGeneformerPretrainConfig and ExposedFineTuneSeqLenBioBertConfig.",
         )
         parser.add_argument(
-            "--data-config-t",
+            "--data-config-cls",
             default=GeneformerPretrainingDataConfig,
             required=False,
-            help="fully resolvable python import path to the ModelConfig object.",
+            help="fully resolvable python import path to the class.",
         )
         parser.add_argument(
             "--resume-if-exists",
@@ -91,28 +92,28 @@ def main():  # noqa: D103
         module = importlib.import_module(module_path)
         return getattr(module, class_name)
 
-    def load_config(config_path: str, model_config_t: Optional[str], data_config_t: Optional[str]) -> MainConfig:
+    def load_config(config_path: str, model_config_cls: Optional[str], data_config_cls: Optional[str]) -> MainConfig:
         with open(config_path, "r") as f:
-            config_dict = json.load(f)
+            config_dict = yaml.safe_load(f)
 
-        # model/data_config_t is used to select the parser dynamically.
-        if model_config_t is None or model_config_t == "ExposedGeneformerPretrainConfig":
-            model_config_t = ExposedGeneformerPretrainConfig
-        elif model_config_t == "ExposedFineTuneSeqLenBioBertConfig":
+        # model/data_config_cls is used to select the parser dynamically.
+        if model_config_cls is None or model_config_cls == "ExposedGeneformerPretrainConfig":
+            model_config_cls = ExposedGeneformerPretrainConfig
+        elif model_config_cls == "ExposedFineTuneSeqLenBioBertConfig":
             # Hardcoded path for those who do not know the full path
-            model_config_t = ExposedFineTuneSeqLenBioBertConfig
-        elif isinstance(model_config_t, str):
+            model_config_cls = ExposedFineTuneSeqLenBioBertConfig
+        elif isinstance(model_config_cls, str):
             # We assume we get a string to some importable config... e.g. in the sub-package jensen, 'bionemo.jensen.configs.MyConfig'
-            model_config_t = string_to_class(model_config_t)
+            model_config_cls = string_to_class(model_config_cls)
 
-        if data_config_t is None:
-            data_config_t = GeneformerPretrainingDataConfig
-        elif isinstance(data_config_t, str):
-            data_config_t = string_to_class(data_config_t)
-        return MainConfig[model_config_t, data_config_t](**config_dict)
+        if data_config_cls is None:
+            data_config_cls = GeneformerPretrainingDataConfig
+        elif isinstance(data_config_cls, str):
+            data_config_cls = string_to_class(data_config_cls)
+        return MainConfig[model_config_cls, data_config_cls](**config_dict)
 
     args = parse_args()
-    config = load_config(args.config, args.model_config_t, args.data_config_t)
+    config = load_config(args.config, args.model_config_cls, args.data_config_cls)
 
     if args.nsys_profiling:
         nsys_config = NsysConfig(
