@@ -18,6 +18,8 @@ from collections import defaultdict
 from dataclasses import asdict
 from typing import Any, Sequence, Union
 
+from bionemo.utils.trt_compiler import trt_compile
+
 
 __all__: Sequence[str] = (
     "update_dataclass_config",
