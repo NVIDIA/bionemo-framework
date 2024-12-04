@@ -46,7 +46,7 @@ def test_val_dataloader_in_main_runs_with_limit_val_batches(tmpdir, limit_val_ba
             data_dir=data_path,
             num_nodes=1,
             devices=1,
-            seq_length=8,
+            seq_length=128,
             result_dir=result_dir,
             wandb_project=None,
             wandb_offline=True,
