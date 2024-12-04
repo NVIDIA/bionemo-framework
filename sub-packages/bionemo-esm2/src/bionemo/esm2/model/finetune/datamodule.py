@@ -228,7 +228,7 @@ class ESM2FineTuneDataModule(MegatronDataModule):
             self._train_ds = self._create_epoch_based_dataset(self.train_dataset, num_train_samples)
 
         # Create validation dataset
-        if self.valid_dataset is not None and self.trainer.limit_val_batches > 0.0:
+        if self.valid_dataset is not None and self.trainer.limit_val_batches != 0.:
             num_val_samples = infer_num_samples(
                 limit_batches=self.trainer.limit_val_batches,
                 num_samples_in_dataset=len(self.valid_dataset),
