@@ -58,9 +58,8 @@ def main(
     val_check_interval: int,
     log_every_n_steps: Optional[int],
     num_dataset_workers: int,
-    biobert_spec_option: BiobertSpecOption,  # TODO(@farhadrgh) clarify how to parse this.
+    biobert_spec_option: BiobertSpecOption,
     lr: float,
-    scheduler_num_steps: Optional[int],
     micro_batch_size: int,
     accumulate_grad_batches: int,
     experiment_name: str,
