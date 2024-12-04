@@ -43,7 +43,7 @@ script: |-
     --micro-batch-size=${batch_size} \
     --num-nodes=${nodes} \
     --num-gpus=${gpus} \
-    --val-check-interval=1000 \
+    --val-check-interval=50 \
     --limit-val-batches=1 \
     --num-steps=${max_steps} \
     --min-seq-length=1024 \
@@ -58,7 +58,7 @@ script: |-
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name} \
     --wandb-job-type=${pipeline_label} \
-    --log-every-n-steps=50 \
+    --log-every-n-steps=10 \
     --accumulate-grad-batches=${acc_grad} \
     --pipeline-model-parallel-size=${pp} \
     --tensor-model-parallel-size={tp} \
