@@ -37,7 +37,8 @@ def test_bionemo2_rootdir():
     assert data_path.is_dir(), "Test data directory is supposed to be a directory."
 
 
-def test_main_runs(tmpdir):
+@pytest.mark.parametrize("limit_val_batches", [0.0, 1])
+def test_val_dataloader_in_main_runs_with_limit_val_batches(tmpdir, limit_val_batches: float):
     result_dir = Path(tmpdir.mkdir("results"))
 
     with megatron_parallel_state_utils.distributed_model_parallel_state():
