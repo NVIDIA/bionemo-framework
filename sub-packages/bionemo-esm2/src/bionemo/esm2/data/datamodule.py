@@ -158,7 +158,6 @@ class ESMDataModule(MegatronDataModule):
         val_clusters = dataset.create_valid_clusters(self._valid_cluster_path)
         if self.trainer.limit_val_batches == 0.0:  # disable validation
             logging.info("Skip creating validation dataset because trainer.limit_val_batches=0.")
-            self._valid_ds = None
         else:
             num_val_samples = infer_num_samples(
                 limit_batches=self.trainer.limit_val_batches,

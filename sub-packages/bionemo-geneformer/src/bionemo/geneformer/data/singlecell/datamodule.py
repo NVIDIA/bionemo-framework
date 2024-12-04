@@ -203,7 +203,6 @@ class SingleCellDataModule(MegatronDataModule):
             )
             if self.trainer.limit_val_batches == 0.0:  # disable validation
                 logging.info("Skip creating validation dataset because trainer.limit_val_batches=0.")
-                self._validation_ds = None
             else:
                 num_val_samples = infer_num_samples(
                     limit_batches=self.trainer.limit_val_batches,
