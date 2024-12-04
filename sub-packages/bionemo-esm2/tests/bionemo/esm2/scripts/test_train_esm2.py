@@ -137,7 +137,7 @@ def test_main_runs(monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_tra
     ).is_file(), "Could not find experiment log."
 
 
-@pytest.mark.parametrize("limit_val_batches", [1.0, 4, None])
+@pytest.mark.parametrize("limit_val_batches", [0., 1.0, 4, None])
 def test_val_dataloader_in_main_runs_with_limit_val_batches(
     monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs, limit_val_batches
 ):
