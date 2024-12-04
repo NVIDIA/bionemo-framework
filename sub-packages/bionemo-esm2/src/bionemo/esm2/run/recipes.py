@@ -288,9 +288,9 @@ def tiny_train_config_recipe() -> TrainingConfig:
     return TrainingConfig(max_steps=10, limit_val_batches=2, val_check_interval=2)
 
 
-def default_adam_optimizer_with_cosine_annealing_recipe() -> OptimizerSchedulerConfig:
+def default_adam_optimizer_with_cosine_annealing_recipe(max_steps: Optional[int] = None) -> OptimizerSchedulerConfig:
     """Default optimizer scheduler config for ESM2."""
-    return OptimizerSchedulerConfig()
+    return OptimizerSchedulerConfig(max_steps=max_steps)
 
 
 def experiment_config_recipe(result_dir="./results") -> ExperimentConfig:

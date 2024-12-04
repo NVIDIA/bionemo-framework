@@ -52,6 +52,7 @@ def main(
     max_seq_length: int,
     result_dir: Path,
     num_steps: int,
+    scheduler_num_steps: Optional[int],
     warmup_steps: int,
     limit_val_batches: int,
     val_check_interval: int,
