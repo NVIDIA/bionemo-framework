@@ -1,5 +1,5 @@
-scope: partial-conv
-time_limit: 14400
+scope: perf
+time_limit: 1800
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -10,22 +10,30 @@ script_args:
   data_path:
     value: /data/20240809_uniref_2024_03/data
     key_segment: False
-  model:
-    value: esm2
-  variant:
-    value: train
-  config_name:
-    value: 650M
-  precision:
-    value: [bf16-mixed]
-  nodes:
-    value: [4]
-  gpus:
-    value: 8
-  batch_size:
-    value: 16
-  max_steps:
-    value: 26500
+  model: esm2
+  variant: train
+  config_name: 650M
+  precision: bf16-mixed
+  max_steps: 200
+  gpus: 8
+  acc_grad: 1
+  products:
+    - nodes: 1
+      batch_size: 16
+      pp: 1
+      tp: 1
+    - nodes: 2
+      batch_size: 16
+      pp: 2
+      tp: 1
+    - nodes: 2
+      batch_size: 16
+      pp: 1
+      tp: 2
+    - nodes: 2
+      batch_size: 16
+      pp: 1
+      tp: 1
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-${model}/src/bionemo/${model}/scripts/train_esm2.py \
     --train-cluster-path=${data_path}/train_clusters.parquet \
@@ -51,4 +59,7 @@ script: |-
     --wandb-group=${model}_${variant}_${config_name} \
     --wandb-job-type=${pipeline_label} \
     --log-every-n-steps=50 \
+    --accumulate-grad-batches=${acc_grad} \
+    --pipeline-model-parallel-size=${pp} \
+    --tensor-model-parallel-size={tp} \
     --no-save-best-checkpoint --no-save-last-checkpoint;
