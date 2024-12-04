@@ -202,7 +202,7 @@ class SingleCellDataModule(MegatronDataModule):
                 seed=self.seed,
             )
             if self.trainer.limit_val_batches == 0.0:  # disable validation
-                logging.warning("Skip creating validation dataset because trainer.limit_val_batches=0.")
+                logging.info("Skip creating validation dataset because trainer.limit_val_batches=0.")
                 self._validation_ds = None
             else:
                 num_val_samples = infer_num_samples(
@@ -218,8 +218,8 @@ class SingleCellDataModule(MegatronDataModule):
                     seed=self.seed,
                 )
             if self.trainer.limit_test_batches == 0.0:  # disable testing
-                logging.warning("Skip creating test dataset because trainer.limit_test_batches=0.")
-                self._test_ds = None
+                logging.info("Skip creating test dataset because trainer.limit_test_batches=0.")
+
             else:
                 num_test_samples = infer_num_samples(
                     limit_batches=self.trainer.limit_test_batches,
