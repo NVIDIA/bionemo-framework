@@ -215,7 +215,7 @@ def train(
             warmup_steps=optim_config.warmup_steps,
             max_steps=training_config.max_steps if optim_config.max_steps is None else optim_config.max_steps,
             max_lr=optim_config.lr,
-            min_lr=0.0,
+            min_lr=optim_config.lr / 10.0,
             anneal_percentage=0.10,
         )
     else:
