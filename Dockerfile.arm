@@ -125,10 +125,10 @@ RUN dpkg -l | awk '/spdlog/ {print $2}' | xargs apt-get remove -y
 RUN rm -f /usr/lib/*/cmake/spdlog/spdlogConfig.cmake
 RUN rm -f /usr/lib/cmake/spdlog/spdlogConfig.cmake
 
-WORKDIR /tmp/tiledb
+WORKDIR /workspace/tiledb
 RUN wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.0-rc3/tiledb-linux-arm64-2.27.0-rc3-8d581f2.tar.gz -O tiledb.tar.gz && \
     tar -xvzf tiledb.tar.gz
-ENV TILEDB_PATH=/tmp/tiledb
+ENV TILEDB_PATH=/workspace/tiledb
 
 WORKDIR /workspace/bionemo2
 ENV CC=gcc-13 CXX=g++-13
