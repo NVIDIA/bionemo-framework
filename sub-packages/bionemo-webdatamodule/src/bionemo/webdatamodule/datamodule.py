@@ -55,7 +55,7 @@ class WebDataModule(L.LightningDataModule):
     - `Trainer.predict()` requires the `test` splits
 
     Here is an example of constructing the data module for `Trainer.fit()`:
-    ```
+    ```python
     >>> from bionemo.webdatamodule.datamodule import Split, WebDataModule
     >>>
     >>> tar_file_prefix = "shards"
@@ -125,11 +125,11 @@ class WebDataModule(L.LightningDataModule):
     >>>     }
     >>>
     >>> invoke_wds = {
-    >>>     split: [("with_epoch", {"nbatches" : 5})]
+    >>>     split: [("with_epoch", {"nbatches" : 5})] for split in Split
     >>>     }
     >>>
     >>> invoke_wld = {
-    >>>     split: [("with_epoch", {"nbatches" : 5}]
+    >>>     split: [("with_epoch", {"nbatches" : 5}] for split in Split
     >>>     }
     >>>
     >>> # construct the data module
@@ -355,7 +355,7 @@ class PickledDataWDS(WebDataModule):
     1. create the data module with a directory of pickle files and the file name
     prefix thereof for different splits to used by `Lightning.Trainer.fit()`
 
-    ```
+    ```python
     >>> from bionemo.core.data.datamodule import Split, PickledDataWDS
 
     >>> dir_pickles = "/path/to/my/pickles/dir"
