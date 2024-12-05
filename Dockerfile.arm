@@ -47,9 +47,9 @@ RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-di
 
 # Manually build triton (mamba dependency) - no existing ARM build
 RUN git clone https://github.com/triton-lang/triton.git && \
-    cd triton && \
     pip install ninja cmake wheel pybind11 && \
-    pip install python
+    cd triton/python && \
+    pip install .
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
