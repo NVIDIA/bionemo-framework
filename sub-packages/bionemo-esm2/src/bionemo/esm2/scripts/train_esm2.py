@@ -78,6 +78,7 @@ def main(
     tensor_model_parallel_size: int = 1,
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Optional[Path] = None,
+    create_checkpoint_callback: bool = True,
     restore_from_checkpoint_path: Optional[str] = None,
     save_best_checkpoint: bool = True,
     save_last_checkpoint: bool = True,
@@ -133,6 +134,7 @@ def main(
         tensor_model_parallel_size (int): tensor model parallel size
         create_tensorboard_logger (bool): create the tensorboard logger
         nemo1_init_path (Optional[Path]): Nemo 1 initialization path
+        create_checkpoint_callback (bool): create a ModelCheckpoint callback and attach it to the pytorch lightning trainer
         restore_from_checkpoint_path (Optional[str]): If set, restores the model from the directory passed in. Expects the
             checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
         save_best_checkpoint (bool): whether to save the best checkpoint
@@ -278,14 +280,17 @@ def main(
     )
 
     # Configure our custom Checkpointer
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_last=save_last_checkpoint,
-        monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
-        save_top_k=save_top_k,
-        every_n_train_steps=val_check_interval,
-        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-        filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-    )
+    if create_checkpoint_callback is True:
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        )
+    else:
+        checkpoint_callback = None
 
     # Setup the logger and train the model
     nemo_logger = setup_nemo_lightning_logger(
@@ -350,6 +355,7 @@ def train_esm2_entrypoint():
         experiment_name=args.experiment_name,
         resume_if_exists=args.resume_if_exists,
         nemo1_init_path=args.nemo1_init_path,
+        create_checkpoint_callback=args.create_checkpoint_callback,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
         save_best_checkpoint=args.save_best_checkpoint,
         save_last_checkpoint=args.save_last_checkpoint,
@@ -562,6 +568,13 @@ def get_parser():
         type=Path,
         required=False,
         help="Path to nemo1 file, if desired to load at init time.",
+    )
+    parser.add_argument(
+        "--no-create-checkpoint-callback",
+        action="store_false",
+        default=True,
+        dest="create_checkpoint_callback",
+        help="Disable creating a ModelCheckpoint callback.",
     )
     parser.add_argument(
         "--save-best-checkpoint",
