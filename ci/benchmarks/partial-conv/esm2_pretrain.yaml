@@ -51,4 +51,4 @@ script: |-
     --wandb-group=${model}_${variant}_${config_name} \
     --wandb-job-type=${pipeline_label} \
     --log-every-n-steps=50 \
-    --no-save-best-checkpoint --no-save-last-checkpoint;
+    --no-create-checkpoint-callback;
