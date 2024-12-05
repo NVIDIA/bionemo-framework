@@ -310,6 +310,7 @@ COPY examples ${BIONEMO_HOME}/examples
 COPY tests ${BIONEMO_HOME}/tests
 COPY bionemo ${BIONEMO_HOME}/bionemo
 COPY ci/scripts ${BIONEMO_HOME}/ci/scripts
+COPY docs ${BIONEMO_HOME}/docs
 
 ### install bionemo
 WORKDIR ${BIONEMO_HOME}
