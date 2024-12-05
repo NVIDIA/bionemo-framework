@@ -25,6 +25,7 @@ from megatron.core.transformer import spec_utils
 from megatron.core.transformer.attention import SelfAttention, SelfAttentionSubmodules
 from megatron.core.transformer.custom_layers.transformer_engine import (
     TEDotProductAttention,
+    TEColumnParallelLinear,
     TELayerNormColumnParallelLinear,
     TERowParallelLinear,
 )
@@ -56,6 +57,8 @@ class BiobertSpecOption(str, Enum):
     # ESM2 spec
     esm2_bert_layer_local_spec = "esm2_bert_layer_local_spec"
     esm2_bert_layer_with_transformer_engine_spec = "esm2_bert_layer_with_transformer_engine_spec"
+    # AMPLIFY spec
+    amplify_bert_layer_with_transformer_engine_spec = "amplify_bert_layer_with_transformer_engine_spec"
 
 
 def get_biobert_spec(  # noqa: D417
@@ -220,6 +223,38 @@ def get_biobert_spec(  # noqa: D417
                 ),
             )
             return esm2_bert_layer_local_spec
+        
+        case BiobertSpecOption.amplify_bert_layer_with_transformer_engine_spec:
+            if core_attention is None:
+                core_attention = TEDotProductAttention
+
+            amplify_bert_layer_local_spec = spec_utils.ModuleSpec(
+                module=TransformerLayer,
+                submodules=TransformerLayerSubmodules(
+                    self_attention=spec_utils.ModuleSpec(
+                        module=SelfAttention,
+                        params={"attn_mask_type": AttnMaskType.padding},
+                        submodules=SelfAttentionSubmodules(
+                            linear_qkv=TEColumnParallelLinear,
+                            core_attention=core_attention,
+                            linear_proj=TERowParallelLinear,
+                            q_layernorm=IdentityOp,
+                            k_layernorm=IdentityOp,
+                        ),
+                    ),
+                    self_attn_bda=get_bias_dropout_add,
+                    pre_mlp_layernorm=TELayerNorm,
+                    mlp=spec_utils.ModuleSpec(
+                        module=MLP,
+                        submodules=MLPSubmodules(
+                            linear_fc1=TEColumnParallelLinear,
+                            linear_fc2=TERowParallelLinear,
+                        ),
+                    ),
+                    mlp_bda=get_bias_dropout_add,
+                ),
+            )
+            return amplify_bert_layer_local_spec
 
         case _:
             raise NotImplementedError(f"Spec option {biobert_spec_option} not implemented")

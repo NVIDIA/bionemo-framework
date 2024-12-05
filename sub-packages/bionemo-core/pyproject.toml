@@ -14,6 +14,7 @@ dependencies = [
     # bionemo sub-packages
     # bionemo-core **MUST NOT** depend on any other sub-packages !!!!!
     # external
+    "numba",
     "numpy",
     "platformdirs",
     "torch>=2.2.1",
