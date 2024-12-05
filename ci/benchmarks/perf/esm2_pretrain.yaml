@@ -62,4 +62,4 @@ script: |-
     --accumulate-grad-batches=${acc_grad} \
     --pipeline-model-parallel-size=${pp} \
     --tensor-model-parallel-size={tp} \
-    --no-save-best-checkpoint --no-save-last-checkpoint;
+    --no-create-checkpoint-callback;
