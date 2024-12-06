@@ -120,17 +120,7 @@ EOF
 WORKDIR /build/
 # the --index-url **MUST MATCH** the base image CUDA version !!!
 # maybe --no-build-isolation ??
-#RUN pip install --index-url https://download.pytorch.org/whl/cu121 torch==${PYTORCH_VERSION}
-RUN <<EOF
-set -e
-# get version
-git clone --recursive https://github.com/pytorch/pytorch
-cd pytorch
-git checkout v${PYTORCH_VERSION}
-git submodule sync
-git submodule update --init --recursive
-# build
-EOF
+RUN pip install --index-url https://download.pytorch.org/whl/cu121 torch==${PYTORCH_VERSION}
 
 
 FROM pytorch_base AS dl_deps_base
