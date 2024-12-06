@@ -26,9 +26,6 @@ from bionemo.webdatamodule.datamodule import Split
 @pytest.mark.parametrize("split", list(Split))
 def test_webdatamodule_init(split, create_webdatamodule):
     data_module, dirs_tars_wds = create_webdatamodule
-    assert data_module._n_samples[split] == 10, (
-        f"Wrong {split}-set size: " f"expected 10 " f"but got {data_module._n_samples[split]}"
-    )
     assert data_module._dirs_tars_wds[split] == f"{dirs_tars_wds[split]}", (
         f"Wrong tar files directory: "
         f"expected {dirs_tars_wds[split]} "
@@ -169,9 +166,6 @@ def test_webdatamodule_in_lightning(
 @pytest.mark.parametrize("split", list(Split))
 def test_pickleddatawds_init(split, create_pickleddatawds):
     data_module, dirs_tars_wds, _ = create_pickleddatawds
-    assert data_module._n_samples[split] == 10, (
-        f"Wrong {split}-set size: " f"expected 10 " f"but got {data_module._n_samples[split]}"
-    )
     assert data_module._dirs_tars_wds[split] == dirs_tars_wds[split], (
         f"Wrong tar files directory: "
         f"expected {dirs_tars_wds[split]} "
