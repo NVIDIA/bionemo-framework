@@ -75,12 +75,17 @@ def test_sccollection_multi(tmp_path, test_directory):
 def test_sccollection_serialization(tmp_path, test_directory):
     coll = SingleCellCollection(tmp_path / "sccy")
     coll.load_h5ad_multi(test_directory / "", max_workers=4, use_processes=False)
+    assert coll.number_of_rows() == 114
+    assert coll.number_of_values() == 2092
+    assert coll.number_nonzero_values() == 57
+
     coll.flatten(tmp_path / "flattened")
     dat = SingleCellMemMapDataset(tmp_path / "flattened")
     assert dat.number_of_rows() == 114
     assert dat.number_of_values() == 2092
     assert dat.number_nonzero_values() == 57
-    assert np.isclose(coll.sparsity(), 0.972753346080306, rtol=1e-6)
+    assert np.isclose(dat.sparsity(), 0.972753346080306, rtol=1e-6)
+
     for fn in ["col_ptr.npy", "data.npy", "features", "metadata.json", "row_ptr.npy", "version.json"]:
         assert os.path.exists(tmp_path / "flattened" / fn)
 
@@ -94,6 +99,7 @@ def test_sc_concat_in_flatten_cellxval(tmp_path, create_cellx_val_data):
     data = SingleCellMemMapDataset(memmap_data)
     assert np.array(data.row_index)[2] != 2  # regression test for bug
     assert np.array(data.row_index)[3] != 1149  # regression test for bug
+
     assert all(data.row_index == np.array([0, 440, 972, 2119]))
 
 
