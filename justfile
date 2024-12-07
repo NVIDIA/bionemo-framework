@@ -7,19 +7,93 @@ set dotenv-load
 set export
 
 # don't fail fast here --> the `setup` command will check this!
+LOCAL_REPO_PATH := `realpath $(pwd)`
+DOCKER_REPO_PATH := '/workspace/bionemo2'
 COMMIT := `git rev-parse HEAD || true`
 IMAGE_TAG := "bionemo2-" + COMMIT
 DEV_IMAGE_TAG := "dev-" + IMAGE_TAG
-DATE := `date --iso-8601=seconds -u`
-LOCAL_ENV := '.env'
-DOCKER_REPO_PATH := '/workspace/bionemo2'
-LOCAL_REPO_PATH := `realpath $(pwd)`
+DATE := if os() == "macos" {
+  shell('date -u +"%Y-%m-%dT%H:%M:%SZ"')
+} else if os_family() == "unix" {
+  shell('date --iso-8601=seconds -u')
+} else {
+  error("Unrecognized operating system! os: {{os()}} | os_family: {{os_family()}}")
+}
+
+
+#
+# MAKE SURE default IS THE FIRST RECIPE
+#
 
 [private]
 default:
   @just --list
 
 ###############################################################################
+
+# Prints known in-use environment & justfile variables. Use to check what variable values are used.
+env:
+    #!/usr/bin/env bash
+
+    set -eo pipefail
+
+    # Hide sensitive information !!
+    #
+    # Do not display passwords, api keys, etc. Replace with '*' tokens.
+
+    # w&b
+    if [[ "${WANDB_API_KEY}" != "" && "${WANDB_API_KEY}" != "NotSpecified" ]]; then
+        display_wandb="************************************"
+    fi
+    # ngc
+    if [[ "${NGC_CLI_API_KEY}" != "" && "${NGC_CLI_API_KEY}" != "NotSpecified" ]]; then
+        display_ngc="************************************"
+    fi
+    # aws
+    if [[ "${AWS_ACCESS_KEY_ID}" != "" && "${AWS_ACCESS_KEY_ID}" != "NotSpecified" ]]; then
+        display_aws_access="************************************"
+    fi
+    if [[ "${AWS_SECRET_ACCESS_KEY}" != "" && "${AWS_SECRET_ACCESS_KEY}" != "NotSpecified" ]]; then
+        display_aws_secret="************************************"
+    fi
+
+    # Print out all of the known used environment variables.
+    # This is best-effort, but it is driven by looking at the:
+    #     - .env file
+    #     - variables defined in this justfile
+    #
+    # Any unset variable will display and error instead of an empty string.
+    #
+    # NOTE: this relies on `set dotenv-load` & `set export` being enabled in this justfile!
+
+    # from justfile
+    echo "COMMIT:                 ${COMMIT:=!! ERROR - not set !!}"
+    echo "DATE:                   ${DATE:=!! ERROR - not set !!}"
+    echo "IMAGE_TAG:              ${IMAGE_TAG:=!! ERROR - not set !!}"
+    echo "DEV_IMAGE_TAG:          ${DEV_IMAGE_TAG:=!! ERROR - not set !!}"
+    echo "LOCAL_REPO_PATH:        ${LOCAL_REPO_PATH:=!! ERROR - not set !!}"
+    echo "DOCKER_REPO_PATH:       ${DOCKER_REPO_PATH:=!! ERROR - not set !!}"
+    # from .env file
+    echo "LOCAL_RESULTS_PATH:     ${LOCAL_RESULTS_PATH:=!! ERROR - not set !!}"
+    echo "DOCKER_RESULTS_PATH:    ${DOCKER_RESULTS_PATH:=!! ERROR - not set !!}"
+    echo "LOCAL_DATA_PATH:        ${LOCAL_DATA_PATH:=!! ERROR - not set !!}"
+    echo "DOCKER_DATA_PATH:       ${DOCKER_DATA_PATH:=!! ERROR - not set !!}"
+    echo "LOCAL_MODELS_PATH:      ${LOCAL_MODELS_PATH:=!! ERROR - not set !!}"
+    echo "DOCKER_MODELS_PATH:     ${DOCKER_MODELS_PATH:=!! ERROR - not set !!}"
+    echo "WANDB_API_KEY:          ${display_wandb:=!! ERROR - not set !!}"
+    echo "JUPYTER_PORT:           ${JUPYTER_PORT:=!! ERROR - not set !!}"
+    echo "REGISTRY:               ${REGISTRY:=!! ERROR - not set !!}"
+    echo "REGISTRY_USER:          ${REGISTRY_USER:=!! ERROR - not set !!}"
+    echo "DEV_CONT_NAME:          ${DEV_CONT_NAME:=!! ERROR - not set !!}"
+    echo "NGC_CLI_API_KEY:        ${display_ngc:=!! ERROR - not set !!}"
+    echo "NGC_CLI_ORG:            ${NGC_CLI_ORG:=!! ERROR - not set !!}"
+    echo "NGC_CLI_TEAM:           ${NGC_CLI_TEAM:=!! ERROR - not set !!}"
+    echo "NGC_CLI_FORMAT_TYPE:    ${NGC_CLI_FORMAT_TYPE:=!! ERROR - not set !!}"
+    echo "AWS_ENDPOINT_URL:       ${AWS_ENDPOINT_URL:=!! ERROR - not set !!}"
+    echo "AWS_ACCESS_KEY_ID:      ${display_aws_access:=!! ERROR - not set !!}"
+    echo "AWS_SECRET_ACCESS_KEY:  ${display_aws_secret:=!! ERROR - not set !!}"
+    echo "AWS_REGION:             ${AWS_REGION:=!! ERROR - not set !!}"
+
 
 [private]
 check_preconditions:
@@ -54,10 +128,14 @@ check_preconditions:
       exit 1
   fi
 
+# WARNING! Do not show the user's ** PRIVATE API KEY ** on the CLI!
+# WARNING! Make sure the login command is prefixed with '@' -- this prevents `just` from echoing the command out!
 
 # Checks for installed programs (docker, git, etc.), their versions, and grabs the latest cache image.
 setup: check_preconditions
   ./internal/scripts/setup_env_file.sh
+  @echo "Authenticating with NGC registry: nvcr.io"
+  @docker login nvcr.io --username '$oauthtoken' --password ${NGC_CLI_API_KEY} || docker login nvcr.io
   @echo "Pulling updated cache..."
   docker pull ${IMAGE_REPO}:${CACHE_TAG} || true
 
@@ -87,26 +165,36 @@ assert_clean_git_repo:
 
 ###############################################################################
 
+# General image build command. Assumes executation @ repo. root and use with the Dockerfile's targets.
 [private]
-build image_tag target: setup assert_clean_git_repo
-  DOCKER_BUILDKIT=1 docker buildx build \
-  -t ${IMAGE_REPO}:{{image_tag}} \
-  --target={{target}} \
-  --load \
-  --cache-to type=inline \
-  --cache-from ${IMAGE_REPO}:${CACHE_TAG} \
-  --label com.nvidia.bionemo.git_sha=${COMMIT} \
-  --label com.nvidia.bionemo.created_at=${DATE} \
-  -f ./Dockerfile \
-  .
+build image_tag target skip_if_exists='false': setup assert_clean_git_repo
+  #!/usr/bin/env bash
+
+  IMAGE_NAME="${IMAGE_REPO}:{{image_tag}}"
+  if [[ "{{skip_if_exists}}" == "true" && -z "$(docker images -q ${IMAGE_NAME} 2> /dev/null)" ]]; then
+    echo "Image already exists, skipping build for: ${IMAGE_NAME}"
+  else
+    set -euo pipefail
+    set -x
+    DOCKER_BUILDKIT=1 docker buildx build \
+      -t ${IMAGE_NAME} \
+      --target={{target}} \
+      --load \
+      --cache-to type=inline \
+      --cache-from ${IMAGE_REPO}:${CACHE_TAG} \
+      --label com.nvidia.bionemo.git_sha=${COMMIT} \
+      --label com.nvidia.bionemo.created_at=${DATE} \
+      -f ./Dockerfile \
+      .
+  fi
 
 # Builds the release image.
 build-release:
-  @just build ${IMAGE_TAG} release
+  @just build ${IMAGE_TAG} release skip_if_exists=true
 
 # Builds the development image.
 build-dev:
-  @just build ${DEV_IMAGE_TAG} development
+  @just build ${DEV_IMAGE_TAG} development skip_if_exists=true
 
 ###############################################################################
 
@@ -131,8 +219,8 @@ run is_dev is_interactive image_tag cmd: setup
   -e TMPDIR=/tmp/ \
   -e NUMBA_CACHE_DIR=/tmp/ \
   -e BIONEMO_HOME=$DOCKER_REPO_PATH \
-  -e WANDB_API_KEY=$WANDB_API_KEY \
-  -e NGC_CLI_API_KEY=$NGC_CLI_API_KEY \
+  -e WANDB_API_KEY \
+  -e NGC_CLI_API_KEY \
   -e NGC_CLI_ORG=$NGC_CLI_ORG \
   -e NGC_CLI_TEAM=$NGC_CLI_TEAM \
   -e NGC_CLI_FORMAT_TYPE=$NGC_CLI_FORMAT_TYPE \
