@@ -230,8 +230,8 @@ We download a CSV example dataset of articical sequences for this inference exam
 mkdir -p $WORKDIR/esm2_finetune_tutorial
 
 # download sample data CSV for inference
-DATA_PATH=$(download_bionemo_data esm2/testdata_esm2_infer:2.0 --source ngc)
-RESULTS_PATH=$WORKDIR/esm2_finetune_tutorial/inference_results.pt
+DATA_PATH=$(download_bionemo_data esm2/testdata_esm2_infer:2.0)
+RESULTS_PATH=$WORKDIR/esm2_finetune_tutorial/
 
 infer_esm2 --checkpoint-path <finetune checkpoint path> \
            --data-path $DATA_PATH \
@@ -239,13 +239,13 @@ infer_esm2 --checkpoint-path <finetune checkpoint path> \
            --config-class ESM2FineTuneSeqConfig
 ```
 
-This will create a result `.pt` file under `$WORKDIR/esm2_finetune_tutorial/inference_results.pt` which can be loaded via PyTorch library in python environment:
+This will create a result `.pt` file under `$WORKDIR/esm2_finetune_tutorial/predictions__rank_0.pt` which can be loaded via PyTorch library in python environment:
 
 ```python
 import torch
 
-# Set the path to results file e.g. /workspace/bionemo2/esm2_finetune_tutorial/inference_results.pt
-# results_path = /workspace/bionemo2/esm2_finetune_tutorial/inference_results.pt
+# Set the path to results file e.g. /workspace/bionemo2/esm2_finetune_tutorial/predictions__rank_0.pt
+# results_path = /workspace/bionemo2/esm2_finetune_tutorial/predictions__rank_0.pt
 results = torch.load(results_path)
 
 # results is a python dict which includes the following result tensors for this example:
