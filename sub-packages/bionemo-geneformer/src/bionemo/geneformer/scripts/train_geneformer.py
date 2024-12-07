@@ -89,10 +89,20 @@ def main(
     nsys_end_step: Optional[int] = None,
     nsys_ranks: List[int] = [0],
     config_class: Type[BioBertConfig] = GeneformerConfig,
+    num_layers: int = 6,
+    hidden_size: int = 256,
+    ffn_hidden_size: int = 512,
+    num_attention_heads: int = 4,
     log_every_n_steps: int = 50,
     gc_interval: int = 0,
     aligned_megatron_ddp: bool = False,
     recompilation_check: bool = False,
+    layernorm_eps: float = 1e-12,
+    adam_eps: float = 1e-8,
+    adam_w: float = 0.01,
+    adam_beta2: float = 0.999,
+    grad_reduce_in_fp32: bool = False,
+    no_distributed_optimizer_state: bool = False,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
     """Train a Geneformer model on single cell data.
@@ -147,12 +157,31 @@ def main(
             good for clusters. This will likely slow down single node runs though.
         recompilation_check (bool): enable a recompilation check (only do on a small run) to verify that fused gpu
             kernels are not being regularly recompiled, which is very expensive, with a particular model/settings.
+        grad_reduce_in_fp32 (bool): If True, use 32 bit grad reduction in DDP mode.
+        adam_beta2 (float): beta2 parameter to control how quickly variance estimates change in the optimizer. Lower
+            values will respond more quickly while higher values will consider more of the history in determining the
+            variance. 0.999 is the default while 0.95 or 0.98 are common alternatives.
+        adam_eps (float): epsilon for adam updates. 1e-8 is the default while 1e-5 is a common alternative.
+        adam_w (float): Weight decay for adamw. Default is 0.01 while a common alternative is 0.1
+        ffn_hidden_size (int): feed forward network hidden size, typical BERT/GPT config is 4x hidden_size, but here
+            we take the value from the geneformer publication
+        hidden_size (int): hidden size of the latent layers. needs to be a multiple of `num_attention_heads` and
+            typically 64x the number of attention heads.
+        layernorm_eps (float): avoid divide by zero explosions in layernorm with a small eps. Default in geneformer
+            is 1e-12 while in other places the default is 1e-5. If experiencing instabilities this is a parameter to
+            pay attention to.
+        num_attention_heads (int): Typically you chose this so the per-head hidden size is 64
+            (hidden_size/num_attention_heads=64)
+        num_layers (int): number of layers for the model
+        no_distributed_optimizer_state (bool): disable distributed optimizer.
     """
     # Create the result directory if it does not exist.
     if wandb_tags is None:
         wandb_tags = []
     result_dir.mkdir(parents=True, exist_ok=True)
     val_check_interval = min(val_check_interval, num_steps)  # Training will fail if val_check_interval > num_steps
+
+    use_distributed_optimizer = not no_distributed_optimizer_state
 
     # Setup train/test/val data paths
     train_data_path = data_dir / "train"
@@ -173,14 +202,18 @@ def main(
     if aligned_megatron_ddp:
         ddp: str | DistributedDataParallelConfig = DistributedDataParallelConfig(
             check_for_nan_in_grad=True,
-            grad_reduce_in_fp32=False,
+            grad_reduce_in_fp32=grad_reduce_in_fp32,
             overlap_grad_reduce=True,
             overlap_param_gather=True,
             average_in_collective=True,
-            use_distributed_optimizer=True,  # this should inherit from the optimizer config, but just in case...
+            use_distributed_optimizer=use_distributed_optimizer,  # this should inherit from the optimizer config, but just in case...
         )
     else:
-        ddp = "megatron"  # this will launch DistributedDataParallelConfig(check_for_nan_in_grad=True).
+        # ddp = "megatron"  # this will launch DistributedDataParallelConfig(check_for_nan_in_grad=True).
+        ddp = DistributedDataParallelConfig(
+            grad_reduce_in_fp32=grad_reduce_in_fp32,
+            check_for_nan_in_grad=True,
+        )
 
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=tensor_model_parallel_size,
@@ -274,11 +307,12 @@ def main(
     )
     geneformer_config = config_class(
         # TODO let users set different num layers/model shapes here to support bigger/smaller architectures
-        num_layers=6,
-        hidden_size=256,
-        ffn_hidden_size=512,
-        num_attention_heads=4,
+        num_layers=num_layers,
+        hidden_size=hidden_size,
+        ffn_hidden_size=ffn_hidden_size,
+        num_attention_heads=num_attention_heads,
         seq_length=seq_length,
+        layernorm_epsilon=layernorm_eps,
         bias_dropout_fusion=True,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
         bias_activation_fusion=True,  # TODO same note as above. Set these to False to see recompilation go away
         defer_embedding_wgrad_compute=pipeline_model_parallel_size > 1,
@@ -301,10 +335,13 @@ def main(
                 lr=lr,
                 # TODO(@jstjohn) try decoupled_lr
                 optimizer="adam",
-                use_distributed_optimizer=True,
+                use_distributed_optimizer=use_distributed_optimizer,
                 # Pass through fp16/bf16 settings to avoid errors around model having bf16 enabled but optimizer not.
                 fp16=geneformer_config.fp16,
                 bf16=geneformer_config.bf16,
+                adam_eps=adam_eps,
+                adam_beta2=adam_beta2,
+                weight_decay=adam_w,
             ),
             lr_scheduler=CosineAnnealingScheduler(
                 max_steps=num_steps,
@@ -542,6 +579,14 @@ def get_parser():
         help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
     )
 
+    parser.add_argument(
+        "--no-distributed-optimizer-state",
+        action="store_true",
+        required=False,
+        default=False,
+        help="Turn off distributed optimizer.",
+    )
+
     # TODO consider whether nemo.run or some other method can simplify this config class lookup.
     config_class_options: Dict[str, Type[BioBertConfig]] = {
         "GeneformerConfig": GeneformerConfig,
@@ -565,6 +610,34 @@ def get_parser():
         "class and loss, then implement and provide an alternative config class that points to a variant of that model "
         "and alternative loss. In the future this script should also provide similar support for picking different data "
         f"modules for fine-tuning with different data types. Choices: {config_class_options.keys()}",
+    )
+
+    parser.add_argument(
+        "--num-layers",
+        type=int,
+        default=6,
+        help="Number of layers in model",
+    )
+
+    parser.add_argument(
+        "--hidden-size",
+        type=int,
+        default=256,
+        help="Hidden layer size",
+    )
+
+    parser.add_argument(
+        "--ffn-hidden-size",
+        type=int,
+        default=512,
+        help="FFN hidden layer size",
+    )
+
+    parser.add_argument(
+        "--num-attention-heads",
+        type=int,
+        default=4,
+        help="Number of attention heads.",
     )
 
     parser.add_argument(
@@ -621,7 +694,36 @@ def get_parser():
         help="Activate this and make sure a small training loop runs, this tells you that your settings are not "
         "triggering regular recompilations which can be very expensive for fused gpu kernels.",
     )
-
+    parser.add_argument(
+        "--layernorm-eps",
+        type=float,
+        default=1e-12,
+        help="Use data precision to define the epsilon for layer norm. Default is 1e-12 if not defined.",
+    )
+    parser.add_argument(
+        "--adam-eps",
+        type=float,
+        default=1e-8,
+        help="Use data precision to define the epsilon for adam. Default is 1e-5 if not defined.",
+    )
+    parser.add_argument(
+        "--adam-w",
+        type=float,
+        default=0.01,
+        help="Use data precision to define the epsilon for adam. Default is 0.1 if not defined.",
+    )
+    parser.add_argument(
+        "--adam-beta2",
+        type=float,
+        default=0.999,
+        help="Use data precision to define the epsilon for adam. Default is 0.999 if not defined.",
+    )
+    parser.add_argument(
+        "--grad-reduce-in-fp32",
+        action="store_true",
+        default=False,
+        help="Use higher precision fp32 grad reduction in ddp mode.",
+    )
     return parser
 
 
@@ -671,6 +773,16 @@ def entrypoint():
         gc_interval=args.gc_interval,
         aligned_megatron_ddp=args.aligned_megatron_ddp,
         recompilation_check=args.recompilation_check,
+        layernorm_eps=args.layernorm_eps,
+        adam_eps=args.adam_eps,
+        adam_w=args.adam_w,
+        adam_beta2=args.adam_beta2,
+        grad_reduce_in_fp32=args.grad_reduce_in_fp32,
+        num_layers=args.num_layers,
+        hidden_size=args.hidden_size,
+        ffn_hidden_size=args.ffn_hidden_size,
+        num_attention_heads=args.num_attention_heads,
+        no_distributed_optimizer_state=args.no_distributed_optimizer_state,
     )
 
 
