@@ -18,7 +18,7 @@
 set -xueo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 # NOTE: if a non-nvidia user wants to run the test suite, just run `export BIONEMO_DATA_SOURCE=ngc` prior to this call.
-export BIONEMO_DATA_SOURCE="${BIONEMO_DATA_SOURCE:-pbss}"
+export BIONEMO_DATA_SOURCE="${BIONEMO_DATA_SOURCE:-ngc}"
 source "$(dirname "$0")/utils.sh"
 
 if ! set_bionemo_home; then
