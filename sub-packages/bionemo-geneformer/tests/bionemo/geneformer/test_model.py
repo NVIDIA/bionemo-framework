@@ -66,7 +66,7 @@ nemo1_release_checkpoint_path: Path = load("geneformer/10M_240530:1.0")
 nemo2_release_checkpoint_path: Path = load("geneformer/10M_240530:2.0")
 nemo_1_per_layer_outputs_path: Path = load("single_cell/nemo1-geneformer-per-layer-outputs")
 nemo_1_expected_values_path: Path = load("single_cell/nemo1-geneformer-golden-vals")
-data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
+data_path: Path = load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
 
 
 CELLS_FOR_TEST: List[List[str]] = [
@@ -667,6 +667,7 @@ def _get_loss_from_model(model_config: GeneformerConfig, seed: int) -> float:
             mask_prob=0.15,
             mask_token_prob=0.8,
             seed=42,
+            skip_unrecognized_vocab_in_dataset=True,
         )
 
         limit_batches = 200
@@ -821,6 +822,7 @@ def _train_model_get_ckpt(
         global_batch_size=batch_size,
         num_workers=0,
         persistent_workers=False,
+        skip_unrecognized_vocab_in_dataset=True,
     )
 
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
