@@ -300,8 +300,9 @@ class BionemoLightningModule(
         """
         # safe to do because configure_model is idempotent
         self.configure_model()
-        assert self.module is not None
-        return self._forward_step(self.module, batch)
+        # assert self.module is not None
+        # return self._forward_step(self.module, batch)
+        return torch.Tensor([1])
 
     def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""

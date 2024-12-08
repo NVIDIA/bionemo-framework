@@ -237,8 +237,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         num_elements: Optional[int] = None,
         num_rows: Optional[int] = None,
         mode: Mode = Mode.READ_APPEND,
-        paginated_load_cutoff: int = 10_000,
-        load_block_row_size: int = 1_000_000,
+        paginated_load_cutoff: int = 1,
+        load_block_row_size: int = 100_000,
     ) -> None:
         """Instantiate the class.
 
@@ -542,7 +542,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             int: number of rows in the dataframe.
         """
         adata = ad.read_h5ad(anndata_path, backed=True)
-
+        print("HERE!!!!!")
         if not isinstance(adata.X, ad.experimental.CSRDataset):
             raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
         num_rows = adata.X.shape[0]
@@ -612,7 +612,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         if file_size_MB < self.paginated_load_cutoff:
             features_df, num_rows = self.regular_load_h5ad(anndata_path)
-
         else:
             features_df, num_rows = self.paginated_load_h5ad(anndata_path)
 

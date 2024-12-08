@@ -119,7 +119,6 @@ class MultiEpochDatasetResampler(Dataset[T_co]):
         # Type guard statements, the above if/elif block should ensure these are not None.
         assert self.num_epochs is not None
         assert self.num_samples is not None
-
         if self.num_epochs < 1:
             raise ValueError("num_epochs must be at least 1.")
 
