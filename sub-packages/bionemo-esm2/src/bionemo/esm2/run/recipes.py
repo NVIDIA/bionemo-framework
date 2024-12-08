@@ -15,10 +15,13 @@
 
 
 import argparse
+from functools import partial
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
+import yaml
 from nemo.utils import logging
+from pydantic import BaseModel
 
 from bionemo.core.utils.dtypes import PrecisionTypes
 from bionemo.esm2.run.config_models import ESM2DataConfig, ExposedESM2PretrainConfig
@@ -33,10 +36,10 @@ from bionemo.llm.run.config_models import (
 from bionemo.llm.utils.logger_utils import WandbConfig
 
 
-def esm2_base_training_config() -> TrainingConfig:
+def esm2_base_training_config(max_steps: int = 500000) -> TrainingConfig:
     """Base training config for ESM2."""
     return TrainingConfig(
-        max_steps=500000,
+        max_steps=max_steps,
         limit_val_batches=1.0,
         val_check_interval=10_000,
         precision="bf16-mixed",
@@ -44,10 +47,16 @@ def esm2_base_training_config() -> TrainingConfig:
     )
 
 
-def esm2_base_optimizer_scheduler_config() -> OptimizerSchedulerConfig:
+def esm2_base_optimizer_scheduler_config(max_steps: Optional[int] = None) -> OptimizerSchedulerConfig:
     """Base optimizer scheduler config for ESM2."""
     return OptimizerSchedulerConfig(
-        optimizer="adam", lr=4e-4, interval="step", monitor="val_loss", lr_scheduler="warmup_anneal", warmup_steps=2000
+        optimizer="adam",
+        lr=4e-4,
+        interval="step",
+        monitor="val_loss",
+        lr_scheduler="warmup_anneal",
+        warmup_steps=2000,
+        max_steps=max_steps,
     )
 
 
@@ -125,9 +134,9 @@ def esm2_8m_recipe(args) -> MainConfig[ExposedESM2PretrainConfig, ESM2DataConfig
     return MainConfig(
         data_config=esm2_base_data_config(args),
         parallel_config=esm2_base_parallel_config(),
-        training_config=esm2_base_training_config(),  # no changes for 8m
+        training_config=esm2_base_training_config(max_steps=args.max_steps),  # no changes for 8m
         bionemo_model_config=esm2_8m_model_config(args.initial_ckpt_path),
-        optim_config=esm2_base_optimizer_scheduler_config(),  # no changes for 8m
+        optim_config=esm2_base_optimizer_scheduler_config(max_steps=args.scheduler_max_steps),  # no changes for 8m
         experiment_config=esm2_8m_experiment_config(args.result_dir),
         wandb_config=esm2_8m_wandb_config(),
     )
@@ -180,9 +189,9 @@ def esm2_650m_recipe(args) -> MainConfig[ExposedESM2PretrainConfig, ESM2DataConf
     return MainConfig(
         data_config=esm2_base_data_config(args),
         parallel_config=esm2_base_parallel_config(),
-        training_config=esm2_base_training_config(),  # no changes for 8m
+        training_config=esm2_base_training_config(max_steps=args.max_steps),  # no changes for 8m
         bionemo_model_config=esm2_650m_model_config(args.initial_ckpt_path),
-        optim_config=esm2_base_optimizer_scheduler_config(),  # no changes for 8m
+        optim_config=esm2_base_optimizer_scheduler_config(max_steps=args.scheduler_max_steps),  # no changes for 8m
         experiment_config=esm2_650m_experiment_config(args.result_dir),
         wandb_config=esm2_650m_wandb_config(),
     )
@@ -248,9 +257,9 @@ def esm2_3b_recipe(args) -> MainConfig[ExposedESM2PretrainConfig, ESM2DataConfig
     return MainConfig(
         data_config=esm2_base_data_config(args),
         parallel_config=esm2_3b_parallel_config(),
-        training_config=esm2_base_training_config(),  # no changes for 8m
+        training_config=esm2_base_training_config(max_steps=args.max_steps),  # no changes for 8m
         bionemo_model_config=esm2_3b_model_config(args.initial_ckpt_path),
-        optim_config=esm2_base_optimizer_scheduler_config(),  # no changes for 8m
+        optim_config=esm2_base_optimizer_scheduler_config(max_steps=args.scheduler_max_steps),  # no changes for 8m
         experiment_config=esm2_3b_experiment_config(args.result_dir),
         wandb_config=esm2_3b_wandb_config(),
     )
@@ -279,9 +288,9 @@ def tiny_train_config_recipe() -> TrainingConfig:
     return TrainingConfig(max_steps=10, limit_val_batches=2, val_check_interval=2)
 
 
-def default_adam_optimizer_with_cosine_annealing_recipe() -> OptimizerSchedulerConfig:
+def default_adam_optimizer_with_cosine_annealing_recipe(max_steps: Optional[int] = None) -> OptimizerSchedulerConfig:
     """Default optimizer scheduler config for ESM2."""
-    return OptimizerSchedulerConfig()
+    return OptimizerSchedulerConfig(max_steps=max_steps)
 
 
 def experiment_config_recipe(result_dir="./results") -> ExperimentConfig:
@@ -344,7 +353,7 @@ def esm2_tiny_test_recipe(args):
         seq_length=data_config.max_seq_length, initial_ckpt_path=args.initial_ckpt_path
     )
 
-    optim_config = default_adam_optimizer_with_cosine_annealing_recipe()
+    optim_config = default_adam_optimizer_with_cosine_annealing_recipe(max_steps=args.scheduler_max_steps)
     experiment_config = experiment_config_recipe(args.result_dir)
     wandb_config = WandbConfig(
         project="bionemo2-demo",
@@ -368,13 +377,35 @@ def esm2_tiny_test_recipe(args):
     return main_config
 
 
+class ESM2Recipes(BaseModel):
+    """Pre-baked recipes for ESM2.
+
+    THIS PYDANTIC MODEL IS NOT MEANT FOR SERIALIZATION. Only used to facilitate argparse. Each recipe should take `args`
+    as the only argument. We use partials so we can provide this information at runtime. Add new recipes to this model.
+    """
+
+    # Use partials so we can still parameterize the recipes from the CLI (e.g. data paths.)
+    esm2_tiny_test_recipe: Callable[[argparse.Namespace], MainConfig[ExposedESM2PretrainConfig, ESM2DataConfig]] = (
+        partial(esm2_tiny_test_recipe)
+    )
+    esm2_8m_recipe: Callable[[argparse.Namespace], MainConfig[ExposedESM2PretrainConfig, ESM2DataConfig]] = partial(
+        esm2_8m_recipe
+    )
+    esm2_650m_recipe: Callable[[argparse.Namespace], MainConfig[ExposedESM2PretrainConfig, ESM2DataConfig]] = partial(
+        esm2_650m_recipe
+    )
+    esm2_3b_recipe: Callable[[argparse.Namespace], MainConfig[ExposedESM2PretrainConfig, ESM2DataConfig]] = partial(
+        esm2_3b_recipe
+    )
+
+
 def main():  # noqa: D103
     def parse_args():
-        parser = argparse.ArgumentParser(description="Create ESM2 configuration JSON.")
+        parser = argparse.ArgumentParser(description="Create ESM2 configuration YAML.")
         parser.add_argument(
             "--recipe",
             type=str,
-            choices=["test", "8m", "650m", "3b"],
+            choices=ESM2Recipes.model_fields.keys(),
             required=True,
             help="Use one of the preconfigured recipes to create a template config file.",
         )
@@ -382,9 +413,9 @@ def main():  # noqa: D103
         parser.add_argument(
             "--dest",
             type=str,
-            default="./esm2-recipe.json",
+            default="./esm2-recipe.yaml",
             required=True,
-            help="Path to the JSON configuration file.",
+            help="Path to the YAML configuration file.",
         )
 
         parser.add_argument(
@@ -411,33 +442,32 @@ def main():  # noqa: D103
             help="Path to an existing to a checkpoint directory to restore an existing checkpoint. Not compatible with all recipes.",
         )
 
+        parser.add_argument(
+            "--max-steps", type=int, required=False, default=500000, help="Max steps for training. Default to 500000."
+        )
+
+        parser.add_argument(
+            "--scheduler-max-steps",
+            type=int,
+            required=False,
+            help="Set scheduler max_steps directly. Otherwise default to None, which uses max_steps from training config.",
+        )
+
         args = parser.parse_args()
         return args
 
-    # Simple example for creating a JSON from recipes.
+    # Simple example for creating a YAML from recipes.
     args = parse_args()
-
-    if args.recipe == "8m":
-        config = esm2_8m_recipe(args)
-    elif args.recipe == "650m":
-        config = esm2_650m_recipe(args)
-    elif args.recipe == "3b":
-        config = esm2_3b_recipe(args)
-    elif args.recipe == "test":
-        # Hardcoded test recipe.
-        config = esm2_tiny_test_recipe(args)
-    else:
-        raise ValueError(f"Invalid recipe choice. {args.recipe=}")
-
-    # Serialize to JSON
-    json_str = config.model_dump_json(indent=2)
+    config_partial: Callable[[argparse.Namespace], MainConfig] = ESM2Recipes().__getattribute__(args.recipe)
+    config = config_partial(args)
 
     # Save to file
     with open(
         args.dest,
         "w",
     ) as f:
-        f.write(json_str)
+        yaml.dump(config.model_dump(), f, indent=2)
+
     logging.info(f"Saved configuration to {args.dest=}")
 
 

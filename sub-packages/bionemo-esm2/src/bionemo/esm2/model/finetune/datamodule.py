@@ -22,10 +22,10 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.utils.data
+from lightning.pytorch.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
-from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 from torch import Tensor
 from torch.utils.data import Dataset
 

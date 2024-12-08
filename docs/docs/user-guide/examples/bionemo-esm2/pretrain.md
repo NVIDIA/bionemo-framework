@@ -61,7 +61,7 @@ strategy = nl.MegatronStrategy(
 BioNeMo2 trainer is very similar to PyTorch Lightning trainer. We can configure the training configurations and logging.
 
 ```python
-from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
+from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from bionemo.llm.lightning import PerplexityLoggingCallback
 
 num_steps = 20

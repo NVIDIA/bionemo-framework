@@ -14,12 +14,15 @@
 # limitations under the License.
 
 
+import signal
 from pathlib import Path
 from typing import Literal
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
+import pytest
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
+from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from typing_extensions import override
 
@@ -31,8 +34,10 @@ from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
+from bionemo.testing import testing_callbacks
 from bionemo.testing.harnesses import stop_and_go
 from bionemo.testing.harnesses.mode import Mode
+from bionemo.testing.torch import recursive_assert_approx_equal
 
 
 MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
@@ -108,3 +113,76 @@ class TestESM2StopAndGo(stop_and_go.StopAndGoHarness):
         module = biobert_lightning_module(config=config, tokenizer=cls.tokenizer, optimizer=optimizer)
 
         return module, data, optimizer
+
+
+class TestESM2StopAndGoCheckpointNotAtValidation(TestESM2StopAndGo):
+    @override
+    @classmethod
+    def get_default_callbacks(cls):
+        callbacks = super().get_default_callbacks()
+        callbacks[Mode.STOP][nl_callbacks.PreemptionCallback] = nl_callbacks.PreemptionCallback(sig=signal.SIGUSR2)
+        callbacks[Mode.STOP][testing_callbacks.SignalAfterGivenStepCallback] = (
+            testing_callbacks.SignalAfterGivenStepCallback(stop_step=2, signal_=signal.SIGUSR2)
+        )
+
+        return callbacks
+
+    @override
+    @classmethod
+    def stop(cls) -> None:
+        # The PreemptionCallback exits the process with sys.exit(0) after the checkpoint is saved. We obviously don't
+        # want that here, so we catch the SystemExit exception and make sure it was called appropriately.
+        with pytest.raises(SystemExit) as pytest_wrapped_e:
+            super().stop()
+
+        assert pytest_wrapped_e.type is SystemExit
+        assert pytest_wrapped_e.value.code == 0
+
+    @pytest.mark.parametrize(
+        "callback_type",
+        [
+            testing_callbacks.LearningRateCallback,
+            testing_callbacks.GlobalStepStateCallback,
+            testing_callbacks.ConsumedSamplesCallback,
+            testing_callbacks.OptimizerStateCallback,
+            testing_callbacks.TrainInputCallback,
+            testing_callbacks.TrainOutputCallback,
+            testing_callbacks.TrainLossCallback,
+            testing_callbacks.ValidInputCallback,
+            testing_callbacks.ValidOutputCallback,
+            testing_callbacks.ValidLossCallback,
+        ],
+    )
+    def test_stop_and_go_consistency(self, callback_type):
+        if callback_type in [
+            testing_callbacks.ValidInputCallback,
+            testing_callbacks.ValidLossCallback,
+            testing_callbacks.ValidOutputCallback,
+        ]:
+            # On resumption from a checkpoint that wasn't created at the end of validation, the validation interval is
+            # shifted in the subsequent training jobs. See this slack thread for more details:
+            # https://nvidia.slack.com/archives/C074Z808N05/p1733171223813409
+            pytest.xfail(
+                reason="Currently seeing issues in validation timing with PreemptionCallback. "
+                "See https://nvbugspro.nvidia.com/bug/4994415F."
+            )
+        super().test_stop_and_go_consistency(callback_type)
+
+    @pytest.mark.skip(reason="We don't expect the STOP variant to hit on_valid_epoch_end before stopping.")
+    def test_train_val_init_consumed_samples(self):
+        pass
+
+    def test_all_valid_batch_inputs_are_identical(self):
+        """A watered-down version of test_stop_and_go_consistency's ValidInputCallback that only checks whether the
+        first batches are the same, not the over length."""
+
+        valid_inputs_interrupted = stop_and_go.get_callback(
+            self.callbacks, Mode.RESUME, testing_callbacks.ValidInputCallback
+        ).data
+        valid_inputs_continuous = stop_and_go.get_callback(
+            self.callbacks, Mode.CONTINUOUS, testing_callbacks.ValidInputCallback
+        ).data
+
+        min_len = min(len(valid_inputs_interrupted), len(valid_inputs_continuous))
+        assert min_len
+        recursive_assert_approx_equal(valid_inputs_interrupted[:min_len], valid_inputs_continuous[:min_len])

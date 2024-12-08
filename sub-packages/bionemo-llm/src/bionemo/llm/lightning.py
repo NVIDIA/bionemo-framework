@@ -15,7 +15,7 @@
 
 from typing import Any, Callable, Dict, Generic, Iterable, Iterator, List, Optional, Sequence, Tuple, TypeVar, Union
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch.distributed
 from megatron.core import parallel_state
 from megatron.core.optimizer.optimizer_config import OptimizerConfig

@@ -15,11 +15,11 @@
 import pathlib
 from typing import Any, Dict, List, Optional, Sequence
 
+from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nemo_callbacks
 from nemo.utils import logging
 from pydantic import BaseModel
-from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 
 
 __all__: Sequence[str] = (

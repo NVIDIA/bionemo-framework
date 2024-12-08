@@ -17,13 +17,13 @@ import argparse
 from pathlib import Path
 from typing import List, Optional, Sequence, get_args
 
+from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
-from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
@@ -52,12 +52,13 @@ def main(
     max_seq_length: int,
     result_dir: Path,
     num_steps: int,
+    scheduler_num_steps: Optional[int],
     warmup_steps: int,
     limit_val_batches: int,
     val_check_interval: int,
     log_every_n_steps: Optional[int],
     num_dataset_workers: int,
-    biobert_spec_option: BiobertSpecOption,  # TODO(@farhadrgh) clarify how to parse this.
+    biobert_spec_option: BiobertSpecOption,
     lr: float,
     micro_batch_size: int,
     accumulate_grad_batches: int,
@@ -111,6 +112,7 @@ def main(
         num_dataset_workers (int): number of dataset workers
         biobert_spec_option (BiobertSpecOption): the biobert spec option (architecture) to use for this run
         lr (float): learning rate
+        scheduler_num_steps (Optional[int]): Number of steps in learning rate scheduler. Use num_steps if not provided.
         micro_batch_size (int): micro batch size, from this and parallelism settings we infer the global batch size
         accumulate_grad_batches (int): number of batches to accumulate gradients for
         experiment_name (str): experiment name, this is the name used for the wandb run, and the sub-directory of the
@@ -170,7 +172,7 @@ def main(
     )
 
     # for wandb integration
-    # Please refer to https://pytorch-lightning.readthedocs.io/en/0.7.6/api/pytorch_lightning.loggers.html"
+    # Please refer to https://pytorch-lightning.readthedocs.io/en/0.7.6/api/lightning.pytorch.loggers.html"
     wandb_config: Optional[WandbConfig] = (
         None
         if wandb_project is None
@@ -247,20 +249,27 @@ def main(
         variable_seq_lengths=min_seq_length != max_seq_length,
     )
 
+    if scheduler_num_steps is None:
+        scheduler_num_steps = num_steps
+
     model = biobert_lightning_module(
         esm2_config,
         tokenizer=tokenizer,
         optimizer=MegatronOptimizerModule(
             config=OptimizerConfig(
                 lr=lr,
-                optimizer="adam",  # fused_adam not supported
+                optimizer="adam",
                 use_distributed_optimizer=True,
                 weight_decay=0.01,
                 adam_beta1=0.9,
                 adam_beta2=0.98,
             ),
             lr_scheduler=WarmupAnnealDecayHoldScheduler(
-                warmup_steps=warmup_steps, max_steps=num_steps, max_lr=lr, min_lr=0.0, anneal_percentage=0.10
+                warmup_steps=warmup_steps,
+                max_steps=scheduler_num_steps,
+                max_lr=lr,
+                min_lr=0.0,
+                anneal_percentage=0.10,
             ),
         ),
     )
@@ -328,6 +337,7 @@ def train_esm2_entrypoint():
         num_dataset_workers=args.num_dataset_workers,
         biobert_spec_option=args.biobert_spec_option,
         lr=args.lr,
+        scheduler_num_steps=args.scheduler_num_steps,
         micro_batch_size=args.micro_batch_size,
         pipeline_model_parallel_size=args.pipeline_model_parallel_size,
         tensor_model_parallel_size=args.tensor_model_parallel_size,
@@ -397,6 +407,12 @@ def get_parser():
         required=False,
         default=4e-4,
         help="Learning rate for training. Default is 4e-4",
+    )
+    parser.add_argument(
+        "--scheduler-num-steps",
+        type=int,
+        required=False,
+        help="Number of steps for learning rate scheduler. Will use --num-steps if not given. Default is None.",
     )
     parser.add_argument(
         "--create-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."

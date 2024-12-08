@@ -17,6 +17,7 @@ dependencies = [
     'bionemo-geneformer',
     'bionemo-geometric',
     'bionemo-llm',
+    'bionemo-noodles',
     'bionemo-scdl',
     'bionemo-size-aware-batching',
     'bionemo-webdatamodule',

@@ -28,7 +28,7 @@ import math
 import pathlib
 from typing import Literal
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo import lightning as nl

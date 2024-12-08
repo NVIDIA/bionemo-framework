@@ -19,6 +19,7 @@ import pathlib
 from dataclasses import field
 from typing import Optional
 
+from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -28,7 +29,6 @@ from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
 from pydantic import BaseModel
-from pytorch_lightning.callbacks import LearningRateMonitor, RichModelSummary
 
 from bionemo.llm.lightning import BionemoLightningModule, PerplexityLoggingCallback
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
@@ -203,7 +203,7 @@ def train(
     # TODO: need an abstraction for LrSchedulerConfig
     if optim_config.lr_scheduler == "cosine":
         lr_scheduler = CosineAnnealingScheduler(
-            max_steps=training_config.max_steps,
+            max_steps=training_config.max_steps if optim_config.max_steps is None else optim_config.max_steps,
             min_lr=optim_config.lr / 100,
             warmup_steps=int(math.ceil(training_config.max_steps * optim_config.cosine_rampup_frac)),
             interval=optim_config.interval,
@@ -213,7 +213,7 @@ def train(
     elif optim_config.lr_scheduler == "warmup_anneal":
         lr_scheduler = WarmupAnnealDecayHoldScheduler(
             warmup_steps=optim_config.warmup_steps,
-            max_steps=training_config.max_steps,
+            max_steps=training_config.max_steps if optim_config.max_steps is None else optim_config.max_steps,
             max_lr=optim_config.lr,
             min_lr=optim_config.lr / 10.0,
             anneal_percentage=0.10,

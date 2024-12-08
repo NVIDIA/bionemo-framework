@@ -16,7 +16,7 @@
 
 from typing import Callable, Dict, Iterable, Optional, Protocol, Sequence, TypedDict, cast
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch.distributed
 from apex.optimizers import FusedAdam
 from megatron.core import parallel_state

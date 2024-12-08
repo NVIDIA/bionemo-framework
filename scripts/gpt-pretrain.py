@@ -17,19 +17,19 @@
 from pathlib import Path
 from typing import List, Optional, Sequence, TypedDict
 
+import lightning.pytorch as pl
 import numpy as np
-import pytorch_lightning as pl
 import torch
+
+# In lightning.pytorch 2.0 these are commented as being "any iterable or collection of iterables"
+#  for now we'll use them incase the lightning type becomes something more specific in a future release.
+from lightning.pytorch.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.megatron_parallel import DataT
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
-
-# In pytorch_lightning 2.0 these are commented as being "any iterable or collection of iterables"
-#  for now we'll use them incase the lightning type becomes something more specific in a future release.
-from pytorch_lightning.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 from torch.utils import data
 from torch.utils.data import DataLoader, Dataset
 

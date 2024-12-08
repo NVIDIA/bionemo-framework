@@ -15,6 +15,7 @@
 
 import math
 import tarfile
+from contextlib import ExitStack
 from copy import deepcopy
 from pathlib import Path
 from typing import List, Tuple
@@ -23,6 +24,7 @@ from unittest import mock
 import pytest
 import torch
 import torch.utils.data
+from lightning.pytorch.loggers import TensorBoardLogger
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from megatron.core.transformer.module import Float16Module
 from nemo import lightning as nl
@@ -34,13 +36,13 @@ from nemo.lightning.pytorch.callbacks.model_transform import ModelTransform
 from nemo.lightning.pytorch.callbacks.peft import PEFT
 from nemo.lightning.pytorch.optim.lr_scheduler import WarmupPolicyScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
-from pytorch_lightning.loggers import TensorBoardLogger
 from torch.nn import functional as F
 from tqdm import tqdm
 
 from bionemo.core.data.load import load
 from bionemo.core.utils.batching_utils import pad_token_ids
 from bionemo.core.utils.dtypes import get_autocast_dtype
+from bionemo.core.utils.gpu import check_current_gpu_supports_ampere
 from bionemo.core.utils.random_utils import random_numpy_context
 from bionemo.geneformer.api import GeneformerConfig, GeneformerModel
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
@@ -617,11 +619,14 @@ def _get_loss_from_model(model_config: GeneformerConfig, seed: int) -> float:
     data_dir = Path(data_path)
     train_data_path = data_dir / "train"
 
-    with (
-        torch.inference_mode(),
-        megatron_parallel_state_utils.distributed_model_parallel_state(seed),
-        random_numpy_context(seed),
-    ):
+    with ExitStack() as stack:
+        stack.enter_context(torch.inference_mode())
+        stack.enter_context(megatron_parallel_state_utils.distributed_model_parallel_state(seed))
+        stack.enter_context(random_numpy_context(seed))
+
+        if not check_current_gpu_supports_ampere():
+            stack.enter_context(torch.cuda.amp.autocast(dtype=torch.float16))
+
         preprocessor = GeneformerPreprocess(
             download_directory=train_data_path,
             medians_file_path=train_data_path / "medians.json",

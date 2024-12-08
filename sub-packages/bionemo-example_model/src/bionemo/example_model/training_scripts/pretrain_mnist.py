@@ -16,10 +16,10 @@
 
 from pathlib import Path
 
+from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import NeMoLogger, resume
-from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 from bionemo.example_model.lightning.lightning_basic import (
     BionemoLightningModule,
