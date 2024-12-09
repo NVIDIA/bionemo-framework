@@ -175,7 +175,10 @@ RUN rm -r sub-packages/bionemo-geometric
 #  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
 RUN /workspace/bionemo2/ci/docker/clobber_dependencies_into_requirements_txt.sh && \
     pip freeze | grep torch\=\= >> all_requirements.txt && \
-    cat all_requirements.txt | grep -iv "nemo" | grep -iv "megatron" > x && mv x all_requirements.txt && \
+    cat all_requirements.txt | grep -iv "nemo" | grep -iv "megatron" > x && \
+    echo "hydra-core==1.3.2" >> x.txt && \
+    echo "ijson" >> x && \
+    mv x all_requirements.txt && \
     pip install -r all_requirements.txt -r requirements-test.txt
 
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
