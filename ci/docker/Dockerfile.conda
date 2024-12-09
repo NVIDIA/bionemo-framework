@@ -17,6 +17,7 @@ RUN apt update -y && apt upgrade -y && DEBIAN_FRONTEND=noninteractive apt-get in
     ninja-build \
     cmake \
     ccache \
+    gcc-12 \
     openmpi-bin \
     libopenmpi-dev \
     checkinstall \
