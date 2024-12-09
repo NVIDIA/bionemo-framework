@@ -104,6 +104,7 @@ set -e pipefail
 
 SHORT_CUDA=$(echo $CUDA_VERSION | cut -f1-2 -d'.')
 conda install -c pytorch -c nvidia -y pytorch=${PYTORCH_VERSION} pytorch-cuda=${SHORT_CUDA} openmpi=${MPI_VERSION}
+#conda install -y faiss=1.8.0
 
 IS_CUDA=$(python -c 'import torch ; print(torch.cuda._is_compiled())'); \
 echo "Is torch compiled with cuda: ${IS_CUDA}"; \
@@ -169,8 +170,6 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 #       so we **DO NOT INCLUDE** the bionemo-geometric sub-package !!!
 # TODO: add this back and fix the pinning issue ! (will need to relax version constraints in geometric deps, most likely...)
 RUN rm -r sub-packages/bionemo-geometric
-
-RUN conda install -y faiss=1.8.0
 
 #RUN --mount=type=bind,source=./.git,target=./.git \
 #  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
