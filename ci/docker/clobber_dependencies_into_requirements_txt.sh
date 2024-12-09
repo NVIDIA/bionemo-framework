@@ -10,4 +10,10 @@ for p in sub-packages/bionemo-*; do
 done
 
 grep -iv "bionemo-" all_requirements.txt | sort -u | sed s/' '//g > .temp.all_requirements.txt
+
+echo "hydra-core==1.3.2" >> .temp.all_requirements.txt
+echo "ijson" >> .temp.all_requirements.txt
+echo "rouge_score" >>  .temp.all_requirements.txt
+#echo "faiss-cpu==1.8.0" >> .temp.all_requirements.txt
+
 mv .temp.all_requirements.txt all_requirements.txt

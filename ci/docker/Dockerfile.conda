@@ -170,6 +170,8 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 # TODO: add this back and fix the pinning issue ! (will need to relax version constraints in geometric deps, most likely...)
 RUN rm -r sub-packages/bionemo-geometric
 
+RUN conda install -y faiss=1.8.0
+
 #RUN --mount=type=bind,source=./.git,target=./.git \
 #  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
 #  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
