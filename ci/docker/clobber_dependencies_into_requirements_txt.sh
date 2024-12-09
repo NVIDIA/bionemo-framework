@@ -15,3 +15,5 @@ deps=("hydra-core==1.3.2" "ijson" "rouge_score" "sacrebleu" "faiss-cpu==1.8.0" "
 for x in "${deps[@]}"; do
   echo "$x" >> .temp.all_requirements.txt
 done
+
+mv .temp.all_requirements.txt all_requirements.txt
