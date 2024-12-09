@@ -77,6 +77,7 @@ ARG MPI_VERSION=4.1.5
 ENV MPI_VERSION=${MPI_VERSION}
 ENV NVIDIA_VISIBLE_DEVICES='all'
 ENV NVIDIA_REQUIRE_CUDA='cuda>=9.0'
+ENV OMPI_MCA_opal_cuda_support='true'
 # ,video
 ENV NVIDIA_DRIVER_CAPABILITIES='compute,utility'
 ENV CUDA_ARCH_LIST="75-real;80-real;86-real;89-real;90-real"
@@ -97,18 +98,6 @@ if test "${IS_CUDA}" != "True" -a ! -z "${CUDA_VERSION}"; then \
 fi
 EOF
 
-WORKDIR /build/openmpi
-
-RUN <<EOF
-SHORT_MPI=$(echo $MPI_VERSION | cut -f1-2 -d'.')
-curl -O https://download.open-mpi.org/release/open-mpi/v${SHORT_MPI}/openmpi-${MPI_VERSION}.tar.gz && \
-    tar -zxf openmpi-${MPI_VERSION}.tar.gz && \
-    cd openmpi-${MPI_VERSION} && \
-    ./configure && \
-    make -k all install
-EOF
-ENV MPI_HOME=/usr/local/lib/openmpi
-
 WORKDIR /build
 
 ARG APEX_COMMIT=810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
@@ -126,7 +115,7 @@ RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
   cd TransformerEngine && \
   git checkout ${TE_COMMIT} && \
   git submodule init && git submodule update && \
-  NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/lib/openmpi pip install .
+  NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/opt/conda/lib/openmpi pip install .
 
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
