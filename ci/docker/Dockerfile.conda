@@ -163,8 +163,9 @@ RUN rm -r sub-packages/bionemo-geometric
 #RUN --mount=type=bind,source=./.git,target=./.git \
 #  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
 #  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-#RUN /workspace/bionemo2/ci/docker/clobber_dependencies_into_requirements_txt.sh && \
-#    pip freeze | grep torch\=\= >> all_requirements.txt && \
-#    pip install -r all_requirements.txt -r requirements-test.txt && \
-#    pip install --no-deps -e ./sub-packages/bionemo-*
-#    #    pip install -r all_requirements.txt -r /requirements-cve.txt -r /requirements-test.txt \
+RUN /workspace/bionemo2/ci/docker/clobber_dependencies_into_requirements_txt.sh && \
+    pip freeze | grep torch\=\= >> all_requirements.txt && \
+    cat all_requirements | grep -iv "nemo" | grep -iv "megatron" > x && mv x all_requirements.txt && \
+    pip install -r all_requirements.txt -r requirements-test.txt && \
+    pip install --no-deps -e ./sub-packages/bionemo-*
+    #    pip install -r all_requirements.txt -r /requirements-cve.txt -r /requirements-test.txt \

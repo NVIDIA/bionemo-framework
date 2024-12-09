@@ -9,5 +9,5 @@ for p in sub-packages/bionemo-*; do
     yq -o=yaml '.project.dependencies' ${p}/pyproject.toml | sed s/'- '//g >> all_requirements.txt
 done
 
-grep -v "bionemo-" all_requirements.txt | sort -u | sed s/' '//g > .temp.all_requirements.txt
+grep -iv "bionemo-" all_requirements.txt | sort -u | sed s/' '//g > .temp.all_requirements.txt
 mv .temp.all_requirements.txt all_requirements.txt
