@@ -163,11 +163,6 @@ COPY ./docs /workspace/bionemo2/docs
 COPY ./scripts /workspace/bionemo2/scripts
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
-COPY --from=rust-env /usr/local/cargo /usr/local/cargo
-COPY --from=rust-env /usr/local/rustup /usr/local/rustup
-ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
-ENV RUSTUP_HOME="/usr/local/rustup"
-
 # NOTE: we don't need any pytorch-geometric stuff right now
 #       including it messes up our pinned torch dependency
 #       so we **DO NOT INCLUDE** the bionemo-geometric sub-package !!!
@@ -182,4 +177,8 @@ RUN /workspace/bionemo2/ci/docker/clobber_dependencies_into_requirements_txt.sh 
     cat all_requirements.txt | grep -iv "nemo" | grep -iv "megatron" > x && mv x all_requirements.txt && \
     pip install -r all_requirements.txt -r requirements-test.txt
 
+COPY --from=rust-env /usr/local/cargo /usr/local/cargo
+COPY --from=rust-env /usr/local/rustup /usr/local/rustup
+ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
+ENV RUSTUP_HOME="/usr/local/rustup"
 RUN pip install --no-deps -e ./sub-packages/bionemo-*
