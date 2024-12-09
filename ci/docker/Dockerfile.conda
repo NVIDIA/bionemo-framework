@@ -1,6 +1,7 @@
 ARG CUDA_VERSION=12.4.1
+# 12.4.1, 12.6.1, 12.1.1
 ARG CUDNN_VERSION=""
-# 12.4.1, 12.6.1
+# "", "", 8
 
 ###############################
 FROM rust:1.82.0 as rust-env
@@ -187,6 +188,6 @@ RUN /workspace/bionemo2/ci/docker/clobber_dependencies_into_requirements_txt.sh 
 
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
-ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
+ENV PATH /usr/local/cargo/bin:/usr/local/rustup/bin:$PATH
 ENV RUSTUP_HOME="/usr/local/rustup"
 RUN pip install --no-deps ./sub-packages/bionemo-*
