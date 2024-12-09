@@ -76,13 +76,17 @@ ENV PYTORCH_VERSION=${PYTORCH_VERSION}
 ARG MPI_VERSION=4.1.5
 ENV MPI_VERSION=${MPI_VERSION}
 ENV NVIDIA_VISIBLE_DEVICES='all'
-ENV NVIDIA_REQUIRE_CUDA='cuda>=9.0'
 ENV OMPI_MCA_opal_cuda_support='true'
 # ,video
 ENV NVIDIA_DRIVER_CAPABILITIES='compute,utility'
-ENV CUDA_ARCH_LIST="75-real;80-real;86-real;89-real;90-real"
-# 5.2 6.0 6.1 7.0 7.2 7.5
-ENV TORCH_CUDA_ARCH_LIST="8.0 8.6 8.7 8.8 8.9 9.0 9.0a 9.0+PTX"
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;9.0+PTX"
+#ENV NVIDIA_REQUIRE_CUDA='cuda>=9.0'
+#ENV CUDA_ARCH_LIST="75-real;80-real;86-real;89-real;90-real"
+#ENV TORCH_CUDA_ARCH_LIST="5.2 6.0 6.1 7.0 7.2 7.5 8.0 8.6 8.7 8.8 8.9 9.0 9.0a 9.0+PTX"
+#19.77     File "/opt/conda/lib/python3.10/site-packages/torch/utils/cpp_extension.py", line 1998, in _get_cuda_arch_flags
+#19.77       raise ValueError(f"Unknown CUDA arch ({arch}) or GPU not supported")
+#19.77   ValueError: Unknown CUDA arch (8.8) or GPU not supported
+
 ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
 #ENV LD_LIBRARY_PATH /usr/local/nvidia/lib:/usr/local/nvidia/lib64
 RUN <<EOF
