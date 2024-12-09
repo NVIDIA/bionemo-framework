@@ -1,26 +1,21 @@
-ARG PYTHON_VERSION=3.10.12
-# 3.[10,11,12].[0..12]
-ARG PYTORCH_VERSION=2.3.0
-# 2.[3,4.5].[0,1,2]
 ARG CUDA_VERSION=12.4.1
 # 12.4.1, 12.6.1
-ARG MAX_JOBS=-1
-ARG APEX_COMMIT=810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
-ARG TE_COMMIT=c27ee60ec746210bcea4ec33958dbbff06706506
-ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-
 FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu22.04 AS python_base
 ARG CUDA_VERSION
 ENV CUDA_VERSION=${CUDA_VERSION}
-ARG PYTORCH_VERSION
+# 3.[10,11,12].[0..12]
+ARG PYTHON_VERSION=3.10.12
+ENV PYTHON_VERSION=${PTHON_VERSION}
+# 2.[3,4.5].[0,1,2]
+ARG PYTORCH_VERSION=2.3.0
 ENV PYTORCH_VERSION=${PYTORCH_VERSION}
-ARG PYTHON_VERSION
-ENV PYTHON_VERSION=${PYTHON_VERSION}
-ARG MAX_JOBS
+ARG MPI_VERSION=4.1.5
+ENV MPI_VERSION=${MPI_VERSION}
+ARG MAX_JOBS=-1
 ENV MAX_JOBS=${MAX_JOBS}
+ARG APEX_COMMIT=810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
+ARG TE_COMMIT=c27ee60ec746210bcea4ec33958dbbff06706506
+ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
 
 RUN apt update -y && apt upgrade -y && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     -o APT::Install-Recommends=false \
@@ -84,8 +79,10 @@ ENV PATH /opt/conda/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:$PATH
 RUN conda install -y python=${PYTHON_VERSION}
 
 RUN <<EOF
+set -e pipefail
+
 SHORT_CUDA=$(echo $CUDA_VERSION | cut -f1-2 -d'.')
-conda install -c pytorch -c nvidia -y pytorch=${PYTORCH_VERSION} pytorch-cuda=${SHORT_CUDA}
+conda install -c pytorch -c nvidia -y pytorch=${PYTORCH_VERSION} pytorch-cuda=${SHORT_CUDA} openmpi=${MPI_VERSION}
 
 IS_CUDA=$(python -c 'import torch ; print(torch.cuda._is_compiled())'); \
 echo "Is torch compiled with cuda: ${IS_CUDA}"; \
@@ -94,14 +91,9 @@ if test "${IS_CUDA}" != "True" -a ! -z "${CUDA_VERSION}"; then \
 fi
 EOF
 
-ARG PYTORCH_VERSION
-ARG MAX_JOBS
-ENV MAX_JOBS=${MAX_JOBS}
-#ENV CUDA_HOME="/usr/local/cuda-12.4"
-#ENV PATH="${CUDA_HOME}/bin:${PATH}"
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_REQUIRE_CUDA=cuda>=9.0
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+ENV NVIDIA_VISIBLE_DEVICES='all'
+ENV NVIDIA_REQUIRE_CUDA='cuda>=9.0'
+ENV NVIDIA_DRIVER_CAPABILITIES='compute,utility,video'
 ENV CUDA_ARCH_LIST="75-real;80-real;86-real;89-real;90-real"
 ENV TORCH_CUDA_ARCH_LIST="5.2 6.0 6.1 7.0 7.2 7.5 8.0 8.6 8.7 8.8 8.9 9.0 9.0a 9.0+PTX"
 ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
@@ -110,16 +102,18 @@ ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
 #ENV LD_LIBRARY_PATH="/usr/local/lib/python3.10/dist-packages/torch/lib:/usr/local/lib/python3.10/dist-packages/torch_tensorrt/lib:/usr/local/cuda/compat/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:${LD_LIBRARY_PATH}"
 
 WORKDIR /build/openmpi
-RUN curl -O https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.5.tar.gz && \
-    tar -zxf openmpi-4.1.5.tar.gz && \
-    cd openmpi-4.1.5 && \
+
+RUN <<EOF
+SHORT_MPI=$(echo $MPI_VERSION | cut -f1-2 -d'.')
+curl -O https://download.open-mpi.org/release/open-mpi/v${SHORT_MPI}/openmpi-${MPI_VERSION}.tar.gz && \
+    tar -zxf openmpi-${MPI_VERSION}.tar.gz && \
+    cd openmpi-${MPI_VERSION} && \
     ./configure && \
     make -k all install
+EOF
 ENV MPI_HOME=/usr/local/lib/openmpi
 
 WORKDIR /build
-
-ARG APEX_COMMIT
 # See NeMo readme for the latest tested versions of these libraries
 RUN git clone https://github.com/NVIDIA/apex.git && \
   cd apex && \
@@ -128,7 +122,6 @@ RUN git clone https://github.com/NVIDIA/apex.git && \
   pip install . -v --no-build-isolation --disable-pip-version-check --no-cache-dir \
   --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
 
-ARG TE_COMMIT
 # Transformer Engine pre-1.7.0. 1.7 standardizes the meaning of bits in the attention mask to match
 RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
   cd TransformerEngine && \
@@ -145,7 +138,6 @@ RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-di
 RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.0.3
 
-ARG NEMO_RUN_TAG
 # note: hatchling needed to install nemo-run
 RUN pip install hatchling nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMO_RUN_TAG}
 
