@@ -128,8 +128,8 @@ RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-di
   git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.0.post2
 
 # Mamba dependancy installation
-#RUN pip --disable-pip-version-check --no-cache-dir install \
-#  git+https://github.com/state-spaces/mamba.git@v2.0.3
+RUN pip --disable-pip-version-check --no-cache-dir install \
+  git+https://github.com/state-spaces/mamba.git@v2.0.3
 
 ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
 # note: hatchling needed to install nemo-run
