@@ -103,7 +103,7 @@ class RowFeatureIndex:
         self._cumulative_sum_index = np.append(self._cumulative_sum_index, csum + n_obs)
         self._feature_arr.append(features)
         self._num_genes_per_row.append(num_genes)
-        self._labels.append(label)
+        self._labels.append(str(label))
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
         """Find the features at a given row.
@@ -270,6 +270,6 @@ class RowFeatureIndex:
         ]
 
         new_row_feat_index._cumulative_sum_index = np.load(Path(datapath) / "cumulative_sum_index.npy")
-        new_row_feat_index._labels = np.load(Path(datapath) / "labels.npy", allow_pickle=True)
+        new_row_feat_index._labels = np.load(Path(datapath) / "labels.npy", allow_pickle=False)
         new_row_feat_index._version = np.load(Path(datapath) / "version.npy").item()
         return new_row_feat_index
