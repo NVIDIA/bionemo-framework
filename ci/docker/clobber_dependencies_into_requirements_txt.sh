@@ -11,7 +11,7 @@ done
 
 grep -iv "bionemo-" all_requirements.txt | sort -u | sed s/' '//g > .temp.all_requirements.txt
 
-deps=("hydra-core==1.3.2" "ijson" "rouge_score" "sacrebleu" "faiss-cpu==1.8.0" "jieba")
+deps=("hydra-core==1.3.2" "ijson" "rouge_score" "sacrebleu" "faiss-cpu==1.8.0" "jieba" "opencc" "pangu" "datasets")
 for x in "${deps[@]}"; do
   echo "$x" >> .temp.all_requirements.txt
 done
