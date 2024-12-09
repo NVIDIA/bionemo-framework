@@ -157,6 +157,7 @@ COPY ./3rdparty /workspace/bionemo2/3rdparty
 RUN pip install ./3rdparty/Megatron-LM
 RUN pip install ./3rdparty/NeMo
 
+COPY LICENSE /workspace/bionemo2/LICENSE
 COPY ./requirements-test.txt ./requirements-cve.txt /workspace/bionemo2/
 COPY ./ci/docker/clobber_dependencies_into_requirements_txt.sh /workspace/bionemo2/ci/docker/clobber_dependencies_into_requirements_txt.sh
 COPY ./docs /workspace/bionemo2/docs
