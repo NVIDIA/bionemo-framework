@@ -137,7 +137,7 @@ def infer_num_samples(
 
     If limit_batches is a float between 0 and 1, the number of samples is inferred as a fraction of the number of samples
     in the dataset. If limit_batches is an integer greater than or equal to 1, the number of limited samples is inferred
-    as the product of limit_batches and global batch size. If limit_batches is None, it defaultsto 1.0, indicating that
+    as the product of limit_batches and global batch size. If limit_batches is None, it defaults to 1.0, indicating that
     all dataset samples should be used.
     """
     limit_batches = 1.0 if limit_batches is None else limit_batches  # validation data does not require upsampling
