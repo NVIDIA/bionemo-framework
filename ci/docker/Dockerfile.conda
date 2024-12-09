@@ -53,21 +53,18 @@ RUN apt update -y && apt upgrade -y && DEBIAN_FRONTEND=noninteractive apt-get in
     less \
     && rm -rf /var/lib/apt/lists/*
 
-ARG PYTHON_VERSION
-WORKDIR /build/python
-RUN <<EOF
-curl -O https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz
-tar -zxf Python-${PYTHON_VERSION}.tgz
-cd Python-${PYTHON_VERSION}
-./configure --enable-optimizations --prefix=/usr
-make install
-ln -s /usr/bin/python3 /usr/bin/python
+# Install conda
+# NOTE: TARGETPLATFORM comes from Docker
+RUN case ${TARGETPLATFORM} in \
+         "linux/arm64")  MAMBA_ARCH=aarch64  ;; \
+         *)              MAMBA_ARCH=x86_64   ;; \
+    esac && \
+    curl -fsSL -v -o ~/mambaforge.sh -O  "https://github.com/conda-forge/miniforge/releases/download/${MAMBA_VERSION}/Mambaforge-${MAMBA_VERSION}-Linux-${MAMBA_ARCH}.sh"
+RUN chmod +x ~/mambaforge.sh && \
+    bash ~/mambaforge.sh -b -p /opt/conda && \
+    rm ~/mambaforge.sh
 
-python -m ensurepip --upgrade
-ln -s /usr/bin/pip3 /usr/bin/pip
 
-pip install setuptools
-EOF
 
 #COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 #
