@@ -3,7 +3,7 @@ ARG PYTHON_VERSION=3.10.12
 ARG PYTORCH_VERSION=2.3.0
 # 2.[3,4.5].[0,1,2]
 ARG CUDA_VERSION=12.4.1
-# 12.[4,5,6].[1,2,3,4]
+# 12.4.1, 12.6.1
 ARG MAX_JOBS=-1
 ARG APEX_COMMIT=810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
 ARG TE_COMMIT=c27ee60ec746210bcea4ec33958dbbff06706506
@@ -13,6 +13,12 @@ ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu22.04 as python_base
+ARG CUDA_VERSION
+ENV CUDA_VERSION=${CUDA_VERSION}
+ARG PYTORCH_VERSION
+ENV PYTORCH_VERSION=${PYTORCH_VERSION}
+ARG PYTHON_VERSION
+ENV PYTHON_VERSION=${PYTHON_VERSION}
 ARG MAX_JOBS
 ENV MAX_JOBS=${MAX_JOBS}
 
@@ -73,21 +79,21 @@ bash ~/mambaforge.sh -b -p /opt/conda
 rm ~/mambaforge.sh
 EOF
 
-ENV PATH /opt/conda/bin/:/usr/local/nvidia/bin:/usr/local/cuda/bin:$PATH
+ENV PATH /opt/conda/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:$PATH
 
+RUN conda install -y python=${PYTHON_VERSION}
 
-#RUN
-## INSTALL_CHANNEL whl - release, whl/nightly - nightly, whle/test - test channels
-#RUN case ${TARGETPLATFORM} in \
-#         *)              pip install --index-url https://download.pytorch.org/${INSTALL_CHANNEL}/${CUDA_PATH#.}/ torch ;; \
-#    esac && \
-#    /opt/conda/bin/conda clean -ya
-#RUN /opt/conda/bin/pip install torchelastic
-#RUN IS_CUDA=$(python -c 'import torch ; print(torch.cuda._is_compiled())'); \
-#    echo "Is torch compiled with cuda: ${IS_CUDA}"; \
-#    if test "${IS_CUDA}" != "True" -a ! -z "${CUDA_VERSION}"; then \
-#        exit 1; \
-#    fi
+RUN <<EOF
+SHORT_CUDA=$(echo $CUDA_VERSION | cut -f1-2 -d'.')
+conda install -c pytorch -c nvidia -y pytorch=${PYTORCH_VERSION} pytorch-cuda=${SHORT_CUDA}
+
+IS_CUDA=$(python -c 'import torch ; print(torch.cuda._is_compiled())'); \
+echo "Is torch compiled with cuda: ${IS_CUDA}"; \
+if test "${IS_CUDA}" != "True" -a ! -z "${CUDA_VERSION}"; then \
+    exit 1; \
+fi
+EOF
+
 #
 #
 ## # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
