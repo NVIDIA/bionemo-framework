@@ -189,4 +189,4 @@ COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
-RUN pip install --no-deps -e ./sub-packages/bionemo-*
+RUN pip install --no-deps ./sub-packages/bionemo-*
