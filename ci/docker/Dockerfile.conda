@@ -58,19 +58,24 @@ RUN apt update -y && apt upgrade -y && DEBIAN_FRONTEND=noninteractive apt-get in
 
 # Install conda
 # NOTE: TARGETPLATFORM comes from Docker
-RUN case ${TARGETPLATFORM} in \
-         "linux/arm64")  MAMBA_ARCH=aarch64  ;; \
-         *)              MAMBA_ARCH=x86_64   ;; \
-    esac && \
-    curl -fsSL -v -o ~/mambaforge.sh -O  "https://github.com/conda-forge/miniforge/releases/download/24.3.0-0/Mambaforge-${MAMBA_VERSION}-Linux-${MAMBA_ARCH}.sh"
-RUN chmod +x ~/mambaforge.sh && \
-    bash ~/mambaforge.sh -b -p /opt/conda && \
-    rm ~/mambaforge.sh
+RUN <<EOF
+set -e pipefail
+
+case ${TARGETPLATFORM} in \
+     "linux/arm64")  MAMBA_ARCH=aarch64  ;; \
+     *)              MAMBA_ARCH=x86_64   ;; \
+esac
+MAMBA_VERSION='24.3.0-0'
+
+curl -fsSL -v -o ~/mambaforge.sh -O  "https://github.com/conda-forge/miniforge/releases/download/${MAMBA_VERSION}/Mambaforge-${MAMBA_VERSION}-Linux-${MAMBA_ARCH}.sh"
+chmod +x ~/mambaforge.sh
+bash ~/mambaforge.sh -b -p /opt/conda
+rm ~/mambaforge.sh
+EOF
 
 ENV PATH /opt/conda/bin/:/usr/local/nvidia/bin:/usr/local/cuda/bin:$PATH
 
 
-#
 #RUN
 ## INSTALL_CHANNEL whl - release, whl/nightly - nightly, whle/test - test channels
 #RUN case ${TARGETPLATFORM} in \
