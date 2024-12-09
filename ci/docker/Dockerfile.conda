@@ -99,12 +99,13 @@ ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;9.0+PTX"
 
 ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
 #ENV LD_LIBRARY_PATH /usr/local/nvidia/lib:/usr/local/nvidia/lib64
+
+#conda install -y faiss=1.8.0
 RUN <<EOF
 set -e pipefail
 
 SHORT_CUDA=$(echo $CUDA_VERSION | cut -f1-2 -d'.')
 conda install -c pytorch -c nvidia -y pytorch=${PYTORCH_VERSION} pytorch-cuda=${SHORT_CUDA} openmpi=${MPI_VERSION}
-#conda install -y faiss=1.8.0
 
 IS_CUDA=$(python -c 'import torch ; print(torch.cuda._is_compiled())'); \
 echo "Is torch compiled with cuda: ${IS_CUDA}"; \
