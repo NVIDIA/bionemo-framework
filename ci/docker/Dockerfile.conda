@@ -12,7 +12,7 @@ ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu22.04 as python_base
+FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu22.04 AS python_base
 ARG CUDA_VERSION
 ENV CUDA_VERSION=${CUDA_VERSION}
 ARG PYTORCH_VERSION
@@ -94,10 +94,6 @@ if test "${IS_CUDA}" != "True" -a ! -z "${CUDA_VERSION}"; then \
 fi
 EOF
 
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-FROM python_base AS pytorch_base
 ARG PYTORCH_VERSION
 ARG MAX_JOBS
 ENV MAX_JOBS=${MAX_JOBS}
@@ -152,11 +148,6 @@ RUN pip --disable-pip-version-check --no-cache-dir install \
 ARG NEMO_RUN_TAG
 # note: hatchling needed to install nemo-run
 RUN pip install hatchling nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMO_RUN_TAG}
-
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-FROM dl_deps_base AS bionemo_base
 
 WORKDIR /build/yq
 RUN <<EOF
