@@ -16,7 +16,7 @@ pytest -v .
 
 
 ## Acquiring Data
-Datasets are expected to be in the form of AnnData (.h5ad) objects such as those downloaded from [Cell x Gene | CZI](https://chanzuckerberg.github.io/cellxgene-census/). They are then pre-processed with either `bionemo-geneformer/src/bionemo/geneformer/data/singlecell/sc_memmap.py` or with sc-DL.
+Datasets are expected to be in the form of AnnData (.h5ad) objects such as those downloaded from [Cell x Gene | CZI](https://chanzuckerberg.github.io/cellxgene-census/). They are then pre-processed with `sub-packages/bionemo-scdl/src/bionemo/scdl/scripts/convert_h5ad_to_scdl.py`.
 
 ## Geneformer-nv 10M and 106M
 Refer to the Dataset cards and Model cards to learn more about the pre-trained checkpoints provided for both 10M and 106M of Geneformer-nv.
