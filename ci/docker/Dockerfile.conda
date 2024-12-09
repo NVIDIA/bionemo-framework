@@ -1,4 +1,5 @@
 ARG CUDA_VERSION=12.4.1
+ARG CUDNN_VERSION=""
 # 12.4.1, 12.6.1
 
 ###############################
@@ -9,7 +10,7 @@ RUN rustup set profile minimal && \
     rustup default 1.82.0
 
 ##################################################################################
-FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu22.04 AS python_base
+FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn${CUDNN_VERSION}-devel-ubuntu22.04 AS python_base
 ARG CUDA_VERSION
 ENV CUDA_VERSION=${CUDA_VERSION}
 ARG MAX_JOBS=-1
