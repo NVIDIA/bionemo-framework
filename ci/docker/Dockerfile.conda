@@ -1,6 +1,9 @@
 ARG PYTHON_VERSION=3.10.12
+# 3.[10,11,12].[0..12]
 ARG PYTORCH_VERSION=2.3.0
+# 2.[3,4.5].[0,1,2]
 ARG CUDA_VERSION=12.4.1
+# 12.[4,5,6].[1,2,3,4]
 ARG MAX_JOBS=-1
 ARG APEX_COMMIT=810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
 ARG TE_COMMIT=c27ee60ec746210bcea4ec33958dbbff06706506
@@ -9,7 +12,7 @@ ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn8-devel-ubuntu22.04 as python_base
+FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu22.04 as python_base
 ARG MAX_JOBS
 ENV MAX_JOBS=${MAX_JOBS}
 
