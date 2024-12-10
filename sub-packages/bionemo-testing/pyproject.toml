@@ -17,7 +17,6 @@ dependencies = [
     # external
     'email-validator',
     'pytest',
-    'overrides',
 ]
 
 [tool.setuptools.packages.find]

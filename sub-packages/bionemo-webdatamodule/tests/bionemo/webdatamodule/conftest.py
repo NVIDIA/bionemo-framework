@@ -107,7 +107,6 @@ def gen_test_data(tmp_path_factory, gen_pickle_files, request):
 def _create_webdatamodule(gen_test_data, num_workers=2):
     (_, dirs_tars_wds, _, suffix_keys_wds, prefix_tars_wds, n_samples, _) = gen_test_data
     local_batch_size = 2
-    global_batch_size = 2
     seed_rng_shfl = 82838392
 
     batch = batched(local_batch_size, collation_fn=lambda list_samples: torch.vstack(list_samples))
@@ -146,16 +145,21 @@ def _create_webdatamodule(gen_test_data, num_workers=2):
 
     kwargs_wld = {split: {"num_workers": num_workers} for split in Split}
 
+    global_batch_size = 2
+    invoke_wld = {
+        split: [("with_epoch", {"nbatches": (n_samples[split] + global_batch_size - 1) // global_batch_size})]
+        for split in Split
+    }
+
     data_module = WebDataModule(
-        n_samples,
         suffix_keys_wds,
         dirs_tars_wds,
-        global_batch_size,
         prefix_tars_wds=prefix_tars_wds,
         pipeline_wds=pipeline_wds,
         pipeline_prebatch_wld=pipeline_prebatch_wld,
         kwargs_wds=kwargs_wds,
         kwargs_wld=kwargs_wld,
+        invoke_wld=invoke_wld,
     )
 
     return data_module, dirs_tars_wds
@@ -224,7 +228,6 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
         names,
     ) = gen_test_data
     local_batch_size = 2
-    global_batch_size = 2
     seed_rng_shfl = 82838392
     n_tars_wds = 3
 
@@ -264,18 +267,24 @@ def _create_pickleddatawds(tmp_path_factory, gen_test_data):
 
     kwargs_wld = {split: {"num_workers": 2} for split in Split}
 
+    global_batch_size = 2
+    invoke_wld = {
+        split: [("with_epoch", {"nbatches": (n_samples[split] + global_batch_size - 1) // global_batch_size})]
+        for split in Split
+    }
+
     data_module = PickledDataWDS(
         dir_pickles,
         names,
         suffix_keys_wds,
         dirs_tars_wds,
-        global_batch_size,
         n_tars_wds=n_tars_wds,
         prefix_tars_wds=prefix_tars_wds,
         pipeline_wds=pipeline_wds,
         pipeline_prebatch_wld=pipeline_prebatch_wld,
         kwargs_wds=kwargs_wds,
         kwargs_wld=kwargs_wld,
+        invoke_wld=invoke_wld,
     )
 
     return data_module, dirs_tars_wds, n_tars_wds
