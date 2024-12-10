@@ -36,10 +36,10 @@ def generate_dataset(tmp_path, test_directory) -> SingleCellMemMapDataset:
     Returns:
         A SingleCellMemMapDataset
     """
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", feature_list=None)
     ds.save()
     del ds
-    reloaded = SingleCellMemMapDataset(tmp_path / "scy")
+    reloaded = SingleCellMemMapDataset(tmp_path / "scy", feature_list=None)
     return reloaded
 
 
@@ -87,10 +87,10 @@ def compare_fn():
 
 
 def test_empty_dataset_save_and_reload(tmp_path):
-    ds = SingleCellMemMapDataset(data_path=tmp_path / "scy", num_rows=2, num_elements=10)
+    ds = SingleCellMemMapDataset(data_path=tmp_path / "scy", num_rows=2, num_elements=10, feature_list=None)
     ds.save()
     del ds
-    reloaded = SingleCellMemMapDataset(tmp_path / "scy")
+    reloaded = SingleCellMemMapDataset(tmp_path / "scy", feature_list=None)
     assert reloaded.number_of_rows() == 0
     assert reloaded.number_of_variables() == [0]
     assert reloaded.number_of_values() == 0
@@ -102,11 +102,11 @@ def test_wrong_arguments_for_dataset(tmp_path):
     with pytest.raises(
         ValueError, match=r"An np.memmap path, an h5ad path, or the number of elements and rows is required"
     ):
-        SingleCellMemMapDataset(data_path=tmp_path / "scy")
+        SingleCellMemMapDataset(data_path=tmp_path / "scy", feature_list=None)
 
 
 def test_load_h5ad(tmp_path, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", feature_list=None)
     assert ds.number_of_rows() == 8
     assert ds.number_of_variables() == [10]
     assert len(ds) == 8
@@ -117,7 +117,7 @@ def test_load_h5ad(tmp_path, test_directory):
 
 
 def test_h5ad_no_file(tmp_path):
-    ds = SingleCellMemMapDataset(data_path=tmp_path / "scy", num_rows=2, num_elements=10)
+    ds = SingleCellMemMapDataset(data_path=tmp_path / "scy", num_rows=2, num_elements=10, feature_list=None)
     with pytest.raises(FileNotFoundError, match=rf"Error: could not find h5ad path {tmp_path}/a"):
         ds.load_h5ad(anndata_path=tmp_path / "a")
 
@@ -202,8 +202,8 @@ def test_SingleCellMemMapDataset_get_row_padded(generate_dataset):
 
 
 def test_concat_SingleCellMemMapDatasets_same(tmp_path, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
-    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample0.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", feature_list=None)
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample0.h5ad", feature_list=None)
     dt.concat(ds)
 
     assert dt.number_of_rows() == 2 * ds.number_of_rows()
@@ -212,8 +212,8 @@ def test_concat_SingleCellMemMapDatasets_same(tmp_path, test_directory):
 
 
 def test_concat_SingleCellMemMapDatasets_diff(tmp_path, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
-    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", feature_list=None)
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad", feature_list=None)
 
     exp_number_of_rows = ds.number_of_rows() + dt.number_of_rows()
     exp_n_val = ds.number_of_values() + dt.number_of_values()
@@ -225,26 +225,31 @@ def test_concat_SingleCellMemMapDatasets_diff(tmp_path, test_directory):
 
 
 def test_concat_SingleCellMemMapDatasets_multi(tmp_path, compare_fn, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
-    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad")
-    dx = SingleCellMemMapDataset(tmp_path / "sccx", h5ad_path=test_directory / "adata_sample2.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", feature_list=None)
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad", feature_list=None)
+    dx = SingleCellMemMapDataset(tmp_path / "sccx", h5ad_path=test_directory / "adata_sample2.h5ad", feature_list=None)
     exp_n_obs = ds.number_of_rows() + dt.number_of_rows() + dx.number_of_rows()
     dt.concat(ds)
     dt.concat(dx)
     assert dt.number_of_rows() == exp_n_obs
-    dns = SingleCellMemMapDataset(tmp_path / "scdns", h5ad_path=test_directory / "adata_sample1.h5ad")
+    dns = SingleCellMemMapDataset(
+        tmp_path / "scdns", h5ad_path=test_directory / "adata_sample1.h5ad", feature_list=None
+    )
 
     dns.concat([ds, dx])
     compare_fn(dns, dt)
 
 
 def test_lazy_load_SingleCellMemMapDatasets_one_dataset(tmp_path, compare_fn, test_directory):
-    ds_regular = SingleCellMemMapDataset(tmp_path / "sc1", h5ad_path=test_directory / "adata_sample1.h5ad")
+    ds_regular = SingleCellMemMapDataset(
+        tmp_path / "sc1", h5ad_path=test_directory / "adata_sample1.h5ad", feature_list=None
+    )
     ds_lazy = SingleCellMemMapDataset(
         tmp_path / "sc2",
         h5ad_path=test_directory / "adata_sample1.h5ad",
         paginated_load_cutoff=0,
         load_block_row_size=2,
+        feature_list=None,
     )
     compare_fn(ds_regular, ds_lazy)
 
@@ -256,5 +261,6 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
         h5ad_path=test_directory / "adata_sample0.h5ad",
         paginated_load_cutoff=0,
         load_block_row_size=3,
+        feature_list=None,
     )
     compare_fn(ds_regular, ds_lazy)

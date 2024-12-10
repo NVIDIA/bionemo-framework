@@ -102,15 +102,13 @@ def test_feature_index_internals_on_append(create_first_RowFeatureIndex):
     assert sum(create_first_RowFeatureIndex.number_of_values()) == (12 * 3) + (8 * 5)
     assert create_first_RowFeatureIndex.number_of_values()[1] == (8 * 5)
     assert create_first_RowFeatureIndex.number_of_rows() == 20
-    feats, label = create_first_RowFeatureIndex.lookup(row=3, select_features=None)
+    feats = create_first_RowFeatureIndex.lookup(row=3, select_features=None)
     assert np.all(feats[0] == one_feats["feature_name"])
     assert np.all(feats[1] == one_feats["feature_int"])
-    assert label is None
-    feats, label = create_first_RowFeatureIndex.lookup(row=15, select_features=None)
+    feats = create_first_RowFeatureIndex.lookup(row=15, select_features=None)
     assert np.all(feats[0] == two_feats["feature_name"])
     assert np.all(feats[1] == two_feats["gene_name"])
     assert np.all(feats[2] == two_feats["spare"])
-    assert label == "MY_DATAFRAME"
 
 
 def test_concat_length(
@@ -154,15 +152,13 @@ def test_concat_lookup_results(
         "spare": np.array([None, None, None, None, None]),
     }
     create_first_RowFeatureIndex.concat(create_second_RowFeatureIndex)
-    feats, label = create_first_RowFeatureIndex.lookup(row=3, select_features=None)
+    feats = create_first_RowFeatureIndex.lookup(row=3, select_features=None)
     assert np.all(feats[0] == one_feats["feature_name"])
     assert np.all(feats[1] == one_feats["feature_int"])
-    assert label is None
-    feats, label = create_first_RowFeatureIndex.lookup(row=15, select_features=None)
+    feats = create_first_RowFeatureIndex.lookup(row=15, select_features=None)
     assert np.all(feats[0] == two_feats["feature_name"])
     assert np.all(feats[1] == two_feats["gene_name"])
     assert np.all(feats[2] == two_feats["spare"])
-    assert label == "MY_DATAFRAME"
 
 
 def test_feature_lookup_empty():
@@ -188,16 +184,15 @@ def test_save_reload_row_feature_index_identical(
 ):
     create_first_RowFeatureIndex.concat(create_second_RowFeatureIndex)
     create_first_RowFeatureIndex.save(tmp_path / "features")
-    index_reload = RowFeatureIndex.load(tmp_path / "features")
-    assert len(create_first_RowFeatureIndex) == len(index_reload)
-    assert create_first_RowFeatureIndex.column_dims() == index_reload.column_dims()
-    assert create_first_RowFeatureIndex.number_of_rows() == index_reload.number_of_rows()
-    assert create_first_RowFeatureIndex.version() == index_reload.version()
+    create_second_RowFeatureIndex.load(tmp_path / "features")
+    assert len(create_first_RowFeatureIndex) == len(create_second_RowFeatureIndex)
+    assert create_first_RowFeatureIndex.column_dims() == create_second_RowFeatureIndex.column_dims()
+    assert create_first_RowFeatureIndex.number_of_rows() == create_second_RowFeatureIndex.number_of_rows()
+    assert create_first_RowFeatureIndex.version() == create_second_RowFeatureIndex.version()
 
-    assert create_first_RowFeatureIndex.number_of_values() == index_reload.number_of_values()
+    assert create_first_RowFeatureIndex.number_of_values() == create_second_RowFeatureIndex.number_of_values()
 
     for row in range(create_first_RowFeatureIndex.number_of_rows()):
-        features_one, labels_one = create_first_RowFeatureIndex.lookup(row=row, select_features=None)
-        features_reload, labels_reload = index_reload.lookup(row=row, select_features=None)
-        assert labels_one == labels_reload
-        assert np.all(np.array(features_one, dtype=object) == np.array(features_reload))
+        features_one = create_first_RowFeatureIndex.lookup(row=row, select_features=None)
+        features_reload = create_second_RowFeatureIndex.lookup(row=row, select_features=None)
+        assert np.all(np.array(features_one).astype(np.string_) == np.array(features_reload).astype(np.string_))

@@ -25,11 +25,11 @@ from typing import Dict, List, Optional, Tuple, Union
 import anndata as ad
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import scipy
 import torch
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
-from bionemo.scdl.index.row_feature_index import RowFeatureIndex
 
 
 class FileNames(str, Enum):
@@ -223,7 +223,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         row_index: A numpy array of row pointers
         col_index: A numpy array of column values
         metadata: Various metata about the dataset.
-        _feature_index: The corresponding RowFeatureIndex where features are
+        _feature_index: The corresponding array where features are
         stored
         dtypes: A dictionary containing the datatypes of the data, row_index,
         and col_index arrays.
@@ -239,6 +239,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         mode: Mode = Mode.READ_APPEND,
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
+        feature_list=None,
     ) -> None:
         """Instantiate the class.
 
@@ -251,6 +252,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             mode: Whether to read or write from the data_path.
             paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
             load_block_row_size: Number of rows to load into memory with paginated load
+            feature_list: features to use
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
@@ -268,7 +270,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Stores the Feature Index, which tracks
         # the original AnnData features (e.g., gene names)
         # and allows us to store ragged arrays in our SCMMAP structure.
-        self._feature_index: RowFeatureIndex = RowFeatureIndex()
+        self.feature_list = feature_list
+        self._feature_index = np.array([])
 
         # Variables for int packing / reduced precision
         self.dtypes: Dict[FileNames, str] = {
@@ -356,7 +359,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         columns = self.col_index[start:end]
         ret = (values, columns)
         if return_features:
-            return ret, self._feature_index.lookup(index, select_features=feature_vars)[0]
+            return ret, self._feature_index
         else:
             return ret, None
 
@@ -410,8 +413,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                         break
             return 0.0 if impute_missing_zeros else None
 
-    def features(self) -> Optional[RowFeatureIndex]:
-        """Return the corresponding RowFeatureIndex."""
+    def features(self) -> Optional[np.array]:
+        """Return the corresponding features."""
         return self._feature_index
 
     def _load_mmap_file_if_exists(self, file_path, dtype):
@@ -449,7 +452,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             self.metadata = json.load(mfi)
 
         if os.path.exists(f"{self.data_path}/{FileNames.FEATURES.value}"):
-            self._feature_index = RowFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES.value}")
+            datapath = f"{self.data_path}/{FileNames.FEATURES.value}"
+            parquet_data_paths = sorted(Path(datapath).rglob("*.parquet"))
+            data_table = pq.read_table(parquet_data_paths[0])
+            self._feature_index = np.array([data_table["feature_id"].to_numpy()]).astype(np.str_)
 
         if os.path.exists(f"{self.data_path}/{FileNames.DTYPE.value}"):
             with open(f"{self.data_path}/{FileNames.DTYPE.value}") as dfi:
@@ -462,6 +468,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.row_index = self._load_mmap_file_if_exists(
             f"{self.data_path}/{FileNames.ROWPTR.value}", dtype=self.dtypes[f"{FileNames.ROWPTR.value}"]
         )
+        self.num_rows = len(self.row_index) - 1
         self.col_index = self._load_mmap_file_if_exists(
             f"{self.data_path}/{FileNames.COLPTR.value}", dtype=self.dtypes[f"{FileNames.COLPTR.value}"]
         )
@@ -678,12 +685,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             ValueError if the length of the number of rows in the feature
             index does not correspond to the number of stored rows.
         """
-        if len(self._feature_index) > 0 and self._feature_index.number_of_rows() != self.row_index.size - 1:
-            raise ValueError(
-                f"""The nuber of rows in the feature index {self._feature_index.number_of_rows()}
-                             does not correspond to the number of rows in the row_index {self.row_index.size - 1}"""
-            )
-        return self._feature_index.number_of_rows()
+        return self.num_rows
 
     def number_nonzero_values(self) -> int:
         """Number of non zero entries in the dataset."""
