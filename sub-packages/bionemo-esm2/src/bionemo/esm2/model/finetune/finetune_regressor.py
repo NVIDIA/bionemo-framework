@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Sequence, Tuple, Type
 
@@ -23,11 +24,10 @@ from megatron.core import parallel_state
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
 from torch import Tensor
-from torch.utils.data import Dataset
 
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
 from bionemo.esm2.data import tokenizer
-from bionemo.llm.data.types import BertSample
+from bionemo.esm2.model.finetune.dataset import InMemoryCSVDataset
 from bionemo.llm.model.biobert.model import BioBertOutput
 from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
 from bionemo.llm.utils import iomixin_utils as iom
@@ -180,12 +180,12 @@ class ESM2FineTuneSeqConfig(
         return RegressorLossReduction
 
 
-class InMemorySingleValueDataset(Dataset):
+class InMemorySingleValueDataset(InMemoryCSVDataset):
     """An in-memory dataset that tokenizes strings into BertSample instances."""
 
     def __init__(
         self,
-        data: Sequence[Tuple[str, float]],
+        data_path: str | os.PathLike,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
@@ -194,45 +194,21 @@ class InMemorySingleValueDataset(Dataset):
         This is an in-memory dataset that does not apply masking to the sequence.
 
         Args:
-            data (Sequence[Tuple[str, float]]): A sequence of tuples containing the sequence and target data.
+            data_path (str | os.PathLike): A path to the CSV file containing sequences and labels (Optional)
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
                 that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
                 generated.
         """
-        self.data = data
-        self.seed = seed
-        self._len = len(self.data)
-        self.tokenizer = tokenizer
+        super().__init__(data_path=data_path, tokenizer=tokenizer, seed=seed)
 
-    def __len__(self) -> int:
-        """The size of the dataset."""
-        return self._len
-
-    def __getitem__(self, index: int) -> BertSample:
-        """Obtains the BertSample at the given index."""
-        sequence, target = self.data[index]
-        tokenized_sequence = self._tokenize(sequence)
-        # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
-        loss_mask = ~torch.isin(tokenized_sequence, Tensor(self.tokenizer.all_special_ids))
-
-        return {
-            "text": tokenized_sequence,
-            "types": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
-            "attention_mask": torch.ones_like(tokenized_sequence, dtype=torch.int64),
-            "labels": torch.tensor([target], dtype=torch.float),
-            "loss_mask": loss_mask,
-            "is_random": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
-        }
-
-    def _tokenize(self, sequence: str) -> Tensor:
-        """Tokenize a protein sequence.
+    def transform_label(self, label: float) -> Tensor:
+        """Transform the regression label.
 
         Args:
-            sequence: The protein sequence.
+            label: regression value
 
         Returns:
-            The tokenized sequence.
+            tokenized label
         """
-        tensor = self.tokenizer.encode(sequence, add_special_tokens=True, return_tensors="pt")
-        return tensor.flatten()  # type: ignore
+        return torch.tensor([label], dtype=torch.float)
