@@ -15,7 +15,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+# Parse arguments
+CODECOV_DISABLED=0
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --no-codecov) CODECOV_DISABLED=1 ;;
+        --help)
+            echo "Usage: $0 [--no-codecov] [--help]"
+            echo "  --no-codecov    Disables installing and uploading coverage results to codecov"
+            echo "  --help          Display this help message"
+            exit 0
+            ;;
+    esac
+    shift
+done
+
 set -xueo pipefail
+
+
 export PYTHONDONTWRITEBYTECODE=1
 # NOTE: if a non-nvidia user wants to run the test suite, just run `export BIONEMO_DATA_SOURCE=ngc` prior to this call.
 export BIONEMO_DATA_SOURCE="${BIONEMO_DATA_SOURCE:-pbss}"
@@ -25,13 +43,43 @@ if ! set_bionemo_home; then
     exit 1
 fi
 
-python -m coverage erase
+# download Codecov CLI
+if [[ $CODECOV_DISABLED -eq 0 ]]; then
+    curl -Os https://cli.codecov.io/latest/linux/codecov
 
+    # integrity check
+    curl https://keybase.io/codecovsecurity/pgp_keys.asc | gpg --no-default-keyring --keyring trustedkeys.gpg --import # One-time step
+    curl -Os https://cli.codecov.io/latest/linux/codecov
+    curl -Os https://cli.codecov.io/latest/linux/codecov.SHA256SUM
+    curl -Os https://cli.codecov.io/latest/linux/codecov.SHA256SUM.sig
+    gpgv codecov.SHA256SUM.sig codecov.SHA256SUM
+
+    shasum -a 256 -c codecov.SHA256SUM
+    sudo chmod +x codecov
+fi
+
+# If pytests fail, we still want to ensure that the report is uploaded to codecov, so we set +e from here through the
+# upload.
+set +e
+error=false
 for dir in docs/ ./sub-packages/bionemo-*/; do
     echo "Running pytest in $dir"
-    python -m coverage run --parallel-mode --source bionemo \
-        -m pytest -v --nbval-lax --durations=0 --durations-min=60.0 $dir
+    pytest -v --nbval-lax --cov=bionemo --cov-append --junitxml=$(basename $dir).junit.xml -o junit_family=legacy $dir || error=true
 done
 
-python -m coverage combine
-python -m coverage report --show-missing
+# Merge all sub-directory test results into a single xml file.
+junitparser merge *.junit.xml combined.junit.xml || error=true
+
+if [[ $CODECOV_DISABLED -eq 0 ]]; then
+
+    # Upload test analytics to codecov.
+    ./codecov do-upload --commit-sha $(git rev-parse HEAD) --report-type test_results --file combined.junit.xml || error=true
+
+    # Upload coverage results to codecov.
+    ./codecov upload-process --commit-sha $(git rev-parse HEAD) || error=true
+fi
+set -e
+
+if [ "$error" = true ]; then
+    exit 1
+fi

@@ -195,3 +195,7 @@ coverage.xml
 Thumbs.db
 
 .python_history
+
+# codecov artifacts
+*.junit.xml
+codecov*
