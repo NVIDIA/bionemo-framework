@@ -147,7 +147,7 @@ class ESM2FineTuneDataModule(MegatronDataModule):
         max_seq_length: int = 1024,
         micro_batch_size: int = 4,
         global_batch_size: int = 8,
-        num_workers: int = 10,
+        num_workers: int = 2,
         persistent_workers: bool = True,
         pin_memory: bool = True,
         rampup_batch_size: list[int] | None = None,
