@@ -436,3 +436,12 @@ class PerplexityLoggingCallback(pl.Callback, CallbackMethods):
             step.pl_module.log("val_ppl", ppl, prog_bar=True, on_epoch=True)
         elif self.log_train and step.trainer.training:
             step.pl_module.log("train_ppl", ppl, prog_bar=True, batch_size=1, sync_dist=False)
+
+
+class StopAfterStepCallback(pl.Callback, CallbackMethods):
+    def __init__(self, stop_after_steps: int):
+        self.stop_after_steps = stop_after_steps
+
+    def on_megatron_step_end(self, step, microbatch_outputs, reduced=None) -> None:
+        if step.trainer.global_step >= self.stop_after_steps:
+            raise RuntimeError(f"Stopping after {self.stop_after_steps} steps")
