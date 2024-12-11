@@ -225,6 +225,7 @@ def main(
             precision=precision,
             params_dtype=get_autocast_dtype(precision),
             pipeline_dtype=get_autocast_dtype(precision),
+            grad_reduce_in_fp32=False,
             autocast_enabled=False,
         ),
     )
