@@ -16,7 +16,7 @@
 
 import glob
 from enum import Enum, auto
-from typing import Any, Dict, Iterable, List, Optional, Union, get_args
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, get_args
 
 import lightning as L
 import webdataset as wds
@@ -55,7 +55,7 @@ class WebDataModule(L.LightningDataModule):
     - `Trainer.predict()` requires the `test` splits
 
     Here is an example of constructing the data module for `Trainer.fit()`:
-    ```
+    ```python
     >>> from bionemo.webdatamodule.datamodule import Split, WebDataModule
     >>>
     >>> tar_file_prefix = "shards"
@@ -75,9 +75,6 @@ class WebDataModule(L.LightningDataModule):
     >>> # https://github.com/webdataset/webdataset?tab=readme-ov-file#the-webdataset-format
     >>> # for details)
     >>> suffix_keys_wds = "tensor.pyd"
-    >>>
-    >>> # see the API doc for the definition of global_batch_size
-    >>> global_batch_size = 16
     >>>
     >>> seed = 27193781
     >>>
@@ -127,48 +124,50 @@ class WebDataModule(L.LightningDataModule):
     >>>     split : {"num_workers": 2} for split in Split
     >>>     }
     >>>
+    >>> invoke_wds = {
+    >>>     split: [("with_epoch", {"nbatches" : 5})] for split in Split
+    >>>     }
+    >>>
+    >>> invoke_wld = {
+    >>>     split: [("with_epoch", {"nbatches" : 5}] for split in Split
+    >>>     }
+    >>>
     >>> # construct the data module
-    >>> data_module = WebDataModule(n_samples, suffix_keys_wds,
-                                    dirs_of_tar_files, global_batch_size,
+    >>> data_module = WebDataModule(suffix_keys_wds,
+                                    dirs_of_tar_files,
                                     prefix_tars_wds=tar_file_prefix,
                                     pipeline_wds=pipeline_wds,
                                     pipeline_prebatch_wld=pipeline_prebatch_wld,
                                     kwargs_wds=kwargs_wds,
-                                    kwargs_wld=kwargs_wld)
+                                    kwargs_wld=kwargs_wld,
+                                    invoke_wds=invoke_wds,
+                                    invoke_wld=invoke_wld,
+                                    )
     ```
 
     """
 
     def __init__(
         self,
-        n_samples: Dict[Split, int],
         suffix_keys_wds: Union[str, Iterable[str]],
         dirs_tars_wds: Dict[Split, str],
-        global_batch_size: int,
         prefix_tars_wds: str = "wdshards",
         pipeline_wds: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
         pipeline_prebatch_wld: Optional[Dict[Split, Union[Iterable[Iterable[Any]], Iterable[Any]]]] = None,
         kwargs_wds: Optional[Dict[Split, Dict[str, Any]]] = None,
         kwargs_wld: Optional[Dict[Split, Dict[str, Any]]] = None,
+        invoke_wds: Optional[Dict[Split, List[Tuple[str, Dict[str, Any]]]]] = None,
+        invoke_wld: Optional[Dict[Split, List[Tuple[str, Dict[str, Any]]]]] = None,
     ):
         """Constructor.
 
         Args:
-            n_samples: input dictionary: Split -> number of data samples for each split
             suffix_keys_wds: a set of keys each
                 corresponding to a data object in the webdataset tar file
                 dictionary. The data objects of these keys will be extracted and
                 tupled for each sample in the tar files
             dirs_tars_wds: input dictionary: Split -> tar file
                 directory that contains the webdataset tar files for each split
-            global_batch_size: size of batch summing across nodes in Data
-                Distributed Parallel, i.e., local_batch_size * n_nodes. NOTE:
-                this data module doesn't rely on the input `global_batch_size`
-                for batching the samples. The batching is supposed to be done as
-                a part of the input `pipeline_prebatch_wld`. `global_batch_size`
-                is only used to compute a (pseudo-) epoch length for the data
-                loader so that the loader yield approximately n_samples //
-                global_batch_size batches
         Kwargs:
             prefix_tars_wds: name prefix of the input webdataset tar
                 files. The input tar files are globbed by
@@ -189,21 +188,22 @@ class WebDataModule(L.LightningDataModule):
                 yield from the WebLoader
             kwargs_wds: kwargs for the WebDataset.__init__()
             kwargs_wld : kwargs for the WebLoader.__init__(), e.g., num_workers, of each split
+            invoke_wds: a dictionary of WebDataset methods to be called upon WebDataset
+                construction. These methods must return the WebDataset object itself. Examples
+                are .with_length() and .with_epoch(). These methods will be applied towards
+                the end of returning the WebDataset object, i.e., after the pipline_wds
+                have been applied. The inner list of tuples each has its first element as the
+                method name and the second element as the corresponding method's kwargs.
+            invoke_wld: a dictionary of WebLoader methods to be called upon WebLoader
+                construction. These methods must return the WebLoader object itself. Examples
+                are .with_length() and .with_epoch(). These methods will be applied towards
+                the end of returning the WebLoader object, i.e., after the pipelin_prebatch_wld
+                have been applied. The inner list of tuples each has its first element as the
+                method name and the second element as the corresponding method's kwargs.
         """
         super().__init__()
 
         self._dirs_tars_wds = dirs_tars_wds
-
-        keys_subset = self._dirs_tars_wds.keys()
-
-        if n_samples.keys() != keys_subset:
-            raise RuntimeError(
-                f"Input n_samples has different keys than " f"dirs_tars_wds: {n_samples.keys()} vs " f"{keys_subset}"
-            )
-
-        self._n_samples = n_samples
-
-        self._global_batch_size = global_batch_size
 
         if not isinstance(suffix_keys_wds, get_args(Union[str, Iterable])):
             raise TypeError("suffix_keys_wds can only be str or Iterable[str]")
@@ -217,6 +217,9 @@ class WebDataModule(L.LightningDataModule):
         self._kwargs_wld = kwargs_wld
 
         self._kwargs_wds = kwargs_wds
+
+        self._invoke_wds = invoke_wds
+        self._invoke_wld = invoke_wld
 
         # to be created later in setup
         self._dataset = {}
@@ -254,6 +257,11 @@ class WebDataModule(L.LightningDataModule):
                 dataset = dataset.compose(*self._pipeline_wds[split])
             else:
                 dataset = dataset.compose(self._pipeline_wds[split])
+
+        if self._invoke_wds is not None and self._invoke_wds[split] is not None:
+            for method in self._invoke_wds[split]:
+                name_method, kwargs_method = method
+                dataset = getattr(dataset, name_method)(**kwargs_method)
         return dataset
 
     def setup(self, stage: str) -> None:
@@ -291,10 +299,8 @@ class WebDataModule(L.LightningDataModule):
                 f"_setup_dataloader() is called with {split} split without setting up the corresponding dataset."
             )
         dataset = self._dataset[split]
-        n_samples = self._n_samples[split]
-        n_batches = (n_samples + self._global_batch_size - 1) // self._global_batch_size
         kwargs = self._kwargs_wld[split] if self._kwargs_wld is not None else None
-        loader = wds.WebLoader(dataset, batch_size=None, **(kwargs if kwargs is not None else {}))
+        loader = wds.WebLoader(dataset, **(kwargs if kwargs is not None else {}))
 
         if self._pipeline_prebatch_wld is not None and self._pipeline_prebatch_wld[split] is not None:
             if isinstance(self._pipeline_prebatch_wld[split], Iterable):
@@ -302,7 +308,10 @@ class WebDataModule(L.LightningDataModule):
             else:
                 loader = loader.compose(self._pipeline_prebatch_wld[split])
 
-        loader = loader.with_epoch(n_batches)
+        if self._invoke_wld is not None and self._invoke_wld[split] is not None:
+            for method in self._invoke_wld[split]:
+                name_method, kwargs_method = method
+                loader = getattr(loader, name_method)(**kwargs_method)
 
         return loader
 
@@ -346,7 +355,7 @@ class PickledDataWDS(WebDataModule):
     1. create the data module with a directory of pickle files and the file name
     prefix thereof for different splits to used by `Lightning.Trainer.fit()`
 
-    ```
+    ```python
     >>> from bionemo.core.data.datamodule import Split, PickledDataWDS
 
     >>> dir_pickles = "/path/to/my/pickles/dir"
@@ -373,9 +382,6 @@ class PickledDataWDS(WebDataModule):
             Split.test : "/path/to/output/tars/dir-test",
         }
 
-    >>> # see the `WebDataModule` API doc for the definition of global_batch_size
-    >>> global_batch_size = 16
-
     >>> # user can optionally customize the data processing routines and kwargs used
     >>> # in the WebDataset and WebLoader (see the examples in `WebDataModule`)
 
@@ -387,19 +393,24 @@ class PickledDataWDS(WebDataModule):
 
     >>> kwargs_wld = { Split.train: ..., Split.val: ... }
 
+    >>> invoke_wds = { Split.train: ..., Split.val: ... }
+
+    >>> invoke_wld = { Split.train: ..., Split.val: ... }
+
     >>> # create the data module
     >>> data_module = PickledDataWDS(
     >>>     dir_pickles,
     >>>     names_subset,
     >>>     suffix_pickles, # `WebDataModule` args
     >>>     output_dir_tar_files, # `WebDataModule` args
-    >>>     global_batch_size, # `WebDataModule` args
     >>>     n_tars_wds=n_tars_wds,
     >>>     prefix_tars_wds=prefix_tars_wds, # `WebDataModule` kwargs
     >>>     pipeline_wds=pipeline_wds, # `WebDataModule` kwargs
     >>>     pipeline_prebatch_wld=pipelines_wdl_batch, # `WebDataModule` kwargs
     >>>     kwargs_wds=kwargs_wds, # `WebDataModule` kwargs
     >>>     kwargs_wld=kwargs_wld, # `WebDataModule` kwargs
+    >>>     invoke_wds=invoke_wds, # `WebDataModule` kwargs
+    >>>     invoke_wld=invoke_wld, # `WebDataModule` kwargs
     >>> )
     ```
     """
@@ -419,15 +430,12 @@ class PickledDataWDS(WebDataModule):
             names_subset: list of filename prefix of
                 the data samples to be loaded in the dataset and dataloader for
                 each of the split
-            *args: arguments passed to the parent WebDataModule after its
-            `n_samples` args (where `n_samples` is deduced from the length of
-            `names_subset` arg of this class)
+            *args: arguments passed to the parent WebDataModule
             n_tars_wds: attempt to create at least this number of
                 webdataset shards
             **kwargs: arguments passed to the parent WebDataModule
         """
         super().__init__(
-            {split: len(names_subset[split]) for split in names_subset.keys()},
             *args,
             **kwargs,
         )
