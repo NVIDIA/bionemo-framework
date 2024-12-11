@@ -35,7 +35,7 @@ script_args:
       pp: 1
       tp: 1
 script: |-
-  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-${model}/src/bionemo/${model}/scripts/train_esm2.py \
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=${data_path}/train_clusters.parquet \
     --train-database-path=${data_path}/train.db \
     --valid-cluster-path=${data_path}/valid_clusters.parquet \
@@ -62,4 +62,4 @@ script: |-
     --accumulate-grad-batches=${acc_grad} \
     --pipeline-model-parallel-size=${pp} \
     --tensor-model-parallel-size={tp} \
-    --no-create-checkpoint-callback;
+    --disable-checkpointing;

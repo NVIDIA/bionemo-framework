@@ -218,6 +218,7 @@ def main(
         log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
+        enable_checkpointing=create_checkpoint_callback,
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
@@ -280,7 +281,7 @@ def main(
     )
 
     # Configure our custom Checkpointer
-    if create_checkpoint_callback is True:
+    if create_checkpoint_callback:
         checkpoint_callback = nl_callbacks.ModelCheckpoint(
             save_last=save_last_checkpoint,
             monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
@@ -570,7 +571,7 @@ def get_parser():
         help="Path to nemo1 file, if desired to load at init time.",
     )
     parser.add_argument(
-        "--no-create-checkpoint-callback",
+        "--disable-checkpointing",
         action="store_false",
         default=True,
         dest="create_checkpoint_callback",

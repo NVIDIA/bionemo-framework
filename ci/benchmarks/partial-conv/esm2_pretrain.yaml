@@ -27,7 +27,7 @@ script_args:
   max_steps:
     value: 26500
 script: |-
-  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-${model}/src/bionemo/${model}/scripts/train_esm2.py \
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=${data_path}/train_clusters.parquet \
     --train-database-path=${data_path}/train.db \
     --valid-cluster-path=${data_path}/valid_clusters.parquet \
@@ -51,4 +51,4 @@ script: |-
     --wandb-group=${model}_${variant}_${config_name} \
     --wandb-job-type=${pipeline_label} \
     --log-every-n-steps=50 \
-    --no-create-checkpoint-callback;
+    --disable-checkpointing;
