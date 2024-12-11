@@ -24,7 +24,13 @@ from torch import nn
 from torchmetrics.text import Perplexity
 
 from bionemo.llm import lightning as bnptl
-from bionemo.llm.lightning import PerplexityLoggingCallback, batch_collator, get_dtype_device
+from bionemo.llm.lightning import (
+    PerplexityLoggingCallback,
+    batch_collator,
+    calculate_perplexity,
+    get_dtype_device,
+    pad_microbatch_to_max_length,
+)
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.lightning import get_random_microbatch
 
@@ -201,13 +207,10 @@ def test_perplexity_logging_callback_with_single_microbatch_golden_value_without
         mock_megatron_step.trainer.sanity_checking = False
         mock_megatron_step.num_microbatches = num_microbatches
 
-        # setup callback
-        callback = PerplexityLoggingCallback(log_train=False, log_val=True)
-        callback.on_megatron_reduce_microbatches_end(
-            step=mock_megatron_step,
-            microbatch_outputs=microbatch_outputs,
-            loss_reduction=MegatronLossReduction(),  # dummy
-            reduced=torch.empty(1),  # dummy
+        labels = pad_microbatch_to_max_length(microbatch_outputs, "batch", "labels", pad_value=-100)
+        loss_mask = pad_microbatch_to_max_length(microbatch_outputs, "batch", "loss_mask")
+        token_logits = pad_microbatch_to_max_length(
+            microbatch_outputs, "forward_out", "token_logits", seq_dim=0, batch_dim=1
         )
 
         # compare to torchmetric
@@ -219,7 +222,7 @@ def test_perplexity_logging_callback_with_single_microbatch_golden_value_without
             )
         ppl_golden_value = metric.compute()
 
-        val_ppl = mock_megatron_step.pl_module.log.call_args[0][1]
+        val_ppl = calculate_perplexity(token_logits, labels, loss_mask)
         torch.testing.assert_close(
             val_ppl,
             torch.ones_like(val_ppl) * ppl_golden_value,
