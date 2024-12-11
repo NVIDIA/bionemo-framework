@@ -19,6 +19,7 @@ dependencies = [
     'bionemo-llm',
     'bionemo-noodles',
     'bionemo-scdl',
+    'bionemo-dnadl',
     'bionemo-size-aware-batching',
     'bionemo-webdatamodule',
     #

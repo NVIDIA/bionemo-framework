@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools-scm>=8", "setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bionemo-dnadl"
+license.file = "LICENSE"
+readme = "README.md"
+description = "DNADL, a Dataset class for DNA data."
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+dynamic = ["version"]
+dependencies = [
+    "bionemo-core",
+    "bionemo-noodles",
+    "pysam>=0.21.0",
+    "polars>=1.9.0",
+    "pandas>=2.2.2",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bionemo.*"]
+namespaces = true
+exclude = ["test*."]
+
+[tool.setuptools_scm]
+root = '../..'
+version_scheme = "post-release"
+local_scheme = "no-local-version"
+
+[tool.uv]
+cache-keys = [{ git = true }]

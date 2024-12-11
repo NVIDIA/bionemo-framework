@@ -21,6 +21,7 @@ dependencies = [
     'bionemo-geneformer',
     'bionemo-geometric',
     'bionemo-llm',
+    'bionemo-dnadl',
     'bionemo-scdl',
     'bionemo-size-aware-batching',
     'bionemo-testing',
@@ -50,6 +51,7 @@ nemo_toolkit = { workspace = true }
 megatron-core = { workspace = true }
 # in sub-packages/
 bionemo-core = { workspace = true }
+bionemo-dnadl = { workspace = true }
 bionemo-esm2 = { workspace = true }
 bionemo-example_model = { workspace = true }
 bionemo-fw = { workspace = true }
@@ -125,6 +127,7 @@ executionEnvironments = [
         "./3rdparty/NeMo",
         # bionemo sub-packages
         './sub-packages/bionemo-core/src',
+        "./sub-packages/bionemo-dnadl/src",
         './sub-packages/bionemo-esm2/src',
         './sub-packages/bionemo-example_model/src',
         './sub-packages/bionemo-fw/src',
