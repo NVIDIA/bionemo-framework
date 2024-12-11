@@ -174,7 +174,7 @@ docker run --rm -d --gpus all \
   -v $LOCAL_MODELS_PATH:$DOCKER_MODELS_PATH \
   -v $LOCAL_RESULTS_PATH:$DOCKER_RESULTS_PATH \
   {{ docker_url }}:{{ docker_tag }} \
-  "jupyter lab \
+  jupyter lab \
   	--allow-root \
 	--ip=* \
 	--port=$JUPYTER_PORT \
@@ -182,12 +182,12 @@ docker run --rm -d --gpus all \
   	--NotebookApp.token='' \
   	--NotebookApp.allow_origin='*' \
   	--ContentsManager.allow_hidden=True \
-  	--notebook-dir=$DOCKER_RESULTS_PATH"
+  	--notebook-dir=$DOCKER_RESULTS_PATH
 ```
 
 Refer to the guide below for an explanation of the recommended Jupyter Lab options:
 
-* `"jupyter lab ..."`: The command to run inside the container, which starts a Jupyter Lab server. The options are:
+* `jupyter lab ...`: The command to run inside the container, which starts a Jupyter Lab server. The options are:
 	+ `--allow-root`: Allow the Jupyter Lab server to run as the root user.
 	+ `--ip=*`: Listen on all available network interfaces, which allows access from outside the container.
 	+ `--port=$JUPYTER_PORT`: Listen on port 8888.
