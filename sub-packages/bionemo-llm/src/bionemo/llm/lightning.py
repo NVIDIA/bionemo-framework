@@ -237,7 +237,6 @@ class MegatronPerplexityMetric(torchmetrics.text.Perplexity):
 
         self.total_log_probs += unreduced_token_loss.sum()
         self.count += mask.sum()
-        # the numerator and denominator cancels tp out in the formulae "exp(total_log_probs / count)"
 
 
 class BionemoLightningModule(
@@ -292,17 +291,11 @@ class BionemoLightningModule(
         self._forward_step = forward_step
         self.model_transform = model_transform
 
-        process_group = parallel_state.get_data_parallel_group()  # TODO only as a placeholder: how to select only the last pp stage?
+        # all scaling on the internal states are cancelled out in the formula "exp(total_log_probs / count)" so we can safely sum across all devices
         if log_train_ppl:
-            self.train_ppl = MegatronPerplexityMetric(
-                ignore_index=-100,
-                process_group=process_group,
-            )
+            self.train_ppl = MegatronPerplexityMetric(ignore_index=-100)
         if log_val_ppl:
-            self.valid_ppl = MegatronPerplexityMetric(
-                ignore_index=-100,
-                process_group=process_group,
-            )
+            self.valid_ppl = MegatronPerplexityMetric(ignore_index=-100)
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
