@@ -51,11 +51,7 @@ def test_val_dataloader_in_main_runs_with_limit_val_batches(tmpdir, limit_val_ba
             wandb_project=None,
             wandb_offline=True,
             num_steps=5,
-<<<<<<< HEAD
-            limit_val_batches=1,
-=======
             limit_val_batches=limit_val_batches,
->>>>>>> c7291696a (reduce geneformer e2e test burden)
             val_check_interval=2,
             num_dataset_workers=0,
             biobert_spec_option=BiobertSpecOption.bert_layer_local_spec,
