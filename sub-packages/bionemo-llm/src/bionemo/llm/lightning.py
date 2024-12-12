@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, Generic, Iterable, Iterator, List, Optio
 
 import lightning.pytorch as pl
 import torch.distributed
+import torchmetrics.text
 from megatron.core import parallel_state
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo.lightning import io as nlio
@@ -211,6 +212,34 @@ of the examples in the iterator.
 """
 
 
+class MegatronPerplexityMetric(torchmetrics.text.Perplexity):
+    def __init__(self, *args, **kwargs):
+        if parallel_state.get_context_parallel_world_size() > 1:
+            raise NotImplementedError(f"{self.__class__} does not support context parallelism yet.")
+
+        self.cross_entropy_loss_fusion = kwargs.pop("cross_entropy_loss_fusion", False)
+        super().__init__(*args, **kwargs)
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor) -> None:
+        """Update state with predictions and targets under tensor parallelism."""
+        unreduced_token_loss = unreduced_token_loss_fn(  # TP-aware log prob function
+            preds.clone(),
+            target.clone(),
+            cross_entropy_loss_fusion=self.cross_entropy_loss_fusion,
+        )  # (b, s)
+
+        if self.ignore_index is not None:
+            mask = target.ne(self.ignore_index)
+            target = target.where(target != self.ignore_index, torch.tensor(0, device=target.device))
+        else:
+            mask = torch.ones_like(target, dtype=torch.bool)
+
+        unreduced_token_loss = unreduced_token_loss[torch.arange(target.numel()), target][mask]
+
+        self.total_log_probs += unreduced_token_loss.sum()
+        self.count += mask.sum()
+
+
 class BionemoLightningModule(
     Generic[MegatronModelType, MegatronLossType],
     pl.LightningModule,
@@ -228,6 +257,8 @@ class BionemoLightningModule(
         # TODO: Add transformer_layer_spec when we update mcore
         optimizer: MegatronOptimizerModule,
         model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
+        log_train_ppl: bool = False,
+        log_val_ppl: bool = False,
         **model_construct_args,
     ) -> None:
         """Constructor.
@@ -243,6 +274,8 @@ class BionemoLightningModule(
             model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s
                 `configure_model` method.
             model_transform: Optional. The model transform function.
+            log_train_ppl (bool): Log training perplexity.
+            log_val_ppl (bool): Log validation perplexity.
             **model_construct_args: Optional. Arguments necessary for the supplied model configuration's
                 `configure_model` method, which will make an instance of the model.
         """
@@ -258,6 +291,12 @@ class BionemoLightningModule(
         self._data_step = data_step
         self._forward_step = forward_step
         self.model_transform = model_transform
+
+        # all scaling on the internal states are cancelled out in the formula "exp(total_log_probs / count)" so we can safely sum across all devices
+        if log_train_ppl:
+            self.train_ppl = MegatronPerplexityMetric(ignore_index=-100)
+        if log_val_ppl:
+            self.valid_ppl = MegatronPerplexityMetric(ignore_index=-100)
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -305,11 +344,21 @@ class BionemoLightningModule(
 
     def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
-        return self.forward_step(batch)
+        outputs = self.forward_step(batch)
+        logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
+
+        if self.log_train_ppl and parallel_state.is_pipeline_last_stage():
+            self.train_ppl(logits, batch["labels"])
+            self.log("train_ppl", self.train_ppl, on_step=True, on_epoch=False)
 
     def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
-        return self.forward_step(batch)
+        outputs = self.forward_step(batch)
+        logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
+
+        if self.log_val_ppl and parallel_state.is_pipeline_last_stage():
+            self.valid_ppl(logits, batch["labels"])
+            self.log("valid_ppl", self.valid_ppl, on_step=False, on_epoch=True)
 
     def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """Alias for forward_step."""
