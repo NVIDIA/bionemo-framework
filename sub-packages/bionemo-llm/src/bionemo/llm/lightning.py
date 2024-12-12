@@ -292,7 +292,7 @@ class BionemoLightningModule(
         self._forward_step = forward_step
         self.model_transform = model_transform
 
-        process_group = parallel_state.get_data_parallel_group()  # TODO how to select only the last pp stage?
+        process_group = parallel_state.get_data_parallel_group()  # TODO only as a placeholder: how to select only the last pp stage?
         if log_train_ppl:
             self.train_ppl = MegatronPerplexityMetric(
                 ignore_index=-100,
