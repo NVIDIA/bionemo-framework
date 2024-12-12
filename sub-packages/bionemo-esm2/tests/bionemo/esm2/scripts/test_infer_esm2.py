@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import subprocess
 from pathlib import Path
 
 import pandas as pd
@@ -29,6 +30,7 @@ from bionemo.esm2.scripts.infer_esm2 import infer_model
 
 
 esm2_650m_checkpoint_path = load("esm2/650m:2.0")
+esm2_3b_checkpoint_path = load("esm2/3b:2.0", source="ngc")
 
 
 @pytest.fixture
@@ -158,3 +160,27 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences, precisio
     assert results["input_ids"].shape == (len(dummy_protein_sequences), max_dataset_seq_len)
     # token_logits are [sequence, batch, num_tokens]
     assert results["token_logits"].shape[:-1] == (max_dataset_seq_len, len(dummy_protein_sequences))
+
+
+def test_infer_cli(tmpdir, dummy_protein_csv):
+    result_dir = Path(tmpdir.mkdir("results"))
+    results_path = result_dir / "esm2_infer_results.pt"
+    ret = subprocess.run(
+        [
+            "infer_esm2",
+            "--checkpoint-path",
+            f"{esm2_3b_checkpoint_path}",
+            "--data-path",
+            f"{dummy_protein_csv}",
+            "--results-path",
+            f"{results_path}",
+            "--include-hiddens",
+            "--include-embeddings",
+            "--include-logits",
+            "--include-input-ids",
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+        check=True,
+    )
+    assert ret.returncode == 0
