@@ -184,16 +184,17 @@ def test_infer_cli(tmpdir, dummy_protein_csv, checkpoint_path):
     env = dict(**os.environ)
     env["MASTER_PORT"] = str(open_port)
 
-    cmd_str = f"""infer_esm2    \
+    cmd_str = f"""infer_esm2     \
     --checkpoint-path {checkpoint_path} \
     --data-path {dummy_protein_csv} \
     --results-path {results_path} \
     --precision bf16-mixed \
-    --include-hiddens \
-    --include-embeddings \
-    --include-logits \
+    --include-hiddens      \
+    --include-embeddings     \
+    --include-logits     \
     --include-input-ids
-    """
+    """.strip()
+
     cmd = shlex.split(cmd_str)
     result = subprocess.run(
         cmd,
