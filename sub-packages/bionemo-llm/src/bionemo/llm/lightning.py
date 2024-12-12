@@ -214,7 +214,7 @@ of the examples in the iterator.
 class MegatronPerplexityMetric(torchmetrics.text.Perplexity):
     def __init__(self, *args, **kwargs):
         if parallel_state.get_context_parallel_world_size() > 1:
-            raise NotImplementedError(f"{__class__} does not support context parallelism yet.")
+            raise NotImplementedError(f"{self.__class__} does not support context parallelism yet.")
 
         self.cross_entropy_loss_fusion = kwargs.pop("cross_entropy_loss_fusion", False)
         super().__init__(*args, **kwargs)
