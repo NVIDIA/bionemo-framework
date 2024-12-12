@@ -13,12 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import subprocess
 from pathlib import Path
 
 import pandas as pd
 import pytest
 import torch
+from lightning.fabric.plugins.environments.lightning import find_free_network_port
 from torch.utils.data import DataLoader
 
 from bionemo.core.data.load import load
@@ -165,6 +167,9 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences, precisio
 def test_infer_cli(tmpdir, dummy_protein_csv):
     result_dir = Path(tmpdir.mkdir("results"))
     results_path = result_dir / "esm2_infer_results.pt"
+    open_port = find_free_network_port()
+    env = dict(**os.environ)
+    env["MASTER_PORT"] = str(open_port)
     ret = subprocess.run(
         [
             "infer_esm2",
@@ -180,7 +185,10 @@ def test_infer_cli(tmpdir, dummy_protein_csv):
             "--include-input-ids",
         ],
         stdout=subprocess.PIPE,
+        capture_output=True,
         text=True,
         check=True,
+        cwd=tmpdir,
+        env=env,
     )
     assert ret.returncode == 0
