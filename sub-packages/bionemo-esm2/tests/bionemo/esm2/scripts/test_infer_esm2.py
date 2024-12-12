@@ -35,6 +35,14 @@ esm2_650m_checkpoint_path = load("esm2/650m:2.0")
 esm2_3b_checkpoint_path = load("esm2/3b:2.0", source="ngc")
 
 
+# Function to check GPU memory
+def check_gpu_memory(threshold_gb):
+    if torch.cuda.is_available():
+        gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # Memory in GB
+        return gpu_memory < threshold_gb
+    return False
+
+
 @pytest.fixture
 def dummy_protein_sequences():
     """Create a list of artificial protein sequences"""
@@ -165,8 +173,11 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences, precisio
 
 
 @pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
-@pytest.mark.parametrize("checkpoint_path", [f"{esm2_3b_checkpoint_path}", f"{esm2_650m_checkpoint_path}"])
+@pytest.mark.parametrize("checkpoint_path", [esm2_3b_checkpoint_path, esm2_650m_checkpoint_path])
 def test_infer_cli(tmpdir, dummy_protein_csv, precision, checkpoint_path):
+    if check_gpu_memory(30) and checkpoint_path == esm2_3b_checkpoint_path:
+        pytest.skip(f"Skipping test due to insufficient GPU memory for {checkpoint_path}.")
+
     result_dir = Path(tmpdir.mkdir("results"))
     results_path = result_dir / "esm2_infer_results.pt"
     open_port = find_free_network_port()
