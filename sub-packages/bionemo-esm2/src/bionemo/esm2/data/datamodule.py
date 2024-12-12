@@ -156,24 +156,27 @@ class ESMDataModule(MegatronDataModule):
 
         # Create validation dataset
         val_clusters = dataset.create_valid_clusters(self._valid_cluster_path)
-        num_val_samples = infer_num_samples(
-            limit_batches=self.trainer.limit_val_batches,
-            num_samples_in_dataset=len(val_clusters),
-            global_batch_size=self.data_sampler.global_batch_size,
-            stage="val",
-        )
-        self._valid_ds = dataset.create_valid_dataset(
-            clusters=self._valid_cluster_path,
-            db_path=self._valid_database_path,
-            total_samples=num_val_samples,
-            seed=self._seed,
-            max_seq_length=self._max_seq_length,
-            mask_prob=self._mask_prob,
-            mask_token_prob=self._mask_token_prob,
-            mask_random_prob=self._mask_random_prob,
-            random_mask_strategy=self._random_mask_strategy,
-            tokenizer=self._tokenizer,
-        )
+        if self.trainer.limit_val_batches == 0:  # disable validation
+            logging.info("Skip creating validation dataset because trainer.limit_val_batches=0.")
+        else:
+            num_val_samples = infer_num_samples(
+                limit_batches=self.trainer.limit_val_batches,
+                num_samples_in_dataset=len(val_clusters),
+                global_batch_size=self.data_sampler.global_batch_size,
+                stage="val",
+            )
+            self._valid_ds = dataset.create_valid_dataset(
+                clusters=self._valid_cluster_path,
+                db_path=self._valid_database_path,
+                total_samples=num_val_samples,
+                seed=self._seed,
+                max_seq_length=self._max_seq_length,
+                mask_prob=self._mask_prob,
+                mask_token_prob=self._mask_token_prob,
+                mask_random_prob=self._mask_random_prob,
+                random_mask_strategy=self._random_mask_strategy,
+                tokenizer=self._tokenizer,
+            )
 
         assert (
             hasattr(self, "trainer") and self.trainer is not None
