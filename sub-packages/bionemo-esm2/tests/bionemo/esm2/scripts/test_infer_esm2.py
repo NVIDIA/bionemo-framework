@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -174,7 +175,7 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences, precisio
 
 @pytest.mark.parametrize("checkpoint_path", [esm2_3b_checkpoint_path, esm2_650m_checkpoint_path])
 def test_infer_cli(tmpdir, dummy_protein_csv, checkpoint_path):
-    if check_gpu_memory(50) and checkpoint_path == esm2_3b_checkpoint_path:
+    if check_gpu_memory(30) and checkpoint_path == esm2_3b_checkpoint_path:
         pytest.skip(f"Skipping test due to insufficient GPU memory for {checkpoint_path}.")
 
     result_dir = Path(tmpdir.mkdir("results"))
@@ -183,26 +184,21 @@ def test_infer_cli(tmpdir, dummy_protein_csv, checkpoint_path):
     env = dict(**os.environ)
     env["MASTER_PORT"] = str(open_port)
 
-    ret = subprocess.run(
-        [
-            "infer_esm2",
-            "--checkpoint-path",
-            f"{checkpoint_path}",
-            "--data-path",
-            f"{dummy_protein_csv}",
-            "--results-path",
-            f"{results_path}",
-            "--precision",
-            "bf16-mixed",
-            "--include-hiddens",
-            "--include-embeddings",
-            "--include-logits",
-            "--include-input-ids",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
+    cmd_str = f"""infer_esm2    \
+    --checkpoint-path {checkpoint_path} \
+    --data-path {dummy_protein_csv} \
+    --results-path {results_path} \
+    --precision bf16-mixed \
+    --include-hiddens \
+    --include-embeddings \
+    --include-logits \
+    --include-input-ids
+    """
+    cmd = shlex.split(cmd_str)
+    result = subprocess.run(
+        cmd,
         cwd=tmpdir,
         env=env,
+        capture_output=True,
     )
-    assert ret.returncode == 0, f"Failed with: {ret.stderr}"
+    assert result.returncode == 0, f"Failed with: {cmd_str}"
