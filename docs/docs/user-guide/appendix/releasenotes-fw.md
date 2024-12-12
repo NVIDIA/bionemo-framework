@@ -1,5 +1,27 @@
 # Release Notes
 
+## BioNeMo Framework v2.2
+
+### New Features
+
+* Small Molecule Featurization
+  * Implemented elementary and advanced atom, bond, and full molecule featurizers.
+* GH200 Support for BioNeMo
+  * Added a `Dockerfile.arm` that builds a BioNeMo container that runs on GH200 machines.
+  * Publish a version of the BioNeMo container that supports multiple architectures to NGC.
+
+### Updates & Improvements
+
+* Single-Cell Dataloader (SCDL)
+  * Changed metadata storage to `parquet` files, which creates a 30x speed up when iterating over a large dataset.
+  * Added functionality to concatenate several `anndata` files without doubling disk memory usage.
+* ESM2
+  * Added support for `SIGTERM` preemption checkpoint saving.
+  * Moved ESM-2 and Geneformer training scripts to new executables, `train_esm2` and `train_geneformer`, respectively.
+  * Moved inference script to a new executable `infer_esm2`, and deprecated the inference example in the fine-tuning tutorial.
+  * Added new Jupyter notebook tutorials for inference and zero-shot protein design. These notebooks can be deployed on the cloud resources as a [brev.dev](https://www.brev.dev/) launchable.
+
+
 ## BioNeMo Framework v2.1
 
 ### New Features:
