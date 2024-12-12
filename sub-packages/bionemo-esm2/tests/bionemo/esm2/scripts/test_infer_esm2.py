@@ -164,21 +164,26 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences, precisio
     assert results["token_logits"].shape[:-1] == (max_dataset_seq_len, len(dummy_protein_sequences))
 
 
-def test_infer_cli(tmpdir, dummy_protein_csv):
+@pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
+@pytest.mark.parametrize("checkpoint_path", [f"{esm2_3b_checkpoint_path}", f"{esm2_650m_checkpoint_path}"])
+def test_infer_cli(tmpdir, dummy_protein_csv, precision, checkpoint_path):
     result_dir = Path(tmpdir.mkdir("results"))
     results_path = result_dir / "esm2_infer_results.pt"
     open_port = find_free_network_port()
     env = dict(**os.environ)
     env["MASTER_PORT"] = str(open_port)
+
     ret = subprocess.run(
         [
             "infer_esm2",
             "--checkpoint-path",
-            f"{esm2_3b_checkpoint_path}",
+            f"{checkpoint_path}",
             "--data-path",
             f"{dummy_protein_csv}",
             "--results-path",
             f"{results_path}",
+            "--precision",
+            f"{precision}",
             "--include-hiddens",
             "--include-embeddings",
             "--include-logits",
@@ -190,4 +195,4 @@ def test_infer_cli(tmpdir, dummy_protein_csv):
         cwd=tmpdir,
         env=env,
     )
-    assert ret.returncode == 0
+    assert ret.returncode == 0, f"Failed with:\n{ret.stdout}\n{ret.stderr}"
