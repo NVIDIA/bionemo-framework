@@ -184,7 +184,6 @@ def test_infer_cli(tmpdir, dummy_protein_csv):
             "--include-logits",
             "--include-input-ids",
         ],
-        stdout=subprocess.PIPE,
         capture_output=True,
         text=True,
         check=True,
