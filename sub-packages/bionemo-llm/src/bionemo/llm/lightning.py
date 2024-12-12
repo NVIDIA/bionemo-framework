@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, Generic, Iterable, Iterator, List, Optio
 
 import lightning.pytorch as pl
 import torch.distributed
+import torchmetrics.text
 from megatron.core import parallel_state
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo.lightning import io as nlio
@@ -227,6 +228,8 @@ class BionemoLightningModule(
         # TODO: Add transformer_layer_spec when we update mcore
         optimizer: MegatronOptimizerModule,
         model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
+        log_train_ppl: bool = False,
+        log_val_ppl: bool = False,
         **model_construct_args,
     ) -> None:
         """Constructor.
@@ -242,6 +245,8 @@ class BionemoLightningModule(
             model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s
                 `configure_model` method.
             model_transform: Optional. The model transform function.
+            log_train_ppl (bool): Log training perplexity.
+            log_val_ppl (bool): Log validation perplexity.
             **model_construct_args: Optional. Arguments necessary for the supplied model configuration's
                 `configure_model` method, which will make an instance of the model.
         """
@@ -257,6 +262,11 @@ class BionemoLightningModule(
         self._data_step = data_step
         self._forward_step = forward_step
         self.model_transform = model_transform
+
+        if log_train_ppl:
+            self.train_ppl = torchmetrics.text.Perplexity(ignore_index=-100)
+        if log_val_ppl:
+            self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=-100)
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -304,11 +314,17 @@ class BionemoLightningModule(
 
     def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
-        return self.forward_step(batch)
+        outputs = self.forward_step(batch)
+        logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
+        self.train_ppl(logits, batch["labels"])
+        self.log("train_ppl_step", self.train_ppl)
 
     def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
-        return self.forward_step(batch)
+        outputs = self.forward_step(batch)
+        logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
+        self.valid_ppl(logits, batch["labels"])
+        self.log("valid_ppl_step", self.valid_ppl)
 
     def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """Alias for forward_step."""
