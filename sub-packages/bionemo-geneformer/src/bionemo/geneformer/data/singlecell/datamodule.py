@@ -193,18 +193,6 @@ class SingleCellDataModule(MegatronDataModule):
             assert max_train_steps > 0, "Please specify trainer.max_steps"
 
             num_train_samples = int(max_train_steps * self.data_sampler.global_batch_size)
-            num_val_samples = infer_num_samples(
-                limit_batches=self.trainer.limit_val_batches,
-                num_samples_in_dataset=len(self._val_dataset_ori),
-                global_batch_size=self.data_sampler.global_batch_size,
-                stage="val",
-            )
-            num_test_samples = infer_num_samples(
-                limit_batches=self.trainer.limit_test_batches,
-                num_samples_in_dataset=len(self._test_dataset_ori),
-                global_batch_size=self.data_sampler.global_batch_size,
-                stage="test",
-            )
 
             # This happens exactly once during setup.
             self._train_ds = MultiEpochDatasetResampler(
@@ -213,18 +201,37 @@ class SingleCellDataModule(MegatronDataModule):
                 shuffle=True,
                 seed=self.seed,
             )
-            self._validation_ds = MultiEpochDatasetResampler(
-                self._val_dataset_ori,
-                num_samples=num_val_samples,
-                shuffle=False,
-                seed=self.seed,
-            )
-            self._test_ds = MultiEpochDatasetResampler(
-                self._test_dataset_ori,
-                num_samples=num_test_samples,
-                shuffle=False,
-                seed=self.seed,
-            )
+            if self.trainer.limit_val_batches == 0:  # disable validation
+                logging.info("Skip creating validation dataset because trainer.limit_val_batches=0.")
+            else:
+                num_val_samples = infer_num_samples(
+                    limit_batches=self.trainer.limit_val_batches,
+                    num_samples_in_dataset=len(self._val_dataset_ori),
+                    global_batch_size=self.data_sampler.global_batch_size,
+                    stage="val",
+                )
+                self._validation_ds = MultiEpochDatasetResampler(
+                    self._val_dataset_ori,
+                    num_samples=num_val_samples,
+                    shuffle=False,
+                    seed=self.seed,
+                )
+            if self.trainer.limit_test_batches == 0:  # disable testing
+                logging.info("Skip creating test dataset because trainer.limit_test_batches=0.")
+
+            else:
+                num_test_samples = infer_num_samples(
+                    limit_batches=self.trainer.limit_test_batches,
+                    num_samples_in_dataset=len(self._test_dataset_ori),
+                    global_batch_size=self.data_sampler.global_batch_size,
+                    stage="test",
+                )
+                self._test_ds = MultiEpochDatasetResampler(
+                    self._test_dataset_ori,
+                    num_samples=num_test_samples,
+                    shuffle=False,
+                    seed=self.seed,
+                )
         else:
             assert self._predict_dataset_ori is not None
             self._predict_ds = MultiEpochDatasetResampler(
