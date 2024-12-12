@@ -172,10 +172,9 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences, precisio
     assert results["token_logits"].shape[:-1] == (max_dataset_seq_len, len(dummy_protein_sequences))
 
 
-@pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
 @pytest.mark.parametrize("checkpoint_path", [esm2_3b_checkpoint_path, esm2_650m_checkpoint_path])
-def test_infer_cli(tmpdir, dummy_protein_csv, precision, checkpoint_path):
-    if check_gpu_memory(30) and checkpoint_path == esm2_3b_checkpoint_path:
+def test_infer_cli(tmpdir, dummy_protein_csv, checkpoint_path):
+    if check_gpu_memory(50) and checkpoint_path == esm2_3b_checkpoint_path:
         pytest.skip(f"Skipping test due to insufficient GPU memory for {checkpoint_path}.")
 
     result_dir = Path(tmpdir.mkdir("results"))
@@ -194,7 +193,7 @@ def test_infer_cli(tmpdir, dummy_protein_csv, precision, checkpoint_path):
             "--results-path",
             f"{results_path}",
             "--precision",
-            f"{precision}",
+            "bf16-mixed",
             "--include-hiddens",
             "--include-embeddings",
             "--include-logits",
@@ -206,4 +205,4 @@ def test_infer_cli(tmpdir, dummy_protein_csv, precision, checkpoint_path):
         cwd=tmpdir,
         env=env,
     )
-    assert ret.returncode == 0, f"Failed with:\n{ret.stdout}\n{ret.stderr}"
+    assert ret.returncode == 0, f"Failed with: {ret.stderr}"
