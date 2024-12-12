@@ -211,6 +211,34 @@ of the examples in the iterator.
 """
 
 
+class MegatronPerplexityMetric(torchmetrics.text.Perplexity):
+    def __init__(self, *args, **kwargs):
+        if parallel_state.get_context_parallel_world_size() > 1:
+            raise NotImplementedError(f"{__class__} does not support context parallelism yet.")
+
+        self.cross_entropy_loss_fusion = kwargs.pop("cross_entropy_loss_fusion", False)
+        super().__init__(*args, **kwargs)
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor) -> None:
+        """Update state with predictions and targets under tensor parallelism."""
+        unreduced_token_loss = unreduced_token_loss_fn(  # TP-aware log prob function
+            preds.clone(),
+            target.clone(),
+            cross_entropy_loss_fusion=self.cross_entropy_loss_fusion,
+        )  # (b, s)
+
+        if self.ignore_index is not None:
+            mask = target.ne(self.ignore_index)
+            target = target.where(target != self.ignore_index, torch.tensor(0, device=target.device))
+        else:
+            mask = torch.ones_like(target, dtype=torch.bool)
+
+        unreduced_token_loss = unreduced_token_loss[torch.arange(target.numel()), target][mask]
+
+        self.total_log_probs += unreduced_token_loss.sum()
+        self.count += mask.sum()
+
+
 class BionemoLightningModule(
     Generic[MegatronModelType, MegatronLossType],
     pl.LightningModule,
@@ -264,15 +292,14 @@ class BionemoLightningModule(
         self.model_transform = model_transform
 
         # TODO normalize sum aggregation with TP
-        # TODO replace _perplexity_update and _perplexity_compute with TP-aware analog
         process_group = parallel_state.get_data_parallel_group()  # TODO how to select only the last pp stage?
         if log_train_ppl:
-            self.train_ppl = torchmetrics.text.Perplexity(
+            self.train_ppl = MegatronPerplexityMetric(
                 ignore_index=-100,
                 process_group=process_group,
             )
         if log_val_ppl:
-            self.valid_ppl = torchmetrics.text.Perplexity(
+            self.valid_ppl = MegatronPerplexityMetric(
                 ignore_index=-100,
                 process_group=process_group,
             )
