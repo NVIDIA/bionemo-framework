@@ -263,10 +263,19 @@ class BionemoLightningModule(
         self._forward_step = forward_step
         self.model_transform = model_transform
 
+        # TODO normalize sum aggregation with TP
+        # TODO replace _perplexity_update and _perplexity_compute with TP-aware analog
+        process_group = parallel_state.get_data_parallel_group()  # TODO how to select only the last pp stage?
         if log_train_ppl:
-            self.train_ppl = torchmetrics.text.Perplexity(ignore_index=-100)
+            self.train_ppl = torchmetrics.text.Perplexity(
+                ignore_index=-100,
+                process_group=process_group,
+            )
         if log_val_ppl:
-            self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=-100)
+            self.valid_ppl = torchmetrics.text.Perplexity(
+                ignore_index=-100,
+                process_group=process_group,
+            )
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -316,15 +325,19 @@ class BionemoLightningModule(
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
         logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
-        self.train_ppl(logits, batch["labels"])
-        self.log("train_ppl_step", self.train_ppl)
+
+        if self.log_train_ppl and parallel_state.is_pipeline_last_stage():
+            self.train_ppl(logits, batch["labels"])
+            self.log("train_ppl", self.train_ppl, on_step=True, on_epoch=False)
 
     def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
         logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
-        self.valid_ppl(logits, batch["labels"])
-        self.log("valid_ppl_step", self.valid_ppl)
+
+        if self.log_val_ppl and parallel_state.is_pipeline_last_stage():
+            self.valid_ppl(logits, batch["labels"])
+            self.log("valid_ppl", self.valid_ppl, on_step=False, on_epoch=True)
 
     def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """Alias for forward_step."""
