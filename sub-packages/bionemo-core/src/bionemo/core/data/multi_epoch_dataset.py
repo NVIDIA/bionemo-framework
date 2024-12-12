@@ -105,16 +105,18 @@ class MultiEpochDatasetResampler(Dataset[T_co]):
 
     def __post_init__(self):
         """Pre-shuffle each epoch's samples."""
+        self._num_samples_in_dataset = len(self.dataset)
+
         if self.num_epochs is None and self.num_samples is None:
             self.num_epochs = 1
         elif self.num_epochs is not None and self.num_samples is not None:
             raise ValueError("Only one of num_epochs and num_samples should be provided.")
 
         if self.num_epochs is None and self.num_samples is not None:
-            self.num_epochs = math.ceil(self.num_samples / len(self.dataset))
+            self.num_epochs = math.ceil(self.num_samples / self._num_samples_in_dataset)
 
         elif self.num_samples is None and self.num_epochs is not None:
-            self.num_samples = len(self.dataset) * self.num_epochs
+            self.num_samples = self._num_samples_in_dataset * self.num_epochs
 
         # Type guard statements, the above if/elif block should ensure these are not None.
         assert self.num_epochs is not None
@@ -140,10 +142,10 @@ class MultiEpochDatasetResampler(Dataset[T_co]):
 
     def _global_index_to_permuted_local_index(self, index: int) -> EpochIndex:
         """Convert a global index to an epoch index."""
-        epoch = index // len(self.dataset)
-        idx = index % len(self.dataset)
+        epoch = index // self._num_samples_in_dataset
+        idx = index % self._num_samples_in_dataset
         if self.shuffle:
-            idx = permute(idx, len(self.dataset), self.epoch_seeds[epoch])
+            idx = permute(idx, self._num_samples_in_dataset, self.epoch_seeds[epoch])
         return EpochIndex(epoch, idx)
 
 
