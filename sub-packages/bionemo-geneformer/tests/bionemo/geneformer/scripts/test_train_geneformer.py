@@ -38,7 +38,7 @@ def test_bionemo2_rootdir():
 
 
 @pytest.mark.parametrize("create_checkpoint_callback", [True, False])
-def test_main_runs(tmpdir, limit_val_batches: float, create_checkpoint_callback: bool):
+def test_main_runs(tmpdir, create_checkpoint_callback: bool):
     result_dir = Path(tmpdir.mkdir("results"))
 
     with megatron_parallel_state_utils.distributed_model_parallel_state():
