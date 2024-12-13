@@ -43,7 +43,8 @@ def test_bionemo2_rootdir(data_path):
     assert data_path.is_dir(), "Test data directory is supposed to be a directory."
 
 
-def test_main_runs(tmpdir, data_path):
+@pytest.mark.parametrize("limit_val_batches", [0.0, 1])
+def test_val_dataloader_in_main_runs_with_limit_val_batches(tmpdir, limit_val_batches: float):
     result_dir = Path(tmpdir.mkdir("results"))
 
     with megatron_parallel_state_utils.distributed_model_parallel_state():
@@ -56,7 +57,7 @@ def test_main_runs(tmpdir, data_path):
             wandb_project=None,
             wandb_offline=True,
             num_steps=5,
-            limit_val_batches=1,
+            limit_val_batches=limit_val_batches,
             val_check_interval=2,
             num_dataset_workers=0,
             biobert_spec_option=BiobertSpecOption.bert_layer_local_spec,
