@@ -130,13 +130,10 @@ def test_main_runs(
     children = list((result_dir / "test_experiment").iterdir())
     assert len(children) == 1, f"Expected 1 child in test experiment directory, found {children}."
     uq_rundir = children[0]  # it will be some date.
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "checkpoints"
-    ).exists(), "Could not find test experiment checkpoints directory."
 
+    # checking directory with checkpoints
     expected_exists = create_checkpoint_callback
     actual_exists = (result_dir / "test_experiment" / uq_rundir / "checkpoints").exists()
-
     assert expected_exists == actual_exists, (
         f"Checkpoints directory existence mismatch. "
         f"Expected: {'exists' if expected_exists else 'does not exist'}, "
