@@ -51,7 +51,7 @@ class SingleCellDataModule(MegatronDataModule):
         num_mask_per_sample (int): Number of masked versions of a single sample to be returned by each worker
         train_batch_size (int): Batch size for training
         val_batch_size (int): Batch size for validation
-        skip_unrecognized_vocab_in_dataset (bool, optional): Set to False to verify whether all gene identifers are in the user supplied tokenizer vocab. Defaults to True which means that any gene identifier not in the user supplied tokenizer vocab will be excluded.
+        include_unrecognized_vocab_in_dataset (bool, optional): If set to True, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded.
 
     Attributes:
         cfg (Config): Configuration object
@@ -83,7 +83,7 @@ class SingleCellDataModule(MegatronDataModule):
         num_workers: int = 10,  # TODO can this be automatically set?
         persistent_workers: bool = True,
         pin_memory: bool = True,
-        skip_unrecognized_vocab_in_dataset: bool = True,
+        include_unrecognized_vocab_in_dataset: bool = False,
     ) -> None:
         super().__init__()
         if predict_dataset_path is None:
@@ -124,7 +124,7 @@ class SingleCellDataModule(MegatronDataModule):
                 mask_token_prob=self.mask_token_prob,
                 random_token_prob=self.random_token_prob,
                 seed=random_utils.get_seed_from_rng(rng),
-                skip_unrecognized_vocab_in_dataset=skip_unrecognized_vocab_in_dataset,
+                include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
             )
             self._val_dataset_ori = SingleCellDataset(
                 self.data_path_val,
@@ -135,7 +135,7 @@ class SingleCellDataModule(MegatronDataModule):
                 mask_token_prob=self.mask_token_prob,
                 random_token_prob=self.random_token_prob,
                 seed=random_utils.get_seed_from_rng(rng),
-                skip_unrecognized_vocab_in_dataset=skip_unrecognized_vocab_in_dataset,
+                include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
             )
             self._test_dataset_ori = SingleCellDataset(
                 self.data_path_test,
@@ -146,7 +146,7 @@ class SingleCellDataModule(MegatronDataModule):
                 mask_token_prob=self.mask_token_prob,
                 random_token_prob=self.random_token_prob,
                 seed=random_utils.get_seed_from_rng(rng),
-                skip_unrecognized_vocab_in_dataset=skip_unrecognized_vocab_in_dataset,
+                include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
             )
             self._predict_dataset_ori = None
         else:
@@ -160,7 +160,7 @@ class SingleCellDataModule(MegatronDataModule):
                 mask_token_prob=self.mask_token_prob,
                 random_token_prob=self.random_token_prob,
                 seed=random_utils.get_seed_from_rng(rng),
-                skip_unrecognized_vocab_in_dataset=skip_unrecognized_vocab_in_dataset,
+                include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
             )
             self._train_dataset_ori = None
             self._val_dataset_ori = None

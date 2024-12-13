@@ -127,7 +127,6 @@ class GeneformerPretrainingDataConfig(DataConfig[SingleCellDataModule]):
             persistent_workers=self.num_dataset_workers > 0,
             pin_memory=False,
             num_workers=self.num_dataset_workers,
-            skip_unrecognized_vocab_in_dataset=True,
         )
         return data
 

@@ -55,7 +55,7 @@ class SingleCellDataset(Dataset):
         tokenizer: The tokenizer to use for tokenizing the input data.
         median_dict (dict, optional): A dictionary containing median values for each gene. Defaults to None.
         max_len (int, optional): The maximum length of the input sequence. Defaults to 1024.
-        skip_unrecognized_vocab_in_dataset (bool, optional): Set to False to verify whether all gene identifers are in the user supplied tokenizer vocab. Defaults to True which means that any gene identifier not in the user supplied tokenizer vocab will be excluded.
+        include_unrecognized_vocab_in_dataset (bool, optional): If set to True, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded.
 
     Attributes:
         data_path (str): Path where the single cell files are stored in SCDL memmap format.
@@ -93,7 +93,7 @@ class SingleCellDataset(Dataset):
         random_token_prob: float = 0.1,
         prepend_cls_token: bool = True,
         eos_token: int | None = None,
-        skip_unrecognized_vocab_in_dataset: bool = True,
+        include_unrecognized_vocab_in_dataset: bool = False,
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
         super().__init__()
@@ -112,7 +112,7 @@ class SingleCellDataset(Dataset):
         # - median dict
         self.gene_medians = median_dict
         self.tokenizer = tokenizer
-        self.skip_unrecognized_vocab_in_dataset = skip_unrecognized_vocab_in_dataset
+        self.include_unrecognized_vocab_in_dataset = include_unrecognized_vocab_in_dataset
 
     def __len__(self):  # noqa: D105
         return len(self.scdl)
@@ -142,7 +142,7 @@ class SingleCellDataset(Dataset):
             random_token_prob=self.random_token_prob,
             prepend_cls_token=self.prepend_cls_token,
             eos_token=self.eos_token,
-            skip_unrecognized_vocab_in_dataset=self.skip_unrecognized_vocab_in_dataset,
+            include_unrecognized_vocab_in_dataset=self.include_unrecognized_vocab_in_dataset,
         )
 
 
@@ -152,7 +152,7 @@ def _gather_medians(
     normalize: bool,
     vocab: dict[str, int],
     gene_median: dict[str, float],
-    skip_unrecognized_vocab_in_dataset: bool = True,
+    include_unrecognized_vocab_in_dataset: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Filter out genes that are not in the provided tokenizer vocab, and tokenize the gene names."""
     genes, tokens, medians = [], [], []
@@ -163,7 +163,7 @@ def _gather_medians(
             if normalize:
                 med = gene_median[tok]  # If not in the dictionary we default to no normalization (1)
                 medians.append(med)
-        elif not skip_unrecognized_vocab_in_dataset:
+        elif include_unrecognized_vocab_in_dataset:
             raise ValueError(f"Provided gene identifier, {str(tok)}, is not in the tokenizer vocab.")
     return np.asarray(genes), np.asarray(tokens), np.asarray(medians)
 
@@ -183,7 +183,7 @@ def process_item(  # noqa: D417
     normalize: bool = True,
     prepend_cls_token: bool = True,
     eos_token: None | int = None,
-    skip_unrecognized_vocab_in_dataset: bool = True,
+    include_unrecognized_vocab_in_dataset: bool = False,
 ) -> types.BertSample:
     """Process a single item in the dataset.
 
@@ -206,7 +206,7 @@ def process_item(  # noqa: D417
         dirichlet_alpha (float): Alpha value for dirichlet sampling if set by `probabilistic_dirichlet_sampling`. Defaults to 0.5.
         same_length (bool): when true, sample the same length of genes as you originally had before the dirichlet sampler.
         recompute_globals (bool): when true, global arrays are always recomputed. this is only useful for testing.
-        skip_unrecognized_vocab_in_dataset (bool):  skip_unrecognized_vocab_in_dataset (bool, optional): Set to False to verify whether all gene identifers are in the user supplied tokenizer vocab. Defaults to True which means that any gene identifier not in the user supplied tokenizer vocab will be excluded.
+        include_unrecognized_vocab_in_dataset (bool, optional): If set to True, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded.
 
     Returns:
         dict: Processed item dictionary.
@@ -233,7 +233,7 @@ def process_item(  # noqa: D417
         normalize,
         tokenizer.vocab,
         gene_median,
-        skip_unrecognized_vocab_in_dataset=skip_unrecognized_vocab_in_dataset,
+        include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
     )
 
     if normalize:

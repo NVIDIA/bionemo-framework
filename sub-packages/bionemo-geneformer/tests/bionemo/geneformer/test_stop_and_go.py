@@ -87,7 +87,6 @@ def geneformer_datamodule(tokenizer, seq_length, median_dict, data_path=DATA_PAT
         persistent_workers=num_dataset_workers > 0,
         pin_memory=False,
         num_workers=num_dataset_workers,
-        skip_unrecognized_vocab_in_dataset=True,
     )
     return data
 

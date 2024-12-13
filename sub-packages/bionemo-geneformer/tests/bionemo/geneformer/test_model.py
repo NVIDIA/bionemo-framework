@@ -662,7 +662,6 @@ def _get_loss_from_model(model_config: GeneformerConfig, seed: int) -> float:
             mask_prob=0.15,
             mask_token_prob=0.8,
             seed=42,
-            skip_unrecognized_vocab_in_dataset=True,
         )
 
         limit_batches = 200
@@ -817,7 +816,6 @@ def _train_model_get_ckpt(
         global_batch_size=batch_size,
         num_workers=0,
         persistent_workers=False,
-        skip_unrecognized_vocab_in_dataset=True,
     )
 
     checkpoint_callback = nl_callbacks.ModelCheckpoint(

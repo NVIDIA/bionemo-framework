@@ -96,7 +96,7 @@ def test_gene_not_in_tok_vocab(tmp_path, test_directory_feat_ids):
             logging.error("Preprocessing failed.")
 
     dataset0 = SingleCellDataset(
-        sc_memmap_dataset_path0, tokenizer, median_dict=median_dict, skip_unrecognized_vocab_in_dataset=False
+        sc_memmap_dataset_path0, tokenizer, median_dict=median_dict, include_unrecognized_vocab_in_dataset=True
     )  # type: ignore
     index = EpochIndex(epoch=0, idx=3)
     with pytest.raises(ValueError) as error_info:

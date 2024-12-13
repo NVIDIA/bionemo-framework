@@ -69,7 +69,6 @@ def test_main_runs(tmpdir, data_path):
             experiment_name="test_experiment",
             resume_if_exists=False,
             create_tensorboard_logger=False,
-            skip_unrecognized_vocab_in_dataset=True,
             num_layers=2,
             num_attention_heads=2,
             hidden_size=4,
@@ -118,7 +117,7 @@ def test_throws_tok_not_in_vocab_error(tmpdir, data_path):
                 experiment_name="test_experiment",
                 resume_if_exists=False,
                 create_tensorboard_logger=False,
-                skip_unrecognized_vocab_in_dataset=False,
+                include_unrecognized_vocab_in_dataset=True,
             )
 
     assert "not in the tokenizer vocab." in str(error_info.value)

@@ -97,7 +97,7 @@ def main(
     gc_interval: int = 0,
     aligned_megatron_ddp: bool = False,
     recompilation_check: bool = False,
-    skip_unrecognized_vocab_in_dataset: bool = True,
+    include_unrecognized_vocab_in_dataset: bool = False,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
     """Train a Geneformer model on single cell data.
@@ -156,7 +156,7 @@ def main(
             good for clusters. This will likely slow down single node runs though.
         recompilation_check (bool): enable a recompilation check (only do on a small run) to verify that fused gpu
             kernels are not being regularly recompiled, which is very expensive, with a particular model/settings.
-        skip_unrecognized_vocab_in_dataset (bool): Set to False to verify whether all gene identifers are in the user supplied tokenizer vocab. Defaults to True which means that any gene identifier not in the user supplied tokenizer vocab will be excluded.
+        include_unrecognized_vocab_in_dataset (bool): If set to True, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded..
     """
     # Create the result directory if it does not exist.
     if wandb_tags is None:
@@ -281,7 +281,7 @@ def main(
         persistent_workers=num_dataset_workers > 0,
         pin_memory=False,
         num_workers=num_dataset_workers,
-        skip_unrecognized_vocab_in_dataset=skip_unrecognized_vocab_in_dataset,
+        include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
     )
     geneformer_config = config_class(
         num_layers=num_layers,
@@ -427,9 +427,9 @@ def get_parser():
         help="Fraction of steps in which to ramp up the learning rate. Default is 0.01.",
     )
     parser.add_argument(
-        "--skip-unrecognized-vocab-in-dataset",
-        action="store_false",
-        help="Set to False to verify whether all gene identifers are in the user supplied tokenizer vocab. Defaults to True which means that any gene identifier not in the user supplied tokenizer vocab will be excluded.",
+        "--include-unrecognized-vocab-in-dataset",
+        action="store_true",
+        help="If set to true, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded.",
     )
     parser.add_argument(
         "--cosine-hold-frac",
@@ -693,7 +693,7 @@ def entrypoint():
         gc_interval=args.gc_interval,
         aligned_megatron_ddp=args.aligned_megatron_ddp,
         recompilation_check=args.recompilation_check,
-        skip_unrecognized_vocab_in_dataset=args.skip_unrecognized_vocab_in_dataset,
+        include_unrecognized_vocab_in_dataset=args.include_unrecognized_vocab_in_dataset,
     )
 
 
