@@ -8,4 +8,3 @@ awscli==1.33.33
 nbval==0.11.0
 # For NvFaidx equivalence tests
 pyfaidx==0.8.1.3
-wandb>=0.19.1 # Addresses CVE GHSA-v778-237x-gjrc
