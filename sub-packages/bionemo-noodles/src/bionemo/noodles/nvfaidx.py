@@ -154,17 +154,16 @@ class NvFaidx:
         return set(self.records.keys())
 
     # These provide dict like iteration functionality
-    def __iter__(self):
+    def __iter__(self):  # noqa: D105
         return iter(self.keys())
 
-    def items(self):
+    def items(self):  # noqa: D102
         for key in self.keys():
             yield key, self[key][:]
-    
-    def values(self):
+
+    def values(self):  # noqa: D102
         for key in self.keys():
             yield self[key][:]
-    
 
     @staticmethod
     def create_faidx(fasta_filename: str | Path) -> str:
