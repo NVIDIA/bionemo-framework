@@ -153,6 +153,19 @@ class NvFaidx:
     def keys(self) -> set[str]:  # noqa: D102
         return set(self.records.keys())
 
+    # These provide dict like iteration functionality
+    def __iter__(self):
+        return iter(self.keys())
+
+    def items(self):
+        for key in self.keys():
+            yield key, self[key][:]
+    
+    def values(self):
+        for key in self.keys():
+            yield self[key][:]
+    
+
     @staticmethod
     def create_faidx(fasta_filename: str | Path) -> str:
         """Create a FAI index for a FASTA file, the result is saved in the same location as `fasta_filename`, with a .fai extension.

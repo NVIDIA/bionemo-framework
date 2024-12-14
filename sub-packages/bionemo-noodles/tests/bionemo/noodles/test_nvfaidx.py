@@ -128,6 +128,33 @@ def test_memmap_index(sample_fasta):
     assert index.read_sequence_mmap("chr4:3-16") == "CCCCCCCCCCACGT"
     assert index.read_sequence_mmap("chr4:17-17") == ""
 
+def test_iter_all_id_seqs(sample_fasta):
+
+    expected = {
+    "chr1":
+    "ACTGACTGACTG",
+    "chr2":
+    "GGTCAAGGTCAA",
+    "chr3":
+    "AGTCAAGGTCCACGTCAAGGTCCCGGTCAAGGTCCGTGTCAAGGTCCTAGTCAAGGTCAACGTCAAGGTCACGGTCAAGGTCAG",
+    "chr4" : "CCCCCCCCCCCCACGT",
+    "chr5" : "A"
+    }
+    fasta_path = sample_fasta
+    index = NvFaidx(fasta_path)
+    for seq_id in index.keys():
+        full_seq = index[seq_id][:]
+        assert full_seq == expected[seq_id], seq_id
+
+    for_next_test = [] 
+    for seq_id, full_seq in index.items():
+        assert full_seq == expected[seq_id], seq_id
+        for_next_test.append(full_seq)
+    
+    for full_seq, seq_via_items in zip(index.values(), for_next_test):
+        assert full_seq == seq_via_items
+
+
 
 def test_getitem_bounds(sample_fasta):
     # NOTE make this the correct path, check this file in since we are checking exactness of queries.
@@ -140,6 +167,8 @@ def test_getitem_bounds(sample_fasta):
     assert index["chr1"][1:10000] == "CTGACTGACTG"
     # Slice up to the last element
     assert index["chr1"][0:-1] == "ACTGACTGACT"
+    # Get the full sequence
+    assert index["chr1"][:] == "ACTGACTGACTG"
     # equivalent to above
     assert index["chr1"][:-1] == "ACTGACTGACT"
     # -1 should get the last element
