@@ -286,6 +286,9 @@ def main(
                 anneal_percentage=0.10,
             ),
         ),
+        # perplexity logging
+        log_train_ppl=False,
+        log_val_ppl=True,
     )
 
     # Configure our custom Checkpointer
