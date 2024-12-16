@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from bionemo.noodles_fasta_wrapper import PyFaidxRecord, PyIndexedMmapFastaReader
+from bionemo.noodles_fasta_wrapper import PyFaidxRecord, PyIndexedMmapFastaReader, reverse_sequence, complement_sequence, transcribe_sequence, back_transcribe_sequence, upper
 
 
-__all__ = ("PyFaidxRecord", "PyIndexedMmapFastaReader")
+__all__ = ("PyFaidxRecord", "PyIndexedMmapFastaReader", "reverse_sequence", "complement_sequence", "transcribe_sequence", "back_transcribe_sequence", "upper")
