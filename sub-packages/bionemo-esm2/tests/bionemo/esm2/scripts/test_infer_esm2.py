@@ -176,6 +176,9 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences, precisio
 @pytest.mark.skipif(check_gpu_memory(30), reason="Skipping test due to insufficient GPU memory")
 @pytest.mark.parametrize("checkpoint_path", [esm2_3b_checkpoint_path, esm2_650m_checkpoint_path])
 def test_infer_cli(tmpdir, dummy_protein_csv, checkpoint_path):
+    # Clear the GPU cache before starting the test
+    torch.cuda.empty_cache()
+
     result_dir = Path(tmpdir.mkdir("results"))
     results_path = result_dir / "esm2_infer_results.pt"
     open_port = find_free_network_port()
