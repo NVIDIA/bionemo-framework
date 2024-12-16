@@ -1,4 +1,5 @@
 from bionemo.noodles import reverse_sequence, complement_sequence, transcribe_sequence, back_transcribe_sequence, upper
+from bionemo.noodles.nvfaidx import NvFaidx
 import pytest
 import pathlib
 
@@ -10,7 +11,13 @@ def test_reverse_sequence():
     assert reverse_sequence("ACGTACGTACGT") == "TGCATGCATGCA"
 
 def test_reverse_sequence_equivalence(sample_fasta):
-    ...
+    idx = NvFaidx(sample_fasta)
+    print(idx['chr1'])
+    complement_sequence(idx['chr1'])
+    reverse_sequence(idx['chr1'])
+    transcribe_sequence(idx['chr1'])
+    back_transcribe_sequence(idx['chr1'])
+    upper(idx['chr1'])
 
 def test_complement_sequence():
     assert complement_sequence("ACGTACGTACGT") == "TGCATGCATGCA"

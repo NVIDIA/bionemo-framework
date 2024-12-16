@@ -143,6 +143,10 @@ def test_iter_all_id_seqs(sample_fasta):
         full_seq = index[seq_id][:]
         assert full_seq == expected[seq_id], seq_id
 
+    # Same test different syntax 
+    for seq_id in index.keys():
+        assert index[seq_id].sequence() == expected[seq_id], seq_id
+
     for_next_test = []
     for seq_id, full_seq in index.items():
         assert full_seq == expected[seq_id], seq_id

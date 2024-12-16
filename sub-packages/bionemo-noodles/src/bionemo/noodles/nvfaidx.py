@@ -84,6 +84,12 @@ class SequenceAccessor:
         else:
             raise TypeError("Index must be an integer or a slice.")
 
+    def sequence_id(self) -> str:
+        return self.seqid
+
+    def sequence(self) -> str:
+        return self[:]
+
 
 class NvFaidx:
     """NvFaidx is a rest + pyo3 replacement for PyFaidx that provides a dictionary-like interface to reference genomes.
@@ -149,7 +155,7 @@ class NvFaidx:
 
     def __len__(self) -> int:  # noqa: D105
         return len(self.records)
-
+    
     def keys(self) -> set[str]:  # noqa: D102
         return set(self.records.keys())
 
