@@ -13,11 +13,11 @@ def test_reverse_sequence():
 def test_reverse_sequence_equivalence(sample_fasta):
     idx = NvFaidx(sample_fasta)
     print(idx['chr1'])
-    complement_sequence(idx['chr1'])
-    reverse_sequence(idx['chr1'])
-    transcribe_sequence(idx['chr1'])
-    back_transcribe_sequence(idx['chr1'])
-    upper(idx['chr1'])
+    complement_sequence(idx['chr1'].sequence())
+    reverse_sequence(idx['chr1'].sequence())
+    transcribe_sequence(idx['chr1'].sequence())
+    back_transcribe_sequence(idx['chr1'].sequence())
+    upper(idx['chr1'].sequence())
 
 def test_complement_sequence():
     assert complement_sequence("ACGTACGTACGT") == "TGCATGCATGCA"
