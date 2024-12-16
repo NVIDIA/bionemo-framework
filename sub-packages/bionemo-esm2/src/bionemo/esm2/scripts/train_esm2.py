@@ -92,6 +92,10 @@ def main(
     hidden_size: int = 1280,
     num_attention_heads: int = 20,
     ffn_hidden_size: int = 1280 * 4,
+    overlap_grad_reduce: bool = True,
+    overlap_param_gather: bool = False,  # TODO waiting for a NeMo fix
+    average_in_collective: bool = True,
+    grad_reduce_in_fp32: bool = False,
 ) -> None:
     """Train an ESM2 model on UR data.
 
@@ -147,6 +151,10 @@ def main(
         hidden_size (int): hidden size
         num_attention_heads (int): number of attention heads
         ffn_hidden_size (int): feed forward hidden size
+        overlap_grad_reduce (bool): overlap gradient reduction
+        overlap_param_gather (bool): overlap parameter gather
+        average_in_collective (bool): average in collective
+        grad_reduce_in_fp32 (bool): gradient reduction in fp32
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -167,9 +175,9 @@ def main(
         pipeline_dtype=get_autocast_dtype(precision),
         ddp=DistributedDataParallelConfig(
             check_for_nan_in_grad=True,
-            overlap_grad_reduce=True,
-            overlap_param_gather=False,  # TODO waiting for a NeMo fix
-            average_in_collective=True,
+            overlap_grad_reduce=overlap_grad_reduce,
+            overlap_param_gather=overlap_param_gather,
+            average_in_collective=average_in_collective,
             use_distributed_optimizer=True,
         ),
         find_unused_parameters=True,
@@ -225,7 +233,7 @@ def main(
             precision=precision,
             params_dtype=get_autocast_dtype(precision),
             pipeline_dtype=get_autocast_dtype(precision),
-            grad_reduce_in_fp32=False,
+            grad_reduce_in_fp32=grad_reduce_in_fp32,
             autocast_enabled=False,
         ),
     )
@@ -374,6 +382,10 @@ def train_esm2_entrypoint():
         hidden_size=args.hidden_size,
         num_attention_heads=args.num_attention_heads,
         ffn_hidden_size=args.ffn_hidden_size,
+        overlap_grad_reduce=not args.no_overlap_grad_reduce,
+        overlap_param_gather=args.overlap_param_gather,
+        average_in_collective=not args.average_in_collective,
+        grad_reduce_in_fp32=args.grad_reduce_in_fp32,
     )
 
 
@@ -680,6 +692,27 @@ def get_parser():
         required=False,
         default=4 * 1280,
         help="FFN hidden size of the model. Default is 4 * 1280.",
+    )
+    # DDP config
+    parser.add_argument(
+        "--no-overlap-grad-reduce",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--overlap-param-gather",
+        action="store_true",
+        default=False,
+    )  # TODO waiting for a NeMo fix
+    parser.add_argument(
+        "--no-average-in-collective",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--grad-reduce-in-fp32",
+        action="store_true",
+        default=False,
     )
     return parser
 
