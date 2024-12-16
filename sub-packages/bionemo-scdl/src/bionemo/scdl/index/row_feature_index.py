@@ -28,7 +28,7 @@ import pyarrow.parquet as pq
 __all__: Sequence[str] = ("RowFeatureIndex",)
 
 
-def are_dicts_equal(dict1, dict2):
+def dicts_are_equal(dict1: dict[str, np.ndarray], dict2: dict[str, np.ndarray]) -> bool:
     """Compare two dictionaries with string keys and numpy.ndarray values.
 
     Args:
