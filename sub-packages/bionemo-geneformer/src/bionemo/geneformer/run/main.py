@@ -15,8 +15,9 @@
 
 
 import argparse
-from typing import Optional
-
+from dataclasses import dataclass, field
+from typing import Optional, Type
+from nemo_run import Config, autoconvert
 import yaml
 
 from bionemo.geneformer.run.config_models import (
@@ -26,94 +27,58 @@ from bionemo.geneformer.run.config_models import (
 )
 from bionemo.llm.run.config_models import MainConfig
 from bionemo.llm.train import NsysConfig, train
+from bionemo.geneformer.run.argument_parser import parse_args
+from bionemo.geneformer.run.nemo_run import NRArgs
 
+def args_to_args_dict(args) -> dict:
+    '''Transforms the ArgumentParser namespace into a dictionary with one modification, `config`, which accepts a file path,
+    is transformed into a serialized dictionary. This allows us to defer parsing until the job is scheduled.
+
+    Arguments:
+        args - argparse namesspace arguments, aquired from parser.parse_args()
+
+    Returns:
+        Dictionary of arguments with `config` replaced by `config_dict`.
+    '''
+    args_dict = vars(args)
+    config_path = args_dict.pop("config")
+    with open(config_path, "r") as f:
+        config_dict = yaml.safe_load(f)
+    args_dict['config_dict'] = config_dict
+    return args_dict
+
+def load_config_from_file(config_path: str, model_config_cls: Optional[str], data_config_cls: Optional[str]) -> MainConfig:
+    with open(config_path, "r") as f:
+        config_dict = yaml.safe_load(f)
+    return load_config(config_dict, model_config_cls=model_config_cls, data_config_cls=data_config_cls)
+
+def load_config(config_dict: dict, model_config_cls: Optional[str], data_config_cls: Optional[str]) -> MainConfig:
+    # model/data_config_cls is used to select the parser dynamically.
+    if model_config_cls is None or model_config_cls == "ExposedGeneformerPretrainConfig":
+        model_config_cls = ExposedGeneformerPretrainConfig
+    elif model_config_cls == "ExposedFineTuneSeqLenBioBertConfig":
+        # Hardcoded path for those who do not know the full path
+        model_config_cls = ExposedFineTuneSeqLenBioBertConfig
+    elif isinstance(model_config_cls, str):
+        # We assume we get a string to some importable config... e.g. in the sub-package jensen, 'bionemo.jensen.configs.MyConfig'
+        model_config_cls = string_to_class(model_config_cls)
+
+    if data_config_cls is None:
+        data_config_cls = GeneformerPretrainingDataConfig
+    elif isinstance(data_config_cls, str):
+        data_config_cls = string_to_class(data_config_cls)
+    return MainConfig[model_config_cls, data_config_cls](**config_dict)
+
+def string_to_class(path: str):
+    import importlib
+
+    module_path, class_name = path.rsplit(".", 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
 
 def main():  # noqa: D103
-    def parse_args():
-        parser = argparse.ArgumentParser(description="Run Geneformer pretraining")
-        parser.add_argument("--config", type=str, required=True, help="Path to the JSON configuration file")
-        parser.add_argument(
-            "--model-config-cls",
-            default=ExposedGeneformerPretrainConfig,
-            required=False,
-            help="fully resolvable python import path to the ModelConfig class. Builtin options are ExposedGeneformerPretrainConfig and ExposedFineTuneSeqLenBioBertConfig.",
-        )
-        parser.add_argument(
-            "--data-config-cls",
-            default=GeneformerPretrainingDataConfig,
-            required=False,
-            help="fully resolvable python import path to the class.",
-        )
-        parser.add_argument(
-            "--resume-if-exists",
-            default=False,
-            action="store_true",
-            help="Resume training if a checkpoint exists that matches the current experiment configuration.",
-        )
-
-        # Debug options.
-        parser.add_argument(
-            "--nsys-profiling",
-            action="store_true",
-            default=False,
-            help="Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with `nsys`. For example: "
-            " `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop  [regular python command here]`",
-        )
-        # start, end, rank
-        parser.add_argument(
-            "--nsys-start-step",
-            type=int,
-            required=False,
-            default=0,
-            help="Start nsys profiling after this step.",
-        )
-        parser.add_argument(
-            "--nsys-end-step",
-            type=int,
-            required=False,
-            help="End nsys profiling after this step.",
-        )
-        # rank as list of integers
-        parser.add_argument(
-            "--nsys-ranks",
-            type=int,
-            nargs="+",
-            required=False,
-            default=[0],
-            help="Enable nsys profiling for these ranks.",
-        )
-
-        return parser.parse_args()
-
-    def string_to_class(path: str):
-        import importlib
-
-        module_path, class_name = path.rsplit(".", 1)
-        module = importlib.import_module(module_path)
-        return getattr(module, class_name)
-
-    def load_config(config_path: str, model_config_cls: Optional[str], data_config_cls: Optional[str]) -> MainConfig:
-        with open(config_path, "r") as f:
-            config_dict = yaml.safe_load(f)
-
-        # model/data_config_cls is used to select the parser dynamically.
-        if model_config_cls is None or model_config_cls == "ExposedGeneformerPretrainConfig":
-            model_config_cls = ExposedGeneformerPretrainConfig
-        elif model_config_cls == "ExposedFineTuneSeqLenBioBertConfig":
-            # Hardcoded path for those who do not know the full path
-            model_config_cls = ExposedFineTuneSeqLenBioBertConfig
-        elif isinstance(model_config_cls, str):
-            # We assume we get a string to some importable config... e.g. in the sub-package jensen, 'bionemo.jensen.configs.MyConfig'
-            model_config_cls = string_to_class(model_config_cls)
-
-        if data_config_cls is None:
-            data_config_cls = GeneformerPretrainingDataConfig
-        elif isinstance(data_config_cls, str):
-            data_config_cls = string_to_class(data_config_cls)
-        return MainConfig[model_config_cls, data_config_cls](**config_dict)
-
     args = parse_args()
-    config = load_config(args.config, args.model_config_cls, args.data_config_cls)
+    config = load_config_from_file(args.config, args.model_config_cls, args.data_config_cls)
 
     if args.nsys_profiling:
         nsys_config = NsysConfig(
