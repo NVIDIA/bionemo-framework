@@ -155,7 +155,7 @@ class NvFaidx:
 
     def __len__(self) -> int:  # noqa: D105
         return len(self.records)
-    
+
     def keys(self) -> set[str]:  # noqa: D102
         return set(self.records.keys())
 
