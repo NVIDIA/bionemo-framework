@@ -222,7 +222,7 @@ class MegatronPerplexityMetric(torchmetrics.text.Perplexity):
     def update(self, preds: torch.Tensor, target: torch.Tensor) -> None:
         """Update state with predictions and targets under tensor parallelism."""
         unreduced_token_loss = unreduced_token_loss_fn(  # TP-aware log prob function
-            preds.clone(),
+            preds.clone().transpose(0, 1).contiguous(),
             target.clone(),
             cross_entropy_loss_fusion=self.cross_entropy_loss_fusion,
         )  # (b, s)
@@ -232,8 +232,7 @@ class MegatronPerplexityMetric(torchmetrics.text.Perplexity):
             target = target.where(target != self.ignore_index, torch.tensor(0, device=target.device))
         else:
             mask = torch.ones_like(target, dtype=torch.bool)
-
-        unreduced_token_loss = unreduced_token_loss[torch.arange(target.numel()), target][mask]
+        unreduced_token_loss = unreduced_token_loss[mask]
 
         self.total_log_probs += unreduced_token_loss.sum()
         self.count += mask.sum()
