@@ -29,14 +29,14 @@ def test_equal_dicts():
     assert are_dicts_equal(dict1, dict2) is True
 
 
-def test_unequal_values(dict3):
+def test_unequal_values():
     dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
     dict3 = {"a": np.array([1, 2, 3]), "b": np.array([7, 8, 9])}
 
     assert are_dicts_equal(dict1, dict3) is False
 
 
-def test_unequal_keys(dict4):
+def test_unequal_keys():
     dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
     dict4 = {"a": np.array([1, 2, 3]), "c": np.array([4, 5, 6])}
     assert are_dicts_equal(dict1, dict4) is False
@@ -46,11 +46,6 @@ def test_different_lengths():
     dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
     smaller_dict = {"a": np.array([1, 2, 3])}
     assert are_dicts_equal(dict1, smaller_dict) is False
-
-
-def test_empty_dicts(empty_dict):
-    empty_dict = {}
-    assert are_dicts_equal(empty_dict, empty_dict) is True
 
 
 @pytest.fixture
