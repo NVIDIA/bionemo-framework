@@ -20,7 +20,6 @@ from bionemo.noodles_fasta_wrapper import (
     complement_sequence,
     reverse_sequence,
     transcribe_sequence,
-    upper,
 )
 
 
