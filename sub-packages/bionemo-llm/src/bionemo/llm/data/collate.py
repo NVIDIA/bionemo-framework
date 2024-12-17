@@ -49,6 +49,10 @@ def padding_collate_fn(
     """
     global _warned_once
     keys: set[str] | None = None
+
+    if len(batch) == 0:  # empty batches passed through in DDP inference
+        return {}
+
     for entry in batch:
         # First check that we have sane batches where keys align with each other.
         if keys is None:
