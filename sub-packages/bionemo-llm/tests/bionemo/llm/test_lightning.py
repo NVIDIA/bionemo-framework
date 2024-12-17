@@ -24,7 +24,7 @@ from torch import nn
 from torchmetrics.text import Perplexity
 
 from bionemo.llm import lightning as bnptl
-from bionemo.llm.lightning import PerplexityLoggingCallback, batch_collator, get_dtype_device, MegatronPerplexityMetric
+from bionemo.llm.lightning import MegatronPerplexityMetric, PerplexityLoggingCallback, batch_collator, get_dtype_device
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.lightning import get_random_microbatch
 
@@ -192,14 +192,6 @@ def test_megatron_perplexity_metric_with_single_microbatch_golden_value_without_
         # setup test input
         microbatch_size, max_sequence_length, vocab_size = 1, 1024, 2
         microbatch_outputs = [get_random_microbatch(microbatch_size, max_sequence_length, vocab_size, seed)]
-        num_microbatches = len(microbatch_outputs)
-
-        # setup mock objects
-        mock_megatron_step = mock.MagicMock()
-        mock_megatron_step.pl_module.log.return_value = None
-        mock_megatron_step.trainer.training = False
-        mock_megatron_step.trainer.sanity_checking = False
-        mock_megatron_step.num_microbatches = num_microbatches
 
         # setup metric
         megatron_ppl_metric = MegatronPerplexityMetric(ignore_index=-100).to(torch.cuda.current_device())
@@ -208,11 +200,15 @@ def test_megatron_perplexity_metric_with_single_microbatch_golden_value_without_
         # compute values
         for microbatch_output in microbatch_outputs:
             megatron_ppl_metric.update(
-                microbatch_output["forward_out"]["token_logits"].transpose(0, 1).contiguous(),
+                microbatch_output["forward_out"]["token_logits"]
+                .transpose(0, 1)
+                .contiguous(),  # (s, b, v) -> (b, s, v)
                 microbatch_output["batch"]["labels"],
             )
             metric.update(
-                microbatch_output["forward_out"]["token_logits"].transpose(0, 1).contiguous(),
+                microbatch_output["forward_out"]["token_logits"]
+                .transpose(0, 1)
+                .contiguous(),  # (s, b, v) -> (b, s, v)
                 microbatch_output["batch"]["labels"],
             )
         ppl_value = megatron_ppl_metric.compute()
@@ -222,6 +218,7 @@ def test_megatron_perplexity_metric_with_single_microbatch_golden_value_without_
             ppl_value,
             ppl_golden_value,
         )
+
 
 def test_perplexity_logging_callback_with_single_microbatch_golden_value_without_parallelism(seed: int = 42):
     """Test PerplexityLoggingCallback with a single microbatch without parallelism"""
