@@ -202,10 +202,10 @@ def test_megatron_perplexity_metric_with_single_microbatch_golden_value_without_
         mock_megatron_step.num_microbatches = num_microbatches
 
         # setup metric
-        megatron_ppl_metric = MegatronPerplexityMetric(ignore_index=-100)
-
-        # compare to torchmetric
+        megatron_ppl_metric = MegatronPerplexityMetric(ignore_index=-100).to(torch.cuda.current_device())
         metric = Perplexity(ignore_index=-100).to(torch.cuda.current_device())
+
+        # compute values
         for microbatch_output in microbatch_outputs:
             megatron_ppl_metric.update(
                 microbatch_output["forward_out"]["token_logits"].transpose(0, 1).contiguous(),
