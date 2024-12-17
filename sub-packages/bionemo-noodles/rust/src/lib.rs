@@ -128,8 +128,8 @@ impl PyIndexedMmapFastaReader {
     }
 
     #[staticmethod]
-    fn create_faidx(fasta_filename: &str) -> PyResult<String> {
-        match IndexedMmapFastaReader::create_faidx(fasta_filename) {
+    fn create_faidx(fasta_filename: &str, force: bool) -> PyResult<String> {
+        match IndexedMmapFastaReader::create_faidx(fasta_filename, force) {
             Ok(fai_filename) => Ok(fai_filename),
             Err(e) => {
                 let py_err = match e.kind() {
@@ -225,7 +225,7 @@ impl IndexedMmapFastaReader {
         Ok(IndexedMmapFastaReader { mmap_reader, index })
     }
 
-    fn create_faidx(fasta_filename: &str) -> std::io::Result<String> {
+    fn create_faidx(fasta_filename: &str, force: bool) -> std::io::Result<String> {
         let fasta_path = Path::new(fasta_filename);
         let index: fai::Index = fasta::io::index(fasta_path).map_err(|e| {
             std::io::Error::new(
@@ -240,7 +240,7 @@ impl IndexedMmapFastaReader {
 
         let fai_filename = fasta_filename.to_string() + ".fai";
         let fai_path = Path::new(&fai_filename); // Convert back to a Path
-        if fai_path.exists() {
+        if fai_path.exists() && !force {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
                 format!("Fai file {} already exists", fai_path.display()),
@@ -265,10 +265,11 @@ impl IndexedMmapFastaReader {
     }
 
     fn new(fasta_path: &str, ignore_existing_fai: bool) -> std::io::Result<Self> {
-        if !ignore_existing_fai {
+        let fasta_fai_str = fasta_path.to_string() + ".fai";
+        let fasta_fai_path = Path::new(&fasta_fai_str);
+        if !ignore_existing_fai && fasta_fai_path.exists() {
             // load the .fai files if they exist
-            let fasta_fai_path = fasta_path.to_string() + ".fai";
-            Self::from_fasta_and_faidx(fasta_path, &fasta_fai_path as &str)
+            Self::from_fasta_and_faidx(fasta_path, &fasta_fai_str)
         } else {
             Self::from_fasta(fasta_path)
         }
@@ -386,7 +387,6 @@ fn transcribe_sequence(s: &str) -> String {
 fn back_transcribe_sequence(s: &str) -> String {
     s.replace("U", "T")
 }
-
 
 /// Compute the number of bytes from start to the end of the line, half interval.
 ///      this means the returned position will the byte offset of a newline.
@@ -727,11 +727,6 @@ fn test_mmap_reads() {
         "CCCCCCCCCCACGT"
     );
     assert_eq!(reader.read_sequence_mmap("chr4:17-17").unwrap(), "");
-}
-
-#[test]
-fn test_upper() {
-    assert_eq!(upper("acgtacgtacgt"), "ACGTACGTACGT");
 }
 
 #[test]
