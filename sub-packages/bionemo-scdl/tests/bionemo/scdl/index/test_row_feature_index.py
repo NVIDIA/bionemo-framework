@@ -20,7 +20,32 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from bionemo.scdl.index.row_feature_index import RowFeatureIndex
+from bionemo.scdl.index.row_feature_index import RowFeatureIndex, are_dicts_equal
+
+
+def test_equal_dicts():
+    dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
+    dict2 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
+    assert are_dicts_equal(dict1, dict2) is True
+
+
+def test_unequal_values():
+    dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
+    dict3 = {"a": np.array([1, 2, 3]), "b": np.array([7, 8, 9])}
+
+    assert are_dicts_equal(dict1, dict3) is False
+
+
+def test_unequal_keys():
+    dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
+    dict4 = {"a": np.array([1, 2, 3]), "c": np.array([4, 5, 6])}
+    assert are_dicts_equal(dict1, dict4) is False
+
+
+def test_different_lengths():
+    dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
+    smaller_dict = {"a": np.array([1, 2, 3])}
+    assert are_dicts_equal(dict1, smaller_dict) is False
 
 
 @pytest.fixture
@@ -34,6 +59,20 @@ def create_first_RowFeatureIndex() -> RowFeatureIndex:
     one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
     index = RowFeatureIndex()
     index.append_features(12, one_feats, len(one_feats["feature_name"]))
+    return index
+
+
+@pytest.fixture
+def create_same_features_first_RowFeatureIndex() -> RowFeatureIndex:
+    """
+    Instantiate a RowFeatureIndex.
+
+    Returns:
+        A RowFeatureIndex with known values.
+    """
+    one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
+    index = RowFeatureIndex()
+    index.append_features(6, one_feats, len(one_feats["feature_name"]))
     return index
 
 
@@ -86,14 +125,17 @@ def test_feature_index_internals_on_single_index(create_first_RowFeatureIndex):
     assert len(vals) == 1
 
 
-def test_feature_index_internals_on_append(create_first_RowFeatureIndex):
+def test_feature_index_internals_on_append_different_features(
+    create_first_RowFeatureIndex, create_second_RowFeatureIndex
+):
     one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
     two_feats = {
         "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
         "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
         "spare": np.array([None, None, None, None, None]),
     }
-    create_first_RowFeatureIndex.append_features(8, two_feats, len(two_feats["feature_name"]), "MY_DATAFRAME")
+    create_first_RowFeatureIndex.concat(create_second_RowFeatureIndex)
+    # append(8, two_feats, len(two_feats["feature_name"]), "MY_DATAFRAME")
     assert len(create_first_RowFeatureIndex) == 2
     assert create_first_RowFeatureIndex.number_vars_at_row(1) == 3
     assert create_first_RowFeatureIndex.number_vars_at_row(13) == 5
@@ -111,6 +153,28 @@ def test_feature_index_internals_on_append(create_first_RowFeatureIndex):
     assert np.all(feats[1] == two_feats["gene_name"])
     assert np.all(feats[2] == two_feats["spare"])
     assert label == "MY_DATAFRAME"
+
+
+def test_feature_index_internals_on_append_same_features(create_first_RowFeatureIndex):
+    one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
+    create_first_RowFeatureIndex.concat(create_first_RowFeatureIndex)
+    # append(8, two_feats, len(two_feats["feature_name"]), "MY_DATAFRAME")
+    assert len(create_first_RowFeatureIndex) == 1
+    assert create_first_RowFeatureIndex.number_vars_at_row(1) == 3
+    assert create_first_RowFeatureIndex.number_vars_at_row(13) == 3
+    assert create_first_RowFeatureIndex.number_vars_at_row(19) == 3
+    assert create_first_RowFeatureIndex.number_vars_at_row(2) == 3
+    assert sum(create_first_RowFeatureIndex.number_of_values()) == 2 * (12 * 3)
+    assert create_first_RowFeatureIndex.number_of_values()[0] == 2 * (12 * 3)
+    assert create_first_RowFeatureIndex.number_of_rows() == 24
+    feats, label = create_first_RowFeatureIndex.lookup(row=3, select_features=None)
+    assert np.all(feats[0] == one_feats["feature_name"])
+    assert np.all(feats[1] == one_feats["feature_int"])
+    assert label is None
+    feats, label = create_first_RowFeatureIndex.lookup(row=15, select_features=None)
+    assert np.all(feats[0] == one_feats["feature_name"])
+    assert np.all(feats[1] == one_feats["feature_int"])
+    assert label is None
 
 
 def test_concat_length(
