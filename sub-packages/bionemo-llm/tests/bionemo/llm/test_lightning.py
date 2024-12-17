@@ -220,6 +220,45 @@ def test_megatron_perplexity_metric_with_single_microbatch_golden_value_without_
         )
 
 
+def test_megatron_perplexity_metric_with_with_variable_length_microbatches_golden_value_without_parallelism(
+    seed: int = 42,
+):
+    """Test PerplexityLoggingCallback with a single microbatch without parallelism"""
+    with megatron_parallel_state_utils.distributed_model_parallel_state(seed=seed):
+        # setup test input
+        microbatch_size, max_sequence_length, vocab_size = 2, 1024, 2
+        microbatch_outputs = [
+            get_random_microbatch(microbatch_size, max_sequence_length // 2, vocab_size, seed),
+            get_random_microbatch(microbatch_size, max_sequence_length, vocab_size, seed),
+        ]
+
+        # setup metric
+        megatron_ppl_metric = MegatronPerplexityMetric(ignore_index=-100).to(torch.cuda.current_device())
+        metric = Perplexity(ignore_index=-100).to(torch.cuda.current_device())
+
+        # compute values
+        for microbatch_output in microbatch_outputs:
+            megatron_ppl_metric.update(
+                microbatch_output["forward_out"]["token_logits"]
+                .transpose(0, 1)
+                .contiguous(),  # (s, b, v) -> (b, s, v)
+                microbatch_output["batch"]["labels"],
+            )
+            metric.update(
+                microbatch_output["forward_out"]["token_logits"]
+                .transpose(0, 1)
+                .contiguous(),  # (s, b, v) -> (b, s, v)
+                microbatch_output["batch"]["labels"],
+            )
+        ppl_value = megatron_ppl_metric.compute()
+        ppl_golden_value = metric.compute()
+
+        torch.testing.assert_close(
+            ppl_value,
+            ppl_golden_value,
+        )
+
+
 def test_perplexity_logging_callback_with_single_microbatch_golden_value_without_parallelism(seed: int = 42):
     """Test PerplexityLoggingCallback with a single microbatch without parallelism"""
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed=seed):
