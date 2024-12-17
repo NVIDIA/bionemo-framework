@@ -1,7 +1,12 @@
-from bionemo.noodles import reverse_sequence, complement_sequence, transcribe_sequence, back_transcribe_sequence, upper
+from collections import defaultdict
+import os
+import random
+import tempfile
+from bionemo.noodles import reverse_sequence, complement_sequence, transcribe_sequence, back_transcribe_sequence 
 from bionemo.noodles.nvfaidx import NvFaidx
 import pytest
 import pathlib
+import time
 
 @pytest.fixture
 def sample_fasta():
@@ -12,30 +17,122 @@ def test_reverse_sequence():
 
 def test_reverse_sequence_equivalence(sample_fasta):
     idx = NvFaidx(sample_fasta)
-    print(idx['chr1'])
-    complement_sequence(idx['chr1'].sequence())
-    reverse_sequence(idx['chr1'].sequence())
-    transcribe_sequence(idx['chr1'].sequence())
-    back_transcribe_sequence(idx['chr1'].sequence())
-    upper(idx['chr1'].sequence())
+
+    # compare to results generated from biopython:
+    assert reverse_sequence(idx['chr1'].sequence()) == 'GTCAGTCAGTCA'
+    assert complement_sequence(idx['chr1'].sequence()) == 'TGACTGACTGAC'
+    assert transcribe_sequence(idx['chr1'].sequence()) == 'ACUGACUGACUG'
+    assert back_transcribe_sequence(idx['chr1'].sequence()) == 'ACTGACTGACTG'
+
+@pytest.mark.skip("Requires Biopython")
+def test_benchmark_vs_biopython():
+    ''' Must install biopython to actually run this. Timings below.
+    reverse 0.0005855560302734375 1.9788742065429688e-05 29.59036144578313
+    transcribe 0.0012478828430175781 4.1961669921875e-05 29.738636363636363
+    back_transcribe 9.417533874511719e-05 8.821487426757812e-06 10.675675675675675
+    complement 0.0005459785461425781 8.416175842285156e-05 6.4872521246458925 
+    '''
+    from Bio import SeqIO
+
+    test_fasta = create_test_fasta(num_seqs=100, seq_length=10000)
+    fasta_biop = SeqIO.parse(test_fasta, "fasta")
+    # Time transcribe
+    results = defaultdict(lambda: 0.)
+    for record in fasta_biop:
+        start = time.time()
+        record.seq[::-1]
+        end = time.time()
+        results['reverse'] += end - start
+
+        start = time.time()
+        record.seq.transcribe()
+        end = time.time()
+        results['transcribe'] += end - start
+
+        start = time.time()
+        record.seq.back_transcribe()
+        end = time.time()
+        results['back_transcribe'] += end - start
+
+        start = time.time()
+        record.seq.complement()
+        end = time.time()
+        results['complement'] += end - start
+    
+
+    biop_results = results
+
+    idx = NvFaidx(test_fasta)
+    results = defaultdict(lambda: 0.)
+    for seq in idx.values():
+        start = time.time()
+        reverse_sequence(seq)
+        end = time.time()
+        results['reverse'] = end - start
+
+        start = time.time()
+        transcribe_sequence(seq)
+        end = time.time()
+        results['transcribe'] = end - start
+
+        start = time.time()
+        back_transcribe_sequence(seq)
+        end = time.time()
+        results['back_transcribe'] = end - start
+
+        start = time.time()
+        complement_sequence(seq)
+        end = time.time()
+        results['complement'] = end - start
+    
+
+    noodles_results = results
+    print('func', 'biopython-time', 'noodles-time', 'noodles-speedup')
+    for key in results:
+        biop, noodles = biop_results[key], noodles_results[key]
+        print(key, biop, noodles, biop/noodles)
+        assert biop/noodles > 1
+    assert False # So they print out
+
 
 def test_complement_sequence():
     assert complement_sequence("ACGTACGTACGT") == "TGCATGCATGCA"
     assert complement_sequence(complement_sequence("ACGTACGTACGT")) == "ACGTACGTACGT"
 
-def test_complement_sequence_equivalence():
-    ...
 
 def test_transcribe_sequence():
     assert transcribe_sequence("ACGTACGTACGT") == "ACGUACGUACGU"
     assert back_transcribe_sequence(transcribe_sequence("ACGTACGTACGT")) == "ACGTACGTACGT"
 
-def test_back_transcribe_sequence_equivalence():
-    ...
-
 def test_back_transcribe_sequence():
     assert back_transcribe_sequence("ACGUACGUACGU") == "ACGTACGTACGT"
     assert transcribe_sequence(back_transcribe_sequence("ACGUACGUACGU")) == "ACGUACGUACGU"
 
-def test_upper_sequence():
-    assert upper("acgtacgtacgt") == "ACGTACGTACGT"
+
+def create_test_fasta(num_seqs=2, seq_length=1000):
+    """
+    Creates a FASTA file with random sequences.
+
+    Args:
+        num_seqs (int): Number of sequences to include in the FASTA file.
+        seq_length (int): Length of each sequence.
+
+    Returns:
+        str: File path to the generated FASTA file.
+    """
+    temp_dir = tempfile.mkdtemp()
+    fasta_path = os.path.join(temp_dir, "test.fasta")
+
+    with open(fasta_path, "w") as fasta_file:
+        for i in range(1, num_seqs + 1):
+            # Write the header
+            fasta_file.write(f">contig{i}\n")
+
+            # Generate a random sequence of the specified length
+            sequence = "".join(random.choices("ACGT", k=seq_length))
+
+            # Split the sequence into lines of 60 characters for FASTA formatting
+            for j in range(0, len(sequence), 80):
+                fasta_file.write(sequence[j : j + 80] + "\n")
+
+    return fasta_path

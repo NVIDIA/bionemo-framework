@@ -16,4 +16,4 @@
 from bionemo.noodles_fasta_wrapper import PyFaidxRecord, PyIndexedMmapFastaReader, reverse_sequence, complement_sequence, transcribe_sequence, back_transcribe_sequence, upper
 
 
-__all__ = ("PyFaidxRecord", "PyIndexedMmapFastaReader", "reverse_sequence", "complement_sequence", "transcribe_sequence", "back_transcribe_sequence", "upper")
+__all__ = ("PyFaidxRecord", "PyIndexedMmapFastaReader", "reverse_sequence", "complement_sequence", "transcribe_sequence", "back_transcribe_sequence")

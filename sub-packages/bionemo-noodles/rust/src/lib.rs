@@ -181,7 +181,6 @@ impl PyIndexedMmapFastaReader {
 fn noodles_fasta_wrapper(_: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyIndexedMmapFastaReader>()?;
     m.add_class::<PyFaidxRecord>()?;
-    m.add_function(wrap_pyfunction!(upper, m)?)?;
     m.add_function(wrap_pyfunction!(complement_sequence, m)?)?;
     m.add_function(wrap_pyfunction!(reverse_sequence, m)?)?;
     m.add_function(wrap_pyfunction!(transcribe_sequence, m)?)?;
@@ -388,10 +387,6 @@ fn back_transcribe_sequence(s: &str) -> String {
     s.replace("U", "T")
 }
 
-#[pyfunction]
-fn upper(s: &str) -> String {
-    return s.to_uppercase();
-}
 
 /// Compute the number of bytes from start to the end of the line, half interval.
 ///      this means the returned position will the byte offset of a newline.
