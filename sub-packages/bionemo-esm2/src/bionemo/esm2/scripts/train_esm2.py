@@ -178,6 +178,7 @@ def main(
             overlap_grad_reduce=overlap_grad_reduce,
             overlap_param_gather=overlap_param_gather,
             average_in_collective=average_in_collective,
+            grad_reduce_in_fp32=grad_reduce_in_fp32,
             use_distributed_optimizer=True,
         ),
         find_unused_parameters=True,
