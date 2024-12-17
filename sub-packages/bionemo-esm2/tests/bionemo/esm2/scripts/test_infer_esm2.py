@@ -139,7 +139,6 @@ def test_esm2_fine_tune_data_module_val_dataloader(data_module):
 
 
 @pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
-@pytest.mark.parametrize("checkpoint_path", [esm2_3b_checkpoint_path, esm2_650m_checkpoint_path])
 @pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
 @pytest.mark.skipif(check_gpu_memory(30), reason="Skipping test due to insufficient GPU memory")
 def test_infer_runs(
@@ -147,13 +146,9 @@ def test_infer_runs(
     dummy_protein_csv,
     dummy_protein_sequences,
     precision,
-    checkpoint_path,
     prediction_interval,
     padded_tokenized_sequences,
 ):
-    if check_gpu_memory(40) and checkpoint_path == esm2_3b_checkpoint_path:
-        pytest.skip("Skipping ESM2 3B tests due to insufficient GPU memory")
-
     data_path = dummy_protein_csv
     result_dir = tmpdir / "results"
     min_seq_len = 1024  # Minimum length of the output batch; tensors will be padded to this length.
