@@ -85,9 +85,11 @@ class SequenceAccessor:
             raise TypeError("Index must be an integer or a slice.")
 
     def sequence_id(self) -> str:
+        """Returns the sequenceid of this SequenceAccessor."""
         return self.seqid
 
     def sequence(self) -> str:
+        """Returns the sequence associated with this SequenceAccessor as a string."""
         return self[:]
 
 
