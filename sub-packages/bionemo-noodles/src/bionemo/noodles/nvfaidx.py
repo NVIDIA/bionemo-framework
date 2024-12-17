@@ -40,6 +40,7 @@ class SequenceAccessor:
             - out of bounds indexing is truncated: query[1:999999999] will return a string from position 1 to the terminus.
             - reversed slices return the empty string: query[999:1] is the empty string.
             - empty slice returns the full string: query[:] is the full string of the sequence.
+            - beginning of slice is beyond the range of the contig, the empty string is returned.
 
         Additionally there are convenience methods that you may find useful in the class definition.
 
@@ -176,18 +177,6 @@ class NvFaidx:
                 self.reader = PyIndexedMmapFastaReader(fasta_path, faidx_path=None, ignore_existing_fai=False)
             case _:
                 raise ValueError("unreachable condition.")
-
-        self.records: Dict[str, PyFaidxRecord] = {record.name: record for record in self.reader.records()}
-        return
-        if ignore_existing_fai:
-            self.reader = PyIndexedMmapFastaReader(fasta_path, ignore_existing_fai=ignore_existing_fai)
-        elif faidx_path is not None:
-            self.reader = PyIndexedMmapFastaReader.from_fasta_and_faidx(fasta_path, faidx_path)
-        else:
-            # No faidx path is passed, ignore_existing is always False in this branch
-            #   if the faidx exists, we use it
-            #   if the faidx does not exist, we dont.
-            self.reader = PyIndexedMmapFastaReader(fasta_path, ignore_existing_fai=ignore_existing_fai)
 
         self.records: Dict[str, PyFaidxRecord] = {record.name: record for record in self.reader.records()}
 

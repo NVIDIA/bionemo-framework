@@ -263,6 +263,8 @@ def _test_faidx_generic(faidx_obj):
     # Should see this is out of bounds and return empty or throw an error
     assert index["chr4"][17:17] == ""
 
+    assert index["chr4"][17:] == ""
+
 
 def test_nvfaidx_python_interface(sample_fasta):
     nvfaidx_index = NvFaidx(sample_fasta)
