@@ -32,9 +32,9 @@ def sample_fasta():
     return str(pathlib.Path(__file__).parent.parent.parent / "bionemo/noodles/data/sample.fasta")
 
 
-def test_create_faidx():
+def test_create_faidx_rustbind():
     filename = create_test_fasta(num_seqs=2, seq_length=200)
-    faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename)
+    faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename, force=False)
     assert os.path.exists(faidx_filename)
     assert faidx_filename == filename + ".fai"
 
@@ -48,7 +48,7 @@ def test_create_faidx():
 
 def test_from_fasta_and_faidx_no_such_faidx():
     filename = create_test_fasta(num_seqs=2, seq_length=200)
-    faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename)
+    faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename, force=False)
     os.remove(faidx_filename)
     # And this should fail.
     with pytest.raises(FileNotFoundError):
@@ -58,7 +58,7 @@ def test_from_fasta_and_faidx_no_such_faidx():
 def test_from_fasta_and_faidx():
     # Smoke test, this should all work
     filename = create_test_fasta(num_seqs=2, seq_length=200)
-    faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename)
+    faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename, force=False)
     index = PyIndexedMmapFastaReader.from_fasta_and_faidx(filename, faidx_filename)
     index2 = PyIndexedMmapFastaReader(filename, ignore_existing_fai=True)
     # Test against constructor for equivalence.
@@ -129,6 +129,67 @@ def test_memmap_index(sample_fasta):
     assert index.read_sequence_mmap("chr4:17-17") == ""
 
 
+def test_len(sample_fasta):
+    index = NvFaidx(sample_fasta)
+    assert len(index) == 5
+
+
+def test_contains(sample_fasta):
+    index = NvFaidx(sample_fasta)
+    for i in range(1, 6):
+        assert f"chr{i}" in index
+
+
+def test_create_faidx_nvfaidx(sample_fasta):
+    test_fasta_fn = create_test_fasta()
+
+    faidx_fn = NvFaidx(test_fasta_fn, None, ignore_existing_fai=False)
+
+    faidx_fn = NvFaidx.create_faidx(test_fasta_fn, force=False)
+    _ = NvFaidx(sample_fasta, faidx_path=faidx_fn, ignore_existing_fai=False)
+    assert os.path.exists(faidx_fn)
+
+    faidx_fn = NvFaidx.create_faidx(test_fasta_fn, force=True)
+    _ = NvFaidx(sample_fasta, faidx_path=faidx_fn, ignore_existing_fai=False)
+    assert os.path.exists(faidx_fn)
+
+    with pytest.raises(FileExistsError):
+        faidx_fn = NvFaidx.create_faidx(test_fasta_fn, force=False)
+
+    _ = NvFaidx(sample_fasta, faidx_path=faidx_fn, ignore_existing_fai=False)
+
+
+def test_iter_all_id_seqs(sample_fasta):
+    expected = {
+        "chr1": "ACTGACTGACTG",
+        "chr2": "GGTCAAGGTCAA",
+        "chr3": "AGTCAAGGTCCACGTCAAGGTCCCGGTCAAGGTCCGTGTCAAGGTCCTAGTCAAGGTCAACGTCAAGGTCACGGTCAAGGTCAG",
+        "chr4": "CCCCCCCCCCCCACGT",
+        "chr5": "A",
+    }
+    fasta_path = sample_fasta
+    index = NvFaidx(fasta_path)
+    for seq_id in index:
+        full_seq = index[seq_id][:]
+        assert full_seq == expected[seq_id], seq_id
+
+    for seq_id in index.keys():
+        full_seq = index[seq_id][:]
+        assert full_seq == expected[seq_id], seq_id
+
+    # Same test different syntax
+    for seq_id in index.keys():
+        assert index[seq_id].sequence() == expected[seq_id], seq_id
+
+    for_next_test = []
+    for seq_id, full_seq in index.items():
+        assert full_seq == expected[seq_id], seq_id
+        for_next_test.append(full_seq)
+
+    for full_seq, seq_via_items in zip(index.values(), for_next_test):
+        assert full_seq == seq_via_items
+
+
 def test_getitem_bounds(sample_fasta):
     # NOTE make this the correct path, check this file in since we are checking exactness of queries.
     index = NvFaidx(sample_fasta)
@@ -140,10 +201,21 @@ def test_getitem_bounds(sample_fasta):
     assert index["chr1"][1:10000] == "CTGACTGACTG"
     # Slice up to the last element
     assert index["chr1"][0:-1] == "ACTGACTGACT"
+    # Get the full sequence
+    assert index["chr1"][:] == "ACTGACTGACTG"
     # equivalent to above
     assert index["chr1"][:-1] == "ACTGACTGACT"
     # -1 should get the last element
     assert index["chr1"][-1:] == "G"
+    # non slices return empty string
+    assert index["chr1"][100:1] == ""
+    # Negative integer indexing is allowed.
+    assert index["chr1"][-1] == "G"
+    assert index["chr1"][-1 * len(index["chr1"])] == "A"
+
+    with pytest.raises(IndexError):
+        # Negative indexing is not allowed to wrap
+        index["chr1"][-1000000]
 
     # Invalid contig should throw an exception
     with pytest.raises(KeyError):
@@ -190,6 +262,8 @@ def _test_faidx_generic(faidx_obj):
 
     # Should see this is out of bounds and return empty or throw an error
     assert index["chr4"][17:17] == ""
+
+    assert index["chr4"][17:] == ""
 
 
 def test_nvfaidx_python_interface(sample_fasta):
@@ -297,10 +371,9 @@ def test_file_errors():
     # But if we create an index in memory, should work!
     _ = PyIndexedMmapFastaReader(test_fa, ignore_existing_fai=True)
 
-    # test failure due to lack of fai
-    with pytest.raises(FileNotFoundError):
-        new_test_fasta = create_test_fasta(num_seqs=1, seq_length=200)
-        _ = PyIndexedMmapFastaReader(new_test_fasta, ignore_existing_fai=False)
+    # Should work because 'ignore' implies it only occurs with the fai exists.
+    new_test_fasta = create_test_fasta(num_seqs=1, seq_length=200)
+    _ = PyIndexedMmapFastaReader(new_test_fasta, ignore_existing_fai=False)
 
 
 ## Benchmarks

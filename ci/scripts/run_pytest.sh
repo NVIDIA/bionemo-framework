@@ -19,6 +19,8 @@ set -xueo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 # NOTE: if a non-nvidia user wants to run the test suite, just run `export BIONEMO_DATA_SOURCE=ngc` prior to this call.
 export BIONEMO_DATA_SOURCE="${BIONEMO_DATA_SOURCE:-pbss}"
+# flexible GPU memory management, reducing the risk of fragmentation-related CUDA OOM
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 source "$(dirname "$0")/utils.sh"
 
 if ! set_bionemo_home; then
@@ -27,12 +29,16 @@ fi
 
 python -m coverage erase
 
+error=false
 for dir in docs/ ./sub-packages/bionemo-*/; do
     echo "Running pytest in $dir"
     python -m coverage run --parallel-mode --source=bionemo \
-    -m pytest -v --nbval-lax --durations=0 --durations-min=60.0 --ignore-glob='*docs/docs/user-guide/examples/bionemo-esm2/mutant-design.ipynb' "$dir"
-
+    -m pytest -v --nbval-lax --durations=0 --durations-min=60.0 "$dir" || error=true
 done
 
 python -m coverage combine
 python -m coverage report --show-missing
+
+if [ "$error" = true ]; then
+    exit 1
+fi
