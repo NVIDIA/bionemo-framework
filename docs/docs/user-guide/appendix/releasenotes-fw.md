@@ -22,7 +22,7 @@
   * Added new Jupyter notebook tutorials for inference and zero-shot protein design. These notebooks can be deployed on the cloud resources as a [brev.dev](https://www.brev.dev/) launchable.
 
 ###  Known Issues:
-* Loading a checkpoint an inference on H100 has a known regression in accuracy. Work is in progress to resolve by next release.
+* Loading a checkpoint for Geneformer inference on H100 has a known regression in accuracy. Work is in progress to resolve by next release.
 
 ## BioNeMo Framework v2.1
 

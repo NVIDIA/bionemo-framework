@@ -262,8 +262,7 @@ class _DummyDataSet(torch.utils.data.Dataset):
 
 
 @pytest.mark.xfail(
-    platform.machine().lower() == "aarch64",
-    reason="Known issue on ARM architecture"
+    reason="Known issue on H100 GPUs"
 )
 def test_geneformer_nemo1_v_nemo2_inference_golden_values(
     geneformer_config: GeneformerConfig, cells: List[List[str]], seed: int = 42
