@@ -108,7 +108,7 @@ class InMemoryCSVDataset(Dataset):
         df = pd.read_csv(csv_path)
         sequences = df["sequences"].tolist()
 
-        if "label" in df.columns:
+        if "labels" in df.columns:
             labels = df["labels"].tolist()
         else:
             labels = []
