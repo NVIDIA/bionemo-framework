@@ -19,7 +19,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import List, Tuple
 from unittest import mock
-import platform
 
 import pytest
 import torch
