@@ -312,6 +312,7 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
+RUN rm -rf /root/.cache/bazel
 RUN chmod 777 -R /workspace/bionemo2/
 
 # Transformer engine attention defaults

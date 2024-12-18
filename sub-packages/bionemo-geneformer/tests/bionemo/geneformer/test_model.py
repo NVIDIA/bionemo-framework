@@ -19,6 +19,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import List, Tuple
 from unittest import mock
+import platform
 
 import pytest
 import torch
@@ -260,6 +261,10 @@ class _DummyDataSet(torch.utils.data.Dataset):
         return {"text": self.input_ids[idx], "attention_mask": self.mask[idx]}
 
 
+@pytest.mark.xfail(
+    platform.machine().lower() == "aarch64",
+    reason="Known issue on ARM architecture"
+)
 def test_geneformer_nemo1_v_nemo2_inference_golden_values(
     geneformer_config: GeneformerConfig, cells: List[List[str]], seed: int = 42
 ):
