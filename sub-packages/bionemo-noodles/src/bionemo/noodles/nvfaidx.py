@@ -174,7 +174,7 @@ class NvFaidx:
             # In this case, faidx path is None and ignore_existing is False, and it covers all other cases.
             case (_, None, False):
                 # But the logic here doesnt make sense, ignore_existing is false, but it should only use if it if it exists.
-                self.reader = PyIndexedMmapFastaReader(fasta_path, faidx_path=None, ignore_existing_fai=False)
+                self.reader = PyIndexedMmapFastaReader(fasta_path, False)
             case _:
                 raise ValueError("unreachable condition.")
 
