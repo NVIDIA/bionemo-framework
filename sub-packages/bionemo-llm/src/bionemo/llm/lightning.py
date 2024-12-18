@@ -351,6 +351,8 @@ class BionemoLightningModule(
             self.train_ppl(logits, batch["labels"])
             self.log("train_ppl", self.train_ppl, on_step=True, on_epoch=False)
 
+        return outputs
+
     def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
@@ -359,6 +361,8 @@ class BionemoLightningModule(
         if self.log_val_ppl and parallel_state.is_pipeline_last_stage():
             self.valid_ppl(logits, batch["labels"])
             self.log("valid_ppl", self.valid_ppl, on_step=False, on_epoch=True)
+
+        return outputs
 
     def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """Alias for forward_step."""
