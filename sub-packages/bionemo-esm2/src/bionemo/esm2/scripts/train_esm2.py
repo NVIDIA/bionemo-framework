@@ -255,6 +255,9 @@ def main(
     if scheduler_num_steps is None:
         scheduler_num_steps = num_steps
 
+    if (log_train_ppl or log_val_ppl) and pipeline_model_parallel_size > 1:
+        raise NotImplementedError("Perplexity logging does not support pipeline parallelism yet.")
+
     model = biobert_lightning_module(
         esm2_config,
         tokenizer=tokenizer,

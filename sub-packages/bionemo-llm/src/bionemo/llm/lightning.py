@@ -293,9 +293,6 @@ class BionemoLightningModule(
         # all scaling on the internal states are cancelled out in the formula "exp(total_log_probs / count)" so we can safely sum across all devices
         self.log_train_ppl = log_train_ppl
         self.log_val_ppl = log_val_ppl
-        if (log_train_ppl or log_val_ppl) and self.trainer.strategy.pipeline_model_parallel_size > 1:
-            raise NotImplementedError("Perplexity logging does not support pipeline parallelism yet.")
-
         if log_train_ppl:
             self.train_ppl = MegatronPerplexityMetric(ignore_index=-100)
         if log_val_ppl:
