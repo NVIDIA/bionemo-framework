@@ -86,7 +86,8 @@ COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=1 \
   UV_PYTHON_DOWNLOADS=never \
-  UV_SYSTEM_PYTHON=true
+  UV_SYSTEM_PYTHON=true \
+  UV_NO_CACHE=1
 
 # Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
