@@ -598,7 +598,7 @@ def get_parser():
     parser.add_argument(
         "--log-train-ppl",
         action="store_true",
-        default=True,
+        default=False,
         help="Log perplexity during training.",
     )
     parser.add_argument(
