@@ -217,13 +217,7 @@ def main(
         log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
-        plugins=nl.MegatronMixedPrecision(
-            precision=precision,
-            params_dtype=get_autocast_dtype(precision),
-            pipeline_dtype=get_autocast_dtype(precision),
-            grad_reduce_in_fp32=False,
-            autocast_enabled=False,
-        ),
+        plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
     tokenizer = get_tokenizer()
