@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import List, Optional, Sequence, get_args
 
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
-from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -168,18 +167,11 @@ def main(
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
-        pipeline_dtype=get_autocast_dtype(precision),
-        ddp=DistributedDataParallelConfig(
-            check_for_nan_in_grad=True,
-            overlap_grad_reduce=True,
-            overlap_param_gather=True,
-            average_in_collective=True,
-            use_distributed_optimizer=True,
-        ),
+        ddp="megatron",
         find_unused_parameters=True,
-        gradient_as_bucket_view=True,
         ckpt_include_optimizer=True,
-        ckpt_async_save=False,  # TODO turn off due to error: Invalid access pattern: 1 ShardedObject are missing.
+        # NOTE: there are issues related to async that may occur, most recently observed due to duplicate filenames.
+        ckpt_async_save=True,
         ckpt_parallel_load=True,
     )
 
