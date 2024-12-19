@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import os
 from dataclasses import dataclass, field
 from typing import List, Sequence, Tuple, Type, TypedDict
 
@@ -23,12 +24,11 @@ from megatron.core import parallel_state
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
 from torch import Tensor
-from torch.utils.data import Dataset
 
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
 from bionemo.esm2.data import tokenizer
+from bionemo.esm2.model.finetune.dataset import InMemoryCSVDataset
 from bionemo.llm.data.label2id_tokenizer import Label2IDTokenizer
-from bionemo.llm.data.types import BertSample
 from bionemo.llm.model.biobert.model import BioBertOutput
 from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
 from bionemo.llm.utils import iomixin_utils as iom
@@ -204,12 +204,12 @@ class ESM2FineTuneTokenConfig(
         return ClassifierLossReduction
 
 
-class InMemoryPerTokenValueDataset(Dataset):
+class InMemoryPerTokenValueDataset(InMemoryCSVDataset):
     """An in-memory dataset of labeled strings, which are tokenized on demand."""
 
     def __init__(
         self,
-        data: Sequence[Tuple[str, str]],
+        data_path: str | os.PathLike,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
@@ -218,42 +218,28 @@ class InMemoryPerTokenValueDataset(Dataset):
         This is an in-memory dataset that does not apply masking to the sequence.
 
         Args:
-            data: A sequence of tuples containing the sequence and target data.
-            tokenizer: The tokenizer to use. Defaults to tokenizer.get_tokenizer().
-            seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to
-                ensure that __getitem__ is deterministic, but can be random across different runs. If None, a random
-                seed is generated.
+            data_path (str | os.PathLike): A path to the CSV file containing sequences and labels (Optional)
+            tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
+            seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
+                that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
+                generated.
         """
-        self.data = data
-        self.seed = seed
-        self._len = len(self.data)
-        self.tokenizer = tokenizer
+        super().__init__(data_path=data_path, tokenizer=tokenizer, seed=seed)
         label_tokenizer = Label2IDTokenizer()
         self.label_tokenizer = label_tokenizer.build_vocab("CHE")
 
-    def __len__(self) -> int:
-        """Length of dataset."""
-        return self._len
+    def transform_label(self, label: str) -> Tensor:
+        """Transform the sequence label by tokenizing them.
 
-    def __getitem__(self, index: int) -> BertSample:
-        """Gets a BertSample associated to the supplied index."""
-        sequence, target = self.data[index]
-        tokenized_sequence = self._tokenize(sequence)
-        # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
-        loss_mask = ~torch.isin(tokenized_sequence, torch.tensor(self.tokenizer.all_special_ids))
-        labels = self._tokenize_labels(target)
+        This method tokenizes the secondary structure token sequences.
 
-        return {
-            "text": tokenized_sequence,
-            "types": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
-            "attention_mask": torch.ones_like(tokenized_sequence, dtype=torch.int64),
-            "labels": labels,
-            "loss_mask": loss_mask,
-            "is_random": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
-        }
+        Args:
+            label: secondary structure token sequences to be transformed
 
-    def _tokenize_labels(self, labels_sequence: str) -> Tensor:
-        label_ids = torch.tensor(self.label_tokenizer.text_to_ids(labels_sequence))
+        Returns:
+            tokenized label
+        """
+        label_ids = torch.tensor(self.label_tokenizer.text_to_ids(label))
 
         # # for multi-label classification with BCEWithLogitsLoss
         # tokenized_labels = torch.nn.functional.one_hot(label_ids, num_classes=self.label_tokenizer.vocab_size)
@@ -266,15 +252,3 @@ class InMemoryPerTokenValueDataset(Dataset):
         # add cls / eos labels with padding value -1 to have the same shape as tokenized_sequence
         labels = torch.cat((cls_eos, tokenized_labels, cls_eos))
         return labels
-
-    def _tokenize(self, sequence: str) -> Tensor:
-        """Tokenize a protein sequence.
-
-        Args:
-            sequence: The protein sequence.
-
-        Returns:
-            The tokenized sequence.
-        """
-        tensor = self.tokenizer.encode(sequence, add_special_tokens=True, return_tensors="pt")
-        return tensor.flatten()  # type: ignore
