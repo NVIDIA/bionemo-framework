@@ -53,7 +53,7 @@ class ESM2FineTuneDataModule(MegatronDataModule):
         max_seq_length: int = 1024,
         micro_batch_size: int = 4,
         global_batch_size: int = 8,
-        num_workers: int = 10,
+        num_workers: int = 2,
         persistent_workers: bool = True,
         pin_memory: bool = True,
         rampup_batch_size: list[int] | None = None,
@@ -134,7 +134,7 @@ class ESM2FineTuneDataModule(MegatronDataModule):
             self._train_ds = self._create_epoch_based_dataset(self.train_dataset, num_train_samples)
 
         # Create validation dataset
-        if self.valid_dataset is not None:
+        if self.valid_dataset is not None and self.trainer.limit_val_batches != 0:
             num_val_samples = infer_num_samples(
                 limit_batches=self.trainer.limit_val_batches,
                 num_samples_in_dataset=len(self.valid_dataset),

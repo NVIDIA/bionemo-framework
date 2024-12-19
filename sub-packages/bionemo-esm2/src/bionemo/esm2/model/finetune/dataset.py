@@ -122,4 +122,4 @@ class InMemoryCSVDataset(Dataset):
         Returns:
             transformed_label
         """
-        return label
+        return torch.Tensor(label)

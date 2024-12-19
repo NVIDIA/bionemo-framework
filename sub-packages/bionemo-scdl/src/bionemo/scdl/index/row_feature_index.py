@@ -28,6 +28,20 @@ import pyarrow.parquet as pq
 __all__: Sequence[str] = ("RowFeatureIndex",)
 
 
+def are_dicts_equal(dict1: dict[str, np.ndarray], dict2: dict[str, np.ndarray]) -> bool:
+    """Compare two dictionaries with string keys and numpy.ndarray values.
+
+    Args:
+        dict1 (dict[str, np.ndarray]): The first dictionary to compare.
+        dict2 (dict[str, np.ndarray]): The second dictionary to compare.
+
+    Returns:
+        bool: True if the dictionaries have the same keys and all corresponding
+              numpy arrays are equal; False otherwise.
+    """
+    return dict1.keys() == dict2.keys() and all(np.array_equal(dict1[k], dict2[k]) for k in dict1)
+
+
 class RowFeatureIndex:
     """Maintains a mapping between a row and its features.
 
@@ -100,10 +114,16 @@ class RowFeatureIndex:
         if isinstance(features, pd.DataFrame):
             raise TypeError("Expected a dictionary, but received a Pandas DataFrame.")
         csum = max(self._cumulative_sum_index[-1], 0)
-        self._cumulative_sum_index = np.append(self._cumulative_sum_index, csum + n_obs)
-        self._feature_arr.append(features)
-        self._num_genes_per_row.append(num_genes)
-        self._labels.append(label)
+
+        # If the new feature array is identical to the last one, it is not appended. Instead, the last array accounts
+        # for the additional n_obs also.
+        if len(self._feature_arr) > 0 and are_dicts_equal(self._feature_arr[-1], features):
+            self._cumulative_sum_index[-1] = csum + n_obs
+        else:
+            self._cumulative_sum_index = np.append(self._cumulative_sum_index, csum + n_obs)
+            self._feature_arr.append(features)
+            self._num_genes_per_row.append(num_genes)
+            self._labels.append(label)
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
         """Find the features at a given row.
