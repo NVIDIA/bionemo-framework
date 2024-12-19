@@ -41,7 +41,7 @@ class ESMDataModule(MegatronDataModule):
         train_database_path: str | os.PathLike,
         valid_cluster_path: str | os.PathLike,
         valid_database_path: str | os.PathLike,
-        seed: int | None = 42,
+        seed: int = 42,
         min_seq_length: int | None = None,
         max_seq_length: int = 1024,
         micro_batch_size: int = 4,
@@ -64,7 +64,7 @@ class ESMDataModule(MegatronDataModule):
             train_database_path: A path to the sqlite file mapping UniRef90 cluster IDs to sequences.
             valid_cluster_path: A path to the parquet files containing UniRef50 validation clusters.
             valid_database_path: A path to the sqlite file mapping UniRef50 cluster IDs to sequences.
-            seed: Input random seed. If None, initializes randomly. Defaults to 42.
+            seed: Input random seed. Defaults to 42.
             min_seq_length: Whether to pad sequences to a minimum length. If None, no extra padding is added. Defaults
                 to None.
             max_seq_length: The maximum context length for the ESM transformer. Defaults to 1024.
