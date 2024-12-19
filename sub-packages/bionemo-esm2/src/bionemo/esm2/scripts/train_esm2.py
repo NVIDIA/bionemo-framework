@@ -179,7 +179,7 @@ def main(
         find_unused_parameters=True,
         gradient_as_bucket_view=True,
         ckpt_include_optimizer=True,
-        ckpt_async_save=True,
+        ckpt_async_save=False,  # TODO turn off due to error: Invalid access pattern: 1 ShardedObject are missing.
         ckpt_parallel_load=True,
     )
 
