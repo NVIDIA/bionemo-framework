@@ -114,36 +114,48 @@ class ESM2FineTuneSeqConfig(ESM2GenericConfig[ESM2FineTuneSeqModel], iom.IOMixin
 
 ## 5 - Dataset
 
-We will use a sample dataset for demonstration purposes. Create a dataset class by extending from ```torch.utils.data.Dataset```. For the purposes of this demo, we'll assume dataset consists of small set of protein sequences with a target value of `len(sequence) / 100.0` as their labels.
+We will use a sample dataset for demonstration purposes. Create a dataset class by extending ```bionemo.esm2.model.finetune.dataset.InMemoryCSVDataset```. The `InMemoryCSVDataset` reads data from a CSV file that has `sequences` and optionally `labels` columns. It is important to override the `transform_label` method that returns a `torch.Tensor` containing the label in correct format. As an example we can use this method to add custom tokenization if `label` is a string.
+
+For the purposes of this demo, we'll assume dataset consists of small set of protein sequences with a target value of `len(sequence) / 100.0` as their labels.
 
 ```python
 data = [
     ("MVLSPADKTNVKAAWGKVGAHAGEYGAEALERH", 0.33),
     ...
 ]
+
+# Create a DataFrame
+df = pd.DataFrame(data, columns=["sequences", "labels"])
+# Save the DataFrame to a CSV file
+csv_file = "./protein_dataset.csv"
+df.to_csv(csv_file, index=False)
 ```
 
-Therefore, the custom BioNeMo dataset class will be appropriate (found in ```bionemo.esm2.model.finetune.finetune_regressor.InMemorySingleValueDataset```) as it facilitates predicting on a single value. An excerpt from the class is shown below. This example dataset expected a sequence of `Tuple` that hold `(sequence, target)` values. However, one can simply extend ```InMemorySingleValueDataset``` class in a similar way to customize your class for your data.
+Therefore, the custom BioNeMo dataset class will be appropriate (found in ```bionemo.esm2.model.finetune.finetune_regressor.InMemorySingleValueDataset```) as it facilitates predicting on a single value. An excerpt from the class is shown below. This example dataset expects a `data_path` to a CSV file that has `sequence`, and `target` columns.
 
 ```python
 class InMemorySingleValueDataset(Dataset):
     def __init__(
         self,
-        data: Sequence[Tuple[str, float]],
+        data_path: str | os.PathLike,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,
     ):
+        super().__init__(data_path=data_path, tokenizer=tokenizer, seed=seed)
+
+    def transform_label(self, label: float) -> Tensor:
+        return torch.tensor([label], dtype=torch.float)
 ```
 
-For any arbitrary data file formats, user can process the data into a list of tuples containing (sequence, label) and use this dataset class. Or override the dataset class to load their custom data files.
+The `transform_label` method allows for custom transformation of raw labels by casting or tokenization and need to be adjusted based on the data. Here we use this method to create a `float` tensor of the regression value.
 
 To coordinate the creation of training, validation and testing datasets from your data, we need to use a `datamodule` class. To do this we can directly use or extend the ```ESM2FineTuneDataModule``` class (located at ```bionemo.esm2.model.finetune.datamodule.ESM2FineTuneDataModule```) which defines helpful abstract methods that use your dataset class.
 
 ```python
-dataset = InMemorySingleValueDataset(data)
+dataset = InMemorySingleValueDataset(data_path)
 data_module = ESM2FineTuneDataModule(
-    train_dataset=train_dataset,
-    valid_dataset=valid_dataset
+    train_dataset=dataset,
+    valid_dataset=dataset
     micro_batch_size=4,   # size of a batch to be processed in a device
     global_batch_size=8,  # size of batch across all devices. Should be multiple of micro_batch_size
 )
@@ -170,8 +182,14 @@ artificial_sequence_data = [
 
 data = [(seq, len(seq)/100.0) for seq in artificial_sequence_data]
 
+# Create a DataFrame
+df = pd.DataFrame(data, columns=["sequences", "labels"])
+# Save the DataFrame to a CSV file
+csv_file = "./protein_dataset.csv"
+df.to_csv(csv_file, index=False)
+
 # we are training and validating on the same dataset for simplicity
-dataset = InMemorySingleValueDataset(data)
+dataset = InMemorySingleValueDataset(data_path=csv_file)
 data_module = ESM2FineTuneDataModule(train_dataset=dataset, valid_dataset=dataset)
 
 experiment_name = "finetune_regressor"

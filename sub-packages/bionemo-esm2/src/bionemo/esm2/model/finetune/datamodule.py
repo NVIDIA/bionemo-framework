@@ -15,118 +15,24 @@
 
 
 import functools
-import os
-from typing import Literal, Sequence, Tuple, Union
+from typing import Literal, Union
 
-import numpy as np
-import pandas as pd
-import torch
-import torch.utils.data
 from lightning.pytorch.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
 from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
-from torch import Tensor
-from torch.utils.data import Dataset
 
 from bionemo.core.data.multi_epoch_dataset import IdentityMultiEpochDatasetWrapper, MultiEpochDatasetResampler
 from bionemo.esm2.data import tokenizer
+from bionemo.esm2.model.finetune.dataset import InMemoryCSVDataset
 from bionemo.esm2.model.finetune.finetune_regressor import InMemorySingleValueDataset
 from bionemo.esm2.model.finetune.finetune_token_classifier import InMemoryPerTokenValueDataset
 from bionemo.llm.data import collate
 from bionemo.llm.data.datamodule import MegatronDataModule
-from bionemo.llm.data.types import BertSample
 from bionemo.llm.utils.datamodule_utils import infer_num_samples
 
 
 Mode = Literal["train", "validation", "test", "predict"]
-
-
-class InMemoryCSVDataset(Dataset):
-    """An in-memory dataset that tokenize strings into BertSample instances."""
-
-    def __init__(
-        self,
-        data_path: str | os.PathLike,
-        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
-        seed: int = np.random.SeedSequence().entropy,  # type: ignore
-    ):
-        """Initializes a dataset for single-value regression fine-tuning.
-
-        This is an in-memory dataset that does not apply masking to the sequence. But keeps track of <mask> in the
-        dataset sequences provided.
-
-        Args:
-            data_path (str | os.PathLike): A path to the CSV file containing sequences.
-            labels (Optional[Sequence[float | str]]): An optional sequence of labels with 1:1 mapping to sequences.
-            tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
-            seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
-                that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
-                generated.
-        """
-        self.sequences, self.labels = self.load_data(data_path)
-
-        self.seed = seed
-        self._len = len(self.sequences)
-        self.tokenizer = tokenizer
-
-    def __len__(self) -> int:
-        """The size of the dataset."""
-        return self._len
-
-    def __getitem__(self, index: int) -> BertSample:
-        """Obtains the BertSample at the given index."""
-        sequence = self.sequences[index]
-        tokenized_sequence = self._tokenize(sequence)
-
-        label = tokenized_sequence if len(self.labels) == 0 else torch.Tensor([self.labels[index]])
-        # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
-        loss_mask = ~torch.isin(tokenized_sequence, Tensor(self.tokenizer.all_special_ids))
-
-        return {
-            "text": tokenized_sequence,
-            "types": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
-            "attention_mask": torch.ones_like(tokenized_sequence, dtype=torch.int64),
-            "labels": label,
-            "loss_mask": loss_mask,
-            "is_random": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
-        }
-
-    def load_data(self, csv_path: str | os.PathLike) -> Tuple[Sequence, Sequence]:
-        """Loads data from a CSV file, returning sequences and optionally labels.
-
-        This method should be implemented by subclasses to process labels for their specific dataset.
-
-        Args:
-            csv_path (str | os.PathLike): The path to the CSV file containing the data.
-            The file is expected to have at least one column named 'sequence'. A 'label' column is optional.
-
-        Returns:
-            Tuple[Sequence, Sequence]: A tuple where the first element is a list of sequences and the second element is
-            a list of labels. If the 'label' column is not present, an empty list is returned for labels.
-        """
-        df = pd.read_csv(csv_path)
-        sequences = df["sequences"].tolist()
-
-        if "labels" in df.columns:
-            labels = df["labels"].tolist()
-        else:
-            labels = []
-        return sequences, labels
-
-    def _tokenize(self, sequence: str) -> Tensor:
-        """Tokenize a protein sequence.
-
-        Args:
-            sequence: The protein sequence.
-
-        Returns:
-            The tokenized sequence.
-        """
-        tensor = self.tokenizer.encode(sequence, add_special_tokens=True, return_tensors="pt")
-        return tensor.flatten()  # type: ignore
-
-
 DATASET_TYPES = Union[InMemoryPerTokenValueDataset, InMemorySingleValueDataset, InMemoryCSVDataset, None]
 
 
