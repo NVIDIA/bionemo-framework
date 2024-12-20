@@ -82,7 +82,10 @@ def dummy_parquet_train_val_inputs(tmp_path):
     return train_cluster_path, valid_cluster_path
 
 
-def test_main_runs(monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs):
+@pytest.mark.parametrize("create_checkpoint_callback", [True, False])
+def test_main_runs(
+    monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs, create_checkpoint_callback
+):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
     result_dir = Path(tmpdir.mkdir("results"))
@@ -119,6 +122,7 @@ def test_main_runs(monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_tra
             num_attention_heads=2,
             hidden_size=4,
             ffn_hidden_size=4 * 4,
+            create_checkpoint_callback=create_checkpoint_callback,
         )
 
     assert (result_dir / "test_experiment").exists(), "Could not find test experiment directory."
@@ -126,12 +130,20 @@ def test_main_runs(monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_tra
     children = list((result_dir / "test_experiment").iterdir())
     assert len(children) == 1, f"Expected 1 child in test experiment directory, found {children}."
     uq_rundir = children[0]  # it will be some date.
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "checkpoints"
-    ).exists(), "Could not find test experiment checkpoints directory."
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "checkpoints"
-    ).is_dir(), "Test experiment checkpoints directory is supposed to be a directory."
+
+    # checking directory with checkpoints
+    expected_exists = create_checkpoint_callback
+    actual_exists = (result_dir / "test_experiment" / uq_rundir / "checkpoints").exists()
+    assert expected_exists == actual_exists, (
+        f"Checkpoints directory existence mismatch. "
+        f"Expected: {'exists' if expected_exists else 'does not exist'}, "
+        f"Found: {'exists' if actual_exists else 'does not exist'}."
+    )
+
+    if create_checkpoint_callback:
+        assert (
+            result_dir / "test_experiment" / uq_rundir / "checkpoints"
+        ).is_dir(), "Test experiment checkpoints directory is supposed to be a directory."
     assert (
         result_dir / "test_experiment" / uq_rundir / "nemo_log_globalrank-0_localrank-0.txt"
     ).is_file(), "Could not find experiment log."
