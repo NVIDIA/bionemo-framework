@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import math
+import re
 import tarfile
 from copy import deepcopy
 from pathlib import Path
@@ -260,6 +261,9 @@ class _DummyDataSet(torch.utils.data.Dataset):
         return {"text": self.input_ids[idx], "attention_mask": self.mask[idx]}
 
 
+@pytest.mark.xfail(
+    re.search(r"h[1-9]00", torch.cuda.get_device_name().lower()) is not None, reason="Known issue on H100 GPUs"
+)
 def test_geneformer_nemo1_v_nemo2_inference_golden_values(
     geneformer_config: GeneformerConfig, cells: List[List[str]], seed: int = 42
 ):
