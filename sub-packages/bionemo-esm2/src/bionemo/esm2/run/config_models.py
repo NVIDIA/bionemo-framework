@@ -223,6 +223,7 @@ class ExposedESM2PretrainConfig(ExposedModelConfig[ESM2Config]):
         ), "Must set variable_seq_lengths to True when min_seq_length != max_seq_length under pipeline or tensor parallelism."
         return global_cfg
 
-    def model_class(self) -> Type[ESM2Config]:
+    @classmethod
+    def model_class(cls) -> Type[ESM2Config]:
         """Returns the model class associated with this configuration."""
         return ESM2Config
