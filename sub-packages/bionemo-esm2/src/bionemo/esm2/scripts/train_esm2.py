@@ -91,6 +91,7 @@ def main(
     hidden_size: int = 1280,
     num_attention_heads: int = 20,
     ffn_hidden_size: int = 1280 * 4,
+    seed: int = 42,
 ) -> None:
     """Train an ESM2 model on UR data.
 
@@ -146,6 +147,7 @@ def main(
         hidden_size (int): hidden size
         num_attention_heads (int): number of attention heads
         ffn_hidden_size (int): feed forward hidden size
+        seed (int): random seed for reproducibility
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -231,6 +233,7 @@ def main(
         num_workers=num_dataset_workers,
         random_mask_strategy=random_mask_strategy,
         tokenizer=tokenizer,
+        seed=seed,
     )
     # Configure the model
     esm2_config = ESM2Config(
@@ -360,6 +363,7 @@ def train_esm2_entrypoint():
         hidden_size=args.hidden_size,
         num_attention_heads=args.num_attention_heads,
         ffn_hidden_size=args.ffn_hidden_size,
+        seed=args.seed,
     )
 
 
@@ -666,6 +670,13 @@ def get_parser():
         required=False,
         default=4 * 1280,
         help="FFN hidden size of the model. Default is 4 * 1280.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        required=False,
+        default=42,
+        help="Random seed for reproducibility.",
     )
     return parser
 
