@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Sequence
+from dataclasses import fields
+from typing import Any, Optional, Sequence, TypedDict
 
 import torch
 
@@ -21,7 +22,26 @@ import torch
 __all__: Sequence[str] = (
     "assert_matrix_mape_below_value",
     "assert_matrix_correlation_above_value",
+    "compare_dataclasses",
 )
+
+
+class DataclassDifference(TypedDict):
+    field: str
+    left_value: Any
+    right_value: Any
+
+
+def compare_dataclasses(left, right) -> list[DataclassDifference]:
+    """Compare two python dataclasses by field, returning a list of any differences found."""
+    differences: list[DataclassDifference] = []
+    for field in fields(left):
+        field_name = field.name
+        left_value = getattr(left, field_name)
+        right_value = getattr(right, field_name)
+        if left_value != right_value:
+            differences.append({"field": field_name, "left_value": left_value, "right_value": right_value})
+    return differences
 
 
 def assert_matrix_mape_below_value(  # noqa: D417
