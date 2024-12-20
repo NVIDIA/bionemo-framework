@@ -44,9 +44,8 @@ def test_bionemo2_rootdir(data_path):
 
 
 @pytest.mark.parametrize("limit_val_batches", [0.0, 1])
-def test_val_dataloader_in_main_runs_with_limit_val_batches(tmpdir, limit_val_batches: float):
+def test_val_dataloader_in_main_runs_with_limit_val_batches(tmpdir, data_path, limit_val_batches: float):
     result_dir = Path(tmpdir.mkdir("results"))
-
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         main(
             data_dir=data_path,
