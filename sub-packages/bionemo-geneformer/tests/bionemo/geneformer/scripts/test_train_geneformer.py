@@ -59,7 +59,7 @@ def test_val_dataloader_in_main_runs_with_limit_val_batches(tmpdir, data_path, l
             limit_val_batches=limit_val_batches,
             val_check_interval=2,
             num_dataset_workers=0,
-            biobert_spec_option=BiobertSpecOption.bert_layer_local_spec,
+            biobert_spec_option=BiobertSpecOption.bert_layer_with_transformer_engine_spec,
             lr=1e-4,
             micro_batch_size=2,
             accumulate_grad_batches=2,
