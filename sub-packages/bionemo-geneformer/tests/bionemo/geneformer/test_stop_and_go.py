@@ -46,7 +46,7 @@ from bionemo.testing.harnesses import stop_and_go
 from bionemo.testing.harnesses.mode import Mode
 
 
-DATA_PATH: pathlib.Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
+DATA_PATH: pathlib.Path = load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
 
 MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
 SEQ_LEN: int = 1024

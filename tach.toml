@@ -59,6 +59,7 @@ path = "bionemo.geneformer"
 depends_on = [
     { path = "bionemo.core" },
     { path = "bionemo.llm" },
+    { path = "bionemo.scdl" },
 ]
 
 [[modules]]
