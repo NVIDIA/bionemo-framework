@@ -18,9 +18,10 @@ import warnings
 from typing import Optional, Union
 
 import torch
-from torch import Tensor
 import torch.nn as nn
 from jaxtyping import Bool, Float
+from torch import Tensor
+
 from bionemo.moco.distributions.prior.continuous.gaussian import GaussianPrior
 from bionemo.moco.distributions.prior.distribution import PriorDistribution
 from bionemo.moco.distributions.time.distribution import TimeDistribution

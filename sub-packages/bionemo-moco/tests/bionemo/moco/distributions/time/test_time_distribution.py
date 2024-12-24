@@ -16,6 +16,7 @@
 
 import pytest
 import torch
+
 from bionemo.moco.distributions.time.beta import BetaTimeDistribution
 from bionemo.moco.distributions.time.distribution import MixTimeDistribution
 from bionemo.moco.distributions.time.logit_normal import LogitNormalTimeDistribution

@@ -15,6 +15,7 @@
 
 import pytest
 import torch
+
 from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport import OTSampler
 
 
@@ -78,7 +79,6 @@ def toy_masked_data():
 def exact_ot_sampler():
     ot_sampler = OTSampler(method="exact", num_threads=1)
     return ot_sampler
-
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])

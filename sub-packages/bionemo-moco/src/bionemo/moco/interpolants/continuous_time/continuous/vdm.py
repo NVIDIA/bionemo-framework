@@ -21,12 +21,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from jaxtyping import Bool, Float
+from torch import Tensor
+
 from bionemo.moco.distributions.prior.continuous.gaussian import GaussianPrior
 from bionemo.moco.distributions.prior.distribution import PriorDistribution
 from bionemo.moco.distributions.time.distribution import TimeDistribution
 from bionemo.moco.interpolants.base_interpolant import Interpolant, PredictionType, pad_like, string_to_enum
 from bionemo.moco.schedules.noise.continuous_snr_transforms import ContinuousSNRTransform
-from torch import Tensor
 
 
 class VDM(Interpolant):
@@ -78,7 +79,7 @@ class VDM(Interpolant):
         time_distribution: TimeDistribution,
         prior_distribution: PriorDistribution,
         noise_schedule: ContinuousSNRTransform,
-        prediction_type: PredictionType = PredictionType.DATA,
+        prediction_type: Union[PredictionType, str] = PredictionType.DATA,
         device: Union[str, torch.device] = "cpu",
         rng_generator: Optional[torch.Generator] = None,
     ):

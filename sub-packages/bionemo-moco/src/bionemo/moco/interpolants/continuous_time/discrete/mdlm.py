@@ -17,11 +17,12 @@
 from typing import Optional
 
 import torch
+from torch import Tensor
+
 from bionemo.moco.distributions.prior.discrete.mask import DiscreteMaskedPrior
 from bionemo.moco.distributions.time.distribution import TimeDistribution
 from bionemo.moco.interpolants.base_interpolant import Interpolant, pad_like
 from bionemo.moco.schedules.noise.continuous_noise_transforms import ContinuousExpNoiseTransform
-from torch import Tensor
 
 
 class MDLM(Interpolant):

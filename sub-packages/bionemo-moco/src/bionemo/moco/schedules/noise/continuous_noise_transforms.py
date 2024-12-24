@@ -18,8 +18,9 @@ from abc import ABC, abstractmethod
 from typing import Optional, Union
 
 import torch
-from torch import Tensor
 from jaxtyping import Float
+from torch import Tensor
+
 from bionemo.moco.interpolants.base_interpolant import string_to_enum
 from bionemo.moco.schedules.utils import TimeDirection
 

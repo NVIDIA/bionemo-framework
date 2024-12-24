@@ -18,8 +18,8 @@ from abc import ABC, abstractmethod
 from typing import Optional, Union
 
 import torch
-from torch import Tensor
 from jaxtyping import Float
+from torch import Tensor
 
 from bionemo.moco.interpolants.base_interpolant import string_to_enum
 from bionemo.moco.schedules.utils import TimeDirection
@@ -64,9 +64,7 @@ class DiscreteNoiseSchedule(ABC):
         return schedule
 
     @abstractmethod
-    def _generate_schedule(
-        self, nsteps: Optional[int] = None, device: Union[str, torch.device] = "cpu"
-    ) -> Tensor:
+    def _generate_schedule(self, nsteps: Optional[int] = None, device: Union[str, torch.device] = "cpu") -> Tensor:
         """Generate the time schedule as a list.
 
         Args:
@@ -115,9 +113,7 @@ class DiscreteCosineNoiseSchedule(DiscreteNoiseSchedule):
         self.nu = nu
         self.s = s
 
-    def _generate_schedule(
-        self, nsteps: Optional[int] = None, device: Union[str, torch.device] = "cpu"
-    ) -> Tensor:
+    def _generate_schedule(self, nsteps: Optional[int] = None, device: Union[str, torch.device] = "cpu") -> Tensor:
         """Generate the cosine noise schedule.
 
         Args:

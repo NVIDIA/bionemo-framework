@@ -16,6 +16,7 @@
 
 import pytest
 import torch
+
 from bionemo.moco import TimeDirection
 from bionemo.moco.schedules.noise.continuous_noise_transforms import (
     CosineExpNoiseTransform,

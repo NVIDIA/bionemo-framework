@@ -20,11 +20,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from jaxtyping import Bool, Float
+from torch import Tensor
+
 from bionemo.moco.distributions.prior.discrete.mask import DiscreteMaskedPrior
 from bionemo.moco.distributions.prior.distribution import DiscretePriorDistribution
 from bionemo.moco.distributions.time.distribution import TimeDistribution
 from bionemo.moco.interpolants.base_interpolant import Interpolant, pad_like
-from torch import Tensor
 
 
 class DiscreteFlowMatcher(Interpolant):

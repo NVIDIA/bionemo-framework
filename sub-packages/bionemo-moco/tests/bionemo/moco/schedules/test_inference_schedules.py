@@ -16,6 +16,7 @@
 
 import pytest
 import torch
+
 from bionemo.moco.schedules.inference_time_schedules import (
     DiscreteLinearInferenceSchedule,
     LinearInferenceSchedule,
@@ -122,10 +123,40 @@ def test_discrete_uniform_dt(timesteps, device, direction):
     assert dt.shape == (timesteps,)
     # Check if schedule is on the correct device
     assert schedule.device.type == device
-
     # Additional checks specific to DiscreteUniformInferenceSchedule
     assert torch.all(dt == torch.full((timesteps,), 1 / timesteps, device=device))
     if direction == TimeDirection.UNIFIED:
         assert schedule[0] < schedule[-1]
     else:
         assert schedule[0] > schedule[-1]
+
+
+@pytest.mark.parametrize("timesteps", [10, 20])
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("direction", [TimeDirection.UNIFIED, TimeDirection.DIFFUSION])
+@pytest.mark.parametrize("padding", [0, 2])
+@pytest.mark.parametrize("dilation", [0, 1])
+def test_uniform_dt_padding_dilation(timesteps, device, direction, padding, dilation):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    scheduler = LinearInferenceSchedule(timesteps, padding=padding, dilation=dilation, direction=direction)
+    dt = scheduler.discretize(device=device)
+    schedule = scheduler.generate_schedule(device=device)
+
+    # Check if all dt's are equal to 1/timesteps
+    assert dt.device.type == device
+
+    # Check if schedule has the correct shape
+    assert schedule.shape == (timesteps,)
+    # Check if dt has the correct shape
+    assert dt.shape == (timesteps,)
+    # Check if schedule is on the correct device
+    assert schedule.device.type == device
+    if direction == TimeDirection.UNIFIED:
+        assert schedule[0] < schedule[-1]
+        for i in range(padding):
+            assert schedule[-1 * (i + 1)] == 1.0
+    else:
+        assert schedule[0] > schedule[-1]
+        for i in range(padding):
+            assert schedule[-1 * (i + 1)] == 0

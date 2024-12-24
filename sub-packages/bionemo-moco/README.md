@@ -16,7 +16,7 @@ MoCo also supports the following discrete data interpolants:
 - DFM (Discrete Flow Matching)
 
 ### Useful Abstractions
-MoCo also provides useful wrappers for customizable time distributions and infernece time schedules.
+MoCo also provides useful wrappers for customizable time distributions and inference time schedules.
 
 ### Extendible
 If the desired interpolant or sampling method is not already supported, MoCo was designed to be easily extended.

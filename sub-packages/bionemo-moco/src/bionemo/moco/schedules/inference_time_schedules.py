@@ -18,8 +18,8 @@ from abc import ABC, abstractmethod
 from typing import Optional, Union
 
 import torch
+from jaxtyping import Float
 from torch import Tensor
-from jaxtyping import Bool, Float
 
 from bionemo.moco.interpolants.base_interpolant import string_to_enum
 from bionemo.moco.schedules.utils import TimeDirection
@@ -32,6 +32,8 @@ class InferenceSchedule(ABC):
         self,
         nsteps: int,
         min_t: Float = 0,
+        padding: Float = 0,
+        dilation: Float = 0,
         direction: TimeDirection = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
     ):
@@ -40,24 +42,27 @@ class InferenceSchedule(ABC):
         Args:
             nsteps (int): Number of time steps.
             min_t (Float): minimum time value defaults to 0.
+            padding (Float): padding time value defaults to 0.
+            dilation (Float): dilation time value defaults to 0 ie the number of replicates.
             direction (Optional[str]): TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
             device (Optional[str]): Device to place the schedule on (default is "cpu").
 
         """
         self.nsteps = nsteps
         self.min_t = min_t
+        self.padding = padding
+        self.dilation = dilation
         self.direction = string_to_enum(direction, TimeDirection)
         self.device = device
 
     @abstractmethod
     def generate_schedule(
-        self, nsteps: Optional[int] = None, full: Bool = False, device: Optional[Union[str, torch.device]] = None
+        self, nsteps: Optional[int] = None, device: Optional[Union[str, torch.device]] = None
     ) -> Tensor:
         """Generate the time schedule as a tensor.
 
         Args:
             nsteps (Optioanl[int]): Number of time steps. If None, uses the value from initialization.
-            full (Bool): Boolean to return entire schedule or just the needed components.
             device (Optional[str]): Device to place the schedule on (default is "cpu").
         """
         pass
@@ -85,10 +90,12 @@ class ContinuousInferenceSchedule(InferenceSchedule):
         if device is None:
             device = self.device
         if schedule is None:
-            schedule = self.generate_schedule(nsteps, full=True, device=device)
+            schedule = self.generate_schedule(nsteps, device=device)
         if self.direction == TimeDirection.UNIFIED:
+            schedule = torch.cat((schedule, torch.ones((1,), device=schedule.device)))
             dt = schedule[1:] - schedule[:-1]
         else:
+            schedule = torch.cat((schedule, torch.zeros((1,), device=schedule.device)))
             dt = -1 * (schedule[1:] - schedule[:-1])
         return dt
 
@@ -110,6 +117,8 @@ class DiscreteInferenceSchedule(InferenceSchedule):
         Returns:
             Tensor: A tensor of time deltas.
         """
+        if self.padding > 0 or self.dilation > 0:
+            raise NotImplementedError("discreteize is not implemented for discrete schedules with padding or dilation")
         if device is None:
             device = self.device
         return torch.full(
@@ -126,6 +135,8 @@ class DiscreteLinearInferenceSchedule(DiscreteInferenceSchedule):
         self,
         nsteps: int,
         min_t: Float = 0,
+        padding: Float = 0,
+        dilation: Float = 0,
         direction: TimeDirection = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
     ):
@@ -134,33 +145,45 @@ class DiscreteLinearInferenceSchedule(DiscreteInferenceSchedule):
         Args:
             nsteps (int): Number of time steps.
             min_t (Float): minimum time value defaults to 0.
+            padding (Float): padding time value defaults to 0.
+            dilation (Float): dilation time value defaults to 0 ie the number of replicates.
             direction (Optional[str]): TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
             device (Optional[str]): Device to place the schedule on (default is "cpu").
         """
-        super().__init__(nsteps, min_t, direction, device)
+        super().__init__(nsteps, min_t, padding, dilation, direction, device)
 
     def generate_schedule(
-        self, nsteps: Optional[int] = None, full: Bool = False, device: Optional[Union[str, torch.device]] = None
+        self, nsteps: Optional[int] = None, device: Optional[Union[str, torch.device]] = None
     ) -> Tensor:
         """Generate the linear time schedule as a tensor.
 
         Args:
             nsteps (Optional[int]): Number of time steps. If None uses the value from initialization.
-            full (Bool): Whether to return the full scheudle defaults to False.
             device (Optional[str]): Device to place the schedule on (default is "cpu").
 
         Returns:
+            Tensor: A tensor of time steps.
             Tensor: A tensor of time steps.
         """
         if device is None:
             device = self.device
         if nsteps is None:
             nsteps = self.nsteps
-        if full:
-            nsteps += 1
+        nsteps -= self.padding
+        dilation = self.dilation + 1
+        if dilation > 1:
+            if nsteps % dilation != 0:
+                raise ValueError(f"nsteps ({nsteps}) is not divisible by dilation + 1 ({dilation})")
+            nsteps = int(nsteps / self.dilation)
+        if nsteps is None:
+            raise ValueError("nsteps cannot be None")
         schedule = torch.arange(nsteps).to(device=device)
+        if dilation > 1:
+            schedule = schedule.repeat_interleave(dilation)
         if self.direction == TimeDirection.DIFFUSION:
             schedule = schedule.flip(0)
+        if self.padding > 0:
+            schedule = torch.cat((schedule, schedule[-1] * torch.ones(self.padding, device=device)))
         return schedule
 
 
@@ -171,6 +194,8 @@ class LinearInferenceSchedule(ContinuousInferenceSchedule):
         self,
         nsteps: int,
         min_t: Float = 0,
+        padding: Float = 0,
+        dilation: Float = 0,
         direction: TimeDirection = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
     ):
@@ -179,39 +204,53 @@ class LinearInferenceSchedule(ContinuousInferenceSchedule):
         Args:
             nsteps (int): Number of time steps.
             min_t (Float): minimum time value defaults to 0.
+            padding (Float): padding time value defaults to 0.
+            dilation (Float): dilation time value defaults to 0 ie the number of replicates.
             direction (Optional[str]): TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
             device (Optional[str]): Device to place the schedule on (default is "cpu").
         """
-        super().__init__(nsteps, min_t, direction, device)
+        super().__init__(nsteps, min_t, padding, dilation, direction, device)
 
     def generate_schedule(
         self,
         nsteps: Optional[int] = None,
-        full: Bool = False,
         device: Optional[Union[str, torch.device]] = None,
     ) -> Tensor:
         """Generate the linear time schedule as a tensor.
 
         Args:
             nsteps (Optional[int]): Number of time steps. If None uses the value from initialization.
-            full (Bool): Whether to return the full scheudle defaults to False.
             device (Optional[str]): Device to place the schedule on (default is "cpu").
 
         Returns:
+            Tensor: A tensor of time steps.
             Tensor: A tensor of time steps.
         """
         if device is None:
             device = self.device
         if nsteps is None:
             nsteps = self.nsteps
+        nsteps -= self.padding
+        dilation = self.dilation + 1
+        if dilation > 1:
+            if nsteps % dilation != 0:
+                raise ValueError(f"nsteps ({nsteps}) is not divisible by dilation + 1 ({dilation})")
+            nsteps = int(nsteps / dilation)
+        if nsteps is None:
+            raise ValueError("nsteps cannot be None")
         schedule = torch.linspace(0, 1, nsteps + 1).to(device=device)
+
         if self.min_t > 0:
             schedule = torch.clamp(schedule, min=self.min_t)
+
+        schedule = schedule[:-1]
+        if dilation > 1:
+            schedule = schedule.repeat_interleave(dilation)
+        if self.padding > 0:
+            schedule = torch.cat((schedule, torch.ones(self.padding, device=device)))
         if self.direction == TimeDirection.DIFFUSION:
             schedule = 1 - schedule  # schedule.flip(0)
-        if full:
-            return schedule
-        return schedule[:-1]
+        return schedule
 
 
 class PowerInferenceSchedule(ContinuousInferenceSchedule):
@@ -221,6 +260,8 @@ class PowerInferenceSchedule(ContinuousInferenceSchedule):
         self,
         nsteps: int,
         min_t: Float = 0,
+        padding: Float = 0,
+        dilation: Float = 0,
         p1: Float = 1.0,
         direction: TimeDirection = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
@@ -230,41 +271,53 @@ class PowerInferenceSchedule(ContinuousInferenceSchedule):
         Args:
             nsteps (int): Number of time steps.
             min_t (Float): minimum time value defaults to 0.
+            padding (Float): padding time value defaults to 0.
+            dilation (Float): dilation time value defaults to 0 ie the number of replicates.
             p1 (Float): Power parameter defaults to 1.0.
             direction (Optional[str]): TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
             device (Optional[str]): Device to place the schedule on (default is "cpu").
         """
-        super().__init__(nsteps, min_t, direction, device)
+        super().__init__(nsteps, min_t, padding, dilation, direction, device)
         self.p1 = p1
 
     def generate_schedule(
         self,
         nsteps: Optional[int] = None,
-        full: Bool = False,
         device: Optional[Union[str, torch.device]] = None,
     ) -> Tensor:
         """Generate the power time schedule as a tensor.
 
         Args:
             nsteps (Optional[int]): Number of time steps. If None uses the value from initialization.
-            full (Bool): Whether to return the full scheudle defaults to False.
             device (Optional[str]): Device to place the schedule on (default is "cpu").
 
         Returns:
+            Tensor: A tensor of time steps.
             Tensor: A tensor of time steps.
         """
         if device is None:
             device = self.device
         if nsteps is None:
             nsteps = self.nsteps
+        nsteps -= self.padding
+        dilation = self.dilation + 1
+        if dilation > 1:
+            if nsteps % dilation != 0:
+                raise ValueError(f"nsteps ({nsteps}) is not divisible by dilation + 1 ({dilation})")
+            nsteps = int(nsteps / dilation)
+        if nsteps is None:
+            raise ValueError("nsteps cannot be None")
         schedule = torch.linspace(0, 1, nsteps + 1).to(device=device) ** self.p1
         if self.min_t > 0:
             schedule = torch.clamp(schedule, min=self.min_t)
+        schedule = schedule[:-1]
+        if dilation > 1:
+            schedule = schedule.repeat_interleave(dilation)
+        if self.padding > 0:
+            schedule = torch.cat((schedule, torch.ones(self.padding, device=device)))
         if self.direction == TimeDirection.DIFFUSION:
             schedule = 1 - schedule  # schedule.flip(0)
-        if full:
-            return schedule
-        return schedule[:-1]
+        return schedule
 
 
 class LogInferenceSchedule(ContinuousInferenceSchedule):
@@ -274,6 +327,8 @@ class LogInferenceSchedule(ContinuousInferenceSchedule):
         self,
         nsteps: int,
         min_t: Float = 0,
+        padding: Float = 0,
+        dilation: Float = 0,
         p1: Float = 2,
         direction: TimeDirection = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
@@ -283,11 +338,13 @@ class LogInferenceSchedule(ContinuousInferenceSchedule):
         Args:
             nsteps (int): Number of time steps.
             min_t (Float): minimum time value defaults to 0.
+            padding (Float): padding time value defaults to 0.
+            dilation (Float): dilation time value defaults to 0 ie the number of replicates.
             p1 (Float): log space parameter defaults to 2.0.
             direction (Optional[str]): TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
             device (Optional[str]): Device to place the schedule on (default is "cpu").
         """
-        super().__init__(nsteps, min_t, direction, device)
+        super().__init__(nsteps, min_t, padding, dilation, direction, device)
         if p1 is None:
             raise ValueError("p1 cannot be None for the log schedule")
         if p1 <= 0:
@@ -297,27 +354,36 @@ class LogInferenceSchedule(ContinuousInferenceSchedule):
     def generate_schedule(
         self,
         nsteps: Optional[int] = None,
-        full: Bool = False,
         device: Optional[Union[str, torch.device]] = None,
     ) -> Tensor:
         """Generate the log time schedule as a tensor.
 
         Args:
             nsteps (Optional[int]): Number of time steps. If None uses the value from initialization.
-            full (Bool): Whether to return the full scheudle defaults to False.
             device (Optional[str]): Device to place the schedule on (default is "cpu").
         """
         if device is None:
             device = self.device
         if nsteps is None:
             nsteps = self.nsteps
+        nsteps -= self.padding
+        dilation = self.dilation + 1
+        if dilation > 1:
+            if nsteps % dilation != 0:
+                raise ValueError(f"nsteps ({nsteps}) is not divisible by dilation + 1 ({dilation})")
+            nsteps = int(nsteps / self.dilation)
+        if nsteps is None:
+            raise ValueError("nsteps cannot be None")
         t = 1.0 - torch.logspace(-self.p1, 0, nsteps + 1).flip(0).to(device=device)
         t = t - torch.min(t)
         schedule = t / torch.max(t)
         if self.min_t > 0:
             schedule = torch.clamp(schedule, min=self.min_t)
+        schedule = schedule[:-1]
+        if dilation > 1:
+            schedule = schedule.repeat_interleave(dilation)
+        if self.padding > 0:
+            schedule = torch.cat((schedule, torch.ones(self.padding, device=device)))
         if self.direction == TimeDirection.DIFFUSION:
             schedule = 1 - schedule  # schedule.flip(0)
-        if full:
-            return schedule
-        return schedule[:-1]
+        return schedule

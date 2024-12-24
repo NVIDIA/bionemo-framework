@@ -19,9 +19,8 @@ from enum import Enum
 from typing import Optional, Type, TypeVar, Union
 
 import torch
+from jaxtyping import Bool
 from torch import Tensor
-from jaxtyping import Bool, Float
-
 
 from bionemo.moco.distributions.prior.distribution import PriorDistribution
 from bionemo.moco.distributions.time.distribution import TimeDistribution
@@ -219,9 +218,7 @@ class Interpolant(ABC):
                 setattr(self, attr_name, getattr(self, attr_name).to(device))
         return self
 
-    def clean_mask_center(
-        self, data: Float[Tensor, "* N D"], mask: Optional[Float[Tensor, "* N"]] = None, center: Bool = False
-    ) -> Float[Tensor, "* N D"]:
+    def clean_mask_center(self, data: Tensor, mask: Optional[Tensor] = None, center: Bool = False) -> Tensor:
         """Returns a clean tensor that has been masked and/or centered based on the function arguments.
 
         Args:

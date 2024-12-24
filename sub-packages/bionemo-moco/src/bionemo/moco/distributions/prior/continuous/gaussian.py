@@ -18,9 +18,10 @@ from typing import Optional, Tuple, Union
 
 import torch
 from jaxtyping import Bool, Float
+from torch import Tensor
+
 from bionemo.moco.distributions.prior.continuous.utils import remove_center_of_mass
 from bionemo.moco.distributions.prior.distribution import PriorDistribution
-from torch import Tensor
 
 
 class GaussianPrior(PriorDistribution):
