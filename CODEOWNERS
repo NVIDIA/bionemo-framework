@@ -94,3 +94,5 @@ sub-packages/bionemo-geneformer @jstjohn @malcolmgreaves @skothenhill-nv
 sub-packages/bionemo-scdl @jstjohn @malcolmgreaves @polinabinder1 @skothenhill-nv
 
 sub-packages/bionemo-noodles @skothenhill-nv @malcolmgreaves @jstjohn @edawson @cspades
+
+sub-packages/bionemo-moco @nvdreidenbach @DejunL @dorotat-nv @guoqing-zhou @jstjohn @malcolmgreaves @pstjohn

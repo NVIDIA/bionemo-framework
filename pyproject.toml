@@ -21,6 +21,7 @@ dependencies = [
     'bionemo-geneformer',
     'bionemo-geometric',
     'bionemo-llm',
+    'bionemo-moco',
     'bionemo-scdl',
     'bionemo-size-aware-batching',
     'bionemo-testing',
@@ -61,6 +62,7 @@ bionemo-scdl = { workspace = true }
 bionemo-size-aware-batching = { workspace = true }
 bionemo-testing = { workspace = true }
 bionemo-webdatamodule = { workspace = true }
+bionemo-moco = { workspace = true }
 # in internal/
 infra-bionemo = { workspace = true }
 
@@ -136,6 +138,7 @@ executionEnvironments = [
         './sub-packages/bionemo-size-aware-batching/src',
         './sub-packages/bionemo-testing/src',
         './sub-packages/bionemo-webdatamodule/src',
+        './sub-packages/bionemo-moco/src',
         # internal
         './internal/infra-bionemo/src',
     ] },
