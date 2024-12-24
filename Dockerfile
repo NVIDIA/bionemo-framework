@@ -1,5 +1,11 @@
 # Base image with apex and transformer engine, but without NeMo or Megatron-LM.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.02-py3
+#  Note that the core NeMo docker container is defined here:
+#   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/llm_train/Dockerfile.train
+#  with settings that get defined/injected from this config:
+#   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
+#  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
+#   training loss curves from NeMo.
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.10-py3
 
 FROM rust:1.82.0 as rust-env
 
@@ -25,7 +31,7 @@ RUN git clone https://github.com/NVIDIA/apex.git && \
   --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
 
 # Transformer Engine pre-1.7.0. 1.7 standardizes the meaning of bits in the attention mask to match
-ARG TE_COMMIT=c27ee60ec746210bcea4ec33958dbbff06706506
+ARG TE_COMMIT=2215fa5c7557b66034068816020f9f611019e457
 RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
   cd TransformerEngine && \
   git fetch origin ${TE_COMMIT} && \
@@ -49,11 +55,11 @@ RUN apt-get install -y gnupg
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
 RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.0.post2
+  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.2.post1
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.0.3
+  git+https://github.com/state-spaces/mamba.git@v2.2.2
 
 RUN pip install hatchling   # needed to install nemo-run
 ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
@@ -72,12 +78,7 @@ RUN apt-get update  && \
   rm -rf /var/lib/apt/lists/*
 RUN apt purge -y libslurm37 libpmi2-0 && \
   apt autoremove -y
-RUN source /usr/local/nvm/nvm.sh && \
-  NODE_VER=$(nvm current) && \
-  nvm deactivate && \
-  nvm uninstall $NODE_VER && \
-  sed -i "/NVM/d" /root/.bashrc && \
-  sed -i "/nvm.sh/d" /etc/bash.bashrc
+
 
 # Use UV to install python packages from the workspace. This just installs packages into the system's python
 # environment, and does not use the current uv.lock file.
@@ -91,7 +92,6 @@ ENV UV_LINK_MODE=copy \
 # Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
 RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
   uv pip install --no-build-isolation -r /requirements-pyg.txt
 
 WORKDIR /workspace/bionemo2
