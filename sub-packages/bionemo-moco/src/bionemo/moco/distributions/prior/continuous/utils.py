@@ -16,13 +16,10 @@
 
 from typing import Optional
 
-from jaxtyping import Float
 from torch import Tensor
 
 
-def remove_center_of_mass(
-    data: Float[Tensor, "* N D"], mask: Optional[Float[Tensor, "* N D"]] = None
-) -> Float[Tensor, "* N D"]:
+def remove_center_of_mass(data: Tensor, mask: Optional[Tensor] = None) -> Tensor:
     """Calculates the center of mass (CoM) of the given data.
 
     Args:

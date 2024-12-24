@@ -18,8 +18,9 @@ import math
 from typing import Optional, Tuple, Union
 
 import torch
-from bionemo.moco.distributions.prior.distribution import DiscretePriorDistribution
 from torch import Tensor
+
+from bionemo.moco.distributions.prior.distribution import DiscretePriorDistribution
 
 
 class DiscreteCustomPrior(DiscretePriorDistribution):

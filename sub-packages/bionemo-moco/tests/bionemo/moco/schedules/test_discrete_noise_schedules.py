@@ -16,6 +16,7 @@
 
 import pytest
 import torch
+
 from bionemo.moco.schedules.discrete_noise_schedules import DiscreteCosineNoiseSchedule, TimeDirection
 
 

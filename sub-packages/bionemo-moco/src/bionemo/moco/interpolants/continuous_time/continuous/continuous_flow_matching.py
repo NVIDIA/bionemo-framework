@@ -20,12 +20,13 @@ from typing import Optional, Union
 import torch
 import torch.nn as nn
 from jaxtyping import Bool, Float
+from torch import Tensor
+
 from bionemo.moco.distributions.prior.continuous.gaussian import GaussianPrior
 from bionemo.moco.distributions.prior.distribution import PriorDistribution
 from bionemo.moco.distributions.time.distribution import TimeDistribution
 from bionemo.moco.interpolants.base_interpolant import Interpolant, PredictionType, pad_like, string_to_enum
 from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport import OTSampler
-from torch import Tensor
 
 
 class OptimalTransportType(Enum):

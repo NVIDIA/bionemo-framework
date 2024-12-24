@@ -16,6 +16,7 @@
 
 import pytest
 import torch
+
 from bionemo.moco.distributions.prior.discrete.mask import DiscreteMaskedPrior
 from bionemo.moco.distributions.time.uniform import UniformTimeDistribution
 from bionemo.moco.interpolants.continuous_time.discrete.mdlm import MDLM

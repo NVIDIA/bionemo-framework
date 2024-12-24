@@ -18,6 +18,7 @@ from typing import Optional, Union
 
 import torch
 from jaxtyping import Bool, Float
+
 from bionemo.moco.distributions.time.distribution import TimeDistribution
 from bionemo.moco.distributions.time.utils import float_time_to_index
 

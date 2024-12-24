@@ -17,16 +17,16 @@
 from typing import Optional, Tuple
 
 import torch
-from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 from jaxtyping import Float
+from torch import Tensor
+
 from bionemo.moco.distributions.prior.distribution import DiscretePriorDistribution
 from bionemo.moco.distributions.time.distribution import TimeDistribution
 from bionemo.moco.interpolants.base_interpolant import Interpolant
 from bionemo.moco.interpolants.discrete_time.utils import safe_index
 from bionemo.moco.schedules.noise.discrete_noise_schedules import DiscreteNoiseSchedule
-
 
 
 class D3PM(Interpolant):
@@ -330,7 +330,7 @@ class D3PM(Interpolant):
         if aggregate:
             loss = loss.mean()
             if vb_scale > 0:
-                loss += vb_loss.mean() # type: ignore
+                loss += vb_loss.mean()  # type: ignore
             return loss
         return loss, vb_loss
 
