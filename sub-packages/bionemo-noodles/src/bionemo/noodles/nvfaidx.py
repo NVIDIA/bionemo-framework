@@ -147,14 +147,38 @@ class NvFaidx:
     See Also: bionemo.noodles.nvfaidx.SequenceAccessor
     """
 
-    def __init__(self, fasta_path: str | Path, faidx_path: Optional[str | Path] = None, ignore_existing_fai=True):
+    def __init__(
+        self,
+        fasta_path: str | Path,
+        faidx_path: Optional[str | Path] = None,
+        ignore_existing_fai: bool = True,
+        allow_duplicate_seqids: bool = False,
+    ):
         """Construct a dict-like object representing a memmapped, indexed FASTA file.
+
+        This is an indexed fasta reader. Consequences of this are that the FASTA file must be well formed, meaning
+        sequence-ids and line-lengths must conform to FASTA standards. Additionally, the order of returned seqid, sequence
+        pairs when iterating over the index is not guaranteed to be the same order as the underlying fasta file.
 
         Args:
             fasta_path (str): Path to the FASTA file.
             faidx_path (str): Path to the FAI index file. If None, one will be created.
             ignore_existing_fai (bool): If True, ignore any existing FAI file and create an in-memory index. Note that
                 this will also ignore `faidx_path`.
+            allow_duplicate_seqids (bool): If true, will produce index for invalid fastas which contain duplicate seqids.
+                In this scenario, indexing is performed by integer rather than strings.
+
+                Example with invalid seqids.
+                    >chr1 dupes|not|allowd
+                    ATGATGATGATG
+                    >chr1 whoops|there|is|dupe
+                    ATGATGATGATG
+                NvFaidx:
+                    {
+                        0 : SequenceAccessor(chr1 dupes|not|allowed),
+                        1 : SequenceAccessor(chr1 whoops|there|is|dupe)
+                    }
+
         """
         if isinstance(fasta_path, Path):
             fasta_path = str(fasta_path)
@@ -178,7 +202,14 @@ class NvFaidx:
             case _:
                 raise ValueError("unreachable condition.")
 
-        self.records: Dict[str, PyFaidxRecord] = {record.name: record for record in self.reader.records()}
+        self.records: Dict[str | int, PyFaidxRecord] = {record.name: record for record in self.reader.records()}
+        if len(self.records) != len(self.reader.records()):
+            if not allow_duplicate_seqids:
+                raise ValueError(
+                    "Non-unique sequence-id detected in FASTA, this is invalid. Correct headers and try again or pass allow_duplicate_seqid'"
+                )
+            else:
+                self.records: Dict[str | int, PyFaidxRecord] = dict(enumerate(self.reader.records()))
 
     def __getitem__(self, seqid: str) -> SequenceAccessor:  # noqa: D105
         if seqid not in self.records:

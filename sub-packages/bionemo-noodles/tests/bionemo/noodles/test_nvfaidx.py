@@ -32,6 +32,11 @@ def sample_fasta():
     return str(pathlib.Path(__file__).parent.parent.parent / "bionemo/noodles/data/sample.fasta")
 
 
+@pytest.fixture
+def dupes_fasta():
+    return str(pathlib.Path(__file__).parent.parent.parent / "bionemo/noodles/data/dupes.fasta")
+
+
 def test_create_faidx_rustbind():
     filename = create_test_fasta(num_seqs=2, seq_length=200)
     faidx_filename = PyIndexedMmapFastaReader.create_faidx(filename, force=False)
@@ -343,6 +348,16 @@ def test_parallel_index_creation_nvfaidx():
         lens = [len(x) for x in batch]
         lens_equal = [x == 10000 for x in lens]
         assert all(lens_equal), (set(lens), sum(lens_equal))
+
+
+def test_duplicate_seqids(dupes_fasta):
+    # Fails since we will get back 1 entry in our dict with 5 in our records list.
+    with pytest.raises(ValueError):
+        index = NvFaidx(dupes_fasta, allow_duplicate_seqids=False)
+
+    index = NvFaidx(dupes_fasta, allow_duplicate_seqids=True)
+    assert list(index.records.keys()) == list(range(5))
+    assert len(index) == 5
 
 
 def test_file_errors():
