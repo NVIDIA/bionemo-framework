@@ -73,11 +73,6 @@ RUN rm -rf /build
 
 # Addressing Security Scan Vulnerabilities
 RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
-RUN apt-get update  && \
-  apt-get install -y openssh-client=1:8.9p1-3ubuntu0.10 && \
-  rm -rf /var/lib/apt/lists/*
-RUN apt purge -y libslurm37 libpmi2-0 && \
-  apt autoremove -y
 
 
 # Use UV to install python packages from the workspace. This just installs packages into the system's python
@@ -92,7 +87,7 @@ ENV UV_LINK_MODE=copy \
 # Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
 RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
-  uv pip install --no-build-isolation -r /requirements-pyg.txt
+  uv pip install --break-system-packages --no-build-isolation -r /requirements-pyg.txt
 
 WORKDIR /workspace/bionemo2
 
