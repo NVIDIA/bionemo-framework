@@ -10,9 +10,9 @@ ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.12-py3
 FROM rust:1.82.0 as rust-env
 
 RUN rustup set profile minimal && \
-    rustup install 1.82.0 && \
-    rustup target add x86_64-unknown-linux-gnu && \
-    rustup default 1.82.0
+  rustup install 1.82.0 && \
+  rustup target add x86_64-unknown-linux-gnu && \
+  rustup default 1.82.0
 
 FROM ${BASE_IMAGE} AS bionemo2-base
 
@@ -108,7 +108,8 @@ RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   <<EOF
 set -eo pipefail
-uv pip install maturin --no-build-isolation && uv pip install --no-build-isolation \
+uv pip install maturin --no-build-isolation --break-system-packages
+uv pip install --no-build-isolation --break-system-packages \
   ./3rdparty/* \
   ./sub-packages/bionemo-* \
   -r /requirements-cve.txt \
@@ -174,7 +175,7 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
   --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOF
   set -eo pipefail
-  uv pip install -r /workspace/bionemo2/requirements-dev.txt
+  uv pip install -r /workspace/bionemo2/requirements-dev.txt --break-system-packages
   rm -rf /tmp/*
 EOF
 
@@ -204,15 +205,12 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
-RUN uv pip uninstall maturin
-RUN uv pip install maturin --no-build-isolation
-
 RUN <<EOF
 set -eo pipefail
 find . -name __pycache__ -type d -print | xargs rm -rf
-uv pip install --no-build-isolation --editable ./internal/infra-bionemo
+uv pip install --break-system-packages --no-build-isolation --editable ./internal/infra-bionemo
 for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
-    uv pip install --no-deps --no-build-isolation --editable $sub
+    uv pip install --break-system-packages --no-deps --no-build-isolation --editable $sub
 done
 EOF
 
