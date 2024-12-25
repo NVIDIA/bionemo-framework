@@ -1,5 +1,5 @@
 # Base image with apex and transformer engine, but without NeMo or Megatron-LM.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.02-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.12-py3
 
 FROM rust:1.82.0 as rust-env
 
@@ -117,7 +117,7 @@ ENV UV_LINK_MODE=copy \
 # installation. These involve building some torch extensions, so they can take a while to install.
 RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
   --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
-  uv pip install --no-build-isolation -r /requirements-pyg.txt
+  uv pip install --no-build-isolation --break-system-packages -r /requirements-pyg.txt
 
 ENV WORKDIR=/workspace/bionemo2
 WORKDIR ${WORKDIR}
@@ -176,17 +176,26 @@ WORKDIR /workspace/bionemo2
 RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-  <<EOF
-set -eo pipefail
-uv pip install maturin --no-build-isolation && uv pip install --no-build-isolation \
+  uv pip install maturin --no-build-isolation --break-system-packages
+RUN --mount=type=bind,source=./.git,target=./.git \
+  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
+  pip install --use-deprecated=legacy-resolver  --no-build-isolation --break-system-packages \
+  tensorstore==0.1.45
+
+RUN sed -i 's/^Version: 0\.0\.0$/Version: 0.1.45/' /usr/local/lib/python3.12/dist-packages/tensorstore-0.0.0.dist-info/METADATA && mv /usr/local/lib/python3.12/dist-packages/tensorstore-0.0.0.dist-info /usr/local/lib/python3.12/dist-packages/tensorstore-0.1.45.dist-info
+
+RUN pip show tensorstore
+
+
+RUN --mount=type=bind,source=./.git,target=./.git \
+  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
+  uv pip install --no-build-isolation --break-system-packages \
   ./3rdparty/* \
   ./sub-packages/bionemo-* \
   -r /requirements-cve.txt \
-  -r /requirements-test.txt
-rm -rf ./3rdparty
-rm -rf /tmp/*
-rm -rf ./sub-packages/bionemo-noodles/target
-EOF
+  -r /requirements-test.txt && rm -rf ./3rdparty && rm -rf /tmp/* && rm -rf ./sub-packages/bionemo-noodles/target
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
 # base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
@@ -244,7 +253,7 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
   --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOF
   set -eo pipefail
-  uv pip install -r /workspace/bionemo2/requirements-dev.txt
+  uv pip install --break-system-packages -r /workspace/bionemo2/requirements-dev.txt
   rm -rf /tmp/*
 EOF
 
@@ -276,14 +285,14 @@ ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
 RUN uv pip uninstall maturin
-RUN uv pip install maturin --no-build-isolation
+RUN uv pip install maturin --break-system-packages --no-build-isolation # why are we doing this twice?
 
 RUN <<EOF
 set -eo pipefail
 find . -name __pycache__ -type d -print | xargs rm -rf
 uv pip install --no-build-isolation --editable ./internal/infra-bionemo
 for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
-    uv pip install --no-deps --no-build-isolation --editable $sub
+    uv pip install --no-deps --no-build-isolation --break-system-packages --editable $sub
 done
 EOF
 # Since the entire repo is owned by root, swithcing username for development breaks things.
