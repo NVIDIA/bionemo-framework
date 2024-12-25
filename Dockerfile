@@ -5,14 +5,14 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.10-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.12-py3
 
 FROM rust:1.82.0 as rust-env
 
 RUN rustup set profile minimal && \
-    rustup install 1.82.0 && \
-    rustup target add x86_64-unknown-linux-gnu && \
-    rustup default 1.82.0
+  rustup install 1.82.0 && \
+  rustup target add x86_64-unknown-linux-gnu && \
+  rustup default 1.82.0
 
 FROM ${BASE_IMAGE} AS bionemo2-base
 
@@ -73,11 +73,6 @@ RUN rm -rf /build
 
 # Addressing Security Scan Vulnerabilities
 RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
-RUN apt-get update  && \
-  apt-get install -y openssh-client=1:8.9p1-3ubuntu0.10 && \
-  rm -rf /var/lib/apt/lists/*
-RUN apt purge -y libslurm37 libpmi2-0 && \
-  apt autoremove -y
 
 
 # Use UV to install python packages from the workspace. This just installs packages into the system's python
@@ -92,7 +87,7 @@ ENV UV_LINK_MODE=copy \
 # Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
 RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
-  uv pip install --no-build-isolation -r /requirements-pyg.txt
+  uv pip install --break-system-packages --no-build-isolation -r /requirements-pyg.txt
 
 WORKDIR /workspace/bionemo2
 
@@ -111,17 +106,27 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-  <<EOF
-set -eo pipefail
-uv pip install maturin --no-build-isolation && uv pip install --no-build-isolation \
+  uv pip install maturin --no-build-isolation --break-system-packages
+RUN --mount=type=bind,source=./.git,target=./.git \
+  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
+  pip install --use-deprecated=legacy-resolver  --no-build-isolation --break-system-packages \
+  tensorstore==0.1.45
+
+RUN sed -i 's/^Version: 0\.0\.0$/Version: 0.1.45/' /usr/local/lib/python3.12/dist-packages/tensorstore-0.0.0.dist-info/METADATA && mv /usr/local/lib/python3.12/dist-packages/tensorstore-0.0.0.dist-info /usr/local/lib/python3.12/dist-packages/tensorstore-0.1.45.dist-info
+
+RUN pip show tensorstore
+
+
+RUN --mount=type=bind,source=./.git,target=./.git \
+  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
+  uv pip install --no-build-isolation --break-system-packages \
   ./3rdparty/* \
   ./sub-packages/bionemo-* \
   -r /requirements-cve.txt \
-  -r /requirements-test.txt
-rm -rf ./3rdparty
-rm -rf /tmp/*
-rm -rf ./sub-packages/bionemo-noodles/target
-EOF
+  -r /requirements-test.txt && rm -rf ./3rdparty && rm -rf /tmp/* && rm -rf ./sub-packages/bionemo-noodles/target
+
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
 # base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
@@ -179,7 +184,7 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
   --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOF
   set -eo pipefail
-  uv pip install -r /workspace/bionemo2/requirements-dev.txt
+  uv pip install -r /workspace/bionemo2/requirements-dev.txt --break-system-packages
   rm -rf /tmp/*
 EOF
 
@@ -209,15 +214,12 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
-RUN uv pip uninstall maturin
-RUN uv pip install maturin --no-build-isolation
-
 RUN <<EOF
 set -eo pipefail
 find . -name __pycache__ -type d -print | xargs rm -rf
-uv pip install --no-build-isolation --editable ./internal/infra-bionemo
+uv pip install --break-system-packages --no-build-isolation --editable ./internal/infra-bionemo
 for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
-    uv pip install --no-deps --no-build-isolation --editable $sub
+    uv pip install --break-system-packages --no-deps --no-build-isolation --editable $sub
 done
 EOF
 
