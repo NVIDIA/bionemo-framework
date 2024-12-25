@@ -385,7 +385,7 @@ def train_esm2_entrypoint():
         ffn_hidden_size=args.ffn_hidden_size,
         overlap_grad_reduce=not args.no_overlap_grad_reduce,
         overlap_param_gather=args.overlap_param_gather,
-        average_in_collective=not args.average_in_collective,
+        average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
     )
 
