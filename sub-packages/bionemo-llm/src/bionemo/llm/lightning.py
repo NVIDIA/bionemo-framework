@@ -348,8 +348,8 @@ class BionemoLightningModule(
         logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
 
         if self.log_train_ppl and parallel_state.is_pipeline_last_stage():
-            self.train_ppl(logits, batch["labels"])
-            self.log("train_ppl", self.train_ppl, on_step=True, on_epoch=False)
+            train_metric_value = self.train_ppl(logits, batch["labels"])
+            self.log("train_ppl", train_metric_value, on_step=True, on_epoch=False)
 
         return outputs
 
@@ -359,8 +359,7 @@ class BionemoLightningModule(
         logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
 
         if self.log_val_ppl and parallel_state.is_pipeline_last_stage():
-            self.valid_ppl(logits, batch["labels"])
-            self.log("valid_ppl", self.valid_ppl, on_step=False, on_epoch=True)
+            self.valid_ppl.update(logits, batch["labels"])
 
         return outputs
 
@@ -379,6 +378,11 @@ class BionemoLightningModule(
 
     def test_loss_reduction(self) -> MegatronLossType:  # noqa: D102
         return self.loss_reduction_class(validation_step=True)
+
+    def on_validation_end(self):  # noqa: D102
+        valid_metric_value = self.valid_ppl.compute()
+        self.log("valid_ppl", valid_metric_value, on_step=False, on_epoch=True)
+        self.valid_ppl.reset()
 
 
 def default_megatron_optimizer() -> MegatronOptimizerModule:
