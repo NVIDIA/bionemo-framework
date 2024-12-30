@@ -253,9 +253,7 @@ class DiscreteFlowMatcher(Interpolant):
             Tensor: The updated state.
         """
         if logits.ndim > 3:
-            return NotImplementedError(
-                "Purity Sampling is only implmented for logits shape batch x sequence x state space."
-            )
+            raise ValueError("Purity Sampling is only implmented for logits shape batch x sequence x state space.")
         if isinstance(dt, float):
             dt = torch.Tensor([dt] * t.shape[0]).to(self.device)
         x_1_pred_logits = logits

@@ -253,7 +253,14 @@ class MDLM(Interpolant):
         return scaled_proability.argmax(dim=-1)
 
     def step_confidence(
-        self, logits, xt, curr_step, num_steps, logit_temperature=1.0, randomness=1.0, confidence_temperature=1.0
+        self,
+        logits: Tensor,
+        xt: Tensor,
+        curr_step: int,
+        num_steps: int,
+        logit_temperature: float = 1.0,
+        randomness: float = 1.0,
+        confidence_temperature: float = 1.0,
     ) -> Tensor:
         """Update the input sequence xt by sampling from the predicted logits and adding Gumbel noise.
 

@@ -210,7 +210,6 @@ class ContinuousFlowMatcher(Interpolant):
         Args:
             noise (Tensor): noise from prior(), shape (batchsize, nodes, features)
             data (Tensor): target, shape (batchsize, nodes, features)
-            t (Tensor): time, shape (batchsize)
             mask (Optional[Tensor], optional): mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 
         Returns:

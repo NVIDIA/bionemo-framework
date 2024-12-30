@@ -208,7 +208,7 @@ class DDPM(Interpolant):
             noise = self.sample_prior(data.shape)
         return self.interpolate(data, t, noise)
 
-    def process_data_prediction(self, model_output, sample, t):
+    def process_data_prediction(self, model_output: Tensor, sample: Tensor, t: Tensor):
         """Converts the model output to a data prediction based on the prediction type.
 
         This conversion stems from the Progressive Distillation for Fast Sampling of Diffusion Models https://arxiv.org/pdf/2202.00512.
@@ -219,9 +219,9 @@ class DDPM(Interpolant):
         - For "v_prediction" prediction type: `pred_data = data_scale * sample - noise_scale * model_output`
 
         Args:
-            model_output: The output of the model.
-            sample: The input sample.
-            t: The time step.
+            model_output (Tensor): The output of the model.
+            sample (Tensor): The input sample.
+            t (Tensor): The time step.
 
         Returns:
             The data prediction based on the prediction type.
@@ -391,13 +391,13 @@ class DDPM(Interpolant):
         x_next = self.clean_mask_center(x_next, mask, center)
         return x_next
 
-    def score(self, x_hat, xt, t):
+    def score(self, x_hat: Tensor, xt: Tensor, t: Tensor):
         """Converts the data prediction to the estimated score function.
 
         Args:
-            x_hat: The predicted data point.
-            xt: The current data point.
-            t: The time step.
+            x_hat (Tensor): The predicted data point.
+            xt (Tensor): The current data point.
+            t (Tensor): The time step.
 
         Returns:
             The estimated score function.
@@ -506,7 +506,6 @@ class DDPM(Interpolant):
 
         Args:
             model_pred (Tensor): The predicted output from the model.
-            xt (Tensor): The current data point.
             target (Tensor): The target output for the model prediction.
             t (Tensor): The time at which the loss is calculated.
             mask (Optional[Tensor], optional): The mask for the data point. Defaults to None.

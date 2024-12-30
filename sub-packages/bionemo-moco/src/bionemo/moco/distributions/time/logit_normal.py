@@ -62,7 +62,7 @@ class LogitNormalTimeDistribution(TimeDistribution):
             rng_generator: An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
         Returns:
-            Float: A tensor of samples.
+            A tensor of samples.
         """
         if rng_generator is None:
             rng_generator = self.rng_generator

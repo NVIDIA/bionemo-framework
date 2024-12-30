@@ -152,7 +152,7 @@ class Interpolant(ABC):
             kwargs (dict): Keyword arguments to pass to the step method.
 
         Returns:
-            Any: The result of the step method call.
+            The result of the step method call.
 
         Raises:
             ValueError: If the provided method name does not start with 'step'.
