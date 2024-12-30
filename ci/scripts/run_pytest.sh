@@ -29,12 +29,16 @@ fi
 
 python -m coverage erase
 
+error=false
 for dir in docs/ ./sub-packages/bionemo-*/; do
     echo "Running pytest in $dir"
     python -m coverage run --parallel-mode --source=bionemo \
-    -m pytest -v --nbval-lax --durations=0 --durations-min=60.0 "$dir"
-
+    -m pytest -v --nbval-lax --durations=0 --durations-min=60.0 "$dir" || error=true
 done
 
 python -m coverage combine
 python -m coverage report --show-missing
+
+if [ "$error" = true ]; then
+    exit 1
+fi
