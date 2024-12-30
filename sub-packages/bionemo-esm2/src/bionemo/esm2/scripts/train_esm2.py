@@ -30,7 +30,7 @@ from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
-from bionemo.llm.lightning import PerplexityLoggingCallback
+from bionemo.llm.lightning import PerplexityLoggingCallback, StopAfterStepCallback
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
@@ -91,6 +91,7 @@ def main(
     hidden_size: int = 1280,
     num_attention_heads: int = 20,
     ffn_hidden_size: int = 1280 * 4,
+    stop_after_steps: int | None = None,
 ) -> None:
     """Train an ESM2 model on UR data.
 
@@ -105,6 +106,7 @@ def main(
         max_seq_length (int): maximum sequence length
         result_dir (Path): directory to store results, logs and checkpoints
         num_steps (int): number of steps to train the model for
+        stop_after_steps (int): stop after this many steps. For debugging checkpoint resumption.
         warmup_steps (int): number of steps for warmup phase
         limit_val_batches (int): limit the number of validation global batches to this many
         val_check_interval (int): number of steps to periodically check the validation loss
@@ -202,6 +204,9 @@ def main(
                 start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
             )
         )
+
+    if stop_after_steps is not None:
+        callbacks.append(StopAfterStepCallback(stop_after_steps))
 
     trainer = nl.Trainer(
         devices=devices,
@@ -360,6 +365,7 @@ def train_esm2_entrypoint():
         hidden_size=args.hidden_size,
         num_attention_heads=args.num_attention_heads,
         ffn_hidden_size=args.ffn_hidden_size,
+        stop_after_steps=args.stop_after_steps,
     )
 
 
@@ -666,6 +672,13 @@ def get_parser():
         required=False,
         default=4 * 1280,
         help="FFN hidden size of the model. Default is 4 * 1280.",
+    )
+    parser.add_argument(
+        "--stop-after-steps",
+        type=int,
+        required=False,
+        default=None,
+        help="Stop after N steps.",
     )
     return parser
 
