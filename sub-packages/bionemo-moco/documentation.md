@@ -1,10 +1,13 @@
 # Table of Contents
 
 * [moco](#moco)
+* [bionemo.moco.distributions](#mocodistributions)
 * [bionemo.moco.distributions.prior.distribution](#mocodistributionspriordistribution)
 * [bionemo.moco.distributions.prior.discrete.uniform](#mocodistributionspriordiscreteuniform)
 * [bionemo.moco.distributions.prior.discrete.custom](#mocodistributionspriordiscretecustom)
+* [bionemo.moco.distributions.prior.discrete](#mocodistributionspriordiscrete)
 * [bionemo.moco.distributions.prior.discrete.mask](#mocodistributionspriordiscretemask)
+* [bionemo.moco.distributions.prior.continuous](#mocodistributionspriorcontinuous)
 * [bionemo.moco.distributions.prior.continuous.gaussian](#mocodistributionspriorcontinuousgaussian)
 * [bionemo.moco.distributions.prior.continuous.utils](#mocodistributionspriorcontinuousutils)
 * [bionemo.moco.distributions.prior](#mocodistributionsprior)
@@ -17,24 +20,35 @@
 * [bionemo.moco.schedules.discrete\_noise\_schedules](#mocoschedulesdiscrete_noise_schedules)
 * [bionemo.moco.schedules.noise.continuous\_snr\_transforms](#mocoschedulesnoisecontinuous_snr_transforms)
 * [bionemo.moco.schedules.noise.discrete\_noise\_schedules](#mocoschedulesnoisediscrete_noise_schedules)
+* [bionemo.moco.schedules.noise](#mocoschedulesnoise)
 * [bionemo.moco.schedules.noise.continuous\_noise\_transforms](#mocoschedulesnoisecontinuous_noise_transforms)
 * [bionemo.moco.schedules](#mocoschedules)
 * [bionemo.moco.schedules.utils](#mocoschedulesutils)
 * [bionemo.moco.schedules.inference\_time\_schedules](#mocoschedulesinference_time_schedules)
+* [bionemo.moco.interpolants.continuous\_time.discrete](#mocointerpolantscontinuous_timediscrete)
 * [bionemo.moco.interpolants.continuous\_time.discrete.mdlm](#mocointerpolantscontinuous_timediscretemdlm)
 * [bionemo.moco.interpolants.continuous\_time.discrete.discrete\_flow\_matching](#mocointerpolantscontinuous_timediscretediscrete_flow_matching)
 * [bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport](#mocointerpolantscontinuous_timecontinuousoptimal_transport)
+* [bionemo.moco.interpolants.continuous\_time.continuous](#mocointerpolantscontinuous_timecontinuous)
 * [bionemo.moco.interpolants.continuous\_time.continuous.vdm](#mocointerpolantscontinuous_timecontinuousvdm)
 * [bionemo.moco.interpolants.continuous\_time.continuous.continuous\_flow\_matching](#mocointerpolantscontinuous_timecontinuouscontinuous_flow_matching)
+* [bionemo.moco.interpolants.continuous\_time](#mocointerpolantscontinuous_time)
 * [bionemo.moco.interpolants](#mocointerpolants)
 * [bionemo.moco.interpolants.discrete\_time.discrete.d3pm](#mocointerpolantsdiscrete_timediscreted3pm)
+* [bionemo.moco.interpolants.discrete\_time.discrete](#mocointerpolantsdiscrete_timediscrete)
 * [bionemo.moco.interpolants.discrete\_time.continuous.ddpm](#mocointerpolantsdiscrete_timecontinuousddpm)
+* [bionemo.moco.interpolants.discrete\_time.continuous](#mocointerpolantsdiscrete_timecontinuous)
+* [bionemo.moco.interpolants.discrete\_time](#mocointerpolantsdiscrete_time)
 * [bionemo.moco.interpolants.discrete\_time.utils](#mocointerpolantsdiscrete_timeutils)
 * [bionemo.moco.interpolants.base\_interpolant](#mocointerpolantsbase_interpolant)
 
 <a id="moco"></a>
 
 # moco
+
+<a id="mocodistributions"></a>
+
+# bionemo.moco.distributions
 
 <a id="mocodistributionspriordistribution"></a>
 
@@ -239,6 +253,10 @@ Samples from the discrete custom prior distribution.
 
   A tensor of samples drawn from the prior distribution.
 
+<a id="mocodistributionspriordiscrete"></a>
+
+# bionemo.moco.distributions.prior.discrete
+
 <a id="mocodistributionspriordiscretemask"></a>
 
 # bionemo.moco.distributions.prior.discrete.mask
@@ -342,6 +360,10 @@ Pads the input sample with zeros along the last dimension.
 **Returns**:
 
 - `Tensor` - The padded sample.
+
+<a id="mocodistributionspriorcontinuous"></a>
+
+# bionemo.moco.distributions.prior.continuous
 
 <a id="mocodistributionspriorcontinuousgaussian"></a>
 
@@ -602,7 +624,7 @@ Generates a specified number of samples from the uniform time distribution.
 
 **Returns**:
 
-- `Float` - A tensor of samples.
+  A tensor of samples.
 
 <a id="mocodistributionstimeuniformSymmetricUniformTimeDistribution"></a>
 
@@ -657,7 +679,7 @@ Generates a specified number of samples from the uniform time distribution.
 
 **Returns**:
 
-- `Float` - A tensor of samples.
+  A tensor of samples.
 
 <a id="mocodistributionstimelogit_normal"></a>
 
@@ -720,7 +742,7 @@ Generates a specified number of samples from the uniform time distribution.
 
 **Returns**:
 
-- `Float` - A tensor of samples.
+  A tensor of samples.
 
 <a id="mocodistributionstime"></a>
 
@@ -787,7 +809,7 @@ Generates a specified number of samples from the uniform time distribution.
 
 **Returns**:
 
-- `Float` - A tensor of samples.
+  A tensor of samples.
 
 <a id="mocodistributionstimeutils"></a>
 
@@ -1329,6 +1351,10 @@ Initialize the CosineNoiseSchedule.
 - `nsteps` _Optional[int]_ - Number of time steps. If None, uses the value from initialization.
 - `beta_start` _Optional[int]_ - starting beta value. Defaults to 1e-4.
 - `beta_end` _Optional[int]_ - end beta value. Defaults to 0.02.
+
+<a id="mocoschedulesnoise"></a>
+
+# bionemo.moco.schedules.noise
 
 <a id="mocoschedulesnoisecontinuous_noise_transforms"></a>
 
@@ -1885,6 +1911,10 @@ Generate the log time schedule as a tensor.
 - `nsteps` _Optional[int]_ - Number of time steps. If None uses the value from initialization.
 - `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
+<a id="mocointerpolantscontinuous_timediscrete"></a>
+
+# bionemo.moco.interpolants.continuous\_time.discrete
+
 <a id="mocointerpolantscontinuous_timediscretemdlm"></a>
 
 # bionemo.moco.interpolants.continuous\_time.discrete.mdlm
@@ -2063,13 +2093,13 @@ Perform a single step of MDLM DDPM step.
 #### step\_confidence
 
 ```python
-def step_confidence(logits,
-                    xt,
-                    curr_step,
-                    num_steps,
-                    logit_temperature=1.0,
-                    randomness=1.0,
-                    confidence_temperature=1.0) -> Tensor
+def step_confidence(logits: Tensor,
+                    xt: Tensor,
+                    curr_step: int,
+                    num_steps: int,
+                    logit_temperature: float = 1.0,
+                    randomness: float = 1.0,
+                    confidence_temperature: float = 1.0) -> Tensor
 ```
 
 Update the input sequence xt by sampling from the predicted logits and adding Gumbel noise.
@@ -2436,6 +2466,10 @@ minibatch and draw source and target samples from pi $(x,z) \sim \pi$.
 
 - `Tuple` - tuple of 2 tensors or 3 tensors if mask is used, represents the noise (plus mask) and data samples following OT plan pi.
 
+<a id="mocointerpolantscontinuous_timecontinuous"></a>
+
+# bionemo.moco.interpolants.continuous\_time.continuous
+
 <a id="mocointerpolantscontinuous_timecontinuousvdm"></a>
 
 # bionemo.moco.interpolants.continuous\_time.continuous.vdm
@@ -2552,7 +2586,7 @@ Get x(t) with given time t from noise and data.
 #### process\_data\_prediction
 
 ```python
-def process_data_prediction(model_output, sample, t)
+def process_data_prediction(model_output: Tensor, sample, t)
 ```
 
 Converts the model output to a data prediction based on the prediction type.
@@ -2566,9 +2600,9 @@ The conversion formulas are as follows:
 
 **Arguments**:
 
-- `model_output` - The output of the model.
-- `sample` - The input sample.
-- `t` - The time step.
+- `model_output` _Tensor_ - The output of the model.
+- `sample` _Tensor_ - The input sample.
+- `t` _Tensor_ - The time step.
 
 
 **Returns**:
@@ -2585,16 +2619,16 @@ The conversion formulas are as follows:
 #### process\_noise\_prediction
 
 ```python
-def process_noise_prediction(model_output, sample, t)
+def process_noise_prediction(model_output: Tensor, sample: Tensor, t: Tensor)
 ```
 
 Do the same as process_data_prediction but take the model output and convert to nosie.
 
 **Arguments**:
 
-- `model_output` - The output of the model.
-- `sample` - The input sample.
-- `t` - The time step.
+- `model_output` _Tensor_ - The output of the model.
+- `sample` _Tensor_ - The input sample.
+- `t` _Tensor_ - The time step.
 
 
 **Returns**:
@@ -2693,7 +2727,7 @@ From the ddpm equations alpha_bar = alpha**2 and  1 - alpha**2 = sigma**2
 #### set\_loss\_weight\_fn
 
 ```python
-def set_loss_weight_fn(fn)
+def set_loss_weight_fn(fn: Callable)
 ```
 
 Sets the loss_weight attribute of the instance to the given function.
@@ -3032,7 +3066,6 @@ Get the target vector field at time t.
 
 - `noise` _Tensor_ - noise from prior(), shape (batchsize, nodes, features)
 - `data` _Tensor_ - target, shape (batchsize, nodes, features)
-- `t` _Tensor_ - time, shape (batchsize)
 - `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 
 
@@ -3272,6 +3305,10 @@ From Geffner et al. Computes gt for different modes.
 - `clamp_val` - value to clamp gt, no clamping if None
 - `eps` - small value leave as it is
 
+<a id="mocointerpolantscontinuous_time"></a>
+
+# bionemo.moco.interpolants.continuous\_time
+
 <a id="mocointerpolants"></a>
 
 # bionemo.moco.interpolants
@@ -3427,6 +3464,10 @@ calculated and added to the total loss.
 
 - `Tensor` - The calculated loss tensor. If aggregate is True, the loss and variational lower bound loss are aggregated and
   returned as a single tensor. Otherwise, the loss and variational lower bound loss are returned as separate tensors.
+
+<a id="mocointerpolantsdiscrete_timediscrete"></a>
+
+# bionemo.moco.interpolants.discrete\_time.discrete
 
 <a id="mocointerpolantsdiscrete_timecontinuousddpm"></a>
 
@@ -3623,7 +3664,7 @@ Get x(t) with given time t from noise and data.
 #### process\_data\_prediction
 
 ```python
-def process_data_prediction(model_output, sample, t)
+def process_data_prediction(model_output: Tensor, sample: Tensor, t: Tensor)
 ```
 
 Converts the model output to a data prediction based on the prediction type.
@@ -3637,9 +3678,9 @@ The conversion formulas are as follows:
 
 **Arguments**:
 
-- `model_output` - The output of the model.
-- `sample` - The input sample.
-- `t` - The time step.
+- `model_output` _Tensor_ - The output of the model.
+- `sample` _Tensor_ - The input sample.
+- `t` _Tensor_ - The time step.
 
 
 **Returns**:
@@ -3768,16 +3809,16 @@ Do one step integration.
 #### score
 
 ```python
-def score(x_hat, xt, t)
+def score(x_hat: Tensor, xt: Tensor, t: Tensor)
 ```
 
 Converts the data prediction to the estimated score function.
 
 **Arguments**:
 
-- `x_hat` - The predicted data point.
-- `xt` - The current data point.
-- `t` - The time step.
+- `x_hat` _Tensor_ - The predicted data point.
+- `xt` _Tensor_ - The current data point.
+- `t` _Tensor_ - The time step.
 
 
 **Returns**:
@@ -3868,7 +3909,6 @@ Calculate the loss given the model prediction, data sample, and time.
 **Arguments**:
 
 - `model_pred` _Tensor_ - The predicted output from the model.
-- `xt` _Tensor_ - The current data point.
 - `target` _Tensor_ - The target output for the model prediction.
 - `t` _Tensor_ - The time at which the loss is calculated.
 - `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
@@ -3878,6 +3918,14 @@ Calculate the loss given the model prediction, data sample, and time.
 **Returns**:
 
 - `Tensor` - The calculated loss batch tensor.
+
+<a id="mocointerpolantsdiscrete_timecontinuous"></a>
+
+# bionemo.moco.interpolants.discrete\_time.continuous
+
+<a id="mocointerpolantsdiscrete_time"></a>
+
+# bionemo.moco.interpolants.discrete\_time
 
 <a id="mocointerpolantsdiscrete_timeutils"></a>
 
@@ -4067,7 +4115,7 @@ Calls a step method of the class by its name, passing the provided keyword argum
 
 **Returns**:
 
-- `Any` - The result of the step method call.
+  The result of the step method call.
 
 
 **Raises**:
