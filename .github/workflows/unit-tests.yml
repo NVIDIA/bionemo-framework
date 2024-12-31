@@ -1,0 +1,118 @@
+name: BioNemo Image Build and Unit Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: 'recursive'
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+    - run: pip install -r requirements-dev.txt
+    - run: ./ci/scripts/static_checks.sh
+    - uses: trufflesecurity/trufflehog@main
+      with:
+        extra_args: --only-verified
+
+  build-bionemo-image:
+    needs: pre-commit
+    runs-on: self-hosted-nemo-gpus-1  # TODO: make this a CPU-only builder runner.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+          submodules: 'recursive'
+
+      - name: Clean runner cache
+        env:
+          LABEL: bionemo
+        run: |
+          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=168h" --force
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pull cache images
+        run: |
+          docker pull nemoci.azurecr.io/bionemo:${{ github.event.pull_request.number || 'buildcache' }} 2&>1 ||
+            echo "Cache image not found"
+          docker pull nemoci.azurecr.io/bionemo:buildcache 2&>1 ||
+            echo "Cache image not found"
+          CACHE=(
+            "nemoci.azurecr.io/bionemo:${{ github.event.pull_request.number || 'buildcache' }}"
+            "nemoci.azurecr.io/bionemo:buildcache"
+          )
+
+          echo "CACHE<<EOF" >> $GITHUB_ENV
+          echo "${CACHE[*]}" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          file: ${{ github.run_id }}/Dockerfile
+          push: true
+          build-args: IMAGE_LABEL=bionemo
+          cache-from: ${{ env.CACHE }}
+          cache-to: type=inline
+          tags: nemoci.azurecr.io/bionemo:${{ github.run_id }}
+          context: ${{ github.run_id }}/
+
+      - name: Update PR image
+        if: github.event_name == 'pull_request'
+        run: |
+          docker tag nemoci.azurecr.io/bionemo:${{ github.run_id }} nemoci.azurecr.io/bionemo:${{ github.event.pull_request.number }}
+          docker push nemoci.azurecr.io/bionemo:${{ github.event.pull_request.number }}
+
+      - name: Update buildcache image
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker tag nemoci.azurecr.io/bionemo:${{ github.run_id }} nemoci.azurecr.io/bionemo:buildcache
+          docker push nemoci.azurecr.io/bionemo:buildcache
+
+  # TODO: Add persistent volume for cache
+  # https://confluence.nvidia.com/display/NLLMS/NeMo+Framework+-+Github+Actions+CICD%3A+User+Guide
+
+  run-tests:
+    needs: build-bionemo-image
+    runs-on: self-hosted-nemo-gpus-1
+    container:
+      image: nemoci.azurecr.io/bionemo:${{ github.run_id }}
+    steps:
+      - name: Run tests
+        run: |
+          python -m coverage erase
+
+          error=false
+          for dir in docs/ ./sub-packages/bionemo-*/; do
+              echo "Running pytest in $dir"
+              python -m coverage run --parallel-mode --source=bionemo \
+              -m pytest -v --nbval-lax --durations=0 --durations-min=60.0 "$dir" || error=true
+          done
+
+          python -m coverage combine
+          python -m coverage report --show-missing
+
+          if [ "$error" = true ]; then
+              exit 1
+          fi
+
+# TODO: exclude tests from base image; run tests from github workspace mounted in the image.
+# TODO: upload coverage report to codecov.io
