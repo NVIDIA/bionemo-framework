@@ -65,11 +65,11 @@ jobs:
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: |
-            type=registry,ref=user/app:buildcache
+            type=registry,ref=nemoci.azurecr.io/bionemo:buildcache
             type=local,src=/mnt/datadrive/bionemo-buildx-cache
           cache-to: |
             type=local,dest=/mnt/datadrive/bionemo-buildx-cache,mode=max
-            ${{ github.ref == 'refs/heads/main' && 'type=registry,ref=user/app:buildcache,mode=max' || '' }}
+            ${{ github.ref == 'refs/heads/main' && 'type=registry,ref=nemoci.azurecr.io/bionemo:buildcache,mode=max' || '' }}
 
   # TODO: Add persistent volume for cache
   # https://confluence.nvidia.com/display/NLLMS/NeMo+Framework+-+Github+Actions+CICD%3A+User+Guide
