@@ -74,7 +74,7 @@ def test_d3pm_step(d3pm, device):
     ).float()  # (B, N, num_classes)
     nll = -torch.sum(torch.log(model_out_onehot.view(-1, num_classes) + 1e-8).gather(1, data.view(-1, 1)).squeeze(1))
     assert nll < 1e-10
-    loss = d3pm.loss(logits, data, xt, time)
+    loss = d3pm.loss(logits, data, xt, time).mean()
     assert loss.item() == 0
-    loss = d3pm.loss(logits, data, xt, time, vb_scale=0.5)
+    loss = d3pm.loss(logits, data, xt, time, vb_scale=0.5).mean()
     assert loss.item() < 1.0e-1
