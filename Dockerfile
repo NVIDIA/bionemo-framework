@@ -7,7 +7,7 @@
 #   training loss curves from NeMo.
 ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.12-py3
 
-FROM rust:1.82.0 as rust-env
+FROM rust:1.82.0 AS rust-env
 
 RUN rustup set profile minimal && \
   rustup install 1.82.0 && \
@@ -127,9 +127,11 @@ uv pip install --no-build-isolation \
   ./sub-packages/bionemo-* \
   -r /requirements-cve.txt \
   -r /requirements-test.txt
+
 rm -rf ./3rdparty
 rm -rf /tmp/*
 rm -rf ./sub-packages/bionemo-noodles/target
+rm -rf /root/.cache/*
 EOF
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
@@ -148,35 +150,32 @@ apt-get install -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
-# Create a non-root user to use inside a devcontainer.
-ARG USERNAME=bionemo
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-RUN groupadd --gid $USER_GID $USERNAME \
-  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
-  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+# Use a non-root user to use inside a devcontainer (with ubuntu 23 and later, we can use the default ubuntu user).
+ARG USERNAME=ubuntu
+RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # Here we delete the dist-packages directory from the pytorch base image, and copy over the dist-packages directory from
 # the build image. This ensures we have all the necessary dependencies installed (megatron, nemo, etc.).
 RUN <<EOF
   set -eo pipefail
-  rm -rf /usr/local/lib/python3.10/dist-packages
-  mkdir -p /usr/local/lib/python3.10/dist-packages
-  chmod 777 /usr/local/lib/python3.10/dist-packages
+  rm -rf /usr/local/lib/python3.12/dist-packages
+  mkdir -p /usr/local/lib/python3.12/dist-packages
+  chmod 777 /usr/local/lib/python3.12/dist-packages
   chmod 777 /usr/local/bin
 EOF
 
 USER $USERNAME
 
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
-  /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+  /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
 
 COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=0 \
   UV_PYTHON_DOWNLOADS=never \
-  UV_SYSTEM_PYTHON=true
+  UV_SYSTEM_PYTHON=true \
+  UV_BREAK_SYSTEM_PACKAGES=1
 
 # Bring in the rust toolchain, as maturin is a dependency listed in requirements-dev
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
@@ -194,7 +193,7 @@ EOF
 
 RUN <<EOF
   set -eo pipefail
-  rm -rf /usr/local/lib/python3.10/dist-packages/bionemo*
+  rm -rf /usr/local/lib/python3.12/dist-packages/bionemo*
   pip uninstall -y nemo_toolkit megatron_core
 EOF
 
@@ -227,8 +226,8 @@ for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
 done
 EOF
 
-# Since the entire repo is owned by root, swithcing username for development breaks things.
-ARG USERNAME=bionemo
+# Since the entire repo is owned by root, switching username for development breaks things.
+ARG USERNAME=ubuntu
 RUN chown $USERNAME:$USERNAME -R /workspace/bionemo2/
 USER $USERNAME
 
