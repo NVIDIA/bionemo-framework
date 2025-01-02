@@ -23,6 +23,8 @@ if [ "$CONDA_DEFAULT_ENV" == "$ENV_NAME" ]; then
     # Navigate to your project directory if needed
     # cd /path/to/your/project  # Uncomment and adjust this path as necessary
     # Install your project in editable mode using pip
+    pip install pydoc-markdown>=4.8.2
+    pip install pytest-cov==4.1.0 pytest-timeout==2.2.0 pytest-dependency==0.5.1
     pre-commit install
     echo "Installing bionemo-moco in editable mode using pip..."
     pip install -e .

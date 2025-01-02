@@ -17,10 +17,8 @@ dependencies = [
     'numpy>=1.24.4,<2',
     'jaxtyping>=0.2.34',
     'pot>=0.9.5',
-    'pydoc-markdown>=4.8.2',
-    'pytest-cov==4.1.0',
-    'pytest-timeout==2.2.0',
-    'pytest-dependency==0.5.1',
+    'scikit-learn>=1.6.0',
+    'matplotlib>=3.3.2'
 ]
 
 [tool.setuptools.packages.find]
