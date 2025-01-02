@@ -290,7 +290,6 @@ class D3PM(Interpolant):
         time: Tensor,
         mask: Optional[Tensor] = None,
         vb_scale: Float = 0.0,
-        aggregate: bool = True,
     ):
         """Calculate the cross-entropy loss between the model prediction and the target output.
 
@@ -305,7 +304,6 @@ class D3PM(Interpolant):
             time (Tensor): The time at which the loss is calculated.
             mask (Optional[Tensor], optional): The mask for the data point. Defaults to None.
             vb_scale (Float, optional): The scale factor for the variational lower bound loss. Defaults to 0.0.
-            aggregate (bool, optional): Whether to aggregate the loss and variational lower bound loss. Defaults to True.
 
         Returns:
             Tensor: The calculated loss tensor. If aggregate is True, the loss and variational lower bound loss are aggregated and
@@ -327,12 +325,9 @@ class D3PM(Interpolant):
             vb_loss = vb_scale * vb_loss
         else:
             vb_loss = 0
-        if aggregate:
-            loss = loss.mean()
-            if vb_scale > 0:
-                loss += vb_loss.mean()  # type: ignore
-            return loss
-        return loss, vb_loss
+        if vb_scale > 0:
+            loss += vb_loss
+        return loss
 
     def _variational_lower_bound(self, dist1: Tensor, dist2: Tensor) -> Tensor:
         """Calculate the variational lower bound (VLB) between two distributions.

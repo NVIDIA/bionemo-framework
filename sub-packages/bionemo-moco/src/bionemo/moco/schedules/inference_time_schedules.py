@@ -34,7 +34,7 @@ class InferenceSchedule(ABC):
         min_t: Float = 0,
         padding: Float = 0,
         dilation: Float = 0,
-        direction: TimeDirection = TimeDirection.UNIFIED,
+        direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
     ):
         """Initialize the InferenceSchedule.
@@ -137,7 +137,7 @@ class DiscreteLinearInferenceSchedule(DiscreteInferenceSchedule):
         min_t: Float = 0,
         padding: Float = 0,
         dilation: Float = 0,
-        direction: TimeDirection = TimeDirection.UNIFIED,
+        direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
     ):
         """Initialize the DiscreteLinearInferenceSchedule.
@@ -196,7 +196,7 @@ class LinearInferenceSchedule(ContinuousInferenceSchedule):
         min_t: Float = 0,
         padding: Float = 0,
         dilation: Float = 0,
-        direction: TimeDirection = TimeDirection.UNIFIED,
+        direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
     ):
         """Initialize the LinearInferenceSchedule.
@@ -263,7 +263,7 @@ class PowerInferenceSchedule(ContinuousInferenceSchedule):
         padding: Float = 0,
         dilation: Float = 0,
         p1: Float = 1.0,
-        direction: TimeDirection = TimeDirection.UNIFIED,
+        direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
     ):
         """Initialize the PowerInferenceSchedule.
@@ -330,7 +330,7 @@ class LogInferenceSchedule(ContinuousInferenceSchedule):
         padding: Float = 0,
         dilation: Float = 0,
         p1: Float = 2,
-        direction: TimeDirection = TimeDirection.UNIFIED,
+        direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
     ):
         """Initialize the LogInferenceSchedule.

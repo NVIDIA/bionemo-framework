@@ -93,7 +93,7 @@ class ContinuousFlowMatcher(Interpolant):
         prior_distribution: PriorDistribution,
         prediction_type: Union[PredictionType, str] = PredictionType.DATA,
         sigma: Float = 0,
-        ot_type: Optional[OptimalTransportType] = None,
+        ot_type: Optional[Union[OptimalTransportType, str]] = None,
         data_scale: Float = 1.0,
         device: Union[str, torch.device] = "cpu",
         rng_generator: Optional[torch.Generator] = None,
@@ -106,7 +106,7 @@ class ContinuousFlowMatcher(Interpolant):
             prior_distribution (PriorDistribution): The prior distribution of the variable, used as the starting point for the diffusion process.
             prediction_type (PredictionType, optional): The type of prediction, either "flow" or another type. Defaults to PredictionType.DATA.
             sigma (Float, optional): The standard deviation of the Gaussian noise added to the interpolated data. Defaults to 0.
-            ot_type (Optional[OptimalTransportType], optional): The type of optimal transport, if applicable. Defaults to None.
+            ot_type (Optional[Union[OptimalTransportType, str]], optional): The type of optimal transport, if applicable. Defaults to None.
             data_scale (Float, optional): The scale factor for the data. Defaults to 1.0.
             device (Union[str, torch.device], optional): The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
             rng_generator: An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
@@ -121,6 +121,7 @@ class ContinuousFlowMatcher(Interpolant):
         if data_scale <= 0:
             raise ValueError("Data Scale must be > 0")
         if ot_type is not None:
+            self.ot_type = ot_type = string_to_enum(ot_type, OptimalTransportType)
             self.ot_sampler = self._build_ot_sampler(sampler_type=ot_type)
         self._loss_function = nn.MSELoss(reduction="none")
 

@@ -1588,7 +1588,7 @@ def __init__(nsteps: int,
              min_t: Float = 0,
              padding: Float = 0,
              dilation: Float = 0,
-             direction: TimeDirection = TimeDirection.UNIFIED,
+             direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
              device: Union[str, torch.device] = "cpu")
 ```
 
@@ -1704,7 +1704,7 @@ def __init__(nsteps: int,
              min_t: Float = 0,
              padding: Float = 0,
              dilation: Float = 0,
-             direction: TimeDirection = TimeDirection.UNIFIED,
+             direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
              device: Union[str, torch.device] = "cpu")
 ```
 
@@ -1761,7 +1761,7 @@ def __init__(nsteps: int,
              min_t: Float = 0,
              padding: Float = 0,
              dilation: Float = 0,
-             direction: TimeDirection = TimeDirection.UNIFIED,
+             direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
              device: Union[str, torch.device] = "cpu")
 ```
 
@@ -1819,7 +1819,7 @@ def __init__(nsteps: int,
              padding: Float = 0,
              dilation: Float = 0,
              p1: Float = 1.0,
-             direction: TimeDirection = TimeDirection.UNIFIED,
+             direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
              device: Union[str, torch.device] = "cpu")
 ```
 
@@ -1878,7 +1878,7 @@ def __init__(nsteps: int,
              padding: Float = 0,
              dilation: Float = 0,
              p1: Float = 2,
-             direction: TimeDirection = TimeDirection.UNIFIED,
+             direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
              device: Union[str, torch.device] = "cpu")
 ```
 
@@ -2946,7 +2946,7 @@ def __init__(time_distribution: TimeDistribution,
              prior_distribution: PriorDistribution,
              prediction_type: Union[PredictionType, str] = PredictionType.DATA,
              sigma: Float = 0,
-             ot_type: Optional[OptimalTransportType] = None,
+             ot_type: Optional[Union[OptimalTransportType, str]] = None,
              data_scale: Float = 1.0,
              device: Union[str, torch.device] = "cpu",
              rng_generator: Optional[torch.Generator] = None,
@@ -2961,7 +2961,7 @@ Initializes the Continuous Flow Matching interpolant.
 - `prior_distribution` _PriorDistribution_ - The prior distribution of the variable, used as the starting point for the diffusion process.
 - `prediction_type` _PredictionType, optional_ - The type of prediction, either "flow" or another type. Defaults to PredictionType.DATA.
 - `sigma` _Float, optional_ - The standard deviation of the Gaussian noise added to the interpolated data. Defaults to 0.
-- `ot_type` _Optional[OptimalTransportType], optional_ - The type of optimal transport, if applicable. Defaults to None.
+- `ot_type` _Optional[Union[OptimalTransportType, str]], optional_ - The type of optimal transport, if applicable. Defaults to None.
 - `data_scale` _Float, optional_ - The scale factor for the data. Defaults to 1.0.
 - `device` _Union[str, torch.device], optional_ - The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
@@ -3439,8 +3439,7 @@ def loss(logits: Tensor,
          xt: Tensor,
          time: Tensor,
          mask: Optional[Tensor] = None,
-         vb_scale: Float = 0.0,
-         aggregate: bool = True)
+         vb_scale: Float = 0.0)
 ```
 
 Calculate the cross-entropy loss between the model prediction and the target output.
@@ -3457,7 +3456,6 @@ calculated and added to the total loss.
 - `time` _Tensor_ - The time at which the loss is calculated.
 - `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
 - `vb_scale` _Float, optional_ - The scale factor for the variational lower bound loss. Defaults to 0.0.
-- `aggregate` _bool, optional_ - Whether to aggregate the loss and variational lower bound loss. Defaults to True.
 
 
 **Returns**:
