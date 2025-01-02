@@ -1621,6 +1621,30 @@ Generate the time schedule as a tensor.
 - `nsteps` _Optioanl[int]_ - Number of time steps. If None, uses the value from initialization.
 - `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
+<a id="mocoschedulesinference_time_schedulesInferenceSchedulepad_time"></a>
+
+#### pad\_time
+
+```python
+def pad_time(n_samples: int,
+             scalar_time: Float,
+             device: Optional[Union[str, torch.device]] = None) -> Tensor
+```
+
+Creates a tensor of shape (n_samples,) filled with a scalar time value.
+
+**Arguments**:
+
+  - n_samples (int): The desired dimension of the output tensor.
+  - scalar_time (Float): The scalar time value to fill the tensor with.
+  - device (Optional[Union[str, torch.device]], optional):
+  The device to place the tensor on. Defaults to None, which uses the default device.
+
+
+**Returns**:
+
+  - Tensor: A tensor of shape (n_samples,) filled with the scalar time value.
+
 <a id="mocoschedulesinference_time_schedulesContinuousInferenceSchedule"></a>
 
 ## ContinuousInferenceSchedule Objects
@@ -2906,7 +2930,7 @@ A Continuous Flow Matching interpolant.
 >>> from bionemo.bionemo.moco.distributions.prior.continuous.gaussian import GaussianPrior
 >>> from bionemo.bionemo.moco.distributions.time.uniform import UniformTimeDistribution
 >>> from bionemo.bionemo.moco.interpolants.continuous_time.continuous.continuous_flow_matching import ContinuousFlowMatcher
->>> from bionemo.bionemo.moco.schedules.inference_time_schedules import LinearTimeSchedule
+>>> from bionemo.bionemo.moco.schedules.inference_time_schedules import LinearInferenceSchedule
 
 flow_matcher = ContinuousFlowMatcher(
     time_distribution = UniformTimeDistribution(...),
@@ -2929,8 +2953,9 @@ for epoch in range(1000):
 
 # Generation
 x_pred = flow_matcher.sample_prior(data.shape)
-for t in LinearTimeSchedule(...).generate_schedule():
-    time = torch.full((batch_size,), t)
+inference_sched = LinearInferenceSchedule(...)
+for t in inference_sched.generate_schedule():
+    time = inference_sched.pad_time(x_pred.shape[0], t)
     u_hat = model(x_pred, time)
     x_pred = flow_matcher.step(u_hat, x_pred, time)
 return x_pred

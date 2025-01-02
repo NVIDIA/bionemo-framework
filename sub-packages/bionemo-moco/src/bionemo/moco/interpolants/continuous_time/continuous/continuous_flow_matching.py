@@ -55,7 +55,7 @@ class ContinuousFlowMatcher(Interpolant):
     >>> from bionemo.moco.distributions.prior.continuous.gaussian import GaussianPrior
     >>> from bionemo.moco.distributions.time.uniform import UniformTimeDistribution
     >>> from bionemo.moco.interpolants.continuous_time.continuous.continuous_flow_matching import ContinuousFlowMatcher
-    >>> from bionemo.moco.schedules.inference_time_schedules import LinearTimeSchedule
+    >>> from bionemo.moco.schedules.inference_time_schedules import LinearInferenceSchedule
 
     flow_matcher = ContinuousFlowMatcher(
         time_distribution = UniformTimeDistribution(...),
@@ -78,8 +78,9 @@ class ContinuousFlowMatcher(Interpolant):
 
     # Generation
     x_pred = flow_matcher.sample_prior(data.shape)
-    for t in LinearTimeSchedule(...).generate_schedule():
-        time = torch.full((batch_size,), t)
+    inference_sched = LinearInferenceSchedule(...)
+    for t in inference_sched.generate_schedule():
+        time = inference_sched.pad_time(x_pred.shape[0], t)
         u_hat = model(x_pred, time)
         x_pred = flow_matcher.step(u_hat, x_pred, time)
     return x_pred

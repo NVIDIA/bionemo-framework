@@ -67,6 +67,22 @@ class InferenceSchedule(ABC):
         """
         pass
 
+    def pad_time(
+        self, n_samples: int, scalar_time: Float, device: Optional[Union[str, torch.device]] = None
+    ) -> Tensor:
+        """Creates a tensor of shape (n_samples,) filled with a scalar time value.
+
+        Args:
+            n_samples (int): The desired dimension of the output tensor.
+            scalar_time (Float): The scalar time value to fill the tensor with.
+            device (Optional[Union[str, torch.device]], optional):
+                The device to place the tensor on. Defaults to None, which uses the default device.
+
+        Returns:
+            Tensor: A tensor of shape (n_samples,) filled with the scalar time value.
+        """
+        return torch.full((n_samples,), fill_value=scalar_time).to(device)
+
 
 class ContinuousInferenceSchedule(InferenceSchedule):
     """A base class for continuous time inference schedules."""
