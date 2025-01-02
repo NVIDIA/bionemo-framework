@@ -33,6 +33,9 @@ jobs:
   build-bionemo-image:
     needs: pre-commit
     runs-on: self-hosted-nemo-gpus-1  # TODO: make this a CPU-only builder runner.
+    defaults:
+      run:
+        working-directory: ./${{ github.run_id }}
     steps:
       - name: Docker Prune
         run: |
@@ -77,13 +80,12 @@ jobs:
   run-tests:
     needs: build-bionemo-image
     runs-on: self-hosted-nemo-gpus-1
+    defaults:
+      run:
+        working-directory: ./${{ github.run_id }}
     container:
       image: nemoci.azurecr.io/bionemo:${{ github.run_id }}
     steps:
-      - name: Cleanup Workspace
-        run: |
-          rm -rf ${{ github.workspace }}/*
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
