@@ -78,12 +78,14 @@ jobs:
       - name: Update PR image
         if: github.event_name == 'pull_request'
         run: |
+          docker pull nemoci.azurecr.io/bionemo:${{ github.run_id }}
           docker tag nemoci.azurecr.io/bionemo:${{ github.run_id }} nemoci.azurecr.io/bionemo:${{ github.event.pull_request.number }}
           docker push nemoci.azurecr.io/bionemo:${{ github.event.pull_request.number }}
 
       - name: Update buildcache image
         if: github.ref == 'refs/heads/main'
         run: |
+          docker pull nemoci.azurecr.io/bionemo:${{ github.run_id }}
           docker tag nemoci.azurecr.io/bionemo:${{ github.run_id }} nemoci.azurecr.io/bionemo:buildcache
           docker push nemoci.azurecr.io/bionemo:buildcache
 
