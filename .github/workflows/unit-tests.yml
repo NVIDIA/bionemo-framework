@@ -30,20 +30,20 @@ jobs:
       with:
         extra_args: --only-verified
 
-  setup-environment:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create working directory
-        run: |
-            mkdir -p ./${{ github.run_id }}
-
   build-bionemo-image:
     needs: pre-commit
     runs-on: self-hosted-nemo-gpus-1  # TODO: make this a CPU-only builder runner.
     steps:
+      - name: Clean runner cache
+        env:
+          LABEL: bionemo
+        run: |
+          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=168h" --force
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          path: ${{ github.run_id }}
           submodules: 'recursive'
 
       - name: Set up Docker Buildx
@@ -65,7 +65,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          file: Dockerfile
+          file: ${{ github.run_id }}/Dockerfile
+          context: ${{ github.run_id }}/
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
@@ -88,9 +89,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
 
       - name: Run tests
         run: |
+          cd ${{ github.run_id }}
           python -m coverage erase
 
           error=false
@@ -107,17 +111,6 @@ jobs:
               exit 1
           fi
 
-  teardown-environment:
-    runs-on: ubuntu-latest
-    needs: run-tests
-    if: always()
-    steps:
-      - name: Docker Prune
-        run: |
-            docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=168h" --force
-      - name: Delete working directory
-        run: |
-            rm -rf ./${{ github.run_id }}
 
 # TODO: exclude tests from base image; run tests from github workspace mounted in the image.
 # TODO: upload coverage report to codecov.io
