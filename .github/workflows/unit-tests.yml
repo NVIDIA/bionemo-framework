@@ -49,45 +49,28 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Pull cache images
-        run: |
-          docker pull nemoci.azurecr.io/bionemo:${{ github.event.pull_request.number || 'buildcache' }} 2&>1 ||
-            echo "Cache image not found"
-          docker pull nemoci.azurecr.io/bionemo:buildcache 2&>1 ||
-            echo "Cache image not found"
-          CACHE=(
-            "nemoci.azurecr.io/bionemo:${{ github.event.pull_request.number || 'buildcache' }}"
-            "nemoci.azurecr.io/bionemo:buildcache"
-          )
+      - name: Docker Metadata
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: nemoci.azurecr.io/bionemo
+          labels: nemo.library=bionemo
 
-          echo "CACHE<<EOF" >> $GITHUB_ENV
-          echo "${CACHE[*]}" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+      - uses: int128/docker-build-cache-config-action@v1
+        id: cache
+        with:
+          image: nemoci.azurecr.io/bionemo/buildcache
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           file: ${{ github.run_id }}/Dockerfile
-          push: true
-          build-args: IMAGE_LABEL=bionemo
-          cache-from: ${{ env.CACHE }}
-          cache-to: type=inline
-          tags: nemoci.azurecr.io/bionemo:${{ github.run_id }}
           context: ${{ github.run_id }}/
-
-      - name: Update PR image
-        if: github.event_name == 'pull_request'
-        run: |
-          docker pull nemoci.azurecr.io/bionemo:${{ github.run_id }}
-          docker tag nemoci.azurecr.io/bionemo:${{ github.run_id }} nemoci.azurecr.io/bionemo:${{ github.event.pull_request.number }}
-          docker push nemoci.azurecr.io/bionemo:${{ github.event.pull_request.number }}
-
-      - name: Update buildcache image
-        if: github.ref == 'refs/heads/main'
-        run: |
-          docker pull nemoci.azurecr.io/bionemo:${{ github.run_id }}
-          docker tag nemoci.azurecr.io/bionemo:${{ github.run_id }} nemoci.azurecr.io/bionemo:buildcache
-          docker push nemoci.azurecr.io/bionemo:buildcache
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: ${{ steps.cache.outputs.cache-from }}
+          cache-to: ${{ steps.cache.outputs.cache-to }}
 
   # TODO: Add persistent volume for cache
   # https://confluence.nvidia.com/display/NLLMS/NeMo+Framework+-+Github+Actions+CICD%3A+User+Guide
