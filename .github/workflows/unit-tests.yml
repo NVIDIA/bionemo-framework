@@ -56,11 +56,6 @@ jobs:
           images: nemoci.azurecr.io/bionemo
           labels: nemo.library=bionemo
 
-      - uses: int128/docker-build-cache-config-action@v1
-        id: cache
-        with:
-          image: nemoci.azurecr.io/bionemo/buildcache
-
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -69,8 +64,12 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: ${{ steps.cache.outputs.cache-from }}
-          cache-to: ${{ steps.cache.outputs.cache-to }}
+          cache-from: |
+            type=registry,ref=user/app:buildcache
+            type=local,src=/mnt/datadrive/bionemo-buildx-cache
+          cache-to: |
+            type=local,dest=/mnt/datadrive/bionemo-buildx-cache,mode=max
+            ${{ github.ref == 'refs/heads/main' && 'type=registry,ref=user/app:buildcache,mode=max' || '' }}
 
   # TODO: Add persistent volume for cache
   # https://confluence.nvidia.com/display/NLLMS/NeMo+Framework+-+Github+Actions+CICD%3A+User+Guide
