@@ -34,9 +34,8 @@ jobs:
     needs: pre-commit
     runs-on: self-hosted-nemo-gpus-1  # TODO: make this a CPU-only builder runner.
     steps:
-      - name: Cleanup Workspace
+      - name: Docker Prune
         run: |
-          rm -rf ${{ github.workspace }}
           docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=168h" --force
 
       - name: Checkout repository
@@ -83,7 +82,7 @@ jobs:
     steps:
       - name: Cleanup Workspace
         run: |
-          rm -rf ${{ github.workspace }}
+          rm -rf ${{ github.workspace }}/*
 
       - name: Checkout repository
         uses: actions/checkout@v4
