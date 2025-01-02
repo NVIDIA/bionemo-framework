@@ -40,9 +40,6 @@ jobs:
   build-bionemo-image:
     needs: pre-commit
     runs-on: self-hosted-nemo-gpus-1  # TODO: make this a CPU-only builder runner.
-    defaults:
-      run:
-        working-directory: ./${{ github.run_id }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -112,11 +109,13 @@ jobs:
 
   teardown-environment:
     runs-on: ubuntu-latest
+    needs: run-tests
+    if: always()
     steps:
       - name: Docker Prune
         run: |
             docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=168h" --force
-      - name: Create working directory
+      - name: Delete working directory
         run: |
             rm -rf ./${{ github.run_id }}
 
