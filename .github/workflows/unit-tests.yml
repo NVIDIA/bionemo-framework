@@ -95,7 +95,8 @@ jobs:
       - name: Run tests
         run: |
           echo "Inside container at $PWD"
-          cd /github/workspace/${{ github.run_id }}
+          echo $(ls)
+
           python -m coverage erase
 
           error=false
