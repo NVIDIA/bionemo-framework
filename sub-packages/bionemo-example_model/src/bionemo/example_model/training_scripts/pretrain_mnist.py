@@ -44,7 +44,7 @@ def run_pretrain(name: str, directory_name: str):
     nemo_logger = NeMoLogger(
         log_dir=str(save_dir),
         name=name,
-        tensorboard=TensorBoardLogger(save_dir=directory_name, name=name),
+        tensorboard=TensorBoardLogger(save_dir=save_dir, name=name),
         ckpt=checkpoint_callback,
         extra_loggers=[CSVLogger(save_dir / "logs", name=name)],
     )
