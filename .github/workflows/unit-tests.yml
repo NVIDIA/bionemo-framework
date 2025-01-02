@@ -66,9 +66,9 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: |
             type=registry,ref=nemoci.azurecr.io/bionemo:buildcache
-            type=local,src=/mnt/datadrive/bionemo-buildx-cache,ignore-error=true
+            type=local,src=/tmp/bionemo-buildx-cache,ignore-error=true
           cache-to: |
-            type=local,dest=/mnt/datadrive/bionemo-buildx-cache,mode=max
+            type=local,dest=/tmp/bionemo-buildx-cache,mode=max
             ${{ github.ref == 'refs/heads/main' && 'type=registry,ref=nemoci.azurecr.io/bionemo:buildcache,mode=max' || '' }}
 
   # TODO: Add persistent volume for cache
