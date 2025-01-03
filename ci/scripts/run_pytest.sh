@@ -49,7 +49,7 @@ for dir in docs/ ./sub-packages/bionemo-*/; do
     fi
     echo "Running pytest in $dir"
     python -m coverage run --parallel-mode --source=bionemo \
-        -m pytest -v --nbval-lax --durations=0 --durations-min=60.0 "$dir" || error=true
+    -m pytest -v --nbval-lax --durations=0 --durations-min=60.0 "$dir" || error=true
 done
 
 python -m coverage combine
