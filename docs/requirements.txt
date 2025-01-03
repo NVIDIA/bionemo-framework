@@ -10,3 +10,4 @@ mkdocs-literate-nav
 mkdocs-site-urls
 mike
 mistune==3.0.2 # temporary pin until https://github.com/lepture/mistune/issues/403 is resolved.
+importlib-resources<=6.5.0 # temporary pin until https://github.com/python/importlib_resources/issues/323 is resolved.
