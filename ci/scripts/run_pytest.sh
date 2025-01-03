@@ -24,14 +24,13 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 source "$(dirname "$0")/utils.sh"
 
 # Parse options
-USE_NBVAL=true
+# Check for the --skip-docs flag
+SKIP_DOCS=false
 for arg in "$@"; do
-    case $arg in
-        --no-nbval)
-            USE_NBVAL=false
-            shift
-            ;;
-    esac
+    if [ "$arg" == "--skip-docs" ]; then
+        SKIP_DOCS=true
+        break
+    fi
 done
 
 if ! set_bionemo_home; then
@@ -41,15 +40,16 @@ fi
 python -m coverage erase
 
 error=false
-# Build pytest options dynamically
-pytest_options="-v --durations=0 --durations-min=60.0"
-if [ "$USE_NBVAL" = true ]; then
-    pytest_options="$pytest_options --nbval-lax"
-fi
+
+# Loop through directories and skip docs/ if the flag is set
 for dir in docs/ ./sub-packages/bionemo-*/; do
+    if [ "$SKIP_DOCS" == true ] && [ "$dir" == "docs/" ]; then
+        echo "Skipping pytest in $dir because --skip-docs flag is set"
+        continue
+    fi
     echo "Running pytest in $dir"
     python -m coverage run --parallel-mode --source=bionemo \
-        -m pytest $pytest_options "$dir" || error=true
+        -m pytest -v --nbval-lax --durations=0 --durations-min=60.0 "$dir" || error=true
 done
 
 python -m coverage combine
