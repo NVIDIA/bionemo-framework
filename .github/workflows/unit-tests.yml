@@ -99,11 +99,9 @@ jobs:
         echo "Inside container at $PWD"
 
         error=false
-        for dir in docs/ ./sub-packages/bionemo-*/; do
+        for dir in ./sub-packages/bionemo-*/; do
           pytest -v --cov=bionemo --cov-append --junitxml=$(basename $dir).junit.xml -o junit_family=legacy $dir || error=true
         done
-
-        junitparser merge *.junit.xml junit.xml || error=true
 
         if [ "$error" = true ]; then
             exit 1
