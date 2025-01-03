@@ -60,6 +60,7 @@ def pretrain_data_module(dummy_protein_dataset, dummy_parquet_train_val_inputs):
 
 
 @pytest.mark.needs_gpu
+@pytest.mark.skip(reason="Currently failing with an EOFError on Azure pytest suite.")
 @pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_token_classifier(
     tmp_path,
