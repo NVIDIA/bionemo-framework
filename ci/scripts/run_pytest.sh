@@ -23,6 +23,17 @@ export BIONEMO_DATA_SOURCE="${BIONEMO_DATA_SOURCE:-pbss}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 source "$(dirname "$0")/utils.sh"
 
+# Parse options
+USE_NBVAL=true
+for arg in "$@"; do
+    case $arg in
+        --no-nbval)
+            USE_NBVAL=false
+            shift
+            ;;
+    esac
+done
+
 if ! set_bionemo_home; then
     exit 1
 fi
@@ -30,10 +41,15 @@ fi
 python -m coverage erase
 
 error=false
+# Build pytest options dynamically
+pytest_options="-v --durations=0 --durations-min=60.0"
+if [ "$USE_NBVAL" = true ]; then
+    pytest_options="$pytest_options --nbval-lax"
+fi
 for dir in docs/ ./sub-packages/bionemo-*/; do
     echo "Running pytest in $dir"
     python -m coverage run --parallel-mode --source=bionemo \
-    -m pytest -v --nbval-lax --durations=0 --durations-min=60.0 "$dir" || error=true
+        -m pytest $pytest_options "$dir" || error=true
 done
 
 python -m coverage combine
