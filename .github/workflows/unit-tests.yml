@@ -73,7 +73,8 @@ jobs:
           cache-from: |
             type=registry,ref=nemoci.azurecr.io/bionemo:buildcache
           cache-to: |
-            ${{ github.ref == 'refs/heads/main' && 'type=registry,ref=nemoci.azurecr.io/bionemo:buildcache,mode=max' || '' }}
+            type=registry,ref=nemoci.azurecr.io/bionemo:buildcache,mode=max
+            # ${{ github.ref == 'refs/heads/main' && 'type=registry,ref=nemoci.azurecr.io/bionemo:buildcache,mode=max' || '' }}
 
   # TODO: Add persistent volume for cache
   # https://confluence.nvidia.com/display/NLLMS/NeMo+Framework+-+Github+Actions+CICD%3A+User+Guide
