@@ -86,6 +86,7 @@ jobs:
         working-directory: ./${{ github.run_id }}
     container:
       image: nemoci.azurecr.io/bionemo:${{ github.run_id }}
+      options: --gpus all
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
