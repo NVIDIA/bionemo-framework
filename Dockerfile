@@ -92,13 +92,6 @@ ENV UV_LINK_MODE=copy \
 RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
   uv pip install --no-build-isolation -r /requirements-pyg.txt
 
-WORKDIR /workspace/bionemo2
-
-# Install 3rd-party deps and bionemo submodules.
-COPY ./LICENSE /workspace/bionemo2/LICENSE
-COPY ./3rdparty /workspace/bionemo2/3rdparty
-COPY ./sub-packages /workspace/bionemo2/sub-packages
-
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
@@ -117,6 +110,13 @@ mv /usr/local/lib/python3.12/dist-packages/tensorstore-0.0.0.dist-info \
 /usr/local/lib/python3.12/dist-packages/tensorstore-0.1.45.dist-info
 rm -rf /root/.cache/*
 EOF
+
+WORKDIR /workspace/bionemo2
+
+# Install 3rd-party deps and bionemo submodules.
+COPY ./LICENSE /workspace/bionemo2/LICENSE
+COPY ./3rdparty /workspace/bionemo2/3rdparty
+COPY ./sub-packages /workspace/bionemo2/sub-packages
 
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
 # Includes a hack to install tensorstore 0.1.45, which doesn't distribute a pypi wheel for python 3.12, and the metadata
