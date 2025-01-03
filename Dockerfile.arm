@@ -219,7 +219,8 @@ RUN --mount=type=bind,source=./.git,target=./.git \
   ./3rdparty/* \
   ./sub-packages/bionemo-* \
   -r /requirements-cve.txt \
-  -r /requirements-test.txt && rm -rf ./3rdparty && rm -rf /tmp/* && rm -rf ./sub-packages/bionemo-noodles/target
+  -r /requirements-test.txt && rm -rf ./3rdparty && rm -rf /tmp/* && rm -rf ./sub-packages/bionemo-noodles/target \
+  && rm -rf /root/.cache/*
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
 # base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
@@ -345,8 +346,9 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
-RUN rm -rf /root/.cache/bazel
 RUN chmod 777 -R /workspace/bionemo2/
+
+# TODO fix /usr/local/lib/python3.12/dist-packages/faiss/loader.py
 
 # Transformer engine attention defaults
 # We have to declare this again because the devcontainer splits from the release image's base.
