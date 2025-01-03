@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bionemo-moco"
+readme = "README.md"
+description = "BioNeMo Modular Co-Design: Making building Diffusion and Flow Matching generative models easier"
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dynamic = ["version"]
+dependencies = [
+    # bionemo sub-packages
+    # external
+    'torch>=2.2',
+    'numpy>=1.24.4,<2',
+    'jaxtyping>=0.2.34',
+    'pot>=0.9.5',
+    'scikit-learn>=1.6.0',
+    'matplotlib>=3.3.2'
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bionemo.*"]
+namespaces = true
+exclude = ["test*."]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
+
+[tool.uv]
+cache-keys = [{ git = true }]
