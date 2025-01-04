@@ -111,12 +111,14 @@ jobs:
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+        working-directory: ${{ github.run_id }}
 
     - name: Upload test results to Codecov
       if: ${{ !cancelled() }}
       uses: codecov/test-results-action@v1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+        working-directory: ${{ github.run_id }}        
 
 # TODO: exclude tests from base image; run tests from github workspace mounted in the image.
 # TODO: upload coverage report to codecov.io
