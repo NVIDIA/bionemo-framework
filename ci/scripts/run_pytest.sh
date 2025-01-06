@@ -27,6 +27,10 @@ Usage: $(basename "$0") [OPTIONS]
 Options:
     --skip-docs    Skip running tests in the docs directory
     --no-nbval     Skip jupyter notebook validation tests
+
+Note: Documentation tests (docs/) are only run when notebook validation
+      is enabled (--no-nbval not set) and docs are not skipped
+      (--skip-docs not set)
     -h, --help     Display this help message
 EOF
     exit "${1:-0}"
@@ -87,7 +91,11 @@ PYTEST_OPTIONS=(
 
 # Define test directories
 mapfile -t TEST_DIRS < <(find . -type d -name "sub-packages" -prune -o -name "bionemo-*" -print)
-[[ "$SKIP_DOCS" != true ]] && TEST_DIRS+=(docs/)
+if [[ "$NO_NBVAL" != true && "$SKIP_DOCS" != true ]]; then
+    TEST_DIRS+=(docs/)
+fi
+
+echo "Test directories: ${TEST_DIRS[*]}"
 
 # Run tests with coverage
 for dir in "${TEST_DIRS[@]}"; do
