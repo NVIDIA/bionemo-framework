@@ -139,25 +139,26 @@ If you are an external contributor (not an NVIDIA employee), please add the `con
 
 CI pipeline behavior can be controlled via checkboxes in PR descriptions to optimize test execution:
 
-- **SKIP_CI**
- - Skips entire CI pipeline
- - Use for documentation typos, README updates
-
-- **RUN_NOTEBOOKS**
- - Enables notebook validation tests
- - Use when modifying notebooks or notebook-related code
- - Disabled by default
-
-- **RUN_DOCS**
- - Enables documentation tests
- - Use for doc changes, docstrings, API references
- - Requires **Run Notebooks**
- - Disabled by default
-
 Key behaviors:
 - Controls processed automatically on PR submit/update
 - Labels applied based on checkbox status
 - Invalid combinations default to most restrictive option
+
+
+#### **SKIP_CI**
+ - Skips entire CI pipeline
+ - Use for documentation typos, README updates
+
+#### **RUN_NOTEBOOKS**
+ - Enables notebook validation tests
+ - Use when modifying notebooks or notebook-related code
+ - Disabled by default
+
+#### **RUN_DOCS**
+ - Enables documentation tests
+ - Use for doc changes, docstrings, API references
+ - Requires **Run Notebooks**
+ - Disabled by default
 
 
 ### Developer workflows:

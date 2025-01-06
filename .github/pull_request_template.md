@@ -13,12 +13,12 @@
 ### CI Pipeline Configuration
 Configure CI behavior by checking relevant boxes below. This will automatically apply labels.
 
-- [ ] **Skip CI** - Skip all continuous integration tests
-- [ ] **Run Notebooks** - Execute notebook validation tests
-- [ ] **Run Docs** - Run documentation tests (requires **Run Notebooks**)
+- [ ] **SKIP_CI** - Skip all continuous integration tests
+- [ ] **RUN_NOTEBOOKS** - Execute notebook validation tests
+- [ ] **RUN_DOCS** - Run documentation tests (requires **RUN_NOTEBOOKS**)
 
 > [!NOTE]
-> For validating documentation tutorials and examples, select both **Run Notebooks** and **Run Docs**. By default, all tests are skipped unless explicitly enabled.
+> For validating documentation tutorials and examples, select both **RUN_NOTEBOOKS** and **RUN_DOCS**. By default, all tests are skipped unless explicitly enabled.
 
 ### Usage
 <!--- How does a user interact with the changed code -->
