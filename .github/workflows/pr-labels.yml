@@ -1,0 +1,56 @@
+name: PR Label Management
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  manage-labels:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Check PR body and manage labels
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const prBody = context.payload.pull_request.body;
+            
+            // Define label mappings
+            const labelChecks = {
+              'SKIP_CI': /\[x\]\s*\[SKIP_CI\]/i,
+              'RUN_NOTEBOOKS': /\[x\]\s*\[RUN_NOTEBOOKS\]/i,
+              'RUN_DOCS': /\[x\]\s*\[RUN_DOCS\]/i
+            };
+            
+            // Get current labels
+            const currentLabels = new Set(
+              context.payload.pull_request.labels.map(label => label.name)
+            );
+            
+            // Process each label check
+            for (const [label, pattern] of Object.entries(labelChecks)) {
+              const shouldHaveLabel = pattern.test(prBody);
+              const hasLabel = currentLabels.has(label);
+              
+              if (shouldHaveLabel && !hasLabel) {
+                // Add label
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  labels: [label]
+                });
+              } else if (!shouldHaveLabel && hasLabel) {
+                // Remove label
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  name: label
+                });
+              }
+            }
