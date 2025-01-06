@@ -31,7 +31,7 @@ from bionemo.testing import megatron_parallel_state_utils
 
 @pytest.fixture
 def data_path() -> Path:
-    """Gets the path to the directory with with cellx small dataset in Single Cell Memmap format.
+    """Gets the path to the directory with cellx small dataset in Single Cell Memmap format.
     Returns:
         A Path object that is the directory with the specified test data.
     """
@@ -44,7 +44,7 @@ def test_bionemo2_rootdir(data_path):
 
 
 @pytest.mark.parametrize("create_checkpoint_callback", [True, False])
-def test_main_runs(tmpdir, create_checkpoint_callback: bool):
+def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
     result_dir = Path(tmpdir.mkdir("results"))
 
     with megatron_parallel_state_utils.distributed_model_parallel_state():
