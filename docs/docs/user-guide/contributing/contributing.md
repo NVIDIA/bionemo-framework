@@ -64,7 +64,7 @@ repository (unless external constraints prevent it).
 
 ## Pull Request (PR) Guidelines
 
-### Labeling Your PR
+### Labeling Your PR as External Contributor
 
 If you are an external contributor (not an NVIDIA employee), please add the `contribution` label to your PR before submitting. Labels can be accessed in the right sidebar of the GitHub user interface when creating or editing a PR.
 
@@ -134,6 +134,24 @@ If you are an external contributor (not an NVIDIA employee), please add the `con
     (including all personal information I submit with it, including my sign-off) is maintained indefinitely and may be
     redistributed consistent with this project or the open source license(s) involved.
     ```
+
+### CI Pipeline Configuration Controls
+
+CI pipeline behavior can be controlled via checkboxes in PR descriptions to optimize test execution:
+
+Key behaviors:
+- Controls processed automatically on PR submit/update
+- Labels applied based on checkbox status
+- Invalid combinations default to most restrictive option
+
+#### **SKIP_CI**
+ - Skips entire CI pipeline
+ - Use for documentation typos, README updates
+
+#### **INCLUDE_NOTEBOOKS_TESTS**
+ - Enables notebook validation tests
+ - Use when modifying notebooks or notebook-related code
+ - Disabled by default
 
 ### Developer workflows:
 
