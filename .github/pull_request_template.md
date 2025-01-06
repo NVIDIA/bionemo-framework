@@ -1,5 +1,5 @@
 ### Description
-[Provide a detailed description of the changes in this PR]
+<!--Provide a detailed description of the changes in this PR-->
 
 ### Type of changes
 [Mark the relevant option with an [x]]
