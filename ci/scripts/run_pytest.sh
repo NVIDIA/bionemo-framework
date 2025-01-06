@@ -26,6 +26,7 @@ source "$(dirname "$0")/utils.sh"
 if ! set_bionemo_home; then
     exit 1
 fi
+uname -a
 nvidia-smi
 python -m coverage erase
 
