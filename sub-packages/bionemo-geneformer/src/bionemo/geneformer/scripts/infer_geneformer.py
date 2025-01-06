@@ -49,6 +49,7 @@ def infer_model(
     num_dataset_workers: int = 0,
     prediction_interval: IntervalT = "epoch",
     config_class: Type[BioBertConfig] = GeneformerConfig,
+    include_unrecognized_vocab_in_dataset: bool = False,
 ) -> None:
     """Inference function (requires DDP and only training data that fits in memory)."""
     # create the directory to save the inference results
@@ -56,7 +57,7 @@ def infer_model(
 
     # This is just used to get the tokenizer :(
     train_data_path: Path = (
-        load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
+        load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl" / "train"
     )
 
     # Setup the strategy and trainer
@@ -120,6 +121,7 @@ def infer_model(
         persistent_workers=num_dataset_workers > 0,
         pin_memory=False,
         num_workers=num_dataset_workers,
+        include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
     )
     config = config_class(
         seq_length=seq_length,
@@ -162,13 +164,14 @@ def geneformer_infer_entrypoint():
         num_nodes=args.num_nodes,
         num_dataset_workers=args.num_dataset_workers,
         config_class=args.config_class,
+        include_unrecognized_vocab_in_dataset=args.include_unrecognized_vocab_in_dataset,
     )
 
 
 def get_parser():
     """Return the cli parser for this tool."""
     parser = argparse.ArgumentParser(
-        description="Infer sc_memmap processed single cell data with Geneformer from a checkpiont."
+        description="Infer processed single cell data in SCDL memmap format with Geneformer from a checkpoint."
     )
     parser.add_argument(
         "--data-dir",
@@ -246,6 +249,12 @@ def get_parser():
         required=False,
         default=32,
         help="Micro-batch size. Global batch size is inferred from this.",
+    )
+
+    parser.add_argument(
+        "--include-unrecognized-vocab-in-dataset",
+        action="store_true",
+        help="If set to True, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded.",
     )
 
     # TODO consider whether nemo.run or some other method can simplify this config class lookup.

@@ -28,6 +28,7 @@ from torch import Tensor
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
 from bionemo.esm2.data import tokenizer
 from bionemo.esm2.model.finetune.dataset import InMemoryCSVDataset
+from bionemo.llm.data.collate import MLM_LOSS_IGNORE_INDEX
 from bionemo.llm.data.label2id_tokenizer import Label2IDTokenizer
 from bionemo.llm.model.biobert.model import BioBertOutput
 from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
@@ -227,6 +228,7 @@ class InMemoryPerTokenValueDataset(InMemoryCSVDataset):
         super().__init__(data_path=data_path, tokenizer=tokenizer, seed=seed)
         label_tokenizer = Label2IDTokenizer()
         self.label_tokenizer = label_tokenizer.build_vocab("CHE")
+        self.label_cls_eos_id = MLM_LOSS_IGNORE_INDEX
 
     def transform_label(self, label: str) -> Tensor:
         """Transform the sequence label by tokenizing them.
@@ -243,12 +245,12 @@ class InMemoryPerTokenValueDataset(InMemoryCSVDataset):
 
         # # for multi-label classification with BCEWithLogitsLoss
         # tokenized_labels = torch.nn.functional.one_hot(label_ids, num_classes=self.label_tokenizer.vocab_size)
-        # cls_eos = torch.full((1, self.label_tokenizer.vocab_size), -1, dtype=tokenized_labels.dtype)
+        # cls_eos = torch.full((1, self.label_tokenizer.vocab_size), self.label_cls_eos_id, dtype=tokenized_labels.dtype)
 
         # for multi-class (mutually exclusive) classification with CrossEntropyLoss
         tokenized_labels = label_ids
-        cls_eos = torch.tensor([-1], dtype=tokenized_labels.dtype)
+        cls_eos = torch.tensor([self.label_cls_eos_id], dtype=tokenized_labels.dtype)
 
-        # add cls / eos labels with padding value -1 to have the same shape as tokenized_sequence
+        # add cls / eos label ids with padding value -100 to have the same shape as tokenized_sequence
         labels = torch.cat((cls_eos, tokenized_labels, cls_eos))
         return labels

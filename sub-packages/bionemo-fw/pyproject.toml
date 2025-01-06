@@ -30,7 +30,6 @@ dependencies = [
     # external
     'nltk',
     'numba>=0.57.1',
-    'tensorstore==0.1.45',
     'zarr',
 ]
 
