@@ -181,7 +181,7 @@ When submitting a Pull Request, you can control the CI pipeline behavior using c
 #### Best Practices
 
 1. **Selective Enabling**: Only enable the test suites relevant to your changes to minimize CI time
-2. **Documentation Changes**: 
+2. **Documentation Changes**:
    - Use `SKIP_CI` for minor documentation fixes
    - Use `RUN_DOCS` for tutorial and documentation changes
 3. **Notebook Changes**:
