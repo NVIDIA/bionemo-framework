@@ -14,11 +14,10 @@
 Configure CI behavior by checking relevant boxes below. This will automatically apply labels.
 
 - [ ] **SKIP_CI** - Skip all continuous integration tests
-- [ ] **RUN_NOTEBOOKS** - Execute notebook validation tests
-- [ ] **RUN_DOCS** - Run documentation tests (requires **RUN_NOTEBOOKS**)
+- [ ] **INCLUDE_NOTEBOOKS_TESTS** - Execute notebook validation tests in pytest
 
 > [!NOTE]
-> For validating documentation tutorials and examples, select both **RUN_NOTEBOOKS** and **RUN_DOCS**. By default, all tests are skipped unless explicitly enabled.
+> By default, the notebooks validation tests are skipped unless explicitly enabled.
 
 ### Usage
 <!--- How does a user interact with the changed code -->

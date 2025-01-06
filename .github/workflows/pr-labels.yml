@@ -19,8 +19,7 @@ jobs:
 
             const labelChecks = {
               'SKIP_CI': /\[x\]\s*\[SKIP_CI\]/i,
-              'RUN_NOTEBOOKS': /\[x\]\s*\[RUN_NOTEBOOKS\]/i,
-              'RUN_DOCS': /\[x\]\s*\[RUN_DOCS\]/i
+              'INCLUDE_NOTEBOOKS_TESTS': /\[x\]\s*\[INCLUDE_NOTEBOOKS_TESTS\]/i
             };
 
             const currentLabels = new Set(
