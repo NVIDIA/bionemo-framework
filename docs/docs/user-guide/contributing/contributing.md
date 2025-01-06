@@ -64,7 +64,7 @@ repository (unless external constraints prevent it).
 
 ## Pull Request (PR) Guidelines
 
-### Labeling Your PR
+### Labeling Your PR as External Contributor
 
 If you are an external contributor (not an NVIDIA employee), please add the `contribution` label to your PR before submitting. Labels can be accessed in the right sidebar of the GitHub user interface when creating or editing a PR.
 
@@ -134,6 +134,63 @@ If you are an external contributor (not an NVIDIA employee), please add the `con
     (including all personal information I submit with it, including my sign-off) is maintained indefinitely and may be
     redistributed consistent with this project or the open source license(s) involved.
     ```
+
+### Available Continuous Integration (CI) Controls
+
+When submitting a Pull Request, you can control the CI pipeline behavior using checkboxes in the PR description. These controls help optimize CI resources and runtime by enabling only the necessary test suites for your changes.
+
+- CI controls are processed automatically when you submit or update a PR
+- Labels are applied based on the checkbox status
+- You can update controls by editing the PR description
+- The CI pipeline will automatically adjust its behavior based on the selected controls
+- Invalid combinations (like `SKIP_CI` with other options) will be handled according to the most restrictive option
+
+#### SKIP_CI
+- **Purpose**: Completely skips the CI pipeline
+- **Usage**: Check this box when making changes that don't require CI verification (e.g., documentation typos, README updates)
+- **Example PR Description**:
+  ```markdown
+  - [x] [SKIP_CI] Skip continuous integration pipeline
+  ```
+
+#### RUN_NOTEBOOKS
+- **Purpose**: Enables notebook validation tests
+- **Default**: Skipped
+- **Usage**: Check this box when:
+  - Modifying Jupyter notebooks
+  - Changing code that affects notebook functionality
+  - Adding new notebook examples
+- **Example PR Description**:
+  ```markdown
+  - [x] [RUN_NOTEBOOKS] Run notebook validation tests
+  ```
+
+#### RUN_DOCS
+- **Purpose**: Enables documentation tests
+- **Default**: Skipped
+- **Usage**: Check this box when:
+  - Making changes to documentation files
+  - Updating docstrings
+  - Modifying documentation examples
+  - Changing API references
+- **Example PR Description**:
+  ```markdown
+  - [x] [RUN_DOCS] Run documentation tests
+  ```
+
+#### Best Practices
+
+1. **Selective Enabling**: Only enable the test suites relevant to your changes to minimize CI time
+2. **Documentation Changes**: 
+   - Use `SKIP_CI` for minor documentation fixes
+   - Use `RUN_DOCS` for tutorial and documentation changes
+3. **Notebook Changes**:
+   - Always enable `RUN_NOTEBOOKS` when modifying notebooks
+   - Consider enabling `RUN_DOCS` if notebooks are referenced in documentation
+4. **Code Changes**:
+   - Avoid using `SKIP_CI` for any code modifications
+   - Enable `RUN_NOTEBOOKS` for any breaking changes to code that affects notebook functionality
+
 
 ### Developer workflows:
 
