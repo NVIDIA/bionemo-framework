@@ -12,7 +12,8 @@
 
 ### CI Pipeline Configuration
 Check the boxes below to configure CI (continuous integration) behavior. These will automatically apply labels.
-> **Note:** Leave boxes unchecked by default, check only if you want to modify default behavior.]
+> [!IMPORTANT]
+> Leave boxes unchecked by default, check only if you want to modify default behavior.
  - [ ] [SKIP_CI](https://github.com/NVIDIA/bionemo-framework/blob/dorotat/pytest-nbval-on-demand/docs/docs/user-guide/contributing/contributing.md#skip_ci) Skip continuous integration pipeline
  - [ ] [RUN_NOTEBOOKS](https://github.com/NVIDIA/bionemo-framework/blob/dorotat/pytest-nbval-on-demand/docs/docs/user-guide/contributing/contributing.md#run_notebooks) Run notebook validation tests (default: skipped)
  - [ ] [RUN_DOCS](https://github.com/NVIDIA/bionemo-framework/blob/dorotat/pytest-nbval-on-demand/docs/docs/user-guide/contributing/contributing.md#run_docs) Run documentation tests (default: skipped)
