@@ -90,7 +90,7 @@ PYTEST_OPTIONS=(
 [[ "$NO_NBVAL" != true ]] && PYTEST_OPTIONS+=(--nbval-lax)
 
 # Define test directories
-mapfile -t TEST_DIRS < <(find . -type d -name "sub-packages" -prune -o -name "bionemo-*" -print)
+TEST_DIRS=($(find . -type d -name "sub-packages" -prune -o -name "bionemo-*" -print))
 if [[ "$NO_NBVAL" != true && "$SKIP_DOCS" != true ]]; then
     TEST_DIRS+=(docs/)
 fi
