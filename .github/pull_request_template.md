@@ -1,45 +1,34 @@
-(**NOTE:** _**delete** these instructional lines as you fill-out this PR template_)
+### Description
+<!-- Provide a detailed description of the changes in this PR -->
 
-(**NOTE:** _template is designed to be filled-in and used as the **squashed commit message for the entire PR**. _Italicized text_ is intended to be deleted as you fill in this template. Use the text between the `---`)
+### Type of changes
+<!-- Mark the relevant option with an [x] -->
 
----
+- [ ]  Bug fix (non-breaking change which fixes an issue)
+- [ ]  New feature (non-breaking change which adds functionality)
+- [ ]  Refactor
+- [ ]  Documentation update
+- [ ]  Other (please describe):
 
-_High level summary of changes. Try to keep this as short and informative as possible: less is more._
+### CI Pipeline Configuration
+Configure CI behavior by checking relevant boxes below. This will automatically apply labels.
 
-_Describe your changes. You can be more detailed and descriptive here. If it is a code change, Be sure to answer:_
-  - _What is changing?_
-  - _What is the new or fixed functionality?_
-  - _Why or when would someone want to use these changes?_
-  - _How can someone use these changes?_
----
+- [ ] [SKIP_CI](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#skip_ci) - Skip all continuous integration tests
+- [ ] [INCLUDE_NOTEBOOKS_TESTS](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#include_notebooks_tests) - Execute notebook validation tests in pytest
 
-## Summary
-_High level summary of changes. Try to keep this as short and informative as possible: less is more._
+> [!NOTE]
+> By default, the notebooks validation tests are skipped unless explicitly enabled.
 
-## Details
-_Describe your changes. You can be more detailed and descriptive here._
-
-## Usage
-_How does a user interact with the changed code?_
+### Usage
+<!--- How does a user interact with the changed code -->
 ```python
-python -m your.new.module -and -all -options
+TODO: Add code snippet
 ```
 
-## Testing
-_How do you prove that your code behaves the way you claim?_
+### Pre-submit Checklist
+<!--- Ensure all items are completed before submitting -->
 
-Tests for these changes can be run via:
-```shell
-pytest -v tests/your/new/or/existing/test_functions.py::test_function
-```
-
-
-(**NOTE:** _also **delete** this checklist as you fill-out this PR template_)
-
-**Most of the changes** to files with extensions `*.py`, `*.yaml`, `*.yml`, `Dockerfile*` or `requirements.txt` **DO REQUIRE both `pytest-` and `jet-` CI stages**.
-
-- [ ] Did you review the [Before your PR is "Ready for review" section](https://github.com/NVIDIA/bionemo-framework/-/blob/dev/CONTRIBUTING.md?ref_type=heads#before-pr-ready) before asking for review?
-- [ ] Did you make sure your changes have tests? Did you test your changes locally?
-- [ ] Can you add [the `SKIP_CI` label](https://github.com/NVIDIA/bionemo-framework/-/blob/dev/CONTRIBUTING.md?ref_type=heads#skip-ci) to your PR?
-- [ ] Can you add [the `PYTEST_NOT_REQUIRED` label](https://github.com/NVIDIA/bionemo-framework/-/blob/dev/CONTRIBUTING.md?ref_type=heads#skip-pytest) to your PR?
-- [ ] Can you add [the `JET_NOT_REQUIRED` label](https://github.com/NVIDIA/bionemo-framework/-/blob/dev/CONTRIBUTING.md?ref_type=heads#skip-jet) to your PR?
+ - [ ] I have tested these changes locally
+ - [ ] I have updated the documentation accordingly
+ - [ ] I have added/updated tests as needed
+ - [ ] All existing tests pass successfully
