@@ -21,7 +21,7 @@ from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
 from nemo.collections.llm import fn
 from nemo.collections.llm.fn.mixin import FNMixin
-from nemo.collections.llm.peft.lora import AdapterParallelAdd, LoRA
+from nemo.collections.llm.peft.lora import LoRA, LoRALinear
 from nemo.collections.nlp.modules.common.megatron.adapters.parallel_adapters import ParallelLinearAdapter
 from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
 from nemo.lightning.megatron_parallel import (
@@ -271,9 +271,7 @@ class LoRAForGeneFormerTokenRegressor(LoRA):
             FNMixin.freeze(m)
         return m
 
-    def transform(
-        self, m: nn.Module, name: str | None = None, prefix: str | None = None
-    ) -> nn.Module | AdapterParallelAdd:
+    def transform(self, m: nn.Module, name: str | None = None, prefix: str | None = None) -> nn.Module | LoRALinear:
         """Transforms the input model if the name is in the target modules."""
         tp_size = parallel_state.get_tensor_model_parallel_world_size()
         if name in self.target_modules:
@@ -317,5 +315,5 @@ class LoRAForGeneFormerTokenRegressor(LoRA):
                 model_parallel_config=getattr(m, "config", None),
                 alpha=self.alpha,
             )
-            return AdapterParallelAdd(m, adapter)
+            return LoRALinear(m, adapter)
         return m

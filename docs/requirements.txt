@@ -9,3 +9,4 @@ mkdocs-include-dir-to-nav
 mkdocs-literate-nav
 mkdocs-site-urls
 mike
+mistune==3.0.2 # temporary pin until https://github.com/lepture/mistune/issues/403 is resolved.

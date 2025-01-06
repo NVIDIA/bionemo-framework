@@ -33,7 +33,16 @@ class SequenceAccessor:
     """
 
     def __init__(self, reader: PyIndexedMmapFastaReader, seqid: str, length: int) -> None:
-        """Construct a SequenceAccessor object.
+        """Construct a SequenceAccessor object. Ultimately this is used as a convenience object with NvFaidx.
+
+        When querying the following are true:
+            - Negative indexing is supported, but it does not wrap. so query[-10000] for a sequence of length 1 will fail.
+            - out of bounds indexing is truncated: query[1:999999999] will return a string from position 1 to the terminus.
+            - reversed slices return the empty string: query[999:1] is the empty string.
+            - empty slice returns the full string: query[:] is the full string of the sequence.
+            - beginning of slice is beyond the range of the contig, the empty string is returned.
+
+        Additionally there are convenience methods that you may find useful in the class definition.
 
         Args:
             reader (PyIndexedMmapFastaReader): The indexed reader object that provides access to the underlying FASTA file.
@@ -84,9 +93,38 @@ class SequenceAccessor:
         else:
             raise TypeError("Index must be an integer or a slice.")
 
+    def __len__(self) -> int:  # noqa: D105
+        return self.length
+
+    def sequence_id(self) -> str:
+        """Returns the sequenceid of this SequenceAccessor."""
+        return self.seqid
+
+    def sequence(self) -> str:
+        """Returns the sequence associated with this SequenceAccessor as a string."""
+        return self[:]
+
 
 class NvFaidx:
     """NvFaidx is a rest + pyo3 replacement for PyFaidx that provides a dictionary-like interface to reference genomes.
+
+    This class is a collection of SequenceAccessors, organized by sequence-id in a dictionary like manner. SequenceAcecessors
+     are similar dict-like interfaces over actual sequence entries in the underlying index. Furthermore, utilities are provided
+     for parsing faidx files, building faidx files, and storing faidx files to disk.
+
+    **IMPORTANT** by default all fasta files build an in-memory faidx object. This is due easy mistakes that may occur
+    if a faidx file is constructed while using multi-processing (such as a default constructor that creates these files on the fly).
+    However, methods exist to create these methods manually where a user has more control over multiprocessing.
+
+    Examples:
+        >>> index = NvFaidx(fasta_file, faidx_path=None, ignore_existing_fai=True)
+        >>> index['chr1'] # Returns a SequenceAccessor for chr1
+        >>> index['chr1'][0:10] # Returns the first 10 bases of chr1.
+        >>> faidx_filename = NvFaidx.create_faidx(fasta_file) # Creates a faidx to disk.
+        >>> index = NvFaidx(fasta_File, faidx_filename, ignore_existing_fai = True) # Uses a faidx from disk.
+
+
+    Motivation and more details:
 
     NvFaidx is built using Noodles as a backend for Fai objects, and memory maps for backing the underlying fasta.
     Using a backend of Memmaps provide the following benefits:
@@ -105,16 +143,42 @@ class NvFaidx:
             where all workers block until it is complete (not implemented above)
         2) Index object instantion must be fast.
         3) Read-only use of the index object must be both thread safe and process safe with python.
+
+    See Also: bionemo.noodles.nvfaidx.SequenceAccessor
     """
 
-    def __init__(self, fasta_path: str | Path, faidx_path: Optional[str | Path] = None, ignore_existing_fai=True):
+    def __init__(
+        self,
+        fasta_path: str | Path,
+        faidx_path: Optional[str | Path] = None,
+        ignore_existing_fai: bool = True,
+        allow_duplicate_seqids: bool = False,
+    ):
         """Construct a dict-like object representing a memmapped, indexed FASTA file.
+
+        This is an indexed fasta reader. Consequences of this are that the FASTA file must be well formed, meaning
+        sequence-ids and line-lengths must conform to FASTA standards. Additionally, the order of returned seqid, sequence
+        pairs when iterating over the index is not guaranteed to be the same order as the underlying fasta file.
 
         Args:
             fasta_path (str): Path to the FASTA file.
             faidx_path (str): Path to the FAI index file. If None, one will be created.
             ignore_existing_fai (bool): If True, ignore any existing FAI file and create an in-memory index. Note that
                 this will also ignore `faidx_path`.
+            allow_duplicate_seqids (bool): If true, will produce index for invalid fastas which contain duplicate seqids.
+                In this scenario, indexing is performed by integer rather than strings.
+
+                Example with invalid seqids.
+                    >chr1 dupes|not|allowd
+                    ATGATGATGATG
+                    >chr1 whoops|there|is|dupe
+                    ATGATGATGATG
+                NvFaidx:
+                    {
+                        0 : SequenceAccessor(chr1 dupes|not|allowed),
+                        1 : SequenceAccessor(chr1 whoops|there|is|dupe)
+                    }
+
         """
         if isinstance(fasta_path, Path):
             fasta_path = str(fasta_path)
@@ -126,15 +190,26 @@ class NvFaidx:
         elif not isinstance(faidx_path, str) and faidx_path is not None:
             raise TypeError(f"faidx_path must be a `str`, `pathlib.Path`, or None. got: {type(faidx_path)}")
 
-        if ignore_existing_fai:
-            self.reader = PyIndexedMmapFastaReader(fasta_path, ignore_existing_fai=ignore_existing_fai)
-        elif faidx_path is not None:
-            self.reader = PyIndexedMmapFastaReader.from_fasta_and_faidx(fasta_path, faidx_path)
-        else:
-            # Builds a FAIDX object in memory by default.
-            self.reader = PyIndexedMmapFastaReader(fasta_path)
+        match (fasta_path, faidx_path, ignore_existing_fai):
+            case (_, _, True):
+                self.reader = PyIndexedMmapFastaReader(fasta_path, ignore_existing_fai=ignore_existing_fai)
+            case (_, faidx_path, _) if faidx_path is not None:
+                self.reader = PyIndexedMmapFastaReader.from_fasta_and_faidx(fasta_path, faidx_path)
+            # In this case, faidx path is None and ignore_existing is False, and it covers all other cases.
+            case (_, None, False):
+                # But the logic here doesnt make sense, ignore_existing is false, but it should only use if it if it exists.
+                self.reader = PyIndexedMmapFastaReader(fasta_path, False)
+            case _:
+                raise ValueError("unreachable condition.")
 
-        self.records: Dict[str, PyFaidxRecord] = {record.name: record for record in self.reader.records()}
+        self.records: Dict[str | int, PyFaidxRecord] = {record.name: record for record in self.reader.records()}
+        if len(self.records) != len(self.reader.records()):
+            if not allow_duplicate_seqids:
+                raise ValueError(
+                    "Non-unique sequence-id detected in FASTA, this is invalid. Correct headers and try again or pass allow_duplicate_seqid'"
+                )
+            else:
+                self.records: Dict[str | int, PyFaidxRecord] = dict(enumerate(self.reader.records()))
 
     def __getitem__(self, seqid: str) -> SequenceAccessor:  # noqa: D105
         if seqid not in self.records:
@@ -153,13 +228,26 @@ class NvFaidx:
     def keys(self) -> set[str]:  # noqa: D102
         return set(self.records.keys())
 
+    # These provide dict like iteration functionality
+    def __iter__(self):  # noqa: D105
+        return iter(self.keys())
+
+    def items(self):  # noqa: D102
+        for key in self.keys():
+            yield key, self[key][:]
+
+    def values(self):  # noqa: D102
+        for key in self.keys():
+            yield self[key][:]
+
     @staticmethod
-    def create_faidx(fasta_filename: str | Path) -> str:
+    def create_faidx(fasta_filename: str | Path, force: bool = False) -> str:
         """Create a FAI index for a FASTA file, the result is saved in the same location as `fasta_filename`, with a .fai extension.
 
         Args:
             fasta_filename (str): Path to the FASTA file to be indexed.
+            force (bool): Delete existing faidx file and create a new index file.
         """
         if isinstance(fasta_filename, Path):
             fasta_filename = str(fasta_filename)
-        return PyIndexedMmapFastaReader.create_faidx(fasta_filename)
+        return PyIndexedMmapFastaReader.create_faidx(fasta_filename, force)

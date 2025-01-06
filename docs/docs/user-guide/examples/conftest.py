@@ -13,21 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from bionemo.noodles_fasta_wrapper import (
-    PyFaidxRecord,
-    PyIndexedMmapFastaReader,
-    back_transcribe_sequence,
-    complement_sequence,
-    reverse_sequence,
-    transcribe_sequence,
-)
 
-
-__all__ = (
-    "PyFaidxRecord",
-    "PyIndexedMmapFastaReader",
-    "reverse_sequence",
-    "complement_sequence",
-    "transcribe_sequence",
-    "back_transcribe_sequence",
-)
+def pytest_collectstart(collector):
+    if collector.fspath and collector.fspath.ext == ".ipynb":
+        collector.skip_compare += (
+            "text/html",
+            "application/javascript",
+            "stderr",
+        )
