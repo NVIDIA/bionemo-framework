@@ -58,8 +58,8 @@ RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-di
 RUN git clone https://github.com/llvm/llvm-project.git && \
     pip install ninja && \
     cd llvm-project && \
-    git fetch origin 5e5a22caf88ac1ccfa8dc5720295fdeba0ad9372 && \
-    git checkout 5e5a22caf88ac1ccfa8dc5720295fdeba0ad9372 && \
+    git fetch origin 49af6502c6dcb4a7f7520178bd14df396f78240c && \
+    git checkout 49af6502c6dcb4a7f7520178bd14df396f78240c && \
     mkdir build && cd build && \
     cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON  ../llvm -DLLVM_ENABLE_PROJECTS="mlir;llvm" && \
     ninja && \
@@ -69,8 +69,8 @@ RUN git clone https://github.com/llvm/llvm-project.git && \
     git clone https://github.com/triton-lang/triton.git && \
     pip install cmake wheel pybind11 && \
     cd triton && \
-    git fetch origin 79c6c9b209a5692b9a895398f4f3a033f8f80415 && \
-    git checkout 79c6c9b209a5692b9a895398f4f3a033f8f80415 && \
+    git fetch origin release/3.1.x && \
+    git checkout release/3.1.x && \
     LLVM_INCLUDE_DIRS=$LLVM_BUILD_DIR/include LLVM_LIBRARY_DIR=$LLVM_BUILD_DIR/lib LLVM_SYSPATH=$LLVM_BUILD_DIR pip install python/ && \
 
     cd ${WORKDIR} && \
