@@ -29,6 +29,23 @@ from bionemo.moco.interpolants.discrete_time.utils import safe_index
 from bionemo.moco.schedules.noise.discrete_noise_schedules import DiscreteNoiseSchedule
 
 
+def _is_one_hot(data, num_classes):
+    """Check if data is one-hot encoded.
+
+    Parameters:
+    - data (Tensor): Input data to check.
+    - num_classes (int): Expected number of classes for one-hot encoding.
+
+    Returns:
+    - bool: True if data is one-hot encoded, False otherwise.
+    """
+    if len(data.shape) < 2 or data.shape[-1] != num_classes:
+        return False  # Not one-hot if last dim doesn't match num_classes or less than 2D
+
+    # Check if all vectors are one-hot
+    return (data.sum(dim=-1) == 1).all() and (data.flatten().shape[0] / num_classes) % 1 == 0
+
+
 class D3PM(Interpolant):
     """A Discrete Denoising Diffusion Probabilistic Model (D3PM) interpolant."""
 
@@ -152,7 +169,7 @@ class D3PM(Interpolant):
         Returns:
             Tensor: The interpolated discrete state `xt` at time `t`.
         """
-        if len(data.shape) <= 2:
+        if not _is_one_hot(data, self.num_classes):
             x1_hot = F.one_hot(data, self.num_classes)
         else:
             x1_hot = data

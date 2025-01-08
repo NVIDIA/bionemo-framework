@@ -29,12 +29,16 @@
 * [bionemo.moco.interpolants.continuous\_time.discrete](#mocointerpolantscontinuous_timediscrete)
 * [bionemo.moco.interpolants.continuous\_time.discrete.mdlm](#mocointerpolantscontinuous_timediscretemdlm)
 * [bionemo.moco.interpolants.continuous\_time.discrete.discrete\_flow\_matching](#mocointerpolantscontinuous_timediscretediscrete_flow_matching)
-* [bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport](#mocointerpolantscontinuous_timecontinuousoptimal_transport)
+* [bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.ot\_types](#mocointerpolantscontinuous_timecontinuousoptimal_transportot_types)
+* [bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.ot\_sampler](#mocointerpolantscontinuous_timecontinuousoptimal_transportot_sampler)
+* [bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.equivariant\_ot\_sampler](#mocointerpolantscontinuous_timecontinuousoptimal_transportequivariant_ot_sampler)
+* [bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.kabsch\_augmentation](#mocointerpolantscontinuous_timecontinuousoptimal_transportkabsch_augmentation)
 * [bionemo.moco.interpolants.continuous\_time.continuous](#mocointerpolantscontinuous_timecontinuous)
 * [bionemo.moco.interpolants.continuous\_time.continuous.vdm](#mocointerpolantscontinuous_timecontinuousvdm)
 * [bionemo.moco.interpolants.continuous\_time.continuous.continuous\_flow\_matching](#mocointerpolantscontinuous_timecontinuouscontinuous_flow_matching)
 * [bionemo.moco.interpolants.continuous\_time](#mocointerpolantscontinuous_time)
 * [bionemo.moco.interpolants](#mocointerpolants)
+* [bionemo.moco.interpolants.batch\_augmentation](#mocointerpolantsbatch_augmentation)
 * [bionemo.moco.interpolants.discrete\_time.discrete.d3pm](#mocointerpolantsdiscrete_timediscreted3pm)
 * [bionemo.moco.interpolants.discrete\_time.discrete](#mocointerpolantsdiscrete_timediscrete)
 * [bionemo.moco.interpolants.discrete\_time.continuous.ddpm](#mocointerpolantsdiscrete_timecontinuousddpm)
@@ -1895,9 +1899,9 @@ Initialize the LinearInferenceSchedule.
 #### generate\_schedule
 
 ```python
-def generate_schedule(nsteps: Optional[int] = None,
-                      device: Optional[Union[str, torch.device]] = None,
-                      inclusive_end: bool = False) -> Tensor
+def generate_schedule(
+        nsteps: Optional[int] = None,
+        device: Optional[Union[str, torch.device]] = None) -> Tensor
 ```
 
 Generate the linear time schedule as a tensor.
@@ -2461,11 +2465,31 @@ Applies this mask to the updated state xt.
 
 - `Tensor` - The updated state.
 
-<a id="mocointerpolantscontinuous_timecontinuousoptimal_transport"></a>
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportot_types"></a>
 
-# bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport
+# bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.ot\_types
 
-<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportOTSampler"></a>
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportot_typesOptimalTransportType"></a>
+
+## OptimalTransportType Objects
+
+```python
+class OptimalTransportType(Enum)
+```
+
+An enumeration representing the type ofOptimal Transport that can be used in Continuous Flow Matching.
+
+- **EXACT**: Standard mini batch optimal transport defined in  https://arxiv.org/pdf/2302.00482.
+- **EQUIVARIANT**: Adding roto/translation optimization to mini batch OT see https://arxiv.org/pdf/2306.15030  https://arxiv.org/pdf/2312.07168 4.2.
+- **KABSCH**: Simple Kabsch alignment between each data and noise point, No permuation # https://arxiv.org/pdf/2410.22388 Sec 3.2
+
+These prediction types can be used to train neural networks for specific tasks, such as denoising, image synthesis, or time-series forecasting.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportot_sampler"></a>
+
+# bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.ot\_sampler
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportot_samplerOTSampler"></a>
 
 ## OTSampler Objects
 
@@ -2478,12 +2502,12 @@ Sampler for Exact Mini-batch Optimal Transport Plan.
 OTSampler implements sampling coordinates according to an OT plan (wrt squared Euclidean cost)
 with different implementations of the plan calculation. Code is adapted from https://github.com/atong01/conditional-flow-matching/blob/main/torchcfm/optimal_transport.py
 
-<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportOTSampler__init__"></a>
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportot_samplerOTSampler__init__"></a>
 
 #### \_\_init\_\_
 
 ```python
-def __init__(method: str,
+def __init__(method: str = "exact",
              device: Union[str, torch.device] = "cpu",
              num_threads: int = 1) -> None
 ```
@@ -2502,7 +2526,7 @@ Initialize the OTSampler class.
 - `ValueError` - If the OT solver is not documented.
 - `NotImplementedError` - If the OT solver is not implemented.
 
-<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportOTSamplerto_device"></a>
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportot_samplerOTSamplerto_device"></a>
 
 #### to\_device
 
@@ -2522,7 +2546,7 @@ Moves all internal tensors to the specified device and updates the `self.device`
   This method is used to transfer the internal state of the OTSampler to a different device.
   It updates the `self.device` attribute to reflect the new device and moves all internal tensors to the specified device.
 
-<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportOTSamplersample_map"></a>
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportot_samplerOTSamplersample_map"></a>
 
 #### sample\_map
 
@@ -2545,7 +2569,7 @@ Draw source and target samples from pi $(x,z) \sim \pi$.
 
 - `Tuple` - tuple of 2 tensors, represents the indices of noise and data samples from pi.
 
-<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportOTSamplerget_ot_matrix"></a>
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportot_samplerOTSamplerget_ot_matrix"></a>
 
 #### get\_ot\_matrix
 
@@ -2568,7 +2592,7 @@ Compute the OT matrix between a source and a target minibatch.
 
 - `p` _Tensor_ - shape (bs, bs), the OT matrix between noise and data in minibatch.
 
-<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportOTSamplerapply_ot"></a>
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportot_samplerOTSamplerapply_ot"></a>
 
 #### apply\_ot
 
@@ -2578,7 +2602,7 @@ def apply_ot(
     x1: Tensor,
     mask: Optional[Tensor] = None,
     replace: Bool = False,
-    preserve: Optional[Literal["noise", "x0", "data", "x1"]] = "x0"
+    sort: Optional[Literal["noise", "x0", "data", "x1"]] = "x0"
 ) -> Tuple[Tensor, Tensor, Optional[Tensor]]
 ```
 
@@ -2593,12 +2617,272 @@ minibatch and draw source and target samples from pi $(x,z) \sim \pi$.
 - `x1` _Tensor_ - shape (bs, *dim), data from source minibatch.
 - `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 - `replace` _bool_ - sampling w/ or w/o replacement from the OT plan, default to False.
-- `preserve` _str_ - Optional Literal string to sort either x1 or x0 based on the input.
+- `sort` _str_ - Optional Literal string to sort either x1 or x0 based on the input.
 
 
 **Returns**:
 
 - `Tuple` - tuple of 2 tensors or 3 tensors if mask is used, represents the noise (plus mask) and data samples following OT plan pi.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportequivariant_ot_sampler"></a>
+
+# bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.equivariant\_ot\_sampler
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportequivariant_ot_samplerEquivariantOTSampler"></a>
+
+## EquivariantOTSampler Objects
+
+```python
+class EquivariantOTSampler()
+```
+
+Sampler for Mini-batch Optimal Transport Plan with cost calculated after Kabsch alignment.
+
+EquivariantOTSampler implements sampling coordinates according to an OT plan
+(wrt squared Euclidean cost after Kabsch alignment) with different implementations of the plan calculation.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportequivariant_ot_samplerEquivariantOTSampler__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(method: str = "exact",
+             device: Union[str, torch.device] = "cpu",
+             num_threads: int = 1) -> None
+```
+
+Initialize the OTSampler class.
+
+**Arguments**:
+
+- `method` _str_ - Choose which optimal transport solver you would like to use. Currently only support exact OT solvers (pot.emd).
+- `device` _Union[str, torch.device], optional_ - The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
+- `num_threads` _Union[int, str], optional_ - Number of threads to use for OT solver. If "max", uses the maximum number of threads. Default is 1.
+
+
+**Raises**:
+
+- `ValueError` - If the OT solver is not documented.
+- `NotImplementedError` - If the OT solver is not implemented.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportequivariant_ot_samplerEquivariantOTSamplerto_device"></a>
+
+#### to\_device
+
+```python
+def to_device(device: str)
+```
+
+Moves all internal tensors to the specified device and updates the `self.device` attribute.
+
+**Arguments**:
+
+- `device` _str_ - The device to move the tensors to (e.g. "cpu", "cuda:0").
+
+
+**Notes**:
+
+  This method is used to transfer the internal state of the OTSampler to a different device.
+  It updates the `self.device` attribute to reflect the new device and moves all internal tensors to the specified device.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportequivariant_ot_samplerEquivariantOTSamplersample_map"></a>
+
+#### sample\_map
+
+```python
+def sample_map(pi: Tensor,
+               batch_size: int,
+               replace: Bool = False) -> Tuple[Tensor, Tensor]
+```
+
+Draw source and target samples from pi $(x,z) \sim \pi$.
+
+**Arguments**:
+
+- `pi` _Tensor_ - shape (bs, bs), the OT matrix between noise and data in minibatch.
+- `batch_size` _int_ - The batch size of the minibatch.
+- `replace` _bool_ - sampling w/ or w/o replacement from the OT plan, default to False.
+
+
+**Returns**:
+
+- `Tuple` - tuple of 2 tensors, represents the indices of noise and data samples from pi.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportequivariant_ot_samplerEquivariantOTSamplerkabsch_align"></a>
+
+#### kabsch\_align
+
+```python
+def kabsch_align(target: Tensor, noise: Tensor) -> Tensor
+```
+
+Find the Rotation matrix (R) such that RMSD is minimized between target @ R.T and noise.
+
+**Arguments**:
+
+- `target` _Tensor_ - shape (N, *dim), data from source minibatch.
+- `noise` _Tensor_ - shape (N, *dim), noise from source minibatch.
+
+
+**Returns**:
+
+- `R` _Tensor_ - shape (*dim, *dim), the rotation matrix.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportequivariant_ot_samplerEquivariantOTSamplerget_ot_matrix"></a>
+
+#### get\_ot\_matrix
+
+```python
+def get_ot_matrix(x0: Tensor,
+                  x1: Tensor,
+                  mask: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]
+```
+
+Compute the OT matrix between a source and a target minibatch.
+
+**Arguments**:
+
+- `x0` _Tensor_ - shape (bs, *dim), noise from source minibatch.
+- `x1` _Tensor_ - shape (bs, *dim), data from source minibatch.
+- `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
+
+
+**Returns**:
+
+- `p` _Tensor_ - shape (bs, bs), the OT matrix between noise and data in minibatch.
+- `Rs` _Tensor_ - shape (bs, bs, *dim, *dim), the rotation matrix between noise and data in minibatch.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportequivariant_ot_samplerEquivariantOTSamplerapply_ot"></a>
+
+#### apply\_ot
+
+```python
+def apply_ot(
+    x0: Tensor,
+    x1: Tensor,
+    mask: Optional[Tensor] = None,
+    replace: Bool = False,
+    sort: Optional[Literal["noise", "x0", "data", "x1"]] = "x0"
+) -> Tuple[Tensor, Tensor, Optional[Tensor]]
+```
+
+Sample indices for noise and data in minibatch according to OT plan.
+
+Compute the OT plan $\pi$ (wrt squared Euclidean cost after Kabsch alignment) between a source and a target
+minibatch and draw source and target samples from pi $(x,z) \sim \pi$.
+
+**Arguments**:
+
+- `x0` _Tensor_ - shape (bs, *dim), noise from source minibatch.
+- `x1` _Tensor_ - shape (bs, *dim), data from source minibatch.
+- `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
+- `replace` _bool_ - sampling w/ or w/o replacement from the OT plan, default to False.
+- `sort` _str_ - Optional Literal string to sort either x1 or x0 based on the input.
+
+
+**Returns**:
+
+- `Tuple` - tuple of 2 tensors, represents the noise and data samples following OT plan pi.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportkabsch_augmentation"></a>
+
+# bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.kabsch\_augmentation
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportkabsch_augmentationKabschAugmentation"></a>
+
+## KabschAugmentation Objects
+
+```python
+class KabschAugmentation()
+```
+
+Point-wise Kabsch alignment.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportkabsch_augmentationKabschAugmentation__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__()
+```
+
+Initialize the KabschAugmentation instance.
+
+**Notes**:
+
+  - This implementation assumes no required initialization arguments.
+  - You can add instance variables (e.g., `self.variable_name`) as needed.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportkabsch_augmentationKabschAugmentationkabsch_align"></a>
+
+#### kabsch\_align
+
+```python
+def kabsch_align(target: Tensor, noise: Tensor)
+```
+
+Find the Rotation matrix (R) such that RMSD is minimized between target @ R.T and noise.
+
+**Arguments**:
+
+- `target` _Tensor_ - shape (N, *dim), data from source minibatch.
+- `noise` _Tensor_ - shape (N, *dim), noise from source minibatch.
+
+
+**Returns**:
+
+- `R` _Tensor_ - shape (*dim, *dim), the rotation matrix.
+  Aliged Target (Tensor): target tensor rotated and shifted to reduced RMSD with noise
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportkabsch_augmentationKabschAugmentationbatch_kabsch_align"></a>
+
+#### batch\_kabsch\_align
+
+```python
+def batch_kabsch_align(target: Tensor, noise: Tensor)
+```
+
+Find the Rotation matrix (R) such that RMSD is minimized between target @ R.T and noise.
+
+**Arguments**:
+
+- `target` _Tensor_ - shape (N, *dim), data from source minibatch.
+- `noise` _Tensor_ - shape (N, *dim), noise from source minibatch.
+
+
+**Returns**:
+
+- `R` _Tensor_ - shape (*dim, *dim), the rotation matrix.
+  Aliged Target (Tensor): target tensor rotated and shifted to reduced RMSD with noise
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transportkabsch_augmentationKabschAugmentationapply_ot"></a>
+
+#### apply\_ot
+
+```python
+def apply_ot(x0: Tensor,
+             x1: Tensor,
+             mask: Optional[Tensor] = None,
+             align_noise_to_data=True) -> Tuple[Tensor, Tensor]
+```
+
+Sample indices for noise and data in minibatch according to OT plan.
+
+Compute the OT plan $\pi$ (wrt squared Euclidean cost after Kabsch alignment) between a source and a target
+minibatch and draw source and target samples from pi $(x,z) \sim \pi$.
+
+**Arguments**:
+
+- `x0` _Tensor_ - shape (bs, *dim), noise from source minibatch.
+- `x1` _Tensor_ - shape (bs, *dim), data from source minibatch.
+- `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
+- `replace` _bool_ - sampling w/ or w/o replacement from the OT plan, default to False.
+- `align_noise_to_data` _bool_ - Direction of alignment default is True meaning it augments Noise to reduce error to Data.
+
+
+**Returns**:
+
+- `Tuple` - tuple of 2 tensors, represents the noise and data samples following OT plan pi.
 
 <a id="mocointerpolantscontinuous_timecontinuous"></a>
 
@@ -3005,22 +3289,6 @@ and https://github.com/generatebio/chroma/blob/929407c605013613941803c6113adefdc
 
 # bionemo.moco.interpolants.continuous\_time.continuous.continuous\_flow\_matching
 
-<a id="mocointerpolantscontinuous_timecontinuouscontinuous_flow_matchingOptimalTransportType"></a>
-
-## OptimalTransportType Objects
-
-```python
-class OptimalTransportType(Enum)
-```
-
-An enumeration representing the type ofOptimal Transport that can be used in Continuous Flow Matching.
-
-- **EXACT**: Standard mini batch optimal transport defined in  https://arxiv.org/pdf/2302.00482.
-- **EQUIVARIANT**: Adding roto/translation optimization to mini batch OT see https://arxiv.org/pdf/2306.15030  https://arxiv.org/pdf/2312.07168 4.2.
-- **KABSCH**: Simple Kabsch alignment between each data and noise point, No permuation # https://arxiv.org/pdf/2410.22388 Sec 3.2
-
-These prediction types can be used to train neural networks for specific tasks, such as denoising, image synthesis, or time-series forecasting.
-
 <a id="mocointerpolantscontinuous_timecontinuouscontinuous_flow_matchingContinuousFlowMatcher"></a>
 
 ## ContinuousFlowMatcher Objects
@@ -3082,6 +3350,7 @@ def __init__(time_distribution: TimeDistribution,
              prediction_type: Union[PredictionType, str] = PredictionType.DATA,
              sigma: Float = 0,
              ot_type: Optional[Union[OptimalTransportType, str]] = None,
+             ot_num_threads: int = 1,
              data_scale: Float = 1.0,
              device: Union[str, torch.device] = "cpu",
              rng_generator: Optional[torch.Generator] = None,
@@ -3097,6 +3366,7 @@ Initializes the Continuous Flow Matching interpolant.
 - `prediction_type` _PredictionType, optional_ - The type of prediction, either "flow" or another type. Defaults to PredictionType.DATA.
 - `sigma` _Float, optional_ - The standard deviation of the Gaussian noise added to the interpolated data. Defaults to 0.
 - `ot_type` _Optional[Union[OptimalTransportType, str]], optional_ - The type of optimal transport, if applicable. Defaults to None.
+- `ot_num_threads` - Number of threads to use for OT solver. If "max", uses the maximum number of threads. Default is 1.
 - `data_scale` _Float, optional_ - The scale factor for the data. Defaults to 1.0.
 - `device` _Union[str, torch.device], optional_ - The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
@@ -3110,7 +3380,7 @@ Initializes the Continuous Flow Matching interpolant.
 def apply_ot(x0: Tensor,
              x1: Tensor,
              mask: Optional[Tensor] = None,
-             replace: Bool = False) -> tuple
+             **kwargs) -> tuple
 ```
 
 Sample and apply the optimal transport plan between batched (and masked) x0 and x1.
@@ -3120,7 +3390,8 @@ Sample and apply the optimal transport plan between batched (and masked) x0 and 
 - `x0` _Tensor_ - shape (bs, *dim), noise from source minibatch.
 - `x1` _Tensor_ - shape (bs, *dim), data from source minibatch.
 - `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
-- `replace` _bool_ - sampling w/ or w/o replacement from the OT plan, default to False.
+- `**kwargs` - Additional keyword arguments to be passed to self.ot_sampler.apply_ot or handled within this method.
+
 
 
 **Returns**:
@@ -3447,6 +3718,59 @@ From Geffner et al. Computes gt for different modes.
 <a id="mocointerpolants"></a>
 
 # bionemo.moco.interpolants
+
+<a id="mocointerpolantsbatch_augmentation"></a>
+
+# bionemo.moco.interpolants.batch\_augmentation
+
+<a id="mocointerpolantsbatch_augmentationBatchAugmentation"></a>
+
+## BatchAugmentation Objects
+
+```python
+class BatchAugmentation()
+```
+
+Facilitates the creation of batch augmentation objects based on specified optimal transport types.
+
+**Arguments**:
+
+- `device` _str_ - The device to use for computations (e.g., 'cpu', 'cuda').
+- `num_threads` _int_ - The number of threads to utilize.
+
+<a id="mocointerpolantsbatch_augmentationBatchAugmentation__init__"></a>
+
+#### \_\_init\_\_
+
+```python
+def __init__(device, num_threads)
+```
+
+Initializes a BatchAugmentation instance.
+
+**Arguments**:
+
+- `device` _str_ - Device for computation.
+- `num_threads` _int_ - Number of threads to use.
+
+<a id="mocointerpolantsbatch_augmentationBatchAugmentationcreate"></a>
+
+#### create
+
+```python
+def create(method_type: OptimalTransportType)
+```
+
+Creates a batch augmentation object of the specified type.
+
+**Arguments**:
+
+- `method_type` _OptimalTransportType_ - The type of optimal transport method.
+
+
+**Returns**:
+
+  The augmentation object if the type is supported, otherwise **None**.
 
 <a id="mocointerpolantsdiscrete_timediscreted3pm"></a>
 

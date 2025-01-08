@@ -15,6 +15,9 @@
 
 
 from .continuous_time.continuous.continuous_flow_matching import ContinuousFlowMatcher
+from .continuous_time.continuous.optimal_transport.equivariant_ot_sampler import EquivariantOTSampler
+from .continuous_time.continuous.optimal_transport.kabsch_augmentation import KabschAugmentation
+from .continuous_time.continuous.optimal_transport.ot_sampler import OTSampler
 from .continuous_time.continuous.vdm import VDM
 from .continuous_time.discrete.discrete_flow_matching import DiscreteFlowMatcher
 from .continuous_time.discrete.mdlm import MDLM
@@ -22,4 +25,14 @@ from .discrete_time.continuous.ddpm import DDPM
 from .discrete_time.discrete.d3pm import D3PM
 
 
-__all__ = ["DDPM", "D3PM", "VDM", "MDLM", "ContinuousFlowMatcher", "DiscreteFlowMatcher"]
+__all__ = [
+    "DDPM",
+    "D3PM",
+    "VDM",
+    "MDLM",
+    "ContinuousFlowMatcher",
+    "DiscreteFlowMatcher",
+    "EquivariantOTSampler",
+    "OTSampler",
+    "KabschAugmentation",
+]

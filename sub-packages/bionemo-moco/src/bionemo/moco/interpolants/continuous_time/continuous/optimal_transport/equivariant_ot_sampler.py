@@ -24,17 +24,17 @@ from jaxtyping import Bool
 from torch import Tensor
 
 
-class OTSampler:
-    """Sampler for Exact Mini-batch Optimal Transport Plan.
+class EquivariantOTSampler:
+    """Sampler for Mini-batch Optimal Transport Plan with cost calculated after Kabsch alignment.
 
-    OTSampler implements sampling coordinates according to an OT plan (wrt squared Euclidean cost)
-    with different implementations of the plan calculation. Code is adapted from https://github.com/atong01/conditional-flow-matching/blob/main/torchcfm/optimal_transport.py
+    EquivariantOTSampler implements sampling coordinates according to an OT plan
+    (wrt squared Euclidean cost after Kabsch alignment) with different implementations of the plan calculation.
 
     """
 
     def __init__(
         self,
-        method: str,
+        method: str = "exact",
         device: Union[str, torch.device] = "cpu",
         num_threads: int = 1,
     ) -> None:
@@ -93,8 +93,34 @@ class OTSampler:
         choices = torch.multinomial(p, batch_size, replacement=replace)
         return torch.div(choices, pi.shape[1], rounding_mode="floor"), choices % pi.shape[1]
 
-    def _calculate_cost_matrix(self, x0: Tensor, x1: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def kabsch_align(self, target: Tensor, noise: Tensor) -> Tensor:
+        """Find the Rotation matrix (R) such that RMSD is minimized between target @ R.T and noise.
+
+        Args:
+            target (Tensor): shape (N, *dim), data from source minibatch.
+            noise (Tensor): shape (N, *dim), noise from source minibatch.
+
+        Returns:
+            R (Tensor): shape (*dim, *dim), the rotation matrix.
+        """
+        dimension = target.shape[-1]
+        noise_centered = noise - noise.mean(dim=0)
+        target_centered = target - target.mean(dim=0)
+
+        # Compute the covariance matrix
+        covariance_matix = target_centered.T @ noise_centered
+
+        # Compute the SVD of the covariance matrix
+        U, S, Vt = torch.linalg.svd(covariance_matix)
+        d = torch.sign(torch.linalg.det(Vt.T @ U.T)).item()
+        d_mat = torch.tensor([1] * (dimension - 1) + [d], device=Vt.device, dtype=Vt.dtype)
+        R = Vt.T @ torch.diag(d_mat) @ U.T
+        return R
+
+    def _calculate_cost_matrix(self, x0: Tensor, x1: Tensor, mask: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
         """Compute the cost matrix between a source and a target minibatch.
+
+        The distance between noise and data is calculated after aligning them using Kabsch algorithm.
 
         Args:
             x0 (Tensor): shape (bs, *dim), noise from source minibatch.
@@ -102,27 +128,32 @@ class OTSampler:
             mask (Optional[Tensor], optional): mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 
         Returns:
-            Tensor: shape (bs, bs), the cost matrix between noise and data in minibatch.
+            M: shape (bs, bs), the cost matrix between noise and data in minibatch.
+            Rs: shape (bs, bs, *dim, *dim), the rotation matrix between noise and data in minibatch.
         """
-        if mask is None:
-            # Flatten the input tensors
-            x0, x1 = x0.reshape(x0.shape[0], -1), x1.reshape(x1.shape[0], -1)
+        if x0.shape[0] != x1.shape[0]:
+            raise ValueError("Shape mismatch: x0.shape = {}, x1.shape = {}".format(x0.shape, x1.shape))
+        batchsize, maxlen, dimension = x0.shape[0], x0.shape[1], x0.shape[-1]
+        M = torch.zeros(batchsize, batchsize, device=x0.device)
+        Rs = torch.zeros(batchsize, batchsize, dimension, dimension, device=x0.device)
+        for i in range(batchsize):
+            for j in range(batchsize):
+                if mask is not None:
+                    x0i_mask = mask[i].bool()
+                else:
+                    x0i_mask = torch.ones(maxlen, device=x0.device).bool()
+                x0_masked, x1_masked = x0[i][x0i_mask], x1[j][x0i_mask]
+                # Rotate the data to align with the noise
+                R = self.kabsch_align(x1_masked, x0_masked)
+                x1_aligned = x1_masked @ R.T
+                # Here the cost only considered the rotational RMSD, not the translational RMSD
+                cost = torch.dist(x0_masked - x0_masked.mean(dim=0), x1_aligned - x1_aligned.mean(dim=0), p=2)
+                M[i, j] = cost
+                Rs[i, j] = R.T
 
-            # Compute the cost matrix. For exact OT, we use squared Euclidean distance.
-            M = torch.cdist(x0, x1) ** 2
-        else:
-            # Initialize the cost matrix
-            M = torch.zeros((x0.shape[0], x1.shape[0]))
-            # For each x0 sample, apply its mask to all x1 samples and calculate the cost
-            for i in range(x0.shape[0]):
-                x0i_mask = mask[i].unsqueeze(-1)
-                masked_x1 = x1 * x0i_mask
-                masked_x0 = x0[i] * x0i_mask
-                cost = torch.cdist(masked_x0.reshape(1, -1), masked_x1.reshape(x1.shape[0], -1)) ** 2
-                M[i] = cost
-        return M
+        return M, Rs
 
-    def get_ot_matrix(self, x0: Tensor, x1: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def get_ot_matrix(self, x0: Tensor, x1: Tensor, mask: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
         """Compute the OT matrix between a source and a target minibatch.
 
         Args:
@@ -132,22 +163,25 @@ class OTSampler:
 
         Returns:
             p (Tensor): shape (bs, bs), the OT matrix between noise and data in minibatch.
-
+            Rs (Tensor): shape (bs, bs, *dim, *dim), the rotation matrix between noise and data in minibatch.
         """
         # Compute the cost matrix
-        M = self._calculate_cost_matrix(x0, x1, mask)
+        M, Rs = self._calculate_cost_matrix(x0, x1, mask)
+
         # Set uniform weights for all samples in a minibatch
         a, b = pot.unif(x0.shape[0], type_as=M), pot.unif(x1.shape[0], type_as=M)
 
+        # Compute the OT matrix using POT package
         p = self.ot_fn(a, b, M)
-        # Handle exceptions
+
+        # Handle Exceptions
         if not torch.all(torch.isfinite(p)):
             raise ValueError("OT plan map is not finite, cost mean, max: {}, {}".format(M.mean(), M.max()))
         if torch.abs(p.sum()) < 1e-8:
             warnings.warn("Numerical errors in OT matrix, reverting to uniform plan.")
             p = torch.ones_like(p) / p.numel()
 
-        return p
+        return p, Rs
 
     def apply_ot(
         self,
@@ -155,11 +189,11 @@ class OTSampler:
         x1: Tensor,
         mask: Optional[Tensor] = None,
         replace: Bool = False,
-        preserve: Optional[Literal["noise", "x0", "data", "x1"]] = "x0",
+        sort: Optional[Literal["noise", "x0", "data", "x1"]] = "x0",
     ) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
         r"""Sample indices for noise and data in minibatch according to OT plan.
 
-        Compute the OT plan $\pi$ (wrt squared Euclidean cost) between a source and a target
+        Compute the OT plan $\pi$ (wrt squared Euclidean cost after Kabsch alignment) between a source and a target
         minibatch and draw source and target samples from pi $(x,z) \sim \pi$.
 
         Args:
@@ -167,40 +201,42 @@ class OTSampler:
             x1 (Tensor): shape (bs, *dim), data from source minibatch.
             mask (Optional[Tensor], optional): mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
             replace (bool): sampling w/ or w/o replacement from the OT plan, default to False.
-            preserve (str): Optional Literal string to sort either x1 or x0 based on the input.
+            sort (str): Optional Literal string to sort either x1 or x0 based on the input.
 
         Returns:
-            Tuple: tuple of 2 tensors or 3 tensors if mask is used, represents the noise (plus mask) and data samples following OT plan pi.
+            Tuple: tuple of 2 tensors, represents the noise and data samples following OT plan pi.
         """
-        if replace and preserve is not None:
-            raise ValueError("Cannot sample with replacement and preserve")
         # Calculate the optimal transport
-        pi = self.get_ot_matrix(x0, x1, mask)
+        pi, Rs = self.get_ot_matrix(x0, x1, mask)
 
         # Sample (x0, x1) mapping indices from the OT matrix
         i, j = self.sample_map(pi, x0.shape[0], replace=replace)
-        if not replace and (preserve == "noise" or preserve == "x0"):
+
+        if not replace and (sort == "noise" or sort == "x0"):
             sort_idx = torch.argsort(i)
             i = i[sort_idx]
             j = j[sort_idx]
 
-            if not (i == torch.arange(x0.shape[0])).all():
-                raise ValueError("x0_idx should be a tensor from 0 to size - 1 when preserve is 'noise' or 'x0")
-            noise = x0
-            data = x1[j]
-        elif not replace and (preserve == "data" or preserve == "x1"):
+            if not (i == torch.arange(x0.shape[0], device=i.device)).all():
+                raise ValueError("x0_idx should be a tensor from 0 to size - 1 when sort is 'noise' or 'x0")
+        elif not replace and (sort == "data" or sort == "x1"):
             sort_idx = torch.argsort(j)
             i = i[sort_idx]
             j = j[sort_idx]
+            print(i, j)
+            if not (j == torch.arange(x1.shape[0], device=j.device)).all():
+                raise ValueError("x1_idx should be a tensor from 0 to size - 1 when sort is 'noise' or 'x0")
 
-            if not (j == torch.arange(x1.shape[0])).all():
-                raise ValueError("x1_idx should be a tensor from 0 to size - 1 when preserve is 'noise' or 'x0")
-            noise = x0[i]
-            data = x1
-        else:
-            noise = x0[i]
-            data = x1[j]
+        # Get the corresponding rotation matrices
+        rotations = Rs[i, j, :, :]
+        noise = x0[i]
+        # Align the data samples using the rotation matrices
+        x1_aligned = torch.bmm(x1[j], rotations)
+        data = x1_aligned
 
+        if mask is not None:
+            if mask.device != x0.device:
+                mask = mask.to(x0.device)
+            mask = mask[i]
         # Output the permuted samples in the minibatch
-        mask = mask[i] if mask is not None else None
         return noise, data, mask

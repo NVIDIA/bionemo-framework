@@ -42,6 +42,15 @@ def test_d3pm_interpolate(d3pm, device):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_d3pm_interpolate_square(d3pm, device):
+    data = torch.randint(0, 16, (5, 10, 10)).to(device)
+    t = torch.randint(0, 10, (5,)).to(device)
+    d3pm.to_device(device)
+    result = d3pm.interpolate(data, t)
+    assert result.shape == (5, 10, 10)
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_d3pm_step(d3pm, device):
     # Create a random data tensor
     num_classes = 20
@@ -77,4 +86,51 @@ def test_d3pm_step(d3pm, device):
     loss = d3pm.loss(logits, data, xt, time).mean()
     assert loss.item() == 0
     loss = d3pm.loss(logits, data, xt, time, vb_scale=0.5).mean()
+    assert loss.item() < 1.0e-1
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_d3pm_step_square(d3pm, device):
+    # Create a random data tensor
+    num_classes = 20
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    d3pm = d3pm.to_device(device)
+    torch.manual_seed(42)  # for reproducibility
+    data = torch.randint(0, num_classes, (32, 5, 6)).to(device)
+    # Create time tensor
+    T = 500
+    time = d3pm.sample_time(32, device=device) * 0 + T
+    # Create a mock model that outputs logits
+    logits = torch.zeros((32, 5, 6, num_classes), device=device)
+    # Set the logits to a large value (e.g., 1000) for the correct discrete choices
+    logits[:, :, :, :] = -1000  # initialize with a low value
+    # Set the logits to 1000 for the correct discrete choices
+    logits = logits.scatter(3, data.unsqueeze(-1), 1000)
+    # Sample noise
+    noise = d3pm.sample_prior(data.shape, device=device)
+    # Create model output and xt
+    model_out = logits  # torch.softmax(logits, dim=-1)
+    xt = data.clone()
+    xt[:, 0] = noise[:, 0]
+    # Take a step
+    next_xt = d3pm.step(model_out, time, xt)
+    # Assert shapes
+    assert next_xt.shape == data.shape
+    model_out_onehot = torch.nn.functional.one_hot(
+        model_out.argmax(-1), num_classes=num_classes
+    ).float()  # (B, N, num_classes)
+    nll = -torch.sum(torch.log(model_out_onehot.view(-1, num_classes) + 1e-8).gather(1, data.view(-1, 1)).squeeze(1))
+    assert nll < 1e-10
+    loss = d3pm.loss(
+        logits.reshape(logits.shape[0], -1, logits.shape[3]), data.reshape(data.shape[0], -1), xt, time
+    ).mean()
+    assert loss.item() == 0
+    loss = d3pm.loss(
+        logits.reshape(logits.shape[0], -1, logits.shape[3]),
+        data.reshape(data.shape[0], -1),
+        xt.reshape(xt.shape[0], -1),
+        time,
+        vb_scale=0.5,
+    ).mean()
     assert loss.item() < 1.0e-1

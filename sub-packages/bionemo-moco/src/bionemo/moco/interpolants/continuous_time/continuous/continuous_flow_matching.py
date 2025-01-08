@@ -14,7 +14,6 @@
 # limitations under the License.
 
 
-from enum import Enum
 from typing import Optional, Union
 
 import torch
@@ -26,22 +25,8 @@ from bionemo.moco.distributions.prior.continuous.gaussian import GaussianPrior
 from bionemo.moco.distributions.prior.distribution import PriorDistribution
 from bionemo.moco.distributions.time.distribution import TimeDistribution
 from bionemo.moco.interpolants.base_interpolant import Interpolant, PredictionType, pad_like, string_to_enum
-from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport import OTSampler
-
-
-class OptimalTransportType(Enum):
-    """An enumeration representing the type ofOptimal Transport that can be used in Continuous Flow Matching.
-
-    - **EXACT**: Standard mini batch optimal transport defined in  https://arxiv.org/pdf/2302.00482.
-    - **EQUIVARIANT**: Adding roto/translation optimization to mini batch OT see https://arxiv.org/pdf/2306.15030  https://arxiv.org/pdf/2312.07168 4.2.
-    - **KABSCH**: Simple Kabsch alignment between each data and noise point, No permuation # https://arxiv.org/pdf/2410.22388 Sec 3.2
-
-    These prediction types can be used to train neural networks for specific tasks, such as denoising, image synthesis, or time-series forecasting.
-    """
-
-    EXACT = "exact"
-    EQUIVARIANT = "equivariant"
-    KABSCH = "kabsch"
+from bionemo.moco.interpolants.batch_augmentation import BatchAugmentation
+from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport.ot_types import OptimalTransportType
 
 
 class ContinuousFlowMatcher(Interpolant):
@@ -95,6 +80,7 @@ class ContinuousFlowMatcher(Interpolant):
         prediction_type: Union[PredictionType, str] = PredictionType.DATA,
         sigma: Float = 0,
         ot_type: Optional[Union[OptimalTransportType, str]] = None,
+        ot_num_threads: int = 1,
         data_scale: Float = 1.0,
         device: Union[str, torch.device] = "cpu",
         rng_generator: Optional[torch.Generator] = None,
@@ -108,6 +94,7 @@ class ContinuousFlowMatcher(Interpolant):
             prediction_type (PredictionType, optional): The type of prediction, either "flow" or another type. Defaults to PredictionType.DATA.
             sigma (Float, optional): The standard deviation of the Gaussian noise added to the interpolated data. Defaults to 0.
             ot_type (Optional[Union[OptimalTransportType, str]], optional): The type of optimal transport, if applicable. Defaults to None.
+            ot_num_threads:  Number of threads to use for OT solver. If "max", uses the maximum number of threads. Default is 1.
             data_scale (Float, optional): The scale factor for the data. Defaults to 1.0.
             device (Union[str, torch.device], optional): The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
             rng_generator: An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
@@ -123,44 +110,37 @@ class ContinuousFlowMatcher(Interpolant):
             raise ValueError("Data Scale must be > 0")
         if ot_type is not None:
             self.ot_type = ot_type = string_to_enum(ot_type, OptimalTransportType)
-            self.ot_sampler = self._build_ot_sampler(sampler_type=ot_type)
+            self.ot_sampler = self._build_ot_sampler(method_type=ot_type, num_threads=ot_num_threads)
         self._loss_function = nn.MSELoss(reduction="none")
 
-    def _build_ot_sampler(self, sampler_type: Union[str, OptimalTransportType], num_threads: int = 1) -> OTSampler:
+    def _build_ot_sampler(self, method_type: OptimalTransportType, num_threads: int = 1):
         """Build the optimal transport sampler for the given optimal transport type.
 
         Args:
-            sampler_type (OptimalTransportType): The OT type to build the sampler for.
+            method_type (OptimalTransportType): The type of augmentation.
             num_threads (int): The number of threads to use for the OT sampler, default to 1.
 
         Returns:
-            The optimal transport sampler object or None if the optimal transport type is not specified.
+            The augmentation object.
         """
-        ot_sampler = None
-        sampler_type = string_to_enum(sampler_type, OptimalTransportType)
-        if sampler_type == OptimalTransportType.EXACT:
-            ot_sampler = OTSampler(method="exact", num_threads=num_threads)
-        elif sampler_type == OptimalTransportType.EQUIVARIANT:
-            raise NotImplementedError("Equivariant OT currently not implemented")
-        elif sampler_type == OptimalTransportType.KABSCH:
-            raise NotImplementedError("Kabsch OT currently not implemented")
-        return ot_sampler
+        return BatchAugmentation(self.device, num_threads).create(method_type)
 
-    def apply_ot(self, x0: Tensor, x1: Tensor, mask: Optional[Tensor] = None, replace: Bool = False) -> tuple:
+    def apply_ot(self, x0: Tensor, x1: Tensor, mask: Optional[Tensor] = None, **kwargs) -> tuple:
         """Sample and apply the optimal transport plan between batched (and masked) x0 and x1.
 
         Args:
             x0 (Tensor): shape (bs, *dim), noise from source minibatch.
             x1 (Tensor): shape (bs, *dim), data from source minibatch.
             mask (Optional[Tensor], optional): mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
-            replace (bool): sampling w/ or w/o replacement from the OT plan, default to False.
+            **kwargs: Additional keyword arguments to be passed to self.ot_sampler.apply_ot or handled within this method.
+
 
         Returns:
             Tuple: tuple of 2 tensors, represents the noise and data samples following OT plan pi.
         """
         if self.ot_sampler is None:
             raise ValueError("Optimal Transport Sampler is not defined")
-        return self.ot_sampler.apply_ot(x0, x1, mask=mask, replace=replace)
+        return self.ot_sampler.apply_ot(x0, x1, mask=mask, **kwargs)
 
     def undo_scale_data(self, data: Tensor) -> Tensor:
         """Downscale the input data by the data scale factor.
