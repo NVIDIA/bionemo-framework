@@ -67,14 +67,17 @@ def nemo_logger_factory(experiment_config: ExperimentConfig, wandb_config: Optio
     Returns:
         nl.NeMoLogger: An instance of NeMoLogger configured with the specified settings.
     """
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_last=experiment_config.save_last_checkpoint,
-        monitor=experiment_config.metric_to_monitor_for_checkpoints,
-        save_top_k=experiment_config.save_top_k,
-        every_n_train_steps=experiment_config.save_every_n_steps,
-        always_save_context=True,
-        filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-    )
+    if experiment_config.create_checkpoint_callback:
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            save_last=experiment_config.save_last_checkpoint,
+            monitor=experiment_config.metric_to_monitor_for_checkpoints,
+            save_top_k=experiment_config.save_top_k,
+            every_n_train_steps=experiment_config.save_every_n_steps,
+            always_save_context=True,
+            filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        )
+    else:
+        checkpoint_callback = None
 
     nemo_logger = setup_nemo_lightning_logger(
         root_dir=experiment_config.result_dir,
@@ -167,6 +170,7 @@ def setup_trainer(
             grad_reduce_in_fp32=False,
             autocast_enabled=False,
         ),
+        enable_checkpointing=training_config.enable_checkpointing,
     )
     return trainer
 

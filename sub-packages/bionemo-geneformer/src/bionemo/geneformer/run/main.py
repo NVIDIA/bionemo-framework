@@ -82,6 +82,13 @@ def main():  # noqa: D103
             default=[0],
             help="Enable nsys profiling for these ranks.",
         )
+        parser.add_argument(
+            "--disable-checkpointing",
+            action="store_false",
+            default=True,
+            dest="create_checkpoint_callback",
+            help="Disable creating a ModelCheckpoint callback.",
+        )
 
         return parser.parse_args()
 
@@ -92,7 +99,12 @@ def main():  # noqa: D103
         module = importlib.import_module(module_path)
         return getattr(module, class_name)
 
-    def load_config(config_path: str, model_config_cls: Optional[str], data_config_cls: Optional[str]) -> MainConfig:
+    def load_config(
+        config_path: str,
+        model_config_cls: Optional[str],
+        data_config_cls: Optional[str],
+        create_checkpoint_callback: bool,
+    ) -> MainConfig:
         with open(config_path, "r") as f:
             config_dict = yaml.safe_load(f)
 
@@ -106,6 +118,11 @@ def main():  # noqa: D103
             # We assume we get a string to some importable config... e.g. in the sub-package jensen, 'bionemo.jensen.configs.MyConfig'
             model_config_cls = string_to_class(model_config_cls)
 
+        # disable checkpointing if called from the command line
+        if not create_checkpoint_callback:
+            config_dict["training_config"]["enable_checkpointing"] = create_checkpoint_callback
+            config_dict["experiment_config"]["create_checkpoint_callback"] = create_checkpoint_callback
+
         if data_config_cls is None:
             data_config_cls = GeneformerPretrainingDataConfig
         elif isinstance(data_config_cls, str):
@@ -113,7 +130,7 @@ def main():  # noqa: D103
         return MainConfig[model_config_cls, data_config_cls](**config_dict)
 
     args = parse_args()
-    config = load_config(args.config, args.model_config_cls, args.data_config_cls)
+    config = load_config(args.config, args.model_config_cls, args.data_config_cls, args.create_checkpoint_callback)
 
     if args.nsys_profiling:
         nsys_config = NsysConfig(

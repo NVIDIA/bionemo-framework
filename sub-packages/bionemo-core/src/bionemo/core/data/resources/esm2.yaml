@@ -7,6 +7,33 @@
   description: >
     A pretrained 650M parameter ESM2 model. See https://ngc.nvidia.com/catalog/models/nvidia:clara:esm2nv650m.
 
+- tag: nv_3b:2.1
+  ngc: "nvidia/clara/esm2nv3b:2.1"
+  ngc_registry: model
+  pbss: "s3://general-purpose/esm2/checkpoints/3b/esm2_3b_checkpoint.tar.gz"
+  sha256: a79327a4054bf8d1d7075e1b3c961dbc503da02d72ed15f707d9cbbd49d181b6 # pragma: allowlist secret
+  owner: Peter St John <pstjohn@nvidia.com>
+  description: >
+    An ESM-2 3B model pre-trained on NVIDIA's train/test data split.
+
+- tag: nv_650m:2.1
+  ngc: "nvidia/clara/esm2nv650m:2.1"
+  ngc_registry: model
+  pbss: "s3://general-purpose/esm2/checkpoints/650m/esm2_650m_checkpoint.tar.gz"
+  sha256: b83e9b5d62f1499b443817c5cd0facd3bdd4013a51a897e05e17228bf650befe # pragma: allowlist secret
+  owner: Peter St John <pstjohn@nvidia.com>
+  description: >
+    An ESM-2 650M model pre-trained on NVIDIA's train/test data split.
+
+- tag: nv_8m:2.0
+  ngc: "nvidia/clara/esm2nv8m:2.0"
+  ngc_registry: model
+  pbss: "s3://general-purpose/esm2/checkpoints/8m/esm2_8m_checkpoint.tar.gz"
+  sha256: b4ea4d52eea8a25d2c2838617ff678f0da22d384cee195b0c192686816078dcd # pragma: allowlist secret
+  owner: Peter St John <pstjohn@nvidia.com>
+  description: >
+    An ESM-2 8M model pre-trained on NVIDIA's train/test data split.
+
 - tag: 650m:2.0
   ngc: nvidia/clara/esm2nv650m:2.0
   ngc_registry: model

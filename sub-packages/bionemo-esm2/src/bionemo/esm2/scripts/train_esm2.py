@@ -71,6 +71,7 @@ def main(
     wandb_offline: bool = False,
     wandb_tags: Optional[List[str]] = None,
     wandb_group: Optional[str] = None,
+    wandb_job_type: Optional[str] = None,
     wandb_id: Optional[str] = None,
     wandb_anonymous: Optional[bool] = False,
     wandb_log_model: bool = False,
@@ -78,6 +79,7 @@ def main(
     tensor_model_parallel_size: int = 1,
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Optional[Path] = None,
+    create_checkpoint_callback: bool = True,
     restore_from_checkpoint_path: Optional[str] = None,
     save_best_checkpoint: bool = True,
     save_last_checkpoint: bool = True,
@@ -129,6 +131,7 @@ def main(
         wandb_offline (bool): Run offline (data can be streamed later to wandb servers).
         wandb_tags (Optional[List[str]]): Tags associated with this run
         wandb_group (Optional[str]): A unique string shared by all runs in a given group
+        wandb_job_type (Optional[str]): Type of run, which is useful when you're grouping runs together into larger experiments using group.
         wandb_id (Optional[str]): Sets the version, mainly used to resume a previous run
         wandb_anonymous (Optional[bool]): Enables or explicitly disables anonymous logging
         wandb_log_model (bool): Save checkpoints in wandb dir to upload on W&B servers
@@ -136,6 +139,7 @@ def main(
         tensor_model_parallel_size (int): tensor model parallel size
         create_tensorboard_logger (bool): create the tensorboard logger
         nemo1_init_path (Optional[Path]): Nemo 1 initialization path
+        create_checkpoint_callback (bool): create a ModelCheckpoint callback and attach it to the pytorch lightning trainer
         restore_from_checkpoint_path (Optional[str]): If set, restores the model from the directory passed in. Expects the
             checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
         save_best_checkpoint (bool): whether to save the best checkpoint
@@ -199,6 +203,7 @@ def main(
             entity=wandb_entity,
             tags=wandb_tags,
             group=wandb_group,
+            job_type=wandb_job_type,
             id=wandb_id,
             anonymous=wandb_anonymous,
             log_model=wandb_log_model,
@@ -237,6 +242,7 @@ def main(
             grad_reduce_in_fp32=grad_reduce_in_fp32,
             autocast_enabled=False,
         ),
+        enable_checkpointing=create_checkpoint_callback,
     )
 
     tokenizer = get_tokenizer()
@@ -298,14 +304,17 @@ def main(
     )
 
     # Configure our custom Checkpointer
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_last=save_last_checkpoint,
-        monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
-        save_top_k=save_top_k,
-        every_n_train_steps=val_check_interval,
-        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-        filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-    )
+    if create_checkpoint_callback:
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        )
+    else:
+        checkpoint_callback = None
 
     # Setup the logger and train the model
     nemo_logger = setup_nemo_lightning_logger(
@@ -348,6 +357,7 @@ def train_esm2_entrypoint():
         wandb_project=args.wandb_project,
         wandb_tags=args.wandb_tags,
         wandb_group=args.wandb_group,
+        wandb_job_type=args.wandb_job_type,
         wandb_id=args.wandb_id,
         wandb_anonymous=args.wandb_anonymous,
         wandb_log_model=args.wandb_log_model,
@@ -369,6 +379,7 @@ def train_esm2_entrypoint():
         experiment_name=args.experiment_name,
         resume_if_exists=args.resume_if_exists,
         nemo1_init_path=args.nemo1_init_path,
+        create_checkpoint_callback=args.create_checkpoint_callback,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
         save_best_checkpoint=args.save_best_checkpoint,
         save_last_checkpoint=args.save_last_checkpoint,
@@ -458,6 +469,12 @@ def get_parser():
     parser.add_argument("--wandb-tags", nargs="+", type=str, default=None, help="Tags associated with this run")
     parser.add_argument(
         "--wandb-group", type=str, default=None, help="A unique string shared by all runs in a given group"
+    )
+    parser.add_argument(
+        "--wandb-job-type",
+        type=str,
+        default=None,
+        help="A unique string representing a type of run, which is useful when you're grouping runs together into larger experiments using group.",
     )
     parser.add_argument(
         "--wandb-id", type=str, default=None, help="Sets the version, mainly used to resume a previous run"
@@ -579,6 +596,13 @@ def get_parser():
         type=Path,
         required=False,
         help="Path to nemo1 file, if desired to load at init time.",
+    )
+    parser.add_argument(
+        "--disable-checkpointing",
+        action="store_false",
+        default=True,
+        dest="create_checkpoint_callback",
+        help="Disable creating a ModelCheckpoint callback.",
     )
     parser.add_argument(
         "--save-best-checkpoint",

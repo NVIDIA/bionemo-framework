@@ -91,6 +91,8 @@ markdown_extensions:
       options:
         custom_icons:
           - overrides/.icons
+  - pymdownx.tabbed:
+      alternate_style: true
   - def_list
   - admonition
   - footnotes
