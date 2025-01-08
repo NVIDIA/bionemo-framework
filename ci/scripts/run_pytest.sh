@@ -17,7 +17,7 @@
 
 
 # Enable strict mode with better error handling
-set -ueo pipefail
+set -euox pipefail
 
 # Function to display usage information
 usage() {
@@ -34,13 +34,6 @@ Note: Documentation tests (docs/) are only run when notebook validation
     -h, --help     Display this help message
 EOF
     exit "${1:-0}"
-}
-
-# Function to handle cleanup on script exit
-cleanup() {
-    local exit_code=$?
-    [ -n "${coverage_files[*]:-}" ] && rm -f "${coverage_files[@]:-}"
-    exit "$exit_code"
 }
 
 # Set default environment variables
@@ -68,9 +61,6 @@ while (( $# > 0 )); do
     shift
 done
 
-# Set up trap for cleanup
-trap cleanup EXIT
-
 # Source utility functions
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "$SCRIPT_DIR/utils.sh" || { echo "Failed to source utils.sh" >&2; exit 1; }
@@ -78,14 +68,14 @@ source "$SCRIPT_DIR/utils.sh" || { echo "Failed to source utils.sh" >&2; exit 1;
 # Set up BioNeMo home directory
 set_bionemo_home || exit 1
 
-# Clear previous coverage data
-python -m coverage erase
-
 # Set up pytest options
 PYTEST_OPTIONS=(
     -v
     --durations=0
-    --durations-min=60.0
+    --durations-min=30.0
+    --cov=bionemo
+    --cov-append
+    --cov-report=xml:coverage.xml
 )
 [[ "$NO_NBVAL" != true ]] && PYTEST_OPTIONS+=(--nbval-lax)
 
@@ -100,21 +90,11 @@ echo "Test directories: ${TEST_DIRS[*]}"
 # Run tests with coverage
 for dir in "${TEST_DIRS[@]}"; do
     echo "Running pytest in $dir"
-    coverage_file=".coverage.${dir//\//_}"
-    coverage_files+=("$coverage_file")
 
-    if ! python -m coverage run \
-        --parallel-mode \
-        --source=bionemo \
-        --data-file="$coverage_file" \
-        -m pytest "${PYTEST_OPTIONS[@]}" "$dir"; then
+    if ! pytest "${PYTEST_OPTIONS[@]}" --junitxml=$(basename $dir).junit.xml -o junit_family=legacy "$dir"; then
         error=true
     fi
 done
-
-# Combine and report coverage
-python -m coverage combine
-python -m coverage report --show-missing
 
 # Exit with appropriate status
 $error && exit 1
