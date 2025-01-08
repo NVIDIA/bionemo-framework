@@ -38,10 +38,7 @@ __all__: Sequence[str] = ("ESM2DotProductAttention", "ESM2TEDotProductAttention"
 
 
 class ESM2TEDotProductAttention(TEDotProductAttention):
-    """ESM2-Specific transformer engine core attention.
-
-    Override the softmax_scale to 1.0 to match the ESM2 implementation while keeping the rest from the original TEDotProductAttention.
-    """
+    """ESM2-Specific transformer engine core attention."""
 
     def __init__(
         self,
@@ -50,7 +47,6 @@ class ESM2TEDotProductAttention(TEDotProductAttention):
         attn_mask_type: AttnMaskType,
         attention_type: str,
         attention_dropout: float | None = None,
-        softmax_scale: float = 1.0,
         k_channels: int | None = None,
         v_channels: int | None = None,
         cp_comm_type: str = "p2p",
@@ -127,8 +123,6 @@ class ESM2TEDotProductAttention(TEDotProductAttention):
             )
         else:
             kv_channels = self.config.kv_channels
-
-        extra_kwargs["softmax_scale"] = softmax_scale
 
         super(TEDotProductAttention, self).__init__(
             num_attention_heads=self.config.num_attention_heads,

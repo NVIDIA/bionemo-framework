@@ -505,6 +505,7 @@ class BioBertConfig(
     num_layers: int = 6
     init_method_std: float = 0.02
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.bert_layer_with_transformer_engine_spec
+    softmax_scale: float = 1.0
 
     optimizer_fn: Optional[Callable[["MegatronBioBertModel"], Optimizer]] = None
     # TODO (@skothenhill,@georgea) update to use the nemo2 checkpoint mixins
