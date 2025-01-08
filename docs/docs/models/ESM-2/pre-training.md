@@ -10,7 +10,7 @@ and train/test splits are available.
 Validation perplexity evaluated on the NVIDIA validation set.
 
 <figure markdown="span">
-  ![ESM-2 Pre-training Convergence](../assets/images/esm2/esm2_pretrain_convergence.svg){ width="350" }
+  ![ESM-2 Pre-training Convergence](../../assets/images/esm2/esm2_pretrain_convergence.svg){ width="350" }
 </figure>
 
 | Model Size     | Perplexity at 500k updates  |
