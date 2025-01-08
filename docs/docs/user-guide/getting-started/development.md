@@ -56,6 +56,9 @@ The following components are present in each package:
 
 ## Model Training Process
 
+!!! note
+    See also [Training Models](./training-models.md)
+
 The process for pretraining models from BioNeMo involves running scripts located in the `scripts` directory. Each script
 exposes a Command-Line Interface (CLI) that contains and documents the options available for that model.
 
