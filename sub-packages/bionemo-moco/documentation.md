@@ -33,6 +33,7 @@
 * [bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.ot\_sampler](#mocointerpolantscontinuous_timecontinuousoptimal_transportot_sampler)
 * [bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.equivariant\_ot\_sampler](#mocointerpolantscontinuous_timecontinuousoptimal_transportequivariant_ot_sampler)
 * [bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.kabsch\_augmentation](#mocointerpolantscontinuous_timecontinuousoptimal_transportkabsch_augmentation)
+* [bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport](#mocointerpolantscontinuous_timecontinuousoptimal_transport)
 * [bionemo.moco.interpolants.continuous\_time.continuous](#mocointerpolantscontinuous_timecontinuous)
 * [bionemo.moco.interpolants.continuous\_time.continuous.vdm](#mocointerpolantscontinuous_timecontinuousvdm)
 * [bionemo.moco.interpolants.continuous\_time.continuous.continuous\_flow\_matching](#mocointerpolantscontinuous_timecontinuouscontinuous_flow_matching)
@@ -378,7 +379,7 @@ Pads the input sample with zeros along the last dimension.
 class LinearHarmonicPrior(PriorDistribution)
 ```
 
-A subclass representing a Gaussian prior distribution.
+A subclass representing a Linear Harmonic prior distribution from Jit et al. https://arxiv.org/abs/2304.02198.
 
 <a id="mocodistributionspriorcontinuousharmonicLinearHarmonicPrior__init__"></a>
 
@@ -392,7 +393,7 @@ def __init__(distance: Float = 3.8,
              device: Union[str, torch.device] = "cpu") -> None
 ```
 
-Gaussian prior distribution.
+Linear Harmonic prior distribution.
 
 **Arguments**:
 
@@ -2883,6 +2884,10 @@ minibatch and draw source and target samples from pi $(x,z) \sim \pi$.
 **Returns**:
 
 - `Tuple` - tuple of 2 tensors, represents the noise and data samples following OT plan pi.
+
+<a id="mocointerpolantscontinuous_timecontinuousoptimal_transport"></a>
+
+# bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport
 
 <a id="mocointerpolantscontinuous_timecontinuous"></a>
 

@@ -223,7 +223,7 @@ class EquivariantOTSampler:
             sort_idx = torch.argsort(j)
             i = i[sort_idx]
             j = j[sort_idx]
-            print(i, j)
+
             if not (j == torch.arange(x1.shape[0], device=j.device)).all():
                 raise ValueError("x1_idx should be a tensor from 0 to size - 1 when sort is 'noise' or 'x0")
 
@@ -232,6 +232,7 @@ class EquivariantOTSampler:
         noise = x0[i]
         # Align the data samples using the rotation matrices
         x1_aligned = torch.bmm(x1[j], rotations)
+        # Returns the true data that has been permuated and rotated. Translations are done either in preprocessing or after the fact.
         data = x1_aligned
 
         if mask is not None:

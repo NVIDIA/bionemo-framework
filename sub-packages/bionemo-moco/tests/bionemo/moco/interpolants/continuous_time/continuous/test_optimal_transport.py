@@ -89,7 +89,7 @@ def exact_ot_sampler():
 
 
 @pytest.fixture
-def kabsch_ot_sampler():
+def equivariant_ot_sampler():
     ot_sampler = EquivariantOTSampler(method="exact", num_threads=1)
     return ot_sampler
 
@@ -178,8 +178,8 @@ def test_exact_ot_sampler_sample_map(request, sampler, data, device):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-@pytest.mark.parametrize("sampler", ["kabsch_ot_sampler"])
-def test_kabsch_ot_sampler_kabsch_align(request, sampler, device):
+@pytest.mark.parametrize("sampler", ["equivariant_ot_sampler"])
+def test_equivariant_ot_sampler_kabsch_align(request, sampler, device):
     ot_sampler = request.getfixturevalue(sampler)
     assert ot_sampler is not None
     if device == "cuda" and not torch.cuda.is_available():
@@ -199,8 +199,8 @@ def test_kabsch_ot_sampler_kabsch_align(request, sampler, device):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-@pytest.mark.parametrize("sampler", ["kabsch_ot_sampler"])
-def test_kabsch_ot_sample_map(request, sampler, device):
+@pytest.mark.parametrize("sampler", ["equivariant_ot_sampler"])
+def test_equivariant_ot_sample_map(request, sampler, device):
     ot_sampler = request.getfixturevalue(sampler)
     assert ot_sampler is not None
     if device == "cuda" and not torch.cuda.is_available():

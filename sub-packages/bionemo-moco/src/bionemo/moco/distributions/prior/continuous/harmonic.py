@@ -25,7 +25,7 @@ from bionemo.moco.distributions.prior.distribution import PriorDistribution
 
 
 class LinearHarmonicPrior(PriorDistribution):
-    """A subclass representing a Gaussian prior distribution."""
+    """A subclass representing a Linear Harmonic prior distribution from Jit et al. https://arxiv.org/abs/2304.02198."""
 
     def __init__(
         self,
@@ -35,7 +35,7 @@ class LinearHarmonicPrior(PriorDistribution):
         rng_generator: Optional[torch.Generator] = None,
         device: Union[str, torch.device] = "cpu",
     ) -> None:
-        """Gaussian prior distribution.
+        """Linear Harmonic prior distribution.
 
         Args:
             distance (Float): RMS distance between adjacent points in the line graph.
@@ -86,6 +86,7 @@ class LinearHarmonicPrior(PriorDistribution):
             raise ValueError("Input shape can only work for B x L x D")
         if rng_generator is None:
             rng_generator = self.rng_generator
+
         samples = torch.randn(*shape, device=device, generator=rng_generator)
         N = shape[1]
 
