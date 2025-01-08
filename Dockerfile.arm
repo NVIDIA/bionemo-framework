@@ -55,23 +55,27 @@ RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-di
   git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.0.post2
 
 # Build LLVM and triton
+# It's important to select a specific version of LLVM as per triton's README instructions, and
+# also important to constrain the build targets to the systems we care about or else there will
+# be many strange unlinked symbol issues. Here we assume this dockerfile is build on an aarch64
+# target (host), and build for NVIDIA GPUS (NVPTX).
 RUN git clone https://github.com/llvm/llvm-project.git && \
     pip install ninja && \
     cd llvm-project && \
-    git fetch origin 49af6502c6dcb4a7f7520178bd14df396f78240c && \
-    git checkout 49af6502c6dcb4a7f7520178bd14df396f78240c && \
+    git fetch origin 10dc3a8e916d73291269e5e2b82dd22681489aa1 && \
+    git checkout 10dc3a8e916d73291269e5e2b82dd22681489aa1 && \
     mkdir build && cd build && \
-    cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON  ../llvm -DLLVM_ENABLE_PROJECTS="mlir;llvm" && \
-    ninja && \
-    export LLVM_BUILD_DIR=${WORKDIR}/llvm-project/build && \
+    cmake -G Ninja  -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_PROJECTS="mlir;llvm" -DLLVM_TARGETS_TO_BUILD="host;NVPTX" ../llvm && \
+    ninja
+ENV LLVM_BUILD_DIR=${WORKDIR}/llvm-project/build
 
-    cd ${WORKDIR} && \
+RUN cd ${WORKDIR} && \
     git clone https://github.com/triton-lang/triton.git && \
     pip install cmake wheel pybind11 && \
     cd triton && \
     git fetch origin release/3.1.x && \
     git checkout release/3.1.x && \
-    LLVM_INCLUDE_DIRS=$LLVM_BUILD_DIR/include LLVM_LIBRARY_DIR=$LLVM_BUILD_DIR/lib LLVM_SYSPATH=$LLVM_BUILD_DIR pip install python/ && \
+    LLVM_INCLUDE_DIRS=$LLVM_BUILD_DIR/include LLVM_LIBRARY_DIR=$LLVM_BUILD_DIR/lib LLVM_SYSPATH=$LLVM_BUILD_DIR pip install --verbose python/ && \
 
     cd ${WORKDIR} && \
     rm -rf llvm-project && \
@@ -320,6 +324,12 @@ for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
     uv pip install --no-deps --no-build-isolation --break-system-packages --editable $sub
 done
 EOF
+# This is needed because faiss is not compatible with ARM at all.
+# Bionemo doesn't use faiss, but megatron core does.
+# We do not use this codepath at all, therefore we just make is_sve_supported return False
+# to circumvent python import issues
+RUN sed -i '42i\        # Bionemo hack to fix ARM issues with faiss\n        return False' /usr/local/lib/python3.12/dist-packages/faiss/loader.py
+
 # Since the entire repo is owned by root, swithcing username for development breaks things.
 ARG USERNAME=bionemo
 RUN chown $USERNAME:$USERNAME -R /workspace/bionemo2/
