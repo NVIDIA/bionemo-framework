@@ -42,13 +42,14 @@ from bionemo.core.data.load import load
 from bionemo.core.utils.batching_utils import pad_token_ids
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.core.utils.random_utils import random_numpy_context
-from bionemo.geneformer.api import GeneformerConfig, GeneformerModel
+from bionemo.geneformer.api import GeneformerConfig, GeneformerModel, GeneformerNeMo1LightningModuleConnector
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.model.finetune_token_regressor import (
     FineTuneSeqLenBioBertConfig,
     LoRAForGeneFormerTokenRegressor,
 )
+from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
@@ -56,6 +57,7 @@ from bionemo.testing.callbacks import MetricTracker
 from bionemo.testing.utils import (
     assert_matrix_correlation_above_value,
     assert_matrix_mape_below_value,
+    compare_dataclasses,
 )
 
 
@@ -142,6 +144,30 @@ def geneformer_config():
         nemo1_ckpt_path=str(nemo1_checkpoint_path),
         return_only_hidden_states=True,  # This is what we did in nemo1 for inference
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="Need cuda to run this test.")
+@pytest.mark.skip(reason="This test only works when executed by itself. FIXME issue #226.")
+def test_nemo1_checkpoint_conversion(
+    tmpdir: Path, geneformer_config: GeneformerConfig, cells: List[List[str]], seed: int = 42
+):
+    with megatron_parallel_state_utils.distributed_model_parallel_state(32):
+        converter = GeneformerNeMo1LightningModuleConnector(nemo1_release_checkpoint_path)
+        assert isinstance(converter.tokenizer, GeneTokenizer)
+        diffs = compare_dataclasses(converter.config, geneformer_config)
+        skip_fields = {"nemo1_ckpt_path", "return_only_hidden_states", "init_method", "output_layer_init_method"}
+        filt = [d for d in diffs if d["field"] not in skip_fields]
+        assert filt == []
+        out_config = tmpdir / "out_config"
+        converter.apply(out_config)  # currently crashes in here during self.nemo_save(out_path, trainer)
+        assert io.is_distributed_ckpt(out_config / "weights")
+        geneformer_config_logit = deepcopy(geneformer_config)
+        # Set up the model to return logits and switch to the released 10M checkpoint
+        geneformer_config_logit.set_hparam("return_only_hidden_states", False)  # return logits
+        geneformer_config_logit.set_hparam("initial_ckpt_path", str(out_config))  # release checkpoint is important
+
+        mean_loss = _get_loss_from_model(geneformer_config_logit, seed)
+        assert mean_loss < TARGET_MEAN_LOSS or mean_loss == pytest.approx(TARGET_MEAN_LOSS, abs=1e-2, rel=None)
 
 
 def test_nemo1_nemo2_weight_shapes_match(geneformer_config, seed: int = 42):
