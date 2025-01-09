@@ -67,17 +67,15 @@ RUN git clone https://github.com/llvm/llvm-project.git && \
     git checkout 10dc3a8e916d73291269e5e2b82dd22681489aa1 && \
     mkdir build && cd build && \
     cmake -G Ninja  -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_PROJECTS="mlir;llvm" -DLLVM_TARGETS_TO_BUILD="host;NVPTX;AMDGPU" ../llvm && \
-    ninja
-ENV LLVM_BUILD_DIR=${WORKDIR}/llvm-project/build
-
-RUN cd ${WORKDIR} && \
+    ninja && \
+    export LLVM_BUILD_DIR=${WORKDIR}/llvm-project/build && \
+    cd ${WORKDIR} && \
     git clone https://github.com/triton-lang/triton.git && \
     pip install cmake wheel pybind11 && \
     cd triton && \
     git fetch origin release/3.1.x && \
     git checkout release/3.1.x && \
     LLVM_INCLUDE_DIRS=$LLVM_BUILD_DIR/include LLVM_LIBRARY_DIR=$LLVM_BUILD_DIR/lib LLVM_SYSPATH=$LLVM_BUILD_DIR pip install --verbose python/ && \
-
     cd ${WORKDIR} && \
     rm -rf llvm-project && \
     rm -rf triton
