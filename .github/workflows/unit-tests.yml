@@ -1,4 +1,4 @@
-name: BioNemo Image Build and Unit Tests
+name: "[Optional] BioNemo Image Build and Unit Tests"
 
 on:
   pull_request:
@@ -42,7 +42,7 @@ jobs:
         env:
           LABEL: bionemo
         run: |
-          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=168h" --force
+          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=24h" --force
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -95,6 +95,12 @@ jobs:
       volumes:
         - /home/azureuser/actions-runner-bionemo/cache:/root/.cache
     steps:
+      - name: Clean runner cache
+        env:
+          LABEL: bionemo
+        run: |
+          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=24h" --force
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
