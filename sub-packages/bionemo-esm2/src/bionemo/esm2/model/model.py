@@ -35,7 +35,6 @@ from torch.nn import functional as F
 from torch.optim import Optimizer
 
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
-from bionemo.esm2.model.attention import ESM2DotProductAttention, ESM2TEDotProductAttention
 from bionemo.esm2.model.embedding import ESM2Embedding
 from bionemo.llm.api import MegatronLossType
 from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel, PositionEmbeddingKinds
@@ -294,6 +293,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     bias_activation_fusion: bool = True  # True degrades accuracy slightly, but is faster.
     activation_func: Callable = F.gelu  # esm_gelu_func  # ESM2 MLP
     init_method_std: float = 0.02
+    softmax_scale: float = 1.0
 
     # embedding
     token_dropout: bool = True
@@ -346,13 +346,11 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
         super().__post_init__()
         if self.biobert_spec_option == BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec:
             self.apply_query_key_layer_scaling = False
-            self.core_attention_override = ESM2TEDotProductAttention
         elif self.biobert_spec_option == BiobertSpecOption.esm2_bert_layer_local_spec:
             logging.warning(
                 "BiobertSpecOption.esm2_bert_layer_local_spec is depreciated. Use BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec instead."
             )
             self.apply_query_key_layer_scaling = True
-            self.core_attention_override = ESM2DotProductAttention
         else:
             raise ValueError(f"Unknown biobert_spec_option: {self.biobert_spec_option}")
 
