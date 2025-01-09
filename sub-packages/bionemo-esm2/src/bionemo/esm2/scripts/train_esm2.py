@@ -95,7 +95,7 @@ def main(
     num_attention_heads: int = 20,
     ffn_hidden_size: int = 1280 * 4,
     overlap_grad_reduce: bool = True,
-    overlap_param_gather: bool = False,  # TODO waiting for a NeMo fix
+    overlap_param_gather: bool = True,
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
 ) -> None:
@@ -395,7 +395,7 @@ def train_esm2_entrypoint():
         num_attention_heads=args.num_attention_heads,
         ffn_hidden_size=args.ffn_hidden_size,
         overlap_grad_reduce=not args.no_overlap_grad_reduce,
-        overlap_param_gather=args.overlap_param_gather,
+        overlap_param_gather=not args.no_overlap_param_gather,
         average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
     )
@@ -725,10 +725,10 @@ def get_parser():
         default=False,
     )
     parser.add_argument(
-        "--overlap-param-gather",
+        "--no-overlap-param-gather",
         action="store_true",
         default=False,
-    )  # TODO waiting for a NeMo fix
+    )
     parser.add_argument(
         "--no-average-in-collective",
         action="store_true",

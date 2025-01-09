@@ -1,0 +1,113 @@
+name: "[Optional] BioNemo Image Build and Unit Tests"
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install -r requirements-dev.txt
+      - run: ./ci/scripts/static_checks.sh
+      - uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
+
+  build-bionemo-image:
+    needs: pre-commit
+    runs-on: self-hosted-azure-cpu
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+          submodules: "recursive"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker Metadata
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: nemoci.azurecr.io/bionemo
+          labels: nemo.library=bionemo
+          tags: |
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=tag
+            type=ref,event=pr
+            type=raw,value=${{ github.run_id }}
+
+      - uses: int128/docker-build-cache-config-action@v1
+        id: cache
+        with:
+          image: nemoci.azurecr.io/bionemo/build-cache
+          pull-request-cache: true
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          file: ${{ github.run_id }}/Dockerfile
+          context: ${{ github.run_id }}/
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: ${{ steps.cache.outputs.cache-from }}
+          cache-to: ${{ steps.cache.outputs.cache-to }}
+
+  run-tests:
+    needs: build-bionemo-image
+    runs-on: self-hosted-nemo-gpus-1
+    defaults:
+      run:
+        working-directory: ./${{ github.run_id }}
+    container:
+      image: nemoci.azurecr.io/bionemo:${{ github.run_id }}
+      options: --gpus all
+      volumes:
+        - /home/azureuser/actions-runner-bionemo/cache:/root/.cache
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ github.run_id }}
+
+      - name: Run tests
+        run: ./ci/scripts/run_pytest.sh --no-nbval
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          working-directory: ${{ github.run_id }}
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          working-directory: ${{ github.run_id }}
+# TODO: exclude tests from base image; run tests from github workspace mounted in the image.
+# TODO: upload coverage report to codecov.io
