@@ -150,7 +150,7 @@ def test_infer_runs(
 
     infer_model(
         data_path=data_path,
-        checkpoint_path=load("esm2/650m:2.0"),
+        checkpoint_path=load("esm2/nv_8m:2.0"),
         results_path=result_dir,
         min_seq_length=min_seq_len,
         prediction_interval=prediction_interval,
