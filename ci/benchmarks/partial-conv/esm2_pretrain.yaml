@@ -49,6 +49,6 @@ script: |-
     --result-dir=${tensorboard_dir} \
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name} \
-    --wandb-job-type=${pipeline_label} \
+    --wandb-job-type=${pipeline_label}__${target} \
     --log-every-n-steps=50 \
     --disable-checkpointing;
