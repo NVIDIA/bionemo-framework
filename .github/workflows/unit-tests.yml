@@ -38,12 +38,6 @@ jobs:
     needs: pre-commit
     runs-on: self-hosted-azure-cpu
     steps:
-      - name: Clean runner cache
-        env:
-          LABEL: bionemo
-        run: |
-          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=24h" --force
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -95,12 +89,6 @@ jobs:
       volumes:
         - /home/azureuser/actions-runner-bionemo/cache:/root/.cache
     steps:
-      - name: Clean runner cache
-        env:
-          LABEL: bionemo
-        run: |
-          docker system prune $([[ "$LABEL" != "" ]] && echo --filter "label=nemo.library=$LABEL" || echo '') --filter "until=24h" --force
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
