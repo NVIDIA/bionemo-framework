@@ -37,6 +37,7 @@ jobs:
   build-bionemo-image:
     needs: pre-commit
     runs-on: self-hosted-azure-cpu
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'SKIP_CI') }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
