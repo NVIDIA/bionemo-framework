@@ -1,5 +1,5 @@
 # Base image with apex and transformer engine, but without NeMo or Megatron-LM.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.02-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.12-py3
 
 FROM rust:1.82.0 as rust-env
 
@@ -55,24 +55,27 @@ RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-di
   git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.0.post2
 
 # Build LLVM and triton
+# It's important to select a specific version of LLVM as per triton's README instructions, and
+# also important to constrain the build targets to the systems we care about or else there will
+# be many strange unlinked symbol issues. Here we assume this dockerfile is build on an aarch64
+# target (host), and build for NVIDIA GPUS (NVPTX). Unclear why, but we also need to build for
+# AMDGPUs to get triton to properly build or else there are linker issues.
 RUN git clone https://github.com/llvm/llvm-project.git && \
     pip install ninja && \
     cd llvm-project && \
-    git fetch origin 5e5a22caf88ac1ccfa8dc5720295fdeba0ad9372 && \
-    git checkout 5e5a22caf88ac1ccfa8dc5720295fdeba0ad9372 && \
+    git fetch origin 10dc3a8e916d73291269e5e2b82dd22681489aa1 && \
+    git checkout 10dc3a8e916d73291269e5e2b82dd22681489aa1 && \
     mkdir build && cd build && \
-    cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON  ../llvm -DLLVM_ENABLE_PROJECTS="mlir;llvm" && \
+    cmake -G Ninja  -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_PROJECTS="mlir;llvm" -DLLVM_TARGETS_TO_BUILD="host;NVPTX;AMDGPU" ../llvm && \
     ninja && \
     export LLVM_BUILD_DIR=${WORKDIR}/llvm-project/build && \
-
     cd ${WORKDIR} && \
     git clone https://github.com/triton-lang/triton.git && \
     pip install cmake wheel pybind11 && \
     cd triton && \
-    git fetch origin 79c6c9b209a5692b9a895398f4f3a033f8f80415 && \
-    git checkout 79c6c9b209a5692b9a895398f4f3a033f8f80415 && \
-    LLVM_INCLUDE_DIRS=$LLVM_BUILD_DIR/include LLVM_LIBRARY_DIR=$LLVM_BUILD_DIR/lib LLVM_SYSPATH=$LLVM_BUILD_DIR pip install python/ && \
-
+    git fetch origin release/3.1.x && \
+    git checkout release/3.1.x && \
+    LLVM_INCLUDE_DIRS=$LLVM_BUILD_DIR/include LLVM_LIBRARY_DIR=$LLVM_BUILD_DIR/lib LLVM_SYSPATH=$LLVM_BUILD_DIR pip install --verbose python/ && \
     cd ${WORKDIR} && \
     rm -rf llvm-project && \
     rm -rf triton
@@ -93,25 +96,20 @@ RUN rm -rf /build
 
 # Addressing Security Scan Vulnerabilities
 RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
-RUN apt-get update  && \
-  apt-get install -y openssh-client=1:8.9p1-3ubuntu0.10 && \
-  rm -rf /var/lib/apt/lists/*
-RUN apt purge -y libslurm37 libpmi2-0 && \
+RUN apt purge -y libpmi2-0 && \
   apt autoremove -y
-RUN source /usr/local/nvm/nvm.sh && \
-  NODE_VER=$(nvm current) && \
-  nvm deactivate && \
-  nvm uninstall $NODE_VER && \
-  sed -i "/NVM/d" /root/.bashrc && \
-  sed -i "/nvm.sh/d" /etc/bash.bashrc
 
 # Use UV to install python packages from the workspace. This just installs packages into the system's python
-# environment, and does not use the current uv.lock file.
+# environment, and does not use the current uv.lock file. Note that with python 3.12, we now need to set
+# UV_BREAK_SYSTEM_PACKAGES, since the pytorch base image has made the decision not to use a virtual environment and UV
+# does not respect the PIP_BREAK_SYSTEM_PACKAGES environment variable set in the base dockerfile.
 COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=1 \
   UV_PYTHON_DOWNLOADS=never \
-  UV_SYSTEM_PYTHON=true
+  UV_SYSTEM_PYTHON=true \
+  UV_NO_CACHE=1 \
+  UV_BREAK_SYSTEM_PACKAGES=1
 
 # Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
@@ -133,12 +131,35 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
-# Build decord
+# # Build decord
+# This needs a specific version of ffmpeg:
+# root@e1fc53d00844:/workspace/bionemo2# ffmpeg -version
+# ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright (c) 2000-2021 the FFmpeg developers
+# built with gcc 11 (Ubuntu 11.2.0-19ubuntu1)
+# configuration: --prefix=/usr --extra-version=0ubuntu0.22.04.1 --toolchain=hardened --libdir=/usr/lib/aarch64-linux-gnu --incdir=/usr/include/aarch64-linux-gnu --arch=arm64 --enable-gpl --disable-stripping --enable-gnutls --enable-ladspa --enable-libaom --enable-libass --enable-libbluray --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libgme --enable-libgsm --enable-libjack --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-libpulse --enable-librabbitmq --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libsrt --enable-libssh --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-libzmq --enable-libzvbi --enable-lv2 --enable-omx --enable-openal --enable-opencl --enable-opengl --enable-sdl2 --enable-pocketsphinx --enable-librsvg --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-libx264 --enable-shared
+# libavutil      56. 70.100 / 56. 70.100
+# libavcodec     58.134.100 / 58.134.100
+# libavformat    58. 76.100 / 58. 76.100
+# libavdevice    58. 13.100 / 58. 13.100
+# libavfilter     7.110.100 /  7.110.100
+# libswscale      5.  9.100 /  5.  9.100
+# libswresample   3.  9.100 /  3.  9.100
+# libpostproc    55.  9.100 / 55.  9.100
+#
+# Issue link: https://github.com/dmlc/decord/issues/257
+# Diff to make it all work https://github.com/dmlc/decord/issues/186#issuecomment-1171882325
+
+# Consider this:
+# sudo apt install libnvidia-decode-550
+# cp /usr/lib/aarch64-linux-gnu/libnvcuvid* /usr/local/cuda/
+# cmake .. -DUSE_CUDA=ON -DCMAKE_BUILD_TYPE=Release
+
 RUN apt-get update && \
     apt-get install -y build-essential python3-dev python3-setuptools make cmake && \
-    apt-get install -y ffmpeg libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev && \
+    apt-get install -y ffmpeg libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev
+RUN --mount=type=bind,source=./arm_build/decord_ffmpeg6_fix.patch,target=/decord_ffmpeg6_fix.patch \
     git clone --recursive https://github.com/dmlc/decord && \
-    cd decord && \
+    cd decord && git apply /decord_ffmpeg6_fix.patch && \
     mkdir build && cd build && \
     cmake .. -DUSE_CUDA=0 -DCMAKE_BUILD_TYPE=Release && \
     make && \
@@ -173,20 +194,28 @@ RUN git clone --single-branch --branch 1.15.0rc4 https://github.com/single-cell-
 
 WORKDIR /workspace/bionemo2
 # Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
+# For some reason, we do not need to do the tensorstore verson package hack on arm64, while we do need this for x86 build.
 RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-  <<EOF
-set -eo pipefail
-uv pip install maturin --no-build-isolation && uv pip install --no-build-isolation \
+  uv pip install maturin --no-build-isolation --break-system-packages
+RUN --mount=type=bind,source=./.git,target=./.git \
+  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
+  pip install --use-deprecated=legacy-resolver  --no-build-isolation \
+  tensorstore==0.1.45
+
+RUN --mount=type=bind,source=./.git,target=./.git \
+  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
+# Comment out mamba install in NeMo as this causes issues.
+  sed -i "/mamba-ssm/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt && \
+  uv pip install --no-build-isolation \
   ./3rdparty/* \
   ./sub-packages/bionemo-* \
   -r /requirements-cve.txt \
-  -r /requirements-test.txt
-rm -rf ./3rdparty
-rm -rf /tmp/*
-rm -rf ./sub-packages/bionemo-noodles/target
-EOF
+  -r /requirements-test.txt && rm -rf ./3rdparty && rm -rf /tmp/* && rm -rf ./sub-packages/bionemo-noodles/target \
+  && rm -rf /root/.cache/*
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
 # base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
@@ -286,6 +315,12 @@ for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
     uv pip install --no-deps --no-build-isolation --editable $sub
 done
 EOF
+# This is needed because faiss is not compatible with ARM at all.
+# Bionemo doesn't use faiss, but megatron core does.
+# We do not use this codepath at all, therefore we just make is_sve_supported return False
+# to circumvent python import issues
+RUN sed -i '42i\        # Bionemo hack to fix ARM issues with faiss\n        return False' /usr/local/lib/python3.12/dist-packages/faiss/loader.py
+
 # Since the entire repo is owned by root, swithcing username for development breaks things.
 ARG USERNAME=bionemo
 RUN chown $USERNAME:$USERNAME -R /workspace/bionemo2/
@@ -312,7 +347,6 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
-RUN rm -rf /root/.cache/bazel
 RUN chmod 777 -R /workspace/bionemo2/
 
 # Transformer engine attention defaults
