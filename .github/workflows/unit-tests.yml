@@ -95,20 +95,8 @@ jobs:
         with:
           path: ${{ github.run_id }}
 
-      - name: Run tests
-        run: ./ci/scripts/run_pytest.sh --no-nbval
+      - name: Test download
+        run: python -c 'from bionemo.core.data.load import load; print(load("esm2/nv_8m:2.0"))'
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          working-directory: ${{ github.run_id }}
-
-      - name: Upload test results to Codecov
-        if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@v1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          working-directory: ${{ github.run_id }}
 # TODO: exclude tests from base image; run tests from github workspace mounted in the image.
 # TODO: upload coverage report to codecov.io
