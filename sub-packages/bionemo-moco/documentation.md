@@ -2466,6 +2466,38 @@ Applies this mask to the updated state xt.
 
 - `Tensor` - The updated state.
 
+<a id="mocointerpolantscontinuous_timediscretediscrete_flow_matchingDiscreteFlowMatcherstep_argmax"></a>
+
+#### step\_argmax
+
+```python
+def step_argmax(model_out: Tensor)
+```
+
+Returns the index of the maximum value in the last dimension of the model output.
+
+**Arguments**:
+
+- `model_out` _Tensor_ - The output of the model.
+
+<a id="mocointerpolantscontinuous_timediscretediscrete_flow_matchingDiscreteFlowMatcherstep_simple_sample"></a>
+
+#### step\_simple\_sample
+
+```python
+def step_simple_sample(model_out: Tensor,
+                       temperature: float = 1.0,
+                       num_samples: int = 1)
+```
+
+Samples from the model output logits. Leads to more diversity than step_argmax.
+
+**Arguments**:
+
+- `model_out` _Tensor_ - The output of the model.
+- `temperature` _Float, optional_ - The temperature for the softmax calculation. Defaults to 1.0.
+- `num_samples` _int_ - Number of samples to return
+
 <a id="mocointerpolantscontinuous_timecontinuousoptimal_transportot_types"></a>
 
 # bionemo.moco.interpolants.continuous\_time.continuous.optimal\_transport.ot\_types

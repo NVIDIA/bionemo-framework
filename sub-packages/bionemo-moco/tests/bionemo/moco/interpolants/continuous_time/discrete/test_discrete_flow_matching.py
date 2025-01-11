@@ -91,8 +91,16 @@ def test_dfm_step(request, fixture, device):
     if isinstance(dfm.prior_distribution, DiscreteMaskedPrior) and dfm.prior_distribution.mask_dim == 20:  #! exclusive
         logits = dfm.prior_distribution.pad_sample(logits)
         next_xt = dfm.step(logits, 0 * t + 0.5, xt, dt=1 / 100)
+        assert next_xt.shape == xt.shape
+        next_xt = dfm.step_argmax(logits)
+        assert next_xt.shape == xt.shape
+        next_xt = dfm.step_simple_sample(logits)
     else:
         next_xt = dfm.step(logits, 0 * t + 0.5, xt, dt=1 / 100)
+        assert next_xt.shape == xt.shape
+        next_xt = dfm.step_argmax(logits)
+        assert next_xt.shape == xt.shape
+        next_xt = dfm.step_simple_sample(logits)
     assert next_xt.shape == xt.shape
 
 

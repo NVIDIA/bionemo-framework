@@ -161,7 +161,13 @@ class DiscreteFlowMatcher(Interpolant):
             xt_is_mask = (xt == self.mask_index).unsqueeze(-1).float()  # b x n x 1
             step_prob = (
                 dt * x_1_pred_prob * ((1 + stochasticity * t) / (1 - t)) * xt_is_mask
-                + dt * (1 - xt_is_mask) * mask_one_hot.view(1, 1, -1) * stochasticity
+                + dt
+                * (1 - xt_is_mask)
+                * mask_one_hot.view(1, 1, -1)
+                * stochasticity
+                * (
+                    t + dt < 1
+                ).float()  # No remasking if on final step. NOTE should probably use step_argmax or step_sample instead
             )  # (b, n, S)
             step_prob = self._regularize_step_probs(step_prob, xt)
         else:
@@ -309,3 +315,38 @@ class DiscreteFlowMatcher(Interpolant):
         x_next = x_next * (1 - re_mask_mask) + self.mask_index * re_mask_mask
 
         return x_next
+
+    def step_argmax(self, model_out: Tensor):
+        """Returns the index of the maximum value in the last dimension of the model output.
+
+        Args:
+            model_out (Tensor): The output of the model.
+
+        """
+        if self.use_mask:
+            model_out[..., self.mask_index] = -1.0e9
+        return model_out.argmax(dim=-1)
+
+    def step_simple_sample(self, model_out: Tensor, temperature: float = 1.0, num_samples: int = 1):
+        """Samples from the model output logits. Leads to more diversity than step_argmax.
+
+        Args:
+            model_out (Tensor): The output of the model.
+            temperature (Float, optional): The temperature for the softmax calculation. Defaults to 1.0.
+            num_samples (int): Number of samples to return
+
+        """
+        if self.use_mask:
+            model_out[..., self.mask_index] = -1.0e9
+        samples = torch.multinomial(
+            torch.nn.functional.softmax(model_out / temperature, dim=-1).view(-1, self.num_classes),
+            num_samples=num_samples,
+            generator=self.rng_generator,
+        )  # batch * seq_len x num_samples
+        if num_samples == 1:
+            samples = samples.view(*model_out.shape[:-1])
+            # batch x seq_len
+        else:
+            samples = samples.view((*model_out.shape[:-1], num_samples))
+            # batch x seq_len x num_samples
+        return samples

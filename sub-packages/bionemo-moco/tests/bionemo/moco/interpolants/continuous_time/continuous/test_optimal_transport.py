@@ -276,6 +276,8 @@ def test_equivariant_ot_sample_map(request, sampler, device):
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_kabsch_augmentation(request, device):
+    torch.manual_seed(42)
+    np.random.seed(42)
     augmentor = KabschAugmentation()
     assert augmentor is not None
     if device == "cuda" and not torch.cuda.is_available():
@@ -292,11 +294,11 @@ def test_kabsch_augmentation(request, device):
     assert torch.allclose(R_kabsch, R, atol=1e-6)
     x0_aligned, x0_copy = augmentor.apply_ot(x0_rotated, x0, align_noise_to_data=True)
     assert torch.allclose(x0, x0_copy, atol=1e-6)
-    assert torch.allclose(x0_aligned, x0, atol=5e-6)
+    assert torch.allclose(x0_aligned, x0, atol=1e-6)
 
     x0_rotated_copy, x0_rotated_aligned = augmentor.apply_ot(x0_rotated, x0, align_noise_to_data=False)
     assert torch.allclose(x0_rotated, x0_rotated_copy, atol=1e-6)
-    assert torch.allclose(x0_rotated_aligned, x0_rotated, atol=5e-6)
+    assert torch.allclose(x0_rotated_aligned, x0_rotated, atol=1e-6)
 
     # Batch wise tests
     x0 = torch.randn(size=(10, 32, 3), device=device)
@@ -311,8 +313,8 @@ def test_kabsch_augmentation(request, device):
     assert torch.allclose(R_kabsch, R, atol=1e-6)
     x0_aligned, x0_copy = augmentor.apply_ot(x0_rotated, x0, align_noise_to_data=True)
     assert torch.allclose(x0, x0_copy, atol=1e-6)
-    assert torch.allclose(x0_aligned, x0, atol=5e-6)  # values are close but error ranges from <1 to 2 e -6
+    assert torch.allclose(x0_aligned, x0, atol=1e-6)  # values are close but error ranges from <1 to 2 e -6
 
     x0_rotated_copy, x0_rotated_aligned = augmentor.apply_ot(x0_rotated, x0, align_noise_to_data=False)
     assert torch.allclose(x0_rotated, x0_rotated_copy, atol=1e-6)
-    assert torch.allclose(x0_rotated_aligned, x0_rotated, atol=5e-6)
+    assert torch.allclose(x0_rotated_aligned, x0_rotated, atol=1e-6)
