@@ -351,7 +351,7 @@ confirmed to be working with bionemo2 (and those that are tested in CI).
 To initialize these sub-modules when cloning the repo, add the `--recursive` flag to the git clone command:
 
 ```bash
-git clone --recursive git@github.com:NVIDIA/bionemo-fw-ea.git
+git clone --recursive git@github.com:NVIDIA/bionemo-framework.git
 ```
 
 To download the pinned versions of these submodules within an existing git repository, run

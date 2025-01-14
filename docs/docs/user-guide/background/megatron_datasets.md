@@ -50,12 +50,6 @@ for sample in MultiEpochDatasetResampler(dataset, num_epochs=3, shuffle=True):
     ...
 ```
 
-!!! note "Very large datasets"
-
-    For datasets where `len(dataset)` is too large for a shuffled list of indices to comfortably fit in memory,
-    [PRNGResampleDataset][bionemo.core.data.resamples.PRNGResampleDataset] offers a simple solution for shuffling a
-    dataset with replacement in O(1) memory.
-
 ## Training Resumption
 To ensure identical behavior with and without job interruption, BioNeMo provides [MegatronDataModule][bionemo.llm.data.datamodule.MegatronDataModule] to save and load state dict for training resumption, and provides [WrappedDataLoader][nemo.lightning.data.WrappedDataLoader] to add a `mode` attribute to [DataLoader][torch.utils.data.DataLoader].
 
