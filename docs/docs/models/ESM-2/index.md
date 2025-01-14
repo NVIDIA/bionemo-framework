@@ -133,7 +133,7 @@ at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46
 
 Training ESM-2 at the 650M, 3B, and 15B model variants show improved performance with the BioNeMo2 framework over the
 pure-pytorch baseline. These experiments were conducted on 16x NVIDIA A100 or 16x NVIDIA H100 GPUs split across two
-nodes.
+nodes. <sup>*</sup>*Note:* 15B model variants were trained on 64 GPUs with the BioNeMo2 framework.
 
 #### Device Scaling
 
