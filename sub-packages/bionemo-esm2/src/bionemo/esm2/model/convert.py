@@ -148,6 +148,9 @@ def _import_qkv_weight(ctx: io.TransformCTX, query, key, value):
     concat_weights = torch.cat((query, key, value), dim=0)
     input_shape = concat_weights.size()
     np = ctx.target.config.num_attention_heads
+    # transpose weights
+    # [sequence length, batch size, num_splits_model_parallel * attention head size * #attention heads]
+    # --> [sequence length, batch size, attention head size * num_splits_model_parallel * #attention heads]
     concat_weights = concat_weights.view(3, np, -1, query.size()[-1])
     concat_weights = concat_weights.transpose(0, 1).contiguous()
     concat_weights = concat_weights.view(*input_shape)
@@ -167,6 +170,9 @@ def _import_qkv_bias(ctx: io.TransformCTX, query, key, value):
     concat_biases = torch.cat((query, key, value), dim=0)
     input_shape = concat_biases.size()
     np = ctx.target.config.num_attention_heads
+    # transpose biases
+    # [num_splits_model_parallel * attention head size * #attention heads]
+    # --> [attention head size * num_splits_model_parallel * #attention heads]
     concat_biases = concat_biases.view(3, np, -1)
     concat_biases = concat_biases.transpose(0, 1).contiguous()
     concat_biases = concat_biases.view(*input_shape)
