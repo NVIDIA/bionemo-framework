@@ -13,7 +13,3 @@ pyfaidx==0.8.1.3
 # See https://nvidia.slack.com/archives/C02A7LYGHK8/p1734727482697309
 pytorch-lightning<2.5.0
 lightning<2.5.0
-
-# Temporary cdifflib pin, see
-# https://github.com/mduggan/cdifflib/issues/13
-cdifflib<=1.2.6
