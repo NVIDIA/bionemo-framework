@@ -36,11 +36,7 @@ dependencies = [
 build = ['flash-attn', 'pip']
 
 [tool.uv.workspace]
-members = [
-    "3rdparty/*",
-    "sub-packages/bionemo-*/",
-    "internal/infra-bionemo/",
-]
+members = ["3rdparty/*", "internal/infra-bionemo/", "sub-packages/bionemo-*/"]
 
 [tool.uv.sources]
 # external
@@ -114,9 +110,10 @@ convention = "google"
 [tool.pytest.ini_options]
 norecursedirs = ["3rdparty"]
 addopts = ["--ignore=3rdparty"]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.pyright]
-include = ["./scripts/", "./sub-packages/", "./internal/"]
+include = ["./internal/", "./scripts/", "./sub-packages/"]
 exclude = ["*/tests/"]
 executionEnvironments = [
     { "root" = ".", pythonVersion = "3.10", extraPaths = [

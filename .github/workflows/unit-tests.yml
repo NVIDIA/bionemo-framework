@@ -116,7 +116,7 @@ jobs:
   clean-up:
     needs: run-tests
     runs-on: self-hosted-nemo-gpus-1
-    if: ${{ always() }}
+    if: ${{ success() || failure() }}
     steps:
       - name: clean up image
         run: docker rmi nemoci.azurecr.io/bionemo:${{ github.run_id }}
