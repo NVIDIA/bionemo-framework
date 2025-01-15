@@ -1,4 +1,4 @@
-name: "[Optional] BioNemo Image Build and Unit Tests"
+name: "BioNemo Image Build and Unit Tests"
 
 on:
   pull_request:
