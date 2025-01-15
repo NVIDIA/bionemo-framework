@@ -17,7 +17,6 @@ import gc
 import io
 import tarfile
 from copy import deepcopy
-from pathlib import Path
 from typing import List, Tuple
 from unittest import mock
 
@@ -37,9 +36,6 @@ from bionemo.esm2.model.embedding import ESM2Embedding
 from bionemo.llm.model.biobert.model import MegatronBioBertModel
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
-
-
-nemo1_checkpoint_path: Path = load("esm2/nv_650m:1.0")
 
 
 def reduce_hiddens(hiddens: Tensor, attention_mask: Tensor) -> Tensor:
@@ -72,7 +68,7 @@ def esm2_config() -> ESM2Config:
 @pytest.fixture(scope="module")
 def esm2_650M_config_w_ckpt() -> ESM2Config:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        yield ESM2Config(nemo1_ckpt_path=nemo1_checkpoint_path)
+        yield ESM2Config(initial_ckpt_path=load("esm2/650m:2.0"))
 
 
 @pytest.fixture(scope="module")
@@ -141,7 +137,7 @@ def test_esm2_model_initialized(esm2_model):
 
 
 def test_esm2_650m_checkpoint(esm2_model):
-    with tarfile.open(nemo1_checkpoint_path, "r") as ckpt, torch.no_grad():
+    with tarfile.open(load("esm2/nv_650m:1.0"), "r") as ckpt, torch.no_grad():
         ckpt_file = ckpt.extractfile("./model_weights.ckpt")
 
         old_state_dict = torch.load(ckpt_file)
