@@ -11,10 +11,10 @@
 - [ ]  Other (please describe):
 
 ### CI Pipeline Configuration
-Configure CI behavior by checking relevant boxes below. This will automatically apply labels.
+Configure CI behavior by applying the relevant labels:
 
-- [ ] [SKIP_CI](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#skip_ci) - Skip all continuous integration tests
-- [ ] [INCLUDE_NOTEBOOKS_TESTS](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#include_notebooks_tests) - Execute notebook validation tests in pytest
+- [SKIP_CI](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#skip_ci) - Skip all continuous integration tests
+- [INCLUDE_NOTEBOOKS_TESTS](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#include_notebooks_tests) - Execute notebook validation tests in pytest
 
 > [!NOTE]
 > By default, the notebooks validation tests are skipped unless explicitly enabled.

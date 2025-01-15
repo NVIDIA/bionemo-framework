@@ -1,4 +1,4 @@
-name: "[Optional] BioNemo Image Build and Unit Tests"
+name: "BioNemo Image Build and Unit Tests"
 
 on:
   pull_request:
@@ -100,6 +100,12 @@ jobs:
           BIONEMO_DATA_SOURCE: ngc
         run: ./ci/scripts/run_pytest.sh --no-nbval --skip-slow
 
+      - name: Run notebook tests
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS') }}
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        run: pytest --nbval-lax -p no:python docs/ sub-packages/
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -116,10 +122,9 @@ jobs:
   clean-up:
     needs: run-tests
     runs-on: self-hosted-nemo-gpus-1
-    if: ${{ always() }}
+    if: ${{ success() || failure() }}
     steps:
       - name: clean up image
         run: docker rmi nemoci.azurecr.io/bionemo:${{ github.run_id }}
-
 # TODO: exclude tests from base image; run tests from github workspace mounted in the image.
 # TODO: figure out way of cleaning up working directory (requires sudo or for us to fix file ownership from release container)
