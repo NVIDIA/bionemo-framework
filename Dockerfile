@@ -40,15 +40,22 @@ RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
   NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi pip install .
 
 # Install core apt packages.
-RUN apt-get update \
-  && apt-get install -y \
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+  <<EOF
+set -eo pipefail
+apt-get update -qy
+apt-get install -qyy \
   libsndfile1 \
   ffmpeg \
   git \
   curl \
   pre-commit \
-  sudo \
-  && rm -rf /var/lib/apt/lists/*
+  sudo
+apt-get upgrade -qyy \
+  rsync
+rm -rf /tmp/* /var/tmp/*
+EOF
 
 RUN apt-get install -y gnupg
 
