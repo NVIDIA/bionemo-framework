@@ -1,4 +1,4 @@
-name: "[Optional] BioNemo Image Build and Unit Tests"
+name: "BioNemo Image Build and Unit Tests"
 
 on:
   pull_request:
@@ -30,8 +30,15 @@ jobs:
           cache: "pip"
       - run: pip install -r requirements-dev.txt
       - run: ./ci/scripts/static_checks.sh
+      # For pull requests and merge_group events, trufflehog only runs on the diff between the base and head branches.
+      # For `push` events, (i.e., post-merge tests), we run trufflehog on the entire main branch by setting the base to
+      # ''. For some reason, the default behavior doesn't work well with the merge_group event, so we need to set these
+      # manually.
       - uses: trufflesecurity/trufflehog@main
         with:
+          path: ./
+          base: ${{ github.event_name != 'push' && github.event.repository.default_branch || '' }}
+          head: HEAD
           extra_args: --only-verified
 
   build-bionemo-image:
@@ -42,6 +49,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          # This working directory / path business is because our self-hosted runners are not ephemeral VMs, so we
+          # isolate each build into their own folder. Note that these are not currently cleaned up, so that will need to
+          # be automated in the future.
           path: ${{ github.run_id }}
           submodules: "recursive"
 
@@ -61,6 +71,10 @@ jobs:
             type=ref,event=pr
             type=raw,value=${{ github.run_id }}
 
+      # This action sets up our cache-from and cache-to flags appropriately; see the README of this action for more
+      # info. It doesn't seem to cache correctly for merge_group events, so we need to add that as an extra argument in
+      # the step below. There's probably a slight optimization to be had here by caching from the pr- caches for
+      # merge_group events. See https://github.com/int128/docker-build-cache-config-action/issues/1005 for more info.
       - uses: int128/docker-build-cache-config-action@v1
         id: cache
         with:
@@ -75,7 +89,9 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: ${{ steps.cache.outputs.cache-from }}
+          cache-from: |
+            ${{ steps.cache.outputs.cache-from }}
+            ${{ github.event_name == 'merge_group' && 'nemoci.azurecr.io/bionemo/build-cache:main' || '' }}
           cache-to: ${{ steps.cache.outputs.cache-to }}
 
   run-tests:
@@ -87,6 +103,8 @@ jobs:
     container:
       image: nemoci.azurecr.io/bionemo:${{ github.run_id }}
       options: --gpus all
+      # We mount the cache directory to avoid downloading the test data every run. Note that this only works because our
+      # VMs are not ephemeral, otherwise we'd need to cache the data somewhere that persists between runs.
       volumes:
         - /home/azureuser/actions-runner-bionemo/cache:/github/home/.cache
     steps:
@@ -99,6 +117,12 @@ jobs:
         env:
           BIONEMO_DATA_SOURCE: ngc
         run: ./ci/scripts/run_pytest.sh --no-nbval --skip-slow
+
+      - name: Run notebook tests
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS') }}
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        run: pytest --nbval-lax -p no:python docs/ sub-packages/
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -113,10 +137,12 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           working-directory: ${{ github.run_id }}
 
+  # Again, because our VMs are not ephemeral, we need to clean up the image after the tests are done. Otherwise `docker
+  # images list` will get very cluttered and we'll run out of disk space on these runners.
   clean-up:
     needs: run-tests
     runs-on: self-hosted-nemo-gpus-1
-    if: ${{ always() }}
+    if: ${{ success() || failure() }}
     steps:
       - name: clean up image
         run: docker rmi nemoci.azurecr.io/bionemo:${{ github.run_id }}

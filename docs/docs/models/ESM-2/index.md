@@ -121,9 +121,7 @@ checkpoints is consistent with their outputs when evaluated with the HuggingFace
 
 #### Single-node Training Performance
 
-<figure markdown="span">
-  ![ESM-2 Single-Device Training Performance](../assets/images/esm2/esm2_single_node_training_perf.svg){ width="350" }
-</figure>
+![ESM-2 Single-Device Training Performance](../../assets/images/esm2/esm2_single_node_training_perf.png)
 
 The pure-pytorch baseline (compiled with `torch.compile()`) raised an out-of-memory error for batch sizes larger than 16
 at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46, reaching a model flops utilization of
@@ -131,19 +129,15 @@ at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46
 
 #### Model Scaling
 
-<figure markdown="span">
-  ![ESM-2 Model Scaling](../assets/images/esm2/esm2_model_scaling.svg)
-</figure>
+![ESM-2 Model Scaling](../../assets/images/esm2/esm2_model_scaling.png)
 
 Training ESM-2 at the 650M, 3B, and 15B model variants show improved performance with the BioNeMo2 framework over the
 pure-pytorch baseline. These experiments were conducted on 16x NVIDIA A100 or 16x NVIDIA H100 GPUs split across two
-nodes.
+nodes. <sup>*</sup>*Note:* 15B model variants were trained on 64 GPUs with the BioNeMo2 framework.
 
 #### Device Scaling
 
-<figure markdown="span">
-  ![ESM-2 Device Scaling](../assets/images/esm2/esm2_device_scaling.svg){ width="400" }
-</figure>
+![ESM-2 Device Scaling](../../assets/images/esm2/esm2_device_scaling.png)
 
 Training ESM-3B on 256 NVIDIA A100s on 32 nodes achieved 96.85% of the theoretical linear throughput expected from
 extrapolating single-node (8 GPU) performance, representing a model flops utilization of 60.6% at 256 devices.

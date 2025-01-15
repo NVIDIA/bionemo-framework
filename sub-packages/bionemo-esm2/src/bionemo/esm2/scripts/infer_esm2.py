@@ -23,7 +23,8 @@ from nemo import lightning as nl
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.tokenizer import get_tokenizer
-from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule, InMemoryCSVDataset
+from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
+from bionemo.esm2.model.finetune.dataset import InMemoryProteinDataset
 from bionemo.esm2.model.finetune.finetune_regressor import ESM2FineTuneSeqConfig
 from bionemo.esm2.model.finetune.finetune_token_classifier import ESM2FineTuneTokenConfig
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
@@ -110,7 +111,7 @@ def infer_model(
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
-    dataset = InMemoryCSVDataset(data_path=data_path)
+    dataset = InMemoryProteinDataset.from_csv(data_path)
     datamodule = ESM2FineTuneDataModule(
         predict_dataset=dataset,
         micro_batch_size=micro_batch_size,
