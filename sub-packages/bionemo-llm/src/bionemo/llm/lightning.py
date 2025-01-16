@@ -348,12 +348,10 @@ class BionemoLightningModule(
 
         if self.train_metric is not None:
             if self.is_on_logging_device():
-                self.train_metric.update(logits, batch["labels"])
-            train_metric_value = self.train_metric.compute()
-            self.train_metric.reset()
+                self.train_metric(logits, batch["labels"])  # TODO call the same as forward?
 
-            if self.trainer.is_global_zero:
-                self.log("train_ppl", train_metric_value, on_step=True, on_epoch=False, prog_bar=True)
+            self.log("train_ppl", self.train_metric, on_step=True, on_epoch=False, prog_bar=True, rank_zero_only=True)  # TODO rank_zero_only necessary
+            # self.train_metric.reset()
 
         return outputs
 
@@ -391,11 +389,8 @@ class BionemoLightningModule(
             self.valid_metric.reset()  # clean up sanity runs
             return
 
-        valid_metric_value = self.valid_metric.compute()
-        self.valid_metric.reset()
-
-        if self.is_on_logging_device():
-            self.log("valid_ppl", valid_metric_value, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("valid_ppl", self.valid_metric, on_step=False, on_epoch=True, prog_bar=True, rank_zero_only=True)
+        # self.valid_metric.reset()
 
 
 def default_megatron_optimizer() -> MegatronOptimizerModule:
