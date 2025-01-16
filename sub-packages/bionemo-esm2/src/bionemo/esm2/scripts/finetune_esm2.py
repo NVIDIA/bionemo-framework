@@ -76,6 +76,8 @@ def train_model(
     experiment_name: str,
     resume_if_exists: bool,
     precision: PrecisionTypes,
+    scale_lr_layer: Optional[str] = None,
+    lr_multiplier: float = 1.0,
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_offline: bool = False,
@@ -125,6 +127,8 @@ def train_model(
             result_dir that stores the logs and checkpoints.
         resume_if_exists (bool): attempt to resume if the checkpoint exists [FIXME @skothenhill this doesn't work yet]
         precision (PrecisionTypes): Precision type for training (e.g., float16, float32)
+        scale_lr_layer (Optional[str]): layer names for which the lr is scaled by lr_multiplier
+        lr_multiplier (float): lr multiplier for parameters in scale_lr_layer
         wandb_entity (Optional[str]): The team posting this run (default: your username or your default team)
         wandb_project (Optional[str]): The name of the project to which this run will belong
         wandb_offline (bool): Run offline (data can be streamed later to wandb servers).
@@ -271,8 +275,13 @@ def train_model(
             weight_decay=0.01,
             adam_beta1=0.9,
             adam_beta2=0.98,
-        )
+        ),
     )
+    # fiddle is not serializing lambda fn
+    # to bypass serialization of lambda fn scale_lr_condition as part of optimizer configuration
+    if scale_lr_layer:
+        optimizer.scale_lr_cond = lambda name, param: scale_lr_layer in name
+        optimizer.lr_mult = lr_multiplier
 
     module = biobert_lightning_module(config=config, tokenizer=tokenizer, optimizer=optimizer)
 
@@ -342,6 +351,8 @@ def finetune_esm2_entrypoint():
         tensor_model_parallel_size=args.tensor_model_parallel_size,
         accumulate_grad_batches=args.accumulate_grad_batches,
         precision=args.precision,
+        scale_lr_layer=args.scale_lr_layer,
+        lr_multiplier=args.lr_multiplier,
         experiment_name=args.experiment_name,
         resume_if_exists=args.resume_if_exists,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
@@ -393,6 +404,20 @@ def get_parser():
         required=False,
         default=4e-4,
         help="Learning rate for training. Default is 4e-4",
+    )
+    parser.add_argument(
+        "--scale-lr-layer",
+        type=str,
+        required=False,
+        default=None,
+        help="Layer name for which we scale the lr by lr-multiplier",
+    )
+    parser.add_argument(
+        "--lr-multiplier",
+        type=float,
+        required=False,
+        default=1.0,
+        help="Learning rate multiplier for layers with scale-lr-layer in their name",
     )
     parser.add_argument(
         "--create-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."
