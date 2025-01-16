@@ -313,28 +313,8 @@ class BionemoLightningModule(
         if self.module is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
 
-        # configure logger
-        self.set_logging_group()
-        if self.train_ppl is not None:
-            self.train_ppl.process_group = self.logging_group
-        if self.valid_ppl is not None:
-            self.valid_ppl.process_group = self.logging_group
-
     def is_on_logging_device(self):
         return parallel_state.is_pipeline_last_stage() and parallel_state.get_tensor_model_parallel_rank() == 0
-
-    def set_logging_group(self):
-        self.logging_group = None
-
-        total_num_devices = self.trainer.num_devices * self.trainer.num_nodes
-        if total_num_devices == 1:
-            return
-
-        logging_ranks = [None] * self.trainer.num_devices * self.trainer.num_nodes
-        torch.distributed.all_gather_object(logging_ranks, self.trainer.global_rank if self.is_on_logging_device else -1)
-        logging_ranks = [rank for rank in logging_ranks if rank != -1]
-        self.logging_group = torch.distributed.new_group(logging_ranks)
-
 
     def forward(self, *args, **kwargs) -> DataT:
         """Call the forward method of the underlying model, and return whatever it outputs."""
