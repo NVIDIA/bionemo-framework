@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import warnings
 from typing import Optional, Tuple
 
 import torch
@@ -175,10 +176,16 @@ class D3PM(Interpolant):
             x1_hot = data
         ford = safe_index(self._Qt_bar, t - self.last_time_idx, data.device)
         probs = torch.einsum("b...j, bji -> b...i", [x1_hot.float(), ford])
-        if torch.all((probs.sum(-1) - 1.0).abs() > 1e-4):
-            raise ValueError(
-                f"Invalid Probability Distriubtion: distribution must some to 1.0 but got {probs.sum(-1)} for time {t}"
+        if torch.any((probs.sum(-1) - 1.0).abs() > 1e-4):
+            warnings.warn(
+                f"**INVALID BEHAVIOR** Probability Distribution does not sum to 1.0 for time {t}. "
+                f"**INVESTIGATE YOUR DEVICE PRECISION**: This condition should not happen. "
+                f"Normalized to ensure validity. Original sums: {probs.sum(-1)}",
+                category=UserWarning,
             )
+
+            # Normalize the probabilities so they sum to 1 along the last dimension
+            probs = probs / probs.sum(-1, keepdim=True)
         xt = self._sample_categorical(torch.log(probs) + 1.0e-6)
         return xt
 
