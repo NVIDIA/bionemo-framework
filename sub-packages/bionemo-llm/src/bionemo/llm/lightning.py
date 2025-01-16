@@ -291,8 +291,8 @@ class BionemoLightningModule(
         self._forward_step = forward_step
         self.model_transform = model_transform
 
-        self.log_train_ppl = log_train_ppl
-        self.log_val_ppl = log_val_ppl
+        self.train_ppl = torchmetrics.text.Perplexity(ignore_index=-100) if log_train_ppl else None
+        self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=-100) if log_val_ppl else None
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -315,12 +315,10 @@ class BionemoLightningModule(
 
         # configure logger
         self.set_logging_group()
-
-        current_device = f'cuda:{self.trainer.global_rank}'
-        if self.log_train_ppl:
-            self.train_ppl = torchmetrics.text.Perplexity(ignore_index=-100, process_group=self.logging_group).to(current_device)
-        if self.log_val_ppl:
-            self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=-100, process_group=self.logging_group).to(current_device)
+        if self.train_ppl is not None:
+            self.train_ppl.process_group = self.logging_group
+        if self.valid_ppl is not None:
+            self.valid_ppl.process_group = self.logging_group
 
     def is_on_logging_device(self):
         return parallel_state.is_pipeline_last_stage() and parallel_state.get_tensor_model_parallel_rank() == 0
@@ -369,7 +367,7 @@ class BionemoLightningModule(
         outputs = self.forward_step(batch)
         logits = outputs["token_logits"].transpose(0, 1).clone().detach()  #  [s, b, v] -> [b, s, v]
 
-        if self.log_train_ppl and self.is_on_logging_device():
+        if self.train_ppl is not None:
             if self.is_on_logging_device():
                 self.train_ppl.update(logits, batch["labels"])
             train_metric_value = self.train_ppl.compute()
@@ -385,7 +383,7 @@ class BionemoLightningModule(
         outputs = self.forward_step(batch)
         logits = outputs["token_logits"].transpose(0, 1).clone().detach()  #  [s, b, v] -> [b, s, v]
 
-        if self.log_val_ppl and self.is_on_logging_device():
+        if self.valid_ppl is not None and self.is_on_logging_device():
             self.valid_ppl.update(logits, batch["labels"])
 
         return outputs
@@ -407,7 +405,7 @@ class BionemoLightningModule(
         return self.loss_reduction_class(validation_step=True)
 
     def on_validation_epoch_end(self):  # noqa: D102
-        if not self.log_val_ppl:
+        if self.valid_ppl is None:
             return
 
         if self.trainer.sanity_checking:
