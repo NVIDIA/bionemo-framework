@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, Generic, Iterable, Iterator, List, Optio
 import lightning.pytorch as pl
 import torch.distributed
 import torchmetrics.text
+from torchmetrics.functional.text.perplexity import _perplexity_update
 from megatron.core import parallel_state
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo.lightning import io as nlio
@@ -255,8 +256,8 @@ class BionemoLightningModule(
         # TODO: Add transformer_layer_spec when we update mcore
         optimizer: MegatronOptimizerModule,
         model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
-        train_metric: Optional[torchmetrics.Metric] = None,
-        valid_metric: Optional[torchmetrics.Metric] = None,
+        log_train_ppl: bool = False,
+        log_val_ppl: bool = False,
         **model_construct_args,
     ) -> None:
         """Constructor.
@@ -290,8 +291,9 @@ class BionemoLightningModule(
         self._forward_step = forward_step
         self.model_transform = model_transform
 
-        self.train_metric = train_metric
-        self.valid_metric = valid_metric
+        # torchmetrics must init here for fiddle serialization
+        self.train_ppl = torchmetrics.text.Perplexity(ignore_index=-100) if log_train_ppl else None
+        self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=-100) if log_val_ppl else None
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -346,12 +348,11 @@ class BionemoLightningModule(
         outputs = self.forward_step(batch)
         logits = outputs["token_logits"].transpose(0, 1).clone().detach()  #  [s, b, v] -> [b, s, v]
 
-        if self.train_metric is not None:
+        if self.train_ppl is not None:
             if self.is_on_logging_device():
-                self.train_metric(logits, batch["labels"])  # TODO call the same as forward?
+                self.train_ppl(logits, batch["labels"])
 
-            self.log("train_ppl", self.train_metric, on_step=True, on_epoch=False, prog_bar=True, rank_zero_only=True)  # TODO rank_zero_only necessary
-            # self.train_metric.reset()
+            self.log("train_ppl", self.train_ppl, on_step=True, on_epoch=False, prog_bar=True)
 
         return outputs
 
@@ -360,8 +361,8 @@ class BionemoLightningModule(
         outputs = self.forward_step(batch)
         logits = outputs["token_logits"].transpose(0, 1).clone().detach()  #  [s, b, v] -> [b, s, v]
 
-        if self.valid_metric is not None and self.is_on_logging_device():
-            self.valid_metric.update(logits, batch["labels"])
+        if self.valid_ppl is not None and self.is_on_logging_device():
+            self.valid_ppl.update(logits, batch["labels"])
 
         return outputs
 
@@ -382,15 +383,14 @@ class BionemoLightningModule(
         return self.loss_reduction_class(validation_step=True)
 
     def on_validation_epoch_end(self):  # noqa: D102
-        if self.valid_metric is None:
+        if self.valid_ppl is None:
             return
 
         if self.trainer.sanity_checking:
-            self.valid_metric.reset()  # clean up sanity runs
+            self.valid_ppl.reset()  # clean up sanity runs
             return
 
-        self.log("valid_ppl", self.valid_metric, on_step=False, on_epoch=True, prog_bar=True, rank_zero_only=True)
-        # self.valid_metric.reset()
+        self.log("valid_ppl", self.valid_ppl, on_step=False, on_epoch=True, prog_bar=True)
 
 
 def default_megatron_optimizer() -> MegatronOptimizerModule:

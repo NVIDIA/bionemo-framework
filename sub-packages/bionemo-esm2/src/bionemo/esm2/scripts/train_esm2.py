@@ -18,14 +18,13 @@ from pathlib import Path
 from typing import List, Optional, Sequence, get_args
 
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
-from megatron.core.distributed.distributed_data_parallel_config import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
+from megatron.core.distributed.distributed_data_parallel_config import DistributedDataParallelConfig
 from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
-from torchmetrics.text import Perplexity
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
@@ -284,11 +283,9 @@ def main(
     if scheduler_num_steps is None:
         scheduler_num_steps = num_steps
 
-    # setup metrics
-    train_metric = Perplexity(ignore_index=-100) if log_train_ppl else None
-    valid_metric = Perplexity(ignore_index=-100) if log_val_ppl else None
+    if (log_train_ppl or log_val_ppl) and pipeline_model_parallel_size > 1:
+        raise NotImplementedError("Perplexity logging does not support pipeline parallelism yet.")
 
-    # setup model
     model = biobert_lightning_module(
         esm2_config,
         tokenizer=tokenizer,
@@ -309,8 +306,9 @@ def main(
                 anneal_percentage=0.10,
             ),
         ),
-        train_metric=train_metric,
-        valid_metric=valid_metric,
+        # perplexity logging
+        log_train_ppl=log_train_ppl,
+        log_val_ppl=log_val_ppl,
     )
 
     # Configure our custom Checkpointer
