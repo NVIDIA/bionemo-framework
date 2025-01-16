@@ -370,11 +370,11 @@ class BionemoLightningModule(
         if self.train_ppl is not None:
             if self.is_on_logging_device():
                 self.train_ppl.update(logits, batch["labels"])
-                train_metric_value = self.train_ppl.compute()
-                self.train_ppl.reset()
+            train_metric_value = self.train_ppl.compute()
+            self.train_ppl.reset()
 
-                if self.trainer.is_global_zero:
-                    self.log("train_ppl", train_metric_value, on_step=True, on_epoch=False, prog_bar=True)
+            if self.trainer.is_global_zero:
+                self.log("train_ppl", train_metric_value, on_step=True, on_epoch=False, prog_bar=True)
 
         return outputs
 
@@ -412,9 +412,10 @@ class BionemoLightningModule(
             self.valid_ppl.reset()  # clean up sanity runs
             return
 
+        valid_metric_value = self.valid_ppl.compute()
+        self.valid_ppl.reset()
+
         if self.is_on_logging_device():
-            valid_metric_value = self.valid_ppl.compute()
-            self.valid_ppl.reset()
             self.log("valid_ppl", valid_metric_value, on_step=False, on_epoch=True, prog_bar=True)
 
 
