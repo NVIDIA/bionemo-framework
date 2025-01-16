@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, Generic, Iterable, Iterator, List, Optio
 import lightning.pytorch as pl
 import torch.distributed
 import torchmetrics.text
+from torchmetrics.functional.text.perplexity import _perplexity_update
 from megatron.core import parallel_state
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo.lightning import io as nlio
@@ -290,13 +291,8 @@ class BionemoLightningModule(
         self._forward_step = forward_step
         self.model_transform = model_transform
 
-        # all scaling on the internal states are cancelled out in the formula "exp(total_log_probs / count)" so we can safely sum across all devices
         self.log_train_ppl = log_train_ppl
         self.log_val_ppl = log_val_ppl
-        if log_train_ppl:
-            self.train_ppl = torchmetrics.text.Perplexity(ignore_index=-100)
-        if log_val_ppl:
-            self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=-100)
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -313,8 +309,34 @@ class BionemoLightningModule(
                 else self.config.configure_model()
             )
             self.module = model
+
         if self.module is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
+
+        # configure logger
+        self.set_logging_group()
+
+        current_device = f'cuda:{self.trainer.global_rank}'
+        if self.log_train_ppl:
+            self.train_ppl = torchmetrics.text.Perplexity(ignore_index=-100, process_group=self.logging_group).to(current_device)
+        if self.log_val_ppl:
+            self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=-100, process_group=self.logging_group).to(current_device)
+
+    def is_on_logging_device(self):
+        return parallel_state.is_pipeline_last_stage() and parallel_state.get_tensor_model_parallel_rank() == 0
+
+    def set_logging_group(self):
+        self.logging_group = None
+
+        total_num_devices = self.trainer.num_devices * self.trainer.num_nodes
+        if total_num_devices == 1:
+            return
+
+        logging_ranks = [None] * self.trainer.num_devices * self.trainer.num_nodes
+        torch.distributed.all_gather_object(logging_ranks, self.trainer.global_rank if self.is_on_logging_device else -1)
+        logging_ranks = [rank for rank in logging_ranks if rank != -1]
+        self.logging_group = torch.distributed.new_group(logging_ranks)
+
 
     def forward(self, *args, **kwargs) -> DataT:
         """Call the forward method of the underlying model, and return whatever it outputs."""
@@ -345,20 +367,25 @@ class BionemoLightningModule(
     def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
-        logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
+        logits = outputs["token_logits"].transpose(0, 1).clone().detach()  #  [s, b, v] -> [b, s, v]
 
-        if self.log_train_ppl and parallel_state.is_pipeline_last_stage():
-            train_metric_value = self.train_ppl(logits, batch["labels"])
-            self.log("train_ppl", train_metric_value, on_step=True, on_epoch=False)
+        if self.log_train_ppl and self.is_on_logging_device():
+            if self.is_on_logging_device():
+                self.train_ppl.update(logits, batch["labels"])
+            train_metric_value = self.train_ppl.compute()
+            self.train_ppl.reset()
+
+            if self.trainer.is_global_zero:
+                self.log("train_ppl", train_metric_value, on_step=True, on_epoch=False, prog_bar=True)
 
         return outputs
 
     def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
-        logits = outputs["token_logits"].transpose(0, 1)  #  [s, b] -> [b, s]
+        logits = outputs["token_logits"].transpose(0, 1).clone().detach()  #  [s, b, v] -> [b, s, v]
 
-        if self.log_val_ppl and parallel_state.is_pipeline_last_stage():
+        if self.log_val_ppl and self.is_on_logging_device():
             self.valid_ppl.update(logits, batch["labels"])
 
         return outputs
@@ -380,9 +407,18 @@ class BionemoLightningModule(
         return self.loss_reduction_class(validation_step=True)
 
     def on_validation_epoch_end(self):  # noqa: D102
+        if not self.log_val_ppl:
+            return
+
+        if self.trainer.sanity_checking:
+            self.valid_ppl.reset()  # clean up sanity runs
+            return
+
         valid_metric_value = self.valid_ppl.compute()
-        self.log("valid_ppl", valid_metric_value, on_step=False, on_epoch=True, logger=True)
         self.valid_ppl.reset()
+
+        if self.is_on_logging_device():
+            self.log("valid_ppl", valid_metric_value, on_step=False, on_epoch=True, prog_bar=True)
 
 
 def default_megatron_optimizer() -> MegatronOptimizerModule:

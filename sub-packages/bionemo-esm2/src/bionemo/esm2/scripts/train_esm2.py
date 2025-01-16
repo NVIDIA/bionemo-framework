@@ -19,6 +19,7 @@ from typing import List, Optional, Sequence, get_args
 
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from megatron.core.optimizer import OptimizerConfig
+from megatron.core.distributed.distributed_data_parallel_config import DistributedDataParallelConfig
 from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
@@ -189,7 +190,6 @@ def main(
         ),
         find_unused_parameters=True,
         ckpt_include_optimizer=True,
-        # NOTE: there are issues related to async that may occur, most recently observed due to duplicate filenames.
         ckpt_async_save=True,
         ckpt_parallel_load=True,
     )
@@ -244,6 +244,7 @@ def main(
             autocast_enabled=False,
         ),
         enable_checkpointing=create_checkpoint_callback,
+        num_sanity_val_steps=0,
     )
 
     tokenizer = get_tokenizer()
