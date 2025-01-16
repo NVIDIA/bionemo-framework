@@ -22,23 +22,6 @@ WORKDIR /build
 ARG MAX_JOBS=4
 ENV MAX_JOBS=${MAX_JOBS}
 
-# See NeMo readme for the latest tested versions of these libraries
-ARG APEX_COMMIT=810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
-RUN git clone https://github.com/NVIDIA/apex.git && \
-  cd apex && \
-  git checkout ${APEX_COMMIT} && \
-  pip install . -v --no-build-isolation --disable-pip-version-check --no-cache-dir \
-  --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
-
-# Transformer Engine pre-1.7.0. 1.7 standardizes the meaning of bits in the attention mask to match
-ARG TE_COMMIT=2215fa5c7557b66034068816020f9f611019e457
-RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
-  cd TransformerEngine && \
-  git fetch origin ${TE_COMMIT} && \
-  git checkout FETCH_HEAD && \
-  git submodule init && git submodule update && \
-  NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi pip install .
-
 # Install core apt packages.
 RUN apt-get update \
   && apt-get install -y \
