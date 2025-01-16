@@ -651,7 +651,7 @@ def get_parser():
         "--log-train-ppl",
         action="store_true",
         default=False,
-        help="Log perplexity during training.",
+        help="Log perplexity during training. Requires synchronization every training step and hurts performance. Enable only when necessary.",
     )
     parser.add_argument(
         "--log-val-ppl",
