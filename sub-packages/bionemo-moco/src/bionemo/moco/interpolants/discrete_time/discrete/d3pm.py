@@ -176,7 +176,9 @@ class D3PM(Interpolant):
         ford = safe_index(self._Qt_bar, t - self.last_time_idx, data.device)
         probs = torch.einsum("b...j, bji -> b...i", [x1_hot.float(), ford])
         if torch.all((probs.sum(-1) - 1.0).abs() > 1e-4):
-            raise ValueError("Invalid Probability Distriubtion: distribution must some to 1.0")
+            raise ValueError(
+                f"Invalid Probability Distriubtion: distribution must some to 1.0 but got {probs.sum(-1)} for time {t}"
+            )
         xt = self._sample_categorical(torch.log(probs) + 1.0e-6)
         return xt
 
