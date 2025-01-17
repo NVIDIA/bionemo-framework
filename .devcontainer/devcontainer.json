@@ -13,11 +13,11 @@
 	},
 	"mounts": [
 		// Mount the local ~/.aws config to pass along AWS credentials for PBSS.
-		"source=${localEnv:HOME}/.aws,target=/home/bionemo/.aws,type=bind,consistency=cached",
-		"source=${localEnv:HOME}/.ngc,target=/home/bionemo/.ngc,type=bind,consistency=cached",
-		"source=${localEnv:HOME}/.cache,target=/home/bionemo/.cache,type=bind,consistency=cached",
-		"source=${localEnv:HOME}/.ssh,target=/home/bionemo/.ssh,readonly,type=bind,consistency=cached",
-		"source=${localEnv:HOME}/.netrc,target=/home/bionemo/.netrc,readonly,type=bind,consistency=cached"
+		"source=${localEnv:HOME}/.aws,target=/home/ubuntu/.aws,type=bind,consistency=cached",
+		"source=${localEnv:HOME}/.ngc,target=/home/ubuntu/.ngc,type=bind,consistency=cached",
+		"source=${localEnv:HOME}/.cache,target=/home/ubuntu/.cache,type=bind,consistency=cached",
+		"source=${localEnv:HOME}/.ssh,target=/home/ubuntu/.ssh,readonly,type=bind,consistency=cached",
+		"source=${localEnv:HOME}/.netrc,target=/home/ubuntu/.netrc,readonly,type=bind,consistency=cached"
 	],
 	"containerEnv": {
 		"TMPDIR": "/tmp",
