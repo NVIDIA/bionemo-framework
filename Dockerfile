@@ -105,18 +105,6 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
-RUN --mount=type=cache,target=/root/.cache <<EOF
-set -eo pipefail
-uv pip install maturin --no-build-isolation
-
-pip install --use-deprecated=legacy-resolver  --no-build-isolation \
-  tensorstore==0.1.45
-sed -i 's/^Version: 0\.0\.0$/Version: 0.1.45/' \
-  /usr/local/lib/python3.12/dist-packages/tensorstore-0.0.0.dist-info/METADATA
-mv /usr/local/lib/python3.12/dist-packages/tensorstore-0.0.0.dist-info \
-/usr/local/lib/python3.12/dist-packages/tensorstore-0.1.45.dist-info
-EOF
-
 WORKDIR /workspace/bionemo2
 
 # Install 3rd-party deps and bionemo submodules.
@@ -132,6 +120,8 @@ RUN --mount=type=bind,source=./.git,target=./.git \
     --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
     --mount=type=cache,target=/root/.cache <<EOF
 set -eo pipefail
+
+uv pip install maturin --no-build-isolation
 
 uv pip install --no-build-isolation \
   ./3rdparty/* \
