@@ -21,6 +21,7 @@ dependencies = [
     'bionemo-geneformer',
     'bionemo-geometric',
     'bionemo-llm',
+    'bionemo-moco',
     'bionemo-scdl',
     'bionemo-size-aware-batching',
     'bionemo-testing',
@@ -52,6 +53,7 @@ bionemo-fw = { workspace = true }
 bionemo-geneformer = { workspace = true }
 bionemo-geometric = { workspace = true }
 bionemo-llm = { workspace = true }
+bionemo-moco = { workspace = true }
 bionemo-noodles = { workspace = true }
 bionemo-scdl = { workspace = true }
 bionemo-size-aware-batching = { workspace = true }
@@ -72,6 +74,7 @@ dev-dependencies = [
     "tenacity",
 ]
 no-build-isolation-package = ["flash-attn"]
+cache-keys = [{ git = { commit = true } }]
 
 [tool.black]
 line-length = 119
@@ -128,6 +131,7 @@ executionEnvironments = [
         './sub-packages/bionemo-geneformer/src',
         './sub-packages/bionemo-geometric/src',
         './sub-packages/bionemo-llm/src',
+        './sub-packages/bionemo-moco/src',
         './sub-packages/bionemo-noodles/src',
         './sub-packages/bionemo-scdl/src',
         './sub-packages/bionemo-size-aware-batching/src',

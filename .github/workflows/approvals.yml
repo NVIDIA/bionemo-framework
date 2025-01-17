@@ -1,0 +1,189 @@
+name: Enforce Tiered Approvals
+
+on:
+  pull_request:
+    types:
+      - review_requested
+      - review_submitted
+      - synchronize
+      - opened
+      - closed
+      - edited
+      - reopened
+  pull_request_review:
+    types:
+      - submitted
+      - edited
+      - dismissed
+
+# TODO: Action should run when someone approves / disapproves etc.
+jobs:
+  enforce_tiered_approvals:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Parse CODEOWNERS file
+        id: parse_codeowners
+        run: |
+          echo "Parsing CODEOWNERS file..."
+          declare -A CODEOWNERS
+          declare -A TIER2_REVIEWERS
+
+          while IFS= read -r line; do
+            # Skip comments and empty lines
+            [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+
+            # Detect tier2 reviewers
+            if [[ "$line" =~ "# tier2" ]]; then
+              reviewers=$(echo "$line" | awk '{$1=""; $NF=""; print $0}' | xargs)
+              for reviewer in $reviewers; do
+                TIER2_REVIEWERS["$reviewer"]=1
+              done
+              continue
+            fi
+
+            # Parse +1 CODEOWNERS
+            path=$(echo "$line" | awk '{print $1}')
+            owners=$(echo "$line" | awk '{$1=""; print $0}' | xargs)
+            CODEOWNERS["$path"]="$owners"
+          done < CODEOWNERS
+
+          # Export mappings as JSON
+          echo "$(declare -p CODEOWNERS)" > codeowners.json
+          echo "$(declare -p TIER2_REVIEWERS)" > tier2reviewers.json
+          echo "CODEOWNERS and TIER2 reviewers exported to JSON."
+
+      - name: Get changed files
+        id: get_files
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            const changedFiles = files.map(file => file.filename);
+            core.setOutput('changedFiles', changedFiles.join(','));
+
+      - name: Get PR reviews
+        id: get_reviews
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            const latestReviews = {};
+            for (const review of reviews) {
+              latestReviews[review.user.login] = review.state;
+            }
+
+            console.log('Latest Reviews:', latestReviews);
+
+            const approvedUsers = Object.keys(latestReviews).filter(user => latestReviews[user] === 'APPROVED');
+
+            core.setOutput('approvedUsers', approvedUsers.join(','));
+
+      - name: Check +1 approvals (file-specific)
+        id: check_tier1
+        run: |
+          echo "Checking for +1 approvals for changed files..."
+          CHANGED_FILES="${{ steps.get_files.outputs.changedFiles }}"
+          APPROVED_USERS="${{ steps.get_reviews.outputs.approvedUsers }}"
+
+          # Load CODEOWNERS mapping
+          declare -A CODEOWNERS
+          eval "$(cat codeowners.json)"
+
+          TIER1_APPROVED=false
+
+          # Loop through changed files and verify approval
+          IFS=',' read -ra FILES <<< "$CHANGED_FILES"
+          IFS=',' read -ra USERS <<< "$APPROVED_USERS"
+
+          for FILE in "${FILES[@]}"; do
+            for PATTERN in "${!CODEOWNERS[@]}"; do
+              if [[ "$FILE" == $PATTERN* ]]; then
+                for OWNER in ${CODEOWNERS[$PATTERN]}; do
+                  # Strip '@' from OWNER
+                  CLEAN_OWNER="${OWNER#@}"
+                  echo "Comparing APPROVED_USERS with CLEAN_OWNER: $CLEAN_OWNER"
+                  if [[ " ${USERS[@]} " =~ " $CLEAN_OWNER " ]]; then
+                    TIER1_APPROVED=true
+                    break 3
+                  fi
+                done
+              fi
+            done
+          done
+
+          if [[ "$TIER1_APPROVED" == "true" ]]; then
+            echo "tier1Approved=true" >> $GITHUB_ENV
+          else
+            echo "tier1Approved=false" >> $GITHUB_ENV
+          fi
+
+          echo $TIER1_APPROVED
+
+      - name: Check +2 approvals (global tier)
+        id: check_tier2
+        run: |
+          echo "Checking for +2 approvals..."
+          APPROVED_USERS="${{ steps.get_reviews.outputs.approvedUsers }}"
+
+          # Load TIER2_REVIEWERS mapping
+          declare -A TIER2_REVIEWERS
+          eval "$(cat tier2reviewers.json)"
+
+          TIER2_APPROVED=false
+
+          echo "Approved Users: $APPROVED_USERS"
+
+          # Iterate over approved users and compare with cleaned TIER2_REVIEWERS
+          for USER in ${APPROVED_USERS//,/ }; do
+            echo "Checking approved USER: $USER"
+            echo "TIER2_REVIEWERS: ${!TIER2_REVIEWERS[@]}"
+            for REVIEWER in "${!TIER2_REVIEWERS[@]}"; do
+              # Strip '@' from REVIEWER
+              CLEAN_REVIEWER="${REVIEWER#@}"
+              echo "Comparing USER: $USER with CLEAN_REVIEWER: $CLEAN_REVIEWER"
+              if [[ "$USER" == "$CLEAN_REVIEWER" ]]; then
+                TIER2_APPROVED=true
+                break 2
+              fi
+            done
+          done
+
+          if [[ "$TIER2_APPROVED" == "true" ]]; then
+            echo "tier2Approved=true" >> $GITHUB_ENV
+          else
+            echo "tier2Approved=false" >> $GITHUB_ENV
+          fi
+
+          echo "TIER2_APPROVED: $TIER2_APPROVED"
+
+
+      - name: Enforce approval requirements
+        run: |
+          echo "Enforcing approval requirements..."
+          if [[ "$tier1Approved" != "true" ]]; then
+            echo "ERROR: No +1 reviewer has approved the pull request for changed files."
+            exit 1
+          fi
+
+          if [[ "$tier2Approved" != "true" ]]; then
+            echo "ERROR: No +2 reviewer has approved the pull request."
+            exit 1
+          fi
+
+          echo "All tiered approval requirements met. Proceeding."

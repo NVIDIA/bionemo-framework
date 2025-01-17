@@ -40,15 +40,22 @@ RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
   NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi pip install .
 
 # Install core apt packages.
-RUN apt-get update \
-  && apt-get install -y \
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+  <<EOF
+set -eo pipefail
+apt-get update -qy
+apt-get install -qyy \
   libsndfile1 \
   ffmpeg \
   git \
   curl \
   pre-commit \
-  sudo \
-  && rm -rf /var/lib/apt/lists/*
+  sudo
+apt-get upgrade -qyy \
+  rsync
+rm -rf /tmp/* /var/tmp/*
+EOF
 
 RUN apt-get install -y gnupg
 
@@ -84,12 +91,12 @@ ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=1 \
   UV_PYTHON_DOWNLOADS=never \
   UV_SYSTEM_PYTHON=true \
-  UV_NO_CACHE=1 \
   UV_BREAK_SYSTEM_PACKAGES=1
 
 # Install the bionemo-geometric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
 RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
+    --mount=type=cache,target=/root/.cache \
   uv pip install --no-build-isolation -r /requirements-pyg.txt
 
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
@@ -98,7 +105,7 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
-RUN <<EOF
+RUN --mount=type=cache,target=/root/.cache <<EOF
 set -eo pipefail
 uv pip install maturin --no-build-isolation
 
@@ -108,7 +115,6 @@ sed -i 's/^Version: 0\.0\.0$/Version: 0.1.45/' \
   /usr/local/lib/python3.12/dist-packages/tensorstore-0.0.0.dist-info/METADATA
 mv /usr/local/lib/python3.12/dist-packages/tensorstore-0.0.0.dist-info \
 /usr/local/lib/python3.12/dist-packages/tensorstore-0.1.45.dist-info
-rm -rf /root/.cache/*
 EOF
 
 WORKDIR /workspace/bionemo2
@@ -122,9 +128,9 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 # Includes a hack to install tensorstore 0.1.45, which doesn't distribute a pypi wheel for python 3.12, and the metadata
 # in the source distribution doesn't match the expected pypi version.
 RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
-  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-  <<EOF
+    --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+    --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
+    --mount=type=cache,target=/root/.cache <<EOF
 set -eo pipefail
 
 uv pip install --no-build-isolation \
@@ -145,8 +151,8 @@ EOF
 FROM ${BASE_IMAGE} AS dev
 
 RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
-  --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
-  <<EOF
+    --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+    <<EOF
 set -eo pipefail
 apt-get update -qy
 apt-get install -qyy \
@@ -189,7 +195,7 @@ ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
 RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOF
+    --mount=type=cache,target=/root/.cache <<EOF
   set -eo pipefail
   uv pip install -r /workspace/bionemo2/requirements-dev.txt
   rm -rf /tmp/*
