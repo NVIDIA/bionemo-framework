@@ -76,6 +76,7 @@ def train_model(
     experiment_name: str,
     resume_if_exists: bool,
     precision: PrecisionTypes,
+    encoder_frozen: bool = False,
     scale_lr_layer: Optional[str] = None,
     lr_multiplier: float = 1.0,
     wandb_entity: Optional[str] = None,
@@ -100,7 +101,7 @@ def train_model(
     dataset_class: Type[InMemoryProteinDataset] = InMemorySingleValueDataset,
     config_class: Type[BioBertConfig] = ESM2FineTuneSeqConfig,
     metric_tracker: Callback | None = None,
-    overlap_grad_reduce: bool = True,
+    overlap_grad_reduce: bool = False,  # Default to False to avoid communication issue in gradient synchronization step
     overlap_param_gather: bool = True,
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
@@ -127,6 +128,7 @@ def train_model(
             result_dir that stores the logs and checkpoints.
         resume_if_exists (bool): attempt to resume if the checkpoint exists [FIXME @skothenhill this doesn't work yet]
         precision (PrecisionTypes): Precision type for training (e.g., float16, float32)
+        encoder_frozen (bool): Freeze the encoder parameters. Default is False.
         scale_lr_layer (Optional[str]): layer names for which the lr is scaled by lr_multiplier
         lr_multiplier (float): lr multiplier for parameters in scale_lr_layer
         wandb_entity (Optional[str]): The team posting this run (default: your username or your default team)
@@ -258,6 +260,7 @@ def train_model(
     )
     # Configure the model
     config = config_class(
+        encoder_frozen=encoder_frozen,
         params_dtype=get_autocast_dtype(precision),
         pipeline_dtype=get_autocast_dtype(precision),
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
@@ -351,6 +354,7 @@ def finetune_esm2_entrypoint():
         tensor_model_parallel_size=args.tensor_model_parallel_size,
         accumulate_grad_batches=args.accumulate_grad_batches,
         precision=args.precision,
+        encoder_frozen=args.encoder_frozen,
         scale_lr_layer=args.scale_lr_layer,
         lr_multiplier=args.lr_multiplier,
         experiment_name=args.experiment_name,
@@ -365,7 +369,7 @@ def finetune_esm2_entrypoint():
         nsys_ranks=args.nsys_ranks,
         dataset_class=args.dataset_class,
         config_class=args.config_class,
-        overlap_grad_reduce=not args.no_overlap_grad_reduce,
+        overlap_grad_reduce=args.overlap_grad_reduce,
         overlap_param_gather=not args.no_overlap_param_gather,
         average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
@@ -397,6 +401,12 @@ def get_parser():
         required=False,
         default="bf16-mixed",
         help="Precision type to use for training.",
+    )
+    parser.add_argument(
+        "--encoder-frozen",
+        action="store_true",
+        default=False,
+        help="Freeze the encoder parameters",
     )
     parser.add_argument(
         "--lr",
@@ -596,7 +606,7 @@ def get_parser():
     )
     # DDP config
     parser.add_argument(
-        "--no-overlap-grad-reduce",
+        "--overlap-grad-reduce",
         action="store_true",
         default=False,
     )
