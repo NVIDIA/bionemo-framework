@@ -1,24 +1,25 @@
+interfaces = []
 exclude = [
-    ".*__pycache__",
-    ".*egg-info",
+    "**/*__pycache__",
+    "**/*egg-info",
+    "LICENSE",
+    "build",
     "docs",
     "tests",
     "venv",
-    "LICENSE",
-    "build",
 ]
 source_roots = [
-    'sub-packages/bionemo-core/src',
-    'sub-packages/bionemo-esm2/src',
-    'sub-packages/bionemo-example_model/src',
-    'sub-packages/bionemo-fw/src',
-    'sub-packages/bionemo-geneformer/src',
-    'sub-packages/bionemo-geometric/src',
-    'sub-packages/bionemo-llm/src',
-    'sub-packages/bionemo-scdl/src',
-    'sub-packages/bionemo-size-aware-batching/src',
-    'sub-packages/bionemo-testing/src',
-    'sub-packages/bionemo-webdatamodule/src',
+    "sub-packages/bionemo-core/src",
+    "sub-packages/bionemo-esm2/src",
+    "sub-packages/bionemo-example_model/src",
+    "sub-packages/bionemo-fw/src",
+    "sub-packages/bionemo-geneformer/src",
+    "sub-packages/bionemo-geometric/src",
+    "sub-packages/bionemo-llm/src",
+    "sub-packages/bionemo-scdl/src",
+    "sub-packages/bionemo-size-aware-batching/src",
+    "sub-packages/bionemo-testing/src",
+    "sub-packages/bionemo-webdatamodule/src",
 ]
 
 [[modules]]
@@ -28,80 +29,80 @@ depends_on = []
 [[modules]]
 path = "bionemo.esm2"
 depends_on = [
-    { path = "bionemo.core" },
-    { path = "bionemo.llm" },
+    "bionemo.core",
+    "bionemo.llm",
 ]
 
 [[modules]]
 path = "bionemo.example_model"
 depends_on = [
-    { path = "bionemo.core" },
-    { path = "bionemo.llm" },
+    "bionemo.core",
+    "bionemo.llm",
 ]
 
 [[modules]]
 path = "bionemo.fw"
 depends_on = [
-    { path = "bionemo.core" },
-    { path = "bionemo.esm2" },
-    { path = "bionemo.geneformer" },
-    { path = "bionemo.geometric" },
-    { path = "bionemo.llm" },
-    { path = "bionemo.noodles" },
-    { path = "bionemo.scdl" },
-    { path = "bionemo.size_aware_batching" },
-    { path = "bionemo.webdatamodule" },
-    { path = "bionemo.noodles" },
+    "bionemo.core",
+    "bionemo.esm2",
+    "bionemo.geneformer",
+    "bionemo.geometric",
+    "bionemo.llm",
+    "bionemo.noodles",
+    "bionemo.noodles",
+    "bionemo.scdl",
+    "bionemo.size_aware_batching",
+    "bionemo.webdatamodule",
 ]
 
 [[modules]]
 path = "bionemo.geneformer"
 depends_on = [
-    { path = "bionemo.core" },
-    { path = "bionemo.llm" },
-    { path = "bionemo.scdl" },
+    "bionemo.core",
+    "bionemo.llm",
+    "bionemo.scdl",
 ]
 
 [[modules]]
 path = "bionemo.geometric"
 depends_on = [
-    { path = "bionemo.core" },
+    "bionemo.core",
 ]
 
 [[modules]]
 path = "bionemo.llm"
 depends_on = [
-    { path = "bionemo.core" },
+    "bionemo.core",
 ]
 
 [[modules]]
 path = "bionemo.noodles"
 depends_on = [
-    { path = "bionemo.core" },
+    "bionemo.core",
 ]
 
 [[modules]]
 path = "bionemo.scdl"
 depends_on = [
-    { path = "bionemo.core" },
+    "bionemo.core",
 ]
 
 [[modules]]
 path = "bionemo.size_aware_batching"
 depends_on = [
-    { path = "bionemo.core" },
+    "bionemo.core",
 ]
 
 [[modules]]
 path = "bionemo.testing"
 depends_on = [
-    { path = "bionemo.core" },
-    { path = "bionemo.llm" },
+    "bionemo.core",
+    "bionemo.llm",
 ]
 
 [[modules]]
 path = "bionemo.webdatamodule"
 depends_on = [
-    { path = "bionemo.core" },
-    { path = "bionemo.llm" },
+    "bionemo.core",
+    "bionemo.llm",
 ]
