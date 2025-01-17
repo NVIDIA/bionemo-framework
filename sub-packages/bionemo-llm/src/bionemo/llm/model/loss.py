@@ -143,26 +143,18 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         self,
         validation_step: bool = False,
         val_drop_last: bool = True,
-        send_train_output: bool = False,
-        send_val_output: bool = True,
     ) -> None:
         """Initializes the Model class.
 
         Args:
             validation_step (bool, optional): Whether this object is being applied to the validation step. Defaults to False.
             val_drop_last (bool, optional): Whether the last batch is configured to be dropped during validation. Defaults to True.
-            send_train_output (bool): Whether to return the model output in training. Defaults to False.
-            send_val_output (bool, optional): Whether to return the model output in validation. Defaults to True.
-            include_forward_output_for_metrics (bool): Some downstream metrics such as perplexity require this. It can be
-                expensive to return however, so disable this if performance is a top consideration.
         """
         # TODO(@jomitchell): Track down how we handle test. This is a common pattern in NeMo2, but these parameters seem likely
         #  to change in the future.
         super().__init__()
         self.validation_step = validation_step
         self.val_drop_last = val_drop_last
-        self.send_train_output = send_train_output
-        self.send_val_output = send_val_output
 
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
@@ -181,20 +173,6 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         """  # noqa: D205
         if "labels" not in batch:
             raise ValueError("Labels not provided in the batch. These are required for this loss computation.")
-
-        train_step: bool = not self.validation_step
-        # Determine if we need to capture/send forward output for downstream metrics, such as perplexity logging
-        #  this is expensive so only do if necessary.
-        send_forward_output: bool = (self.validation_step and self.send_val_output) or (
-            train_step and self.send_train_output
-        )
-
-        if send_forward_output:
-            forward_out_report = {
-                k: v.detach().clone() if torch.is_tensor(v) else v for k, v in forward_out.items()
-            }  # avoid impact from inplace operation on token_logits in unreduced_token_loss_fn
-        else:
-            forward_out_report = {}
 
         # NOTE: token_logits is [sequence, batch] but labels and other fiels, including the loss are [batch, sequence]
         unreduced_token_loss = unreduced_token_loss_fn(forward_out["token_logits"], batch["labels"])  # [b s]
@@ -249,14 +227,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
 
         # average the losses across the data parallel group, but also return the unreduced loss
         reduced_loss = average_losses_across_data_parallel_group([loss_for_microbatch])
-        if send_forward_output:
-            return loss_for_microbatch * cp_size, {
-                "avg": reduced_loss,
-                "batch": batch,
-                "forward_out": forward_out_report,
-            }
-        else:
-            return loss_for_microbatch * cp_size, {"avg": reduced_loss}
+        return loss_for_microbatch * cp_size, {"avg": reduced_loss}
 
 
 def unreduced_token_loss_fn(logits: Tensor, labels: Tensor, cross_entropy_loss_fusion: bool = False) -> Tensor:

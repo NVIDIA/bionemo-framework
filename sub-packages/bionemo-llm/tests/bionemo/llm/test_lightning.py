@@ -14,7 +14,6 @@
 # limitations under the License.
 
 
-
 import nemo.lightning as nl
 import pytest
 import torch
