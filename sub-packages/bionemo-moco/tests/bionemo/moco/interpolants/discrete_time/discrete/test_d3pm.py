@@ -134,3 +134,24 @@ def test_d3pm_step_square(d3pm, device):
         vb_scale=0.5,
     ).mean()
     assert loss.item() < 1.0e-1
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("state_space", [20, 10, 5, 3, 2])
+def test_d3pm_interpolate_notebook(device, state_space):
+    B = 32  # batch size
+    D = 10  # dimension
+    S = state_space  # state space
+    DEVICE = device
+    prior = DiscreteUniformPrior(num_classes=S)
+    time_distribution = UniformTimeDistribution(discrete_time=True, nsteps=1000)
+    noise_schedule = DiscreteCosineNoiseSchedule(nsteps=1000)
+    d3pm = D3PM(
+        time_distribution=time_distribution, prior_distribution=prior, noise_schedule=noise_schedule, device=DEVICE
+    )  # this failed on A100 before init on cpu then shift to GPU
+    for _ in range(100):
+        num_ones = torch.randint(0, D + 1, (B,))
+        x1 = (torch.arange(D)[None, :] < num_ones[:, None]).long().to(DEVICE)
+        t = d3pm.sample_time(B)
+        xt = d3pm.interpolate(x1, t)
+        assert xt.shape == x1.shape

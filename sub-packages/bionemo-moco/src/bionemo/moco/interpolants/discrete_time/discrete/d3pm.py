@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-import warnings
 from typing import Optional, Tuple
 
 import torch
@@ -69,14 +67,16 @@ class D3PM(Interpolant):
             last_time_idx (int, optional): The last time index to consider in the interpolation process. Defaults to 0.
             rng_generator: An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
         """
-        super().__init__(time_distribution, prior_distribution, device, rng_generator)
+        # We initialize with CPU due to numerical precision issues on A100 that are not observed on A6000
+        super().__init__(time_distribution, prior_distribution, "cpu", rng_generator)
         self.noise_schedule = noise_schedule
         self._loss_function = nn.CrossEntropyLoss(reduction="none")
         self.timesteps = noise_schedule.nsteps
         self.num_classes = prior_distribution.num_classes
-        self.terminal_distribution = prior_distribution.prior_dist.to(device)
-        self._initialize_schedules(device)
+        self.terminal_distribution = prior_distribution.prior_dist.to(self.device)
+        self._initialize_schedules(self.device)
         self.last_time_idx = last_time_idx
+        self.to_device(device)
 
     def _get_Qt(self, alphas: Tensor) -> Tensor:
         """Calculate the transition matrix Qt based on the terminal distribution.
@@ -120,6 +120,8 @@ class D3PM(Interpolant):
         Qt_bar = []
         for i in range(len(alphas)):
             Qtb = Qt_prev @ Qt[i]
+            if torch.any((Qtb.sum(-1) - 1.0).abs() > 1e-4):
+                raise ValueError(f"Invalid Distribution for Qt_bar at step {i}")
             Qt_bar.append(Qtb)
             Qt_prev = Qtb
         Qt_bar = torch.stack(Qt_bar)
@@ -175,17 +177,19 @@ class D3PM(Interpolant):
         else:
             x1_hot = data
         ford = safe_index(self._Qt_bar, t - self.last_time_idx, data.device)
-        probs = torch.einsum("b...j, bji -> b...i", [x1_hot.float(), ford])
+        if x1_hot.ndim > 3:  # einsum precision issues on A100 not A6000 for 2D inputs
+            ford_prep = ford
+            for _ in range(x1_hot.ndim - 2):
+                ford_prep = ford_prep.unsqueeze(1)
+            probs = (x1_hot.float().unsqueeze(-2) * ford_prep).sum(dim=(-2))
+        else:
+            probs = torch.einsum("b...j, bji -> b...i", [x1_hot.float(), ford])
         if torch.any((probs.sum(-1) - 1.0).abs() > 1e-4):
-            warnings.warn(
+            raise ValueError(
                 f"**INVALID BEHAVIOR** Probability Distribution does not sum to 1.0 for time {t}. "
-                f"**INVESTIGATE YOUR DEVICE PRECISION**: This condition should not happen. "
+                f"**INVESTIGATE YOUR DEVICE PRECISION**: This error has been triggered before on A100 by initializing the Qt terms on gpu. "
                 f"Normalized to ensure validity. Original sums: {probs.sum(-1)}",
-                category=UserWarning,
             )
-
-            # Normalize the probabilities so they sum to 1 along the last dimension
-            probs = probs / probs.sum(-1, keepdim=True)
         xt = self._sample_categorical(torch.log(probs) + 1.0e-6)
         return xt
 
