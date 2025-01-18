@@ -39,7 +39,7 @@ def get_random_microbatch(
         device=torch.cuda.current_device(),
     )  # [b s]
     loss_mask = torch.randint(
-        low=0,
+        low=1,
         high=1 + 1,
         size=(microbatch_size, max_sequence_length),
         dtype=torch.long,
