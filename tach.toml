@@ -8,6 +8,7 @@ exclude = [
     "build",
 ]
 source_roots = [
+    'sub-packages/bionemo-amplify/src',
     'sub-packages/bionemo-core/src',
     'sub-packages/bionemo-esm2/src',
     'sub-packages/bionemo-example_model/src',
@@ -19,6 +20,14 @@ source_roots = [
     'sub-packages/bionemo-size-aware-batching/src',
     'sub-packages/bionemo-testing/src',
     'sub-packages/bionemo-webdatamodule/src',
+]
+
+[[modules]]
+path = "bionemo.amplify"
+depends_on = [
+    { path = "bionemo.core" },
+    { path = "bionemo.esm2" },
+    { path = "bionemo.llm" },
 ]
 
 [[modules]]
@@ -42,6 +51,7 @@ depends_on = [
 [[modules]]
 path = "bionemo.fw"
 depends_on = [
+    { path = "bionemo.amplify" },
     { path = "bionemo.core" },
     { path = "bionemo.esm2" },
     { path = "bionemo.geneformer" },

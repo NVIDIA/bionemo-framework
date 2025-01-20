@@ -194,3 +194,4 @@ coverage.xml
 Thumbs.db
 
 .python_history
+test_experiment/*

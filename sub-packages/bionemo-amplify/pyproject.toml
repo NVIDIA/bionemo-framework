@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bionemo-amplify"
+readme = "README.md"
+description = "BioNeMo AMPLIFY"
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dynamic = ["version"]
+dependencies = [
+    # bionemo sub-packages
+    'bionemo-core',
+    'bionemo-esm2',
+    'bionemo-llm',
+    # external
+]
+
+[project.scripts]
+train_amplify = "bionemo.amplify.scripts.train_amplify:train_amplify_entrypoint"
+
+# Make sure that the tokenizer files are included along with the python files during installation.
+[tool.setuptools.package-data]
+"bionemo.amplify" = ["data/tokenizer/*.json", "data/tokenizer/*.txt"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bionemo.*"]
+namespaces = true
+exclude = ["test*."]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
+
+[tool.uv]
+cache-keys = [{ git = true }]
