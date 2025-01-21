@@ -1,6 +1,7 @@
 name: Enforce Tiered Approvals
 
 on:
+<<<<<<< HEAD
   pull_request:
     types:
       - review_requested
@@ -10,13 +11,18 @@ on:
       - closed
       - edited
       - reopened
+=======
+>>>>>>> 2928a250b (Removes tier1 approval rules, sets triggers pull_request_reviews)
   pull_request_review:
     types:
       - submitted
       - edited
       - dismissed
 
+<<<<<<< HEAD
 # TODO: Action should run when someone approves / disapproves etc.
+=======
+>>>>>>> 2928a250b (Removes tier1 approval rules, sets triggers pull_request_reviews)
 jobs:
   enforce_tiered_approvals:
     runs-on: ubuntu-latest
@@ -44,6 +50,7 @@ jobs:
               done
               continue
             fi
+<<<<<<< HEAD
 
             # Parse +1 CODEOWNERS
             path=$(echo "$line" | awk '{print $1}')
@@ -71,6 +78,15 @@ jobs:
             const changedFiles = files.map(file => file.filename);
             core.setOutput('changedFiles', changedFiles.join(','));
 
+=======
+            
+          done < CODEOWNERS
+
+          # Export TIER2 Reviewers as JSON
+          echo "$(declare -p TIER2_REVIEWERS)" > tier2reviewers.json
+          echo "TIER2 reviewers exported to JSON."
+      
+>>>>>>> 2928a250b (Removes tier1 approval rules, sets triggers pull_request_reviews)
       - name: Get PR reviews
         id: get_reviews
         uses: actions/github-script@v6
@@ -94,6 +110,7 @@ jobs:
 
             core.setOutput('approvedUsers', approvedUsers.join(','));
 
+<<<<<<< HEAD
       - name: Check +1 approvals (file-specific)
         id: check_tier1
         run: |
@@ -135,6 +152,8 @@ jobs:
 
           echo $TIER1_APPROVED
 
+=======
+>>>>>>> 2928a250b (Removes tier1 approval rules, sets triggers pull_request_reviews)
       - name: Check +2 approvals (global tier)
         id: check_tier2
         run: |
@@ -176,14 +195,21 @@ jobs:
       - name: Enforce approval requirements
         run: |
           echo "Enforcing approval requirements..."
+<<<<<<< HEAD
           if [[ "$tier1Approved" != "true" ]]; then
             echo "ERROR: No +1 reviewer has approved the pull request for changed files."
             exit 1
           fi
+=======
+>>>>>>> 2928a250b (Removes tier1 approval rules, sets triggers pull_request_reviews)
 
           if [[ "$tier2Approved" != "true" ]]; then
             echo "ERROR: No +2 reviewer has approved the pull request."
             exit 1
           fi
 
+<<<<<<< HEAD
           echo "All tiered approval requirements met. Proceeding."
+=======
+          echo "All tiered 2 approval requirements met. Proceeding."
+>>>>>>> 2928a250b (Removes tier1 approval rules, sets triggers pull_request_reviews)
