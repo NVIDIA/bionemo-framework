@@ -30,10 +30,6 @@ from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
 
 
-# To download a 8M internally pre-trained ESM2 model
-pretrain_ckpt_path = load("esm2/nv_8m:2.0")
-
-
 def data_to_csv(data, tmp_path):
     """Create a mock protein dataset."""
     csv_file = tmp_path / "protein_dataset.csv"
@@ -57,7 +53,7 @@ def test_esm2_finetune_token_classifier(
             train_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
             valid_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
             experiment_name="finetune_new_head_token_classification",
-            restore_from_checkpoint_path=str(pretrain_ckpt_path),
+            restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
             num_steps=n_steps_train,
             num_nodes=1,
             devices=1,
@@ -102,7 +98,7 @@ def test_esm2_finetune_regressor(
             train_data_path=data_to_csv(dummy_data_single_value_regression_ft, tmp_path),
             valid_data_path=data_to_csv(dummy_data_single_value_regression_ft, tmp_path),
             experiment_name="finetune_new_head_regression",
-            restore_from_checkpoint_path=str(pretrain_ckpt_path),
+            restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
             num_steps=n_steps_train,
             num_nodes=1,
             devices=1,

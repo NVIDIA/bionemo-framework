@@ -164,7 +164,11 @@ def test_esm2_650m_checkpoint(esm2_model):
 
         extra_keys = new_keys.difference(old_keys)
         extra_non_null_keys = {
-            k for k in extra_keys if new_state_dict[k] is not None and not isinstance(new_state_dict[k], io.BytesIO)
+            k
+            for k in extra_keys
+            if not k.endswith("._extra_state")
+            and new_state_dict[k] is not None
+            and not isinstance(new_state_dict[k], io.BytesIO)
         }
         assert not extra_non_null_keys, "There are new keys that have state that is missing from the old checkpoint."
 

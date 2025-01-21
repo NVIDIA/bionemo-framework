@@ -25,14 +25,23 @@
   description: >
     An ESM-2 650M model pre-trained on NVIDIA's train/test data split.
 
-- tag: nv_8m:2.0
+# - tag: nv_8m:2.1
+#   ngc: "nvidia/clara/esm2nv8m:2.1"
+#   ngc_registry: model
+#   pbss: "s3://general-purpose/esm2/checkpoints/8m/esm2_8m_checkpoint.tar.gz"
+#   sha256: b4ea4d52eea8a25d2c2838617ff678f0da22d384cee195b0c192686816078dcd # pragma: allowlist secret
+#   owner: Peter St John <pstjohn@nvidia.com>
+#   description: >
+#     An ESM-2 8M model pre-trained on NVIDIA's train/test data split.
+
+- tag: 8m:2.0
   ngc: "nvidia/clara/esm2nv8m:2.0"
   ngc_registry: model
-  pbss: "s3://general-purpose/esm2/checkpoints/8m/esm2_8m_checkpoint.tar.gz"
-  sha256: b4ea4d52eea8a25d2c2838617ff678f0da22d384cee195b0c192686816078dcd # pragma: allowlist secret
+  pbss: "s3://general-purpose/esm2/checkpoints/converted/8m/esm2_hf_converted_8m_checkpoint.tar.gz"
+  sha256: 2957b2c36d5978d0f595d6f1b72104b312621cf0329209086537b613c1c96d16 # pragma: allowlist secret
   owner: Peter St John <pstjohn@nvidia.com>
   description: >
-    An ESM-2 8M model pre-trained on NVIDIA's train/test data split.
+    The original 8M parameter ESM2 model weights converted to the NeMo2 checkpoint format.
 
 - tag: 650m:2.0
   ngc: nvidia/clara/esm2nv650m:2.0
@@ -41,7 +50,7 @@
   sha256: 0798767e843e3d54315aef91934d28ae7d8e93c2849d5fcfbdf5fac242013997 # pragma: allowlist secret
   owner: Farhad Ramezanghorbani <farhadr@nvidia.com>
   description: >
-    A pretrained 650M parameter ESM2 model. See https://ngc.nvidia.com/catalog/models/nvidia:clara:esm2nv650m.
+    The original 650M parameter ESM2 model weights converted to the NeMo2 checkpoint format.
 
 - tag: 3b:2.0
   ngc: nvidia/clara/esm2nv3b:2.0
@@ -50,7 +59,7 @@
   sha256: a2248cfed1ef39f83bd32a0e08b84c0a8f39325d383e2d92767022ff7f5260ed # pragma: allowlist secret
   owner: Farhad Ramezanghorbani <farhadr@nvidia.com>
   description: >
-    A pretrained 3B parameter ESM2 model. See https://ngc.nvidia.com/catalog/models/nvidia:clara:esm2nv3b.
+    The original 3B parameter ESM2 model c converted to the NeMo2 checkpoint format.
 
 - tag: fulldata_esm2_pretrain:2.0
   ngc: nvidia/clara/esm2_pretrain_nemo2_data:1.0

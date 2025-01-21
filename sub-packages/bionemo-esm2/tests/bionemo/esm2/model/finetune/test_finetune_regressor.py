@@ -26,13 +26,9 @@ from bionemo.esm2.model.finetune.finetune_regressor import (
 from bionemo.testing import megatron_parallel_state_utils
 
 
-# To download a 8M internally pre-trained ESM2 model
-pretrain_ckpt_path = load("esm2/nv_8m:2.0")
-
-
 @pytest.fixture
 def config():
-    return ESM2FineTuneSeqConfig(encoder_frozen=True, ft_dropout=0.50, initial_ckpt_path=str(pretrain_ckpt_path))
+    return ESM2FineTuneSeqConfig(encoder_frozen=True, ft_dropout=0.50, initial_ckpt_path=str(load("esm2/8m:2.0")))
 
 
 @pytest.fixture
