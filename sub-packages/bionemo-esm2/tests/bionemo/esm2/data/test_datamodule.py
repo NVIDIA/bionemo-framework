@@ -39,6 +39,21 @@ def test_create_esm_datamodule_raises_without_trainer(dummy_protein_dataset, dum
         data_module.setup()
 
 
+def test_esm_datamodule_sets_min_seq_len_to_max_seq_len(dummy_protein_dataset, dummy_parquet_train_val_inputs):
+    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
+
+    # Initialize the data module.
+    data_module = ESMDataModule(
+        train_cluster_path=train_cluster_path,
+        train_database_path=dummy_protein_dataset,
+        valid_cluster_path=valid_cluster_path,
+        valid_database_path=dummy_protein_dataset,
+        max_seq_length=36,
+    )
+
+    assert data_module._min_seq_length == 36
+
+
 def test_create_esm_datamodule_raises_without_trainer_max_steps(dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
