@@ -31,7 +31,9 @@ from bionemo.testing.callbacks import MetricTracker
 
 
 # To download a 8M internally pre-trained ESM2 model
-pretrain_ckpt_path = load("esm2/nv_8m:2.0")
+@pytest.fixture
+def pretrain_ckpt_path():
+    return load("esm2/nv_8m:2.0")
 
 
 def data_to_csv(data, tmp_path):

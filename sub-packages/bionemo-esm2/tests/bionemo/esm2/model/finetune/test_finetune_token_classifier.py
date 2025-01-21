@@ -27,7 +27,9 @@ from bionemo.testing import megatron_parallel_state_utils
 
 
 # To download a 8M internally pre-trained ESM2 model
-pretrain_ckpt_path = load("esm2/nv_8m:2.0")
+@pytest.fixture
+def pretrain_ckpt_path():
+    return load("esm2/nv_8m:2.0")
 
 
 @pytest.fixture
