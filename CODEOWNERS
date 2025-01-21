@@ -87,6 +87,8 @@ sub-packages/bionemo-llm @farhadrgh @dorotat-nv @jstjohn @malcolmgreaves @pstjoh
 
 sub-packages/bionemo-geometric @DejunL @guoqing-zhou @jstjohn @malcolmgreaves
 
+sub-packages/bionemo-esm2 @pstjohn @jstjohn @skothenhill-nv @jomitchell @farhadrgh @simonchu
+
 sub-packages/bionemo-example_model @jstjohn @malcolmgreaves @skothenhill-nv
 
 sub-packages/bionemo-geneformer @jstjohn @malcolmgreaves @skothenhill-nv
