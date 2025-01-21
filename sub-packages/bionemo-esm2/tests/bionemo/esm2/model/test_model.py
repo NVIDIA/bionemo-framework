@@ -181,11 +181,24 @@ def test_model_equivalence_with_huggingface_8m():
     assert_model_equivalence(ckpt_path, model_tag)
 
 
+def test_model_equivalence_with_huggingface_8m_bf16():
+    model_tag = "facebook/esm2_t6_8M_UR50D"
+    ckpt_path = load("esm2/8m:2.0")
+    assert_model_equivalence(ckpt_path, model_tag, precision="bf16-mixed")
+
+
 @pytest.mark.slow
 def test_model_equivalence_with_huggingface_650m():
     model_tag = "facebook/esm2_t33_650M_UR50D"
     ckpt_path = load("esm2/650m:2.0")
     assert_model_equivalence(ckpt_path, model_tag, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.slow
+def test_model_equivalence_with_huggingface_650m_bf16():
+    model_tag = "facebook/esm2_t33_650M_UR50D"
+    ckpt_path = load("esm2/650m:2.0")
+    assert_model_equivalence(ckpt_path, model_tag, precision="bf16")
 
 
 @pytest.mark.slow

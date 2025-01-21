@@ -57,7 +57,7 @@ def assert_model_equivalence(
     input_ids = tokens["input_ids"]
     attention_mask = tokens["attention_mask"]
 
-    with torch.inference_mode(), megatron_parallel_state_utils.distributed_model_parallel_state():
+    with torch.inference_mode(), megatron_parallel_state_utils.distributed_model_parallel_state(precision=precision):
         nemo_model = (
             ESM2Config(
                 initial_ckpt_path=str(ckpt_path),
