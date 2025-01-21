@@ -24,7 +24,7 @@ import pytest
 import torch
 from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
 from torch import Tensor
-from transformers import EsmForMaskedLM
+from transformers import AutoModelForMaskedLM
 
 from bionemo.core.data.load import load
 from bionemo.core.utils.dtypes import get_autocast_dtype
@@ -36,6 +36,12 @@ from bionemo.esm2.model.embedding import ESM2Embedding
 from bionemo.llm.model.biobert.model import MegatronBioBertModel
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
+
+
+hf_model_tag = "facebook/esm2_t6_8M_UR50D"
+nv_model_tag = "esm2/8m:2.0"
+# hf_model_tag = "facebook/esm2_t33_650M_UR50D"
+# nv_model_tag = "esm2/650m:2.0"
 
 
 def reduce_hiddens(hiddens: Tensor, attention_mask: Tensor) -> Tensor:
@@ -66,9 +72,9 @@ def esm2_config() -> ESM2Config:
 
 
 @pytest.fixture(scope="module")
-def esm2_650M_config_w_ckpt() -> ESM2Config:
+def esm2_config_w_ckpt() -> ESM2Config:
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        yield ESM2Config(initial_ckpt_path=load("esm2/650m:2.0"))
+        yield ESM2Config(initial_ckpt_path=load(nv_model_tag))
 
 
 @pytest.fixture(scope="module")
@@ -136,7 +142,7 @@ def test_esm2_model_initialized(esm2_model):
     assert isinstance(esm2_model.embedding, ESM2Embedding)
 
 
-def test_esm2_650m_checkpoint(esm2_model):
+def test_esm2_nemo1_checkpoint(esm2_model):
     with tarfile.open(load("esm2/nv_650m:1.0"), "r") as ckpt, torch.no_grad():
         ckpt_file = ckpt.extractfile("./model_weights.ckpt")
 
@@ -176,20 +182,19 @@ def test_esm2_650m_checkpoint(esm2_model):
         assert not missing_old_keys, "There are keys in the old checkpoint that are missing from the new model."
 
 
-def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
+def test_esm2_golden_values(esm2_config_w_ckpt, sample_data):
     tokenizer = AutoTokenizer(pretrained_model_name="facebook/esm2_t33_650M_UR50D")
     tokens = tokenizer.tokenizer([row[1] for row in sample_data], return_tensors="pt", padding=True).to("cuda")
     input_ids = tokens["input_ids"]
     attention_mask = tokens["attention_mask"]
 
-    # HF 650M model
-    hf_model = EsmForMaskedLM.from_pretrained(
-        "facebook/esm2_t33_650M_UR50D", torch_dtype=get_autocast_dtype(32)
-    ).cuda()
+    # HF model
+    hf_model = AutoModelForMaskedLM.from_pretrained(hf_model_tag, torch_dtype=get_autocast_dtype(32)).cuda()
 
     with torch.no_grad():
         hf_output_all = hf_model(input_ids, attention_mask, output_hidden_states=True)
         hf_logits = hf_output_all.logits * attention_mask.unsqueeze(-1)
+        hf_hiddens = hf_output_all.hidden_states[-1]
         hf_embeddings = reduce_hiddens(hf_output_all.hidden_states[-1], attention_mask)
 
         # free GPU RAM
@@ -198,7 +203,7 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         torch.cuda.empty_cache()
 
         # configure the model to return logits
-        model = esm2_650M_config_w_ckpt.configure_model(get_tokenizer()).cuda()
+        model = esm2_config_w_ckpt.configure_model(get_tokenizer()).cuda()
         model.eval()
         result = model(input_ids, attention_mask)
         # token_logits is s,b and for simplicity here let's transpose to b,s. In general this reduces performance.
@@ -211,18 +216,27 @@ def test_esm2_golden_values(esm2_650M_config_w_ckpt, sample_data):
         torch.cuda.empty_cache()
 
         # configure the model to return hiddens
-        esm2_650M_config_hiddens = deepcopy(esm2_650M_config_w_ckpt)
-        esm2_650M_config_hiddens.set_hparam("return_only_hidden_states", True)
-        model = esm2_650M_config_hiddens.configure_model(get_tokenizer()).cuda()
+        esm2_config_hiddens = deepcopy(esm2_config_w_ckpt)
+        esm2_config_hiddens.set_hparam("return_only_hidden_states", True)
+        model = esm2_config_hiddens.configure_model(get_tokenizer()).cuda()
         model.eval()
         hiddens = model(input_ids, attention_mask)
         embeddings = reduce_hiddens(torch.transpose(hiddens, 0, 1).float(), attention_mask)
 
-        torch.testing.assert_close(logits, hf_logits, atol=0.2, rtol=0.0)
-        torch.testing.assert_close(embeddings, hf_embeddings, atol=5e-3, rtol=0.0)
+        # Rather than directly comparing the logit or hidden state tensors, we compare their cosine similarity. These
+        # should be essentially 1 if the outputs are equivalent, but is less sensitive to small numerical differences.
+        # We don't care about the padding tokens, so we only compare the non-padding tokens.
+        logit_similarity = torch.nn.functional.cosine_similarity(logits, hf_logits, dim=2)
+        logit_similarity = logit_similarity[attention_mask == 1]
+
+        hidden_state_similarity = torch.nn.functional.cosine_similarity(hiddens, hf_hiddens, dim=2)
+        hidden_state_similarity = hidden_state_similarity[attention_mask == 1]
+
+        torch.testing.assert_close(logit_similarity, torch.ones_like(logit_similarity))
+        torch.testing.assert_close(hidden_state_similarity, torch.ones_like(hidden_state_similarity))
 
 
-def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet_train_val_inputs):
+def test_esm2_loss(esm2_config_w_ckpt, dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
     compute_hf_reference: bool = True
@@ -235,8 +249,8 @@ def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet
     ):
         tokenizer = get_tokenizer()
 
-        # ESM2 model initialized with 650M params
-        model = esm2_650M_config_w_ckpt.configure_model(tokenizer).cuda()
+        # ESM2 model initialized with params
+        model = esm2_config_w_ckpt.configure_model(tokenizer).cuda()
 
         # Initialize the data module.
         data_module = ESMDataModule(
@@ -269,10 +283,8 @@ def test_esm2_loss(esm2_650M_config_w_ckpt, dummy_protein_dataset, dummy_parquet
         mean_loss = _compute_loss(model, train_dataloader, vocab_size=tokenizer.vocab_size)
 
         if compute_hf_reference:
-            # HF model initialized with 650M params
-            hf_model = EsmForMaskedLM.from_pretrained(
-                "facebook/esm2_t33_650M_UR50D", torch_dtype=get_autocast_dtype(32)
-            ).cuda()
+            # HF model initialized with params
+            hf_model = AutoModelForMaskedLM.from_pretrained(hf_model_tag, torch_dtype=get_autocast_dtype(32)).cuda()
             hf_mean_loss = _compute_loss(hf_model, train_dataloader)
             print(f"hf_mean_loss: {hf_mean_loss}")
         else:
