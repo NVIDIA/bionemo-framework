@@ -19,15 +19,43 @@ from typing import get_args
 import pandas as pd
 import pytest
 import torch
+from torch.utils.data import DataLoader
 
 from bionemo.core.data.load import load
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.tokenizer import get_tokenizer
+from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule, InMemoryCSVDataset
 from bionemo.esm2.scripts.infer_esm2 import infer_model
 from bionemo.llm.data import collate
 from bionemo.llm.lightning import batch_collator
 from bionemo.llm.utils.callbacks import IntervalT
+
+
+# Function to check GPU memory
+def check_gpu_memory(threshold_gb):
+    if torch.cuda.is_available():
+        gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # Memory in GB
+        return gpu_memory < threshold_gb
+    return False
+
+
+@pytest.fixture
+def dummy_protein_sequences():
+    """Create a list of artificial protein sequences"""
+    artificial_sequence_data = [
+        "TLILGWSDKLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
+        "LYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
+        "GRFNVWLGGNESKIRQVLKAVKEIGVSPTLFAVYEKN",
+        "DELTALGGLLHDIGKPVQRAGLYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
+        "KLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
+        "LFGAIGNAISAIHGQSAVEELVDAFVGGARISSAFPYSGDTYYLPKP",
+        "LGGLLHDIGKPVQRAGLYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
+        "LYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
+        "ISAIHGQSAVEELVDAFVGGARISSAFPYSGDTYYLPKP",
+        "SGSKASSDSQDANQCCTSCEDNAPATSYCVECSEPLCETCVEAHQRVKYTKDHTVRSTGPAKT",
+    ]
+    return artificial_sequence_data
 
 
 @pytest.fixture
@@ -43,6 +71,16 @@ def dummy_protein_csv(tmp_path, dummy_protein_sequences):
 
 
 @pytest.fixture
+def dataset(dummy_protein_csv):
+    return InMemoryCSVDataset(dummy_protein_csv)
+
+
+@pytest.fixture
+def data_module(dataset):
+    return ESM2FineTuneDataModule(predict_dataset=dataset)
+
+
+@pytest.fixture
 def padded_tokenized_sequences(dummy_protein_sequences):
     tokenizer = get_tokenizer()
     tokenized_sequences = [
@@ -51,6 +89,49 @@ def padded_tokenized_sequences(dummy_protein_sequences):
     batch = [{"text": tensor.flatten()} for tensor in tokenized_sequences]
     collated_batch = collate.bert_padding_collate_fn(batch, padding_value=tokenizer.pad_token_id, min_length=1024)
     return collated_batch["text"]
+
+
+def test_in_memory_csv_dataset(dataset):
+    assert len(dataset) > 0
+    sample = dataset[0]
+    assert isinstance(sample, dict)
+    assert "text" in sample
+    assert "labels" in sample
+
+
+def test_in_memory_csv_dataset_load_data(dataset, dummy_protein_csv):
+    sequences, labels = dataset.load_data(dummy_protein_csv)
+    assert isinstance(sequences, list)
+    assert isinstance(labels, list)
+
+
+def test_esm2_fine_tune_data_module_init(data_module):
+    assert data_module.train_dataset is None
+    assert data_module.valid_dataset is None
+    assert data_module.predict_dataset is not None
+
+
+def test_esm2_fine_tune_data_module_predict_dataloader(data_module):
+    predict_dataloader = data_module.predict_dataloader()
+    assert isinstance(predict_dataloader, DataLoader)
+    batch = next(iter(predict_dataloader))
+    assert isinstance(batch, dict)
+    assert "text" in batch
+
+
+def test_esm2_fine_tune_data_module_setup(data_module):
+    with pytest.raises(RuntimeError):
+        data_module.setup("fit")
+
+
+def test_esm2_fine_tune_data_module_train_dataloader(data_module):
+    with pytest.raises(AttributeError):
+        data_module.train_dataloader()
+
+
+def test_esm2_fine_tune_data_module_val_dataloader(data_module):
+    with pytest.raises(AttributeError):
+        data_module.val_dataloader()
 
 
 @pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
