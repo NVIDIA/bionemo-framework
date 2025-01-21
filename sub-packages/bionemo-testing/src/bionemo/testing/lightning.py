@@ -18,13 +18,15 @@ from typing import Dict
 
 import torch
 
+from bionemo.llm.data.collate import MLM_LOSS_IGNORE_INDEX
+
 
 def get_random_microbatch(
     microbatch_size: int,
     max_sequence_length: int,
     vocab_size: int,
     seed: int,
-    mask_index: int = -100,
+    mask_index: int = MLM_LOSS_IGNORE_INDEX,
 ) -> Dict[str, Dict[str, torch.Tensor]]:
     """Generate random microbatches for testing.
 

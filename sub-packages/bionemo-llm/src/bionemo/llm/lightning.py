@@ -31,6 +31,7 @@ from torch import Tensor
 
 from bionemo.core.model.config import BionemoTrainableModelConfig
 from bionemo.llm.api import MegatronLossType, MegatronModelType
+from bionemo.llm.data.collate import MLM_LOSS_IGNORE_INDEX
 
 
 __all__: Sequence[str] = (
@@ -259,8 +260,8 @@ class BionemoLightningModule(
         self.model_transform = model_transform
 
         # torchmetrics must init here for fiddle serialization
-        self.train_ppl = torchmetrics.text.Perplexity(ignore_index=-100) if log_train_ppl else None
-        self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=-100) if log_val_ppl else None
+        self.train_ppl = torchmetrics.text.Perplexity(ignore_index=MLM_LOSS_IGNORE_INDEX) if log_train_ppl else None
+        self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=MLM_LOSS_IGNORE_INDEX) if log_val_ppl else None
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
