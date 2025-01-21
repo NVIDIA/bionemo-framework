@@ -34,7 +34,7 @@
 #   description: >
 #     An ESM-2 8M model pre-trained on NVIDIA's train/test data split.
 
-- tag: 8m:2.0
+- tag: nv_8m:2.0
   ngc: "nvidia/clara/esm2nv8m:2.0"
   ngc_registry: model
   pbss: "s3://general-purpose/esm2/checkpoints/converted/8m/esm2_hf_converted_8m_checkpoint.tar.gz"
