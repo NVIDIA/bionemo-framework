@@ -28,7 +28,7 @@ from bionemo.testing import megatron_parallel_state_utils
 
 @pytest.fixture
 def config():
-    return ESM2FineTuneSeqConfig(encoder_frozen=True, ft_dropout=0.50, initial_ckpt_path=str(load("esm2/nv_8m:2.0")))
+    return ESM2FineTuneSeqConfig(encoder_frozen=True, ft_dropout=0.50, initial_ckpt_path=str(load("esm2/8m:2.0")))
 
 
 @pytest.fixture
