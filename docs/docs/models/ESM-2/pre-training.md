@@ -22,7 +22,7 @@ Validation perplexity evaluated on the NVIDIA validation set.
 === "8M"
 
     ```python
-    esm2_8m_ckpt_path = load("esm2/nv_8m:2.0")
+    esm2_8m_ckpt_path = load("esm2/8m:2.0")
     ```
 
     ### Training Script

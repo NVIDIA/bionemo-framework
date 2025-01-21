@@ -16,7 +16,6 @@
 
 import pytest
 
-from bionemo.core.data.load import load
 from bionemo.esm2.data import tokenizer
 from bionemo.esm2.model.finetune.finetune_token_classifier import (
     ESM2FineTuneTokenConfig,
@@ -24,12 +23,6 @@ from bionemo.esm2.model.finetune.finetune_token_classifier import (
     MegatronConvNetHead,
 )
 from bionemo.testing import megatron_parallel_state_utils
-
-
-# To download a 8M internally pre-trained ESM2 model
-@pytest.fixture
-def pretrain_ckpt_path():
-    return load("esm2/nv_8m:2.0")
 
 
 @pytest.fixture
