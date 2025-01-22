@@ -23,7 +23,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from bionemo.core.data.load import default_ngc_client, default_pbss_client, load
+from bionemo.core.data.load import default_pbss_client, load
 from bionemo.core.data.resource import get_all_resources
 
 
@@ -267,12 +267,6 @@ def test_load_with_targz_directory(mocked_s3_download, tmp_path):
 def test_default_pbss_client():
     client = default_pbss_client()
     assert client.meta.endpoint_url == "https://pbss.s8k.io"
-
-
-@pytest.mark.xfail(reason="Logging into NGC is not required to download artifacts in BioNeMo.")
-def test_default_ngc_client():
-    clt = default_ngc_client()
-    assert clt.api_key is not None
 
 
 @patch("bionemo.core.data.load.default_ngc_client")

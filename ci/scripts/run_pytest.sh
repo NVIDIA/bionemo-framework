@@ -15,7 +15,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 # Enable strict mode with better error handling
 set -euox pipefail
 
@@ -38,7 +37,7 @@ EOF
 }
 
 # Set default environment variables
-: "${BIONEMO_DATA_SOURCE:=pbss}"
+: "${BIONEMO_DATA_SOURCE:=ngc}"
 : "${PYTHONDONTWRITEBYTECODE:=1}"
 : "${PYTORCH_CUDA_ALLOC_CONF:=expandable_segments:True}"
 
