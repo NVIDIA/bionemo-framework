@@ -126,6 +126,12 @@ Key behaviors:
 - Use when modifying notebooks or notebook-related code
 - Disabled by default
 
+#### **INCLUDE_SLOW_TESTS**
+
+- Enables unit tests labelled as slow ie CLI tests
+- Use when modifying core functionalities and require extensive, end-2-end, testing
+- Disabled by default
+
 ### Developer workflows
 
 You should always carefully test your changes. Run `pytest ...` in your container locally. All tests are done via `pytest`.
