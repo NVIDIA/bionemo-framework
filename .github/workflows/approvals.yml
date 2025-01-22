@@ -44,13 +44,10 @@ jobs:
           echo "Checking for +2 approvals..."
           APPROVED_USERS="${{ steps.get_reviews.outputs.approvedUsers }}"
 
-          # Load TIER2_REVIEWERS mapping
-          declare -A TIER2_REVIEWERS
-          eval "$(cat tier2reviewers.json)"
-
           TIER2_APPROVED=false
 
           echo "Approved Users: $APPROVED_USERS"
+          echo "TIER2_REVIEWERS: $TIER2_REVIEWERS"
 
           # Iterate over approved users and compare with cleaned TIER2_REVIEWERS
           for USER in ${APPROVED_USERS//,/ }; do
