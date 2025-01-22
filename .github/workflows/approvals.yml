@@ -5,7 +5,11 @@ on:
   pull_request: # TODO: remove
 
 env:
-  TIER2_REVIEWERS: ("jstjohn" "trvachov" "pstjohn" "jomitchellnv")
+  TIER2_REVIEWERS: |
+    jstjohn
+    trvachov
+    pstjohn
+    jomitchellnv
 
 jobs:
   enforce_tiered_approvals:
