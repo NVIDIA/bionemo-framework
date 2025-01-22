@@ -32,7 +32,7 @@ from nemo.utils import logging
 from pydantic import BaseModel
 
 from bionemo.core.utils.dtypes import get_autocast_dtype
-from bionemo.llm.lightning import BionemoLightningModule, PerplexityLoggingCallback
+from bionemo.llm.lightning import BionemoLightningModule
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.run.config_models import (
@@ -131,9 +131,6 @@ def setup_trainer(
             RichModelSummary(max_depth=4),
             LearningRateMonitor(),
         ]
-
-    if training_config.include_perplexity:
-        callbacks.append(PerplexityLoggingCallback())
 
     if training_config.gc_interval > 0:
         callbacks.append(
@@ -252,7 +249,11 @@ def train(
     )
 
     model: BionemoLightningModule = biobert_lightning_module(
-        config=bionemo_model_config, tokenizer=data.tokenizer, optimizer=optimizer
+        config=bionemo_model_config,
+        tokenizer=data.tokenizer,
+        optimizer=optimizer,
+        log_train_ppl=training_config.log_train_ppl,
+        log_val_ppl=training_config.log_val_ppl,
     )
     trainer: nl.Trainer = setup_trainer(parallel_config, training_config, nsys_config=nsys_config)
     nemo_logger: nl.NeMoLogger = nemo_logger_factory(experiment_config, wandb_config=wandb_config)

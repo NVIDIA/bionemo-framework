@@ -42,9 +42,11 @@ def data_to_csv(data, tmp_path):
 
 
 @pytest.mark.needs_gpu
+@pytest.mark.parametrize("encoder_frozen", [True, False])
 def test_esm2_finetune_token_classifier(
     tmp_path,
     dummy_data_per_token_classification_ft,
+    encoder_frozen,
     n_steps_train: int = 50,
     seed: int = 42,
 ):
@@ -71,6 +73,7 @@ def test_esm2_finetune_token_classifier(
             accumulate_grad_batches=1,
             resume_if_exists=False,
             precision="bf16-mixed",
+            encoder_frozen=encoder_frozen,
             dataset_class=InMemoryPerTokenValueDataset,
             config_class=ESM2FineTuneTokenConfig,
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
@@ -85,13 +88,17 @@ def test_esm2_finetune_token_classifier(
         encoder_requires_grad = [
             p.requires_grad for name, p in trainer.model.named_parameters() if "classification_head" not in name
         ]
-        assert not all(encoder_requires_grad), "Pretrained model is not fully frozen during fine-tuning"
+        assert (
+            not all(encoder_requires_grad) == encoder_frozen
+        ), f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
 
 
 @pytest.mark.needs_gpu
+@pytest.mark.parametrize("encoder_frozen", [True, False])
 def test_esm2_finetune_regressor(
     tmp_path,
     dummy_data_single_value_regression_ft,
+    encoder_frozen,
     n_steps_train: int = 50,
     seed: int = 42,
 ):
@@ -118,6 +125,7 @@ def test_esm2_finetune_regressor(
             accumulate_grad_batches=1,
             resume_if_exists=False,
             precision="bf16-mixed",
+            encoder_frozen=encoder_frozen,
             dataset_class=InMemorySingleValueDataset,
             config_class=ESM2FineTuneSeqConfig,
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
@@ -132,7 +140,9 @@ def test_esm2_finetune_regressor(
         encoder_requires_grad = [
             p.requires_grad for name, p in trainer.model.named_parameters() if "regression_head" not in name
         ]
-        assert not all(encoder_requires_grad), "Pretrained model is not fully frozen during fine-tuning"
+        assert (
+            not all(encoder_requires_grad) == encoder_frozen
+        ), f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
 
 
 @pytest.fixture
@@ -258,7 +268,7 @@ def test_get_parser():
             "--nsys-ranks",
             "0",
             "1",
-            "--no-overlap-grad-reduce",
+            "--overlap-grad-reduce",
             "--no-overlap-param-gather",
             "--no-average-in-collective",
             "--grad-reduce-in-fp32",
@@ -266,6 +276,11 @@ def test_get_parser():
             "InMemoryPerTokenValueDataset",
             "--config-class",
             "ESM2FineTuneTokenConfig",
+            "--encoder-frozen",
+            "--lr-multiplier",
+            "1e2",
+            "--scale-lr-layer",
+            "dummy_layer",
         ]
     )
 
@@ -307,9 +322,12 @@ def test_get_parser():
     assert args.nsys_start_step == 10
     assert args.nsys_end_step == 50
     assert args.nsys_ranks == [0, 1]
-    assert args.no_overlap_grad_reduce is True
+    assert args.overlap_grad_reduce is True
     assert args.no_overlap_param_gather is True
     assert args.no_average_in_collective is True
     assert args.grad_reduce_in_fp32 is True
     assert args.dataset_class == InMemoryPerTokenValueDataset
     assert args.config_class == ESM2FineTuneTokenConfig
+    assert args.encoder_frozen is True
+    assert args.lr_multiplier == 100
+    assert args.scale_lr_layer == "dummy_layer"

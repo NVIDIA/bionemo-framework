@@ -42,8 +42,11 @@ import torch
 import torch.distributed
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel import random as tp_random
+from nemo import lightning as nl
 from nemo.utils import logging
 from torch.testing._internal.distributed.fake_pg import FakeStore
+
+from bionemo.core.utils.dtypes import PrecisionTypes
 
 
 __all__: Sequence[str] = (
@@ -81,12 +84,24 @@ def _initialize_distributed_parallel_state(
     pipeline_model_parallel_split_rank: int = 0,
     context_parallel_size: int = 1,
     interactive: bool = False,
-) -> None:
+    precision: PrecisionTypes = "fp32",
+) -> pl.Trainer | None:
+    trainer = None
     # initialize pytorch DDP
     # if not interactive and not torch.distributed.is_initialized():
     if not torch.distributed.is_initialized():
-        logging.info("pytorch DDP is not initialized. Initializing with pytorch-lightening...")
-        trainer = pl.Trainer(devices=devices, strategy="ddp" if not interactive else "auto", num_nodes=1)
+        logging.info("pytorch DDP is not initialized. Initializing with pytorch-lightning...")
+        trainer = pl.Trainer(
+            devices=devices,
+            strategy="ddp" if not interactive else "auto",
+            num_nodes=1,
+            # plugins=nl.MegatronMixedPrecision(
+            #     precision=precision,
+            #     params_dtype=get_autocast_dtype(precision),
+            #     pipeline_dtype=get_autocast_dtype(precision),
+            #     autocast_enabled=False,
+            # ),
+        )
 
         if trainer.strategy.launcher is not None:
             trainer.strategy.launcher.launch(_dummy, trainer=trainer)
@@ -100,6 +115,8 @@ def _initialize_distributed_parallel_state(
             pipeline_model_parallel_split_rank=pipeline_model_parallel_split_rank,
             context_parallel_size=context_parallel_size,
         )
+
+    return trainer
 
 
 @contextmanager
@@ -124,6 +141,7 @@ def distributed_model_parallel_state(
     pipeline_model_parallel_split_rank: int = 0,
     context_parallel_size: int = 1,
     interactive: bool = False,
+    precision: PrecisionTypes = "fp32",
 ) -> Iterator[None]:
     """Context manager for handling creating and cleaning up distributed model parallel state for tests.
     Use like:
@@ -132,16 +150,18 @@ def distributed_model_parallel_state(
     # After the block your state is cleaned up.
     """  # noqa: D205
     initial_states: Optional[Any] = None
+    trainer: pl.Trainer | None = None
 
     try:
         _teardown_apex_megatron_cuda()
-        _initialize_distributed_parallel_state(
+        trainer = _initialize_distributed_parallel_state(
             devices=devices,
             tensor_model_parallel_size=tensor_model_parallel_size,
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             pipeline_model_parallel_split_rank=pipeline_model_parallel_split_rank,
             context_parallel_size=context_parallel_size,
             interactive=interactive,
+            precision=precision,
         )
         # Our goal is to set required state on entry, and then restore current state on exit for the RNGs.
         #  there are two possibilities that are handled below:
@@ -174,6 +194,8 @@ def distributed_model_parallel_state(
             # Reset to the unset state
             tp_random.get_cuda_rng_tracker().reset()
         _teardown_apex_megatron_cuda()
+        if trainer is not None:
+            nl.teardown(trainer)
 
 
 @contextmanager
