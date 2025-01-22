@@ -2,10 +2,9 @@ name: Enforce Tiered Approvals
 
 on:
   pull_request_review:
-  pull_request: # TODO: remove
 
 env:
-  TIER2_REVIEWERS: "jstjohn,trvachov,pstjohn,jomitchellnv"
+  TIER2_REVIEWERS: "jstjohn,trvachov,pstjohn"
 
 jobs:
   enforce_tiered_approvals:
