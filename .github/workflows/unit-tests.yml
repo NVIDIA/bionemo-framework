@@ -113,13 +113,28 @@ jobs:
         with:
           path: ${{ github.run_id }}
 
-      - name: Run all tests
+      - name: Run tests
+        # Tests in this stage generate code coverage metrics for the repository
+        # Coverage data is uploaded to Codecov in subsequent stages
         env:
           BIONEMO_DATA_SOURCE: ngc
-        run: >
-         ./ci/scripts/run_pytest.sh
-         ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS') && '--no-nbval' || '' }}
-         ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'test/L1') && '--skip-slow' || '' }}
+        run: ./ci/scripts/run_pytest.sh --no-nbval --skip-slow
+
+      - name: Run slow tests
+        if: |
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_SLOW_TESTS'))
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        run: pytest -m "slow" sub-packages/
+
+      - name: Run notebook tests
+        if: |
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS'))
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        run: pytest --nbval-lax -p no:python "docs/" "sub-packages/**/*.ipynb"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
