@@ -1,5 +1,18 @@
 # Release Notes
 
+## BioNeMo Framework v2.3
+
+### New Features
+
+* Distributed Inference Support for ESM2 and Geneformer
+  * Enables linear inference throughput as GPU number is increased
+  * [See ESM2 inference notebook](https://github.com/NVIDIA/bionemo-framework/blob/release-v2.3/docs/docs/user-guide/examples/bionemo-esm2/inference.ipynb) and use `--num-gpus` parameter.
+
+### Updates & Improvements
+
+* Prior Geneformer inference on H100 accuracy regression fixed.
+* Base image updated to `nvcr.io/nvidia/pytorch:24.12-py3`; python updated to 3.12 among other core dependency upgrades ([base container release notes here](https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/rel-24-12.html#rel-24-12)).
+
 ## BioNeMo Framework v2.2
 
 ### New Features
