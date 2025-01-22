@@ -9,6 +9,7 @@ env:
     jstjohn
     trvachov
     pstjohn
+    jomitchellnv
 
 jobs:
   enforce_tiered_approvals:
