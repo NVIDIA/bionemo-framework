@@ -311,7 +311,8 @@ class TrainingConfig(BaseModel):
     accelerator: str = "gpu"
     # NOTE: VERY important for distributed training performance.
     gc_interval: int = 0
-    include_perplexity: bool = False
+    log_train_ppl: bool = False
+    log_val_ppl: bool = True
     enable_checkpointing: bool = True
 
 
