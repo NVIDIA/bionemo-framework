@@ -113,16 +113,13 @@ jobs:
         with:
           path: ${{ github.run_id }}
 
-      - name: Run tests
+      - name: Run all tests
         env:
           BIONEMO_DATA_SOURCE: ngc
-        run: ./ci/scripts/run_pytest.sh --no-nbval --skip-slow
-
-      - name: Run notebook tests
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS') }}
-        env:
-          BIONEMO_DATA_SOURCE: ngc
-        run: pytest --nbval-lax -p no:python docs/ sub-packages/
+        run: >
+          ./ci/scripts/run_pytest.sh
+          ${{ !contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS') && '--no-nbval' || '' }}
+          ${{ !contains(github.event.pull_request.labels.*.name, 'test/L1') && '--skip-slow' || '' }}
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
