@@ -5,11 +5,7 @@ on:
   pull_request: # TODO: remove
 
 env:
-  TIER2_REVIEWERS: |
-    jstjohn
-    trvachov
-    pstjohn
-    jomitchellnv
+  TIER2_REVIEWERS: "jstjohn,trvachov,pstjohn,jomitchellnv"
 
 jobs:
   enforce_tiered_approvals:
@@ -50,10 +46,11 @@ jobs:
           echo "Approved Users: $APPROVED_USERS"
           echo "Tier 2 Reviewers: $TIER2_REVIEWERS"
 
+          IFS=',' read -ra reviewer_array <<< "$TIER2_REVIEWERS"
           # Iterate over approved users and compare with cleaned TIER2_REVIEWERS
           for USER in ${APPROVED_USERS//,/ }; do
             echo "Checking approved USER: $USER"
-            for REVIEWER in "${TIER2_REVIEWERS[@]}"; do
+            for REVIEWER in "${reviewer_array[@]}"; do
               echo "Comparing USER: $USER with REVIEWER: $REVIEWER"
               if [[ "$USER" == "$REVIEWER" ]]; then
                 TIER2_APPROVED=true
