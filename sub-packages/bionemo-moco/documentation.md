@@ -18,7 +18,6 @@
 * [bionemo.moco.distributions.time](#mocodistributionstime)
 * [bionemo.moco.distributions.time.beta](#mocodistributionstimebeta)
 * [bionemo.moco.distributions.time.utils](#mocodistributionstimeutils)
-* [bionemo.moco.schedules.discrete\_noise\_schedules](#mocoschedulesdiscrete_noise_schedules)
 * [bionemo.moco.schedules.noise.continuous\_snr\_transforms](#mocoschedulesnoisecontinuous_snr_transforms)
 * [bionemo.moco.schedules.noise.discrete\_noise\_schedules](#mocoschedulesnoisediscrete_noise_schedules)
 * [bionemo.moco.schedules.noise](#mocoschedulesnoise)
@@ -902,113 +901,6 @@ Convert a float time value to a time index.
 **Returns**:
 
 - `torch.Tensor` - A tensor of time indices corresponding to the input float time values.
-
-<a id="mocoschedulesdiscrete_noise_schedules"></a>
-
-# bionemo.moco.schedules.discrete\_noise\_schedules
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteNoiseSchedule"></a>
-
-## DiscreteNoiseSchedule Objects
-
-```python
-class DiscreteNoiseSchedule(ABC)
-```
-
-A base class for discrete schedules. No matter the definition this class returns objects using a unified direction of time.
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteNoiseSchedule__init__"></a>
-
-#### \_\_init\_\_
-
-```python
-def __init__(nsteps: int, direction: TimeDirection)
-```
-
-Initialize the DiscreteNoiseSchedule.
-
-**Arguments**:
-
-- `nsteps` _Optional[int]_ - Number of time steps. If None, uses the value from initialization.
-- `direction` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteNoiseSchedulegenerate_schedule"></a>
-
-#### generate\_schedule
-
-```python
-def generate_schedule(nsteps: Optional[int] = None,
-                      device: Union[str, torch.device] = "cpu",
-                      synchronize: Optional[TimeDirection] = None) -> Tensor
-```
-
-Public wrapper to generate the time schedule as a tensor.
-
-**Arguments**:
-
-- `nsteps` _Optional[int]_ - Number of time steps. If None, uses the value from initialization.
-- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
-- `synchronize` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-
-
-**Returns**:
-
-- `Tensor` - A tensor of time steps + 1 unless full is False.
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteNoiseSchedulecalculate_derivative"></a>
-
-#### calculate\_derivative
-
-```python
-def calculate_derivative(
-        nsteps: Optional[int] = None,
-        device: Union[str, torch.device] = "cpu",
-        synchronize: Optional[TimeDirection] = None) -> Tensor
-```
-
-Calculate the time derivative of the schedule.
-
-**Arguments**:
-
-- `nsteps` _Optional[int]_ - Number of time steps. If None, uses the value from initialization.
-- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
-- `synchronize` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-
-
-**Returns**:
-
-- `Tensor` - A tensor representing the time derivative of the schedule.
-
-
-**Raises**:
-
-- `NotImplementedError` - If the derivative calculation is not implemented for this schedule.
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteCosineNoiseSchedule"></a>
-
-## DiscreteCosineNoiseSchedule Objects
-
-```python
-class DiscreteCosineNoiseSchedule(DiscreteNoiseSchedule)
-```
-
-A cosine noise schedule for Diffusion Models.
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteCosineNoiseSchedule__init__"></a>
-
-#### \_\_init\_\_
-
-```python
-def __init__(nsteps: int, nu: Float = 1.0, s: Float = 0.008)
-```
-
-Initialize the CosineNoiseSchedule.
-
-**Arguments**:
-
-- `nsteps` _int_ - Number of time steps.
-- `nu` _Optional[Float]_ - Hyperparameter for the cosine schedule (default is 1.0).
-- `s` _Optional[Float]_ - Hyperparameter for the cosine schedule (default is 0.008).
 
 <a id="mocoschedulesnoisecontinuous_snr_transforms"></a>
 
@@ -2227,6 +2119,28 @@ Perform a single step of MDLM DDPM step.
 
 - `Tensor` - The updated state.
 
+<a id="mocointerpolantscontinuous_timediscretemdlmMDLMget_num_steps_confidence"></a>
+
+#### get\_num\_steps\_confidence
+
+```python
+def get_num_steps_confidence(xt: Tensor)
+```
+
+Calculate the maximum number of steps with confidence.
+
+This method computes the maximum count of occurrences where the input tensor `xt` matches the `mask_index`
+along the last dimension (-1). The result is returned as a single float value.
+
+**Arguments**:
+
+- `xt` _Tensor_ - Input tensor to evaluate against the mask index.
+
+
+**Returns**:
+
+- `float` - The maximum number of steps with confidence (i.e., matching the mask index).
+
 <a id="mocointerpolantscontinuous_timediscretemdlmMDLMstep_confidence"></a>
 
 #### step\_confidence
@@ -2238,7 +2152,8 @@ def step_confidence(logits: Tensor,
                     num_steps: int,
                     logit_temperature: float = 1.0,
                     randomness: float = 1.0,
-                    confidence_temperature: float = 1.0) -> Tensor
+                    confidence_temperature: float = 1.0,
+                    num_tokens_unmask: int = 1) -> Tensor
 ```
 
 Update the input sequence xt by sampling from the predicted logits and adding Gumbel noise.
@@ -2254,11 +2169,12 @@ Method taken from GenMol Seul et al.
 - `logit_temperature` - Temperature for softmax over logits
 - `randomness` - Scale for Gumbel noise
 - `confidence_temperature` - Temperature for Gumbel confidence
+- `num_tokens_unmask` - number of tokens to unmask each step
 
 
 **Returns**:
 
-  Updated input sequence xt
+  Updated input sequence xt unmasking num_tokens_unmask token each step.
 
 <a id="mocointerpolantscontinuous_timediscretemdlmMDLMstep_argmax"></a>
 

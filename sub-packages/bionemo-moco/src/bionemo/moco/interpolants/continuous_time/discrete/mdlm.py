@@ -252,6 +252,20 @@ class MDLM(Interpolant):
         scaled_proability = categorical_probs / gumbel_norm
         return scaled_proability.argmax(dim=-1)
 
+    def get_num_steps_confidence(self, xt: Tensor):
+        """Calculate the maximum number of steps with confidence.
+
+        This method computes the maximum count of occurrences where the input tensor `xt` matches the `mask_index`
+        along the last dimension (-1). The result is returned as a single float value.
+
+        Args:
+            xt (Tensor): Input tensor to evaluate against the mask index.
+
+        Returns:
+            float: The maximum number of steps with confidence (i.e., matching the mask index).
+        """
+        return (xt == self.mask_index).sum(-1).max().item()
+
     def step_confidence(
         self,
         logits: Tensor,
@@ -261,6 +275,7 @@ class MDLM(Interpolant):
         logit_temperature: float = 1.0,
         randomness: float = 1.0,
         confidence_temperature: float = 1.0,
+        num_tokens_unmask: int = 1,
     ) -> Tensor:
         """Update the input sequence xt by sampling from the predicted logits and adding Gumbel noise.
 
@@ -274,9 +289,10 @@ class MDLM(Interpolant):
             logit_temperature: Temperature for softmax over logits
             randomness: Scale for Gumbel noise
             confidence_temperature: Temperature for Gumbel confidence
+            num_tokens_unmask: number of tokens to unmask each step
 
         Returns:
-            Updated input sequence xt
+            Updated input sequence xt unmasking num_tokens_unmask token each step.
         """
         if xt.ndim > 3:
             raise NotImplementedError(
@@ -304,7 +320,7 @@ class MDLM(Interpolant):
         confidence[~mask] = -torch.inf
 
         # choose the predicted token with the highest confidence
-        confidence_threshold, idx_mask = torch.topk(confidence, k=1, dim=-1)
+        confidence_threshold, idx_mask = torch.topk(confidence, k=num_tokens_unmask, dim=-1)
         confidence_threshold = confidence_threshold[:, -1].unsqueeze(-1)
 
         # replace the chosen tokens
