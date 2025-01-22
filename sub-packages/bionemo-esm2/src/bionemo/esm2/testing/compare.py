@@ -18,12 +18,12 @@ import gc
 from pathlib import Path
 
 import torch
+from megatron.core.transformer.module import Float16Module
 from transformers import AutoModelForMaskedLM
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.model import ESM2Config
-from bionemo.testing import megatron_parallel_state_utils
 
 
 def assert_model_equivalence(
@@ -57,44 +57,43 @@ def assert_model_equivalence(
     input_ids = tokens["input_ids"]
     attention_mask = tokens["attention_mask"]
 
-    with torch.inference_mode(), megatron_parallel_state_utils.distributed_model_parallel_state(precision=precision):
-        nemo_model = (
-            ESM2Config(
-                initial_ckpt_path=str(ckpt_path),
-                include_embeddings=True,
-                include_hiddens=True,
-                params_dtype=get_autocast_dtype(precision),
-                pipeline_dtype=get_autocast_dtype(precision),
-                autocast_dtype=get_autocast_dtype(precision),
-                bf16=True,
-            )  # setting this speeds things up a lot)
-            .configure_model(tokenizer)
-            .to("cuda")
-            .eval()
-        )
+    dtype = get_autocast_dtype(precision)
+    nemo_config = ESM2Config(
+        initial_ckpt_path=str(ckpt_path),
+        include_embeddings=True,
+        include_hiddens=True,
+        params_dtype=dtype,
+        pipeline_dtype=dtype,
+        autocast_dtype=dtype,
+        bf16=dtype is torch.bfloat16,
+        fp16=dtype is torch.float16,
+    )
 
-        nemo_output = nemo_model(input_ids, attention_mask)
-        nemo_logits = nemo_output["token_logits"].transpose(0, 1).contiguous()[..., : tokenizer.vocab_size]
-        nemo_hidden_state = nemo_output["hidden_states"]
+    nemo_model = nemo_config.configure_model(tokenizer).to("cuda").eval()
 
-        del nemo_model
-        gc.collect()
-        torch.cuda.empty_cache()
+    if dtype is torch.float16 or dtype is torch.bfloat16:
+        nemo_model = Float16Module(nemo_config, nemo_model)
 
-        hf_model = AutoModelForMaskedLM.from_pretrained(model_tag, torch_dtype=get_autocast_dtype(precision)).cuda()
-        hf_output_all = hf_model(input_ids, attention_mask, output_hidden_states=True)
-        hf_hidden_state = hf_output_all.hidden_states[-1]
+    nemo_output = nemo_model(input_ids, attention_mask)
+    nemo_logits = nemo_output["token_logits"].transpose(0, 1).contiguous()[..., : tokenizer.vocab_size]
+    nemo_hidden_state = nemo_output["hidden_states"]
 
-        # Rather than directly comparing the logit or hidden state tensors, we compare their cosine similarity. These
-        # should be essentially 1 if the outputs are equivalent, but is less sensitive to small numerical differences.
-        # We don't care about the padding tokens, so we only compare the non-padding tokens.
-        logit_similarity = torch.nn.functional.cosine_similarity(nemo_logits, hf_output_all.logits, dim=2)
-        logit_similarity = logit_similarity[attention_mask == 1]
+    del nemo_model
+    gc.collect()
+    torch.cuda.empty_cache()
 
-        hidden_state_similarity = torch.nn.functional.cosine_similarity(nemo_hidden_state, hf_hidden_state, dim=2)
-        hidden_state_similarity = hidden_state_similarity[attention_mask == 1]
+    hf_model = AutoModelForMaskedLM.from_pretrained(model_tag, torch_dtype=get_autocast_dtype(precision)).cuda().eval()
+    hf_output_all = hf_model(input_ids, attention_mask, output_hidden_states=True)
+    hf_hidden_state = hf_output_all.hidden_states[-1]
 
-        torch.testing.assert_close(logit_similarity, torch.ones_like(logit_similarity), rtol=rtol, atol=atol)
-        torch.testing.assert_close(
-            hidden_state_similarity, torch.ones_like(hidden_state_similarity), rtol=rtol, atol=atol
-        )
+    # Rather than directly comparing the logit or hidden state tensors, we compare their cosine similarity. These
+    # should be essentially 1 if the outputs are equivalent, but is less sensitive to small numerical differences.
+    # We don't care about the padding tokens, so we only compare the non-padding tokens.
+    logit_similarity = torch.nn.functional.cosine_similarity(nemo_logits, hf_output_all.logits, dim=2)
+    logit_similarity = logit_similarity[attention_mask == 1]
+
+    hidden_state_similarity = torch.nn.functional.cosine_similarity(nemo_hidden_state, hf_hidden_state, dim=2)
+    hidden_state_similarity = hidden_state_similarity[attention_mask == 1]
+
+    torch.testing.assert_close(logit_similarity, torch.ones_like(logit_similarity), rtol=rtol, atol=atol)
+    torch.testing.assert_close(hidden_state_similarity, torch.ones_like(hidden_state_similarity), rtol=rtol, atol=atol)

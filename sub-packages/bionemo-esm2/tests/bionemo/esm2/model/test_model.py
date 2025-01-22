@@ -175,30 +175,28 @@ def test_esm2_loss(dummy_protein_dataset, dummy_parquet_train_val_inputs):
         torch.testing.assert_close(mean_loss, hf_mean_loss, atol=1e-3, rtol=0.0)
 
 
-def test_model_equivalence_with_huggingface_8m():
+@pytest.mark.parametrize("precision", ["fp32", "bf16", "fp16", "bf16-mixed"])
+def test_model_equivalence_with_huggingface_8m(precision):
     model_tag = "facebook/esm2_t6_8M_UR50D"
     ckpt_path = load("esm2/8m:2.0")
-    assert_model_equivalence(ckpt_path, model_tag)
-
-
-def test_model_equivalence_with_huggingface_8m_bf16():
-    model_tag = "facebook/esm2_t6_8M_UR50D"
-    ckpt_path = load("esm2/8m:2.0")
-    assert_model_equivalence(ckpt_path, model_tag, precision="bf16-mixed")
+    with megatron_parallel_state_utils.distributed_model_parallel_state(precision=precision):
+        assert_model_equivalence(ckpt_path, model_tag, precision=precision)
 
 
 @pytest.mark.slow
 def test_model_equivalence_with_huggingface_650m():
     model_tag = "facebook/esm2_t33_650M_UR50D"
     ckpt_path = load("esm2/650m:2.0")
-    assert_model_equivalence(ckpt_path, model_tag, atol=1e-4, rtol=1e-4)
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        assert_model_equivalence(ckpt_path, model_tag, atol=1e-4, rtol=1e-4)
 
 
 @pytest.mark.slow
 def test_model_equivalence_with_huggingface_650m_bf16():
     model_tag = "facebook/esm2_t33_650M_UR50D"
     ckpt_path = load("esm2/650m:2.0")
-    assert_model_equivalence(ckpt_path, model_tag, precision="bf16")
+    with megatron_parallel_state_utils.distributed_model_parallel_state(precision="bf16"):
+        assert_model_equivalence(ckpt_path, model_tag, precision="bf16")
 
 
 @pytest.mark.slow
@@ -206,4 +204,5 @@ def test_model_equivalence_with_huggingface_650m_bf16():
 def test_model_equivalence_with_huggingface_3b():
     model_tag = "facebook/esm2_t36_3B_UR50D"
     ckpt_path = load("esm2/3b:2.0")
-    assert_model_equivalence(ckpt_path, model_tag, atol=1e-4, rtol=1e-4)
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        assert_model_equivalence(ckpt_path, model_tag, atol=1e-4, rtol=1e-4)

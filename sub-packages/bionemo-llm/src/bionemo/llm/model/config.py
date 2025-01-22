@@ -45,6 +45,8 @@ _OVERRIDE_BIONEMO_CONFIG_DEFAULTS: List[str] = [
     "initial_ckpt_path_ignore_weights",
     "initial_ckpt_path",
     "model_cls",
+    "bf16",
+    "fp16",
 ]
 
 OVERRIDE_BIONEMO_CONFIG_DEFAULTS = deepcopy(_OVERRIDE_BIONEMO_CONFIG_DEFAULTS)  # copy for export

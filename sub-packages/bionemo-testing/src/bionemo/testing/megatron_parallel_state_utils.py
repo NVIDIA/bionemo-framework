@@ -46,7 +46,7 @@ from nemo import lightning as nl
 from nemo.utils import logging
 from torch.testing._internal.distributed.fake_pg import FakeStore
 
-from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
+from bionemo.core.utils.dtypes import PrecisionTypes
 
 
 __all__: Sequence[str] = (
@@ -95,12 +95,12 @@ def _initialize_distributed_parallel_state(
             devices=devices,
             strategy="ddp" if not interactive else "auto",
             num_nodes=1,
-            plugins=nl.MegatronMixedPrecision(
-                precision=precision,
-                params_dtype=get_autocast_dtype(precision),
-                pipeline_dtype=get_autocast_dtype(precision),
-                autocast_enabled=False,
-            ),
+            # plugins=nl.MegatronMixedPrecision(
+            #     precision=precision,
+            #     params_dtype=get_autocast_dtype(precision),
+            #     pipeline_dtype=get_autocast_dtype(precision),
+            #     autocast_enabled=False,
+            # ),
         )
 
         if trainer.strategy.launcher is not None:
