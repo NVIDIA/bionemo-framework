@@ -122,7 +122,7 @@ jobs:
 
       - name: Run slow tests
         if: |
-          github.event_name == 'push' ||
+          github.event_name == 'merge_group' ||
           (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_SLOW_TESTS'))
         env:
           BIONEMO_DATA_SOURCE: ngc
@@ -130,7 +130,7 @@ jobs:
 
       - name: Run notebook tests
         if: |
-          github.event_name == 'push' ||
+          github.event_name == 'merge_group' ||
           (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS'))
         env:
           BIONEMO_DATA_SOURCE: ngc
