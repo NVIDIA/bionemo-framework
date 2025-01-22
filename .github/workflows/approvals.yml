@@ -5,7 +5,7 @@ on:
   pull_request: # TODO: remove
 
 env:
-  APPROVED_USERS: |
+  TIER2_REVIEWERS: |
     jstjohn
     trvachov
     pstjohn
