@@ -49,7 +49,7 @@ jobs:
           # Iterate over approved users and compare with cleaned TIER2_REVIEWERS
           for USER in ${APPROVED_USERS//,/ }; do
             echo "Checking approved USER: $USER"
-            for REVIEWER in "${!TIER2_REVIEWERS[@]}"; do
+            for REVIEWER in "${TIER2_REVIEWERS[@]}"; do
               echo "Comparing USER: $USER with REVIEWER: $REVIEWER"
               if [[ "$USER" == "$REVIEWER" ]]; then
                 TIER2_APPROVED=true
