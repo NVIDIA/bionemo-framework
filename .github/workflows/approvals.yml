@@ -48,13 +48,13 @@ jobs:
           TIER2_APPROVED=false
 
           echo "Approved Users: $APPROVED_USERS"
-          echo "TIER2_REVIEWERS: $TIER2_REVIEWERS"
+          IFS=$'\n' read -d '' -ra TIER2_REVIEWERS_ARR <<< "$TIER2_REVIEWERS"
+          echo "TIER2_REVIEWERS: ${!TIER2_REVIEWERS_ARR[@]}"
 
           # Iterate over approved users and compare with cleaned TIER2_REVIEWERS
           for USER in ${APPROVED_USERS//,/ }; do
             echo "Checking approved USER: $USER"
-            echo "TIER2_REVIEWERS: ${!TIER2_REVIEWERS[@]}"
-            for REVIEWER in "${!TIER2_REVIEWERS[@]}"; do
+            for REVIEWER in "${!TIER2_REVIEWERS_ARR[@]}"; do
               echo "Comparing USER: $USER with REVIEWER: $REVIEWER"
               if [[ "$USER" == "$REVIEWER" ]]; then
                 TIER2_APPROVED=true
