@@ -70,3 +70,6 @@ jobs:
     needs: check_approval
     if : ${{ needs.check_approval.outputs.status == 'passed' }}
     runs-on: ubuntu-latest
+    steps:
+      - name: Approved
+        run: echo "This PR has been approved by a Tier 2 reviewer."
