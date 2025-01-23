@@ -131,7 +131,10 @@ jobs:
       - name: Run notebook tests
         if: |
           github.event_name == 'merge_group' ||
-          (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS'))
+          (github.event_name == 'pull_request' && (
+            contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS') ||
+            contains(steps.changed-files.outputs.all_changed_files, '.ipynb')
+          ))
         env:
           BIONEMO_DATA_SOURCE: ngc
         run: pytest --nbval-lax -p no:python docs/ sub-packages/
