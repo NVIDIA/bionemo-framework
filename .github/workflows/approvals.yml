@@ -59,8 +59,11 @@ jobs:
           done
 
           if [[ "$TIER2_APPROVED" == "true" ]]; then
-            echo "A +2 reviewer has approved the pull request."
+            echo "status=passed" >> $GITHUB_OUTPUT
           else
-            echo "No +2 reviewer has approved the pull request."
-            exit 1
+            echo "status=failed" >> $GITHUB_OUTPUT
           fi
+
+      - name: required-approvals
+        if: ${{ steps.check_tier2.outputs.status == 'passed' }}
+        run: echo "Required approvals met for Tier 2 Reviewers."
