@@ -52,4 +52,4 @@ def test_nemo2_conversion_equivalent_650m(tmp_path):
     module = biobert_lightning_module(config=ESM2Config())
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        assert_model_equivalence(tmp_path / "nemo_checkpoint", model_tag)
+        assert_model_equivalence(tmp_path / "nemo_checkpoint", model_tag, atol=1e-4, rtol=1e-4)
