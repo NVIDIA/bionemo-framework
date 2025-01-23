@@ -7,9 +7,10 @@ env:
   TIER2_REVIEWERS: "jstjohn,trvachov,pstjohn"
 
 jobs:
-  enforce_tiered_approvals:
+  check_approval:
     runs-on: ubuntu-latest
-
+    outputs:
+      status: ${{ steps.check_tier2.outputs.status }}
     steps:
       - name: Get PR reviews
         id: get_reviews
@@ -64,6 +65,7 @@ jobs:
             echo "status=failed" >> $GITHUB_OUTPUT
           fi
 
-      - name: required-approvals
-        if: ${{ steps.check_tier2.outputs.status == 'passed' }}
-        run: echo "Required approvals met for Tier 2 Reviewers."
+  has_approval:
+    needs: check_approval
+    if : ${{ needs.check_approval.outputs.status == 'passed' }}
+    runs-on: ubuntu-latest
