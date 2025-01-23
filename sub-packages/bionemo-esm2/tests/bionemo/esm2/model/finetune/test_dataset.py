@@ -166,3 +166,9 @@ def test_in_memory_protein_dataset_non_existent_file():
     """Ensure proper error handling for missing files."""
     with pytest.raises(FileNotFoundError):
         InMemoryProteinDataset.from_csv("non_existent_file.csv")
+
+
+def test_load_w_missing_labels(dummy_protein_sequences, tmp_path):
+    csv_path = data_to_csv(dummy_protein_sequences, tmp_path, with_label=False)
+    with pytest.raises(KeyError):
+        InMemoryProteinDataset.from_csv(csv_path, ignore_labels=False)
