@@ -137,13 +137,18 @@ jobs:
         run: pytest --nbval-lax -p no:python docs/ $(find sub-packages -name "*.ipynb")
 
       - name: Upload coverage to Codecov
+        # Don't run coverage on merge queue CI to avoid duplicating reports
+        # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
+        if: github.event_name != 'merge_group'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           working-directory: ${{ github.run_id }}
 
       - name: Upload test results to Codecov
-        if: ${{ !cancelled() }}
+        # Don't run coverage on merge queue CI to avoid duplicating reports
+        # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
+        if: ${{ !cancelled() && github.event_name != 'merge_group' }}
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
