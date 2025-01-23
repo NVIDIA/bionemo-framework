@@ -19,15 +19,6 @@ body:
     validations:
       required: true
 
-  - type: input
-    id: docker-image-info
-    attributes:
-      label: Docker Image
-      description: If the issue occurred in a container, provide the docker image name. Visit [BioNeMo Framework NGC website](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags) for available images.
-      placeholder: e.g., nvcr.io/nvidia/clara/bionemo-framework:2.2
-    validations:
-      required: false
-
   - type: textarea
     id: description
     attributes:
@@ -68,7 +59,16 @@ body:
         Paste the full error message and stack trace here
         ```
     validations:
-      required: true
+      required: false
+
+  - type: input
+    id: docker-image-info
+    attributes:
+      label: Docker Image
+      description: If the issue occurred in a container, provide the docker image name. Visit [BioNeMo Framework NGC website](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags) for available images.
+      placeholder: e.g., nvcr.io/nvidia/clara/bionemo-framework:2.2
+    validations:
+      required: false
 
   - type: textarea
     id: system-info
@@ -89,20 +89,7 @@ body:
         - cuDNN Version: [e.g., 8.9.0]
 
     validations:
-      required: true
-
-  - type: checkboxes
-    id: terms
-    attributes:
-      label: Submission Checklist
-      description: Please verify the following before submitting
-      options:
-        - label: I have searched for similar issues before creating this report
-          required: true
-        - label: I have provided all the requested information above
-          required: true
-        - label: I have removed any sensitive/confidential information
-          required: true
+      required: false
 
   - type: textarea
     id: additional
