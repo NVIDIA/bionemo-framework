@@ -134,7 +134,7 @@ jobs:
           (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS'))
         env:
           BIONEMO_DATA_SOURCE: ngc
-        run: pytest --nbval-lax -p no:python "docs/" "sub-packages/**/*.ipynb"
+        run: pytest --nbval-lax -p no:python docs/ $(find sub-packages -name "*.ipynb")
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
