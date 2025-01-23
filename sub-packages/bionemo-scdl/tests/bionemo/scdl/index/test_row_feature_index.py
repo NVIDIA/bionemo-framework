@@ -58,7 +58,7 @@ def create_first_RowFeatureIndex() -> RowFeatureIndex:
     """
     one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
     index = RowFeatureIndex()
-    index.append_features(12, one_feats, len(one_feats["feature_name"]))
+    index.append_features(12, one_feats)
     return index
 
 
@@ -72,7 +72,7 @@ def create_same_features_first_RowFeatureIndex() -> RowFeatureIndex:
     """
     one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
     index = RowFeatureIndex()
-    index.append_features(6, one_feats, len(one_feats["feature_name"]))
+    index.append_features(6, one_feats)
     return index
 
 
@@ -91,7 +91,7 @@ def create_second_RowFeatureIndex() -> RowFeatureIndex:
     }
 
     index2 = RowFeatureIndex()
-    index2.append_features(8, two_feats, len(two_feats["feature_name"]), "MY_DATAFRAME")
+    index2.append_features(8, two_feats, "MY_DATAFRAME")
     return index2
 
 
@@ -105,7 +105,7 @@ def test_dataframe_results_in_error():
     )
     index = RowFeatureIndex()
     with pytest.raises(TypeError) as error_info:
-        index.append_features(8, two_feats, len(two_feats["feature_name"]), "MY_DATAFRAME")
+        index.append_features(8, two_feats, "MY_DATAFRAME")
         assert "Expected a dictionary, but received a Pandas DataFrame." in str(error_info.value)
 
 
@@ -135,7 +135,6 @@ def test_feature_index_internals_on_append_different_features(
         "spare": np.array([None, None, None, None, None]),
     }
     create_first_RowFeatureIndex.concat(create_second_RowFeatureIndex)
-    # append(8, two_feats, len(two_feats["feature_name"]), "MY_DATAFRAME")
     assert len(create_first_RowFeatureIndex) == 2
     assert create_first_RowFeatureIndex.number_vars_at_row(1) == 3
     assert create_first_RowFeatureIndex.number_vars_at_row(13) == 5
@@ -158,7 +157,6 @@ def test_feature_index_internals_on_append_different_features(
 def test_feature_index_internals_on_append_same_features(create_first_RowFeatureIndex):
     one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
     create_first_RowFeatureIndex.concat(create_first_RowFeatureIndex)
-    # append(8, two_feats, len(two_feats["feature_name"]), "MY_DATAFRAME")
     assert len(create_first_RowFeatureIndex) == 1
     assert create_first_RowFeatureIndex.number_vars_at_row(1) == 3
     assert create_first_RowFeatureIndex.number_vars_at_row(13) == 3

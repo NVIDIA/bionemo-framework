@@ -109,6 +109,13 @@ for e in range(n_epochs):
         model(batch)
 ```
 
+For some applications, we might want to also use the features. These can be specified with get_row(index, return_features = True). By default, all features are returned, but the features can be specified with the feature_vars argument in get_row, which corresponds to a list of the feature names to return.
+
+```
+for index in range(len(data)):
+    model(data.get_row(index,return_features = True))
+```
+
 ## Examples
 
 The examples directory contains various examples for utilizing SCDL.
