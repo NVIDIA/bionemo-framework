@@ -69,9 +69,18 @@ class InMemoryProteinDataset(Dataset):
 
     @classmethod
     def from_csv(
-        cls, csv_path: str | os.PathLike, tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer()
+        cls,
+        csv_path: str | os.PathLike,
+        tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
+        ignore_labels: bool = False,
     ):
-        """Class method to create a ProteinDataset instance from a CSV file."""
+        """Class method to create a ProteinDataset instance from a CSV file.
+
+        Args:
+            csv_path: path to CSV file containing sequences and optionally labels column.
+            tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
+            ignore_labels (bool): ignore labels column if exist (to avoid reading labels during inference)
+        """
         df = pd.read_csv(csv_path)
 
         # Validate presence of required columns
@@ -79,7 +88,10 @@ class InMemoryProteinDataset(Dataset):
             raise KeyError("The CSV must contain a 'sequences' column.")
 
         sequences = df["sequences"]
-        labels = df["labels"] if "labels" in df.columns else None
+        labels = None
+        if not ignore_labels:
+            labels = df["labels"]
+
         return cls(sequences, labels, tokenizer)
 
     def __len__(self) -> int:

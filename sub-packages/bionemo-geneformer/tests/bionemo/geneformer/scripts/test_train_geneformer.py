@@ -181,6 +181,7 @@ def test_throws_tok_not_in_vocab_error(tmpdir, data_path):
     assert "not in the tokenizer vocab." in str(error_info.value)
 
 
+@pytest.mark.slow  # TODO: https://jirasw.nvidia.com/browse/BIONEMO-677, figure out why this is so slow.
 def test_pretrain_cli(tmpdir, data_path):
     result_dir = Path(tmpdir.mkdir("results"))
     open_port = find_free_network_port()

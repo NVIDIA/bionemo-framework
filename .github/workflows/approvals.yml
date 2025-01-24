@@ -1,15 +1,17 @@
 name: Enforce Tiered Approvals
 
 on:
+  pull_request: # TODO: remove
   pull_request_review:
 
 env:
   TIER2_REVIEWERS: "jstjohn,trvachov,pstjohn"
 
 jobs:
-  enforce_tiered_approvals:
+  check_approval:
     runs-on: ubuntu-latest
-
+    outputs:
+      status: ${{ steps.check_tier2.outputs.status }}
     steps:
       - name: Get PR reviews
         id: get_reviews
@@ -59,8 +61,15 @@ jobs:
           done
 
           if [[ "$TIER2_APPROVED" == "true" ]]; then
-            echo "A +2 reviewer has approved the pull request."
+            echo "status=passed" >> $GITHUB_OUTPUT
           else
-            echo "No +2 reviewer has approved the pull request."
-            exit 1
+            echo "status=failed" >> $GITHUB_OUTPUT
           fi
+
+  has_approval:
+    needs: check_approval
+    if : ${{ needs.check_approval.outputs.status == 'passed' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approved
+        run: echo "This PR has been approved by a Tier 2 reviewer."
