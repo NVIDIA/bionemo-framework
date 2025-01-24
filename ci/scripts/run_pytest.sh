@@ -79,8 +79,6 @@ uname -a
 # Set up pytest options
 PYTEST_OPTIONS=(
     -v
-    --durations=0
-    --durations-min=30.0
     --cov=bionemo
     --cov-append
     --cov-report=xml:coverage.xml
