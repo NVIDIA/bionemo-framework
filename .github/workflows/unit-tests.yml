@@ -3,6 +3,7 @@ name: "BioNemo Image Build and Unit Tests"
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   merge_group:
@@ -114,12 +115,25 @@ jobs:
           path: ${{ github.run_id }}
 
       - name: Run tests
+        # Tests in this stage generate code coverage metrics for the repository
+        # Coverage data is uploaded to Codecov in subsequent stages
         env:
           BIONEMO_DATA_SOURCE: ngc
         run: ./ci/scripts/run_pytest.sh --no-nbval --skip-slow
 
+      - name: Run slow tests
+        if: |
+          github.event_name == 'merge_group' ||
+          (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_SLOW_TESTS'))
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        run: pytest -m "slow" sub-packages/
+
       - name: Run notebook tests
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS') }}
+        if: |
+          github.event_name == 'merge_group' ||
+          (github.event_name == 'pull_request' &&
+            contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS'))
         env:
           BIONEMO_DATA_SOURCE: ngc
         run: pytest --nbval-lax -p no:python docs/ sub-packages/
