@@ -36,7 +36,7 @@ def dummy_protein_csv(tmp_path, dummy_protein_sequences):
 
 @pytest.fixture
 def dataset(dummy_protein_csv):
-    return InMemoryProteinDataset.from_csv(dummy_protein_csv)
+    return InMemoryProteinDataset.from_csv(dummy_protein_csv, ignore_labels=True)
 
 
 @pytest.fixture
