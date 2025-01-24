@@ -279,7 +279,7 @@ class MDLM(Interpolant):
     ) -> Tensor:
         """Update the input sequence xt by sampling from the predicted logits and adding Gumbel noise.
 
-        Method taken from GenMol Seul et al.
+        Method taken from GenMol Lee et al. https://arxiv.org/abs/2501.06158
 
         Args:
             logits: Predicted logits
