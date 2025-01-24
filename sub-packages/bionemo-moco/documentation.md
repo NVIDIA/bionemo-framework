@@ -3546,11 +3546,9 @@ def step_score_stochastic(model_out: Tensor,
                           center: Bool = False)
 ```
 
-Perform a single ODE step integration using Euler method.
+Perform a single SDE step integration using a score-based Langevin update.
 
-d x_t = [v(x_t, t) + g(t) * s(x_t, t) * sc_score_scale] dt + \sqrt{2 * g(t) * temperature} dw_t.
-
-At the moment we do not scale the vector field v but this can be added with sc_score_scale.
+d x_t = [v(x_t, t) + g(t) * s(x_t, t) * score_temperature] dt + \sqrt{2 * g(t) * noise_temperature} dw_t.
 
 **Arguments**:
 
