@@ -2102,7 +2102,11 @@ certain times in the diffusion process.
 #### step
 
 ```python
-def step(logits, t, xt, dt) -> Tensor
+def step(logits: Tensor,
+         t: Tensor,
+         xt: Tensor,
+         dt: Tensor,
+         temperature: float = 1.0) -> Tensor
 ```
 
 Perform a single step of MDLM DDPM step.
@@ -2110,9 +2114,10 @@ Perform a single step of MDLM DDPM step.
 **Arguments**:
 
 - `logits` _Tensor_ - The input logits.
-- `t` _float_ - The current time step.
+- `t` _Tensor_ - The current time step.
 - `xt` _Tensor_ - The current state.
-- `dt` _float_ - The time step increment.
+- `dt` _Tensor_ - The time step increment.
+- `temperature` _float_ - Softmax temperature defaults to 1.0.
 
 
 **Returns**:

@@ -202,14 +202,15 @@ class MDLM(Interpolant):
         logprobs[unmasked_indices, xt[unmasked_indices]] = 0  # Unmasked token remains unchanged
         return logprobs
 
-    def step(self, logits, t, xt, dt) -> Tensor:
+    def step(self, logits: Tensor, t: Tensor, xt: Tensor, dt: Tensor, temperature: float = 1.0) -> Tensor:
         """Perform a single step of MDLM DDPM step.
 
         Parameters:
         logits (Tensor): The input logits.
-        t (float): The current time step.
+        t (Tensor): The current time step.
         xt (Tensor): The current state.
-        dt (float): The time step increment.
+        dt (Tensor): The time step increment.
+        temperature (float): Softmax temperature defaults to 1.0.
 
         Returns:
         Tensor: The updated state.
@@ -223,11 +224,13 @@ class MDLM(Interpolant):
         alpha_s = pad_like(alpha_s, logits)
         p_mask_s = pad_like(p_mask_s, logits)
         # Apply subs parameterization
-        log_p_x0 = self._subs_parameterization(logits, xt)
+        log_p_x0 = self._subs_parameterization(logits, xt) / temperature
         if p_mask_s.ndim != log_p_x0.ndim:
             raise ValueError(f"Dimension Mistmatch {p_mask_s.shape} {log_p_x0.shape}")
-        # Equation 6 from MDLM
-        prob_s_given_t = log_p_x0.exp() * (alpha_s - alpha_t)  # righthand side (alpha_s - alpha_t)*x
+        # Equation 7 from MDLM
+        prob_s_given_t = log_p_x0.exp() * (
+            alpha_s - alpha_t
+        )  # righthand side (alpha_s - alpha_t)*x = (1 - alpha_t - (1 - alpha_s)) * x
         prob_s_given_t[..., self.mask_index] = p_mask_s[..., 0]  # lefthand side (1 - alpha_s)*M
         sampled_x = self._sample_categorical(prob_s_given_t)
         carry_over_unmask = (xt != self.mask_index).to(xt.dtype)
