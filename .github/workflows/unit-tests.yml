@@ -3,6 +3,7 @@ name: "BioNemo Image Build and Unit Tests"
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   merge_group:
