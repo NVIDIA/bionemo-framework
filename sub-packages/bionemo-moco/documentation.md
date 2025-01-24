@@ -4207,7 +4207,10 @@ Do one step integration.
 
 **Notes**:
 
-  The temperature parameter controls the level of randomness in the sampling process. A temperature of 1.0 corresponds to standard diffusion sampling, while lower temperatures (e.g. 0.5, 0.2) result in less random and more deterministic samples. This can be useful for tasks that require more control over the generation process.
+  The temperature parameter controls the level of randomness in the sampling process.
+  A temperature of 1.0 corresponds to standard diffusion sampling, while lower temperatures (e.g. 0.5, 0.2)
+  result in less random and more deterministic samples. This can be useful for tasks
+  that require more control over the generation process.
 
   Note for discrete time we sample from [T-1, ..., 1, 0] for T steps so we sample t = 0 hence the mask.
   For continuous time we start from [1, 1 -dt, ..., dt] for T steps where s = t - 1 when t = 0 i.e dt is then 0

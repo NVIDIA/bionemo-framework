@@ -362,7 +362,10 @@ class DDPM(Interpolant):
         temperature (Float, optional): The temperature parameter for low temperature sampling. Defaults to 1.0.
 
         Note:
-        The temperature parameter controls the level of randomness in the sampling process. A temperature of 1.0 corresponds to standard diffusion sampling, while lower temperatures (e.g. 0.5, 0.2) result in less random and more deterministic samples. This can be useful for tasks that require more control over the generation process.
+        The temperature parameter controls the level of randomness in the sampling process.
+        A temperature of 1.0 corresponds to standard diffusion sampling, while lower temperatures (e.g. 0.5, 0.2)
+        result in less random and more deterministic samples. This can be useful for tasks
+        that require more control over the generation process.
 
         Note for discrete time we sample from [T-1, ..., 1, 0] for T steps so we sample t = 0 hence the mask.
         For continuous time we start from [1, 1 -dt, ..., dt] for T steps where s = t - 1 when t = 0 i.e dt is then 0
@@ -385,9 +388,10 @@ class DDPM(Interpolant):
         recip_sqrt_alpha_t = pad_like(recip_sqrt_alpha_t, xt)
         var = pad_like(var, xt)
 
-        x_next = recip_sqrt_alpha_t * (xt - eps_factor * eps_hat) + nonzero_mask * var.sqrt() * torch.randn_like(
-            eps_hat
-        ).to(model_out.device)
+        x_next = (
+            recip_sqrt_alpha_t * (xt - eps_factor * eps_hat)
+            + nonzero_mask * var.sqrt() * torch.randn_like(eps_hat).to(model_out.device) * temperature
+        )
         x_next = self.clean_mask_center(x_next, mask, center)
         return x_next
 
