@@ -3557,7 +3557,7 @@ d x_t = [v(x_t, t) + g(t) * s(x_t, t) * score_temperature] dt + \sqrt{2 * g(t) *
 - `dt` _Tensor_ - The time step size.
 - `t` _Tensor, optional_ - The current time. Defaults to None.
 - `mask` _Optional[Tensor], optional_ - A mask to apply to the model output. Defaults to None.
-- `gt_mode` _str, optional_ - The mode for the gt function. Defaults to "1/t".
+- `gt_mode` _str, optional_ - The mode for the gt function. Defaults to "tan".
 - `gt_p` _Float, optional_ - The parameter for the gt function. Defaults to 1.0.
 - `gt_clamp` - (Float, optional): Upper limit of gt term. Defaults to None.
 - `score_temperature` _Float, optional_ - The temperature for the score part of the step. Defaults to 1.0.

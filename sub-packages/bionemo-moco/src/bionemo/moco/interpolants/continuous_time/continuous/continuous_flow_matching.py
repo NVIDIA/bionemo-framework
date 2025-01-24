@@ -344,7 +344,7 @@ class ContinuousFlowMatcher(Interpolant):
             dt (Tensor): The time step size.
             t (Tensor, optional): The current time. Defaults to None.
             mask (Optional[Tensor], optional): A mask to apply to the model output. Defaults to None.
-            gt_mode (str, optional): The mode for the gt function. Defaults to "1/t".
+            gt_mode (str, optional): The mode for the gt function. Defaults to "tan".
             gt_p (Float, optional): The parameter for the gt function. Defaults to 1.0.
             gt_clamp: (Float, optional): Upper limit of gt term. Defaults to None.
             score_temperature (Float, optional): The temperature for the score part of the step. Defaults to 1.0.
