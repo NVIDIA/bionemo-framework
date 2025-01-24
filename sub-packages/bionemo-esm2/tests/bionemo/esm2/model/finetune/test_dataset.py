@@ -42,19 +42,19 @@ def data_to_csv(data, tmp_path, with_label=True):
 @pytest.fixture
 def dataset_no_labels(dummy_protein_sequences, tmp_path):
     csv_path = data_to_csv(dummy_protein_sequences, tmp_path, with_label=False)
-    return InMemoryProteinDataset.from_csv(csv_path)
+    return InMemoryProteinDataset.from_csv(csv_path, ignore_labels=True)
 
 
 @pytest.fixture
 def dataset_regression_labels(dummy_data_single_value_regression_ft, tmp_path):
     csv_path = data_to_csv(dummy_data_single_value_regression_ft, tmp_path, with_label=True)
-    return InMemorySingleValueDataset.from_csv(csv_path)
+    return InMemorySingleValueDataset.from_csv(csv_path, ignore_labels=False)
 
 
 @pytest.fixture
 def dataset_per_token_classification_labels(dummy_data_per_token_classification_ft, tmp_path):
     csv_path = data_to_csv(dummy_data_per_token_classification_ft, tmp_path, with_label=True)
-    return InMemoryPerTokenValueDataset.from_csv(csv_path)
+    return InMemoryPerTokenValueDataset.from_csv(csv_path, ignore_labels=False)
 
 
 def test_in_memory_protein_dataset_length_no_labels(dataset_no_labels, dummy_protein_sequences):
@@ -151,7 +151,7 @@ def test_in_memory_protein_dataset_missing_sequences_column(tmp_path):
     csv_file = tmp_path / "invalid.csv"
     pd.DataFrame({"wrong_column": ["MKTFFS"]}).to_csv(csv_file, index=False)
     with pytest.raises(KeyError):
-        _ = InMemoryProteinDataset.from_csv(csv_file)
+        _ = InMemoryProteinDataset.from_csv(csv_file, ignore_labels=True)
 
 
 def test_in_memory_protein_dataset_special_tokens_masking(dataset_no_labels):
@@ -166,3 +166,9 @@ def test_in_memory_protein_dataset_non_existent_file():
     """Ensure proper error handling for missing files."""
     with pytest.raises(FileNotFoundError):
         InMemoryProteinDataset.from_csv("non_existent_file.csv")
+
+
+def test_load_w_missing_labels(dummy_protein_sequences, tmp_path):
+    csv_path = data_to_csv(dummy_protein_sequences, tmp_path, with_label=False)
+    with pytest.raises(KeyError):
+        InMemoryProteinDataset.from_csv(csv_path, ignore_labels=False)
