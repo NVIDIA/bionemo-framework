@@ -134,8 +134,12 @@ convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
 
 ## Runtimes with SCDL
 
-The runtime and memory usage are examined on a CellXGene Dataset with ~1.5 million rows and a size of 24 GB. On this dataset, there is a 4.9x memory speed up. Additionally, the peak memory usage when iterating over the datasets with the SCDL dataloader is only 36.5 MB, since the whole dataset is never loaded into memory due to the numpy memomory-mapped backing.
+The runtime and memory usage are examined on a CellXGene Dataset with ~1.5 million rows and a size of 24 GB. On this dataset, there is a 4.9x memory speed up.
+<img src="images/throughput.png" alt="Throughput Image" width="600">
 
+Additionally, the peak memory usage when iterating over the datasets with the SCDL dataloader is only 36.5 MB, since the whole dataset is never loaded into memory due to the numpy memomory-mapped backing.
+
+<img src="images/disk_space.png" alt="Memory Image" width="600">
 
 ## Future Work and Roadmap
 
