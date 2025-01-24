@@ -1,0 +1,102 @@
+name: Bug Report
+description: Create a detailed bug report to help us resolve the issue
+title: "[BUG] <Title> "
+labels: ["bug", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report. Please provide as much detail as possible to help us investigate.
+
+  - type: input
+    id: version
+    attributes:
+      label: BioNeMo Framework Version
+      description: What version or commit hash of the framework are you using?
+      placeholder: e.g., commit-hash or v1.2.3
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: Provide a clear and concise description of the bug
+      placeholder: |
+        Describe what happened and what you expected to happen.
+        Include any relevant context about when/where this occurs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Provide detailed steps to reproduce the behavior
+      placeholder: |
+        1. Configure environment with '...'
+        2. Run command '...'
+        3. Execute function '...'
+        4. See error
+
+        Code example:
+        ```python
+        # Minimal code that reproduces the issue
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Messages and Logs
+      description: Include any relevant error messages, stack traces, or logs
+      render: shell
+      placeholder: |
+        ```
+        Paste the full error message and stack trace here
+        ```
+    validations:
+      required: false
+
+  - type: input
+    id: docker-image-info
+    attributes:
+      label: Docker Image
+      description: If the issue occurred in a container, provide the docker image name. Visit [BioNeMo Framework NGC website](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags) for available images.
+      placeholder: e.g., nvcr.io/nvidia/clara/bionemo-framework:2.2
+    validations:
+      required: false
+
+  - type: textarea
+    id: system-info
+    attributes:
+      label: System Information
+      description: Provide details about your system environment
+      value: |
+        Environment Details:
+        - OS: [e.g., Ubuntu 20.04]
+        - CPU: [e.g., Intel i9-12900K]
+        - RAM: [e.g., 64GB]
+
+        GPU Details:
+        - GPU Model: [e.g., NVIDIA RTX 4090]
+        - GPU Memory: [e.g., 24GB]
+        - CUDA Version: [e.g., 12.1]
+        - CUDA Driver: [e.g., 525.85.05]
+        - cuDNN Version: [e.g., 8.9.0]
+
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here
+      placeholder: |
+        - Screenshots (if applicable)
+        - Links to relevant documentation
+        - Attempted solutions

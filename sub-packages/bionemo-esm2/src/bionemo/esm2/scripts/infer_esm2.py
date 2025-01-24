@@ -111,7 +111,7 @@ def infer_model(
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
 
-    dataset = InMemoryProteinDataset.from_csv(data_path)
+    dataset = InMemoryProteinDataset.from_csv(data_path, ignore_labels=True)
     datamodule = ESM2FineTuneDataModule(
         predict_dataset=dataset,
         micro_batch_size=micro_batch_size,
