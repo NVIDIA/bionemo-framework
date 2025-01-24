@@ -125,6 +125,19 @@ def test_feature_index_internals_on_single_index(create_first_RowFeatureIndex):
     assert len(vals) == 1
 
 
+def test_feature_index_internals_on_append_empty_features(create_first_RowFeatureIndex):
+    index = RowFeatureIndex()
+    index.append_features(10, {})
+    create_first_RowFeatureIndex.concat(index)
+    assert len(create_first_RowFeatureIndex) == 2
+    assert [3, 0] == create_first_RowFeatureIndex.column_dims()
+    assert create_first_RowFeatureIndex.number_of_rows() == 22
+
+    vals = create_first_RowFeatureIndex.number_of_values()
+    assert vals == [12 * 3, 0]
+    assert len(vals) == 2
+
+
 def test_feature_index_internals_on_append_different_features(
     create_first_RowFeatureIndex, create_second_RowFeatureIndex
 ):
