@@ -1,4 +1,4 @@
-# BioNemo-SCDL: Single Cell Data Loading for Scalable Training of Single Cell Foundation Models.
+# BioNeMo-SCDL: Single Cell Data Loading for Scalable Training of Single Cell Foundation Models.
 
 ## Package Overview
 
@@ -132,6 +132,11 @@ Here's an example:
 convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
 ```
 
+## Runtimes with SCDL
+
+The runtime and memory usage are examined on a CellXGene Dataset with ~1.5 million rows and a size of 24 GB. On this dataset, there is a 4.9x memory speed up. Additionally, the peak memory usage when iterating over the datasets with the SCDL dataloader is only 36.5 MB, since the whole dataset is never loaded into memory due to the numpy memomory-mapped backing.
+
+
 ## Future Work and Roadmap
 
 SCDL is currently in public beta. In the future, expect improvements in data compression
@@ -139,4 +144,4 @@ and data loading performance.
 
 ## LICENSE
 
-BioNemo-SCDL has an Apache 2.0 license, as found in the LICENSE file.
+BioNeMo-SCDL has an Apache 2.0 license, as found in the LICENSE file.
