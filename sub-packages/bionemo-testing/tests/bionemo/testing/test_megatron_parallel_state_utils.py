@@ -26,6 +26,11 @@ from pytest import MonkeyPatch
 from bionemo.testing import megatron_parallel_state_utils
 
 
+MASTER_ADDR = "localhost"
+MASTER_PORT = "29500"
+NCCL_TIMEOUT = "30"  # in second
+
+
 def test_load_megatron_strategy():
     # This will clean up most of the megatron global state that can get created
     with megatron_parallel_state_utils.distributed_model_parallel_state(43):
@@ -126,11 +131,12 @@ def dist_environment(
     rank: int = 1,
 ):
     with MonkeyPatch.context() as context:
+        context.setenv("MASTER_ADDR", MASTER_ADDR)
+        context.setenv("MASTER_PORT", MASTER_PORT)
+        context.setenv("NCCL_TIMEOUT", NCCL_TIMEOUT)
+
         torch.cuda.empty_cache()
         parallel_state.destroy_model_parallel()
-
-        context.setenv("MASTER_ADDR", "localhost")
-        context.setenv("MASTER_PORT", "29500")
         dist.init_process_group(backend="nccl", world_size=world_size, rank=rank)
         yield
         dist.destroy_process_group()
