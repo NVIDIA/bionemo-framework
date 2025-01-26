@@ -146,7 +146,7 @@ def _test_all_reduce_sum(rank: int, world_size: int):
         assert tensor.item() == world_size * (world_size + 1) / 2
 
 
-@pytest.mark.skipif(torch.cuda.device_count() > 1, reason=f"Requires 2 devices but got {torch.cuda.device_count()}")
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason=f"Requires 2 devices but got {torch.cuda.device_count()}")
 def test_all_reduce_sum():
     world_size = 2
     torch.multiprocessing.spawn(
