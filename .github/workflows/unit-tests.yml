@@ -127,7 +127,7 @@ jobs:
           (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_SLOW_TESTS'))
         env:
           BIONEMO_DATA_SOURCE: ngc
-        run: pytest -m "slow" sub-packages/
+        run: pytest -v -m "slow" sub-packages/
 
       - name: Run notebook tests
         if: |
@@ -136,7 +136,7 @@ jobs:
             contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS'))
         env:
           BIONEMO_DATA_SOURCE: ngc
-        run: pytest --nbval-lax -p no:python docs/ sub-packages/
+        run: pytest -v --nbval-lax -p no:python docs/ sub-packages/
 
       - name: Upload coverage to Codecov
         # Don't run coverage on merge queue CI to avoid duplicating reports

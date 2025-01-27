@@ -1,7 +1,6 @@
 name: Enforce Tiered Approvals
 
 on:
-  pull_request: # TODO: remove
   pull_request_review:
 
 env:
