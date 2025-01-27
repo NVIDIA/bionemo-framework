@@ -13,3 +13,4 @@ setuptools>=70.0.0
 nltk>=3.9.1
 aiohttp>=3.9.4
 Werkzeug>=3.0.3
+tornado>=6.4.2
