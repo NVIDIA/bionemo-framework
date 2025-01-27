@@ -28,6 +28,14 @@ DEFAULT_MASTER_PORT = "29500"
 DEFAULT_NCCL_TIMEOUT = "30"  # in second
 
 
+def clean_up_states():
+    """Clean up parallel states, torch.distributed and torch cuda cache."""
+    parallel_state.destroy_model_parallel()  # destroy parallel state before distributed
+    if dist.is_initialized():
+        dist.destroy_process_group()
+    torch.cuda.empty_cache()
+
+
 @contextmanager
 def dist_environment(
     rank: int,
@@ -36,11 +44,8 @@ def dist_environment(
 ):
     """Context manager for torch distributed testing."""
     with MonkeyPatch.context() as context:
-        # clean up
-        torch.cuda.empty_cache()
-        parallel_state.destroy_model_parallel()
+        clean_up_states()
 
-        # init
         if not os.environ.get("MASTER_ADDR", None):
             context.setenv("MASTER_ADDR", DEFAULT_MASTER_ADDR)
         if not os.environ.get("MASTER_PORT", None):
@@ -54,7 +59,4 @@ def dist_environment(
 
         yield
 
-        # clean up
-        torch.cuda.empty_cache()
-        parallel_state.destroy_model_parallel()
-        dist.destroy_process_group()
+        clean_up_states()
