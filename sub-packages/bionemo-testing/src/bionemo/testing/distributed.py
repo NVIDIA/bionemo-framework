@@ -15,11 +15,13 @@
 
 import os
 from contextlib import contextmanager
+from typing import Optional
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing.spawn
 from megatron.core import parallel_state
+from megatron.core.tensor_parallel import random as tp_random
 from pytest import MonkeyPatch
 
 
@@ -28,7 +30,7 @@ DEFAULT_MASTER_PORT = "29500"
 DEFAULT_NCCL_TIMEOUT = "30"  # in second
 
 
-def clean_up_states():
+def clean_up_distributed_and_parallel_states():
     """Clean up parallel states, torch.distributed and torch cuda cache."""
     parallel_state.destroy_model_parallel()  # destroy parallel state before distributed
     if dist.is_initialized():
@@ -40,12 +42,14 @@ def clean_up_states():
 def dist_environment(
     rank: int = 0,
     world_size: int = 1,
+    seed: Optional[int] = 42,
     **initialize_model_parallel_kwargs,
 ):
     """Context manager for torch distributed testing."""
     with MonkeyPatch.context() as context:
-        clean_up_states()
+        clean_up_distributed_and_parallel_states()
 
+        # distributed and parallel state set up
         if not os.environ.get("MASTER_ADDR", None):
             context.setenv("MASTER_ADDR", DEFAULT_MASTER_ADDR)
         if not os.environ.get("MASTER_PORT", None):
@@ -57,6 +61,21 @@ def dist_environment(
         dist.init_process_group(backend="nccl", world_size=world_size)
         parallel_state.initialize_model_parallel(**initialize_model_parallel_kwargs)
 
+        # tensor parallel random seed set up
+        # do not call torch.cuda.manual_seed after so!
+        initial_states = None
+        if tp_random.get_cuda_rng_tracker().is_initialized():
+            initial_states = tp_random.get_cuda_rng_tracker().get_states()
+        if seed is not None:
+            tp_random.model_parallel_cuda_manual_seed(seed)
+
         yield
 
-        clean_up_states()
+        # restore/unset tensor parallel random seed
+        if initial_states is not None:
+            tp_random.get_cuda_rng_tracker().set_states(initial_states)
+        else:
+            # Reset to the unset state
+            tp_random.get_cuda_rng_tracker().reset()
+
+        clean_up_distributed_and_parallel_states()
