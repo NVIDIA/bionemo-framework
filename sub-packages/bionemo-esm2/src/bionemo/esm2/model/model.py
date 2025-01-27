@@ -330,6 +330,7 @@ class ESM2GenericConfig(BioBertConfig[ESM2ModelT, MegatronLossType]):
     include_input_ids: bool = False
     skip_logits: bool = False
     return_only_hidden_states: bool = False  # return logits
+    variable_seq_lengths: bool = False
 
     def __post_init__(self):
         # TODO, as a validator?

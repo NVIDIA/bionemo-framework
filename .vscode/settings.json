@@ -26,5 +26,9 @@
     "editor.rulers": [
         120
     ],
-    "autoDocstring.docstringFormat": "google-notypes"
+    "autoDocstring.docstringFormat": "google-notypes",
+    "launch": {
+        "configurations": [],
+        "compounds": []
+    }
 }

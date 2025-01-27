@@ -19,7 +19,6 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Generic, List, Protocol, Sequence, Type
 
-from megatron.core.transformer import TransformerConfig
 from nemo.lightning import io
 
 from bionemo.core.model.config import BionemoModelConfig, BionemoTrainableModelConfig
@@ -52,7 +51,7 @@ _OVERRIDE_BIONEMO_CONFIG_DEFAULTS: List[str] = [
 OVERRIDE_BIONEMO_CONFIG_DEFAULTS = deepcopy(_OVERRIDE_BIONEMO_CONFIG_DEFAULTS)  # copy for export
 
 
-class MegatronBioNeMoModelConfig(BionemoModelConfig[MegatronModelType], TransformerConfig, iom.WillHaveGetSetHparam):
+class MegatronBioNeMoModelConfig(BionemoModelConfig[MegatronModelType], iom.WillHaveGetSetHparam):
     """A ModelConfig class for bionemo that supports usage with Megatron models, for example as NeMo2 requires."""
 
     model_cls: Type[MegatronModelType]

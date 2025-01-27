@@ -129,37 +129,15 @@ PositionEmbeddingKinds = Literal["learned_absolute", "rope"]
 
 # TODO make this a base class without the language head and pooler
 class MegatronBioBertModel(LanguageModule):
-    """Transformer language model.
+    """Transformer language model."""
 
-    Args:
-        config: transformer config
-        num_tokentypes: Set to 2 when args.bert_binary_head is True, and 0 otherwise. Defaults to 0.
-        transformer_layer_spec: Specifies module to use for transformer layers
-        vocab_size: vocabulary size
-        max_sequence_length: maximum size of sequence. This is used for positional embedding
-        pre_process: Include embedding layer (used with pipeline parallelism)
-        post_process: Include an output layer (used with pipeline parallelism)
-        parallel_output: Do not gather the outputs, keep them split across tensor parallel ranks
-        share_embeddings_and_output_weights: When True, input embeddings and output logit weights are shared.
-            Defaults to False.
-        position_embedding_type: Position embedding type. Options ["learned_absolute", "rope"].
-            Defaults is 'learned_absolute'.
-        rotary_percent: Percent of rotary dimension to use for rotary position embeddings.
-            Defaults to 1.0 (100%). Ignored unless position_embedding_type is 'rope'.
-    """
-
-    def __init__(  # noqa: D107
+    def __init__(
         self,
-        config: TransformerConfig,
+        config: "BioBertConfig",
         num_tokentypes: int,
-        transformer_layer_spec: ModuleSpec,
-        vocab_size: int,
-        max_sequence_length: int,
         tokenizer: Optional[AutoTokenizer] = None,
         pre_process: bool = True,
         post_process: bool = True,
-        fp16_lm_cross_entropy: bool = False,
-        parallel_output: bool = True,
         share_embeddings_and_output_weights: bool = False,
         position_embedding_type: PositionEmbeddingKinds = "learned_absolute",
         rotary_percent: float = 1.0,
@@ -172,29 +150,45 @@ class MegatronBioBertModel(LanguageModule):
         include_input_ids: bool = False,
         skip_logits: bool = False,  # Useful for inference time.
     ):
+        """Initialize the MegatronBioBertModel.
+
+        Args:
+            config (TransformerConfig): transformer config
+            num_tokentypes (int): Set to 2 when args.bert_binary_head is True, and 0 otherwise. Defaults to 0.
+            tokenizer (AutoTokenizer): optional tokenizer object (currently only used in the constructor of ESM2Model)
+            pre_process (bool): Include embedding layer (used with pipeline parallelism)
+            post_process (bool): Include an output layer (used with pipeline parallelism)
+            share_embeddings_and_output_weights (bool): When True, input embeddings and output logit weights are shared. Defaults to False.
+            position_embedding_type (string): Position embedding type. Options ['learned_absolute', 'rope'].
+                Defaults is 'learned_absolute'.
+            rotary_percent (float): Percent of rotary dimension to use for rotary position embeddings.
+                Defaults to 1.0 (100%). Ignored unless position_embedding_type is 'rope'.
+            seq_len_interpolation_factor (Optional[float]): Interpolation factor for sequence length. Defaults to None.
+            add_binary_head (bool): Whether to add a binary head. Defaults to True.
+            return_embeddings (bool): Whether to return embeddings. Defaults to False.
+            include_embeddings (bool): Whether to include embeddings in the output dictionary. Defaults to False.
+            include_input_ids (bool): Whether to include input_ids in the output dictionary. Defaults to False.
+            use_full_attention_mask (bool): Whether to use full attention mask. Defaults to False.
+            include_hiddens (bool): Whether to include hidden states in the output dictionary. Defaults to False.
+            skip_logits (bool): Skip writing the token logits in output dict
+        """
         # TODO (@jstjohn) come up with a cleaner way for this model to return a set of things the user wants.
         #  hidden states, embeddings, logits, etc. The defaults should work for training but we need to make it
         #  customizable and easy to tell how to make it work well for inference as well as trouble shooting.
         #  Also make sure that everything returned that the user wants gets transposed to the b,s,h format.
-        super(MegatronBioBertModel, self).__init__(config=config)
-        self.post_process = post_process
+        super(MegatronBioBertModel, self).__init__(config=config.transformer_config)
         self.add_binary_head = add_binary_head
         self.skip_logits = skip_logits
         if return_embeddings:
-            assert self.post_process, "only return embeddings on the last pipeline stage"
+            assert post_process, "only return embeddings on the last pipeline stage"
         # `b` = batch, `s` = sequence.
         # The old flash attention mechanism apparently wants you to use a b x 1 x s x s attention mask while
         #  the new one wants a b x 1 x 1 x s attention mask. This is a hack to allow us to switch between the two.
         self.use_full_attention_mask = use_full_attention_mask
-        self.config: TransformerConfig = config
-        self.transformer_layer_spec: ModuleSpec = transformer_layer_spec
-        self.vocab_size = vocab_size
-        self.max_sequence_length = max_sequence_length
+        self.config: "BioBertConfig" = config
         self.tokenizer = tokenizer
         self.pre_process = pre_process
         self.post_process = post_process
-        self.fp16_lm_cross_entropy = fp16_lm_cross_entropy
-        self.parallel_output = parallel_output
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.position_embedding_type = position_embedding_type
         self.add_binary_head = add_binary_head
@@ -210,30 +204,30 @@ class MegatronBioBertModel(LanguageModule):
         if self.pre_process:
             self.register_buffer(
                 "bert_position_id_tensor",
-                torch.arange(max_sequence_length, dtype=torch.long, requires_grad=False).unsqueeze(0),
+                torch.arange(self.config.seq_length, dtype=torch.long, requires_grad=False).unsqueeze(0),
                 persistent=False,
             )
             self.embedding = LanguageModelEmbedding(
-                config=self.config,
-                vocab_size=self.vocab_size,
-                max_sequence_length=self.max_sequence_length,
+                config=config.transformer_config,
+                vocab_size=self.config.vocab_size,
+                max_sequence_length=self.config.seq_length,
                 position_embedding_type=position_embedding_type,
                 num_tokentypes=num_tokentypes,
             )
 
         if self.position_embedding_type == "rope":
             self.rotary_pos_emb = RotaryEmbedding(
-                kv_channels=self.config.kv_channels,
+                kv_channels=config.transformer_config.kv_channels,
                 rotary_percent=rotary_percent,
-                rotary_interleaved=self.config.rotary_interleaved,
+                rotary_interleaved=config.transformer_config.rotary_interleaved,
                 # bug in megatron: they list the type as `float` but they default to `None` so it should be `Optional[float]`
                 seq_len_interpolation_factor=seq_len_interpolation_factor,  # type: ignore
             )
 
         # Transformer.
         self.encoder = TransformerBlock(
-            config=self.config,
-            spec=self.transformer_layer_spec,
+            config=config.transformer_config,
+            spec=self.config.transformer_layer_spec,
             pre_process=self.pre_process,
             post_process=self.post_process,  # NOTE: in bionemo1 this is hard-coded to True
         )
@@ -263,13 +257,13 @@ class MegatronBioBertModel(LanguageModule):
 
             self.output_layer = tensor_parallel.ColumnParallelLinear(
                 config.hidden_size,
-                self.vocab_size,
+                self.config.vocab_size,
                 config=config,
                 init_method=config.init_method,
                 is_expert=False,
                 bias=True,
                 skip_bias_add=False,
-                gather_output=not self.parallel_output,
+                gather_output=not self.config.parallel_output,
                 skip_weight_param_allocation=pre_process and share_embeddings_and_output_weights,
                 embedding_activation_buffer=self.embedding_activation_buffer,
                 grad_output_buffer=self.grad_output_buffer,
@@ -324,7 +318,7 @@ class MegatronBioBertModel(LanguageModule):
     def bert_position_ids(self, token_ids):  # noqa: D102
         # Create position ids
         seq_length = token_ids.size(1)
-        if seq_length != self.max_sequence_length:
+        if seq_length != self.config.seq_length:
             return self.bert_position_id_tensor[:, :seq_length]
         return self.bert_position_id_tensor  # No need to subset so skip the slice op
 
@@ -483,27 +477,28 @@ class BioBertConfig(
     `configure_model()` is ultimately called by the LightningModule using PTL lightning module hooks.
     """
 
-    # From megatron.core.models.gpt.bert_model.GPTModel
-    kv_channels: int | None = None
-    fp16_lm_cross_entropy: bool = False
-    apply_rope_fusion: bool = True
+    transformer_config: TransformerConfig = field(
+        default_factory=lambda: TransformerConfig(
+            apply_rope_fusion=True,
+            bias_dropout_fusion=True,
+            bias_activation_fusion=True,
+            masked_softmax_fusion=True,
+            persist_layer_norm=True,
+            hidden_size=512,
+            num_attention_heads=8,
+            num_layers=6,
+            init_method_std=0.02,
+        )
+    )
     parallel_output: bool = True
-    bias_dropout_fusion: bool = True
-    bias_activation_fusion: bool = True
-    masked_softmax_fusion: bool = True
-    persist_layer_norm: bool = True
-    get_attention_mask_from_fusion: bool = True
-    share_embeddings_and_output_weights: bool = False  # try True
+
     make_vocab_size_divisible_by: int = 128
     position_embedding_type: PositionEmbeddingKinds = "learned_absolute"
-    rotary_base: int = 10000
+    rotary_base: int = 10_000
     rotary_percent: float = 1.0
     seq_len_interpolation_factor: Optional[float] = None
     seq_length: int = 1024
-    hidden_size: int = 512
-    num_attention_heads: int = 8
-    num_layers: int = 6
-    init_method_std: float = 0.02
+
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.bert_layer_with_transformer_engine_spec
 
     optimizer_fn: Optional[Callable[["MegatronBioBertModel"], Optimizer]] = None
@@ -531,13 +526,26 @@ class BioBertConfig(
     # loss reduction class
     loss_reduction_class: Type[MegatronLossType] = BERTMLMLossWithReduction
 
+    transformer_layer_spec: ModuleSpec = field(init=False)
+    vocab_size: int = field(init=False)
+
+    def __post_init__(self) -> None:
+        """Initialize derived config fields."""
+        # Don't raise an AttributeError if the parent doesn't define a __post_init__
+        getattr(super(), "__post_init__", lambda: None)()
+
+        self.transformer_layer_spec = get_biobert_spec(
+            self.biobert_spec_option,
+            qk_layernorm=self.transformer_config.qk_layernorm,
+            core_attention=self.core_attention_override,
+        )
+
     def configure_model(self, tokenizer: AutoTokenizer) -> MegatronBioBertModelType:  # noqa: D102
-        vp_size = self.virtual_pipeline_model_parallel_size
-        if vp_size:
-            p_size = self.pipeline_model_parallel_size
-            assert (
-                self.num_layers // p_size
-            ) % vp_size == 0, "Make sure the number of model chunks is the same across all pipeline stages."
+        self.vocab_size = get_vocab_size(
+            self.transformer_config, tokenizer.vocab_size, self.make_vocab_size_divisible_by
+        )
+
+        _assert_equal_pipeline_parallel_chunks(self.transformer_config)
 
         # The local specs all require the standard full attention mask.
         use_full_attention_mask: bool = "transformer_engine" not in self.biobert_spec_option
@@ -552,17 +560,8 @@ class BioBertConfig(
 
         model = self.model_cls(
             self,
-            transformer_layer_spec=get_biobert_spec(
-                self.biobert_spec_option,
-                qk_layernorm=self.qk_layernorm,
-                core_attention=self.core_attention_override,
-            ),
             num_tokentypes=2 if do_next_sentence else 0,
-            vocab_size=get_vocab_size(self, tokenizer.vocab_size, self.make_vocab_size_divisible_by),
-            max_sequence_length=self.seq_length,
             tokenizer=tokenizer,
-            fp16_lm_cross_entropy=self.fp16_lm_cross_entropy,
-            parallel_output=self.parallel_output,
             share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
             position_embedding_type=self.position_embedding_type,
             rotary_percent=self.rotary_percent,
@@ -616,3 +615,13 @@ class BioBertConfig(
     def get_loss_reduction_class(self) -> Type[MegatronLossType]:  # noqa: D102
         # You could optionally return a different loss reduction class here based on the config settings.
         return self.loss_reduction_class
+
+
+def _assert_equal_pipeline_parallel_chunks(config: TransformerConfig) -> None:
+    """Ensure the number of model chunks is the same across all pipeline stages."""
+    vp_size = config.virtual_pipeline_model_parallel_size
+    if vp_size:
+        p_size = config.pipeline_model_parallel_size
+        assert (
+            config.num_layers // p_size
+        ) % vp_size == 0, "Make sure the number of model chunks is the same across all pipeline stages."
