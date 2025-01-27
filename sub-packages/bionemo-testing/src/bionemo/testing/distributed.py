@@ -29,19 +29,27 @@ NCCL_TIMEOUT = "30"  # in second
 
 @contextmanager
 def dist_environment(
-    world_size: int = 1,
-    rank: int = 1,
+    rank: int,
+    world_size: int = -1,
+    **initialize_model_parallel_kwargs,
 ):
     """Context manager for torch distributed testing."""
     with MonkeyPatch.context() as context:
+        # clean up
+        torch.cuda.empty_cache()
+        parallel_state.destroy_model_parallel()
+
+        # init
         context.setenv("MASTER_ADDR", MASTER_ADDR)
         context.setenv("MASTER_PORT", MASTER_PORT)
         context.setenv("NCCL_TIMEOUT", NCCL_TIMEOUT)
+        context.setenv("RANK", str(rank))
+        dist.init_process_group(backend="nccl", world_size=world_size)
+        parallel_state.initialize_model_parallel(**initialize_model_parallel_kwargs)
 
-        torch.cuda.empty_cache()
-        parallel_state.destroy_model_parallel()  # reuse from megatron_parallel_state_utils.py
-        dist.init_process_group(backend="nccl", world_size=world_size, rank=rank)
         yield
-        dist.destroy_process_group()
+
+        # clean up
         torch.cuda.empty_cache()
         parallel_state.destroy_model_parallel()
+        dist.destroy_process_group()
