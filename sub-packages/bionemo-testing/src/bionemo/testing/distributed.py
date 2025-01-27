@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from contextlib import contextmanager
 
 import torch
@@ -22,9 +23,9 @@ from megatron.core import parallel_state
 from pytest import MonkeyPatch
 
 
-MASTER_ADDR = "localhost"
-MASTER_PORT = "29500"
-NCCL_TIMEOUT = "30"  # in second
+DEFAULT_MASTER_ADDR = "localhost"
+DEFAULT_MASTER_PORT = "29500"
+DEFAULT_NCCL_TIMEOUT = "30"  # in second
 
 
 @contextmanager
@@ -40,10 +41,14 @@ def dist_environment(
         parallel_state.destroy_model_parallel()
 
         # init
-        context.setenv("MASTER_ADDR", MASTER_ADDR)
-        context.setenv("MASTER_PORT", MASTER_PORT)
-        context.setenv("NCCL_TIMEOUT", NCCL_TIMEOUT)
+        if not os.environ.get("MASTER_ADDR", None):
+            context.setenv("MASTER_ADDR", DEFAULT_MASTER_ADDR)
+        if not os.environ.get("MASTER_PORT", None):
+            context.setenv("MASTER_PORT", DEFAULT_MASTER_PORT)
+        if not os.environ.get("NCCL_TIMEOUT", None):
+            context.setenv("NCCL_TIMEOUT", DEFAULT_NCCL_TIMEOUT)
         context.setenv("RANK", str(rank))
+
         dist.init_process_group(backend="nccl", world_size=world_size)
         parallel_state.initialize_model_parallel(**initialize_model_parallel_kwargs)
 
