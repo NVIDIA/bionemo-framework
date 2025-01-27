@@ -17,6 +17,7 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing.spawn
+from megatron.core import parallel_state
 
 from bionemo.testing.distributed import dist_environment
 
@@ -24,10 +25,13 @@ from bionemo.testing.distributed import dist_environment
 REQUIRED_WORLD_SIZE = 2
 
 
+# TODO @sichu improve documentation
+#  arguments will be recognized as fixture if decorating the private function directly into test function,
+#  so we have to create a test function for each private function.
 def _test_all_reduce_sum(rank: int, world_size: int):
+    """Private test function for torch.distributed mean reduce."""
     with dist_environment(rank=rank, world_size=world_size):
-        device = torch.device(f"cuda:{rank}")
-        tensor = torch.tensor([rank + 1], device=device)
+        tensor = torch.tensor([rank + 1]).cuda(rank)
         dist.all_reduce(tensor)
         assert tensor.item() == world_size * (world_size + 1) / 2
 
@@ -37,8 +41,75 @@ def _test_all_reduce_sum(rank: int, world_size: int):
     reason=f"Requires {REQUIRED_WORLD_SIZE} devices but got {torch.cuda.device_count()}",
 )
 def test_all_reduce_sum(world_size: int = REQUIRED_WORLD_SIZE):
+    """Multiprocessing test of _test_all_reduce_sum."""
     torch.multiprocessing.spawn(
         fn=_test_all_reduce_sum,
+        args=(world_size,),
+        nprocs=world_size,
+    )
+
+
+def _test_data_parallel_group(rank: int, world_size: int):
+    """Private test function for dp parallel state."""
+    with dist_environment(rank=rank, world_size=world_size):
+        assert parallel_state.get_data_parallel_rank() == rank
+        assert parallel_state.get_data_parallel_world_size() == world_size
+        assert parallel_state.get_data_parallel_src_rank() == 0
+
+
+@pytest.mark.skipif(
+    torch.cuda.device_count() < REQUIRED_WORLD_SIZE,
+    reason=f"Requires {REQUIRED_WORLD_SIZE} devices but got {torch.cuda.device_count()}",
+)
+def test_data_parallel_group(world_size: int = REQUIRED_WORLD_SIZE):
+    """Multiprocessing test of _test_data_parallel_group."""
+    torch.multiprocessing.spawn(
+        fn=_test_data_parallel_group,
+        args=(world_size,),
+        nprocs=world_size,
+    )
+
+
+def _test_tensor_model_parallel_group(rank: int, world_size: int):
+    """Private test function for tp parallel state."""
+    with dist_environment(rank=rank, world_size=world_size, tensor_model_parallel_size=world_size):
+        assert parallel_state.get_tensor_model_parallel_rank() == rank
+        assert parallel_state.get_tensor_model_parallel_world_size() == world_size
+        assert parallel_state.get_tensor_model_parallel_src_rank() == 0
+
+
+@pytest.mark.skipif(
+    torch.cuda.device_count() < REQUIRED_WORLD_SIZE,
+    reason=f"Requires {REQUIRED_WORLD_SIZE} devices but got {torch.cuda.device_count()}",
+)
+def test_tensor_model_parallel_group(world_size: int = REQUIRED_WORLD_SIZE):
+    """Multiprocessing test of _test_tensor_model_parallel_group."""
+    torch.multiprocessing.spawn(
+        fn=_test_tensor_model_parallel_group,
+        args=(world_size,),
+        nprocs=world_size,
+    )
+
+
+def _test_pipeline_model_parallel_group(rank: int, world_size: int):
+    """Private test function for pp parallel state."""
+    with dist_environment(rank=rank, world_size=world_size, pipeline_model_parallel_size=world_size):
+        assert parallel_state.get_pipeline_model_parallel_rank() == rank
+        assert parallel_state.get_pipeline_model_parallel_world_size() == world_size
+        if rank == 0:
+            assert parallel_state.is_pipeline_first_stage()
+        if rank == world_size:
+            assert parallel_state.is_pipeline_last_stage()
+
+
+@pytest.mark.skipif(
+    torch.cuda.device_count() < REQUIRED_WORLD_SIZE,
+    reason=f"Requires {REQUIRED_WORLD_SIZE} devices but got {torch.cuda.device_count()}",
+)
+def test_pipeline_model_parallel_group(world_size: int = REQUIRED_WORLD_SIZE):
+    """Multiprocessing test of _test_pipeline_model_parallel_group."""
+    torch.multiprocessing.spawn(
+        fn=_test_pipeline_model_parallel_group,
         args=(world_size,),
         nprocs=world_size,
     )
