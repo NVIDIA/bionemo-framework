@@ -22,7 +22,9 @@ from megatron.core import parallel_state
 from bionemo.testing.distributed import dist_environment
 
 
-REQUIRED_WORLD_SIZE = 2
+MAX_WORLD_SIZE = 4
+AVAILABLE_WORLD_SIZE = torch.cuda.device_count()
+WORLD_SIZES = range(min(MAX_WORLD_SIZE, torch.cuda.device_count()))
 
 
 # TODO @sichu improve documentation
@@ -38,11 +40,8 @@ def all_reduce_sum(rank: int, world_size: int):
         assert tensor.item() == world_size * (world_size + 1) / 2
 
 
-@pytest.mark.skipif(
-    torch.cuda.device_count() < REQUIRED_WORLD_SIZE,
-    reason=f"Requires {REQUIRED_WORLD_SIZE} devices but got {torch.cuda.device_count()}",
-)
-def test_all_reduce_sum(world_size: int = REQUIRED_WORLD_SIZE):
+@pytest.mark.parametrize("world_size", WORLD_SIZES)
+def test_all_reduce_sum(world_size: int):
     """Multiprocessing test of _test_all_reduce_sum."""
     torch.multiprocessing.spawn(
         fn=all_reduce_sum,
@@ -59,11 +58,8 @@ def data_parallel_group(rank: int, world_size: int):
         assert parallel_state.get_data_parallel_src_rank() == 0
 
 
-@pytest.mark.skipif(
-    torch.cuda.device_count() < REQUIRED_WORLD_SIZE,
-    reason=f"Requires {REQUIRED_WORLD_SIZE} devices but got {torch.cuda.device_count()}",
-)
-def test_data_parallel_group(world_size: int = REQUIRED_WORLD_SIZE):
+@pytest.mark.parametrize("world_size", WORLD_SIZES)
+def test_data_parallel_group(world_size: int):
     """Multiprocessing test of _test_data_parallel_group."""
     torch.multiprocessing.spawn(
         fn=data_parallel_group,
@@ -80,11 +76,8 @@ def tensor_model_parallel_group(rank: int, world_size: int):
         assert parallel_state.get_tensor_model_parallel_src_rank() == 0
 
 
-@pytest.mark.skipif(
-    torch.cuda.device_count() < REQUIRED_WORLD_SIZE,
-    reason=f"Requires {REQUIRED_WORLD_SIZE} devices but got {torch.cuda.device_count()}",
-)
-def test_tensor_model_parallel_group(world_size: int = REQUIRED_WORLD_SIZE):
+@pytest.mark.parametrize("world_size", WORLD_SIZES)
+def test_tensor_model_parallel_group(world_size: int):
     """Multiprocessing test of _test_tensor_model_parallel_group."""
     torch.multiprocessing.spawn(
         fn=tensor_model_parallel_group,
@@ -104,11 +97,8 @@ def pipeline_model_parallel_group(rank: int, world_size: int):
             assert parallel_state.is_pipeline_last_stage()
 
 
-@pytest.mark.skipif(
-    torch.cuda.device_count() < REQUIRED_WORLD_SIZE,
-    reason=f"Requires {REQUIRED_WORLD_SIZE} devices but got {torch.cuda.device_count()}",
-)
-def test_pipeline_model_parallel_group(world_size: int = REQUIRED_WORLD_SIZE):
+@pytest.mark.parametrize("world_size", WORLD_SIZES)
+def test_pipeline_model_parallel_group(world_size: int):
     """Multiprocessing test of _test_pipeline_model_parallel_group."""
     torch.multiprocessing.spawn(
         fn=pipeline_model_parallel_group,
