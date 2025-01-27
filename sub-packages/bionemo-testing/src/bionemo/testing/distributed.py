@@ -38,8 +38,8 @@ def clean_up_states():
 
 @contextmanager
 def dist_environment(
-    rank: int,
-    world_size: int = -1,
+    rank: int = 0,
+    world_size: int = 1,
     **initialize_model_parallel_kwargs,
 ):
     """Context manager for torch distributed testing."""
