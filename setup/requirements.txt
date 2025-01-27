@@ -9,7 +9,7 @@ pyfastx==1.1.0
 # matplotlib>=3.4.3
 matplotlib==3.8.0
 rdkit==2023.9.5
-urllib3==1.26.16
+urllib3==1.26.17
 ijson==3.2.3
 wandb==0.15.6
 einops==0.6.1
