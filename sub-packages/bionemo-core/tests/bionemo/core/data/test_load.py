@@ -21,6 +21,7 @@ import tarfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import ngcbpc.environ
 import pytest
 
 from bionemo.core.data.load import default_ngc_client, default_pbss_client, load
@@ -269,10 +270,20 @@ def test_default_pbss_client():
     assert client.meta.endpoint_url == "https://pbss.s8k.io"
 
 
-@pytest.mark.xfail(reason="Logging into NGC is not required to download artifacts in BioNeMo.")
-def test_default_ngc_client():
-    clt = default_ngc_client()
-    assert clt.api_key is not None
+@patch("ngcbpc.api.authentication.Authentication.validate_api_key")
+def test_default_ngc_client_raises_when_api_key_invalid(mocked_validate_api_key, monkeypatch):
+    monkeypatch.setattr(ngcbpc.environ, "NGC_CLI_API_KEY", "invalidapikey")  # pragma: allowlist secret
+    mocked_validate_api_key.return_value = False
+    with pytest.raises(ValueError, match="Invalid apikey for NGC service location"):
+        default_ngc_client(use_guest_if_api_key_invalid=False)
+
+
+@patch("ngcbpc.api.authentication.Authentication.validate_api_key")
+def test_default_ngc_client_returns_guest_key_when_api_key_invalid(mocked_validate_api_key, monkeypatch):
+    monkeypatch.setattr(ngcbpc.environ, "NGC_CLI_API_KEY", "invalidapikey")  # pragma: allowlist secret
+    mocked_validate_api_key.return_value = False
+    client = default_ngc_client()
+    assert client.api_key == "no-apikey"  # pragma: allowlist secret
 
 
 @patch("bionemo.core.data.load.default_ngc_client")

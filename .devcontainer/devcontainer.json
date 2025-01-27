@@ -24,6 +24,7 @@
 		"NUMBA_CACHE_DIR": "/tmp/"
 	},
 	"postCreateCommand": "./.devcontainer/postCreateCommand.sh",
+	"initializeCommand": "./.devcontainer/initializeCommand.sh",
 	"remoteUser": "ubuntu",
 	"customizations": {
 		"vscode": {
