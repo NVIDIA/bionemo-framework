@@ -26,9 +26,11 @@ REQUIRED_WORLD_SIZE = 2
 
 
 # TODO @sichu improve documentation
-#  arguments will be recognized as fixture if decorating the private function directly into test function,
-#  so we have to create a test function for each private function.
-def _test_all_reduce_sum(rank: int, world_size: int):
+#  arguments will be recognized as fixture if decorating the tested function directly into test function,
+#  so we have to create a test function for each tested function.
+
+
+def all_reduce_sum(rank: int, world_size: int):
     """Private test function for torch.distributed mean reduce."""
     with dist_environment(rank=rank, world_size=world_size):
         tensor = torch.tensor([rank + 1]).cuda(rank)
@@ -43,13 +45,13 @@ def _test_all_reduce_sum(rank: int, world_size: int):
 def test_all_reduce_sum(world_size: int = REQUIRED_WORLD_SIZE):
     """Multiprocessing test of _test_all_reduce_sum."""
     torch.multiprocessing.spawn(
-        fn=_test_all_reduce_sum,
+        fn=all_reduce_sum,
         args=(world_size,),
         nprocs=world_size,
     )
 
 
-def _test_data_parallel_group(rank: int, world_size: int):
+def data_parallel_group(rank: int, world_size: int):
     """Private test function for dp parallel state."""
     with dist_environment(rank=rank, world_size=world_size):
         assert parallel_state.get_data_parallel_rank() == rank
@@ -64,13 +66,13 @@ def _test_data_parallel_group(rank: int, world_size: int):
 def test_data_parallel_group(world_size: int = REQUIRED_WORLD_SIZE):
     """Multiprocessing test of _test_data_parallel_group."""
     torch.multiprocessing.spawn(
-        fn=_test_data_parallel_group,
+        fn=data_parallel_group,
         args=(world_size,),
         nprocs=world_size,
     )
 
 
-def _test_tensor_model_parallel_group(rank: int, world_size: int):
+def tensor_model_parallel_group(rank: int, world_size: int):
     """Private test function for tp parallel state."""
     with dist_environment(rank=rank, world_size=world_size, tensor_model_parallel_size=world_size):
         assert parallel_state.get_tensor_model_parallel_rank() == rank
@@ -85,13 +87,13 @@ def _test_tensor_model_parallel_group(rank: int, world_size: int):
 def test_tensor_model_parallel_group(world_size: int = REQUIRED_WORLD_SIZE):
     """Multiprocessing test of _test_tensor_model_parallel_group."""
     torch.multiprocessing.spawn(
-        fn=_test_tensor_model_parallel_group,
+        fn=tensor_model_parallel_group,
         args=(world_size,),
         nprocs=world_size,
     )
 
 
-def _test_pipeline_model_parallel_group(rank: int, world_size: int):
+def pipeline_model_parallel_group(rank: int, world_size: int):
     """Private test function for pp parallel state."""
     with dist_environment(rank=rank, world_size=world_size, pipeline_model_parallel_size=world_size):
         assert parallel_state.get_pipeline_model_parallel_rank() == rank
@@ -109,7 +111,7 @@ def _test_pipeline_model_parallel_group(rank: int, world_size: int):
 def test_pipeline_model_parallel_group(world_size: int = REQUIRED_WORLD_SIZE):
     """Multiprocessing test of _test_pipeline_model_parallel_group."""
     torch.multiprocessing.spawn(
-        fn=_test_pipeline_model_parallel_group,
+        fn=pipeline_model_parallel_group,
         args=(world_size,),
         nprocs=world_size,
     )
