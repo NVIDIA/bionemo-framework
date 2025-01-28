@@ -118,9 +118,7 @@ def visualize_dependency_graph(dependency_graph, filename):
 
 
 def find_bionemo_subpackages(base_dir, directories):
-    """
-    Find all unique `bionemo.<name>` imports in Python files within a directory.
-    """
+    """Find all unique `bionemo.<name>` imports in Python files within a directory."""
     bionemo_import_pattern = re.compile(
         r"^\s*(?:from|import)\s+bionemo\.([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+|\.|$)", re.MULTILINE
     )
@@ -160,9 +158,7 @@ def parse_tach_toml(toml_path):
 
 
 def resolve_dependencies(subpackage, toml_imports, resolved=None, seen=None):
-    """
-    Recursively resolve all dependencies, including transitive ones.
-    """
+    """Recursively resolve all dependencies, including transitive ones."""
     if resolved is None:
         resolved = set()
     if seen is None:
