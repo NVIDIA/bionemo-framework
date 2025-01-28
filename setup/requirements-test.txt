@@ -3,3 +3,4 @@ pytest-timeout==2.2.0
 pytest-dependency==0.5.1
 testbook==0.4.2
 requests_mock==1.11.0
+nbval==0.11.0
