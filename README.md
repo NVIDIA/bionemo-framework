@@ -29,12 +29,12 @@ for details.
 
 Full documentation on using the BioNeMo Framework is provided in our documentation:
 <https://docs.nvidia.com/bionemo-framework/latest/user-guide/>. To simplify the integration of optimized third-party dependencies, BioNeMo is primarily distributed as a containerized library. You can download the latest released container for the BioNeMo Framework from
-[NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework). To launch a pre-built container, you can use the brev.dev link (`Deploy Now`) at the top of the page, or execute the following command:
+[NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework). To launch a pre-built container, you can use the brev.dev launchable [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU) at the top of the page, or execute the following command:
 
 ```bash
 docker run --rm -it \
   --gpus=all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
-  nvcr.io/nvidia/clara/bionemo-framework:nightly--bionemo1 \
+  nvcr.io/nvidia/clara/bionemo-framework:nightly \
   /bin/bash
 ```
 

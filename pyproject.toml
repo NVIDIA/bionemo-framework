@@ -112,7 +112,7 @@ convention = "google"
 
 [tool.pytest.ini_options]
 norecursedirs = ["3rdparty"]
-addopts = ["--ignore=3rdparty"]
+addopts = ["--durations-min=30.0", "--durations=0", "--ignore=3rdparty"]
 markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.pyright]
