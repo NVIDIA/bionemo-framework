@@ -15,7 +15,7 @@
 
 
 import warnings
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -504,23 +504,30 @@ class DDPM(Interpolant):
         target: Tensor,
         t: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
-        weight_type: str = "ones",
+        weight_type: Literal["ones", "data_to_noise", "noise_to_data"] = "ones",
     ):
         """Calculate the loss given the model prediction, data sample, and time.
+
+        The default weight_type is "ones" meaning no change / multiplying by all ones.
+        data_to_noise is available to scale the data MSE loss into the appropriate loss that is theoretically equivalent
+        to noise prediction. noise_to_data is provided for a similar reason for completeness.
 
         Args:
             model_pred (Tensor): The predicted output from the model.
             target (Tensor): The target output for the model prediction.
             t (Tensor): The time at which the loss is calculated.
             mask (Optional[Tensor], optional): The mask for the data point. Defaults to None.
-            weight_type (str, optional): The type of weight to use for the loss. Defaults to "ones".
+            weight_type (Literal["ones", "data_to_noise", "noise_to_data"]): The type of weight to use for the loss. Defaults to "ones".
 
         Returns:
             Tensor: The calculated loss batch tensor.
         """
         raw_loss = self._loss_function(model_pred, target)
-        update_weight = self.loss_weight(raw_loss, t, weight_type)
-        loss = raw_loss * update_weight
+        if weight_type != "ones":
+            update_weight = self.loss_weight(raw_loss, t, weight_type)
+            loss = raw_loss * update_weight
+        else:
+            loss = raw_loss
         if mask is not None:
             loss = loss * mask.unsqueeze(-1)
             n_elem = torch.sum(mask, dim=-1)

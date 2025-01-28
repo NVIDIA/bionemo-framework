@@ -4317,10 +4317,15 @@ def loss(model_pred: Tensor,
          target: Tensor,
          t: Optional[Tensor] = None,
          mask: Optional[Tensor] = None,
-         weight_type: str = "ones")
+         weight_type: Literal["ones", "data_to_noise",
+                              "noise_to_data"] = "ones")
 ```
 
 Calculate the loss given the model prediction, data sample, and time.
+
+The default weight_type is "ones" meaning no change / multiplying by all ones.
+data_to_noise is available to scale the data MSE loss into the appropriate loss that is theoretically equivalent
+to noise prediction. noise_to_data is provided for a similar reason for completeness.
 
 **Arguments**:
 
@@ -4328,7 +4333,7 @@ Calculate the loss given the model prediction, data sample, and time.
 - `target` _Tensor_ - The target output for the model prediction.
 - `t` _Tensor_ - The time at which the loss is calculated.
 - `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
-- `weight_type` _str, optional_ - The type of weight to use for the loss. Defaults to "ones".
+- `weight_type` _Literal["ones", "data_to_noise", "noise_to_data"]_ - The type of weight to use for the loss. Defaults to "ones".
 
 
 **Returns**:
