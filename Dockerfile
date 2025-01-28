@@ -35,10 +35,12 @@ apt-get upgrade -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
-ARG TE_COMMIT=2215fa5c7557b66034068816020f9f611019e457
+# Pull the latest TE version from https://github.com/NVIDIA/TransformerEngine/releases
+# Use the version that matches the pytorch base container.
+ARG TE_TAG=v1.13
 RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
   pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/NVIDIA/TransformerEngine.git@${TE_COMMIT}
+  git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
 
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
