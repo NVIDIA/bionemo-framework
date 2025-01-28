@@ -15,6 +15,7 @@
 
 
 import os
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -37,7 +38,7 @@ def parse_dependencies(pyproject_path):
     with open(pyproject_path, "r") as f:
         pyproject_data = toml.load(f)
 
-    dependencies = []
+    dependencies = {}
     package_name = None
 
     # Extract package name
@@ -50,29 +51,31 @@ def parse_dependencies(pyproject_path):
     try:
         deps = pyproject_data["project"]["dependencies"]
         if isinstance(deps, dict):  # If dependencies are a dictionary
-            for dep, _ in deps.items():
+            for dep, version in deps.items():
                 if dep.startswith("bionemo-"):
-                    dependencies.append((dep))
+                    dependencies[dep] = version  # Keep dependency with its version
+
         elif isinstance(deps, list):  # If dependencies are a list
             for dep in deps:
                 if dep.startswith("bionemo-"):
-                    dependencies.append((dep))
+                    dependencies[dep] = "unpinned"
     except KeyError:
         print(f"Warning: Could not find dependencies in {pyproject_path}")
 
     return package_name, dependencies
 
 
-def build_dependency_graph(base_dir):
+def build_dependency_graph(base_dir, directories):
     """Build a dependency graph for all sub-packages."""
-    pyproject_files = find_pyproject_files(base_dir)
-    dependency_graph = defaultdict(list)
+    pyproject_files = []
+    for directory in directories:
+        pyproject_files.append(base_dir / directory / "pyproject.toml")
+    dependency_graph = defaultdict(dict)
 
     for pyproject_file in pyproject_files:
         package_name, dependencies = parse_dependencies(pyproject_file)
         if package_name:
-            for dep in dependencies:
-                dependency_graph[f"{dep}"].append(package_name)
+            dependency_graph[package_name] = dependencies
 
     return dependency_graph
 
@@ -81,14 +84,21 @@ def visualize_dependency_graph(dependency_graph, filename):
     """Visualize the dependency graph using NetworkX."""
     G = nx.DiGraph()
 
-    for package, dependents in dependency_graph.items():
-        for dep in dependents:
-            G.add_edge(package, dep)
+    edge_labels = {}
+
+    for package, dependencies in dependency_graph.items():
+        if isinstance(dependencies, dict):
+            for dep, version in dependencies.items():
+                G.add_edge(dep, package)  # Add edge from package to dependency
+                edge_labels[(dep, package)] = version  # Label the edge with the version
+        else:
+            for dep in dependencies:
+                G.add_edge(dep, package)  # Add edge from package to dependency
+
+    # Use a circular layout, ensuring packages are evenly distributed
+    pos = nx.circular_layout(G)
 
     plt.figure(figsize=(14, 10))
-    pos = nx.shell_layout(G)  # Use shell layout for better visualization of hierarchical dependencies
-    # pos = nx.spiral_layout(G)
-
     nx.draw(
         G,
         pos,
@@ -100,8 +110,74 @@ def visualize_dependency_graph(dependency_graph, filename):
         arrowsize=20,
         edge_color="gray",
     )
+
+    # Draw edge labels for the dependency versions
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8, font_color="red")
     plt.title("Dependency Graph", fontsize=16)
     plt.savefig(filename)
+
+
+def find_bionemo_subpackages(base_dir, directories):
+    """
+    Find all unique `bionemo.<name>` imports in Python files within a directory.
+    """
+    bionemo_import_pattern = re.compile(
+        r"^\s*(?:from|import)\s+bionemo\.([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+|\.|$)", re.MULTILINE
+    )
+    found_imports = {}
+    for dir_name in directories:
+        directory = base_dir / dir_name
+        subpackages = set()
+
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.endswith(".py"):
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                            matches = bionemo_import_pattern.findall(content)
+                            subpackages.update(matches)
+                    except Exception as e:
+                        print(f"Error reading file {file_path}: {e}")
+        full_subpackage_names = {f"bionemo-{subpackage}" for subpackage in subpackages}
+        if dir_name in full_subpackage_names:
+            full_subpackage_names.remove(dir_name)
+        found_imports[dir_name] = full_subpackage_names
+    return found_imports
+
+
+def parse_tach_toml(toml_path):
+    """Parse dependencies from a tach.toml file."""
+    tach_toml_dependencies = {}
+    with open(toml_path, "r") as f:
+        toml_data = toml.load(f)
+        for module in toml_data["modules"]:
+            tach_toml_dependencies[(module["path"].replace(".", "-"))] = [
+                item.replace(".", "-") for item in module["depends_on"]
+            ]
+    return tach_toml_dependencies
+
+
+def resolve_dependencies(subpackage, toml_imports, resolved=None, seen=None):
+    """
+    Recursively resolve all dependencies, including transitive ones.
+    """
+    if resolved is None:
+        resolved = set()
+    if seen is None:
+        seen = set()
+
+    if subpackage in seen:
+        return resolved  # Avoid circular dependencies
+    seen.add(subpackage)
+
+    for dep in toml_imports.get(subpackage, []):
+        resolved.add(dep)
+        if dep in toml_imports:  # Resolve further if it's a subpackage
+            resolve_dependencies(dep, toml_imports, resolved, seen)
+
+    return resolved
 
 
 if __name__ == "__main__":
@@ -111,5 +187,33 @@ if __name__ == "__main__":
     parent_directory = script_path.parent.parent
 
     base_dir = parent_directory / "sub-packages"
-    dependency_graph = build_dependency_graph(base_dir)
-    visualize_dependency_graph(dependency_graph, "dependency_graph.png")
+    directories = [d for d in os.listdir(base_dir) if os.path.isdir(base_dir / d)]
+    pyproject_dependency_graph = build_dependency_graph(base_dir, directories)
+
+    tach_toml_dependency_graph = parse_tach_toml(parent_directory / "tach.toml")
+    file_path_imports = find_bionemo_subpackages(base_dir, directories)
+    print("\npyproject.toml - tach.toml:")
+    print(", ".join(set(pyproject_dependency_graph.keys()) - set(tach_toml_dependency_graph.keys())))
+    print("\ntach.toml - pyproject.toml:")
+    print(", ".join(set(tach_toml_dependency_graph.keys()) - set(pyproject_dependency_graph.keys())))
+
+    for name, dependency_graph in zip(
+        ["pyproject.toml", "tach.toml"], [pyproject_dependency_graph, tach_toml_dependency_graph]
+    ):
+        print(f"\nDependencies not resolved in {name}")
+        for directory in file_path_imports:
+            resolved_dependencies = resolve_dependencies(directory, dependency_graph)
+            if not (file_path_imports[directory] <= resolved_dependencies):
+                print(f"{directory} : {file_path_imports[directory]  - resolved_dependencies}")
+
+    for d in pyproject_dependency_graph:
+        if d in tach_toml_dependency_graph:
+            pyproject_minus_tach = set(pyproject_dependency_graph[d].keys()) - set(tach_toml_dependency_graph[d])
+            tach_minus_pyproject = set(tach_toml_dependency_graph[d]) - set(pyproject_dependency_graph[d].keys())
+            if len(pyproject_minus_tach) > 0:
+                print(f"{d} project.toml - tach.toml: {", ".join(pyproject_minus_tach)}")
+            if len(tach_minus_pyproject) > 0:
+                print(f"{d} tach.toml - project.toml: {", ".join(tach_minus_pyproject)}")
+
+    visualize_dependency_graph(pyproject_dependency_graph, "dependency_graph_pyproject.png")
+    visualize_dependency_graph(tach_toml_dependency_graph, "dependency_graph_tach.png")
