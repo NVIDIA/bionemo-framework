@@ -207,9 +207,9 @@ if __name__ == "__main__":
             pyproject_minus_tach = set(pyproject_dependency_graph[d].keys()) - set(tach_toml_dependency_graph[d])
             tach_minus_pyproject = set(tach_toml_dependency_graph[d]) - set(pyproject_dependency_graph[d].keys())
             if len(pyproject_minus_tach) > 0:
-                print(f"{d} project.toml - tach.toml: {", ".join(pyproject_minus_tach)}")
+                print(f"{d} project.toml - tach.toml: {' ,'.join(pyproject_minus_tach)}")
             if len(tach_minus_pyproject) > 0:
-                print(f"{d} tach.toml - project.toml: {", ".join(tach_minus_pyproject)}")
+                print(f"{d} tach.toml - project.toml: {', '.join(tach_minus_pyproject)}")
 
     visualize_dependency_graph(pyproject_dependency_graph, "dependency_graph_pyproject.png")
     visualize_dependency_graph(tach_toml_dependency_graph, "dependency_graph_tach.png")
