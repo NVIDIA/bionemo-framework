@@ -62,6 +62,11 @@ def parse_dependencies(pyproject_path):
     except KeyError:
         print(f"Warning: Could not find dependencies in {pyproject_path}")
 
+    if "tool" in pyproject_data and "maturin" in pyproject_data["tool"]:
+        dep = pyproject_data["tool"]["maturin"]["module-name"]
+        if dep.startswith("bionemo."):
+            dependencies[dep.replace(".", "-")] = "unpinned"
+
     return package_name, dependencies
 
 
@@ -124,7 +129,7 @@ def find_bionemo_subpackages(base_dir, directories):
     )
     found_imports = {}
     for dir_name in directories:
-        directory = base_dir / dir_name
+        directory = base_dir / dir_name / "src"
         subpackages = set()
 
         for root, _, files in os.walk(directory):
@@ -180,8 +185,7 @@ if __name__ == "__main__":
     script_path = Path(__file__).resolve()
 
     # Get the parent directory
-    parent_directory = script_path.parent.parent
-
+    parent_directory = script_path.parents[5]
     base_dir = parent_directory / "sub-packages"
     directories = [d for d in os.listdir(base_dir) if os.path.isdir(base_dir / d)]
     pyproject_dependency_graph = build_dependency_graph(base_dir, directories)
@@ -192,11 +196,11 @@ if __name__ == "__main__":
     print(", ".join(set(pyproject_dependency_graph.keys()) - set(tach_toml_dependency_graph.keys())))
     print("\ntach.toml - pyproject.toml:")
     print(", ".join(set(tach_toml_dependency_graph.keys()) - set(pyproject_dependency_graph.keys())))
-
+    print(pyproject_dependency_graph["bionemo-noodles"])
     for name, dependency_graph in zip(
         ["pyproject.toml", "tach.toml"], [pyproject_dependency_graph, tach_toml_dependency_graph]
     ):
-        print(f"\nDependencies not resolved in {name}")
+        print(f"\nDependencies not resolved in {name}:")
         for directory in file_path_imports:
             resolved_dependencies = resolve_dependencies(directory, dependency_graph)
             if not (file_path_imports[directory] <= resolved_dependencies):
