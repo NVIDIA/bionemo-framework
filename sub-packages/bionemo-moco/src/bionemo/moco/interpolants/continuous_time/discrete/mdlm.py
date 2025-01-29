@@ -202,14 +202,15 @@ class MDLM(Interpolant):
         logprobs[unmasked_indices, xt[unmasked_indices]] = 0  # Unmasked token remains unchanged
         return logprobs
 
-    def step(self, logits, t, xt, dt) -> Tensor:
+    def step(self, logits: Tensor, t: Tensor, xt: Tensor, dt: Tensor, temperature: float = 1.0) -> Tensor:
         """Perform a single step of MDLM DDPM step.
 
         Parameters:
         logits (Tensor): The input logits.
-        t (float): The current time step.
+        t (Tensor): The current time step.
         xt (Tensor): The current state.
-        dt (float): The time step increment.
+        dt (Tensor): The time step increment.
+        temperature (float): Softmax temperature defaults to 1.0.
 
         Returns:
         Tensor: The updated state.
@@ -223,11 +224,13 @@ class MDLM(Interpolant):
         alpha_s = pad_like(alpha_s, logits)
         p_mask_s = pad_like(p_mask_s, logits)
         # Apply subs parameterization
-        log_p_x0 = self._subs_parameterization(logits, xt)
+        log_p_x0 = self._subs_parameterization(logits, xt) / temperature
         if p_mask_s.ndim != log_p_x0.ndim:
             raise ValueError(f"Dimension Mistmatch {p_mask_s.shape} {log_p_x0.shape}")
-        # Equation 6 from MDLM
-        prob_s_given_t = log_p_x0.exp() * (alpha_s - alpha_t)  # righthand side (alpha_s - alpha_t)*x
+        # Equation 7 from MDLM
+        prob_s_given_t = log_p_x0.exp() * (
+            alpha_s - alpha_t
+        )  # righthand side (alpha_s - alpha_t)*x = (1 - alpha_t - (1 - alpha_s)) * x
         prob_s_given_t[..., self.mask_index] = p_mask_s[..., 0]  # lefthand side (1 - alpha_s)*M
         sampled_x = self._sample_categorical(prob_s_given_t)
         carry_over_unmask = (xt != self.mask_index).to(xt.dtype)
@@ -252,6 +255,20 @@ class MDLM(Interpolant):
         scaled_proability = categorical_probs / gumbel_norm
         return scaled_proability.argmax(dim=-1)
 
+    def get_num_steps_confidence(self, xt: Tensor):
+        """Calculate the maximum number of steps with confidence.
+
+        This method computes the maximum count of occurrences where the input tensor `xt` matches the `mask_index`
+        along the last dimension (-1). The result is returned as a single float value.
+
+        Args:
+            xt (Tensor): Input tensor to evaluate against the mask index.
+
+        Returns:
+            float: The maximum number of steps with confidence (i.e., matching the mask index).
+        """
+        return (xt == self.mask_index).sum(-1).max().item()
+
     def step_confidence(
         self,
         logits: Tensor,
@@ -261,10 +278,11 @@ class MDLM(Interpolant):
         logit_temperature: float = 1.0,
         randomness: float = 1.0,
         confidence_temperature: float = 1.0,
+        num_tokens_unmask: int = 1,
     ) -> Tensor:
         """Update the input sequence xt by sampling from the predicted logits and adding Gumbel noise.
 
-        Method taken from GenMol Seul et al.
+        Method taken from GenMol Lee et al. https://arxiv.org/abs/2501.06158
 
         Args:
             logits: Predicted logits
@@ -274,9 +292,10 @@ class MDLM(Interpolant):
             logit_temperature: Temperature for softmax over logits
             randomness: Scale for Gumbel noise
             confidence_temperature: Temperature for Gumbel confidence
+            num_tokens_unmask: number of tokens to unmask each step
 
         Returns:
-            Updated input sequence xt
+            Updated input sequence xt unmasking num_tokens_unmask token each step.
         """
         if xt.ndim > 3:
             raise NotImplementedError(
@@ -304,7 +323,7 @@ class MDLM(Interpolant):
         confidence[~mask] = -torch.inf
 
         # choose the predicted token with the highest confidence
-        confidence_threshold, idx_mask = torch.topk(confidence, k=1, dim=-1)
+        confidence_threshold, idx_mask = torch.topk(confidence, k=num_tokens_unmask, dim=-1)
         confidence_threshold = confidence_threshold[:, -1].unsqueeze(-1)
 
         # replace the chosen tokens

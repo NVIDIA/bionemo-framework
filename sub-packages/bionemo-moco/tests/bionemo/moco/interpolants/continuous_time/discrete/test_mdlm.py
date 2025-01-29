@@ -112,6 +112,8 @@ def test_mdlm_step_confidence(mdlm, device):
     xt = data.clone()
     xt[:, 0] = noise[:, 0]
     time = time * 0 + 2 / 100
+    conf_nsteps = mdlm.get_num_steps_confidence(xt)
+    assert conf_nsteps == 1
     next_xt = mdlm.step_confidence(model_out, xt, curr_step=90, num_steps=100)
     # Assert shapes
     assert next_xt.shape == data.shape
