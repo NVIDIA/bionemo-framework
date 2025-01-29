@@ -334,11 +334,9 @@ class ContinuousFlowMatcher(Interpolant):
         t_lim_ode: Float = 0.99,
         center: Bool = False,
     ):
-        r"""Perform a single ODE step integration using Euler method.
+        r"""Perform a single SDE step integration using a score-based Langevin update.
 
-        d x_t = [v(x_t, t) + g(t) * s(x_t, t) * sc_score_scale] dt + \sqrt{2 * g(t) * temperature} dw_t.
-
-        At the moment we do not scale the vector field v but this can be added with sc_score_scale.
+        d x_t = [v(x_t, t) + g(t) * s(x_t, t) * score_temperature] dt + \sqrt{2 * g(t) * noise_temperature} dw_t.
 
         Args:
             model_out (Tensor): The output of the model at the current time step.
@@ -346,7 +344,7 @@ class ContinuousFlowMatcher(Interpolant):
             dt (Tensor): The time step size.
             t (Tensor, optional): The current time. Defaults to None.
             mask (Optional[Tensor], optional): A mask to apply to the model output. Defaults to None.
-            gt_mode (str, optional): The mode for the gt function. Defaults to "1/t".
+            gt_mode (str, optional): The mode for the gt function. Defaults to "tan".
             gt_p (Float, optional): The parameter for the gt function. Defaults to 1.0.
             gt_clamp: (Float, optional): Upper limit of gt term. Defaults to None.
             score_temperature (Float, optional): The temperature for the score part of the step. Defaults to 1.0.

@@ -15,7 +15,7 @@
 
 
 import warnings
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -362,7 +362,10 @@ class DDPM(Interpolant):
         temperature (Float, optional): The temperature parameter for low temperature sampling. Defaults to 1.0.
 
         Note:
-        The temperature parameter controls the level of randomness in the sampling process. A temperature of 1.0 corresponds to standard diffusion sampling, while lower temperatures (e.g. 0.5, 0.2) result in less random and more deterministic samples. This can be useful for tasks that require more control over the generation process.
+        The temperature parameter controls the level of randomness in the sampling process.
+        A temperature of 1.0 corresponds to standard diffusion sampling, while lower temperatures (e.g. 0.5, 0.2)
+        result in less random and more deterministic samples. This can be useful for tasks
+        that require more control over the generation process.
 
         Note for discrete time we sample from [T-1, ..., 1, 0] for T steps so we sample t = 0 hence the mask.
         For continuous time we start from [1, 1 -dt, ..., dt] for T steps where s = t - 1 when t = 0 i.e dt is then 0
@@ -385,9 +388,10 @@ class DDPM(Interpolant):
         recip_sqrt_alpha_t = pad_like(recip_sqrt_alpha_t, xt)
         var = pad_like(var, xt)
 
-        x_next = recip_sqrt_alpha_t * (xt - eps_factor * eps_hat) + nonzero_mask * var.sqrt() * torch.randn_like(
-            eps_hat
-        ).to(model_out.device)
+        x_next = (
+            recip_sqrt_alpha_t * (xt - eps_factor * eps_hat)
+            + nonzero_mask * var.sqrt() * torch.randn_like(eps_hat).to(model_out.device) * temperature
+        )
         x_next = self.clean_mask_center(x_next, mask, center)
         return x_next
 
@@ -500,23 +504,30 @@ class DDPM(Interpolant):
         target: Tensor,
         t: Optional[Tensor] = None,
         mask: Optional[Tensor] = None,
-        weight_type: str = "ones",
+        weight_type: Literal["ones", "data_to_noise", "noise_to_data"] = "ones",
     ):
         """Calculate the loss given the model prediction, data sample, and time.
+
+        The default weight_type is "ones" meaning no change / multiplying by all ones.
+        data_to_noise is available to scale the data MSE loss into the appropriate loss that is theoretically equivalent
+        to noise prediction. noise_to_data is provided for a similar reason for completeness.
 
         Args:
             model_pred (Tensor): The predicted output from the model.
             target (Tensor): The target output for the model prediction.
             t (Tensor): The time at which the loss is calculated.
             mask (Optional[Tensor], optional): The mask for the data point. Defaults to None.
-            weight_type (str, optional): The type of weight to use for the loss. Defaults to "ones".
+            weight_type (Literal["ones", "data_to_noise", "noise_to_data"]): The type of weight to use for the loss. Defaults to "ones".
 
         Returns:
             Tensor: The calculated loss batch tensor.
         """
         raw_loss = self._loss_function(model_pred, target)
-        update_weight = self.loss_weight(raw_loss, t, weight_type)
-        loss = raw_loss * update_weight
+        if weight_type != "ones":
+            update_weight = self.loss_weight(raw_loss, t, weight_type)
+            loss = raw_loss * update_weight
+        else:
+            loss = raw_loss
         if mask is not None:
             loss = loss * mask.unsqueeze(-1)
             n_elem = torch.sum(mask, dim=-1)
