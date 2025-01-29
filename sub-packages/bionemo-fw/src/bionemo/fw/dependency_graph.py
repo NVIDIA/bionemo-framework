@@ -24,20 +24,11 @@ import networkx as nx
 import toml
 
 
-def find_pyproject_files(base_dir):
-    """Find all pyproject.toml files in subdirectories."""
-    pyproject_files = []
-    for root, _, files in os.walk(base_dir):
-        if "pyproject.toml" in files:
-            pyproject_files.append(os.path.join(root, "pyproject.toml"))
-    return pyproject_files
-
-
 def parse_dependencies(pyproject_path):
     """Parse dependencies from a pyproject.toml file."""
     with open(pyproject_path, "r") as f:
         pyproject_data = toml.load(f)
-
+    print(pyproject_path, pyproject_data)
     dependencies = {}
     package_name = None
 
@@ -79,6 +70,7 @@ def build_dependency_graph(base_dir, directories):
 
     for pyproject_file in pyproject_files:
         package_name, dependencies = parse_dependencies(pyproject_file)
+        print("PP", package_name, dependencies)
         if package_name:
             dependency_graph[package_name] = dependencies
 
