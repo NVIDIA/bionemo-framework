@@ -239,7 +239,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         mode: Mode = Mode.READ_APPEND,
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
-        index_name="feature_id",
+        feature_index_name="feature_id",
     ) -> None:
         """Instantiate the class.
 
@@ -252,14 +252,14 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             mode: Whether to read or write from the data_path.
             paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
             load_block_row_size: Number of rows to load into memory with paginated load
-            index_name: The name of the features if there is only an index available
+            feature_index_name: The name of the features if the features are only stored in features_df.index.values
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
         self.mode: Mode = mode
         self.paginated_load_cutoff = paginated_load_cutoff
         self.load_block_row_size = load_block_row_size
-        self.index_name = index_name
+        self.feature_index_name = feature_index_name
         # Backing arrays
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
@@ -620,7 +620,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         if len(features_df.columns) > 0:
             features = {col: np.array(features_df[col].values) for col in features_df.columns}
         elif len(features_df.index) > 0:
-            features = {self.index_name: features_df.index.values}
+            features = {self.feature_index_name: features_df.index.values}
         else:
             features = {}
         self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
