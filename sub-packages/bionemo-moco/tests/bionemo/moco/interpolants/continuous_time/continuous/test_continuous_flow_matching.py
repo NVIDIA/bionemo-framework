@@ -232,6 +232,9 @@ def test_cfm_step_data(data_matcher, device):
     assert torch.all(error < 1e-7)
 
     next_xt = flow_matcher.step_score_stochastic(model_out, xt, dt, time * 0 + T)
+    next_xt = flow_matcher.general_step(
+        "step_score_stochastic", {"model_out": model_out, "xt": xt, "dt": dt, "t": time * 0 + T}
+    )
     error = (next_xt - next_xt_gt) ** 2
     assert error.mean() < 1e-2
 

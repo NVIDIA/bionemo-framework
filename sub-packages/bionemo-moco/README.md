@@ -12,7 +12,7 @@ MoCo currently supports the following continuous data interpolants:
 ### Discrete Data Interpolants
 MoCo also supports the following discrete data interpolants:
 - D3PM (Discrete Denoising Diffusion Probabilistic Models)
-- MDLM (Markov Diffusion Language Models)
+- MDLM (Masked Diffusion Language Models)
 - DFM (Discrete Flow Matching)
 
 ### Useful Abstractions

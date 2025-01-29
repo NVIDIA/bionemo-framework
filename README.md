@@ -43,7 +43,7 @@ container can be accomplished through the `brev.dev` link at the top of the page
 ```bash
 docker run --rm -it \
   --gpus=all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
-  nvcr.io/nvidia/clara/bionemo-framework:main--nightly \
+  nvcr.io/nvidia/clara/bionemo-framework:nightly \
   /bin/bash
 ```
 
