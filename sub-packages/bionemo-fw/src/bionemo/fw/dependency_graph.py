@@ -28,7 +28,6 @@ def parse_dependencies(pyproject_path):
     """Parse dependencies from a pyproject.toml file."""
     with open(pyproject_path, "r") as f:
         pyproject_data = toml.load(f)
-    print(pyproject_path, pyproject_data)
     dependencies = {}
     package_name = None
 
@@ -70,7 +69,6 @@ def build_dependency_graph(base_dir, directories):
 
     for pyproject_file in pyproject_files:
         package_name, dependencies = parse_dependencies(pyproject_file)
-        print("PP", package_name, dependencies)
         if package_name:
             dependency_graph[package_name] = dependencies
 
@@ -80,18 +78,26 @@ def build_dependency_graph(base_dir, directories):
 def visualize_dependency_graph(dependency_graph, filename):
     """Visualize the dependency graph using NetworkX."""
     G = nx.DiGraph()
-
     edge_labels = {}
+
+    # Track all packages explicitly
+    all_packages = set(dependency_graph.keys())
 
     for package, dependencies in dependency_graph.items():
         if isinstance(dependencies, dict):
             for dep, version in dependencies.items():
                 G.add_edge(dep, package)  # Add edge from package to dependency
                 edge_labels[(dep, package)] = version  # Label the edge with the version
+                all_packages.add(dep)
         else:
             for dep in dependencies:
                 G.add_edge(dep, package)  # Add edge from package to dependency
+                all_packages.add(dep)
 
+    # Ensure isolated nodes (without edges) are included in the graph
+    for package in all_packages:
+        if package not in G:
+            G.add_node(package)
     # Use a circular layout, ensuring packages are evenly distributed
     pos = nx.circular_layout(G)
 
@@ -209,3 +215,5 @@ if __name__ == "__main__":
 
     visualize_dependency_graph(pyproject_dependency_graph, "dependency_graph_pyproject.png")
     visualize_dependency_graph(tach_toml_dependency_graph, "dependency_graph_tach.png")
+    visualize_dependency_graph(file_path_imports, "dependency_file_imports.png")
+    print(file_path_imports)
