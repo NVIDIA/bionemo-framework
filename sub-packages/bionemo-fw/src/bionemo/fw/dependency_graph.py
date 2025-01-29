@@ -130,17 +130,14 @@ def find_bionemo_subpackages(base_dir, directories):
         directory = base_dir / dir_name / "src"
         subpackages = set()
 
-        for root, _, files in os.walk(directory):
-            for file in files:
-                if file.endswith(".py"):
-                    file_path = os.path.join(root, file)
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            content = f.read()
-                            matches = bionemo_import_pattern.findall(content)
-                            subpackages.update(matches)
-                    except Exception as e:
-                        print(f"Error reading file {file_path}: {e}")
+        for file_path in Path(directory).rglob("*.py"):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    matches = bionemo_import_pattern.findall(content)
+                    subpackages.update(matches)
+            except Exception as e:
+                print(f"Error reading file {file_path}: {e}")
         full_subpackage_names = {f"bionemo-{subpackage}" for subpackage in subpackages}
         if dir_name in full_subpackage_names:
             full_subpackage_names.remove(dir_name)
@@ -190,6 +187,7 @@ if __name__ == "__main__":
 
     tach_toml_dependency_graph = parse_tach_toml(parent_directory / "tach.toml")
     file_path_imports = find_bionemo_subpackages(base_dir, directories)
+
     print("\npyproject.toml - tach.toml:")
     print(", ".join(set(pyproject_dependency_graph.keys()) - set(tach_toml_dependency_graph.keys())))
     print("\ntach.toml - pyproject.toml:")

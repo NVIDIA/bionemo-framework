@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import tempfile
-from pathlib import Path
 
 import pytest
 import toml
@@ -30,71 +28,57 @@ from bionemo.fw.dependency_graph import (
 
 
 @pytest.fixture
-def temp_pyproject():
-    """Creates a temporary pyproject.toml file."""
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_file:
-        temp_path = Path(temp_file.name)
-        temp_file.close()  # Close file so we can write to it
-        yield temp_path
-        temp_path.unlink()  # Properly remove file after test
-
-
-@pytest.fixture
-def temp_project_structure():
+def temp_project_structure(tmp_path):
     """Creates a temporary directory structure with pyproject.toml files."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base_dir = Path(temp_dir)
-        subpackage1 = base_dir / "bionemo-subpackage1"
-        subpackage2 = base_dir / "bionemo-subpackage2"
-        subpackage1.mkdir()
-        subpackage2.mkdir()
+    subpackage1 = tmp_path / "bionemo-subpackage1"
+    subpackage2 = tmp_path / "bionemo-subpackage2"
+    subpackage1.mkdir()
+    subpackage2.mkdir()
 
-        pyproject_data1 = {
-            "project": {"name": "bionemo-subpackage1", "dependencies": ["bionemo-core", "bionemo-utils"]}
-        }
-        with open(subpackage1 / "pyproject.toml", "w") as f:
-            toml.dump(pyproject_data1, f)
+    pyproject_data1 = {"project": {"name": "bionemo-subpackage1", "dependencies": ["bionemo-core", "bionemo-utils"]}}
+    with open(subpackage1 / "pyproject.toml", "w") as f:
+        toml.dump(pyproject_data1, f)
 
-        pyproject_data2 = {"project": {"name": "bionemo-subpackage2", "dependencies": ["bionemo-subpackage1"]}}
-        with open(subpackage2 / "pyproject.toml", "w") as f:
-            toml.dump(pyproject_data2, f)
+    pyproject_data2 = {"project": {"name": "bionemo-subpackage2", "dependencies": ["bionemo-subpackage1"]}}
+    with open(subpackage2 / "pyproject.toml", "w") as f:
+        toml.dump(pyproject_data2, f)
 
-        yield base_dir  # Provide the base directory path
+    yield tmp_path  # Provide the base directory path
 
 
-def test_parse_dependencies_list_format(temp_pyproject):
+def test_parse_dependencies_list_format(tmp_path):
     """Test parsing dependencies when dependencies are in a list format."""
     pyproject_data = {"project": {"name": "bionemo-example", "dependencies": ["bionemo-core", "bionemo-utils"]}}
-    with open(temp_pyproject, "w") as f:
-        toml.dump(pyproject_data, f)
-
-    package_name, dependencies = parse_dependencies(temp_pyproject)
+    pyproject_toml = tmp_path / "pyproject.toml"
+    pyproject_toml.write_text(toml.dumps(pyproject_data))
+    package_name, dependencies = parse_dependencies(pyproject_toml)
 
     assert package_name == "bionemo-example"
     assert dependencies == {"bionemo-core": "unpinned", "bionemo-utils": "unpinned"}
 
 
-def test_parse_dependencies_dict_format(temp_pyproject):
+def test_parse_dependencies_dict_format(tmp_path):
     """Test parsing dependencies when dependencies are in a dictionary format."""
     pyproject_data = {
         "project": {"name": "bionemo-example", "dependencies": {"bionemo-core": "1.0.0", "bionemo-utils": "2.0.0"}}
     }
-    with open(temp_pyproject, "w") as f:
-        toml.dump(pyproject_data, f)
+    pyproject_toml = tmp_path / "pyproject.toml"
 
-    package_name, dependencies = parse_dependencies(temp_pyproject)
+    pyproject_toml.write_text(toml.dumps(pyproject_data))
+    package_name, dependencies = parse_dependencies(pyproject_toml)
 
     assert package_name == "bionemo-example"
     assert dependencies == {"bionemo-core": "1.0.0", "bionemo-utils": "2.0.0"}
 
 
-def test_parse_dependencies_missing_sections(temp_pyproject):
+def test_parse_dependencies_missing_sections(tmp_path):
     """Test handling missing project name and dependencies."""
     pyproject_data = {}
-    with open(temp_pyproject, "w") as f:
-        toml.dump(pyproject_data, f)
+    pyproject_toml = tmp_path / "pyproject.toml"
 
-    package_name, dependencies = parse_dependencies(temp_pyproject)
+    pyproject_toml.write_text(toml.dumps(pyproject_data))
+
+    package_name, dependencies = parse_dependencies(pyproject_toml)
 
     assert package_name is None
     assert dependencies == {}
@@ -108,7 +92,6 @@ def test_build_dependency_graph(temp_project_structure):
     # Debugging: Print the graph if it's empty
     if not dependency_graph:
         print("DEBUG: Dependency graph is empty. Check pyproject.toml paths.")
-    print("DDDD", dependency_graph)
     assert "bionemo-subpackage1" in dependency_graph
     assert "bionemo-subpackage2" in dependency_graph
     assert dependency_graph["bionemo-subpackage1"] == {"bionemo-core": "unpinned", "bionemo-utils": "unpinned"}
@@ -126,45 +109,33 @@ def test_resolve_dependencies():
     assert resolved == {"bionemo-subpackage1", "bionemo-core", "bionemo-utils"}
 
 
-def test_parse_tach_toml():
+def test_parse_tach_toml(tmp_path):
     """Test parsing a tach.toml file."""
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_file:
-        temp_path = Path(temp_file.name)
-        temp_file.close()
+    pyproject_data = {
+        "modules": [
+            {"path": "bionemo.core", "depends_on": ["bionemo.utils"]},
+            {"path": "bionemo.utils", "depends_on": []},
+        ]
+    }
+    pyproject_toml = tmp_path / "pyproject.toml"
+    pyproject_toml.write_text(toml.dumps(pyproject_data))
 
-        toml_data = {
-            "modules": [
-                {"path": "bionemo.core", "depends_on": ["bionemo.utils"]},
-                {"path": "bionemo.utils", "depends_on": []},
-            ]
-        }
-        with open(temp_path, "w") as f:
-            toml.dump(toml_data, f)
+    tach_toml_dependencies = parse_tach_toml(pyproject_toml)
 
-        tach_toml_dependencies = parse_tach_toml(temp_path)
-
-        assert tach_toml_dependencies == {
-            "bionemo-core": ["bionemo-utils"],
-            "bionemo-utils": [],
-        }
-
-        temp_path.unlink()  # Properly remove temp file
+    assert tach_toml_dependencies == {
+        "bionemo-core": ["bionemo-utils"],
+        "bionemo-utils": [],
+    }
 
 
-def test_visualize_dependency_graph():
+def test_visualize_dependency_graph(tmp_path):
     """Test visualization of the dependency graph (ensuring no exceptions)."""
     dependency_graph = {
         "bionemo-subpackage1": {"bionemo-core": "unpinned", "bionemo-utils": "unpinned"},
         "bionemo-subpackage2": {"bionemo-subpackage1": "unpinned"},
     }
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
-        temp_path = Path(temp_file.name)
-        temp_file.close()
-
-        visualize_dependency_graph(dependency_graph, temp_path)
-        assert temp_path.exists()
-
-        temp_path.unlink()  # Cleanup after test
+    visualize_dependency_graph(dependency_graph, tmp_path / "output.png")
+    assert (tmp_path / "output.png").exists()
 
 
 def test_find_bionemo_subpackages(temp_project_structure):
