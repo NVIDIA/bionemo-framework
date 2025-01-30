@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import logging
 import os
 import re
 from collections import defaultdict
@@ -178,6 +179,7 @@ def resolve_dependencies(subpackage, toml_imports, resolved=None, seen=None):
 
 if __name__ == "__main__":
     script_path = Path(__file__).resolve()
+    logger = logging.getLogger(__name__)
 
     # Get the parent directory
     parent_directory = script_path.parents[5]
@@ -187,31 +189,37 @@ if __name__ == "__main__":
 
     tach_toml_dependency_graph = parse_tach_toml(parent_directory / "tach.toml")
     file_path_imports = find_bionemo_subpackages(base_dir, directories)
+    console_handler = logging.StreamHandler()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(console_handler)
 
-    print("\npyproject.toml - tach.toml:")
-    print(", ".join(set(pyproject_dependency_graph.keys()) - set(tach_toml_dependency_graph.keys())))
-    print("\ntach.toml - pyproject.toml:")
-    print(", ".join(set(tach_toml_dependency_graph.keys()) - set(pyproject_dependency_graph.keys())))
-    print(pyproject_dependency_graph["bionemo-noodles"])
+    pyproject_not_toml = set(pyproject_dependency_graph.keys()) - set(tach_toml_dependency_graph.keys())
+    toml_not_pyproject = set(tach_toml_dependency_graph.keys()) - set(pyproject_dependency_graph.keys())
+
+    if len(pyproject_not_toml) > 0:
+        logger.warning(f"\npyproject.toml - tach.toml: {', '.join(pyproject_not_toml)}")
+    if len(toml_not_pyproject) > 0:
+        logger.warning(f"\npyproject.toml - tach.toml: {', '.join(toml_not_pyproject)}")
+
     for name, dependency_graph in zip(
         ["pyproject.toml", "tach.toml"], [pyproject_dependency_graph, tach_toml_dependency_graph]
     ):
-        print(f"\nDependencies not resolved in {name}:")
+        logger.warning(f"\nDependencies not resolved in {name}:")
         for directory in file_path_imports:
             resolved_dependencies = resolve_dependencies(directory, dependency_graph)
             if not (file_path_imports[directory] <= resolved_dependencies):
-                print(f"{directory} : {file_path_imports[directory]  - resolved_dependencies}")
+                logger.warning(f"{directory} : {file_path_imports[directory]  - resolved_dependencies}")
 
+    logger.warning("\nDifferences in pyproject.toml and tach.toml per-package: ")
     for d in pyproject_dependency_graph:
         if d in tach_toml_dependency_graph:
             pyproject_minus_tach = set(pyproject_dependency_graph[d].keys()) - set(tach_toml_dependency_graph[d])
             tach_minus_pyproject = set(tach_toml_dependency_graph[d]) - set(pyproject_dependency_graph[d].keys())
             if len(pyproject_minus_tach) > 0:
-                print(f"{d} project.toml - tach.toml: {' ,'.join(pyproject_minus_tach)}")
+                logger.warning(f"{d} project.toml - tach.toml: {' ,'.join(pyproject_minus_tach)}")
             if len(tach_minus_pyproject) > 0:
-                print(f"{d} tach.toml - project.toml: {', '.join(tach_minus_pyproject)}")
+                logger.warning(f"{d} tach.toml - project.toml: {', '.join(tach_minus_pyproject)}")
 
     visualize_dependency_graph(pyproject_dependency_graph, "dependency_graph_pyproject.png")
     visualize_dependency_graph(tach_toml_dependency_graph, "dependency_graph_tach.png")
     visualize_dependency_graph(file_path_imports, "dependency_file_imports.png")
-    print(file_path_imports)
