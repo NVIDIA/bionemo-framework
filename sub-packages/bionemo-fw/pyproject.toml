@@ -30,6 +30,7 @@ dependencies = [
     # external
     'nltk',
     'numba>=0.57.1',
+    'toml',
     'zarr',
 ]
 
