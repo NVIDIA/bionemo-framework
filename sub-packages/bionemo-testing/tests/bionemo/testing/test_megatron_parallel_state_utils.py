@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import torch
 import torch.distributed as dist
 from megatron.core import parallel_state
@@ -106,3 +105,10 @@ def test_reduce_scatter():
 
         dist.reduce_scatter(output_tensor, to_reduce_scatter)
         assert tuple(output_tensor.shape) == (3, 3)
+
+
+def test_all_reduce_sum():
+    with megatron_parallel_state_utils.mock_distributed_parallel_state(world_size=2, rank=1):
+        tensor = torch.tensor([dist.get_rank() + 1])
+        dist.all_reduce(tensor)
+        assert tensor.item() == 2  # there is no actual communication in mock distributed
