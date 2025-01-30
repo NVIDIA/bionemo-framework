@@ -1,4 +1,4 @@
-# BioNemo-SCDL: Single Cell Data Loading for Scalable Training of Single Cell Foundation Models.
+# BioNeMo-SCDL: Single Cell Data Loading for Scalable Training of Single Cell Foundation Models.
 
 ## Package Overview
 
@@ -109,6 +109,13 @@ for e in range(n_epochs):
         model(batch)
 ```
 
+For some applications, we might want to also use the features. These can be specified with get_row(index, return_features = True). By default, all features are returned, but the features can be specified with the feature_vars argument in get_row, which corresponds to a list of the feature names to return.
+
+```
+for index in range(len(data)):
+    model(data.get_row(index,return_features = True))
+```
+
 ## Examples
 
 The examples directory contains various examples for utilizing SCDL.
@@ -125,6 +132,16 @@ Here's an example:
 convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
 ```
 
+## Runtimes with SCDL
+
+The runtime and memory usage are examined on a CellXGene Dataset with ~1.5 million rows and a size of 24 GB. On this dataset, there is a 4.9x memory speed up.
+
+<img src="images/throughput.png" alt="Throughput Image" width="600">
+
+Additionally, the peak memory usage when iterating over the datasets with the SCDL dataloader is only 36.5 MB, since the whole dataset is never loaded into memory due to the numpy memomory-mapped backing.
+
+<img src="images/disk_space.png" alt="Memory Image" width="600">
+
 ## Future Work and Roadmap
 
 SCDL is currently in public beta. In the future, expect improvements in data compression
@@ -132,4 +149,4 @@ and data loading performance.
 
 ## LICENSE
 
-BioNemo-SCDL has an Apache 2.0 license, as found in the LICENSE file.
+BioNeMo-SCDL has an Apache 2.0 license, as found in the LICENSE file.
