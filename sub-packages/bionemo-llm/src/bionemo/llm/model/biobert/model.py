@@ -444,12 +444,14 @@ class MegatronBioBertModel(LanguageModule):
         # logits and loss
         output_weight = None
         if self.share_embeddings_and_output_weights:
-            output_weight = self.shared_embedding_or_output_weight()
+            output_weight = self.shared_embedding_or_output_weight()  # noqa: F841
 
         hidden_states_after_lm_head = self.lm_head(hidden_states=hidden_states)
         if not self.skip_logits:
             # TODO add , runtime_gather_output=runtime_gather_output once supported in ColumnParallelLinear
-            logits, _ = self.output_layer(hidden_states_after_lm_head, weight=output_weight)
+            # TODO replace tensor_parallel.ColumnParallelLinear with torch.nn.Linear to debug; remove once complete
+            # logits, _ = self.output_layer(hidden_states_after_lm_head, weight=output_weight)
+            logits = self.output_layer(hidden_states_after_lm_head)
         else:
             logits = None
 

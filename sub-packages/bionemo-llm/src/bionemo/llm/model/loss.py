@@ -175,6 +175,8 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
             raise ValueError("Labels not provided in the batch. These are required for this loss computation.")
 
         # NOTE: token_logits is [sequence, batch] but labels and other fiels, including the loss are [batch, sequence]
+        # TODO: logits always match on tp=1 and tp=2, and among tp ranks
+        #  however, unreduced_token_loss does not match between tp=1 and tp=2. only match among tp ranks at tp=2
         unreduced_token_loss = unreduced_token_loss_fn(forward_out["token_logits"], batch["labels"])  # [b s]
 
         # TODO(@jstjohn) also handle different output keys, like the sequence loss.
