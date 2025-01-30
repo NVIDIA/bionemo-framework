@@ -18,8 +18,8 @@ body:
    id: version
    attributes:
      label: BioNeMo Framework Version
-     description: What version or commit hash of the framework are you using?
-     placeholder: e.g., commit-hash or v1.2.3
+     description: What version or commit hash of the framework are you using? Please, specify a commit hash or version tag. Do not use 'latest', 'ToT' or 'nightly' as a reference.
+     placeholder: commit-hash or version tag, ie v1.2.3.
    validations:
      required: true
 
