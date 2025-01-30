@@ -68,7 +68,8 @@ class ESM2FineTuneDataModule(MegatronDataModule):
             valid_dataset: The validation dataset.
             predict_dataset: The prediction dataset. Should not be set together with train/valid datasets
             seed: The random seed to use for shuffling the datasets. Defaults to 42.
-            min_seq_length: The minimum sequence length for the datasets. Defaults to None.
+            min_seq_length: Whether to pad sequences to a minimum length. If None, sequences are padded to the maximum
+                sequence length. Defaults to None.
             max_seq_length: The maximum sequence length for the datasets. Defaults to 1024.
             micro_batch_size: The micro-batch size for the data loader. Defaults to 4.
             global_batch_size: The global batch size for the data loader. Defaults to 8.
@@ -86,9 +87,9 @@ class ESM2FineTuneDataModule(MegatronDataModule):
         self.valid_dataset = valid_dataset
         self.predict_dataset = predict_dataset
         if predict_dataset is not None:
-            assert train_dataset is None, "Datamodule expects either trin/valid dataset or predict dataset"
+            assert train_dataset is None, "Datamodule expects either train/valid dataset or predict dataset"
         self._seed = seed
-        self._min_seq_length = min_seq_length
+        self._min_seq_length = min_seq_length if min_seq_length is not None else max_seq_length
         self._max_seq_length = max_seq_length
         self._tokenizer = tokenizer
 

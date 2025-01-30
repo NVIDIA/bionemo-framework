@@ -14,16 +14,15 @@
 # limitations under the License.
 
 
-import gc
 from pathlib import Path
 
 import torch
-from megatron.core.transformer.module import Float16Module
 from transformers import AutoModelForMaskedLM
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.model import ESM2Config
+from bionemo.esm2.testing.eval import ESM2ModelEvaluator
 
 
 def assert_model_equivalence(
@@ -59,7 +58,7 @@ def assert_model_equivalence(
 
     dtype = get_autocast_dtype(precision)
     nemo_config = ESM2Config(
-        initial_ckpt_path=str(ckpt_path),
+        initial_ckpt_path=ckpt_path,
         include_embeddings=True,
         include_hiddens=True,
         params_dtype=dtype,
@@ -68,19 +67,13 @@ def assert_model_equivalence(
         bf16=dtype is torch.bfloat16,
         fp16=dtype is torch.float16,
     )
+    evaluator = ESM2ModelEvaluator(nemo_config)
+    evaluator.setup()
+    nemo_output = evaluator.eval(input_ids, attention_mask)
+    evaluator.teardown()
 
-    nemo_model = nemo_config.configure_model(tokenizer).to("cuda").eval()
-
-    if dtype is torch.float16 or dtype is torch.bfloat16:
-        nemo_model = Float16Module(nemo_config, nemo_model)
-
-    nemo_output = nemo_model(input_ids, attention_mask)
     nemo_logits = nemo_output["token_logits"].transpose(0, 1).contiguous()[..., : tokenizer.vocab_size]
     nemo_hidden_state = nemo_output["hidden_states"]
-
-    del nemo_model
-    gc.collect()
-    torch.cuda.empty_cache()
 
     hf_model = AutoModelForMaskedLM.from_pretrained(model_tag, torch_dtype=get_autocast_dtype(precision)).cuda().eval()
     hf_output_all = hf_model(input_ids, attention_mask, output_hidden_states=True)
