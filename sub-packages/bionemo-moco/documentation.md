@@ -18,7 +18,6 @@
 * [bionemo.moco.distributions.time](#mocodistributionstime)
 * [bionemo.moco.distributions.time.beta](#mocodistributionstimebeta)
 * [bionemo.moco.distributions.time.utils](#mocodistributionstimeutils)
-* [bionemo.moco.schedules.discrete\_noise\_schedules](#mocoschedulesdiscrete_noise_schedules)
 * [bionemo.moco.schedules.noise.continuous\_snr\_transforms](#mocoschedulesnoisecontinuous_snr_transforms)
 * [bionemo.moco.schedules.noise.discrete\_noise\_schedules](#mocoschedulesnoisediscrete_noise_schedules)
 * [bionemo.moco.schedules.noise](#mocoschedulesnoise)
@@ -902,113 +901,6 @@ Convert a float time value to a time index.
 **Returns**:
 
 - `torch.Tensor` - A tensor of time indices corresponding to the input float time values.
-
-<a id="mocoschedulesdiscrete_noise_schedules"></a>
-
-# bionemo.moco.schedules.discrete\_noise\_schedules
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteNoiseSchedule"></a>
-
-## DiscreteNoiseSchedule Objects
-
-```python
-class DiscreteNoiseSchedule(ABC)
-```
-
-A base class for discrete schedules. No matter the definition this class returns objects using a unified direction of time.
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteNoiseSchedule__init__"></a>
-
-#### \_\_init\_\_
-
-```python
-def __init__(nsteps: int, direction: TimeDirection)
-```
-
-Initialize the DiscreteNoiseSchedule.
-
-**Arguments**:
-
-- `nsteps` _Optional[int]_ - Number of time steps. If None, uses the value from initialization.
-- `direction` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteNoiseSchedulegenerate_schedule"></a>
-
-#### generate\_schedule
-
-```python
-def generate_schedule(nsteps: Optional[int] = None,
-                      device: Union[str, torch.device] = "cpu",
-                      synchronize: Optional[TimeDirection] = None) -> Tensor
-```
-
-Public wrapper to generate the time schedule as a tensor.
-
-**Arguments**:
-
-- `nsteps` _Optional[int]_ - Number of time steps. If None, uses the value from initialization.
-- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
-- `synchronize` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-
-
-**Returns**:
-
-- `Tensor` - A tensor of time steps + 1 unless full is False.
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteNoiseSchedulecalculate_derivative"></a>
-
-#### calculate\_derivative
-
-```python
-def calculate_derivative(
-        nsteps: Optional[int] = None,
-        device: Union[str, torch.device] = "cpu",
-        synchronize: Optional[TimeDirection] = None) -> Tensor
-```
-
-Calculate the time derivative of the schedule.
-
-**Arguments**:
-
-- `nsteps` _Optional[int]_ - Number of time steps. If None, uses the value from initialization.
-- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
-- `synchronize` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-
-
-**Returns**:
-
-- `Tensor` - A tensor representing the time derivative of the schedule.
-
-
-**Raises**:
-
-- `NotImplementedError` - If the derivative calculation is not implemented for this schedule.
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteCosineNoiseSchedule"></a>
-
-## DiscreteCosineNoiseSchedule Objects
-
-```python
-class DiscreteCosineNoiseSchedule(DiscreteNoiseSchedule)
-```
-
-A cosine noise schedule for Diffusion Models.
-
-<a id="mocoschedulesdiscrete_noise_schedulesDiscreteCosineNoiseSchedule__init__"></a>
-
-#### \_\_init\_\_
-
-```python
-def __init__(nsteps: int, nu: Float = 1.0, s: Float = 0.008)
-```
-
-Initialize the CosineNoiseSchedule.
-
-**Arguments**:
-
-- `nsteps` _int_ - Number of time steps.
-- `nu` _Optional[Float]_ - Hyperparameter for the cosine schedule (default is 1.0).
-- `s` _Optional[Float]_ - Hyperparameter for the cosine schedule (default is 0.008).
 
 <a id="mocoschedulesnoisecontinuous_snr_transforms"></a>
 
@@ -2210,7 +2102,11 @@ certain times in the diffusion process.
 #### step
 
 ```python
-def step(logits, t, xt, dt) -> Tensor
+def step(logits: Tensor,
+         t: Tensor,
+         xt: Tensor,
+         dt: Tensor,
+         temperature: float = 1.0) -> Tensor
 ```
 
 Perform a single step of MDLM DDPM step.
@@ -2218,14 +2114,37 @@ Perform a single step of MDLM DDPM step.
 **Arguments**:
 
 - `logits` _Tensor_ - The input logits.
-- `t` _float_ - The current time step.
+- `t` _Tensor_ - The current time step.
 - `xt` _Tensor_ - The current state.
-- `dt` _float_ - The time step increment.
+- `dt` _Tensor_ - The time step increment.
+- `temperature` _float_ - Softmax temperature defaults to 1.0.
 
 
 **Returns**:
 
 - `Tensor` - The updated state.
+
+<a id="mocointerpolantscontinuous_timediscretemdlmMDLMget_num_steps_confidence"></a>
+
+#### get\_num\_steps\_confidence
+
+```python
+def get_num_steps_confidence(xt: Tensor)
+```
+
+Calculate the maximum number of steps with confidence.
+
+This method computes the maximum count of occurrences where the input tensor `xt` matches the `mask_index`
+along the last dimension (-1). The result is returned as a single float value.
+
+**Arguments**:
+
+- `xt` _Tensor_ - Input tensor to evaluate against the mask index.
+
+
+**Returns**:
+
+- `float` - The maximum number of steps with confidence (i.e., matching the mask index).
 
 <a id="mocointerpolantscontinuous_timediscretemdlmMDLMstep_confidence"></a>
 
@@ -2238,12 +2157,13 @@ def step_confidence(logits: Tensor,
                     num_steps: int,
                     logit_temperature: float = 1.0,
                     randomness: float = 1.0,
-                    confidence_temperature: float = 1.0) -> Tensor
+                    confidence_temperature: float = 1.0,
+                    num_tokens_unmask: int = 1) -> Tensor
 ```
 
 Update the input sequence xt by sampling from the predicted logits and adding Gumbel noise.
 
-Method taken from GenMol Seul et al.
+Method taken from GenMol Lee et al. https://arxiv.org/abs/2501.06158
 
 **Arguments**:
 
@@ -2254,11 +2174,12 @@ Method taken from GenMol Seul et al.
 - `logit_temperature` - Temperature for softmax over logits
 - `randomness` - Scale for Gumbel noise
 - `confidence_temperature` - Temperature for Gumbel confidence
+- `num_tokens_unmask` - number of tokens to unmask each step
 
 
 **Returns**:
 
-  Updated input sequence xt
+  Updated input sequence xt unmasking num_tokens_unmask token each step.
 
 <a id="mocointerpolantscontinuous_timediscretemdlmMDLMstep_argmax"></a>
 
@@ -3630,11 +3551,9 @@ def step_score_stochastic(model_out: Tensor,
                           center: Bool = False)
 ```
 
-Perform a single ODE step integration using Euler method.
+Perform a single SDE step integration using a score-based Langevin update.
 
-d x_t = [v(x_t, t) + g(t) * s(x_t, t) * sc_score_scale] dt + \sqrt{2 * g(t) * temperature} dw_t.
-
-At the moment we do not scale the vector field v but this can be added with sc_score_scale.
+d x_t = [v(x_t, t) + g(t) * s(x_t, t) * score_temperature] dt + \sqrt{2 * g(t) * noise_temperature} dw_t.
 
 **Arguments**:
 
@@ -3643,7 +3562,7 @@ At the moment we do not scale the vector field v but this can be added with sc_s
 - `dt` _Tensor_ - The time step size.
 - `t` _Tensor, optional_ - The current time. Defaults to None.
 - `mask` _Optional[Tensor], optional_ - A mask to apply to the model output. Defaults to None.
-- `gt_mode` _str, optional_ - The mode for the gt function. Defaults to "1/t".
+- `gt_mode` _str, optional_ - The mode for the gt function. Defaults to "tan".
 - `gt_p` _Float, optional_ - The parameter for the gt function. Defaults to 1.0.
 - `gt_clamp` - (Float, optional): Upper limit of gt term. Defaults to None.
 - `score_temperature` _Float, optional_ - The temperature for the score part of the step. Defaults to 1.0.
@@ -4293,7 +4212,10 @@ Do one step integration.
 
 **Notes**:
 
-  The temperature parameter controls the level of randomness in the sampling process. A temperature of 1.0 corresponds to standard diffusion sampling, while lower temperatures (e.g. 0.5, 0.2) result in less random and more deterministic samples. This can be useful for tasks that require more control over the generation process.
+  The temperature parameter controls the level of randomness in the sampling process.
+  A temperature of 1.0 corresponds to standard diffusion sampling, while lower temperatures (e.g. 0.5, 0.2)
+  result in less random and more deterministic samples. This can be useful for tasks
+  that require more control over the generation process.
 
   Note for discrete time we sample from [T-1, ..., 1, 0] for T steps so we sample t = 0 hence the mask.
   For continuous time we start from [1, 1 -dt, ..., dt] for T steps where s = t - 1 when t = 0 i.e dt is then 0
@@ -4395,10 +4317,15 @@ def loss(model_pred: Tensor,
          target: Tensor,
          t: Optional[Tensor] = None,
          mask: Optional[Tensor] = None,
-         weight_type: str = "ones")
+         weight_type: Literal["ones", "data_to_noise",
+                              "noise_to_data"] = "ones")
 ```
 
 Calculate the loss given the model prediction, data sample, and time.
+
+The default weight_type is "ones" meaning no change / multiplying by all ones.
+data_to_noise is available to scale the data MSE loss into the appropriate loss that is theoretically equivalent
+to noise prediction. noise_to_data is provided for a similar reason for completeness.
 
 **Arguments**:
 
@@ -4406,7 +4333,7 @@ Calculate the loss given the model prediction, data sample, and time.
 - `target` _Tensor_ - The target output for the model prediction.
 - `t` _Tensor_ - The time at which the loss is calculated.
 - `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
-- `weight_type` _str, optional_ - The type of weight to use for the loss. Defaults to "ones".
+- `weight_type` _Literal["ones", "data_to_noise", "noise_to_data"]_ - The type of weight to use for the loss. Defaults to "ones".
 
 
 **Returns**:

@@ -96,9 +96,7 @@ class RowFeatureIndex:
         """The length is the number of rows or RowFeatureIndex length."""
         return len(self._feature_arr)
 
-    def append_features(
-        self, n_obs: int, features: dict[str, np.ndarray], num_genes: int, label: Optional[str] = None
-    ) -> None:
+    def append_features(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
         """Updates the index with the given features.
 
         The dict is inserted into the feature array by adding a
@@ -108,7 +106,6 @@ class RowFeatureIndex:
             n_obs (int): The number of times that these feature occur in the
             class.
             features (dict): Corresponding features.
-            num_genes (int): the length of the features for each feature key in features (i.e., number of genes)
             label (str): Label for the features.
         """
         if isinstance(features, pd.DataFrame):
@@ -122,8 +119,12 @@ class RowFeatureIndex:
         else:
             self._cumulative_sum_index = np.append(self._cumulative_sum_index, csum + n_obs)
             self._feature_arr.append(features)
-            self._num_genes_per_row.append(num_genes)
             self._labels.append(label)
+            if len(features) == 0:
+                num_genes = 0
+            else:
+                num_genes = len(features[next(iter(features.keys()))])
+            self._num_genes_per_row.append(num_genes)
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
         """Find the features at a given row.
@@ -248,8 +249,7 @@ class RowFeatureIndex:
         for i, feats in enumerate(list(other_row_index._feature_arr)):
             c_span = other_row_index._cumulative_sum_index[i + 1]
             label = other_row_index._labels[i]
-            num_genes = other_row_index._num_genes_per_row[i]
-            self.append_features(c_span, feats, num_genes, label)
+            self.append_features(c_span, feats, label)
 
         return self
 
