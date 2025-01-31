@@ -38,7 +38,7 @@ EOF
 # Reinstall TE to avoid debugpy bug in vscode: https://nvbugspro.nvidia.com/bug/5078830
 # Pull the latest TE version from https://github.com/NVIDIA/TransformerEngine/releases
 # Use the version that matches the pytorch base container.
-ARG TE_TAG=v1.13
+ARG TE_TAG=2215fa5c7557b66034068816020f9f611019e457
 RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
   pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
@@ -48,9 +48,12 @@ RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
 RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.2.post1
 
-# Mamba dependancy installation
+# Mamba dependency installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.2.2
+
+ARG XFORMER_ENGINE_TAG=v0.0.29.post1
+RUN pip install -v -U git+https://github.com/facebookresearch/xformers.git@${XFORMER_ENGINE_TAG}#egg=xformers
 
 RUN pip install hatchling   # needed to install nemo-run
 ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
@@ -100,7 +103,7 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 RUN --mount=type=bind,source=./.git,target=./.git \
   --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-  --mount=type=cache,target=/root/.cache <<EOF
+  <<EOF
 set -eo pipefail
 
 uv pip install maturin --no-build-isolation
@@ -114,6 +117,7 @@ uv pip install --no-build-isolation \
 rm -rf ./3rdparty
 rm -rf /tmp/*
 rm -rf ./sub-packages/bionemo-noodles/target
+rm -rf /root/.cache
 EOF
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
