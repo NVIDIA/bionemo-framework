@@ -15,17 +15,16 @@
 
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Sequence, Tuple, Type
+from typing import List, Literal, Sequence, Type
 
 import torch
-from megatron.core import parallel_state
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
 from torch import Tensor
 
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
+from bionemo.esm2.model.finetune.loss import ClassifierLossReduction
 from bionemo.llm.model.biobert.model import BioBertOutput
-from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
 from bionemo.llm.utils import iomixin_utils as iom
 
 
@@ -34,61 +33,10 @@ token to output secondary structure predictions.
 """
 
 __all__: Sequence[str] = (
-    "ClassifierLossReduction",
     "MegatronConvNetHead",
     "ESM2FineTuneTokenModel",
     "ESM2FineTuneTokenConfig",
 )
-
-
-class ClassifierLossReduction(BERTMLMLossWithReduction):
-    """A class for calculating the cross entropy loss of classification output.
-
-    This class used for calculating the loss, and for logging the reduced loss across micro batches.
-    """
-
-    def forward(
-        self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
-    ) -> Tuple[Tensor, PerTokenLossDict | SameSizeLossDict]:
-        """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
-
-        Args:
-            batch: A batch of data that gets passed to the original forward inside LitAutoEncoder.
-            forward_out: the output of the forward method inside classification head.
-
-        Returns:
-            A tuple where the loss tensor will be used for backpropagation and the dict will be passed to
-            the reduce method, which currently only works for logging.
-        """
-        targets = batch["labels"]  # [b, s]
-        # [b, s, num_class] -> [b, num_class, s] to satisfy input dims for cross_entropy loss
-        classification_output = forward_out["classification_output"].permute(0, 2, 1)
-        loss_mask = batch["loss_mask"]  # [b, s]
-
-        cp_size = parallel_state.get_context_parallel_world_size()
-        if cp_size == 1:
-            losses = torch.nn.functional.cross_entropy(classification_output, targets, reduction="none")
-            # losses may contain NaNs at masked locations. We use masked_select to filter out these NaNs
-            masked_loss = torch.masked_select(losses, loss_mask)
-            loss = masked_loss.sum() / loss_mask.sum()
-        else:  # TODO: support CP with masked_token_loss_context_parallel
-            raise NotImplementedError("Context Parallel support is not implemented for this loss")
-
-        return loss, {"avg": loss}
-
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
-        """Works across micro-batches. (data on single gpu).
-
-        Note: This currently only works for logging and this loss will not be used for backpropagation.
-
-        Args:
-            losses_reduced_per_micro_batch: a list of the outputs of forward
-
-        Returns:
-            A tensor that is the mean of the losses. (used for logging).
-        """
-        losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
-        return losses.mean()
 
 
 class MegatronConvNetHead(MegatronModule):
@@ -99,7 +47,7 @@ class MegatronConvNetHead(MegatronModule):
         super().__init__(config)
 
         self.finetune_model = torch.nn.Sequential(
-            torch.nn.Conv2d(config.hidden_size, config.cnn_hidden_dim, kernel_size=(7, 1), padding=(3, 0)),  # 7x32
+            torch.nn.Conv2d(config.hidden_size, config.cnn_hidden_size, kernel_size=(7, 1), padding=(3, 0)),  # 7x32
             torch.nn.ReLU(),
             torch.nn.Dropout(config.cnn_dropout),
         )
@@ -134,8 +82,10 @@ class ESM2FineTuneTokenModel(ESM2Model):
         # If post_process is True that means that we are at the last megatron parallelism stage and we can
         #   apply the head.
         if post_process:
+            self.task_type = config.task_type
             # if we are doing post process (eg pipeline last stage) then we need to add the output layers
-            self.classification_head = MegatronConvNetHead(config)
+            self.head_name = f"{self.task_type}_head"  # Example: 'regression_head' or 'classification_head'
+            setattr(self, self.head_name, MegatronConvNetHead(config))
 
     def forward(self, *args, **kwargs) -> Tensor | BioBertOutput:
         """Inference."""
@@ -152,10 +102,10 @@ class ESM2FineTuneTokenModel(ESM2Model):
         # Get the hidden state from the parent output, and pull out the [CLS] token for this task
         hidden_states: Tensor = output["hidden_states"]
         # Predict our 1d regression target
-        classification_output = self.classification_head(hidden_states)
+        task_head = getattr(self, self.head_name)
+        output[f"{self.task_type}_output"] = task_head(hidden_states)
         if not self.include_hiddens_finetuning:
             del output["hidden_states"]
-        output["classification_output"] = classification_output
         return output
 
 
@@ -173,10 +123,11 @@ class ESM2FineTuneTokenConfig(
     # that has this new head and want to keep using these weights, please drop this next line or set to []
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=lambda: ["classification_head"])
 
+    task_type: Literal["classification", "regression"] = "classification"
     encoder_frozen: bool = True  # freeze encoder parameters
     cnn_num_classes: int = 3  # number of classes in each label
     cnn_dropout: float = 0.25
-    cnn_hidden_dim: int = 32  # The number of output channels in the bottleneck layer of the convolution.
+    cnn_hidden_size: int = 32  # The number of output channels in the bottleneck layer of the convolution.
 
     def get_loss_reduction_class(self) -> Type[ClassifierLossReduction]:
         """The loss function type."""

@@ -16,37 +16,36 @@
 
 import pytest
 
+from bionemo.core.data.load import load
 from bionemo.esm2.data import tokenizer
-from bionemo.esm2.model.finetune.finetune_token_classifier import (
-    ESM2FineTuneTokenConfig,
-    ESM2FineTuneTokenModel,
-    MegatronConvNetHead,
+from bionemo.esm2.model.finetune.sequence_model import (
+    ESM2FineTuneSeqConfig,
+    ESM2FineTuneSeqModel,
+    MegatronMLPHead,
 )
 from bionemo.testing import megatron_parallel_state_utils
 
 
 @pytest.fixture
 def config():
-    return ESM2FineTuneTokenConfig(encoder_frozen=True, cnn_dropout=0.1, cnn_hidden_dim=32, cnn_num_classes=5)
+    return ESM2FineTuneSeqConfig(encoder_frozen=True, mlp_ft_dropout=0.50, initial_ckpt_path=str(load("esm2/8m:2.0")))
 
 
 @pytest.fixture
-def finetune_token_model(config):
+def finetune_seq_model(config):
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         model = config.configure_model(tokenizer.get_tokenizer())
         yield model
 
 
 def test_ft_config(config):
-    assert config.initial_ckpt_skip_keys_with_these_prefixes == ["classification_head"]
+    assert config.initial_ckpt_skip_keys_with_these_prefixes == ["regression_head"]
     assert config.encoder_frozen
-    assert config.cnn_dropout == 0.1
-    assert config.cnn_hidden_dim == 32
-    assert config.cnn_num_classes == 5
+    assert config.mlp_ft_dropout == 0.50
 
 
-def test_ft_model_initialized(finetune_token_model):
-    assert isinstance(finetune_token_model, ESM2FineTuneTokenModel)
-    assert isinstance(finetune_token_model.classification_head, MegatronConvNetHead)
-    assert finetune_token_model.post_process
-    assert not finetune_token_model.include_hiddens_finetuning
+def test_ft_model_initialized(finetune_seq_model):
+    assert isinstance(finetune_seq_model, ESM2FineTuneSeqModel)
+    assert isinstance(finetune_seq_model.regression_head, MegatronMLPHead)
+    assert finetune_seq_model.post_process
+    assert not finetune_seq_model.include_embeddings_finetuning

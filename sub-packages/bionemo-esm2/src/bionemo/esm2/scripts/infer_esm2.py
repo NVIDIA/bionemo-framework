@@ -25,8 +25,8 @@ from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
 from bionemo.esm2.model.finetune.dataset import InMemoryProteinDataset
-from bionemo.esm2.model.finetune.finetune_regressor import ESM2FineTuneSeqConfig
-from bionemo.esm2.model.finetune.finetune_token_classifier import ESM2FineTuneTokenConfig
+from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
+from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
 from bionemo.llm.utils.callbacks import IntervalT, PredictionWriter
