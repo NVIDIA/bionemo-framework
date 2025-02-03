@@ -15,17 +15,17 @@
 
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Sequence, Tuple, Type
+from typing import List, Literal, Sequence, Type
 
 import torch
-from megatron.core import parallel_state
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
 from torch import Tensor
 
 from bionemo.esm2.api import ESM2GenericConfig, ESM2Model
+from bionemo.esm2.model.finetune.loss import ClassifierLossReduction, RegressorLossReduction
 from bionemo.llm.model.biobert.model import BioBertOutput
-from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
+from bionemo.llm.model.loss import BERTMLMLossWithReduction
 from bionemo.llm.utils import iomixin_utils as iom
 
 
@@ -33,57 +33,10 @@ from bionemo.llm.utils import iomixin_utils as iom
 # to output sequence-level regression predictions.
 
 __all__: Sequence[str] = (
-    "RegressorLossReduction",
     "MegatronMLPHead",
     "ESM2FineTuneSeqModel",
     "ESM2FineTuneSeqConfig",
 )
-
-
-class RegressorLossReduction(BERTMLMLossWithReduction):
-    """A class for calculating the MSE loss of regression output.
-
-    This class used for calculating the loss, and for logging the reduced loss across micro batches.
-    """
-
-    def forward(
-        self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
-    ) -> Tuple[Tensor, PerTokenLossDict | SameSizeLossDict]:
-        """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
-
-        Args:
-            batch: A batch of data that gets passed to the original forward inside LitAutoEncoder.
-            forward_out: the output of the forward method inside classification head.
-
-        Returns:
-            A tuple containing [<loss_tensor>, ReductionT] where the loss tensor will be used for
-                backpropagation and the ReductionT will be passed to the reduce method
-                (which currently only works for logging.).
-        """
-        regression_output = forward_out["regression_output"]
-        targets = batch["labels"].to(dtype=regression_output.dtype)  # [b, 1]
-
-        cp_size = parallel_state.get_context_parallel_world_size()
-        if cp_size == 1:
-            loss = torch.nn.functional.mse_loss(regression_output, targets)
-        else:  # TODO: support CP with masked_token_loss_context_parallel
-            raise NotImplementedError("Context Parallel support is not implemented for this loss")
-
-        return loss, {"avg": loss}
-
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
-        """Works across micro-batches. (data on single gpu).
-
-        Note: This currently only works for logging and this loss will not be used for backpropagation.
-
-        Args:
-            losses_reduced_per_micro_batch: a list of the outputs of forward
-
-        Returns:
-            A tensor that is the mean of the losses. (used for logging).
-        """
-        losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
-        return losses.mean()
 
 
 class MegatronMLPHead(MegatronModule):
@@ -93,12 +46,12 @@ class MegatronMLPHead(MegatronModule):
         """Constructor."""
         super().__init__(config)
 
-        layer_sizes = [config.hidden_size, 256, 1]
+        layer_sizes = [config.hidden_size, config.mlp_hidden_size, config.mlp_target_size]
         self.linear_layers = torch.nn.ModuleList(
             [torch.nn.Linear(i, o) for i, o in zip(layer_sizes[:-1], layer_sizes[1:])]  # noqa: RUF007
         )
         self.act = torch.nn.ReLU()
-        self.dropout = torch.nn.Dropout(p=config.ft_dropout)
+        self.dropout = torch.nn.Dropout(p=config.mlp_ft_dropout)
 
     def forward(self, hidden_states: Tensor) -> List[Tensor]:
         """Inference."""
@@ -128,8 +81,11 @@ class ESM2FineTuneSeqModel(ESM2Model):
         # If post_process is True that means that we are at the last megatron parallelism stage and we can
         #   apply the head.
         if post_process:
+            self.task_type = config.task_type
             # if we are doing post process (eg pipeline last stage) then we need to add the output layers
-            self.regression_head = MegatronMLPHead(config)
+            self.head_name = f"{self.task_type}_head"  # Example: 'regression_head' or 'classification_head'
+            # Set the attribute dynamically
+            setattr(self, self.head_name, MegatronMLPHead(config))
 
     def forward(self, *args, **kwargs) -> BioBertOutput | Tensor:
         """Inference."""
@@ -146,16 +102,16 @@ class ESM2FineTuneSeqModel(ESM2Model):
         # Get the embeddings from the parent output, and pull out the [CLS] token for this task
         embeddings: Tensor = output["embeddings"]
         # Predict our 1d regression target
-        regression_output = self.regression_head(embeddings)
+        task_head = getattr(self, self.head_name)
+        output[f"{self.task_type}_output"] = task_head(embeddings)
         if not self.include_embeddings_finetuning:
             del output["embeddings"]
-        output["regression_output"] = regression_output
         return output
 
 
 @dataclass
 class ESM2FineTuneSeqConfig(
-    ESM2GenericConfig[ESM2FineTuneSeqModel, RegressorLossReduction], iom.IOMixinWithGettersSetters
+    ESM2GenericConfig[ESM2FineTuneSeqModel, BERTMLMLossWithReduction], iom.IOMixinWithGettersSetters
 ):
     """ExampleConfig is a dataclass that is used to configure the model.
 
@@ -167,9 +123,17 @@ class ESM2FineTuneSeqConfig(
     # that has this new head and want to keep using these weights, please drop this next line or set to []
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=lambda: ["regression_head"])
 
+    task_type: Literal["classification", "regression"] = "regression"
     encoder_frozen: bool = True  # freeze encoder parameters
-    ft_dropout: float = 0.25  # MLP layer dropout
+    mlp_ft_dropout: float = 0.25  # MLP layer dropout
+    mlp_hidden_size: int = 256
+    mlp_target_size: int = 1
 
-    def get_loss_reduction_class(self) -> Type[RegressorLossReduction]:
+    def get_loss_reduction_class(self) -> Type[BERTMLMLossWithReduction]:
         """Returns RegressorLossReduction class."""
-        return RegressorLossReduction
+        if self.task_type == "regression":
+            return RegressorLossReduction
+        elif self.task_type == "classification":
+            return ClassifierLossReduction
+        else:
+            raise ValueError(f"Unsupported task_type: {self.task_type}")

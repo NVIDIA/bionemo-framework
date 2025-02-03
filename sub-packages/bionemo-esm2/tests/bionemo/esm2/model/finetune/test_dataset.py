@@ -48,13 +48,13 @@ def dataset_no_labels(dummy_protein_sequences, tmp_path):
 @pytest.fixture
 def dataset_regression_labels(dummy_data_single_value_regression_ft, tmp_path):
     csv_path = data_to_csv(dummy_data_single_value_regression_ft, tmp_path, with_label=True)
-    return InMemorySingleValueDataset.from_csv(csv_path, ignore_labels=False)
+    return InMemorySingleValueDataset.from_csv(csv_path, ignore_labels=False, task_type="regression")
 
 
 @pytest.fixture
 def dataset_per_token_classification_labels(dummy_data_per_token_classification_ft, tmp_path):
     csv_path = data_to_csv(dummy_data_per_token_classification_ft, tmp_path, with_label=True)
-    return InMemoryPerTokenValueDataset.from_csv(csv_path, ignore_labels=False)
+    return InMemoryPerTokenValueDataset.from_csv(csv_path, ignore_labels=False, task_type="classification")
 
 
 def test_in_memory_protein_dataset_length_no_labels(dataset_no_labels, dummy_protein_sequences):

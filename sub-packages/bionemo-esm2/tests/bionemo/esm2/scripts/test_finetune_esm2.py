@@ -23,8 +23,8 @@ from nemo.lightning import io
 
 from bionemo.core.data.load import load
 from bionemo.esm2.model.finetune.dataset import InMemoryPerTokenValueDataset, InMemorySingleValueDataset
-from bionemo.esm2.model.finetune.finetune_regressor import ESM2FineTuneSeqConfig
-from bionemo.esm2.model.finetune.finetune_token_classifier import ESM2FineTuneTokenConfig
+from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
+from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.esm2.scripts.finetune_esm2 import finetune_esm2_entrypoint, get_parser, train_model
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
@@ -41,7 +41,6 @@ def data_to_csv(data, tmp_path):
     return csv_file
 
 
-@pytest.mark.needs_gpu
 @pytest.mark.parametrize("encoder_frozen", [True, False])
 def test_esm2_finetune_token_classifier(
     tmp_path,
@@ -73,6 +72,7 @@ def test_esm2_finetune_token_classifier(
             accumulate_grad_batches=1,
             resume_if_exists=False,
             precision="bf16-mixed",
+            task_type="classification",
             encoder_frozen=encoder_frozen,
             dataset_class=InMemoryPerTokenValueDataset,
             config_class=ESM2FineTuneTokenConfig,
@@ -93,7 +93,6 @@ def test_esm2_finetune_token_classifier(
         ), f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
 
 
-@pytest.mark.needs_gpu
 @pytest.mark.parametrize("encoder_frozen", [True, False])
 def test_esm2_finetune_regressor(
     tmp_path,
@@ -125,6 +124,7 @@ def test_esm2_finetune_regressor(
             accumulate_grad_batches=1,
             resume_if_exists=False,
             precision="bf16-mixed",
+            task_type="regression",
             encoder_frozen=encoder_frozen,
             dataset_class=InMemorySingleValueDataset,
             config_class=ESM2FineTuneSeqConfig,
@@ -139,6 +139,59 @@ def test_esm2_finetune_regressor(
 
         encoder_requires_grad = [
             p.requires_grad for name, p in trainer.model.named_parameters() if "regression_head" not in name
+        ]
+        assert (
+            not all(encoder_requires_grad) == encoder_frozen
+        ), f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
+
+
+@pytest.mark.parametrize("encoder_frozen", [True, False])
+def test_esm2_finetune_classifier(
+    tmp_path,
+    dummy_data_single_value_classification_ft,
+    encoder_frozen,
+    n_steps_train: int = 50,
+    seed: int = 42,
+):
+    with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
+        simple_ft_checkpoint, simple_ft_metrics, trainer = train_model(
+            train_data_path=data_to_csv(dummy_data_single_value_classification_ft, tmp_path),
+            valid_data_path=data_to_csv(dummy_data_single_value_classification_ft, tmp_path),
+            experiment_name="finetune_new_head_classification",
+            restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
+            num_steps=n_steps_train,
+            num_nodes=1,
+            devices=1,
+            min_seq_length=None,
+            max_seq_length=1024,
+            result_dir=tmp_path / "finetune",
+            limit_val_batches=2,
+            val_check_interval=n_steps_train // 2,
+            log_every_n_steps=n_steps_train // 2,
+            num_dataset_workers=10,
+            lr=1e-5,
+            scale_lr_layer="classification_head",
+            lr_multiplier=1e2,
+            micro_batch_size=4,
+            accumulate_grad_batches=1,
+            resume_if_exists=False,
+            precision="bf16-mixed",
+            task_type="classification",
+            mlp_target_size=3,
+            encoder_frozen=encoder_frozen,
+            dataset_class=InMemorySingleValueDataset,
+            config_class=ESM2FineTuneSeqConfig,
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
+        )
+
+        weights_ckpt = simple_ft_checkpoint / "weights"
+        assert weights_ckpt.exists()
+        assert weights_ckpt.is_dir()
+        assert io.is_distributed_ckpt(weights_ckpt)
+        assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
+
+        encoder_requires_grad = [
+            p.requires_grad for name, p in trainer.model.named_parameters() if "classification_head" not in name
         ]
         assert (
             not all(encoder_requires_grad) == encoder_frozen
@@ -163,14 +216,14 @@ def mock_parser_args():
         "1",
         "--num-nodes",
         "1",
-        "--min-seq-length",
-        "512",
         "--max-seq-length",
         "1024",
         "--result-dir",
         str(Path("./results")),
         "--lr",
         "0.001",
+        "--task-type",
+        "regression",
     ]
 
 
@@ -188,7 +241,6 @@ def test_finetune_esm2_entrypoint(mock_train_model, mock_parser_args):
         assert called_kwargs["valid_data_path"] == Path("valid.csv")
         assert called_kwargs["devices"] == 1
         assert called_kwargs["num_nodes"] == 1
-        assert called_kwargs["min_seq_length"] == 512
         assert called_kwargs["max_seq_length"] == 1024
         assert called_kwargs["lr"] == 0.001
         assert called_kwargs["result_dir"] == Path("./results")
@@ -205,6 +257,8 @@ def test_get_parser():
             "valid.csv",
             "--precision",
             "bf16-mixed",
+            "--task-type",
+            "classification",
             "--lr",
             "0.001",
             "--create-tensorboard-logger",
@@ -288,6 +342,7 @@ def test_get_parser():
     assert args.train_data_path == Path("train.csv")
     assert args.valid_data_path == Path("valid.csv")
     assert args.precision == "bf16-mixed"
+    assert args.task_type == "classification"
     assert args.lr == 0.001
     assert args.create_tensorboard_logger is True
     assert args.resume_if_exists is True
