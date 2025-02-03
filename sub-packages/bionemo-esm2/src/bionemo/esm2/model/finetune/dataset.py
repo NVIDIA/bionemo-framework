@@ -15,7 +15,7 @@
 
 
 import os
-from typing import Sequence
+from typing import Literal, Sequence
 
 import numpy as np
 import pandas as pd
@@ -44,6 +44,7 @@ class InMemoryProteinDataset(Dataset):
         self,
         sequences: pd.Series,
         labels: pd.Series | None = None,
+        task_type: Literal["classification", "regression", None] = None,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
@@ -55,6 +56,7 @@ class InMemoryProteinDataset(Dataset):
         Args:
             sequences (pd.Series): A pandas Series containing protein sequences.
             labels (pd.Series, optional): A pandas Series containing labels. Defaults to None.
+            task_type (str, optional): Fine-tuning task type. Defaults to None.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
                 that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
@@ -62,6 +64,7 @@ class InMemoryProteinDataset(Dataset):
         """
         self.sequences = sequences
         self.labels = labels
+        self.task_type = task_type
 
         self.seed = seed
         self._len = len(self.sequences)
@@ -71,6 +74,7 @@ class InMemoryProteinDataset(Dataset):
     def from_csv(
         cls,
         csv_path: str | os.PathLike,
+        task_type: Literal["classification", "regression", None] = None,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         ignore_labels: bool = False,
     ):
@@ -78,6 +82,7 @@ class InMemoryProteinDataset(Dataset):
 
         Args:
             csv_path: path to CSV file containing sequences and optionally labels column.
+            task_type (str, optional): Fine-tuning task type. Defaults to None.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             ignore_labels (bool): ignore labels column if exist (to avoid reading labels during inference)
         """
@@ -92,7 +97,7 @@ class InMemoryProteinDataset(Dataset):
         if not ignore_labels:
             labels = df["labels"]
 
-        return cls(sequences, labels, tokenizer)
+        return cls(sequences, labels=labels, task_type=task_type, tokenizer=tokenizer)
 
     def __len__(self) -> int:
         """The size of the dataset."""
@@ -148,11 +153,12 @@ class InMemorySingleValueDataset(InMemoryProteinDataset):
     def __init__(
         self,
         sequences: pd.Series,
-        labels: pd.Series | None = None,
+        labels: pd.Series,
+        task_type: Literal["classification", "regression"] = "regression",
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
-        """Initializes a dataset for single-value regression fine-tuning.
+        """Initializes a dataset for single-value fine-tuning.
 
         This is an in-memory dataset that does not apply masking to the sequence. But keeps track of <mask> in the
         dataset sequences provided.
@@ -160,23 +166,35 @@ class InMemorySingleValueDataset(InMemoryProteinDataset):
         Args:
             sequences (pd.Series): A pandas Series containing protein sequences.
             labels (pd.Series, optional): A pandas Series containing labels. Defaults to None.
+            task_type (str): Fine-tuning task type. Defaults to regression.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
                 that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
                 generated.
         """
-        super().__init__(sequences, labels, tokenizer, seed)
+        super().__init__(sequences, labels, task_type, tokenizer, seed)
 
-    def transform_label(self, label: float) -> Tensor:
+        self.task_type = task_type
+        if self.task_type == "classification":
+            label_tokenizer = Label2IDTokenizer()
+            self.label_tokenizer = label_tokenizer.build_vocab(self.labels.values.reshape(-1, 1))
+
+    def transform_label(self, label: float | str) -> Tensor:
         """Transform the regression label.
 
         Args:
-            label: regression value
+            label: single regression/classification value
 
         Returns:
             tokenized label
         """
-        return torch.tensor([label], dtype=torch.float)
+        if self.task_type == "regression":
+            return torch.tensor([label], dtype=torch.float)
+        elif self.task_type == "classification":
+            tokenized_label = torch.tensor(self.label_tokenizer.text_to_ids([label]))
+            return tokenized_label
+        else:
+            raise ValueError(f"{self.task_type} task type is not supported with {self.__class__.__name__}")
 
 
 class InMemoryPerTokenValueDataset(InMemoryProteinDataset):
@@ -185,7 +203,8 @@ class InMemoryPerTokenValueDataset(InMemoryProteinDataset):
     def __init__(
         self,
         sequences: pd.Series,
-        labels: pd.Series | None = None,
+        labels: pd.Series,
+        task_type: Literal["classification", "regression"] = "classification",
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
     ):
@@ -197,35 +216,36 @@ class InMemoryPerTokenValueDataset(InMemoryProteinDataset):
         Args:
             sequences (pd.Series): A pandas Series containing protein sequences.
             labels (pd.Series, optional): A pandas Series containing labels. Defaults to None.
+            task_type (str): Fine-tuning task type. Defaults to classification. Regression per-token values are not supported.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
                 that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
                 generated.
         """
-        super().__init__(sequences, labels, tokenizer, seed)
+        super().__init__(sequences, labels, task_type, tokenizer, seed)
+
+        self.task_type = task_type
+        if not task_type == "classification":
+            raise ValueError(f"{task_type} task type is not supported with {self.__class__.__name__}")
+
         label_tokenizer = Label2IDTokenizer()
-        self.label_tokenizer = label_tokenizer.build_vocab("CHE")
+        self.label_tokenizer = label_tokenizer.build_vocab(self.labels.values)
         self.label_cls_eos_id = MLM_LOSS_IGNORE_INDEX
 
     def transform_label(self, label: str) -> Tensor:
         """Transform the sequence label by tokenizing them.
 
-        This method tokenizes the secondary structure token sequences.
+        This method tokenizes a sequence of labels into a tensor of tokens and adds CLS/EOS tokens.
 
         Args:
-            label: secondary structure token sequences to be transformed
+            label: label sequence to be transformed
 
         Returns:
             tokenized label
         """
-        label_ids = torch.tensor(self.label_tokenizer.text_to_ids(label))
-
-        # # for multi-label classification with BCEWithLogitsLoss
-        # tokenized_labels = torch.nn.functional.one_hot(label_ids, num_classes=self.label_tokenizer.vocab_size)
-        # cls_eos = torch.full((1, self.label_tokenizer.vocab_size), self.label_cls_eos_id, dtype=tokenized_labels.dtype)
+        tokenized_labels = torch.tensor(self.label_tokenizer.text_to_ids(label))
 
         # for multi-class (mutually exclusive) classification with CrossEntropyLoss
-        tokenized_labels = label_ids
         cls_eos = torch.tensor([self.label_cls_eos_id], dtype=tokenized_labels.dtype)
 
         # add cls / eos label ids with padding value -100 to have the same shape as tokenized_sequence
