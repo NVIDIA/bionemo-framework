@@ -100,6 +100,7 @@ def main(
     overlap_param_gather: bool = True,
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
+    weight_decay: float = 0.01,
 ) -> None:
     """Train an ESM2 model on UR data.
 
@@ -163,6 +164,7 @@ def main(
         overlap_param_gather (bool): overlap parameter gather
         average_in_collective (bool): average in collective
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
+        weight_decay (float): weight decay of the model
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -293,7 +295,7 @@ def main(
                 lr=lr,
                 optimizer="adam",
                 use_distributed_optimizer=True,
-                weight_decay=0.01,
+                weight_decay=weight_decay,
                 adam_beta1=0.9,
                 adam_beta2=0.98,
             ),
@@ -407,6 +409,7 @@ def train_esm2_entrypoint():
         overlap_param_gather=not args.no_overlap_param_gather,
         average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
+        weight_decay=args.weight_decay,
     )
 
 
@@ -745,6 +748,13 @@ def get_parser():
         required=False,
         default=4 * 1280,
         help="FFN hidden size of the model. Default is 4 * 1280.",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        required=False,
+        default=0.01,
+        help="Weight decay of the model. Default is 0.01.",
     )
     # DDP config
     parser.add_argument(
