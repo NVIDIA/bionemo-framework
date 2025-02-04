@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import math
 from typing import Optional
 
 import torch
@@ -255,7 +256,7 @@ class MDLM(Interpolant):
         scaled_proability = categorical_probs / gumbel_norm
         return scaled_proability.argmax(dim=-1)
 
-    def get_num_steps_confidence(self, xt: Tensor):
+    def get_num_steps_confidence(self, xt: Tensor, num_tokens_unmask: int = 1):
         """Calculate the maximum number of steps with confidence.
 
         This method computes the maximum count of occurrences where the input tensor `xt` matches the `mask_index`
@@ -263,11 +264,16 @@ class MDLM(Interpolant):
 
         Args:
             xt (Tensor): Input tensor to evaluate against the mask index.
+            num_tokens_unmask (int): number of tokens to unamsk at each step.
 
         Returns:
             float: The maximum number of steps with confidence (i.e., matching the mask index).
         """
-        return (xt == self.mask_index).sum(-1).max().item()
+        nsteps = (xt == self.mask_index).sum(-1).max().item()
+        if num_tokens_unmask == 1:
+            return int(nsteps)
+        else:
+            return int(max(math.ceil(nsteps // num_tokens_unmask), 1))
 
     def step_confidence(
         self,
@@ -301,6 +307,8 @@ class MDLM(Interpolant):
             raise NotImplementedError(
                 "step_confidence is implemented for Batch x Sequence x State Space shaped tensors."
             )
+        if curr_step < 0 or num_steps < 1 or num_tokens_unmask < 1:
+            raise ValueError("Invalid input values for curr_step, num_steps, or num_tokens_unmask.")
         xt = xt.clone()
         log_p_x0 = self._subs_parameterization(logits, xt)
         # sample the code from the softmax prediction

@@ -25,8 +25,8 @@ from bionemo.moco.distributions.prior.continuous.gaussian import GaussianPrior
 from bionemo.moco.distributions.prior.distribution import PriorDistribution
 from bionemo.moco.distributions.time.distribution import TimeDistribution
 from bionemo.moco.interpolants.base_interpolant import Interpolant, PredictionType, pad_like, string_to_enum
-from bionemo.moco.interpolants.batch_augmentation import BatchAugmentation
-from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport.ot_types import OptimalTransportType
+from bionemo.moco.interpolants.batch_augmentation import BatchDataAugmentation
+from bionemo.moco.interpolants.continuous_time.continuous.data_augmentation.augmentation_types import AugmentationType
 
 
 class ContinuousFlowMatcher(Interpolant):
@@ -53,7 +53,7 @@ class ContinuousFlowMatcher(Interpolant):
         data = data_loader.get(...)
         time = flow_matcher.sample_time(batch_size)
         noise = flow_matcher.sample_prior(data.shape)
-        data, time, noise = flow_matcher.apply_ot(noise, data) # Optional, only for OT
+        data, time, noise = flow_matcher.apply_augmentation(noise, data) # Optional, only for OT
         xt = flow_matcher.interpolate(data, time, noise)
         flow = flow_matcher.calculate_target(data, noise)
 
@@ -79,8 +79,8 @@ class ContinuousFlowMatcher(Interpolant):
         prior_distribution: PriorDistribution,
         prediction_type: Union[PredictionType, str] = PredictionType.DATA,
         sigma: Float = 0,
-        ot_type: Optional[Union[OptimalTransportType, str]] = None,
-        ot_num_threads: int = 1,
+        augmentation_type: Optional[Union[AugmentationType, str]] = None,
+        augmentation_num_threads: int = 1,
         data_scale: Float = 1.0,
         device: Union[str, torch.device] = "cpu",
         rng_generator: Optional[torch.Generator] = None,
@@ -93,8 +93,8 @@ class ContinuousFlowMatcher(Interpolant):
             prior_distribution (PriorDistribution): The prior distribution of the variable, used as the starting point for the diffusion process.
             prediction_type (PredictionType, optional): The type of prediction, either "flow" or another type. Defaults to PredictionType.DATA.
             sigma (Float, optional): The standard deviation of the Gaussian noise added to the interpolated data. Defaults to 0.
-            ot_type (Optional[Union[OptimalTransportType, str]], optional): The type of optimal transport, if applicable. Defaults to None.
-            ot_num_threads:  Number of threads to use for OT solver. If "max", uses the maximum number of threads. Default is 1.
+            augmentation_type (Optional[Union[AugmentationType, str]], optional): The type of optimal transport, if applicable. Defaults to None.
+            augmentation_num_threads:  Number of threads to use for OT solver. If "max", uses the maximum number of threads. Default is 1.
             data_scale (Float, optional): The scale factor for the data. Defaults to 1.0.
             device (Union[str, torch.device], optional): The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
             rng_generator: An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
@@ -102,45 +102,49 @@ class ContinuousFlowMatcher(Interpolant):
         """
         super().__init__(time_distribution, prior_distribution, device, rng_generator)
         self.prediction_type = string_to_enum(prediction_type, PredictionType)
+        if self.prediction_type == PredictionType.NOISE:
+            raise ValueError("Prediction type cannot be NOISE for Continuous Flow Matching")
         self.sigma = sigma
-        self.ot_type = ot_type
+        self.augmentation_type = augmentation_type
         self.data_scale = data_scale
         self.eps = eps
         if data_scale <= 0:
             raise ValueError("Data Scale must be > 0")
-        if ot_type is not None:
-            self.ot_type = ot_type = string_to_enum(ot_type, OptimalTransportType)
-            self.ot_sampler = self._build_ot_sampler(method_type=ot_type, num_threads=ot_num_threads)
+        if augmentation_type is not None:
+            self.augmentation_type = augmentation_type = string_to_enum(augmentation_type, AugmentationType)
+            self.augmentation_sampler = self._build_augmentation_sampler(
+                method_type=augmentation_type, num_threads=augmentation_num_threads
+            )
         self._loss_function = nn.MSELoss(reduction="none")
 
-    def _build_ot_sampler(self, method_type: OptimalTransportType, num_threads: int = 1):
+    def _build_augmentation_sampler(self, method_type: AugmentationType, num_threads: int = 1):
         """Build the optimal transport sampler for the given optimal transport type.
 
         Args:
-            method_type (OptimalTransportType): The type of augmentation.
+            method_type (augmentation_type): The type of augmentation.
             num_threads (int): The number of threads to use for the OT sampler, default to 1.
 
         Returns:
             The augmentation object.
         """
-        return BatchAugmentation(self.device, num_threads).create(method_type)
+        return BatchDataAugmentation(self.device, num_threads).create(method_type)
 
-    def apply_ot(self, x0: Tensor, x1: Tensor, mask: Optional[Tensor] = None, **kwargs) -> tuple:
+    def apply_augmentation(self, x0: Tensor, x1: Tensor, mask: Optional[Tensor] = None, **kwargs) -> tuple:
         """Sample and apply the optimal transport plan between batched (and masked) x0 and x1.
 
         Args:
             x0 (Tensor): shape (bs, *dim), noise from source minibatch.
             x1 (Tensor): shape (bs, *dim), data from source minibatch.
             mask (Optional[Tensor], optional): mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
-            **kwargs: Additional keyword arguments to be passed to self.ot_sampler.apply_ot or handled within this method.
+            **kwargs: Additional keyword arguments to be passed to self.augmentation_sampler.apply_augmentation or handled within this method.
 
 
         Returns:
             Tuple: tuple of 2 tensors, represents the noise and data samples following OT plan pi.
         """
-        if self.ot_sampler is None:
+        if self.augmentation_sampler is None:
             raise ValueError("Optimal Transport Sampler is not defined")
-        return self.ot_sampler.apply_ot(x0, x1, mask=mask, **kwargs)
+        return self.augmentation_sampler.apply_augmentation(x0, x1, mask=mask, **kwargs)
 
     def undo_scale_data(self, data: Tensor) -> Tensor:
         """Downscale the input data by the data scale factor.
@@ -176,7 +180,6 @@ class ContinuousFlowMatcher(Interpolant):
             t (Tensor): time, shape (batchsize)
             data (Tensor): target, shape (batchsize, nodes, features)
         """
-        assert data.size() == noise.size()
         # Expand t to the same shape as noise: ones([b,n,f]) * t([b,1,1])
         t = pad_like(t, data)
         # Calculate x_t as the linear interpolation between noise and data
@@ -197,7 +200,6 @@ class ContinuousFlowMatcher(Interpolant):
         Returns:
             Tensor: The target vector field at time t.
         """
-        assert data.size() == noise.size()
         # Calculate the target vector field u_t(x_t|x_1) as the difference between data and noise because t~[0,1]
         if self.prediction_type == PredictionType.VELOCITY:
             u_t = data - noise
@@ -359,7 +361,7 @@ class ContinuousFlowMatcher(Interpolant):
             - If a mask is provided, it is applied element-wise to the model output before scaling.
             - The `clean` method is called on the updated state before it is returned.
         """
-        if self.ot_type is not None:
+        if self.augmentation_type is not None:
             raise ValueError("Optimal Transport violates the vector field to score conversion")
         if not isinstance(self.prior_distribution, GaussianPrior):
             raise ValueError(
