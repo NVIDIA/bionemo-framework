@@ -43,6 +43,7 @@ import torch.distributed
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel import random as tp_random
 from nemo import lightning as nl
+from nemo.collections.nlp.parts.nlp_overrides import NLPDDPStrategyNotebook
 from nemo.utils import logging
 from torch.testing._internal.distributed.fake_pg import FakeStore
 
@@ -93,7 +94,7 @@ def _initialize_distributed_parallel_state(
         logging.info("pytorch DDP is not initialized. Initializing with pytorch-lightning...")
         trainer = pl.Trainer(
             devices=devices,
-            strategy="ddp" if not interactive else "auto",
+            strategy="ddp" if not interactive else NLPDDPStrategyNotebook(),
             num_nodes=1,
             # plugins=nl.MegatronMixedPrecision(
             #     precision=precision,
@@ -107,7 +108,7 @@ def _initialize_distributed_parallel_state(
             trainer.strategy.launcher.launch(_dummy, trainer=trainer)
         trainer.strategy.setup_environment()
 
-    if not interactive and parallel_state.is_unitialized():
+    if parallel_state.is_unitialized():
         logging.info("Megatron DDP is not initialized. Initializing...")
         parallel_state.initialize_model_parallel(
             tensor_model_parallel_size=tensor_model_parallel_size,
