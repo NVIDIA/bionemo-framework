@@ -21,7 +21,6 @@ from typing import Callable, Literal, Optional, Sequence, Type, TypeVar
 
 import torch
 import torch.distributed
-from megatron.core import tensor_parallel
 from megatron.core.models.bert.bert_lm_head import BertLMHead
 from megatron.core.models.bert.pooler import Pooler
 from megatron.core.models.common.embeddings.rotary_pos_embedding import RotaryEmbedding
@@ -178,16 +177,21 @@ class ESM2Model(MegatronBioBertModel):
                 config,
             )
 
-            self.output_layer = tensor_parallel.ColumnParallelLinear(
-                config.hidden_size,
-                self.vocab_size,
-                config=config,
-                init_method=config.init_method,
-                bias=True,
-                skip_bias_add=False,
-                gather_output=not self.parallel_output,
-                skip_weight_param_allocation=pre_process and share_embeddings_and_output_weights,
-            )
+            # TODO replace tensor_parallel.ColumnParallelLinear with torch.nn.Linear to debug; remove once complete
+            # self.output_layer = tensor_parallel.ColumnParallelLinear(
+            #     config.hidden_size,
+            #     self.vocab_size,
+            #     config=config,
+            #     init_method=config.init_method,
+            #     is_expert=False,
+            #     bias=True,
+            #     skip_bias_add=False,
+            #     gather_output=not self.parallel_output,
+            #     skip_weight_param_allocation=pre_process and share_embeddings_and_output_weights,
+            #     embedding_activation_buffer=self.embedding_activation_buffer,
+            #     grad_output_buffer=self.grad_output_buffer,
+            # )
+            self.output_layer = torch.nn.Linear(config.hidden_size, self.vocab_size, bias=True)
 
             self.binary_head = None
             if self.add_binary_head:
@@ -362,3 +366,6 @@ class ESM2Config(ESM2GenericConfig, iom.IOMixinWithGettersSetters):
     model_cls: Type[ESM2Model] = ESM2Model
     num_layers: int = 33  # 650M
     hidden_size: int = 1280  # 650M
+    output_layer_init_method: Callable = (
+        torch.nn.init.zeros_
+    )  # TODO make param init reproducible; remove after debugging
