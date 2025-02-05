@@ -49,6 +49,8 @@ _OVERRIDE_BIONEMO_CONFIG_DEFAULTS: List[str] = [
     "model_cls",
     "bf16",
     "fp16",
+    "train_metric",
+    "valid_metric",
 ]
 
 OVERRIDE_BIONEMO_CONFIG_DEFAULTS = deepcopy(_OVERRIDE_BIONEMO_CONFIG_DEFAULTS)  # copy for export
