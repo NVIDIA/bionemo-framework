@@ -30,7 +30,7 @@ from bionemo.llm.utils import iomixin_utils as iom
 from bionemo.llm.utils.weight_utils import load_weights_sharded_inplace_nemo2_to_mcore
 
 
-__all__: Sequence[str] = ("MegatronBioNeMoModelConfig", "MetricConfig")
+__all__: Sequence[str] = ("MegatronBioNeMoModelConfig", "TorchmetricsConfig")
 
 # Configure the logger
 logging.basicConfig(
@@ -155,7 +155,7 @@ def override_mutate_possibly_extra_mutated_fiddle(
 
 
 @dataclass
-class MetricConfig:
+class TorchmetricsConfig:
     """MetricConfig to instantiate torchmetrics.Metric class.
 
     Fiddle requires all objects in config serializable and torchmetric.Metric is not. Its instantiation must be deferred into BionemoLightningModule.__init__.
