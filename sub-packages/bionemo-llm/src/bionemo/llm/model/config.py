@@ -171,8 +171,13 @@ class MetricConfig:
 
     def get_instance(self) -> torchmetrics.Metric:
         """Dynamically imports and instantiates the metric class."""
-        module_path, class_name = self.class_path.rsplit(".", 1)
-        module = importlib.import_module(f"torchmetrics.{module_path}")
+        if "." in self.class_path:
+            module_path, class_name = self.class_path.rsplit(".", 1)
+            module = importlib.import_module(f"torchmetrics.{module_path}")
+        else:
+            class_name = self.class_path
+            module = importlib.import_module("torchmetrics")
+
         cls_ = getattr(module, class_name)
         return cls_(**self.kwargs)
 
