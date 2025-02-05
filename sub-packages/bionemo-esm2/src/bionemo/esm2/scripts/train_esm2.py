@@ -284,7 +284,7 @@ def main(
         variable_seq_lengths=min_seq_length != max_seq_length,
         train_metric=None,
         valid_metric=MetricConfig(
-            class_path="text.Perplexity", kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX}, metric_name="ppl"
+            class_path="text.Perplexity", task="lm", kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX}, metric_name="ppl"
         ),
     )
 

@@ -278,10 +278,17 @@ def train_model(
     )
     # Configure the model
     if task_type == "regression":
-        valid_metric = MetricConfig(class_path="MeanSquaredError", metric_name="mse")
+        valid_metric = MetricConfig(class_path="MeanSquaredError", task="regression", metric_name="mse")
     else:
         valid_metric = MetricConfig(
-            class_path="Accuracy", kwargs={"task": "multiclass", "threshold": 0.5}, metric_name="acc"
+            class_path="Accuracy",
+            task="classification",
+            kwargs={
+                "task": "multiclass",
+                "threshold": 0.5,
+                "num_classes": data_module.train_dataset.label_tokenizer.vocab_size,
+            },
+            metric_name="acc",
         )
 
     config = config_class(

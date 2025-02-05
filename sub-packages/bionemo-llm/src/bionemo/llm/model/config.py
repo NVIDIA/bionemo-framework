@@ -18,7 +18,7 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Generic, List, Optional, Protocol, Sequence, Type
+from typing import Any, Generic, List, Literal, Optional, Protocol, Sequence, Type
 
 import torchmetrics
 from megatron.core.transformer import TransformerConfig
@@ -162,6 +162,7 @@ class MetricConfig:
     """
 
     class_path: str
+    task: Literal["lm", "classification", "regression"]
     kwargs: Optional[dict[str, Any]] = None
     metric_name: Optional[str] = None
 

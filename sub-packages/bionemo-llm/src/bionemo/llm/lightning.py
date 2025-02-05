@@ -315,11 +315,24 @@ class BionemoLightningModule(
     def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
-        logits = outputs["token_logits"].detach().transpose(0, 1).clone()  #  [s, b, v] -> [b, s, v]
-
         if self.train_metric is not None:
             if self.is_on_logging_device():
-                self.train_metric(logits, batch["labels"])
+                match self.config.train_metric.task:
+                    case "lm":
+                        logits = outputs["token_logits"].detach().transpose(0, 1)  #  [s, b, v] -> [b, s, v]
+                        self.train_metric(logits, batch["labels"])
+                    case "classification":
+                        classification_output = outputs["classification_output"]
+                        num_classes = classification_output.shape[-1]
+                        self.train_metric(
+                            classification_output.reshape(-1, num_classes),
+                            batch["labels"].reshape(-1),
+                        )
+                    case "regression":
+                        regression_output = outputs["regression_output"]
+                        self.train_metric(regression_output, batch["labels"])
+                    case _:
+                        raise NotImplementedError(f"unrecognized task {self.config.train_metric.task}")
 
             self.log(
                 self.config.train_metric.get_metric_name("train"),
@@ -334,10 +347,25 @@ class BionemoLightningModule(
     def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
-        logits = outputs["token_logits"].detach().transpose(0, 1).clone()  #  [s, b, v] -> [b, s, v]
-
         if self.valid_metric is not None and self.is_on_logging_device():
-            self.valid_metric.update(logits, batch["labels"])
+            # print("validation_step", self.valid_metric, self.config.valid_metric)
+            # import sys; sys.exit()
+            match self.config.valid_metric.task:
+                case "lm":
+                    logits = outputs["token_logits"].detach().transpose(0, 1)  #  [s, b, v] -> [b, s, v]
+                    self.valid_metric(logits, batch["labels"])
+                case "classification":
+                    classification_output = outputs["classification_output"]
+                    num_classes = classification_output.shape[-1]
+                    self.valid_metric(
+                        classification_output.reshape(-1, num_classes),
+                        batch["labels"].reshape(-1),
+                    )
+                case "regression":
+                    regression_output = outputs["regression_output"]
+                    self.valid_metric(regression_output, batch["labels"])
+                case _:
+                    raise NotImplementedError(f"unrecognized task {self.config.valid_metric.task}")
 
         return outputs
 
