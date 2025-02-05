@@ -219,11 +219,8 @@ class BionemoLightningModule(
         config: BionemoTrainableModelConfig[MegatronModelType, MegatronLossType],
         forward_step: ForwardStep,
         data_step: DataStep,
-        # TODO: Add transformer_layer_spec when we update mcore
         optimizer: MegatronOptimizerModule,
         model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
-        log_train_ppl: bool = False,
-        log_val_ppl: bool = False,
         **model_construct_args,
     ) -> None:
         """Constructor.
@@ -239,8 +236,6 @@ class BionemoLightningModule(
             model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s
                 `configure_model` method.
             model_transform: Optional. The model transform function.
-            log_train_ppl (bool): Log training perplexity.
-            log_val_ppl (bool): Log validation perplexity.
             **model_construct_args: Optional. Arguments necessary for the supplied model configuration's
                 `configure_model` method, which will make an instance of the model.
         """
