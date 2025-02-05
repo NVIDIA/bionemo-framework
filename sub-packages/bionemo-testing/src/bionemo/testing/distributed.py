@@ -47,35 +47,36 @@ def dist_environment(
 ):
     """Context manager for torch distributed testing."""
     with MonkeyPatch.context() as context:
-        clean_up_distributed_and_parallel_states()
+        try:
+            clean_up_distributed_and_parallel_states()
 
-        # distributed and parallel state set up
-        if not os.environ.get("MASTER_ADDR", None):
-            context.setenv("MASTER_ADDR", DEFAULT_MASTER_ADDR)
-        if not os.environ.get("MASTER_PORT", None):
-            context.setenv("MASTER_PORT", DEFAULT_MASTER_PORT)
-        if not os.environ.get("NCCL_TIMEOUT", None):
-            context.setenv("NCCL_TIMEOUT", DEFAULT_NCCL_TIMEOUT)
-        context.setenv("RANK", str(rank))
+            # distributed and parallel state set up
+            if not os.environ.get("MASTER_ADDR", None):
+                context.setenv("MASTER_ADDR", DEFAULT_MASTER_ADDR)
+            if not os.environ.get("MASTER_PORT", None):
+                context.setenv("MASTER_PORT", DEFAULT_MASTER_PORT)
+            if not os.environ.get("NCCL_TIMEOUT", None):
+                context.setenv("NCCL_TIMEOUT", DEFAULT_NCCL_TIMEOUT)
+            context.setenv("RANK", str(rank))
 
-        dist.init_process_group(backend="nccl", world_size=world_size)
-        parallel_state.initialize_model_parallel(**initialize_model_parallel_kwargs)
+            dist.init_process_group(backend="nccl", world_size=world_size)
+            parallel_state.initialize_model_parallel(**initialize_model_parallel_kwargs)
 
-        # tensor parallel random seed set up
-        # do not call torch.cuda.manual_seed after so!
-        initial_states = None
-        if tp_random.get_cuda_rng_tracker().is_initialized():
-            initial_states = tp_random.get_cuda_rng_tracker().get_states()
-        if seed is not None:
-            tp_random.model_parallel_cuda_manual_seed(seed)
+            # tensor parallel random seed set up
+            # do not call torch.cuda.manual_seed after so!
+            initial_states = None
+            if tp_random.get_cuda_rng_tracker().is_initialized():
+                initial_states = tp_random.get_cuda_rng_tracker().get_states()
+            if seed is not None:
+                tp_random.model_parallel_cuda_manual_seed(seed)
 
-        yield
+            yield
+        finally:
+            # restore/unset tensor parallel random seed
+            if initial_states is not None:
+                tp_random.get_cuda_rng_tracker().set_states(initial_states)
+            else:
+                # Reset to the unset state
+                tp_random.get_cuda_rng_tracker().reset()
 
-        # restore/unset tensor parallel random seed
-        if initial_states is not None:
-            tp_random.get_cuda_rng_tracker().set_states(initial_states)
-        else:
-            # Reset to the unset state
-            tp_random.get_cuda_rng_tracker().reset()
-
-        clean_up_distributed_and_parallel_states()
+            clean_up_distributed_and_parallel_states()
