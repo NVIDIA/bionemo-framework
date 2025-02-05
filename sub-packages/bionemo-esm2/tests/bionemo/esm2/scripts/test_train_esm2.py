@@ -91,7 +91,7 @@ def test_main_runs(
     result_dir = Path(tmpdir.mkdir("results"))
 
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        main(
+        trainer = main(
             train_cluster_path=train_cluster_path,
             train_database_path=dummy_protein_dataset,
             valid_cluster_path=valid_cluster_path,
@@ -147,6 +147,8 @@ def test_main_runs(
     assert (
         result_dir / "test_experiment" / uq_rundir / "nemo_log_globalrank-0_localrank-0.txt"
     ).is_file(), "Could not find experiment log."
+
+    assert "val_ppl" in trainer.logged_metrics  # validation logging on by default
 
 
 @pytest.mark.parametrize("limit_val_batches", [0.0, 1.0, 4, None])
