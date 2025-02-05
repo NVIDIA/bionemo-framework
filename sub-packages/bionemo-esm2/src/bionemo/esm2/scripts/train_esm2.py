@@ -35,7 +35,7 @@ from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.llm.data.collate import MLM_LOSS_IGNORE_INDEX
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
-from bionemo.llm.model.config import MetricConfig
+from bionemo.llm.model.config import TorchmetricsConfig
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
@@ -283,7 +283,7 @@ def main(
         initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
         variable_seq_lengths=min_seq_length != max_seq_length,
         train_metric=None,
-        valid_metric=MetricConfig(
+        valid_metric=TorchmetricsConfig(
             class_path="text.Perplexity",
             task="lm",
             kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX},

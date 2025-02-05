@@ -39,7 +39,7 @@ from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
 from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
-from bionemo.llm.model.config import MetricConfig
+from bionemo.llm.model.config import TorchmetricsConfig
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -278,9 +278,9 @@ def train_model(
     )
     # Configure the model
     if task_type == "regression":
-        valid_metric = MetricConfig(class_path="MeanSquaredError", task="regression", metric_name="val_mse")
+        valid_metric = TorchmetricsConfig(class_path="MeanSquaredError", task="regression", metric_name="val_mse")
     else:
-        valid_metric = MetricConfig(
+        valid_metric = TorchmetricsConfig(
             class_path="Accuracy",
             task="classification",
             kwargs={
