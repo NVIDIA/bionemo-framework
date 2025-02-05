@@ -37,6 +37,7 @@ from bionemo.esm2.model.finetune.dataset import (
 )
 from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
 from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
+from bionemo.llm.config import MetricConfig
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
@@ -138,7 +139,7 @@ def train_model(
             result_dir that stores the logs and checkpoints.
         resume_if_exists (bool): attempt to resume if the checkpoint exists [FIXME @skothenhill this doesn't work yet]
         precision (PrecisionTypes): Precision type for training (e.g., float16, float32)
-        task_type (str): Fine-tuning task type. Default is regression.
+        task_type (Literal["classification", "regression"]): Fine-tuning task type. Default is regression.
         encoder_frozen (bool): Freeze the encoder parameters. Default is False.
         scale_lr_layer (Optional[str]): layer names for which the lr is scaled by lr_multiplier
         lr_multiplier (float): lr multiplier for parameters in scale_lr_layer
@@ -276,6 +277,11 @@ def train_model(
         tokenizer=tokenizer,
     )
     # Configure the model
+    if task_type == "regression":
+        valid_metric = MetricConfig(class_path="MeanSquaredError", metric_name="mse")
+    else:
+        valid_metric = MetricConfig(class_path="Accuracy", kwargs={"threshold": 0.5}, metric_name="acc")
+
     config = config_class(
         task_type=task_type,
         encoder_frozen=encoder_frozen,
@@ -286,6 +292,8 @@ def train_model(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         initial_ckpt_path=str(restore_from_checkpoint_path),
         initial_ckpt_skip_keys_with_these_prefixes=[f"{task_type}_head"],
+        train_metric=None,
+        valid_metric=valid_metric,
     )
     # Mapping of task-dependent config attributes to their new values
     task_dependent_attr = {
