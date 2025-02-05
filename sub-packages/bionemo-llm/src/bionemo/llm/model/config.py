@@ -163,8 +163,8 @@ class MetricConfig:
 
     class_path: str
     task: Literal["lm", "classification", "regression"]
+    metric_name: str
     kwargs: Optional[dict[str, Any]] = None
-    metric_name: Optional[str] = None
 
     def __post_init__(self):
         """__post_init__ in dataclass."""
@@ -181,8 +181,3 @@ class MetricConfig:
 
         cls_ = getattr(module, class_name)
         return cls_(**self.kwargs)
-
-    def get_metric_name(self, stage: str) -> str:
-        """Return metric name prepended with stage name."""
-        metric_basename = self.metric_name if self.metric_name else self.class_path.split(".")[-1]
-        return f"{stage}_{metric_basename}"

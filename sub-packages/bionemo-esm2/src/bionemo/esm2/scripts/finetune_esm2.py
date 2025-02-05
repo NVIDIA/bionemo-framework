@@ -278,7 +278,7 @@ def train_model(
     )
     # Configure the model
     if task_type == "regression":
-        valid_metric = MetricConfig(class_path="MeanSquaredError", task="regression", metric_name="mse")
+        valid_metric = MetricConfig(class_path="MeanSquaredError", task="regression", metric_name="val_mse")
     else:
         valid_metric = MetricConfig(
             class_path="Accuracy",
@@ -288,7 +288,7 @@ def train_model(
                 "threshold": 0.5,
                 "num_classes": data_module.train_dataset.label_tokenizer.vocab_size,
             },
-            metric_name="acc",
+            metric_name="val_acc",
         )
 
     config = config_class(
