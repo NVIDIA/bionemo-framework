@@ -13,12 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Generic, List, Protocol, Sequence, Type
+from typing import Any, Generic, List, Optional, Protocol, Sequence, Type
 
+import torchmetrics
 from megatron.core.transformer import TransformerConfig
 from nemo.lightning import io
 
@@ -28,7 +30,7 @@ from bionemo.llm.utils import iomixin_utils as iom
 from bionemo.llm.utils.weight_utils import load_weights_sharded_inplace_nemo2_to_mcore
 
 
-__all__: Sequence[str] = ("MegatronBioNeMoModelConfig",)
+__all__: Sequence[str] = ("MegatronBioNeMoModelConfig", "MetricConfig")
 
 # Configure the logger
 logging.basicConfig(
@@ -150,3 +152,27 @@ def override_mutate_possibly_extra_mutated_fiddle(
         target_cfg.set_hparam(f, source_cfg.get_hparam(f), also_change_value=False)
         # 2. Update the lazily untracked values (if the same variable name is used post-init)
         setattr(target_cfg, f, getattr(source_cfg, f))
+
+
+@dataclass
+class MetricConfig:
+    """MetricConfig to instantiate torchmetrics.Metric class.
+
+    Fiddle requires all objects in config serializable and torchmetric.Metric is not. Its instantiation must be deferred into BionemoLightningModule.__init__.
+    """
+
+    class_path: str
+    kwargs: dict[str, Any]
+    metric_name: Optional[str] = None
+
+    def get_instance(self) -> torchmetrics.Metric:
+        """Dynamically imports and instantiates the metric class."""
+        module_path, class_name = self.class_path.rsplit(".", 1)
+        module = importlib.import_module(f"torchmetrics.{module_path}")
+        cls_ = getattr(module, class_name)
+        return cls_(**self.kwargs)
+
+    def get_metric_name(self, stage: str) -> str:
+        """Return metric name prepended with stage name."""
+        metric_basename = self.metric_name if self.metric_name else self.class_path.split(".")[-1]
+        return f"{stage}_{metric_basename}"
