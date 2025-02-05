@@ -252,8 +252,8 @@ def train(
         config=bionemo_model_config,
         tokenizer=data.tokenizer,
         optimizer=optimizer,
-        log_train_ppl=training_config.log_train_ppl,
-        log_val_ppl=training_config.log_val_ppl,
+        train_metric=None,
+        valid_metric=None,
     )
     trainer: nl.Trainer = setup_trainer(parallel_config, training_config, nsys_config=nsys_config)
     nemo_logger: nl.NeMoLogger = nemo_logger_factory(experiment_config, wandb_config=wandb_config)
