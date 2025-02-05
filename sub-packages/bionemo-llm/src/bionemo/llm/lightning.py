@@ -219,11 +219,8 @@ class BionemoLightningModule(
         config: BionemoTrainableModelConfig[MegatronModelType, MegatronLossType],
         forward_step: ForwardStep,
         data_step: DataStep,
-        # TODO: Add transformer_layer_spec when we update mcore
         optimizer: MegatronOptimizerModule,
         model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
-        log_train_ppl: bool = False,
-        log_val_ppl: bool = False,
         **model_construct_args,
     ) -> None:
         """Constructor.
@@ -258,8 +255,18 @@ class BionemoLightningModule(
         self.model_transform = model_transform
 
         # configure metrics
-        self.train_metric = self.config.train_metric.get_instance() if self.config.train_metric else None
-        self.valid_metric = self.config.valid_metric.get_instance() if self.config.valid_metric else None
+        self.train_metric = None
+        if train_metric_config := self.config.train_metric:
+            self.train_metric = train_metric_config.get_instance()
+            self.train_metric_name = train_metric_config.metric_name
+            self.train_task = train_metric_config.task
+
+        self.valid_metric = None
+        if valid_metric_config := self.config.valid_metric:
+            self.valid_metric = valid_metric_config.get_instance()
+            self.valid_metric_name = valid_metric_config.metric_name
+            self.valid_task = valid_metric_config.task
+
         if (self.train_metric or self.valid_metric) and not self.is_on_logging_device:
             raise NotImplementedError("Metric logging is not implemented with model parallelism yet.")
 
@@ -317,7 +324,7 @@ class BionemoLightningModule(
         outputs = self.forward_step(batch)
         if self.train_metric is not None:
             if self.is_on_logging_device():
-                match self.config.train_metric.task:
+                match self.train_task:
                     case "lm":
                         logits = outputs["token_logits"].detach().transpose(0, 1)  #  [s, b, v] -> [b, s, v]
                         self.train_metric(logits, batch["labels"])
@@ -332,10 +339,10 @@ class BionemoLightningModule(
                         regression_output = outputs["regression_output"]
                         self.train_metric(regression_output, batch["labels"])
                     case _:
-                        raise NotImplementedError(f"unrecognized task {self.config.train_metric.task}")
+                        raise NotImplementedError(f"unrecognized task {self.train_task}")
 
             self.log(
-                self.config.train_metric.metric_name,
+                self.train_metric_name,
                 self.train_metric,
                 on_step=True,
                 on_epoch=False,
@@ -348,9 +355,7 @@ class BionemoLightningModule(
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
         if self.valid_metric is not None and self.is_on_logging_device():
-            # print("validation_step", self.valid_metric, self.config.valid_metric)
-            # import sys; sys.exit()
-            match self.config.valid_metric.task:
+            match self.valid_task:
                 case "lm":
                     logits = outputs["token_logits"].detach().transpose(0, 1)  #  [s, b, v] -> [b, s, v]
                     self.valid_metric(logits, batch["labels"])
@@ -365,7 +370,7 @@ class BionemoLightningModule(
                     regression_output = outputs["regression_output"]
                     self.valid_metric(regression_output, batch["labels"])
                 case _:
-                    raise NotImplementedError(f"unrecognized task {self.config.valid_metric.task}")
+                    raise NotImplementedError(f"unrecognized task {self.valid_task}")
 
         return outputs
 
@@ -394,7 +399,7 @@ class BionemoLightningModule(
             return
 
         self.log(
-            self.config.valid_metric.metric_name,
+            self.valid_metric_name,
             self.valid_metric,
             on_step=False,
             on_epoch=True,
