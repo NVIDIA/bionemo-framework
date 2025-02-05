@@ -335,7 +335,7 @@ class BionemoLightningModule(
                         raise NotImplementedError(f"unrecognized task {self.config.train_metric.task}")
 
             self.log(
-                self.config.train_metric.get_metric_name("train"),
+                self.config.train_metric.metric_name,
                 self.train_metric,
                 on_step=True,
                 on_epoch=False,
@@ -394,7 +394,7 @@ class BionemoLightningModule(
             return
 
         self.log(
-            self.config.valid_metric.get_metric_name("valid"),
+            self.config.valid_metric.metric_name,
             self.valid_metric,
             on_step=False,
             on_epoch=True,
