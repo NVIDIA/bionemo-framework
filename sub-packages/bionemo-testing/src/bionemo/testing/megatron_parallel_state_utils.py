@@ -36,17 +36,14 @@ from typing import Any, Iterator, Optional, Sequence
 from unittest import mock
 from unittest.mock import MagicMock
 
-import lightning.pytorch as pl
 import megatron.core.num_microbatches_calculator
 import torch
 import torch.distributed
+import torch.multiprocessing.spawn
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel import random as tp_random
-from nemo import lightning as nl
-from nemo.utils import logging
+from pytest import MonkeyPatch
 from torch.testing._internal.distributed.fake_pg import FakeStore
-
-from bionemo.core.utils.dtypes import PrecisionTypes
 
 
 __all__: Sequence[str] = (
@@ -55,16 +52,16 @@ __all__: Sequence[str] = (
     "mock_distributed_parallel_state",
 )
 
+DEFAULT_MASTER_ADDR = "localhost"
+DEFAULT_MASTER_PORT = "29500"
+DEFAULT_NCCL_TIMEOUT = "30"  # in second
+
 
 def _reset_microbatch_calculator():
     """Resets _GLOBAL_NUM_MICROBATCHES_CALCULATOR in megatron which is used in NeMo to initilised model parallel in
     nemo.collections.nlp.modules.common.megatron.megatron_init.initialize_model_parallel_for_nemo
     """  # noqa: D205, D415
     megatron.core.num_microbatches_calculator._GLOBAL_NUM_MICROBATCHES_CALCULATOR = None
-
-
-def _dummy() -> None:
-    return
 
 
 def _teardown_apex_megatron_cuda():
@@ -75,48 +72,6 @@ def _teardown_apex_megatron_cuda():
     torch.cuda.empty_cache()
     _reset_microbatch_calculator()
     parallel_state.destroy_model_parallel()
-
-
-def _initialize_distributed_parallel_state(
-    devices: int = 1,
-    tensor_model_parallel_size: int = 1,
-    pipeline_model_parallel_size: int = 1,
-    pipeline_model_parallel_split_rank: int = 0,
-    context_parallel_size: int = 1,
-    interactive: bool = False,
-    precision: PrecisionTypes = "fp32",
-) -> pl.Trainer | None:
-    trainer = None
-    # initialize pytorch DDP
-    # if not interactive and not torch.distributed.is_initialized():
-    if not torch.distributed.is_initialized():
-        logging.info("pytorch DDP is not initialized. Initializing with pytorch-lightning...")
-        trainer = pl.Trainer(
-            devices=devices,
-            strategy="ddp" if not interactive else "auto",
-            num_nodes=1,
-            # plugins=nl.MegatronMixedPrecision(
-            #     precision=precision,
-            #     params_dtype=get_autocast_dtype(precision),
-            #     pipeline_dtype=get_autocast_dtype(precision),
-            #     autocast_enabled=False,
-            # ),
-        )
-
-        if trainer.strategy.launcher is not None:
-            trainer.strategy.launcher.launch(_dummy, trainer=trainer)
-        trainer.strategy.setup_environment()
-
-    if not interactive and parallel_state.is_unitialized():
-        logging.info("Megatron DDP is not initialized. Initializing...")
-        parallel_state.initialize_model_parallel(
-            tensor_model_parallel_size=tensor_model_parallel_size,
-            pipeline_model_parallel_size=pipeline_model_parallel_size,
-            pipeline_model_parallel_split_rank=pipeline_model_parallel_split_rank,
-            context_parallel_size=context_parallel_size,
-        )
-
-    return trainer
 
 
 @contextmanager
@@ -132,70 +87,56 @@ def clean_parallel_state_context() -> Iterator[None]:
         _teardown_apex_megatron_cuda()
 
 
+def clean_up_distributed_and_parallel_states():
+    """Clean up parallel states, torch.distributed and torch cuda cache."""
+    parallel_state.destroy_model_parallel()  # destroy parallel state before distributed
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
+    torch.cuda.empty_cache()
+
+
 @contextmanager
 def distributed_model_parallel_state(
+    rank: int = 0,
+    world_size: int = 1,
     seed: Optional[int] = 42,
-    devices: int = 1,
-    tensor_model_parallel_size: int = 1,
-    pipeline_model_parallel_size: int = 1,
-    pipeline_model_parallel_split_rank: int = 0,
-    context_parallel_size: int = 1,
-    interactive: bool = False,
-    precision: PrecisionTypes = "fp32",
-) -> Iterator[None]:
-    """Context manager for handling creating and cleaning up distributed model parallel state for tests.
-    Use like:
-    with distributed_model_parallel_state():
-        # your test code here
-    # After the block your state is cleaned up.
-    """  # noqa: D205
-    initial_states: Optional[Any] = None
-    trainer: pl.Trainer | None = None
+    **initialize_model_parallel_kwargs,
+):
+    """Context manager for torch distributed testing."""
+    with MonkeyPatch.context() as context:
+        try:
+            clean_up_distributed_and_parallel_states()
 
-    try:
-        _teardown_apex_megatron_cuda()
-        trainer = _initialize_distributed_parallel_state(
-            devices=devices,
-            tensor_model_parallel_size=tensor_model_parallel_size,
-            pipeline_model_parallel_size=pipeline_model_parallel_size,
-            pipeline_model_parallel_split_rank=pipeline_model_parallel_split_rank,
-            context_parallel_size=context_parallel_size,
-            interactive=interactive,
-            precision=precision,
-        )
-        # Our goal is to set required state on entry, and then restore current state on exit for the RNGs.
-        #  there are two possibilities that are handled below:
-        # 1. If the RNG state is not initialized, we need to set it up and then
-        #     unset it on exit to restore the current state. We track that this is the case when `initial_states` is `None`.
-        # 2. If the RNG state is initialized, we need to track this state and reset it on exit to be what it was on entry.
-        #    We track that this is the case when `initial_states` is not `None`.
-        if tp_random.get_cuda_rng_tracker().is_initialized():
-            initial_states = tp_random.get_cuda_rng_tracker().get_states()
-        if seed is not None:
-            # Set the seed if provided, this case is valid whether or not the RNG had state previously.
-            #  on exit the RNG state will be restored to what it was on entry.
-            tp_random.model_parallel_cuda_manual_seed(seed)
-        else:
-            # This is the case where the RNG state is not initialized and no seed was provided.
-            #  We need to raise an error in this case, as we cannot restore the RNG state on exit and we need a seed
-            #  to initialize the RNG state to. This only happens if the user overrides the default seed and sets it
-            #  to None, and additionally if the RNG state was not initialized externally, as there is a default seed of 42.
-            if initial_states is None:
-                raise ValueError(
-                    "You must provide a seed if the initial parallel state is unset. "
-                    "Either provide a seed or leave the default seed (rather setting to None) "
-                    "or initialize the RNG state externally."
-                )
-        yield
-    finally:
-        if initial_states is not None:
-            tp_random.get_cuda_rng_tracker().set_states(initial_states)
-        else:
-            # Reset to the unset state
-            tp_random.get_cuda_rng_tracker().reset()
-        _teardown_apex_megatron_cuda()
-        if trainer is not None:
-            nl.teardown(trainer)
+            # distributed and parallel state set up
+            if not os.environ.get("MASTER_ADDR", None):
+                context.setenv("MASTER_ADDR", DEFAULT_MASTER_ADDR)
+            if not os.environ.get("MASTER_PORT", None):
+                context.setenv("MASTER_PORT", DEFAULT_MASTER_PORT)
+            if not os.environ.get("NCCL_TIMEOUT", None):
+                context.setenv("NCCL_TIMEOUT", DEFAULT_NCCL_TIMEOUT)
+            context.setenv("RANK", str(rank))
+
+            torch.distributed.init_process_group(backend="nccl", world_size=world_size)
+            parallel_state.initialize_model_parallel(**initialize_model_parallel_kwargs)
+
+            # tensor parallel random seed set up
+            # do not call torch.cuda.manual_seed after so!
+            initial_states = None
+            if tp_random.get_cuda_rng_tracker().is_initialized():
+                initial_states = tp_random.get_cuda_rng_tracker().get_states()
+            if seed is not None:
+                tp_random.model_parallel_cuda_manual_seed(seed)
+
+            yield
+        finally:
+            # restore/unset tensor parallel random seed
+            if initial_states is not None:
+                tp_random.get_cuda_rng_tracker().set_states(initial_states)
+            else:
+                # Reset to the unset state
+                tp_random.get_cuda_rng_tracker().reset()
+
+            clean_up_distributed_and_parallel_states()
 
 
 @contextmanager
