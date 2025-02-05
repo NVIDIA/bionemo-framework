@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Callable, Generic, Iterable, Iterator, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Any, Callable, Generic, Iterable, Iterator, List, Literal, Optional, Sequence, Tuple, TypeVar, Union
 
 import lightning.pytorch as pl
 import torch.distributed
@@ -319,27 +319,31 @@ class BionemoLightningModule(
         assert self.module is not None
         return self._forward_step(self.module, batch)
 
+    def update_metric(self, batch, outputs, metric, task: Literal["lm", "classification", "regression"]) -> None:
+        """Update metric for logging."""
+        match task:
+            case "lm":
+                logits = outputs["token_logits"].detach().transpose(0, 1)  #  [s, b, v] -> [b, s, v]
+                metric(logits, batch["labels"])
+            case "classification":
+                classification_output = outputs["classification_output"]
+                num_classes = classification_output.shape[-1]
+                metric(
+                    classification_output.reshape(-1, num_classes),
+                    batch["labels"].reshape(-1),
+                )
+            case "regression":
+                regression_output = outputs["regression_output"]
+                metric(regression_output, batch["labels"])
+            case _:
+                raise NotImplementedError(f"unrecognized task {task}")
+
     def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
         if self.train_metric is not None:
             if self.is_on_logging_device():
-                match self.train_task:
-                    case "lm":
-                        logits = outputs["token_logits"].detach().transpose(0, 1)  #  [s, b, v] -> [b, s, v]
-                        self.train_metric(logits, batch["labels"])
-                    case "classification":
-                        classification_output = outputs["classification_output"]
-                        num_classes = classification_output.shape[-1]
-                        self.train_metric(
-                            classification_output.reshape(-1, num_classes),
-                            batch["labels"].reshape(-1),
-                        )
-                    case "regression":
-                        regression_output = outputs["regression_output"]
-                        self.train_metric(regression_output, batch["labels"])
-                    case _:
-                        raise NotImplementedError(f"unrecognized task {self.train_task}")
+                self.update_metric(batch, outputs, self.train_metric, self.train_task)
 
             self.log(
                 self.train_metric_name,
@@ -355,22 +359,7 @@ class BionemoLightningModule(
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
         if self.valid_metric is not None and self.is_on_logging_device():
-            match self.valid_task:
-                case "lm":
-                    logits = outputs["token_logits"].detach().transpose(0, 1)  #  [s, b, v] -> [b, s, v]
-                    self.valid_metric(logits, batch["labels"])
-                case "classification":
-                    classification_output = outputs["classification_output"]
-                    num_classes = classification_output.shape[-1]
-                    self.valid_metric(
-                        classification_output.reshape(-1, num_classes),
-                        batch["labels"].reshape(-1),
-                    )
-                case "regression":
-                    regression_output = outputs["regression_output"]
-                    self.valid_metric(regression_output, batch["labels"])
-                case _:
-                    raise NotImplementedError(f"unrecognized task {self.valid_task}")
+            self.update_metric(batch, outputs, self.valid_metric, self.valid_task)
 
         return outputs
 
