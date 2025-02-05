@@ -162,8 +162,12 @@ class MetricConfig:
     """
 
     class_path: str
-    kwargs: dict[str, Any]
+    kwargs: Optional[dict[str, Any]] = None
     metric_name: Optional[str] = None
+
+    def __post_init__(self):
+        """__post_init__ in dataclass."""
+        self.kwargs = {} if self.kwargs is None else self.kwargs
 
     def get_instance(self) -> torchmetrics.Metric:
         """Dynamically imports and instantiates the metric class."""
