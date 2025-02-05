@@ -280,7 +280,9 @@ def train_model(
     if task_type == "regression":
         valid_metric = MetricConfig(class_path="MeanSquaredError", metric_name="mse")
     else:
-        valid_metric = MetricConfig(class_path="Accuracy", kwargs={"threshold": 0.5}, metric_name="acc")
+        valid_metric = MetricConfig(
+            class_path="Accuracy", kwargs={"task": "multiclass", "threshold": 0.5}, metric_name="acc"
+        )
 
     config = config_class(
         task_type=task_type,
