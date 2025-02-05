@@ -39,6 +39,7 @@ from bionemo.esm2.model.embedding import ESM2Embedding
 from bionemo.llm.api import MegatronLossType
 from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel, PositionEmbeddingKinds
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
+from bionemo.llm.model.config import MetricConfig
 from bionemo.llm.utils import iomixin_utils as iom
 
 
@@ -362,3 +363,7 @@ class ESM2Config(ESM2GenericConfig, iom.IOMixinWithGettersSetters):
     model_cls: Type[ESM2Model] = ESM2Model
     num_layers: int = 33  # 650M
     hidden_size: int = 1280  # 650M
+
+    # custom metric logging
+    train_metric: Optional[MetricConfig] = None
+    valid_metric: Optional[MetricConfig] = None

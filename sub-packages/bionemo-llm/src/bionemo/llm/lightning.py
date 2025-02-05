@@ -17,7 +17,6 @@ from typing import Any, Callable, Generic, Iterable, Iterator, List, Optional, S
 
 import lightning.pytorch as pl
 import torch.distributed
-import torchmetrics.text
 from megatron.core import parallel_state
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo.lightning import io as nlio
@@ -31,7 +30,6 @@ from torch import Tensor
 
 from bionemo.core.model.config import BionemoTrainableModelConfig
 from bionemo.llm.api import MegatronLossType, MegatronModelType
-from bionemo.llm.data.collate import MLM_LOSS_IGNORE_INDEX
 
 
 __all__: Sequence[str] = (
@@ -259,9 +257,11 @@ class BionemoLightningModule(
         self._forward_step = forward_step
         self.model_transform = model_transform
 
-        # torchmetrics must init here for fiddle serialization
-        self.train_ppl = torchmetrics.text.Perplexity(ignore_index=MLM_LOSS_IGNORE_INDEX) if log_train_ppl else None
-        self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=MLM_LOSS_IGNORE_INDEX) if log_val_ppl else None
+        # configure metrics
+        self.train_metric = self.config.train_metric.get_instance() if self.config.train_metric else None
+        self.valid_metric = self.config.valid_metric.get_instance() if self.config.valid_metric else None
+        if (self.train_metric or self.valid_metric) and not self.is_on_logging_device:
+            raise NotImplementedError("Metric logging is not implemented with model parallelism yet.")
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -317,11 +317,17 @@ class BionemoLightningModule(
         outputs = self.forward_step(batch)
         logits = outputs["token_logits"].detach().transpose(0, 1).clone()  #  [s, b, v] -> [b, s, v]
 
-        if self.train_ppl is not None:
+        if self.train_metric is not None:
             if self.is_on_logging_device():
-                self.train_ppl(logits, batch["labels"])
+                self.train_metric(logits, batch["labels"])
 
-            self.log("train_ppl", self.train_ppl, on_step=True, on_epoch=False, prog_bar=True)
+            self.log(
+                self.config.train_metric.get_metric_name("train"),
+                self.train_metric,
+                on_step=True,
+                on_epoch=False,
+                prog_bar=True,
+            )
 
         return outputs
 
@@ -330,8 +336,8 @@ class BionemoLightningModule(
         outputs = self.forward_step(batch)
         logits = outputs["token_logits"].detach().transpose(0, 1).clone()  #  [s, b, v] -> [b, s, v]
 
-        if self.valid_ppl is not None and self.is_on_logging_device():
-            self.valid_ppl.update(logits, batch["labels"])
+        if self.valid_metric is not None and self.is_on_logging_device():
+            self.valid_metric.update(logits, batch["labels"])
 
         return outputs
 
@@ -352,14 +358,20 @@ class BionemoLightningModule(
         return self.loss_reduction_class(validation_step=True)
 
     def on_validation_epoch_end(self):  # noqa: D102
-        if self.valid_ppl is None:
+        if self.valid_metric is None:
             return
 
         if self.trainer.sanity_checking:
-            self.valid_ppl.reset()  # clean up sanity runs
+            self.valid_metric.reset()  # clean up sanity runs
             return
 
-        self.log("valid_ppl", self.valid_ppl, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(
+            self.config.valid_metric.get_metric_name("valid"),
+            self.valid_metric,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+        )
 
 
 def default_megatron_optimizer() -> MegatronOptimizerModule:
