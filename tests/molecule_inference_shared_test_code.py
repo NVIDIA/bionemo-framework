@@ -101,6 +101,24 @@ def run_sample_not_beam(inferer: MolInference, smis: List[str], sampling_method:
 def run_beam_search(inferer: MolInference, smis: List[str], beam_search_method: str):
     num_samples = 3
     beam_size = 5
+    from bionemo.utils import trt_compile
+
+    inferer.model.enc_dec_model.enc_dec_model.eval()
+    # Those TRT profiles for the decoder are gathered manually from the test run.
+    # Ideally, they should be inferred from the configs.
+    dec_args = {
+        "method": "onnx",
+        "input_profiles": [
+            {
+                "dec_input": [[1, 2, 512], [64, 6, 512], [64, 30, 512]],
+                "dec_attn_mask": [[2, 1], [6, 64], [30, 64]],
+                "enc_output": [[1, 2, 512], [1, 6, 512], [1, 30, 512]],
+                "enc_attn_mask": [[2, 1], [6, 1], [30, 1]],
+            }
+        ],
+    }
+    trt_compile(inferer.model.enc_dec_model.enc_dec_model.encoder, "MolMIM-encoder", logger=log)
+    trt_compile(inferer.model.enc_dec_model.enc_dec_model.decoder, "MolMIM-decoder", logger=log, args=dec_args)
     samples = inferer.sample(
         num_samples=num_samples,
         beam_size=beam_size,  # internally beam_size will be set to num_samples
