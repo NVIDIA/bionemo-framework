@@ -158,7 +158,7 @@ def override_mutate_possibly_extra_mutated_fiddle(
 
 @dataclass
 class TorchmetricsConfig:
-    """MetricConfig to instantiate torchmetrics.Metric class.
+    """TorchmetricsConfig to instantiate torchmetrics.Metric class.
 
     Fiddle requires all objects in config serializable and torchmetric.Metric is not. Its instantiation must be deferred into BionemoLightningModule.__init__.
     Only support torchmetrics currently, e.g. users can provide 'text.Perplexity' to 'class_path' to use 'torchmetrics.text.Perplexity'.
