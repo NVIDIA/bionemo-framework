@@ -255,8 +255,6 @@ class BionemoLightningModule(
         # configure metrics
         self.train_metric = self.config.train_metric.get_instance() if self.config.train_metric else None
         self.valid_metric = self.config.valid_metric.get_instance() if self.config.valid_metric else None
-        if (self.train_metric or self.valid_metric) and not self.is_on_logging_device:
-            raise NotImplementedError("Metric logging is not implemented with model parallelism yet.")
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
