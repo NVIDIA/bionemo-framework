@@ -52,6 +52,7 @@ from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption, get_b
 from bionemo.llm.model.config import (
     OVERRIDE_BIONEMO_CONFIG_DEFAULTS,
     MegatronBioNeMoTrainableModelConfig,
+    TorchmetricsConfig,
 )
 from bionemo.llm.model.loss import BERTMLMLossWithReduction
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
@@ -530,6 +531,10 @@ class BioBertConfig(
 
     # loss reduction class
     loss_reduction_class: Type[MegatronLossType] = BERTMLMLossWithReduction
+
+    # metric logging
+    train_metric: Optional[TorchmetricsConfig] = None
+    valid_metric: Optional[TorchmetricsConfig] = None
 
     def configure_model(self, tokenizer: AutoTokenizer) -> MegatronBioBertModelType:  # noqa: D102
         vp_size = self.virtual_pipeline_model_parallel_size

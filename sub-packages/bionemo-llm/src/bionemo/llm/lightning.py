@@ -13,11 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Callable, Generic, Iterable, Iterator, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Any, Callable, Generic, Iterable, Iterator, List, Literal, Optional, Sequence, Tuple, TypeVar, Union
 
 import lightning.pytorch as pl
 import torch.distributed
-import torchmetrics.text
 from megatron.core import parallel_state
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo.lightning import io as nlio
@@ -31,7 +30,6 @@ from torch import Tensor
 
 from bionemo.core.model.config import BionemoTrainableModelConfig
 from bionemo.llm.api import MegatronLossType, MegatronModelType
-from bionemo.llm.data.collate import MLM_LOSS_IGNORE_INDEX
 
 
 __all__: Sequence[str] = (
@@ -221,11 +219,8 @@ class BionemoLightningModule(
         config: BionemoTrainableModelConfig[MegatronModelType, MegatronLossType],
         forward_step: ForwardStep,
         data_step: DataStep,
-        # TODO: Add transformer_layer_spec when we update mcore
         optimizer: MegatronOptimizerModule,
         model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
-        log_train_ppl: bool = False,
-        log_val_ppl: bool = False,
         **model_construct_args,
     ) -> None:
         """Constructor.
@@ -241,8 +236,6 @@ class BionemoLightningModule(
             model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s
                 `configure_model` method.
             model_transform: Optional. The model transform function.
-            log_train_ppl (bool): Log training perplexity.
-            log_val_ppl (bool): Log validation perplexity.
             **model_construct_args: Optional. Arguments necessary for the supplied model configuration's
                 `configure_model` method, which will make an instance of the model.
         """
@@ -259,9 +252,9 @@ class BionemoLightningModule(
         self._forward_step = forward_step
         self.model_transform = model_transform
 
-        # torchmetrics must init here for fiddle serialization
-        self.train_ppl = torchmetrics.text.Perplexity(ignore_index=MLM_LOSS_IGNORE_INDEX) if log_train_ppl else None
-        self.valid_ppl = torchmetrics.text.Perplexity(ignore_index=MLM_LOSS_IGNORE_INDEX) if log_val_ppl else None
+        # configure metrics
+        self.train_metric = self.config.train_metric.get_instance() if self.config.train_metric else None
+        self.valid_metric = self.config.valid_metric.get_instance() if self.config.valid_metric else None
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -312,26 +305,47 @@ class BionemoLightningModule(
         assert self.module is not None
         return self._forward_step(self.module, batch)
 
+    def update_metric(self, batch, outputs, metric, task: Literal["lm", "classification", "regression"]) -> None:
+        """Update metric for logging."""
+        match task:
+            case "lm":
+                logits = outputs["token_logits"].detach().transpose(0, 1)  #  [s, b, v] -> [b, s, v]
+                metric(logits, batch["labels"])
+            case "classification":
+                classification_output = outputs["classification_output"]
+                num_classes = classification_output.shape[-1]
+                metric(
+                    classification_output.reshape(-1, num_classes),
+                    batch["labels"].reshape(-1),
+                )
+            case "regression":
+                regression_output = outputs["regression_output"]
+                metric(regression_output, batch["labels"])
+            case _:
+                raise NotImplementedError(f"unrecognized task {task}")
+
     def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
-        logits = outputs["token_logits"].detach().transpose(0, 1).clone()  #  [s, b, v] -> [b, s, v]
-
-        if self.train_ppl is not None:
+        if self.train_metric is not None:
             if self.is_on_logging_device():
-                self.train_ppl(logits, batch["labels"])
+                self.update_metric(batch, outputs, self.train_metric, self.config.train_metric.task)
 
-            self.log("train_ppl", self.train_ppl, on_step=True, on_epoch=False, prog_bar=True)
+            self.log(
+                self.config.train_metric.metric_name,
+                self.train_metric,
+                on_step=True,
+                on_epoch=False,
+                prog_bar=True,
+            )
 
         return outputs
 
     def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
         outputs = self.forward_step(batch)
-        logits = outputs["token_logits"].detach().transpose(0, 1).clone()  #  [s, b, v] -> [b, s, v]
-
-        if self.valid_ppl is not None and self.is_on_logging_device():
-            self.valid_ppl.update(logits, batch["labels"])
+        if self.valid_metric is not None and self.is_on_logging_device():
+            self.update_metric(batch, outputs, self.valid_metric, self.config.valid_metric.task)
 
         return outputs
 
@@ -352,14 +366,20 @@ class BionemoLightningModule(
         return self.loss_reduction_class(validation_step=True)
 
     def on_validation_epoch_end(self):  # noqa: D102
-        if self.valid_ppl is None:
+        if self.valid_metric is None:
             return
 
         if self.trainer.sanity_checking:
-            self.valid_ppl.reset()  # clean up sanity runs
+            self.valid_metric.reset()  # clean up sanity runs
             return
 
-        self.log("valid_ppl", self.valid_ppl, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(
+            self.config.valid_metric.metric_name,
+            self.valid_metric,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+        )
 
 
 def default_megatron_optimizer() -> MegatronOptimizerModule:

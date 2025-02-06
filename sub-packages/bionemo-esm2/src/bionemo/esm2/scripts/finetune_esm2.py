@@ -39,6 +39,7 @@ from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
 from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
+from bionemo.llm.model.config import TorchmetricsConfig
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -138,7 +139,7 @@ def train_model(
             result_dir that stores the logs and checkpoints.
         resume_if_exists (bool): attempt to resume if the checkpoint exists [FIXME @skothenhill this doesn't work yet]
         precision (PrecisionTypes): Precision type for training (e.g., float16, float32)
-        task_type (str): Fine-tuning task type. Default is regression.
+        task_type (Literal["classification", "regression"]): Fine-tuning task type. Default is regression.
         encoder_frozen (bool): Freeze the encoder parameters. Default is False.
         scale_lr_layer (Optional[str]): layer names for which the lr is scaled by lr_multiplier
         lr_multiplier (float): lr multiplier for parameters in scale_lr_layer
@@ -276,6 +277,26 @@ def train_model(
         tokenizer=tokenizer,
     )
     # Configure the model
+    train_metric = None
+    if task_type == "regression":
+        valid_metric = TorchmetricsConfig(class_path="MeanSquaredError", task="regression", metric_name="val_mse")
+    else:
+        valid_metric = TorchmetricsConfig(
+            class_path="Accuracy",
+            task="classification",
+            kwargs={
+                "task": "multiclass",
+                "threshold": 0.5,
+                "num_classes": data_module.train_dataset.label_tokenizer.vocab_size,
+            },
+            metric_name="val_acc",
+        )
+
+    if tensor_model_parallel_size * pipeline_model_parallel_size > 1 and (
+        train_metric is not None or valid_metric is not None
+    ):
+        raise NotImplementedError("Metric logging under model parallelism is not supported yet.")
+
     config = config_class(
         task_type=task_type,
         encoder_frozen=encoder_frozen,
@@ -286,6 +307,8 @@ def train_model(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         initial_ckpt_path=str(restore_from_checkpoint_path),
         initial_ckpt_skip_keys_with_these_prefixes=[f"{task_type}_head"],
+        train_metric=train_metric,
+        valid_metric=valid_metric,
     )
     # Mapping of task-dependent config attributes to their new values
     task_dependent_attr = {
