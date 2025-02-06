@@ -167,7 +167,7 @@ class NestedModule(nn.Module):
 # TODO rewrite unittest and potentially LightningPassthroughPredictionMixin
 @pytest.mark.xfail(reason="MegatronStrategy no longer has '_get_loss_reduction' attribute")
 def test_mixin_strategy_contract_get_loss_reduction():
-    with megatron_parallel_state_utils.clean_parallel_state_context():
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
         strategy = nl.MegatronStrategy(
             tensor_model_parallel_size=1,
             pipeline_model_parallel_size=1,

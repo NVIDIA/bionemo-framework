@@ -108,14 +108,14 @@ def test_pipeline_model_parallel_group(world_size: int):
 
 def test_load_megatron_strategy():
     # This will clean up most of the megatron global state that can get created
-    with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
         strategy = nl.MegatronStrategy(tensor_model_parallel_size=1)
         assert strategy.tensor_model_parallel_size == 1
 
 
 def test_construct_nemo_lightning_trainer():
     # This will clean up most of the megatron global state that can get created
-    with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
         trainer = nl.Trainer(
             devices=1,
             max_steps=5,

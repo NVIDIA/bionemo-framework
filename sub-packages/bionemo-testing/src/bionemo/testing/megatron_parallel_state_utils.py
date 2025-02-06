@@ -32,7 +32,7 @@ def my_test():
 
 import os
 from contextlib import contextmanager
-from typing import Any, Iterator, Optional, Sequence
+from typing import Any, Optional, Sequence
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -47,7 +47,7 @@ from torch.testing._internal.distributed.fake_pg import FakeStore
 
 
 __all__: Sequence[str] = (
-    "clean_parallel_state_context",
+    "clean_up_distributed_and_parallel_states",
     "distributed_model_parallel_state",
     "mock_distributed_parallel_state",
 )
@@ -64,31 +64,9 @@ def _reset_microbatch_calculator():
     megatron.core.num_microbatches_calculator._GLOBAL_NUM_MICROBATCHES_CALCULATOR = None
 
 
-def _teardown_apex_megatron_cuda():
-    """Cleans GPU allocation and model and data parallel settings after usage of a model:
-    - sets the global variables related to model and data parallelism to None in Apex and Megatron:.
-    - releases all unoccupied cached GPU memory currently held by the caching CUDA allocator, see torch.cuda.empty_cache
-    """  # noqa: D205, D415
-    torch.cuda.empty_cache()
-    _reset_microbatch_calculator()
-    parallel_state.destroy_model_parallel()
-
-
-@contextmanager
-def clean_parallel_state_context() -> Iterator[None]:
-    """Puts you into a clean parallel state, and again tears it down at the end."""
-    try:
-        _teardown_apex_megatron_cuda()
-        yield
-    except Exception as e:
-        # TODO (@skothenhill) verify this is a problem and that this is a solution. Had issues with keyboard interrupts being ignored inside context manager.
-        raise Exception from e
-    finally:
-        _teardown_apex_megatron_cuda()
-
-
 def clean_up_distributed_and_parallel_states():
     """Clean up parallel states, torch.distributed and torch cuda cache."""
+    _reset_microbatch_calculator()
     parallel_state.destroy_model_parallel()  # destroy parallel state before distributed
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
