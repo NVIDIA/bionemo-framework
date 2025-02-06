@@ -99,10 +99,19 @@ def clean_up_distributed_and_parallel_states():
 def distributed_model_parallel_state(
     rank: int = 0,
     world_size: int = 1,
-    seed: Optional[int] = 42,
+    seed: int = 42,
+    backend: str = "nccl",
     **initialize_model_parallel_kwargs,
 ):
-    """Context manager for torch distributed testing."""
+    """Context manager for torch distributed and parallel state testing.
+
+    Args:
+        rank (int): global rank of the current cuda device. default to 0.
+        world_size (int): world size or number of devices. default to 1.
+        seed (int): random seed to be passed into tensor_parallel.random (https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/tensor_parallel/random.py). default to 42.
+        backend (str): backend to torch.distributed.init_process_group. default to 'nccl'.
+        **initialize_model_parallel_kwargs: kwargs to be passed into initialize_model_parallel (https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/parallel_state.py).
+    """
     with MonkeyPatch.context() as context:
         try:
             clean_up_distributed_and_parallel_states()
@@ -116,7 +125,7 @@ def distributed_model_parallel_state(
                 context.setenv("NCCL_TIMEOUT", DEFAULT_NCCL_TIMEOUT)
             context.setenv("RANK", str(rank))
 
-            torch.distributed.init_process_group(backend="nccl", world_size=world_size)
+            torch.distributed.init_process_group(backend=backend, world_size=world_size)
             parallel_state.initialize_model_parallel(**initialize_model_parallel_kwargs)
 
             # tensor parallel random seed set up
