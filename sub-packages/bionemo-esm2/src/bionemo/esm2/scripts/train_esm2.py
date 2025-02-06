@@ -264,6 +264,18 @@ def main(
         tokenizer=tokenizer,
     )
     # Configure the model
+    train_metric = None
+    valid_metric = TorchmetricsConfig(
+        class_path="text.Perplexity",
+        task="lm",
+        kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX},
+        metric_name="val_ppl",
+    )
+    if tensor_model_parallel_size * pipeline_model_parallel_size > 1 and (
+        train_metric is not None or valid_metric is not None
+    ):
+        raise NotImplementedError("Metric logging under model parallelism is not supported yet.")
+
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
         num_layers=num_layers,
@@ -278,13 +290,8 @@ def main(
         # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
         initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
         variable_seq_lengths=min_seq_length != max_seq_length,
-        train_metric=None,
-        valid_metric=TorchmetricsConfig(
-            class_path="text.Perplexity",
-            task="lm",
-            kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX},
-            metric_name="val_ppl",
-        ),
+        train_metric=train_metric,
+        valid_metric=valid_metric,
     )
 
     if scheduler_num_steps is None:
