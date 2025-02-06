@@ -42,7 +42,7 @@ def test_nemo2_conversion_equivalent_8m_bf16(tmp_path):
     model_tag = "facebook/esm2_t6_8M_UR50D"
     module = biobert_lightning_module(config=ESM2Config())
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
-    with megatron_parallel_state_utils.distributed_model_parallel_state(precision="bf16"):
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
         assert_model_equivalence(tmp_path / "nemo_checkpoint", model_tag, precision="bf16")
 
 

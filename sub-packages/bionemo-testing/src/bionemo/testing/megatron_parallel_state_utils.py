@@ -91,6 +91,7 @@ def distributed_model_parallel_state(
         **initialize_model_parallel_kwargs: kwargs to be passed into initialize_model_parallel (https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/parallel_state.py).
     """
     with MonkeyPatch.context() as context:
+        initial_states = None
         try:
             clean_up_distributed_and_parallel_states()
 
@@ -108,7 +109,6 @@ def distributed_model_parallel_state(
 
             # tensor parallel random seed set up
             # do not call torch.cuda.manual_seed after so!
-            initial_states = None
             if tp_random.get_cuda_rng_tracker().is_initialized():
                 initial_states = tp_random.get_cuda_rng_tracker().get_states()
             if seed is not None:
