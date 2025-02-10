@@ -51,7 +51,7 @@ def test_mdlm_interpolate_multidevice(mdlm):
     #      shifting time to device based on the parallel dataloader **
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
-    data = torch.randint(0, 16, (5, 10)).to()
+    data = torch.randint(0, 16, (5, 10))
     data_gpu = torch.randint(0, 16, (5, 10)).to("cuda")
     t = mdlm.sample_time(5)
     t_gpu = mdlm.sample_time(5, device="cuda")
