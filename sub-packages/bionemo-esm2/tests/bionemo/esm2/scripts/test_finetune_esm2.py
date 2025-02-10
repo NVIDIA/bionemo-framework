@@ -139,7 +139,7 @@ def test_esm2_finetune_regressor(
         assert io.is_distributed_ckpt(weights_ckpt)
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
         assert "val_mse" in trainer.logged_metrics
-        # assert trainer.logged_metrics["val_mse"].item() <= 0.5  # TODO @farhad for a reasonable value
+        # assert trainer.logged_metrics["val_mse"].item() <= 0.5  # TODO @farhadrgh for a reasonable value
 
         encoder_requires_grad = [
             p.requires_grad for name, p in trainer.model.named_parameters() if "regression_head" not in name
@@ -194,7 +194,7 @@ def test_esm2_finetune_classifier(
         assert io.is_distributed_ckpt(weights_ckpt)
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
         assert "val_acc" in trainer.logged_metrics
-        # assert trainer.logged_metrics["val_acc"].item() <= 0.5  # TODO @farhad for a reasonable value
+        # assert trainer.logged_metrics["val_acc"].item() <= 0.5  # TODO @farhadrgh for a reasonable value
 
         encoder_requires_grad = [
             p.requires_grad for name, p in trainer.model.named_parameters() if "classification_head" not in name
