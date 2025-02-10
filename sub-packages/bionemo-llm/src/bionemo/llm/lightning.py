@@ -305,10 +305,12 @@ class BionemoLightningModule(
         assert self.module is not None
         return self._forward_step(self.module, batch)
 
-    def update_metric(self, batch, outputs, metric, task: Literal["lm", "classification", "regression"]) -> None:
+    def update_metric(
+        self, batch, outputs, metric, task: Literal["pretraining", "classification", "regression"]
+    ) -> None:
         """Update metric for logging."""
         match task:
-            case "lm":
+            case "pretraining":
                 logits = outputs["token_logits"].detach().transpose(0, 1)  #  [s, b, v] -> [b, s, v]
                 metric(logits, batch["labels"])
             case "classification":

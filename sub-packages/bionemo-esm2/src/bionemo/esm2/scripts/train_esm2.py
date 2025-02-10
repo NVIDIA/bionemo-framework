@@ -267,7 +267,7 @@ def main(
     train_metric = None
     valid_metric = TorchmetricsConfig(
         class_path="text.Perplexity",
-        task="lm",
+        task="pretraining",
         kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX},
         metric_name="val_ppl",
     )
