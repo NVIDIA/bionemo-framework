@@ -8,6 +8,8 @@ on:
     branches: [main]
   merge_group:
     types: [checks_requested]
+  schedule:
+    - cron: '0 7 * * *' # Runs at 7 AM UTC daily (12 AM MST)    
 
 defaults:
   run:
@@ -123,7 +125,7 @@ jobs:
 
       - name: Run slow tests
         if: |
-          github.event_name == 'merge_group' ||
+          github.event_name == 'merge_group' || github.event_name == 'schedule' ||
           (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_SLOW_TESTS'))
         env:
           BIONEMO_DATA_SOURCE: ngc
@@ -131,7 +133,7 @@ jobs:
 
       - name: Run notebook tests
         if: |
-          github.event_name == 'merge_group' ||
+          github.event_name == 'merge_group' || github.event_name == 'schedule' ||
           (github.event_name == 'pull_request' &&
             contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS'))
         env:
@@ -139,18 +141,18 @@ jobs:
         run: pytest -v --nbval-lax -p no:python docs/ sub-packages/
 
       - name: Upload coverage to Codecov
-        # Don't run coverage on merge queue CI to avoid duplicating reports
+        # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
         # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
-        if: github.event_name != 'merge_group'
+        if: github.event_name != 'merge_group' && github.event_name != 'schedule'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           working-directory: ${{ github.run_id }}
 
       - name: Upload test results to Codecov
-        # Don't run coverage on merge queue CI to avoid duplicating reports
+        # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
         # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
-        if: ${{ !cancelled() && github.event_name != 'merge_group' }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && github.event_name != 'schedule' }}
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
