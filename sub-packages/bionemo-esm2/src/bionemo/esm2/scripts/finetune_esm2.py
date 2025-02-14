@@ -117,6 +117,7 @@ def train_model(
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
     ckpt_async_save: bool = True,
+    label_column: str = "labels",
 ) -> Tuple[Path, Callback | None, nl.Trainer]:
     """Train an ESM2 model on UR data.
 
@@ -178,6 +179,7 @@ def train_model(
         average_in_collective (bool): average in collective
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
         ckpt_async_save (bool): whether to save ckpt async. Set to False for federated learning
+        label_column (str): name of label column in CSV data file. Defaults to `labels`.
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -265,8 +267,8 @@ def train_model(
     tokenizer = get_tokenizer()
 
     # Initialize the data module.
-    train_dataset = dataset_class.from_csv(train_data_path, task_type=task_type)
-    valid_dataset = dataset_class.from_csv(valid_data_path, task_type=task_type)
+    train_dataset = dataset_class.from_csv(train_data_path, task_type=task_type, label_column=label_column)
+    valid_dataset = dataset_class.from_csv(valid_data_path, task_type=task_type, label_column=label_column)
     if task_type == "classification":  # use training label_tokenizer to have consistent vocab
         valid_dataset.label_tokenizer = train_dataset.label_tokenizer
 
@@ -446,6 +448,7 @@ def finetune_esm2_entrypoint():
         average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
         ckpt_async_save=not args.avoid_ckpt_async_save,
+        label_column=args.label_column,
     )
 
 
@@ -482,6 +485,13 @@ def get_parser():
         required=True,
         default="regression",
         help="Fine-tuning task type.",
+    )
+    parser.add_argument(
+        "--label-column",
+        type=str,
+        required=False,
+        default="labels",
+        help="Label column name in CSV datafile.",
     )
     parser.add_argument(
         "--encoder-frozen",
