@@ -46,6 +46,8 @@
 * [bionemo.moco.interpolants.discrete\_time](#mocointerpolantsdiscrete_time)
 * [bionemo.moco.interpolants.discrete\_time.utils](#mocointerpolantsdiscrete_timeutils)
 * [bionemo.moco.interpolants.base\_interpolant](#mocointerpolantsbase_interpolant)
+* [bionemo.moco.testing](#mocotesting)
+* [bionemo.moco.testing.parallel\_test\_utils](#mocotestingparallel_test_utils)
 
 <a id="moco"></a>
 
@@ -4358,7 +4360,7 @@ to noise prediction. noise_to_data is provided for a similar reason for complete
 #### safe\_index
 
 ```python
-def safe_index(tensor: Tensor, index: Tensor, device: torch.device)
+def safe_index(tensor: Tensor, index: Tensor, device: Optional[torch.device])
 ```
 
 Safely indexes a tensor using a given index and returns the result on a specified device.
@@ -4379,7 +4381,7 @@ Note can implement forcing with  return tensor[index.to(tensor.device)].to(devic
 
 **Raises**:
 
-- `ValueError` - If tensor, index, and device are not all on the same device.
+- `ValueError` - If tensor, index are not all on the same device.
 
 <a id="mocointerpolantsbase_interpolant"></a>
 
@@ -4619,3 +4621,293 @@ Returns a clean tensor that has been masked and/or centered based on the functio
 **Returns**:
 
   The data with shape (..., nodes, features) either centered around the CoM if `center` is True or unchanged if `center` is False.
+
+<a id="mocotesting"></a>
+
+# bionemo.moco.testing
+
+<a id="mocotestingparallel_test_utils"></a>
+
+# bionemo.moco.testing.parallel\_test\_utils
+
+<a id="mocotestingparallel_test_utilsinitialize_parallel_states"></a>
+
+#### initialize\_parallel\_states
+
+```python
+def initialize_parallel_states(context_parallel_size: int = 1) -> None
+```
+
+Initializes the parallel states for distributed testing.
+
+Ensures the world size is a multiple of the context parallel size and
+initializes the device mesh with the specified context parallel size.
+
+**Arguments**:
+
+- `context_parallel_size` _int_ - The size of the context parallel group. Defaults to 1.
+
+
+**Raises**:
+
+- `AssertionError` - If the world size is not divisible by the context parallel size.
+
+<a id="mocotestingparallel_test_utilsclean_up_parallel_states"></a>
+
+#### clean\_up\_parallel\_states
+
+```python
+def clean_up_parallel_states() -> None
+```
+
+Cleans up the parallel states after distributed testing.
+
+Resets the global DEVICE_MESH variable to None.
+
+<a id="mocotestingparallel_test_utilsget_data_parallel_group"></a>
+
+#### get\_data\_parallel\_group
+
+```python
+def get_data_parallel_group() -> ProcessGroup
+```
+
+Retrieves the data parallel process group.
+
+**Arguments**:
+
+  None
+
+
+**Returns**:
+
+- `ProcessGroup` - The data parallel process group.
+
+
+**Raises**:
+
+- `ValueError` - If the device mesh is not set.
+
+<a id="mocotestingparallel_test_utilsget_context_parallel_group"></a>
+
+#### get\_context\_parallel\_group
+
+```python
+def get_context_parallel_group() -> ProcessGroup
+```
+
+Retrieves the context parallel process group.
+
+**Arguments**:
+
+  None
+
+
+**Returns**:
+
+- `ProcessGroup` - The context parallel process group.
+
+
+**Raises**:
+
+- `ValueError` - If the device mesh is not set.
+
+<a id="mocotestingparallel_test_utilsget_data_parallel_ranks"></a>
+
+#### get\_data\_parallel\_ranks
+
+```python
+def get_data_parallel_ranks() -> List[int]
+```
+
+Retrieves the ranks of the data parallel group.
+
+**Arguments**:
+
+  None
+
+
+**Returns**:
+
+- `List[int]` - A list of global ranks in the data parallel group.
+
+<a id="mocotestingparallel_test_utilsget_context_parallel_ranks"></a>
+
+#### get\_context\_parallel\_ranks
+
+```python
+def get_context_parallel_ranks() -> List[int]
+```
+
+Retrieves the ranks of the context parallel group.
+
+**Arguments**:
+
+  None
+
+
+**Returns**:
+
+- `List[int]` - A list of global ranks in the context parallel group.
+
+<a id="mocotestingparallel_test_utilsget_data_parallel_src_rank"></a>
+
+#### get\_data\_parallel\_src\_rank
+
+```python
+def get_data_parallel_src_rank() -> int
+```
+
+Retrieves the source rank of the data parallel group.
+
+**Arguments**:
+
+  None
+
+
+**Returns**:
+
+- `int` - The global rank of the first process in the data parallel group.
+
+<a id="mocotestingparallel_test_utilsget_context_parallel_src_rank"></a>
+
+#### get\_context\_parallel\_src\_rank
+
+```python
+def get_context_parallel_src_rank() -> int
+```
+
+Retrieves the source rank of the context parallel group.
+
+**Arguments**:
+
+  None
+
+
+**Returns**:
+
+- `int` - The global rank of the first process in the context parallel group.
+
+<a id="mocotestingparallel_test_utilsget_context_parallel_group_rank"></a>
+
+#### get\_context\_parallel\_group\_rank
+
+```python
+def get_context_parallel_group_rank(global_rank: int) -> int
+```
+
+Retrieves the rank of a process within the context parallel group.
+
+**Arguments**:
+
+- `global_rank` _int_ - The global rank of the process.
+
+
+**Returns**:
+
+- `int` - The rank of the process within the context parallel group.
+
+<a id="mocotestingparallel_test_utilsshift_context_parallel_rank"></a>
+
+#### shift\_context\_parallel\_rank
+
+```python
+def shift_context_parallel_rank(global_rank: int, offset: int) -> int
+```
+
+Shifts the context parallel rank by a specified offset.
+
+**Arguments**:
+
+- `global_rank` _int_ - The global rank of the process.
+- `offset` _int_ - The offset to apply to the context parallel rank.
+
+
+**Returns**:
+
+- `int` - The global rank of the process after shifting the context parallel rank.
+
+<a id="mocotestingparallel_test_utilsget_context_parallel_prev_rank"></a>
+
+#### get\_context\_parallel\_prev\_rank
+
+```python
+def get_context_parallel_prev_rank(global_rank: int) -> int
+```
+
+Retrieves the previous rank in the context parallel group.
+
+**Arguments**:
+
+- `global_rank` _int_ - The global rank of the process.
+
+
+**Returns**:
+
+- `int` - The global rank of the previous process in the context parallel group.
+
+<a id="mocotestingparallel_test_utilsget_context_parallel_next_rank"></a>
+
+#### get\_context\_parallel\_next\_rank
+
+```python
+def get_context_parallel_next_rank(global_rank: int) -> int
+```
+
+Retrieves the next rank in the context parallel group.
+
+**Arguments**:
+
+- `global_rank` _int_ - The global rank of the process.
+
+
+**Returns**:
+
+- `int` - The global rank of the next process in the context parallel group.
+
+<a id="mocotestingparallel_test_utilsclean_up_distributed"></a>
+
+#### clean\_up\_distributed
+
+```python
+def clean_up_distributed() -> None
+```
+
+Cleans up the distributed environment.
+
+Destroys the process group and empties the CUDA cache.
+
+**Arguments**:
+
+  None
+
+
+**Returns**:
+
+  None
+
+<a id="mocotestingparallel_test_utilsparallel_context"></a>
+
+#### parallel\_context
+
+```python
+@contextmanager
+def parallel_context(rank: int = 0,
+                     world_size: int = 1,
+                     context_parallel_size: int = 1) -> None
+```
+
+Context manager for torch distributed testing.
+
+Sets up and cleans up the distributed environment, including the device mesh.
+
+**Arguments**:
+
+- `rank` _int_ - The rank of the process. Defaults to 0.
+- `world_size` _int_ - The world size of the distributed environment. Defaults to 1.
+- `context_parallel_size` _int_ - The size of the context parallel group. Defaults to 1.
+
+
+**Yields**:
+
+  None
