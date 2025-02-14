@@ -15,7 +15,7 @@
 
 
 from abc import ABC, abstractmethod
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import torch
 from jaxtyping import Bool, Float
@@ -68,7 +68,10 @@ class TimeDistribution(ABC):
 
     @abstractmethod
     def sample(
-        self, n_samples: int, device: Union[str, torch.device] = "cpu", rng_generator: Optional[torch.Generator] = None
+        self,
+        n_samples: Union[int, Tuple[int, ...], torch.Size],
+        device: Union[str, torch.device] = "cpu",
+        rng_generator: Optional[torch.Generator] = None,
     ) -> Float:
         """Generates a specified number of samples from the time distribution.
 

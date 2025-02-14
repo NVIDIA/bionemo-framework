@@ -67,8 +67,8 @@ class KabschAugmentation:
         """Find the Rotation matrix (R) such that RMSD is minimized between target @ R.T and noise.
 
         Args:
-            target (Tensor): shape (N, *dim), data from source minibatch.
-            noise (Tensor): shape (N, *dim), noise from source minibatch.
+            target (Tensor): shape (B, N, *dim), data from source minibatch.
+            noise (Tensor): shape (B, N, *dim), noise from source minibatch.
 
         Returns:
             R (Tensor): shape (*dim, *dim), the rotation matrix.
@@ -101,7 +101,7 @@ class KabschAugmentation:
         target_aligned = target_centered @ R_batch.transpose(-1, -2) + noise_translation
         return R_batch, target_aligned
 
-    def apply_ot(
+    def apply_augmentation(
         self,
         x0: Tensor,
         x1: Tensor,
