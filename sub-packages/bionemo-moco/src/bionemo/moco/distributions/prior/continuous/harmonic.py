@@ -25,7 +25,7 @@ from bionemo.moco.distributions.prior.distribution import PriorDistribution
 
 
 class LinearHarmonicPrior(PriorDistribution):
-    """A subclass representing a Linear Harmonic prior distribution from Jin et al. https://arxiv.org/abs/2304.02198."""
+    """A subclass representing a Linear Harmonic prior distribution from Jing et al. https://arxiv.org/abs/2304.02198."""
 
     def __init__(
         self,
