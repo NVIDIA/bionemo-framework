@@ -45,11 +45,11 @@ def d3pm_parallel_interpolate(
     world_size: int = 1,
     device_type: str = "cuda",
 ):
-    with parallel_context(rank=rank, world_size=world_size):  # , backend="nccl", device_type=device_type):
+    with parallel_context(rank=rank, world_size=world_size):
         data_gpu = torch.randint(0, 16, (5, 10)).to("cuda")
         t_gpu = d3pm.sample_time(5)  # , device=data_gpu.device)
         result = d3pm.interpolate(data_gpu, t_gpu)
-        print(t_gpu, torch.distributed.get_rank())  # type: ignore
+        # print(t_gpu, torch.distributed.get_rank())  # type: ignore
         assert result.shape == (5, 10)
 
 

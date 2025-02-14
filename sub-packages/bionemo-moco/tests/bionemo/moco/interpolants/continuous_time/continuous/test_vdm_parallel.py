@@ -50,7 +50,7 @@ def vdm_parallel_interpolate(
         t_gpu = vdm.sample_time(5, device=data_gpu.device)
         noise_gpu = vdm.sample_prior(data_gpu.shape, device=data_gpu.device)
         result = vdm.interpolate(data_gpu, t_gpu, noise_gpu)
-        print(t_gpu, torch.distributed.get_rank())  # type: ignore
+        # print(t_gpu, torch.distributed.get_rank())  # type: ignore
         assert result.shape == (5, 10)
 
 
