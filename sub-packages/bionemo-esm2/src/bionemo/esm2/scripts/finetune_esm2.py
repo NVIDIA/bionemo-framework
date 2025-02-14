@@ -44,7 +44,7 @@ from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_globa
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
-__all__: Sequence[str] = ("train_model", "finetune_esm2_entrypoint", "get_parser")
+__all__: Sequence[str] = ("finetune_esm2_entrypoint", "get_parser", "train_model")
 
 
 SUPPORTED_CONFIGS = {
@@ -116,6 +116,7 @@ def train_model(
     overlap_param_gather: bool = True,
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
+    ckpt_async_save: bool = True,
 ) -> Tuple[Path, Callback | None, nl.Trainer]:
     """Train an ESM2 model on UR data.
 
@@ -176,6 +177,7 @@ def train_model(
         overlap_param_gather (bool): overlap parameter gather
         average_in_collective (bool): average in collective
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
+        ckpt_async_save (bool): whether to save ckpt async. Set to False for federated learning
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -204,7 +206,7 @@ def train_model(
         find_unused_parameters=True,
         gradient_as_bucket_view=True,
         ckpt_include_optimizer=True,
-        ckpt_async_save=True,
+        ckpt_async_save=ckpt_async_save,
         ckpt_parallel_load=True,
     )
 
@@ -441,6 +443,7 @@ def finetune_esm2_entrypoint():
         overlap_param_gather=not args.no_overlap_param_gather,
         average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
+        ckpt_async_save=not args.avoid_ckpt_async_save,
     )
 
 
@@ -740,6 +743,11 @@ def get_parser():
     )
     parser.add_argument(
         "--grad-reduce-in-fp32",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--avoid-ckpt-async-save",
         action="store_true",
         default=False,
     )
