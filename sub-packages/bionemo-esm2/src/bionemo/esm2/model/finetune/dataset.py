@@ -31,9 +31,9 @@ from bionemo.llm.data.types import BertSample
 
 
 __all__: Sequence[str] = (
+    "InMemoryPerTokenValueDataset",
     "InMemoryProteinDataset",
     "InMemorySingleValueDataset",
-    "InMemoryPerTokenValueDataset",
 )
 
 
@@ -77,6 +77,7 @@ class InMemoryProteinDataset(Dataset):
         task_type: Literal["classification", "regression", None] = None,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         ignore_labels: bool = False,
+        label_column: str = "labels",
     ):
         """Class method to create a ProteinDataset instance from a CSV file.
 
@@ -85,6 +86,7 @@ class InMemoryProteinDataset(Dataset):
             task_type (str, optional): Fine-tuning task type. Defaults to None.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             ignore_labels (bool): ignore labels column if exist (to avoid reading labels during inference)
+            label_column (str): label column name in CSV file. Defaults to `labels`.
         """
         df = pd.read_csv(csv_path)
 
@@ -95,7 +97,7 @@ class InMemoryProteinDataset(Dataset):
         sequences = df["sequences"]
         labels = None
         if not ignore_labels:
-            labels = df["labels"]
+            labels = df[label_column]
 
         return cls(sequences, labels=labels, task_type=task_type, tokenizer=tokenizer)
 
