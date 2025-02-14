@@ -16,13 +16,11 @@
 
 import os
 from contextlib import contextmanager
-from typing import List
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing.spawn
 from pytest import MonkeyPatch
-from torch.distributed import ProcessGroup
 
 
 DEFAULT_MASTER_ADDR = "localhost"
@@ -59,60 +57,7 @@ def parallel_context(
 
         yield
 
-        clean_up_parallel_states()
         clean_up_distributed()
-
-
-def clean_up_parallel_states() -> None:
-    """Cleans up the parallel states after distributed testing.
-
-    Resets the global DEVICE_MESH variable to None.
-    """
-    global DEVICE_MESH
-    DEVICE_MESH = None
-
-
-def get_data_parallel_group() -> ProcessGroup:
-    """Retrieves the data parallel process group.
-
-    Args:
-        None
-
-    Returns:
-        ProcessGroup: The data parallel process group.
-
-    Raises:
-        ValueError: If the device mesh is not set.
-    """
-    global DEVICE_MESH
-    if DEVICE_MESH is None:
-        raise ValueError("device mesh is not set.")
-    return DEVICE_MESH.get_group("dp")
-
-
-def get_data_parallel_ranks() -> List[int]:
-    """Retrieves the ranks of the data parallel group.
-
-    Args:
-        None
-
-    Returns:
-        List[int]: A list of global ranks in the data parallel group.
-    """
-    dp_group = get_data_parallel_group()
-    return dist.get_process_group_ranks(dp_group)
-
-
-def get_data_parallel_src_rank() -> int:
-    """Retrieves the source rank of the data parallel group.
-
-    Args:
-        None
-
-    Returns:
-        int: The global rank of the first process in the data parallel group.
-    """
-    return get_data_parallel_ranks()[0]
 
 
 def clean_up_distributed() -> None:

@@ -380,7 +380,7 @@ Pads the input sample with zeros along the last dimension.
 class LinearHarmonicPrior(PriorDistribution)
 ```
 
-A subclass representing a Linear Harmonic prior distribution from Jin et al. https://arxiv.org/abs/2304.02198.
+A subclass representing a Linear Harmonic prior distribution from Jing et al. https://arxiv.org/abs/2304.02198.
 
 <a id="mocodistributionspriorcontinuousharmonicLinearHarmonicPrior__init__"></a>
 
@@ -2223,6 +2223,98 @@ Returns score of the given sample x at time t with the corresponding model outpu
 **Returns**:
 
 - `Tensor` - The score defined in Appendix C.3 Equation 76 of MDLM.
+
+<a id="mocointerpolantscontinuous_timediscretemdlmMDLMstep_self_path_planning"></a>
+
+#### step\_self\_path\_planning
+
+```python
+def step_self_path_planning(
+        logits: Tensor,
+        xt: Tensor,
+        t: Tensor,
+        curr_step: int,
+        num_steps: int,
+        logit_temperature: float = 1.0,
+        randomness: float = 1.0,
+        confidence_temperature: float = 1.0,
+        score_type: Literal["confidence", "random"] = "confidence") -> Tensor
+```
+
+Updates the input sequence xt by iteratively sampling from logits with Gumbel noise.
+
+**Arguments**:
+
+- `logits` _Tensor_ - Predicted logits for sampling.
+- `xt` _Tensor_ - Input sequence to be updated.
+- `t` _Tensor_ - Time tensor (e.g., time steps or temporal info).
+- `curr_step` _int_ - Current iteration in the planning process.
+- `num_steps` _int_ - Total number of planning steps.
+- `logit_temperature` _float_ - Temperature for logits (default: 1.0).
+- `randomness` _float_ - Introduced randomness level (default: 1.0).
+- `confidence_temperature` _float_ - Temperature for confidence scoring (default: 1.0).
+- `score_type` _Literal["confidence", "random"]_ - Sampling score type (default: "confidence").
+
+
+**Returns**:
+
+- `Tensor` - Updated input sequence xt after iterative unmasking.
+
+<a id="mocointerpolantscontinuous_timediscretemdlmMDLMtopk_lowest_masking"></a>
+
+#### topk\_lowest\_masking
+
+```python
+def topk_lowest_masking(scores: Tensor, cutoff_len: Tensor)
+```
+
+Generates a mask for the lowest scoring elements up to a specified cutoff length.
+
+**Arguments**:
+
+- `scores` _Tensor_ - Input scores tensor with shape (... , num_elements)
+- `cutoff_len` _Tensor_ - Number of lowest-scoring elements to mask (per batch element)
+
+
+**Returns**:
+
+- `Tensor` - Boolean mask tensor with same shape as `scores`, where `True` indicates
+  the corresponding element is among the `cutoff_len` lowest scores.
+
+
+**Example**:
+
+  >>> scores = torch.tensor([[0.9, 0.8, 0.1, 0.05], [0.7, 0.4, 0.3, 0.2]])
+  >>> cutoff_len = 2
+  >>> mask = topk_lowest_masking(scores, cutoff_len)
+  >>> print(mask)
+  tensor([[False, False, True, True],
+  [False, True, True, False]])
+
+<a id="mocointerpolantscontinuous_timediscretemdlmMDLMstochastic_sample_from_categorical"></a>
+
+#### stochastic\_sample\_from\_categorical
+
+```python
+def stochastic_sample_from_categorical(logits: Tensor,
+                                       temperature: float = 1.0,
+                                       noise_scale: float = 1.0)
+```
+
+Stochastically samples from a categorical distribution defined by input logits, with optional temperature and noise scaling for diverse sampling.
+
+**Arguments**:
+
+- `logits` _Tensor_ - Input logits tensor with shape (... , num_categories)
+- `temperature` _float, optional_ - Softmax temperature. Higher values produce more uniform samples. Defaults to 1.0.
+- `noise_scale` _float, optional_ - Scale for Gumbel noise. Higher values produce more diverse samples. Defaults to 1.0.
+
+
+**Returns**:
+
+  tuple:
+  - **tokens** (LongTensor): Sampling result (category indices) with shape (... , )
+  - **scores** (Tensor): Corresponding log-softmax scores for the sampled tokens, with shape (... , )
 
 <a id="mocointerpolantscontinuous_timediscretediscrete_flow_matching"></a>
 
@@ -4630,240 +4722,28 @@ Returns a clean tensor that has been masked and/or centered based on the functio
 
 # bionemo.moco.testing.parallel\_test\_utils
 
-<a id="mocotestingparallel_test_utilsinitialize_parallel_states"></a>
+<a id="mocotestingparallel_test_utilsparallel_context"></a>
 
-#### initialize\_parallel\_states
+#### parallel\_context
 
 ```python
-def initialize_parallel_states(context_parallel_size: int = 1) -> None
+@contextmanager
+def parallel_context(rank: int = 0, world_size: int = 1)
 ```
 
-Initializes the parallel states for distributed testing.
+Context manager for torch distributed testing.
 
-Ensures the world size is a multiple of the context parallel size and
-initializes the device mesh with the specified context parallel size.
+Sets up and cleans up the distributed environment, including the device mesh.
 
 **Arguments**:
 
-- `context_parallel_size` _int_ - The size of the context parallel group. Defaults to 1.
+- `rank` _int_ - The rank of the process. Defaults to 0.
+- `world_size` _int_ - The world size of the distributed environment. Defaults to 1.
 
 
-**Raises**:
-
-- `AssertionError` - If the world size is not divisible by the context parallel size.
-
-<a id="mocotestingparallel_test_utilsclean_up_parallel_states"></a>
-
-#### clean\_up\_parallel\_states
-
-```python
-def clean_up_parallel_states() -> None
-```
-
-Cleans up the parallel states after distributed testing.
-
-Resets the global DEVICE_MESH variable to None.
-
-<a id="mocotestingparallel_test_utilsget_data_parallel_group"></a>
-
-#### get\_data\_parallel\_group
-
-```python
-def get_data_parallel_group() -> ProcessGroup
-```
-
-Retrieves the data parallel process group.
-
-**Arguments**:
+**Yields**:
 
   None
-
-
-**Returns**:
-
-- `ProcessGroup` - The data parallel process group.
-
-
-**Raises**:
-
-- `ValueError` - If the device mesh is not set.
-
-<a id="mocotestingparallel_test_utilsget_context_parallel_group"></a>
-
-#### get\_context\_parallel\_group
-
-```python
-def get_context_parallel_group() -> ProcessGroup
-```
-
-Retrieves the context parallel process group.
-
-**Arguments**:
-
-  None
-
-
-**Returns**:
-
-- `ProcessGroup` - The context parallel process group.
-
-
-**Raises**:
-
-- `ValueError` - If the device mesh is not set.
-
-<a id="mocotestingparallel_test_utilsget_data_parallel_ranks"></a>
-
-#### get\_data\_parallel\_ranks
-
-```python
-def get_data_parallel_ranks() -> List[int]
-```
-
-Retrieves the ranks of the data parallel group.
-
-**Arguments**:
-
-  None
-
-
-**Returns**:
-
-- `List[int]` - A list of global ranks in the data parallel group.
-
-<a id="mocotestingparallel_test_utilsget_context_parallel_ranks"></a>
-
-#### get\_context\_parallel\_ranks
-
-```python
-def get_context_parallel_ranks() -> List[int]
-```
-
-Retrieves the ranks of the context parallel group.
-
-**Arguments**:
-
-  None
-
-
-**Returns**:
-
-- `List[int]` - A list of global ranks in the context parallel group.
-
-<a id="mocotestingparallel_test_utilsget_data_parallel_src_rank"></a>
-
-#### get\_data\_parallel\_src\_rank
-
-```python
-def get_data_parallel_src_rank() -> int
-```
-
-Retrieves the source rank of the data parallel group.
-
-**Arguments**:
-
-  None
-
-
-**Returns**:
-
-- `int` - The global rank of the first process in the data parallel group.
-
-<a id="mocotestingparallel_test_utilsget_context_parallel_src_rank"></a>
-
-#### get\_context\_parallel\_src\_rank
-
-```python
-def get_context_parallel_src_rank() -> int
-```
-
-Retrieves the source rank of the context parallel group.
-
-**Arguments**:
-
-  None
-
-
-**Returns**:
-
-- `int` - The global rank of the first process in the context parallel group.
-
-<a id="mocotestingparallel_test_utilsget_context_parallel_group_rank"></a>
-
-#### get\_context\_parallel\_group\_rank
-
-```python
-def get_context_parallel_group_rank(global_rank: int) -> int
-```
-
-Retrieves the rank of a process within the context parallel group.
-
-**Arguments**:
-
-- `global_rank` _int_ - The global rank of the process.
-
-
-**Returns**:
-
-- `int` - The rank of the process within the context parallel group.
-
-<a id="mocotestingparallel_test_utilsshift_context_parallel_rank"></a>
-
-#### shift\_context\_parallel\_rank
-
-```python
-def shift_context_parallel_rank(global_rank: int, offset: int) -> int
-```
-
-Shifts the context parallel rank by a specified offset.
-
-**Arguments**:
-
-- `global_rank` _int_ - The global rank of the process.
-- `offset` _int_ - The offset to apply to the context parallel rank.
-
-
-**Returns**:
-
-- `int` - The global rank of the process after shifting the context parallel rank.
-
-<a id="mocotestingparallel_test_utilsget_context_parallel_prev_rank"></a>
-
-#### get\_context\_parallel\_prev\_rank
-
-```python
-def get_context_parallel_prev_rank(global_rank: int) -> int
-```
-
-Retrieves the previous rank in the context parallel group.
-
-**Arguments**:
-
-- `global_rank` _int_ - The global rank of the process.
-
-
-**Returns**:
-
-- `int` - The global rank of the previous process in the context parallel group.
-
-<a id="mocotestingparallel_test_utilsget_context_parallel_next_rank"></a>
-
-#### get\_context\_parallel\_next\_rank
-
-```python
-def get_context_parallel_next_rank(global_rank: int) -> int
-```
-
-Retrieves the next rank in the context parallel group.
-
-**Arguments**:
-
-- `global_rank` _int_ - The global rank of the process.
-
-
-**Returns**:
-
-- `int` - The global rank of the next process in the context parallel group.
 
 <a id="mocotestingparallel_test_utilsclean_up_distributed"></a>
 
@@ -4883,31 +4763,5 @@ Destroys the process group and empties the CUDA cache.
 
 
 **Returns**:
-
-  None
-
-<a id="mocotestingparallel_test_utilsparallel_context"></a>
-
-#### parallel\_context
-
-```python
-@contextmanager
-def parallel_context(rank: int = 0,
-                     world_size: int = 1,
-                     context_parallel_size: int = 1) -> None
-```
-
-Context manager for torch distributed testing.
-
-Sets up and cleans up the distributed environment, including the device mesh.
-
-**Arguments**:
-
-- `rank` _int_ - The rank of the process. Defaults to 0.
-- `world_size` _int_ - The world size of the distributed environment. Defaults to 1.
-- `context_parallel_size` _int_ - The size of the context parallel group. Defaults to 1.
-
-
-**Yields**:
 
   None
