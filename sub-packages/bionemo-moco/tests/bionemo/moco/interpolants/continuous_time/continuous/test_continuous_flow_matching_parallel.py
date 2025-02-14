@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from typing import Optional
 
 import pytest
@@ -21,42 +20,43 @@ import torch
 import torch.multiprocessing.spawn
 from torch.distributed.device_mesh import DeviceMesh
 
-from bionemo.moco.distributions.prior.discrete.mask import DiscreteMaskedPrior
+from bionemo.moco.distributions.prior.continuous.gaussian import GaussianPrior
 from bionemo.moco.distributions.time.uniform import UniformTimeDistribution
-from bionemo.moco.interpolants.continuous_time.discrete.mdlm import MDLM
-from bionemo.moco.schedules.noise.continuous_noise_transforms import LogLinearExpNoiseTransform
+from bionemo.moco.interpolants.continuous_time.continuous.continuous_flow_matching import ContinuousFlowMatcher
 from bionemo.moco.testing.parallel_test_utils import parallel_context
 
 
 @pytest.fixture
-def mdlm():
+def flow_matcher():
     time_distribution = UniformTimeDistribution(discrete_time=False)
-    prior = DiscreteMaskedPrior(num_classes=20)
-    noise_schedule = LogLinearExpNoiseTransform()
-    mdlm = MDLM(time_distribution, prior, noise_schedule)
-    return mdlm
+    prior = GaussianPrior(center=False)
+    flow_matcher = ContinuousFlowMatcher(
+        time_distribution=time_distribution, prior_distribution=prior, prediction_type="vector_field"
+    )
+    return flow_matcher
 
 
 DEVICE_MESH: Optional[DeviceMesh] = None
 
 
-def mdlm_parallel_interpolate(
+def flow_matcher_parallel_interpolate(
     rank: int,
-    mdlm,
+    flow_matcher,
     world_size: int = 1,
     device_type: str = "cuda",
 ):
     with parallel_context(rank=rank, world_size=world_size):  # , backend="nccl", device_type=device_type):
         data_gpu = torch.randint(0, 16, (5, 10)).to("cuda")
-        t_gpu = mdlm.sample_time(5, device=data_gpu.device)
-        result = mdlm.interpolate(data_gpu, t_gpu)
+        t_gpu = flow_matcher.sample_time(5, device=data_gpu.device)
+        noise_gpu = flow_matcher.sample_prior(data_gpu.shape, device=data_gpu.device)
+        result = flow_matcher.interpolate(data_gpu, t_gpu, noise_gpu)
         print(t_gpu, torch.distributed.get_rank())  # type: ignore
         assert result.shape == (5, 10)
 
 
 @pytest.mark.parametrize("world_size", [1, 2])
-def test_mdlm_parallel_interpolate(
-    mdlm,
+def test_flow_matcher_parallel_interpolate(
+    flow_matcher,
     world_size,
     device_type: str = "cuda",
 ):
@@ -69,9 +69,9 @@ def test_mdlm_parallel_interpolate(
         pytest.skip(f"Insufficient devices: {world_size} devices requested, but only {visible_devices} are visible")
 
     torch.multiprocessing.spawn(  # type: ignore
-        fn=mdlm_parallel_interpolate,
+        fn=flow_matcher_parallel_interpolate,
         args=(
-            mdlm,
+            flow_matcher,
             world_size,
             device_type,
         ),
