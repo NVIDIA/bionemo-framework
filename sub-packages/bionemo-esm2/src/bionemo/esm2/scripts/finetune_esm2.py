@@ -634,7 +634,7 @@ def get_parser():
         "--limit-val-batches",
         type=float_or_int_or_none,
         required=False,
-        default=2,
+        default=1.0,
         help="Number of global batches used for validation if int. Fraction of validation dataset if float. Default is 2.",
     )
     parser.add_argument(
