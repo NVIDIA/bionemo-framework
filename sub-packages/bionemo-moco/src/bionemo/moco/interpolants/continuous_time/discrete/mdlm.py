@@ -15,7 +15,7 @@
 
 
 import math
-from typing import Optional
+from typing import Literal, Optional
 
 import torch
 from torch import Tensor
@@ -383,88 +383,108 @@ class MDLM(Interpolant):
 
         return log_score.exp()
 
-    # def step_self_path_planning(
-    #     self,
-    #     logits: Tensor,
-    #     xt: Tensor,
-    #     t: Tensor,
-    #     curr_step: int,
-    #     num_steps: int,
-    #     logit_temperature: float = 1.0,
-    #     randomness: float = 1.0,
-    #     confidence_temperature: float = 1.0,
-    #     num_tokens_unmask: int = 1,
-    #     score_type: Optional[str] = "confidence",
-    # ) -> Tensor:
-    #     """Update the input sequence xt by sampling from the predicted logits and adding Gumbel noise.e
-    #         num_tokens_unmask: number of tokens to unmask each step
+    def step_self_path_planning(
+        self,
+        logits: Tensor,
+        xt: Tensor,
+        t: Tensor,
+        curr_step: int,
+        num_steps: int,
+        logit_temperature: float = 1.0,
+        randomness: float = 1.0,
+        confidence_temperature: float = 1.0,
+        score_type: Literal["confidence", "random"] = "confidence",
+    ) -> Tensor:
+        """Updates the input sequence xt by iteratively sampling from logits with Gumbel noise.
 
-    #     Returns:
-    #         Updated input sequence xt unmasking num_tokens_unmask token each step.
-    #     """
-    #     if xt.ndim > 3:
-    #         raise NotImplementedError(
-    #             "step_confidence is implemented for Batch x Sequence x State Space shaped tensors."
-    #         )
-    #     if curr_step < 0 or num_steps < 1 or num_tokens_unmask < 1:
-    #         raise ValueError("Invalid input values for curr_step, num_steps, or num_tokens_unmask.")
-    #     xt = xt.clone()
-    #     fix_mask = torch.zeros_like(xt).bool()  #! if any sequenes are fixed from the start of trajecotry
-    #     last_mask = xt == self.mask_index
-    #     unmask_candidates = (
-    #         last_mask & ~fix_mask
-    #     )  #! I want to consider tokens to un mask that are currently masked and not fixed. This fixes a typo in pseudo code
-    #     x1_pred, logp = self.stochastic_sample_from_categorical(
-    #         logits, temperature=logit_temperature, noise_scale=confidence_temperature
-    #     )
-    #     if curr_step == num_steps - 1:
-    #         xt[last_mask] = x1_pred[last_mask]
-    #     else:
-    #         if score_type == "confidence":
-    #             score = logp
-    #         elif score_type == "random":
-    #             score = torch.rand_like(logp).log()
-    #         else:
-    #             raise ValueError("Invalid score_type.")
+        Args:
+            logits (Tensor): Predicted logits for sampling.
+            xt (Tensor): Input sequence to be updated.
+            t (Tensor): Time tensor (e.g., time steps or temporal info).
+            curr_step (int): Current iteration in the planning process.
+            num_steps (int): Total number of planning steps.
+            logit_temperature (float): Temperature for logits (default: 1.0).
+            randomness (float): Introduced randomness level (default: 1.0).
+            confidence_temperature (float): Temperature for confidence scoring (default: 1.0).
+            score_type (Literal["confidence", "random"]): Sampling score type (default: "confidence").
 
-    #         score = score.masked_fill(fix_mask.squeeze(-1), float("inf"))
-    #         score[unmask_candidates.squeeze(-1)] *= randomness
-    #         num_to_mask = torch.clamp(
-    #             ((~fix_mask).sum(dim=1, keepdim=True).float() * t.unsqueeze(-1)).long(), max=xt.shape[-1] - 1
-    #         )  #! here is is t since diffusion time is 1 to 0
-    #         mask = self.topk_lowest_masking(score, num_to_mask)
-    #         xt[mask] = self.mask_index
-    #         mask_to_x1 = last_mask & ~mask
-    #         xt[mask_to_x1] = x1_pred[mask_to_x1]
-    #     return xt
+        Returns:
+            Tensor: Updated input sequence xt after iterative unmasking.
+        """
+        if xt.ndim > 3:
+            raise NotImplementedError(
+                "step_confidence is implemented for Batch x Sequence x State Space shaped tensors."
+            )
+        if curr_step < 0 or num_steps < 1:
+            raise ValueError("Invalid input values for curr_step, num_steps.")
+        xt = xt.clone()
+        fix_mask = torch.zeros_like(xt).bool()  #! if any sequenes are fixed from the start of trajecotry
+        last_mask = xt == self.mask_index
+        unmask_candidates = (
+            last_mask & ~fix_mask
+        )  #! I want to consider tokens to un mask that are currently masked and not fixed. This fixes a typo in pseudo code
+        x1_pred, logp = self.stochastic_sample_from_categorical(
+            logits, temperature=logit_temperature, noise_scale=confidence_temperature
+        )
+        if curr_step == num_steps - 1:
+            xt[last_mask] = x1_pred[last_mask]
+        else:
+            if score_type == "confidence":
+                score = logp
+            elif score_type == "random":
+                score = torch.rand_like(logp).log()
 
-    # def topk_lowest_masking(self, scores, cutoff_len):
-    #     sorted_scores, _ = scores.sort(dim=-1)
-    #     threshold = sorted_scores.gather(dim=-1, index=cutoff_len)
-    #     return scores < threshold
+            score = score.masked_fill(fix_mask.squeeze(-1), float("inf"))
+            score[unmask_candidates.squeeze(-1)] *= randomness
+            num_to_mask = torch.clamp(
+                ((~fix_mask).sum(dim=1, keepdim=True).float() * t.unsqueeze(-1)).long(), max=xt.shape[-1] - 1
+            )  #! here is is t since diffusion time is 1 to 0
+            mask = self.topk_lowest_masking(score, num_to_mask)
+            xt[mask] = self.mask_index
+            mask_to_x1 = last_mask & ~mask
+            xt[mask_to_x1] = x1_pred[mask_to_x1]
+        return xt
 
-    # def stochastic_sample_from_categorical(self, logits, temperature=1.0, noise_scale=1.0):
-    #     # logits = logits.double()
-    #     if temperature > 0:
-    #         gumbel = -torch.log(
-    #             -torch.log(torch.rand(logits.shape, device=logits.device, generator=self.rng_generator) + 1e-8) + 1e-8
-    #         )  #! avoid device transfers
-    #         logits = logits / temperature + noise_scale * gumbel
-    #     scores, tokens = logits.log_softmax(dim=-1).max(dim=-1)
-    #     return tokens, scores
+    def topk_lowest_masking(self, scores: Tensor, cutoff_len: Tensor):
+        """Generates a mask for the lowest scoring elements up to a specified cutoff length.
 
-    # def topk_lowest_masking_fast(self, scores, cutoff_len):
-    #     """Returns a mask where the `cutoff_len` lowest scores (per row) are below the threshold.
+        Args:
+            scores (Tensor): Input scores tensor with shape (... , num_elements)
+            cutoff_len (Tensor): Number of lowest-scoring elements to mask (per batch element)
 
-    #     :param scores: (Tensor) [*, seq_len]
-    #     :param cutoff_len: (int) Number of lowest scores to consider
-    #     :return: (Tensor) [*, seq_len] Boolean mask
-    #     """
-    #     # Get the `cutoff_len` lowest scores (and their indices)
-    #     threshold, _ = torch.topk(scores, k=cutoff_len, dim=-1, largest=False)
+        Returns:
+            Tensor: Boolean mask tensor with same shape as `scores`, where `True` indicates
+                    the corresponding element is among the `cutoff_len` lowest scores.
 
-    #     # Get the threshold value (the `cutoff_len`-th lowest score) and broadcast
-    #     threshold = threshold[:, -1].unsqueeze(-1)
+        Example:
+            >>> scores = torch.tensor([[0.9, 0.8, 0.1, 0.05], [0.7, 0.4, 0.3, 0.2]])
+            >>> cutoff_len = 2
+            >>> mask = topk_lowest_masking(scores, cutoff_len)
+            >>> print(mask)
+            tensor([[False, False, True, True],
+                    [False, True, True, False]])
+        """
+        sorted_scores, _ = scores.sort(dim=-1)
+        threshold = sorted_scores.gather(dim=-1, index=cutoff_len)
+        return scores < threshold
 
-    #     # Return the mask
-    #     return scores < threshold
+    def stochastic_sample_from_categorical(self, logits: Tensor, temperature: float = 1.0, noise_scale: float = 1.0):
+        """Stochastically samples from a categorical distribution defined by input logits, with optional temperature and noise scaling for diverse sampling.
+
+        Args:
+            logits (Tensor): Input logits tensor with shape (... , num_categories)
+            temperature (float, optional): Softmax temperature. Higher values produce more uniform samples. Defaults to 1.0.
+            noise_scale (float, optional): Scale for Gumbel noise. Higher values produce more diverse samples. Defaults to 1.0.
+
+        Returns:
+            tuple:
+                - **tokens** (LongTensor): Sampling result (category indices) with shape (... , )
+                - **scores** (Tensor): Corresponding log-softmax scores for the sampled tokens, with shape (... , )
+        """
+        if temperature > 0:
+            gumbel = -torch.log(
+                -torch.log(torch.rand(logits.shape, device=logits.device, generator=self.rng_generator) + 1e-8) + 1e-8
+            )  #! avoid device transfers
+            logits = logits / temperature + noise_scale * gumbel
+        scores, tokens = logits.log_softmax(dim=-1).max(dim=-1)
+        return tokens, scores
