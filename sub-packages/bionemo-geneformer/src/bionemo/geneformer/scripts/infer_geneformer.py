@@ -95,6 +95,7 @@ def infer_model(
 
     prediction_writer = PredictionWriter(output_dir=results_path, write_interval=prediction_interval)
 
+
     trainer = nl.Trainer(
         devices=devices,
         accelerator="gpu",
@@ -140,7 +141,35 @@ def infer_model(
     #  and lazily returned by the `config` object defined above.
     module = biobert_lightning_module(config=config, tokenizer=tokenizer)
 
+    # Create Embeddings and Logits
     trainer.predict(module, datamodule=datamodule)  # return_predictions=False failing due to a lightning bug
+    create_combined(results_path, devices, micro_batch_size)
+    if include_input_ids:
+        create_combined(results_path, devices, micro_batch_size,key = 'input_ids')
+
+def create_combined(result_path, num_gpus, batchsize, key='embeddings'):
+        import torch
+        data_sets = []
+        for i in range(num_gpus):
+            inter_emb = torch.load(result_path / f"predictions__rank_{i}.pt", weights_only=False)[key]
+            data_sets.append(inter_emb)
+        global_batch_size = batchsize*num_gpus
+
+        shape_0 = 0
+        for i in range(num_gpus):
+            shape_0 += data_sets[i].shape[0]
+
+        out = torch.zeros((shape_0,data_sets[0].shape[1]),dtype=data_sets[0].dtype)
+        for i in range(num_gpus):
+            emd = data_sets[i]
+            n_batches = (emd.shape[0]+batchsize-1)//batchsize
+            for j in range(n_batches):
+                start = j*batchsize
+                stop = min((j+1)*batchsize, emd.shape[0])
+                start_global = i*batchsize +j*global_batch_size
+                stop_global = start_global +stop-start
+                out[start_global:stop_global] = emd[start:stop]
+        torch.save(out, result_path / f"{key}.pt")
 
 
 def geneformer_infer_entrypoint():
