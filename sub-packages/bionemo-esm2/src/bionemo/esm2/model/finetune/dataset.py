@@ -179,7 +179,9 @@ class InMemorySingleValueDataset(InMemoryProteinDataset):
         self.task_type = task_type
         if self.task_type == "classification":
             label_tokenizer = Label2IDTokenizer()
-            self.label_tokenizer = label_tokenizer.build_vocab(self.labels.values.reshape(-1, 1))
+            self.label_tokenizer = label_tokenizer.build_vocab(
+                self.labels.sort_values(inplace=False).values.reshape(-1, 1)
+            )
 
     def transform_label(self, label: float | str) -> Tensor:
         """Transform the regression label.
@@ -231,7 +233,7 @@ class InMemoryPerTokenValueDataset(InMemoryProteinDataset):
             raise ValueError(f"{task_type} task type is not supported with {self.__class__.__name__}")
 
         label_tokenizer = Label2IDTokenizer()
-        self.label_tokenizer = label_tokenizer.build_vocab(self.labels.values)
+        self.label_tokenizer = label_tokenizer.build_vocab(self.labels.sort_values(inplace=False).values)
         self.label_cls_eos_id = MLM_LOSS_IGNORE_INDEX
 
     def transform_label(self, label: str) -> Tensor:
