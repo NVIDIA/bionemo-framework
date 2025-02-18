@@ -395,7 +395,7 @@ class MDLM(Interpolant):
         confidence_temperature: float = 1.0,
         score_type: Literal["confidence", "random"] = "confidence",
     ) -> Tensor:
-        """Updates the input sequence xt by iteratively sampling from logits with Gumbel noise.
+        """Self Path Planning (P2) Sampling from Peng et al. https://arxiv.org/html/2502.03540v1.
 
         Args:
             logits (Tensor): Predicted logits for sampling.
@@ -418,7 +418,7 @@ class MDLM(Interpolant):
         if curr_step < 0 or num_steps < 1:
             raise ValueError("Invalid input values for curr_step, num_steps.")
         xt = xt.clone()
-        fix_mask = torch.zeros_like(xt).bool()  #! if any sequenes are fixed from the start of trajecotry
+        fix_mask = torch.zeros_like(xt).bool()  #! if any sequenes are fixed from the start of trajectory
         last_mask = xt == self.mask_index
         unmask_candidates = (
             last_mask & ~fix_mask
