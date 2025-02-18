@@ -394,6 +394,7 @@ class MDLM(Interpolant):
         randomness: float = 1.0,
         confidence_temperature: float = 1.0,
         score_type: Literal["confidence", "random"] = "confidence",
+        fix_mask: Optional[Tensor] = None,
     ) -> Tensor:
         """Self Path Planning (P2) Sampling from Peng et al. https://arxiv.org/html/2502.03540v1.
 
@@ -407,6 +408,7 @@ class MDLM(Interpolant):
             randomness (float): Introduced randomness level (default: 1.0).
             confidence_temperature (float): Temperature for confidence scoring (default: 1.0).
             score_type (Literal["confidence", "random"]): Sampling score type (default: "confidence").
+            fix_mask (Optional[Tensor]): inital mask where True when not a mask tokens (default: None).
 
         Returns:
             Tensor: Updated input sequence xt after iterative unmasking.
@@ -418,7 +420,8 @@ class MDLM(Interpolant):
         if curr_step < 0 or num_steps < 1:
             raise ValueError("Invalid input values for curr_step, num_steps.")
         xt = xt.clone()
-        fix_mask = torch.zeros_like(xt).bool()  #! if any sequenes are fixed from the start of trajectory
+        if fix_mask is None:
+            fix_mask = torch.zeros_like(xt).bool()  #! if any sequenes are fixed from the start of trajectory
         last_mask = xt == self.mask_index
         unmask_candidates = (
             last_mask & ~fix_mask
@@ -438,7 +441,7 @@ class MDLM(Interpolant):
             score[unmask_candidates.squeeze(-1)] *= randomness
             num_to_mask = torch.clamp(
                 ((~fix_mask).sum(dim=1, keepdim=True).float() * t.unsqueeze(-1)).long(), max=xt.shape[-1] - 1
-            )  #! here is is t since diffusion time is 1 to 0
+            )  #! here is is t since diffusion time is 1 to 0. Clamp is to set it to 0 N-1 since topk uses it as indices
             mask = self.topk_lowest_masking(score, num_to_mask)
             xt[mask] = self.mask_index
             mask_to_x1 = last_mask & ~mask
