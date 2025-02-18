@@ -94,6 +94,59 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
         # collate multiple batches / ignore empty ones
         prediction = batch_collator([item for item in predictions if item is not None])
 
+        # handle gene embeddings
+        # TODO: this should likely be calculated in the model instead but the batch_collator isn't compatible as-is
+        if('input_ids' in prediction and 'hidden_states' in prediction):
+
+            hidden_states = prediction['hidden_states']
+            input_ids = prediction['input_ids']
+
+            logging.info("Calculating gene embeddings.")
+            logging.info(f"hidden_states: {hidden_states.shape[:2]}; input_ids: {input_ids.shape[:2]}")
+            assert hidden_states.shape[:2] == input_ids.shape[:2]
+
+            # TODO: where can we get this value from?
+            PADDING_IDX = 2
+
+            # accumulators for calculating mean embedding for each input_id
+            gene_embedding_accumulator = {}
+            input_id_count = {}
+
+            # iterate over all cells
+            cell_count = len(input_ids)
+            for i in range(cell_count):
+                cell_state = hidden_states[i]
+                cell_input_ids = input_ids[i].cpu().numpy()
+
+                # iterate over each gene in the cell
+                for idx, embedding in zip(cell_input_ids, cell_state):
+
+                    # skip all ids after a padding id is encountered
+                    if(idx == PADDING_IDX):
+                        break
+
+                    # accumulate embedding sum and count
+                    if idx not in gene_embedding_accumulator:
+                        # initialize embedding sum with first found embedding
+                        gene_embedding_accumulator[idx] = embedding
+
+                        # increment input_id count
+                        input_id_count[idx] = 1
+                    else:
+                        # accumulate embedding sum
+                        gene_embedding_accumulator[idx] += embedding
+
+                        # increment input_id count
+                        input_id_count[idx] += 1
+
+            # divide each embedding sum by the total occurences of each gene to get an average
+            for input_id in gene_embedding_accumulator.keys():
+                gene_embedding_accumulator[input_id] /= input_id_count[input_id]
+
+            logging.info("Finished calculating gene embeddings.")
+
+            prediction['gene_embeddings'] = gene_embedding_accumulator
+
         # batch_indices is not captured due to a lightning bug when return_predictions = False
         # we use input IDs in the prediction to map the result to input
         torch.save(prediction, result_path)
