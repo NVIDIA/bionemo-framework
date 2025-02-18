@@ -269,8 +269,6 @@ def train_model(
     # Initialize the data module.
     train_dataset = dataset_class.from_csv(train_data_path, task_type=task_type, label_column=label_column)
     valid_dataset = dataset_class.from_csv(valid_data_path, task_type=task_type, label_column=label_column)
-    if task_type == "classification":  # use training label_tokenizer to have consistent vocab
-        valid_dataset.label_tokenizer = train_dataset.label_tokenizer
 
     data_module = ESM2FineTuneDataModule(
         train_dataset=train_dataset,
