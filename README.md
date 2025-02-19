@@ -1,6 +1,6 @@
 # BioNeMo Framework
 **ANNOUNCEMENT 🥳 :**
-Evo 2 now available as a draft PR here: https://github.com/NVIDIA/bionemo-framework/pull/694 
+Evo 2 now available as a draft PR here: https://github.com/NVIDIA/bionemo-framework/pull/694
 - Pretrain from scratch
 - Run inference on the trained models
 - Fine-tuning with custom data available (no pre-trained checkpoints available yet, its WIP - stay tuned!)
