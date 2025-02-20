@@ -128,6 +128,10 @@ class ESM2FineTuneDataModule(MegatronDataModule):
 
         # Create training dataset
         if self.train_dataset is not None:
+            # If classification task, ensure consistent label vocabulary across splits
+            if hasattr(self.train_dataset, "label_tokenizer"):
+                self.valid_dataset.label_tokenizer = self.train_dataset.label_tokenizer
+
             max_train_steps = self.trainer.max_steps
             if max_train_steps <= 0:
                 raise RuntimeError("Please specify trainer.max_steps")
