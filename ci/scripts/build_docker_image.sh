@@ -172,6 +172,11 @@ fi
 set -x
 # Setup docker build buildx
 docker buildx version
+# Echo versions of the build machine
+lscpu
+# Make sure nvidia-smi doesn't error out if it's not installed.
+nvidia-smi || true
+uname -a
 if [ "$ALLOW_INSECURE_DOCKER_BUILDER" = true ]; then
   docker buildx create --use \
       --name insecure-builder --driver-opt network=host \
