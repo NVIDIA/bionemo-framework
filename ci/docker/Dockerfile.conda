@@ -1,0 +1,193 @@
+ARG CUDA_VERSION=12.4.1
+# 12.4.1, 12.6.1, 12.1.1
+ARG CUDNN_VERSION=""
+# "", "", 8
+
+###############################
+FROM rust:1.82.0 as rust-env
+RUN rustup set profile minimal && \
+    rustup install 1.82.0 && \
+    rustup target add x86_64-unknown-linux-gnu && \
+    rustup default 1.82.0
+
+##################################################################################
+FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn${CUDNN_VERSION}-devel-ubuntu22.04 AS python_base
+ARG CUDA_VERSION
+ENV CUDA_VERSION=${CUDA_VERSION}
+ARG MAX_JOBS=-1
+ENV MAX_JOBS=${MAX_JOBS}
+
+RUN apt update -y && apt upgrade -y && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    -o APT::Install-Recommends=false \
+    -o APT::Install-Suggests=false \
+    build-essential \
+    ca-certificates \
+    curl \
+    software-properties-common \
+    git \
+    ninja-build \
+    cmake \
+    ccache \
+    gcc-12 \
+    openmpi-bin \
+    libopenmpi-dev \
+    checkinstall \
+    libreadline-dev \
+    libncursesw5-dev \
+    libssl-dev \
+    libsqlite3-dev \
+    tk-dev \
+    libgdbm-dev \
+    libc6-dev \
+    libbz2-dev \
+    libffi-dev \
+    zlib1g-dev \
+    automake \
+    libtool \
+    libnl-3-200 \
+    libnl-3-dev \
+    libnl-route-3-200 \
+    libnl-route-3-dev \
+    libibverbs-dev \
+    librdmacm-dev \
+    libhwloc-dev \
+    lzma \
+    liblzma-dev \
+    libbz2-dev \
+    vim \
+    less \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install conda
+# NOTE: TARGETPLATFORM comes from Docker
+RUN <<EOF
+set -e pipefail
+
+case ${TARGETPLATFORM} in \
+     "linux/arm64")  MAMBA_ARCH=aarch64  ;; \
+     *)              MAMBA_ARCH=x86_64   ;; \
+esac
+MAMBA_VERSION='24.3.0-0'
+
+curl -fsSL -v -o ~/mambaforge.sh -O  "https://github.com/conda-forge/miniforge/releases/download/${MAMBA_VERSION}/Mambaforge-${MAMBA_VERSION}-Linux-${MAMBA_ARCH}.sh"
+chmod +x ~/mambaforge.sh
+bash ~/mambaforge.sh -b -p /opt/conda
+rm ~/mambaforge.sh
+EOF
+
+ENV PATH /opt/conda/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:$PATH
+
+# 3.[10,11,12].[0..12]
+ARG PYTHON_VERSION=3.10.12
+ENV PYTHON_VERSION=${PTHON_VERSION}
+RUN conda install -y python=${PYTHON_VERSION}
+
+# 2.[3,4.5].[0,1,2]
+ARG PYTORCH_VERSION=2.3.0
+ENV PYTORCH_VERSION=${PYTORCH_VERSION}
+ARG MPI_VERSION=4.1.5
+ENV MPI_VERSION=${MPI_VERSION}
+ENV NVIDIA_VISIBLE_DEVICES='all'
+ENV OMPI_MCA_opal_cuda_support='true'
+# ,video
+ENV NVIDIA_DRIVER_CAPABILITIES='compute,utility'
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;9.0+PTX"
+#ENV NVIDIA_REQUIRE_CUDA='cuda>=9.0'
+#ENV CUDA_ARCH_LIST="75-real;80-real;86-real;89-real;90-real"
+#ENV TORCH_CUDA_ARCH_LIST="5.2 6.0 6.1 7.0 7.2 7.5 8.0 8.6 8.7 8.8 8.9 9.0 9.0a 9.0+PTX"
+#19.77     File "/opt/conda/lib/python3.10/site-packages/torch/utils/cpp_extension.py", line 1998, in _get_cuda_arch_flags
+#19.77       raise ValueError(f"Unknown CUDA arch ({arch}) or GPU not supported")
+#19.77   ValueError: Unknown CUDA arch (8.8) or GPU not supported
+
+ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
+#ENV LD_LIBRARY_PATH /usr/local/nvidia/lib:/usr/local/nvidia/lib64
+
+#conda install -y faiss=1.8.0
+RUN <<EOF
+set -e pipefail
+
+SHORT_CUDA=$(echo $CUDA_VERSION | cut -f1-2 -d'.')
+conda install -c pytorch -c nvidia -y pytorch=${PYTORCH_VERSION} pytorch-cuda=${SHORT_CUDA} openmpi=${MPI_VERSION}
+
+IS_CUDA=$(python -c 'import torch ; print(torch.cuda._is_compiled())'); \
+echo "Is torch compiled with cuda: ${IS_CUDA}"; \
+if test "${IS_CUDA}" != "True" -a ! -z "${CUDA_VERSION}"; then \
+    exit 1; \
+fi
+EOF
+
+WORKDIR /build
+
+ARG APEX_COMMIT=810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
+# See NeMo readme for the latest tested versions of these libraries
+RUN git clone https://github.com/NVIDIA/apex.git && \
+  cd apex && \
+  git checkout ${APEX_COMMIT} && \
+  pip install wheel -r requirements.txt && \
+  pip install . -v --no-build-isolation --disable-pip-version-check --no-cache-dir \
+  --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
+
+ARG TE_COMMIT=c27ee60ec746210bcea4ec33958dbbff06706506
+# Transformer Engine pre-1.7.0. 1.7 standardizes the meaning of bits in the attention mask to match
+RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
+  cd TransformerEngine && \
+  git checkout ${TE_COMMIT} && \
+  git submodule init && git submodule update && \
+  NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/opt/conda/lib/openmpi pip install .
+
+# Check the nemo dependency for causal conv1d and make sure this checkout
+# tag matches. If not, update the tag in the following line.
+RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
+  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.0.post2
+
+# Mamba dependancy installation
+RUN pip --disable-pip-version-check --no-cache-dir install \
+  git+https://github.com/state-spaces/mamba.git@v2.0.3
+
+ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
+# note: hatchling needed to install nemo-run
+RUN pip install hatchling nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMO_RUN_TAG}
+
+WORKDIR /build/yq
+RUN <<EOF
+curl -LO https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64.tar.gz
+tar -zxf yq_linux_amd64.tar.gz
+chmod +x yq_linux_amd64
+ln -s $(pwd)/yq_linux_amd64 /usr/local/bin/yq
+EOF
+
+WORKDIR /workspace/bionemo2
+COPY ./3rdparty /workspace/bionemo2/3rdparty
+RUN pip install ./3rdparty/Megatron-LM
+RUN pip install ./3rdparty/NeMo
+
+COPY ci/docker/ngc_config /root/.ngc/config
+COPY LICENSE /workspace/bionemo2/LICENSE
+COPY ./requirements-test.txt ./requirements-cve.txt /workspace/bionemo2/
+COPY ./ci/docker/clobber_dependencies_into_requirements_txt.sh /workspace/bionemo2/ci/docker/clobber_dependencies_into_requirements_txt.sh
+COPY ./docs /workspace/bionemo2/docs
+COPY ./scripts /workspace/bionemo2/scripts
+COPY ./sub-packages /workspace/bionemo2/sub-packages
+
+# NOTE: we don't need any pytorch-geometric stuff right now
+#       including it messes up our pinned torch dependency
+#       so we **DO NOT INCLUDE** the bionemo-geometric sub-package !!!
+# TODO: add this back and fix the pinning issue ! (will need to relax version constraints in geometric deps, most likely...)
+RUN rm -r sub-packages/bionemo-geometric
+
+#RUN --mount=type=bind,source=./.git,target=./.git \
+#  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+#  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
+RUN /workspace/bionemo2/ci/docker/clobber_dependencies_into_requirements_txt.sh && \
+    pip freeze | grep torch\=\= >> all_requirements.txt && \
+    cat all_requirements.txt | grep -iv "nemo" | grep -iv "megatron" > x && \
+    echo "hydra-core==1.3.2" >> x && \
+    echo "ijson" >> x && \
+    mv x all_requirements.txt && \
+    pip install -r all_requirements.txt -r requirements-test.txt
+
+COPY --from=rust-env /usr/local/cargo /usr/local/cargo
+COPY --from=rust-env /usr/local/rustup /usr/local/rustup
+ENV PATH /usr/local/cargo/bin:/usr/local/rustup/bin:$PATH
+ENV RUSTUP_HOME="/usr/local/rustup"
+RUN pip install --no-deps ./sub-packages/bionemo-*
