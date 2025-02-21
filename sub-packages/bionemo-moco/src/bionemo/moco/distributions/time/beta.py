@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import torch
 from jaxtyping import Bool, Float
@@ -51,7 +51,10 @@ class BetaTimeDistribution(TimeDistribution):
         self.dist = torch.distributions.Beta(p1, p2)
 
     def sample(
-        self, n_samples: int, device: Union[str, torch.device] = "cpu", rng_generator: Optional[torch.Generator] = None
+        self,
+        n_samples: Union[int, Tuple[int, ...], torch.Size],
+        device: Union[str, torch.device] = "cpu",
+        rng_generator: Optional[torch.Generator] = None,
     ):
         """Generates a specified number of samples from the uniform time distribution.
 
@@ -65,7 +68,11 @@ class BetaTimeDistribution(TimeDistribution):
         """
         if rng_generator is None:
             rng_generator = self.rng_generator
-        time_step = self.dist.sample(torch.Size([n_samples])).to(device=device)
+        if isinstance(n_samples, int):
+            n_samples = torch.Size([n_samples])
+        elif isinstance(n_samples, tuple):
+            n_samples = torch.Size(n_samples)
+        time_step = self.dist.sample(n_samples).to(device=device)
         if self.min_t and self.max_t and self.min_t > 0:
             time_step = time_step * (self.max_t - self.min_t) + self.min_t
         if self.discrete_time:

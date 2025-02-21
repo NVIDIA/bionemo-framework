@@ -17,16 +17,16 @@
 from enum import Enum
 
 
-class OptimalTransportType(Enum):
+class AugmentationType(Enum):
     """An enumeration representing the type ofOptimal Transport that can be used in Continuous Flow Matching.
 
-    - **EXACT**: Standard mini batch optimal transport defined in  https://arxiv.org/pdf/2302.00482.
-    - **EQUIVARIANT**: Adding roto/translation optimization to mini batch OT see https://arxiv.org/pdf/2306.15030  https://arxiv.org/pdf/2312.07168 4.2.
+    - **EXACT_OT**: Standard mini batch optimal transport defined in  https://arxiv.org/pdf/2302.00482.
+    - **EQUIVARIANT_OT**: Adding roto/translation optimization to mini batch OT see https://arxiv.org/pdf/2306.15030  https://arxiv.org/pdf/2312.07168 4.2.
     - **KABSCH**: Simple Kabsch alignment between each data and noise point, No permuation # https://arxiv.org/pdf/2410.22388 Sec 3.2
 
     These prediction types can be used to train neural networks for specific tasks, such as denoising, image synthesis, or time-series forecasting.
     """
 
-    EXACT = "exact"
-    EQUIVARIANT = "equivariant"
+    EXACT_OT = "exact_ot"
+    EQUIVARIANT_OT = "equivariant_ot"
     KABSCH = "kabsch"

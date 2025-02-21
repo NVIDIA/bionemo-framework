@@ -31,6 +31,12 @@ distributions = [
     (LogitNormalTimeDistribution, {"p1": 0.0, "p2": 1.0}),
 ]
 
+shape_distributions = [
+    (BetaTimeDistribution, {"p1": 2.0, "p2": 1.0}),
+    (UniformTimeDistribution, {}),
+    (LogitNormalTimeDistribution, {"p1": 0.0, "p2": 1.0}),
+]
+
 # Devices to test
 devices = ["cpu"]
 if torch.cuda.is_available():
@@ -42,16 +48,34 @@ if torch.cuda.is_available():
 def test_continuous_time_sampling(dist_class, dist_kwargs, device):
     # Initialize the time distribution
     dist = dist_class(min_t=0.0, max_t=1.0, discrete_time=False, **dist_kwargs)
-
-    # Sample from the distribution
     samples = dist.sample(n_samples=1000, device=device)
+    assert torch.all(samples >= 0.0)
+    assert torch.all(samples <= 1.0)
+    # Check if the shape of the samples is correct
+    assert samples.shape == (1000,)
 
+
+@pytest.mark.parametrize("dist_class, dist_kwargs", shape_distributions)
+@pytest.mark.parametrize("device", devices)
+def test_continuous_time_sampling_multishape(dist_class, dist_kwargs, device):
+    # Initialize the time distribution
+    dist = dist_class(min_t=0.0, max_t=1.0, discrete_time=False, **dist_kwargs)
+    samples = dist.sample(n_samples=1000, device=device)
+    assert torch.all(samples >= 0.0)
+    assert torch.all(samples <= 1.0)
+    # Check if the shape of the samples is correct
+    assert samples.shape == (1000,)
+    test = torch.rand(100, 100)
+    samples = dist.sample(n_samples=test.shape, device=device)
+    assert torch.all(samples >= 0.0)
+    assert torch.all(samples <= 1.0)
+    # Check if the shape of the samples is correct
+    assert samples.shape == (100, 100)
     # Check if the samples are within the correct range
     assert torch.all(samples >= 0.0)
     assert torch.all(samples <= 1.0)
-
     # Check if the shape of the samples is correct
-    assert samples.shape == (1000,)
+    assert samples.shape == (100, 100)
 
 
 @pytest.mark.parametrize("dist_class, dist_kwargs", distributions)

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import torch
 from jaxtyping import Bool, Float
@@ -52,7 +52,10 @@ class LogitNormalTimeDistribution(TimeDistribution):
         self.p2 = p2
 
     def sample(
-        self, n_samples: int, device: Union[str, torch.device] = "cpu", rng_generator: Optional[torch.Generator] = None
+        self,
+        n_samples: Union[int, Tuple[int, ...], torch.Size],
+        device: Union[str, torch.device] = "cpu",
+        rng_generator: Optional[torch.Generator] = None,
     ):
         """Generates a specified number of samples from the uniform time distribution.
 

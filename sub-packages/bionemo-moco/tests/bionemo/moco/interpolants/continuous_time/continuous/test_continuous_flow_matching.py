@@ -82,6 +82,77 @@ def test_cfm_interpolate(request, fixture, device):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("fixture", ["flow_matcher"])
+def test_cfm_interpolate_newshape(request, fixture, device):
+    # Create an indices tensor
+    flow_matcher = request.getfixturevalue(fixture)
+    assert flow_matcher is not None
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    flow_matcher = flow_matcher.to_device(device)
+    data = torch.rand((32, 5, 14, 3)).to(device)
+    time = flow_matcher.sample_time(32)
+    noise = flow_matcher.sample_prior(data.shape)
+    xt = flow_matcher.interpolate(data, time, noise)
+    assert xt.shape == data.shape
+
+    # When time is 0, the output should be the noise
+    data_time = torch.ones_like(time).to(device) * 0
+    xt = flow_matcher.interpolate(data, data_time, noise)
+    error = (xt - noise) ** 2
+    assert torch.all(error < 1e-7)
+
+    # When time is close to 1, i.e. 0.999, the output should be the data
+    data_time = torch.ones_like(time).to(device) * 0.999
+    xt = flow_matcher.interpolate(data, data_time, noise)
+    error = (xt - (noise + (data - noise) * 0.999)) ** 2
+    assert torch.all(error < 1e-7)
+
+    # When time is 0.5, if the data is the reflection of the noise, the output should be zeros
+    data_time = torch.ones_like(time).to(device) * 0.5
+    new_data = torch.clone(noise) * -1
+    xt = flow_matcher.interpolate(new_data, data_time, noise)
+    error = (xt - torch.zeros_like(xt)) ** 2
+    assert torch.all(error < 1e-7)
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("fixture", ["flow_matcher"])
+def test_cfm_interpolate_newshape_preserve(request, fixture, device):
+    # Create an indices tensor
+    flow_matcher = request.getfixturevalue(fixture)
+    assert flow_matcher is not None
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    flow_matcher = flow_matcher.to_device(device)
+    data = torch.rand((32, 14, 5, 3)).to(device)
+    b, a, n, d = data.shape
+    time = flow_matcher.sample_time(32)
+    noise = flow_matcher.sample_prior((b, 1, n, d))
+    xt = flow_matcher.interpolate(data, time, noise)
+    assert xt.shape == data.shape
+
+    # When time is 0, the output should be the noise
+    data_time = torch.ones_like(time).to(device) * 0
+    xt = flow_matcher.interpolate(data, data_time, noise)
+    error = (xt - noise) ** 2
+    assert torch.all(error < 1e-7)
+
+    # When time is close to 1, i.e. 0.999, the output should be the data
+    data_time = torch.ones_like(time).to(device) * 0.999
+    xt = flow_matcher.interpolate(data, data_time, noise)
+    error = (xt - (noise + (data - noise) * 0.999)) ** 2
+    assert torch.all(error < 1e-7)
+
+    # When time is 0.5, if the data is the reflection of the noise, the output should be zeros
+    data_time = torch.ones_like(time).to(device) * 0.5
+    new_data = torch.clone(noise) * -1
+    xt = flow_matcher.interpolate(new_data, data_time, noise)
+    error = (xt - torch.zeros_like(xt)) ** 2
+    assert torch.all(error < 1e-7)
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_cfm_step(flow_matcher, device):
     # Create an indices tensor
     if device == "cuda" and not torch.cuda.is_available():

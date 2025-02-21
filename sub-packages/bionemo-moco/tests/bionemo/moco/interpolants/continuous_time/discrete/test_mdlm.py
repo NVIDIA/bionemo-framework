@@ -43,6 +43,26 @@ def test_mdlm_interpolate(mdlm, device):
     assert result.shape == (5, 10)
 
 
+def test_mdlm_interpolate_multidevice(mdlm):
+    # Test simultaneous interpolation on multiple devices using the same MDLM interpolant,
+    # leveraging the device-agnostic inheritance where computations follow the data's device
+    # ** When we sample time using Interpolant.sample_time it inherents the interpolants device.
+    #      For multi device training we minimize the number of device transfers by init on CPU and then
+    #      shifting time to device based on the parallel dataloader **
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    data = torch.randint(0, 16, (5, 10))
+    data_gpu = torch.randint(0, 16, (5, 10)).to("cuda")
+    t = mdlm.sample_time(5)
+    t_gpu = mdlm.sample_time(5, device="cuda")
+    result = mdlm.interpolate(data, t)
+    assert result.shape == (5, 10)
+    result = mdlm.interpolate(data_gpu, t_gpu)
+    assert result.shape == (5, 10)
+    result = mdlm.interpolate(data_gpu, t)
+    assert result.shape == (5, 10)
+
+
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_mdlm_step(mdlm, device):
     if device == "cuda" and not torch.cuda.is_available():

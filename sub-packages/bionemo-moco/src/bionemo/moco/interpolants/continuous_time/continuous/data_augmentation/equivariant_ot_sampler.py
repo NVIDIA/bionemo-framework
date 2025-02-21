@@ -183,7 +183,7 @@ class EquivariantOTSampler:
 
         return p, Rs
 
-    def apply_ot(
+    def apply_augmentation(
         self,
         x0: Tensor,
         x1: Tensor,
