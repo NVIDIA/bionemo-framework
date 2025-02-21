@@ -45,7 +45,7 @@ def vdm_parallel_interpolate(
     world_size: int = 1,
     device_type: str = "cuda",
 ):
-    with parallel_context(rank=rank, world_size=world_size):  # , backend="nccl", device_type=device_type):
+    with parallel_context(rank=rank, world_size=world_size):
         data_gpu = torch.randint(0, 16, (5, 10)).to("cuda")
         t_gpu = vdm.sample_time(5, device=data_gpu.device)
         noise_gpu = vdm.sample_prior(data_gpu.shape, device=data_gpu.device)
