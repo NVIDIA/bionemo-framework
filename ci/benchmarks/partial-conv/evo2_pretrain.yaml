@@ -1,0 +1,63 @@
+scope: partial-conv
+time_limit: 14400
+script_args:
+  # All arguments referenced in the script string must be specified here.
+  # Arguments not referenced in the script string must have the 'arg' field specified.
+  # See jet/core/configs.py for the specification of the configuration class
+  workspace:
+    value: /workspace/bionemo2
+    key_segment: False
+  data_path:
+    value: /data/evo2
+    key_segment: False
+  model:
+    value: evo2
+  variant:
+    value: train
+  config_name:
+    value: 7b
+  precision:
+    value: fp8
+  nodes:
+    value: 4
+  gpus:
+    value: 8
+  batch_size:
+    value: 2
+  pp:
+    value: 1
+  tp:
+    value: 8
+  cp:
+    value: 1
+  acc_grad:
+    value: 1
+  max_steps:
+    value: 20000
+script: |-
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
+  -d ${workspace}/ci/benchmarks/test_dataset_config.yaml \
+  --dataset-path ${data_path} \
+  --grad-acc-batches ${acc_grad} \
+  --fp8 \
+  --enable-preemption \
+  --ckpt-async-save \
+  --seq-length=8192 \
+  --tensor-parallel-size=${tp} \
+  --context-parallel-size=${cp} \
+  --pipeline-model-parallel-size=${pp} \
+  --workers 8 \
+  --num-nodes=${nodes} \
+  --devices=${gpus} \
+  --micro-batch-size=${batch_size} \
+  --model-size=${config_name} \
+  --max-steps=${max_steps} \
+  --limit-val-batches=20 \
+  --log-every-n-steps=50 \
+  --val-check-interval=500 \
+  --tflops-callback \
+  --experiment-dir=${tensorboard_dir}/${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+  --wandb-project=${wandb_project_name} \
+  --wandb-group=${model}_${variant}_${config_name}__${target} \
+  --wandb-job-type=${pipeline_label} \
+  --disable-checkpointing;
