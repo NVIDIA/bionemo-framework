@@ -51,10 +51,7 @@ Depending on whether you are using Flow Matching or Diffusion, there are differe
 
 The high level mathematical formula for this step can be represented as:
 
-<!-- $$x_t = \lambda_f(t) x_{\text{data}} + \gamma_f(t) \epsilon \quad \text{where} \quad \epsilon \sim \mathcal{N}(0, I), \quad t \sim P_{\text{Time}} \tag{1}$$ -->
-```math
-x_t = \lambda_f(t) x_{\text{data}} + \gamma_f(t) \epsilon \quad \text{where} \quad \epsilon \sim \mathcal{N}(0, I), \quad t \sim P_{\text{Time}} \tag{1}
-```
+$$(1) \quad x_t = \lambda_f(t) x_{\text{data}} + \gamma_f(t) \epsilon \quad \text{where} \quad \epsilon \sim \mathcal{N}(0, I), \quad t \sim P_{\text{Time}}$$
 
 We refer to Equation (1) as the interpolation step from Flow Matching context as we can linearly interpolate between our noise and data by setting $\lambda_f(t) = t$, $\gamma_f(t) = 1 - t$. We note that it is not a requirement for the scalars to sum to 1 and for the majority of Diffusion models the choice in the time dependent noise schedule is an important hyperparameter for model success.
 
@@ -62,7 +59,7 @@ Once we have our interpolated data $x_t$, we then feed that to our model for the
 
 #### Model Estimation
 
-$$A = M_{\theta}(x_t, t) \quad \text{where} \quad t \sim P_{\text{Time}} \tag{2}$$
+$$(2) \quad A = M_{\theta}(x_t, t) \quad \text{where} \quad t \sim P_{\text{Time}}$$
 
 
 
@@ -84,7 +81,7 @@ All of these ways of designing the model output impact how we calculate our loss
 
 Once we produce $A$ in Equation 2, the next step is to compute the prediction error, which depends on the chosen representation (data, velocity, or noise). It is important to note that one can easily transform from one representation to another, as all three are grounded in the same interpolation shown in Equation 1. From there, the loss functions shown in Equation 3 can be viewed as a weighted mean squared error (MSE) loss to encourage our model to produce outputs close to the ground truth representation ($A^*$), such that we learn how to move between our prior and data distribution as a function of time.
 
-$$L = \lambda_L(t)\left\|A^* - M_{\theta}(x_t, t)\right\|^2 \tag{3}$$
+$$(3) \quad L = \lambda_L(t)\left\|A^* - M_{\theta}(x_t, t)\right\|^2$$
 
 If you are familiar with one of the original diffusion models DDPM the loss equals the MSE of the predicted noise and true noise with a weight equal to one.
 
@@ -124,7 +121,7 @@ Any way you want to view the training process i.e. learning to predict the noise
 
 Now in order to generate samples from the model we iteratively query the model starting from a sample from our prior distribution and update our sample as a function of time.
 
-$$x_{t+1} = \lambda_r(t)x_t + \psi_r(t)M_{\theta}(x_t, t) + \gamma_r(t) \epsilon, \quad \text{where } \epsilon \sim \mathcal{N}(0, I) \tag{4}$$
+$$(4) \quad x_{t+1} = \lambda_r(t)x_t + \psi_r(t)M_{\theta}(x_t, t) + \gamma_r(t) \epsilon, \quad \text{where } \epsilon \sim \mathcal{N}(0, I)$$
 
 Equation 4 illustrates a general update step, where, based on three time-dependent scalars, we determine how much of the running prediction $x_t$ we want to preserve in this reverse process ($\lambda_r(t)$), how much of the module output $M_{\theta}(x_t, t)$ we want to incorporate ($\psi_r(t)$), and how much noise $\epsilon$ we want to add, if any ($\gamma_r(t)$). We write it in this manner as all interpolants integrate from the prior $x_0$ to data $x_1$, but can do so in various ways, including simulating an ordinary or stochastic differential equation (ODE and SDE). We highly recommend [Diffusion Meets Flow Matching](https://diffusionflow.github.io/) for a rigorous derivation behind the connection to differential equations and how to solve them.
 
