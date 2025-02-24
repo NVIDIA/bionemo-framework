@@ -345,6 +345,19 @@ COPY ./docs ./docs
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
+# Remove security vuln with rsync on ARM systems:
+# https://ubuntu.com/security/CVE-2024-12084
+RUN <<EOF
+  apt-get -y purge rsync
+  wget https://download.samba.org/pub/rsync/src/rsync-3.4.1.tar.gz
+  tar -xvzf rsync-3.4.1.tar.gz
+  cd rsync-3.4.1
+  ./configure --disable-xxhash --disable-zstd --disable-lz4
+  make && make install
+  cd ..
+  rm -rf rsync-3.4.1 rsync-3.4.1.tar.gz
+EOF
+
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
 RUN chmod 777 -R /workspace/bionemo2/
