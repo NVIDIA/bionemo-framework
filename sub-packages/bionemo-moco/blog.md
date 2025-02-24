@@ -51,7 +51,10 @@ Depending on whether you are using Flow Matching or Diffusion, there are differe
 
 The high level mathematical formula for this step can be represented as:
 
-$$x_t = \lambda_f(t) x_{\text{data}} + \gamma_f(t) \epsilon \quad \text{where} \quad \epsilon \sim \mathcal{N}(0, I), \quad t \sim P_{\text{Time}} \tag{1}$$
+<!-- $$x_t = \lambda_f(t) x_{\text{data}} + \gamma_f(t) \epsilon \quad \text{where} \quad \epsilon \sim \mathcal{N}(0, I), \quad t \sim P_{\text{Time}} \tag{1}$$ -->
+```math
+x_t = \lambda_f(t) x_{\text{data}} + \gamma_f(t) \epsilon \quad \text{where} \quad \epsilon \sim \mathcal{N}(0, I), \quad t \sim P_{\text{Time}} \tag{1}
+```
 
 We refer to Equation (1) as the interpolation step from Flow Matching context as we can linearly interpolate between our noise and data by setting $\lambda_f(t) = t$, $\gamma_f(t) = 1 - t$. We note that it is not a requirement for the scalars to sum to 1 and for the majority of Diffusion models the choice in the time dependent noise schedule is an important hyperparameter for model success.
 
