@@ -105,9 +105,6 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
             logging.info(f"hidden_states: {hidden_states.shape[:2]}; input_ids: {input_ids.shape[:2]}")
             assert hidden_states.shape[:2] == input_ids.shape[:2]
 
-            # TODO: where can we get this value from?
-            PADDING_IDX = 2
-
             # accumulators for calculating mean embedding for each input_id
             gene_embedding_accumulator = {}
             input_id_count = {}
@@ -121,9 +118,9 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
                 # iterate over each gene in the cell
                 for idx, embedding in zip(cell_input_ids, cell_state):
 
-                    # skip all ids after a padding id is encountered
-                    if(idx == PADDING_IDX):
-                        break
+                    # idx < 5 are dummy tokens based on geneformer.vocab
+                    if idx < 5:
+                        continue
 
                     # accumulate embedding sum and count
                     if idx not in gene_embedding_accumulator:
