@@ -25,12 +25,12 @@ from bionemo.moco.distributions.prior.distribution import PriorDistribution
 
 
 class LinearHarmonicPrior(PriorDistribution):
-    """A subclass representing a Linear Harmonic prior distribution from Jit et al. https://arxiv.org/abs/2304.02198."""
+    """A subclass representing a Linear Harmonic prior distribution from Jing et al. https://arxiv.org/abs/2304.02198."""
 
     def __init__(
         self,
-        distance: Float = 3.8,
         length: Optional[int] = None,
+        distance: Float = 3.8,
         center: Bool = False,
         rng_generator: Optional[torch.Generator] = None,
         device: Union[str, torch.device] = "cpu",
@@ -38,8 +38,8 @@ class LinearHarmonicPrior(PriorDistribution):
         """Linear Harmonic prior distribution.
 
         Args:
-            distance (Float): RMS distance between adjacent points in the line graph.
             length (Optional[int]): The number of points in a batch.
+            distance (Float): RMS distance between adjacent points in the line graph.
             center (bool): Whether to center the samples around the mean. Defaults to False.
             rng_generator: An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
             device (Optional[str]): Device to place the schedule on (default is "cpu").
@@ -82,20 +82,18 @@ class LinearHarmonicPrior(PriorDistribution):
         Returns:
             Float: A tensor of samples.
         """
-        if len(shape) != 3:
-            raise ValueError("Input shape can only work for B x L x D")
         if rng_generator is None:
             rng_generator = self.rng_generator
 
         samples = torch.randn(*shape, device=device, generator=rng_generator)
-        N = shape[1]
+        N = shape[-2]
 
         if N != self.length:
             self._calculate_terms(N, device)
 
-        std = torch.sqrt(self.D_inv).unsqueeze(-1)
-        samples = self.P @ (std * samples)
-
+        std = torch.sqrt(self.D_inv.to(device)).unsqueeze(-1)
+        samples = self.P.to(device) @ (std * samples)
+        # torch broadcasting avoids shape errors NxN @ (N x 1 * B x N x D)
         if self.center:
             samples = remove_center_of_mass(samples, mask)
 

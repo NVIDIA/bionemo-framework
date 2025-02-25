@@ -17,13 +17,13 @@ import numpy as np
 import pytest
 import torch
 
-from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport.equivariant_ot_sampler import (
+from bionemo.moco.interpolants.continuous_time.continuous.data_augmentation.equivariant_ot_sampler import (
     EquivariantOTSampler,
 )
-from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport.kabsch_augmentation import (
+from bionemo.moco.interpolants.continuous_time.continuous.data_augmentation.kabsch_augmentation import (
     KabschAugmentation,
 )
-from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport.ot_sampler import OTSampler
+from bionemo.moco.interpolants.continuous_time.continuous.data_augmentation.ot_sampler import OTSampler
 
 
 @pytest.fixture
@@ -152,25 +152,29 @@ def test_exact_ot_sampler_sample_map(request, sampler, data, device):
         assert x1_idx[i].item() == correct_mapping[x0_idx[i].item()]
     # When replace is True, not all indices should be sampled
 
-    # Final test to check the apply_ot function
+    # Final test to check the apply_augmentation function
     # First check preserving the order of noise
-    ot_sampled_x0, ot_sampled_x1, ot_sampled_mask = ot_sampler.apply_ot(x0, x1, mask=mask, replace=False, sort="x0")
+    ot_sampled_x0, ot_sampled_x1, ot_sampled_mask = ot_sampler.apply_augmentation(
+        x0, x1, mask=mask, replace=False, sort="x0"
+    )
     for i in range(len(x0_idx)):
-        # Check if x0 output from apply_ot follows the correct order
+        # Check if x0 output from apply_augmentation follows the correct order
         assert torch.allclose(ot_sampled_x0[i], x0[i], atol=1e-7)
-        # Check if x1 output from apply_ot matches the correct mapping
+        # Check if x1 output from apply_augmentation matches the correct mapping
         assert torch.allclose(ot_sampled_x0[i], ot_sampled_x1[i], atol=0.1)
         # Check if mask is preserved
         if mask is not None:
             assert (ot_sampled_mask[i] == mask[i]).all()
 
     # Then check preserving the order of data
-    ot_sampled_x0, ot_sampled_x1, ot_sampled_mask = ot_sampler.apply_ot(x0, x1, mask=mask, replace=False, sort="x1")
+    ot_sampled_x0, ot_sampled_x1, ot_sampled_mask = ot_sampler.apply_augmentation(
+        x0, x1, mask=mask, replace=False, sort="x1"
+    )
     reverse_mapping = {v: k for k, v in correct_mapping.items()}
     for i in range(len(x0_idx)):
-        # Check if x1 output from apply_ot follows the correct order
+        # Check if x1 output from apply_augmentation follows the correct order
         assert torch.allclose(ot_sampled_x1[i], x1[i], atol=1e-7)
-        # Check if x1 output from apply_ot matches the correct mapping
+        # Check if x1 output from apply_augmentation matches the correct mapping
         assert torch.allclose(ot_sampled_x0[i], ot_sampled_x1[i], atol=0.1)
         # Check if mask is preserved
         if mask is not None:
@@ -255,29 +259,29 @@ def test_equivariant_ot_sample_map(request, sampler, device):
         x0_rotate_back = x0_rotated[x0_rotated_idx[i]] @ RR
         assert torch.allclose(x0[x0_idx[i]], x0_rotate_back, atol=atol)
 
-    # Final test to check the apply_ot function
+    # Final test to check the apply_augmentation function
     # First check preserving the order of noise
-    realigned_x0, realigned_x0_rotated, realigned_mask = ot_sampler.apply_ot(
+    realigned_x0, realigned_x0_rotated, realigned_mask = ot_sampler.apply_augmentation(
         x0, x0_rotated, mask=mask, replace=False, sort="x0"
     )
     for i in range(len(x0_idx)):
-        # Check if x0 output from apply_ot follows the correct order
+        # Check if x0 output from apply_augmentation follows the correct order
         assert torch.allclose(realigned_x0[i], x0[i], atol=atol)
-        # Check if x1 output from apply_ot is rotated correctly
+        # Check if x1 output from apply_augmentation is rotated correctly
         assert torch.allclose(realigned_x0[i], realigned_x0_rotated[i], atol=atol)
         # Check if mask is preserved
         assert (realigned_mask[i] == mask[i]).all()
 
     # Then check preserving the order of data
-    realigned_x0, realigned_x0_rotated, realigned_mask = ot_sampler.apply_ot(
+    realigned_x0, realigned_x0_rotated, realigned_mask = ot_sampler.apply_augmentation(
         x0, x0_rotated, mask=mask, replace=False, sort="x1"
     )
     reverse_mapping = {v: k for k, v in mapping.items()}
     for i in range(len(x0_idx)):
-        # Check if x0 output from apply_ot follows the correct order
+        # Check if x0 output from apply_augmentation follows the correct order
         # Since the realigned_x0_rotated is rotated back to x0, we check if it is equal to x0[reverse_mapping[i]]
         assert torch.allclose(realigned_x0_rotated[i], x0[reverse_mapping[i]], atol=atol)
-        # Check if x1 output from apply_ot is rotated correctly
+        # Check if x1 output from apply_augmentation is rotated correctly
         assert torch.allclose(realigned_x0[i], realigned_x0_rotated[i], atol=atol)
         # Check if mask is preserved
         assert (realigned_mask[i] == mask[reverse_mapping[i]]).all()
@@ -306,11 +310,11 @@ def test_kabsch_augmentation(request, device):
     R_kabsch, _ = augmentor.kabsch_align(x0, x0_rotated)
     assert R_kabsch.shape == (3, 3)
     assert torch.allclose(R_kabsch, R, atol=atol)
-    x0_aligned, x0_copy = augmentor.apply_ot(x0_rotated, x0, align_noise_to_data=True)
+    x0_aligned, x0_copy = augmentor.apply_augmentation(x0_rotated, x0, align_noise_to_data=True)
     assert torch.allclose(x0, x0_copy, atol=atol)
     assert torch.allclose(x0_aligned, x0, atol=atol)
 
-    x0_rotated_copy, x0_rotated_aligned = augmentor.apply_ot(x0_rotated, x0, align_noise_to_data=False)
+    x0_rotated_copy, x0_rotated_aligned = augmentor.apply_augmentation(x0_rotated, x0, align_noise_to_data=False)
     assert torch.allclose(x0_rotated, x0_rotated_copy, atol=atol)
     assert torch.allclose(x0_rotated_aligned, x0_rotated, atol=atol)
 
@@ -325,10 +329,10 @@ def test_kabsch_augmentation(request, device):
     R_kabsch, _ = augmentor.batch_kabsch_align(x0, x0_rotated)
     assert R_kabsch.shape == (10, 3, 3)
     assert torch.allclose(R_kabsch, R, atol=atol)
-    x0_aligned, x0_copy = augmentor.apply_ot(x0_rotated, x0, align_noise_to_data=True)
+    x0_aligned, x0_copy = augmentor.apply_augmentation(x0_rotated, x0, align_noise_to_data=True)
     assert torch.allclose(x0, x0_copy, atol=atol)
     assert torch.allclose(x0_aligned, x0, atol=atol)  # values are close but error ranges from <1 to 2 e -6
 
-    x0_rotated_copy, x0_rotated_aligned = augmentor.apply_ot(x0_rotated, x0, align_noise_to_data=False)
+    x0_rotated_copy, x0_rotated_aligned = augmentor.apply_augmentation(x0_rotated, x0, align_noise_to_data=False)
     assert torch.allclose(x0_rotated, x0_rotated_copy, atol=atol)
     assert torch.allclose(x0_rotated_aligned, x0_rotated, atol=atol)

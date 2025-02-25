@@ -282,7 +282,10 @@ def train_model(
     )
     # Configure the model
     train_metric = None
-    if task_type == "regression":
+    is_model_parallel = tensor_model_parallel_size * pipeline_model_parallel_size > 1
+    if is_model_parallel:
+        valid_metric = None  # metric logging under model parallelism is not supported yet
+    elif task_type == "regression":
         valid_metric = TorchmetricsConfig(class_path="MeanSquaredError", task="regression", metric_name="val_mse")
     else:
         valid_metric = TorchmetricsConfig(
@@ -295,11 +298,6 @@ def train_model(
             },
             metric_name="val_acc",
         )
-
-    if tensor_model_parallel_size * pipeline_model_parallel_size > 1 and (
-        train_metric is not None or valid_metric is not None
-    ):
-        raise NotImplementedError("Metric logging under model parallelism is not supported yet.")
 
     config = config_class(
         task_type=task_type,
