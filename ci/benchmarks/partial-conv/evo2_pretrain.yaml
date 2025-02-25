@@ -36,7 +36,7 @@ script_args:
     value: 20000
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
-  -d ${workspace}/ci/benchmarks/test_dataset_config.yaml \
+  -d ${workspace}/sub-packages/bionemo-evo2/tests/config/test_dataset_config.yaml \
   --dataset-dir ${data_path} \
   --grad-acc-batches ${acc_grad} \
   --fp8 \
