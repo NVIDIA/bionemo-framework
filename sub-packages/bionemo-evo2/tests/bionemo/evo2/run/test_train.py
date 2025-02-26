@@ -114,7 +114,7 @@ def test_train_single_gpu(tmp_path, model_size: str):
 @pytest.mark.slow
 @pytest.mark.distributed
 @pytest.mark.parametrize("model_size", ["7b_nv"])
-@pytest.mark.xfail(
+@pytest.mark.skip(
     reason="This tests requires to be run on a multi-gpu machine with torchrun --nproc_per_node=N_GPU -m pytest TEST_NAME"
 )
 def test_train_multi_gpu(tmp_path, model_size: str):
