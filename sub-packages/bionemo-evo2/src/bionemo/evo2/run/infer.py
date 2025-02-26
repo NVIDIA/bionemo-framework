@@ -174,7 +174,8 @@ def infer(
     return results
 
 
-if __name__ == "__main__":
+def main():
+    """Main function for Evo2 inference."""
     # Parse args.
     args = parse_args()
     infer(
@@ -191,3 +192,7 @@ if __name__ == "__main__":
         ckpt_format=args.ckpt_format,
         seed=args.seed,
     )
+
+
+if __name__ == "__main__":
+    main()

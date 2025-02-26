@@ -53,6 +53,7 @@ def parse_args():
     ap.add_argument(
         "--context-parallel-size", type=int, default=1, help="Order of context parallelism. Defaults to 1."
     )
+    ap.add_argument("--batch-size", type=int, default=1, help="Batch size for prediction. Defaults to 1.")
     ap.add_argument(
         "--model-size",
         type=str,
@@ -224,6 +225,7 @@ def predict(
     ckpt_format: CheckpointFormats = "torch_dist",
     fp8: bool = False,
     work_dir: Path | None = None,
+    batch_size: int = 1,
 ):
     """Inference workflow for Evo2.
 
@@ -301,7 +303,7 @@ def predict(
     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
 
     dataset = SimpleFastaDataset(fasta_path, tokenizer)
-    datamodule = PredictDataModule(dataset)
+    datamodule = PredictDataModule(dataset, batch_size=batch_size)
     trainer.predict(model, datamodule.predict_dataloader())
     dataset.write_idx_map(
         output_dir
@@ -321,6 +323,7 @@ def main():
         model_size=args.model_size,
         ckpt_format=args.ckpt_format,
         fp8=args.fp8,
+        batch_size=args.batch_size,
     )
 
 

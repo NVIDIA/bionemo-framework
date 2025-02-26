@@ -47,7 +47,16 @@ def test_train_evo2_runs(
     # a local copy of the environment
     env = dict(**os.environ)
     env["MASTER_PORT"] = str(open_port)
-    checkpoint_path = load("evo2/1b-8k:1.0", source="pbss")
+    try:
+        checkpoint_path = load("evo2/1b-8k:1.0")
+    except ValueError as e:
+        if e.args[0].endswith("does not have an NGC URL."):
+            raise ValueError(
+                "Please re-run test with `BIONEMO_DATA_SOURCE=pbss py.test ...`, "
+                "one or more files are missing from ngc."
+            )
+        else:
+            raise e
     # Build the command string.
     # Note: The command assumes that `train_evo2` is in your PATH.
     output_dir = tmp_path / "test_output"

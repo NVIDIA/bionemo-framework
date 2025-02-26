@@ -45,9 +45,16 @@ def test_run_infer():
         + "g__Escherichia;"
         + "s__Escherichia|"
     )
-
-    # TODO (dorotat) remove PBSS source once the model is available on NGC
-    checkpoint_path = load("evo2/1b-8k:1.0", source="pbss")
+    try:
+        checkpoint_path = load("evo2/1b-8k:1.0")
+    except ValueError as e:
+        if e.args[0].endswith("does not have an NGC URL."):
+            raise ValueError(
+                "Please re-run test with `BIONEMO_DATA_SOURCE=pbss py.test ...`, "
+                "one or more files are missing from ngc."
+            )
+        else:
+            raise e
 
     with clean_parallel_state_context():
         infer(

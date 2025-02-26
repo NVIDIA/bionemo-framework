@@ -5,7 +5,7 @@
   sha256: d663c529ac7ae0b6f2fd3a852253a484bd8a6576992e9ec73045ce7af2365990 # pragma: allowlist secret
   owner: John St John <jstjohn@nvidia.com>
   description: >
-    A 7b parameter evo2 model used in testing, torch_dist format. Converted from hf://arcinstitute/savanna_evo2_1b_base.
+    A 1b parameter evo2 model used in testing, torch_dist format. Converted from hf://arcinstitute/savanna_evo2_1b_base.
 
 
 - tag: 7b-8k:1.0

@@ -68,9 +68,9 @@ def load_weights_sharded_inplace_nemo2_to_mcore(
 def test_golden_values_top_k_logits_and_cosine_similarity(seq_len: int):
     try:
         # TODO (dorotat) remove PBSS source once the model is available on NGC
-        evo2_1b_checkpoint_weights: Path = load("evo2/1b-8k:1.0", source="pbss") / "weights"
+        evo2_1b_checkpoint_weights: Path = load("evo2/1b-8k:1.0") / "weights"
         # TODO (dorotat) remove PBSS source once the model is available on NGC
-        gold_standard_no_fp8 = load("evo2/1b-8k-nofp8-te-goldvalue-testdata-A6000:1.0", source="pbss")
+        gold_standard_no_fp8 = load("evo2/1b-8k-nofp8-te-goldvalue-testdata-A6000:1.0")
     except ValueError as e:
         if e.args[0].endswith("does not have an NGC URL."):
             raise ValueError(

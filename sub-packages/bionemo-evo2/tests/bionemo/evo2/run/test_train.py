@@ -40,7 +40,7 @@ def test_train_evo2_runs(tmp_path, num_steps=5):
     # Note: The command assumes that `train_evo2` is in your PATH.
     command = (
         f"train_evo2 --mock-data --experiment-dir {tmp_path}/test_train "
-        "--model-size 7b_nv --num-layers 4 --hybrid-override-pattern SDH* "
+        "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* "
         "--no-activation-checkpointing --add-bias-output "
         f"--max-steps {num_steps} --warmup-steps 1 --no-wandb "
         "--seq-length 128 --hidden-dropout 0.1 --attention-dropout 0.1 "
