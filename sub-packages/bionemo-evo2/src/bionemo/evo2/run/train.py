@@ -17,7 +17,6 @@
 # limitations under the License.
 
 import argparse
-from dataclasses import asdict
 from typing import List, Optional
 
 # TODO add back support for slurm resilience.
@@ -480,7 +479,7 @@ def train(args: argparse.Namespace):
     if args.tflops_callback:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
         flop_meas_callback = FLOPsMeasurementCallback(
-            asdict(evo2_config),
+            evo2_config,
             data,
             "hyena",
         )
