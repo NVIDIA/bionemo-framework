@@ -18,6 +18,7 @@
 
 import argparse
 from dataclasses import asdict
+from typing import List, Optional
 
 # TODO add back support for slurm resilience.
 # import nvidia_resiliency_ext.ptl_resiliency as res_module
@@ -53,7 +54,7 @@ from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 torch._dynamo.config.suppress_errors = True
 
 
-def parse_args():
+def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     """Parse arguments for Evo2 model training."""
     parser = argparse.ArgumentParser(
         description="Train a Hyena model using NeMo 2.0.",
@@ -102,6 +103,10 @@ def parse_args():
         type=str,
         default=None,
         help="A unique string representing a type of run, which is useful when you're grouping runs together into larger experiments using group.",
+    )
+    parser.add_argument("--wandb-offline", action="store_true", help="Use wandb in offline mode")
+    parser.add_argument(
+        "--wandb-anonymous", action="store_true", help="Enable or explicitly disable anonymous logging"
     )
     parser.add_argument("--sequence-parallel", action="store_true", help="Set to enable sequence parallelism.")
     parser.add_argument("--fp8", action="store_true", help="Set to enable FP8")
@@ -358,15 +363,11 @@ def parse_args():
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
-    return parser.parse_args()
+    return parser.parse_args(args=args)
 
 
-def main():
+def train(args: argparse.Namespace):
     """Main function to run Evo2 training."""
-    args = parse_args()
-
-    # Parse dataset configuration.
-
     # Instantiate tokenizer.
     tokenizer = get_nmt_tokenizer(
         "byte-level",
@@ -559,9 +560,11 @@ def main():
             ),
             group=args.wandb_group,
             job_type=args.wandb_job_type,
-            id=args.wandb_run_id,  # set this to use the same curve name for restarts.
+            id=args.wandb_run_id,
             project=args.wandb_project,
             save_dir=args.experiment_dir,
+            offline=args.wandb_offline,
+            anonymous=args.wandb_anonymous,
         )
         loggers.append(wandb_logger)
         nemo_logger_kwargs["wandb"] = wandb_logger
@@ -667,6 +670,12 @@ def main():
 
     # Start training
     trainer.fit(model, data)
+
+
+def main():
+    """Parsing args and running evo2 training."""
+    args = parse_args()
+    train(args=args)
 
 
 if __name__ == "__main__":
