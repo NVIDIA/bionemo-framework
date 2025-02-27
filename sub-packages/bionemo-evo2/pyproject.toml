@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bionemo-evo2"
+readme = "README.md"
+description = "Library containing data preprocessing, training, and inference tooling for Evo2."
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dynamic = ["version"]
+dependencies = [
+    "bionemo-noodles",
+    "bionemo-core",
+    "bionemo-llm",
+]
+
+[project.scripts]
+infer_evo2 = "bionemo.evo2.run.infer:main"
+train_evo2 = "bionemo.evo2.run.train:main"
+predict_evo2 = "bionemo.evo2.run.predict:main"
+preprocess_evo2 = "bionemo.evo2.data.preprocess:main"
+splice_evo2 = "bionemo.evo2.data.transcript_extraction:main"
+evo2_convert_to_nemo2 = "bionemo.evo2.utils.checkpoint.convert_to_nemo:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bionemo.*"]
+namespaces = true
+exclude = ["test*."]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
+
+[tool.uv]
+cache-keys = [{ git = true }]

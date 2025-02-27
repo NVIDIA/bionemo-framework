@@ -46,7 +46,7 @@ def test_load_cli():
     # It looks like there's some issues with our NGC resources, but this is blocking CI. TODO: Revert to ngc when these
     # resources are available.
     result = subprocess.run(
-        ["download_bionemo_data", "--source", "ngc", "single_cell/testdata-20240506"],
+        ["download_bionemo_data", "single_cell/testdata-20240506"],
         stdout=subprocess.PIPE,  # Capture stdout
         stderr=subprocess.PIPE,  # Capture stderr (optional)
         text=True,  # Return output as string rather than bytes
@@ -111,6 +111,7 @@ def test_load_with_file(mocked_s3_download, tmp_path):
     )
 
     mocked_s3_download.side_effect = lambda _1, output_file, _2: Path(output_file).write_text("test")
+    # TODO(dorotat-nv) remove source="pbss" when NGC resources are available
     file_path = load("foo/bar", resources=get_all_resources(tmp_path), cache_dir=tmp_path, source="pbss")
     assert file_path.is_file()
     assert file_path.read_text() == "test"
@@ -133,6 +134,7 @@ def test_load_with_gzipped_file(mocked_s3_download, tmp_path):
 
     mocked_s3_download.side_effect = write_compressed_text
 
+    # TODO(dorotat-nv) remove source="pbss" when NGC resources are available
     file_path = load("foo/baz", resources=get_all_resources(tmp_path), cache_dir=tmp_path, source="pbss")
     assert file_path.is_file()
     assert file_path.read_text() == "test"
@@ -156,6 +158,7 @@ def test_load_with_gzipped_file_no_decomp(mocked_s3_download, tmp_path):
 
     mocked_s3_download.side_effect = write_compressed_text
 
+    # TODO(dorotat-nv) remove source="pbss" when NGC resources are available
     file_path = load("foo/baz", resources=get_all_resources(tmp_path), cache_dir=tmp_path, source="pbss")
 
     # Assert the file remained compressed.
@@ -191,6 +194,7 @@ def test_load_with_tar_directory(mocked_s3_download, tmp_path):
 
     mocked_s3_download.side_effect = write_compressed_dir
 
+    # TODO(dorotat-nv) remove source="pbss" when NGC resources are available
     file_path = load("foo/dir", resources=get_all_resources(tmp_path), cache_dir=tmp_path, source="pbss")
     assert file_path.is_dir()
     assert (file_path / "test_file").read_text() == "test"
@@ -224,6 +228,7 @@ def test_load_with_tar_directory_no_unpack(mocked_s3_download, tmp_path):
 
     mocked_s3_download.side_effect = write_tarfile_dir
 
+    # TODO(dorotat-nv) remove source="pbss" when NGC resources are available
     file_path = load("foo/dir", resources=get_all_resources(tmp_path), cache_dir=tmp_path, source="pbss")
 
     # Assert the file stays as a tarfile.
