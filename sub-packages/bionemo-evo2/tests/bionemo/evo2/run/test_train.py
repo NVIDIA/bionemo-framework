@@ -21,10 +21,17 @@ import subprocess
 import sys
 
 import pytest
+import torch
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
+
+from bionemo.evo2.run.train import parse_args, train
+from bionemo.testing.megatron_parallel_state_utils import (
+    distributed_model_parallel_state,
+)
 
 
 @pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+@pytest.mark.slow
 def test_train_evo2_runs(tmp_path, num_steps=5):
     """
     This test runs the `train_evo2` command with mock data in a temporary directory.
@@ -64,3 +71,80 @@ def test_train_evo2_runs(tmp_path, num_steps=5):
     # Assert that the command completed successfully.
     assert "reduced_train_loss:" in result.stdout
     assert result.returncode == 0, "train_evo2 command failed."
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("model_size", ["7b_nv", "7b_arc_longcontext"])
+def test_train_single_gpu(tmp_path, model_size: str):
+    """
+    This test runs them single gpu evo2 training command with sample data in a temporary directory.
+    """
+    num_steps = 5
+    open_port = find_free_network_port()
+    # a local copy of the environment
+    env = dict(**os.environ)
+    env["MASTER_PORT"] = str(open_port)
+
+    additional_args = [
+        "--experiment-dir",
+        str(tmp_path),
+        "--model",
+        model_size,
+        "--num-layers",
+        str(4),
+        "--hybrid-override-pattern",
+        "SDH*",
+        "--no-activation-checkpointing",
+        "--add-bias-output",
+        "--max-steps",
+        str(num_steps),
+        "--warmup-steps",
+        str(1),
+        "--seq-length",
+        str(128),
+        "--wandb-offline",
+        "--wandb-anonymous",
+        "--mock-data",
+    ]
+    args = parse_args(args=additional_args)
+    with distributed_model_parallel_state():
+        train(args=args)
+
+
+@pytest.mark.slow
+@pytest.mark.distributed
+@pytest.mark.parametrize("model_size", ["7b_nv"])
+@pytest.mark.skip(
+    reason="This tests requires to be run on a multi-gpu machine with torchrun --nproc_per_node=N_GPU -m pytest TEST_NAME"
+)
+def test_train_multi_gpu(tmp_path, model_size: str):
+    """
+    This test runs multi gpu distributed (tensor_model_parallel_size>1) evo2 training with sample data in a temporary directory.
+    """
+    num_steps = 5
+    world_size = torch.cuda.device_count()
+    print(f"Number of GPUs available: {world_size}")
+    if world_size < 2:
+        pytest.fail("This test requires at least 2 GPUs.")
+
+    additional_args = [
+        "--experiment-dir",
+        str(tmp_path),
+        "--model",
+        model_size,
+        "--add-bias-output",
+        "--max-steps",
+        str(num_steps),
+        "--warmup-steps",
+        str(1),
+        "--wandb-offline",
+        "--wandb-anonymous",
+        "--devices",
+        str(world_size),
+        "--tensor-parallel-size",
+        str(world_size),
+    ]
+
+    with distributed_model_parallel_state(devices=world_size, tensor_model_parallel_size=world_size):
+        args = parse_args(args=additional_args)
+        train(args=args)
