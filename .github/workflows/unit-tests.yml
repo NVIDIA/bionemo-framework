@@ -37,12 +37,20 @@ jobs:
       # For `push` events, (i.e., post-merge tests), we run trufflehog on the entire main branch by setting the base to
       # ''. For some reason, the default behavior doesn't work well with the merge_group event, so we need to set these
       # manually.
-      - uses: trufflesecurity/trufflehog@main
+      - name: Run Trufflehog scan (for push to main)
+        id: push_scan
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        uses: trufflesecurity/trufflehog@main
         with:
-          path: ./
-          base: ${{ github.event_name != 'push' && github.event.repository.default_branch || '' }}
+          base: ''
           head: HEAD
-          extra_args: --only-verified
+
+      - name: Run Trufflehog scan (for PRs)
+        if: steps.push_scan.outcome == 'skipped'
+        uses: trufflesecurity/trufflehog@main
+        with:
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
 
   build-bionemo-image:
     needs: pre-commit
