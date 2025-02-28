@@ -51,6 +51,7 @@ script_args:
       seq_len: 1048576
       min_lr: 0.00003
       nodes: 8
+      additional_args: ""
     - config_name: 7b_arc_longcontext
       batch_size: 1
       cp: 2
@@ -58,6 +59,7 @@ script_args:
       seq_len: 1048576
       min_lr: 0.00003
       nodes: 4
+      additional_args: ""
     - config_name: 7b
       batch_size: 2
       cp: 1
