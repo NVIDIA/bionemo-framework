@@ -1,4 +1,4 @@
-scope: perf
+scope: partial-conv
 time_limit: 14400
 script_args:
   # All arguments referenced in the script string must be specified here.
@@ -29,12 +29,15 @@ script_args:
     value: 1
   clip_grad:
     value: 0
+    key_segment: False
   seed:
     value: 3735928559
   lr:
     value: 0.0002
+    key_segment: False
   wd:
     value: 0.1
+    key_segment: False
   products:
     - config_name: 40b
       batch_size: 8
@@ -43,14 +46,15 @@ script_args:
       seq_len: 8192
       min_lr: 0.00002
       nodes: 8
-      additional_args: "--fp8-wgrad"
+      additional_args: "--fp8-wgrad --sequence-parallel"
     - config_name: 40b_arc_longcontext
       batch_size: 1
       cp: 2
-      tp: 64
+      tp: 32
       seq_len: 1048576
       min_lr: 0.00003
       nodes: 8
+      additional_args: "--sequence-parallel"
     - config_name: 7b
       batch_size: 2
       cp: 1
@@ -78,7 +82,6 @@ script: |-
   --tensor-parallel-size=${tp} \
   --context-parallel-size=${cp} \
   --pipeline-model-parallel-size=${pp} \
-  --sequence-parallel \
   --workers 8 \
   --num-nodes=${nodes} \
   --devices=${gpus} \
