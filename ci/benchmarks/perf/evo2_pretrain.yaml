@@ -10,6 +10,9 @@ script_args:
   data_path:
     value: /data/evo2
     key_segment: False
+  additional_args:
+    value: ""
+    key_segment: False
   model:
     value: evo2
   variant:
@@ -18,38 +21,71 @@ script_args:
     value: fp8
   gpus:
     value: 8
-  batch_size:
-    value: 2
   max_steps:
-    value: 100
-  tp:
-    value: 8
-  cp:
-    value: 1
+    value: 200
   pp:
     value: 1
   acc_grad:
     value: 1
+  clip_grad:
+    value: 0
+  seed:
+    value: 3735928559
+  lr:
+    value: 0.0002
+  wd:
+    value: 0.1
   products:
-    - nodes: 1
-      config_name: 7b
-    - nodes: 2
-      config_name: 7b
-    - nodes: 8
-      config_name: 40b
+    - config_name: 40b
+      batch_size: 8
+      cp: 1
+      tp: 8
+      seq_len: 8192
+      min_lr: 0.00002
+      nodes: 8
+      additional_args: "--fp8-wgrad"
+    - config_name: 40b_arc_longcontext
+      batch_size: 1
+      cp: 2
+      tp: 64
+      seq_len: 1048576
+      min_lr: 0.00003
+      nodes: 8
+    - config_name: 7b_arc_longcontext
+      batch_size: 1
+      cp: 2
+      tp: 32
+      seq_len: 1048576
+      min_lr: 0.00003
+      nodes: 4
+    - config_name: 7b
+      batch_size: 2
+      cp: 1
+      tp: 1
+      seq_len: 8192
+      min_lr: 0.00003
+      nodes: 4
+      additional_args: "--fp8-wgrad"
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-evo2/src/bionemo/evo2/run/${variant}.py \
   -d ${workspace}/sub-packages/bionemo-evo2/tests/config/test_dataset_config.yaml \
   --dataset-dir ${data_path} \
   --grad-acc-batches ${acc_grad} \
-  --fp8 \
+  --fp8 ${additional_args} \
   --enable-preemption \
   --ckpt-async-save \
   --use-megatron-comm-overlap-llama3-8k \
-  --seq-length=8192 \
+  --overlap-grad-reduce \
+  --clip-grad=${clip_grad} \
+  --eod-pad-in-loss-mask \
+  --seq-length=${seq_len} \
+  --lr=${lr} \
+  --wd=${wd} \
+  --min-lr=${min_lr} \
   --tensor-parallel-size=${tp} \
   --context-parallel-size=${cp} \
   --pipeline-model-parallel-size=${pp} \
+  --sequence-parallel \
   --workers 8 \
   --num-nodes=${nodes} \
   --devices=${gpus} \
@@ -60,8 +96,8 @@ script: |-
   --log-every-n-steps=50 \
   --val-check-interval=${max_steps} \
   --tflops-callback \
-  --experiment-dir=${tensorboard_dir}/${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+  --experiment-dir=${tensorboard_dir} \
   --wandb-project=${wandb_project_name} \
-  --wandb-group=${model}_${variant}_${config_name}__${target} \
+  --wandb-group=${model}_${variant}_${config_name}__${target}__slen${seq_len} \
   --wandb-job-type=${pipeline_label} \
   --disable-checkpointing;
