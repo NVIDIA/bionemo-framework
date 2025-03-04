@@ -26,10 +26,13 @@ from typing import Literal, Optional
 import nemo.lightning as nl
 import torch
 from lightning.pytorch import LightningDataModule
+from megatron.core import parallel_state
+from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
 from nemo.collections.llm.gpt.model.base import get_batch_on_this_context_parallel_rank, get_packed_seq_params
 from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS, HyenaModel
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning import NeMoLogger
+from nemo.lightning.data import WrappedDataLoader
 from torch import Tensor
 
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
@@ -46,12 +49,20 @@ def parse_args():
 
     ap.add_argument("--fasta", type=Path, required=True, help="Fasta path from which to generate logit predictions.")
     ap.add_argument("--ckpt-dir", type=Path, required=True, help="NeMo2 checkpoint directory for inference.")
+    ap.add_argument("--prepend-bos", action="store_true", help="Prepend BOS token to sequences. Defaults to False.")
     ap.add_argument("--tensor-parallel-size", type=int, default=1, help="Order of tensor parallelism. Defaults to 1.")
     ap.add_argument(
         "--pipeline-model-parallel-size", type=int, default=1, help="Order of pipeline parallelism. Defaults to 1."
     )
     ap.add_argument(
         "--context-parallel-size", type=int, default=1, help="Order of context parallelism. Defaults to 1."
+    )
+    ap.add_argument(
+        "--no-sequence-parallel",
+        action="store_true",
+        help="When using TP, skip sequence parallelism. Otherwise sequence parallelism is used whenever tensor "
+        "parallelism is used. sequence parallelism should save a small amount of GPU memory so it's on"
+        " by default.",
     )
     ap.add_argument("--batch-size", type=int, default=1, help="Batch size for prediction. Defaults to 1.")
     ap.add_argument(
@@ -77,32 +88,126 @@ def parse_args():
         default="torch_dist",
         help="Specify checkpoint format to use. Defaults to 'torch_dist', as 'zarr' is deprecated.",
     )
-
+    ap.add_argument(
+        "--output-log-prob-seqs", action="store_true", help="Output log probability of sequences. Defaults to False."
+    )
+    ap.add_argument(
+        "--log-prob-collapse-option",
+        choices=["sum", "mean"],
+        default="mean",
+        help="How to collapse the log probabilities across the sequence dimension.",
+    )
     return ap.parse_args()
+
+
+def _gather_along_cp_dim(input_, seq_dim: int = 1):
+    """Gather tensors and concatenate along the last dimension."""
+    world_size = parallel_state.get_context_parallel_world_size()
+    # Bypass the function if we are using only 1 GPU.
+    if world_size == 1:
+        return input_
+
+    dim_size = list(input_.size())
+    dim_size[0] = dim_size[0] * world_size
+
+    output = torch.empty(dim_size, dtype=input_.dtype, device=torch.cuda.current_device())
+    torch.distributed.all_gather_into_tensor(
+        output, input_.contiguous(), group=parallel_state.get_tensor_model_parallel_group()
+    )
+    tensor_list = output.chunk(world_size, dim=0)
+    output = torch.cat(tensor_list, dim=seq_dim).contiguous()
+
+    return output
+
+
+def _collect_into_dim(input_: torch.Tensor, dim: int = -1):
+    """Gather tensors and concatenate along the last dimension, assuming the input shape is not split.
+
+    This is needed when there is no sequence parallelism but tensor parallelism is enabled along the last dimension.
+    """
+    world_size = parallel_state.get_tensor_model_parallel_world_size()
+    my_rank = parallel_state.get_tensor_model_parallel_rank()
+    # Bypass the function if we are using only 1 GPU.
+    if world_size == 1:
+        return input_
+    my_chunk_input = input_.chunk(world_size, dim=dim)[my_rank]
+    dim_size = list(my_chunk_input.size())
+    dim_size[0] = dim_size[0] * world_size
+    output = torch.empty(dim_size, dtype=my_chunk_input.dtype, device=torch.cuda.current_device())
+    # Gather all chunks into the 0th dimension of the output tensor.
+    torch.distributed.all_gather_into_tensor(
+        output, my_chunk_input.contiguous(), group=parallel_state.get_tensor_model_parallel_group()
+    )
+    # Split the output tensor back into the original chunks, now synchronized across GPUs that own each chunk.
+    tensor_list = output.chunk(world_size, dim=0)
+    output = torch.cat(tensor_list, dim=dim).contiguous()
+
+    return output
 
 
 class HyenaPredictor(LightningPassthroughPredictionMixin, HyenaModel):
     """A predictor for the Hyena model. This adds in the predict step and the passthrough method."""
+
+    def __init__(
+        self,
+        *args,
+        output_log_prob_seqs: bool = False,
+        log_prob_collapse_option: Literal["sum", "mean"] = "mean",
+        **kwargs,
+    ):
+        """Initialize the predictor with our needs around computing log probabilities."""
+        super().__init__(*args, **kwargs)
+        self.output_log_prob_seqs = output_log_prob_seqs
+        self.log_prob_collapse_option = log_prob_collapse_option
 
     def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """Alias for forward_step, also log the pad mask since sequences may not all have the same length."""
         if len(batch) == 0:
             return
         forward_out = self.forward_step(batch)
-        if isinstance(forward_out, Tensor):
-            return {"token_logits": forward_out, "pad_mask": batch["loss_mask"], "seq_idx": batch["seq_idx"]}
-        return forward_out
+        if not isinstance(forward_out, Tensor):
+            return forward_out
+        # Reminder: the model's predictions for input i land at output i+1. To get everything to align, we prepend the
+        # EOS token to the input sequences and take the outputs for all but the first token.
+        forward_out_tp_gathered = _gather_along_last_dim(forward_out)
+        # else:
+        #     forward_out_tp_gathered = _collect_into_dim(forward_out, dim=-1)
+        forward_out_gathered = _gather_along_cp_dim(forward_out_tp_gathered)
+        assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1]
+        if self.output_log_prob_seqs:
+            softmax_logprobs = torch.log_softmax(forward_out_gathered, dim=-1)
+            softmax_logprobs = softmax_logprobs[:, :-1]
+            input_ids = batch["tokens"][:, 1:]
+            assert softmax_logprobs.shape[1] == input_ids.shape[1]
+
+            logprobs = torch.gather(
+                softmax_logprobs,  # Gather likelihoods...
+                2,  # along the vocab dimension...
+                input_ids.unsqueeze(-1),  # using the token ids to index.
+            ).squeeze(-1)
+            log_prob_seqs = torch.sum(logprobs * batch["loss_mask"][:, 1:].float(), dim=-1)
+            if self.log_prob_collapse_option == "mean":
+                log_prob_seqs = log_prob_seqs / (batch["loss_mask"][:, 1:].float().sum(dim=-1) + 1e-8)
+            return {"log_probs_seqs": log_prob_seqs.cpu(), "seq_idx": batch["seq_idx"].cpu()}
+        else:
+            # If the user wants to match back to logits, then they will need to do the offsetting logic themselves.
+            return {
+                "token_logits": forward_out_gathered.cpu(),
+                "pad_mask": batch["loss_mask"].cpu(),
+                "seq_idx": batch["seq_idx"].cpu(),
+            }
 
 
 class SimpleFastaDataset(torch.utils.data.Dataset):
     """A simple dataset for Evo2 prediction."""
 
-    def __init__(self, fasta_path: Path, tokenizer):
+    def __init__(self, fasta_path: Path, tokenizer, prepend_bos: bool = True):
         """Initialize the dataset."""
         super().__init__()
         self.fasta = NvFaidx(fasta_path)
-        self.seqids = list(self.fasta.keys())
+        self.seqids = sorted(self.fasta.keys())
         self.tokenizer = tokenizer
+        self.prepend_bos = prepend_bos  # needed for getting predictions for the requested set of tokens.
 
     def write_idx_map(self, output_dir: Path):
         """Write the index map to the output directory."""
@@ -116,12 +221,22 @@ class SimpleFastaDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         """Get an item from the dataset."""
         sequence = self.fasta[self.seqids[idx]].sequence().upper()
-        tokens: list[int] = self.tokenizer.text_to_ids(sequence)
+        tokenized_seq = self.tokenizer.text_to_ids(sequence)
+        if self.prepend_bos:  # in pretraining we use EOS to start new sequences.
+            tokens: list[int] = [self.tokenizer.eod] + tokenized_seq
+        else:
+            tokens: list[int] = tokenized_seq
+        loss_mask = torch.ones_like(torch.tensor(tokens, dtype=torch.long), dtype=torch.long)
+        if self.prepend_bos:
+            loss_mask[0] = (
+                0  # mask the eos token which we use for causal offsetting. Later in predict we take the output
+            )
+            #  for the first [:-1] tokens which align with the sequence starting after the EOS.
         return {
             "tokens": torch.tensor(tokens, dtype=torch.long),
             "position_ids": torch.arange(len(tokens), dtype=torch.long),
             "seq_idx": torch.tensor(idx, dtype=torch.long),
-            "loss_mask": torch.ones_like(torch.tensor(tokens, dtype=torch.long), dtype=torch.long),
+            "loss_mask": loss_mask,
         }
 
 
@@ -211,7 +326,15 @@ class PredictDataModule(LightningDataModule):
 
     def predict_dataloader(self):
         """Create a dataloader for prediction."""
-        return torch.utils.data.DataLoader(self.dataset, batch_size=self.batch_size, shuffle=False)
+        # need to use this to communicate that we are in predict mode and safe to not drop last batch
+        return WrappedDataLoader(
+            mode="predict",
+            dataset=self.dataset,
+            batch_size=self.batch_size,
+            num_workers=8,
+            shuffle=False,
+            drop_last=False,
+        )
 
 
 def predict(
@@ -226,6 +349,10 @@ def predict(
     fp8: bool = False,
     work_dir: Path | None = None,
     batch_size: int = 1,
+    output_log_prob_seqs: bool = False,
+    log_prob_collapse_option: Literal["sum", "mean"] = "mean",
+    prepend_bos: bool = False,
+    no_sequence_parallel: bool = False,
 ):
     """Inference workflow for Evo2.
 
@@ -234,6 +361,7 @@ def predict(
     """
     if work_dir is None:
         work_dir = Path(tempfile.mkdtemp())
+    sequence_parallel = tensor_parallel_size > 1 and not no_sequence_parallel
     output_dir.mkdir(parents=True, exist_ok=True)  # Make sure the output directory exists, files will be written here.
     model_parallel_size = tensor_parallel_size * pipeline_model_parallel_size * context_parallel_size
     if model_parallel_size > torch.cuda.device_count():
@@ -246,6 +374,7 @@ def predict(
         accelerator="gpu",
         devices=model_parallel_size,
         strategy=nl.MegatronStrategy(
+            drop_last_batch=False,
             tensor_model_parallel_size=tensor_parallel_size,
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             context_parallel_size=context_parallel_size,
@@ -253,11 +382,12 @@ def predict(
             ckpt_load_optimizer=False,  # Needs to be false for a normal model checkpoint.
             ckpt_save_optimizer=False,
             ckpt_async_save=False,
+            sequence_parallel=tensor_parallel_size > 1 and sequence_parallel,
             save_ckpt_format=ckpt_format,
             ckpt_load_strictness="log_all",
             data_sampler=nl.MegatronDataSampler(
-                micro_batch_size=1,
-                global_batch_size=1,
+                micro_batch_size=batch_size,
+                global_batch_size=batch_size,
                 seq_len=8192,
                 output_log=False,  # this is needed for predict step to work
             ),
@@ -282,7 +412,9 @@ def predict(
         ),
     )
     config = HYENA_MODEL_OPTIONS[model_size](
-        forward_step_fn=hyena_predict_forward_step, data_step_fn=hyena_predict_data_step
+        forward_step_fn=hyena_predict_forward_step,
+        data_step_fn=hyena_predict_data_step,  # , attention_backend=AttnBackend.fused,
+        distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
     )
     trainer.strategy._setup_optimizers = False
 
@@ -296,15 +428,21 @@ def predict(
             path=str(ckpt_dir),  # NeMo expects a string path.
             load_model_state=True,
             load_optim_state=False,
+            load_artifacts=False,
         ),
     )
     tokenizer = get_nmt_tokenizer("byte-level")
-    model = HyenaPredictor(config, tokenizer=tokenizer)
+    model = HyenaPredictor(
+        config,
+        tokenizer=tokenizer,
+        output_log_prob_seqs=output_log_prob_seqs,
+        log_prob_collapse_option=log_prob_collapse_option,
+    )
     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
 
-    dataset = SimpleFastaDataset(fasta_path, tokenizer)
+    dataset = SimpleFastaDataset(fasta_path, tokenizer, prepend_bos=prepend_bos)
     datamodule = PredictDataModule(dataset, batch_size=batch_size)
-    trainer.predict(model, datamodule.predict_dataloader())
+    trainer.predict(model, datamodule=datamodule)
     dataset.write_idx_map(
         output_dir
     )  # Finally write out the index map so we can match the predictions to the original sequences.
@@ -324,6 +462,10 @@ def main():
         ckpt_format=args.ckpt_format,
         fp8=args.fp8,
         batch_size=args.batch_size,
+        output_log_prob_seqs=args.output_log_prob_seqs,
+        log_prob_collapse_option=args.log_prob_collapse_option,
+        prepend_bos=args.prepend_bos,
+        no_sequence_parallel=args.no_sequence_parallel,
     )
 
 

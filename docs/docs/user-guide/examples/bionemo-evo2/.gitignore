@@ -1,0 +1,12 @@
+# ignore temp files made by this tutorial
+# chromosome files
+*.fa
+*.fa.gz
+
+# config files
+*.yaml
+
+# directories
+nemo2_evo2_1b_8k/
+preprocessed_data/
+pretraining_demo/
