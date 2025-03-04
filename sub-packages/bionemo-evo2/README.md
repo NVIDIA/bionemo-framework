@@ -2,6 +2,9 @@
 
 `bionemo-evo2` is a `pip`-installable package that contains **data preprocessing**, **training**, and **inferencing** code for Evo2, a new `Hyena`-based foundation model for genome generation and understanding. Built upon `Megatron-LM` parallelism and `NeMo2` algorithms, `bionemo-evo2` provides the remaining tools necessary to effectively fine-tune the pre-trained Evo2 model checkpoint on user-provided sequences at scale, and generate state-of-the-art life-like DNA sequences from Evo2 for downstream metagenomic tasks.
 
+## Quickstart tutorials
+Please see 
+
 ## Installation
 
 To install this package, execute the following command:
@@ -161,26 +164,34 @@ As in `train_evo2`, `--ckpt-dir` points to the NeMo2 checkpoint directory for Ev
 ## Checkpoint conversion from hugging face to NeMo2
 The following conversion script should work on any savanna formatted arc evo2 checkpoint. Make sure you match up the
 model size with the checkpoint you are converting.
-The pyproject.toml also makes the conversion script available as a command line tool `evo2_convert_to_nemo2`, so you
+The pyproject.toml makes the conversion script available as a command line tool `evo2_convert_to_nemo2`, so you
 can try replacing:
-```bash
-python \
-  sub-packages/bionemo-evo2/src/bionemo/evo2/utils/checkpoint/convert_to_nemo.py \
-  ...
-```
-with:
+
 ```bash
 evo2_convert_to_nemo2 \
   ...
 ```
 
-
+with the following if you want to run with `-m pdb` or something:
 ```bash
 python \
   sub-packages/bionemo-evo2/src/bionemo/evo2/utils/checkpoint/convert_to_nemo.py \
+  ...
+```
+
+### 1b-8k
+
+```bash
+evo2_convert_to_nemo2 \
   --model-path hf://arcinstitute/savanna_evo2_1b_base \
   --model-size 1b --output-dir nemo2_evo2_1b_8k
 ```
+
+This new checkpoint `nemo2_evo2_1b_8k` is ready to go in nemo2 format in downstream pretraining or prediction workflows.
+
+#### Optional steps if you want to register the model with NGC
+
+If you want to register the checkpoint with NGC (typically only NVIDIA employees) then you can do the following.
 
 To create the checkpoint for distribution in NGC, first cd into the checkpiont directory:
 ```bash
@@ -203,29 +214,25 @@ Then register it into the loader for testing purposes by editing
 
 ### 7b-8k
 ```bash
-python \
-  sub-packages/bionemo-evo2/src/bionemo/evo2/utils/checkpoint/convert_to_nemo.py \
+evo2_convert_to_nemo2 \
   --model-path hf://arcinstitute/savanna_evo2_7b_base \
   --model-size 7b --output-dir nemo2_evo2_7b_8k
 ```
 ### 7b-1M
 ```bash
-python \
-  sub-packages/bionemo-evo2/src/bionemo/evo2/utils/checkpoint/convert_to_nemo.py \
+evo2_convert_to_nemo2 \
   --model-path hf://arcinstitute/savanna_evo2_7b \
   --model-size 7b_arc_longcontext --output-dir nemo2_evo2_7b_1m
 ```
 ### 40b-8k
 ```bash
-python \
-  sub-packages/bionemo-evo2/src/bionemo/evo2/utils/checkpoint/convert_to_nemo.py \
+evo2_convert_to_nemo2 \
   --model-path hf://arcinstitute/savanna_evo2_40b_base \
   --model-size 40b --output-dir nemo2_evo2_40b_8k
 ```
 ### 40b-1M
 ```bash
-python \
-  sub-packages/bionemo-evo2/src/bionemo/evo2/utils/checkpoint/convert_to_nemo.py \
+evo2_convert_to_nemo2 \
   --model-path hf://arcinstitute/savanna_evo2_40b \
   --model-size 40b_arc_longcontext --output-dir nemo2_evo2_40b_1m
 ```
