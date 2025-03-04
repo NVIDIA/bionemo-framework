@@ -18,9 +18,12 @@
 
 
 import json
-import torch
 from pathlib import Path
+
+import torch
+
 from bionemo.noodles.nvfaidx import NvFaidx
+
 
 class SimpleFastaDataset(torch.utils.data.Dataset):
     """A simple dataset for Evo2 prediction."""
