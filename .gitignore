@@ -187,7 +187,6 @@ dist/
 coverage.xml
 
 # Jupyter Notebook
-notebooks/
 .ipynb_checkpoints
 
 # System files
