@@ -19,7 +19,7 @@ script_args:
   gpus:
     value: 8
   max_steps:
-    value: 200
+    value: 1000
   pp:
     value: 1
   acc_grad:
@@ -59,6 +59,14 @@ script_args:
       seq_len: 8192
       min_lr: 0.00003
       nodes: 2
+      additional_args: "--fp8-wgrad"
+    - config_name: 7b
+      batch_size: 2
+      cp: 1
+      tp: 1
+      seq_len: 8192
+      min_lr: 0.00003
+      nodes: 1
       additional_args: "--fp8-wgrad"
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-evo2/src/bionemo/evo2/run/${variant}.py \
