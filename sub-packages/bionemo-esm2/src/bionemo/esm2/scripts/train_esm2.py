@@ -265,16 +265,16 @@ def main(
     )
     # Configure the model
     train_metric = None
-    valid_metric = TorchmetricsConfig(
-        class_path="text.Perplexity",
-        task="pretraining",
-        kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX},
-        metric_name="val_ppl",
-    )
-    if tensor_model_parallel_size * pipeline_model_parallel_size > 1 and (
-        train_metric is not None or valid_metric is not None
-    ):
-        raise NotImplementedError("Metric logging under model parallelism is not supported yet.")
+    is_model_parallel = tensor_model_parallel_size * pipeline_model_parallel_size > 1
+    if is_model_parallel:
+        valid_metric = None  # metric logging under model parallelism is not supported yet
+    else:
+        valid_metric = TorchmetricsConfig(
+            class_path="text.Perplexity",
+            task="pretraining",
+            kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX},
+            metric_name="val_ppl",
+        )
 
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
