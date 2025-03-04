@@ -89,12 +89,6 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 
 WORKDIR /workspace/bionemo2
 
-# Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc
-# Removing lm_eval from NeMo https://github.com/NVIDIA/NeMo/blob/1f25d2287cea9d6a936ca7b3672f0d8b7e17d607/requirements/requirements_eval.txt (the only requirement)
-# due to its dependency on sqlitedict
-# TOFIX(remove this line once lm_eval is fixed)
-RUN rm -f  ./3rdpart/NeMo/requirements/requirements_eval.txt
-
 # Install 3rd-party deps and bionemo submodules.
 COPY ./LICENSE /workspace/bionemo2/LICENSE
 COPY ./3rdparty /workspace/bionemo2/3rdparty
@@ -117,6 +111,8 @@ uv pip install --no-build-isolation \
   -r /requirements-cve.txt \
   -r /requirements-test.txt
 
+# Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc
+# The package is a dependency of lm_eval from NeMo requirements_eval.txt
 uv pip uninstall sqlitedict
 
 rm -rf ./3rdparty
