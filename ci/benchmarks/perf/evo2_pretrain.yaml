@@ -36,37 +36,29 @@ script_args:
     value: 0.1
     key_segment: False
   products:
-    - config_name: 40b
-      batch_size: 8
-      cp: 1
-      tp: 8
-      seq_len: 8192
-      min_lr: 0.00002
-      nodes: 8
-      additional_args: "--fp8-wgrad --sequence-parallel"
-    - config_name: 40b_arc_longcontext
-      batch_size: 1
-      cp: 2
-      tp: 32
-      seq_len: 1048576
-      min_lr: 0.00003
-      nodes: 8
-      additional_args: "--sequence-parallel"
     - config_name: 7b_arc_longcontext
       batch_size: 1
       cp: 2
       tp: 16
       seq_len: 1048576
       min_lr: 0.00003
-      nodes: 4
+      nodes: 2
       additional_args: "--sequence-parallel"
+    - config_name: 7b
+      batch_size: 1
+      cp: 2
+      tp: 16
+      seq_len: 1048576
+      min_lr: 0.00003
+      nodes: 2
+      additional_args: "--sequence-parallel --fp8-wgrad"
     - config_name: 7b
       batch_size: 2
       cp: 1
       tp: 1
       seq_len: 8192
       min_lr: 0.00003
-      nodes: 4
+      nodes: 2
       additional_args: "--fp8-wgrad"
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-evo2/src/bionemo/evo2/run/${variant}.py \
