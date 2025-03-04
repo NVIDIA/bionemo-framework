@@ -98,7 +98,7 @@ class TestParallelShortHyenaOperator:
         assert operator.pregate
         assert operator.postgate
         num_weights = sum([p.numel() for p in operator.parameters()])
-        assert num_weights == 6048
+        assert num_weights == 6912 
 
     def test_gpu_forward(self, operator: ParallelShortHyenaOperator):
         device = torch.device("cuda")
