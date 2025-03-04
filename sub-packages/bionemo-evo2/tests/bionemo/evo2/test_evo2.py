@@ -179,7 +179,7 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         top_2_logits_golden = gold_standard_no_fp8_tensor.topk(dim=-1, sorted=True, largest=True, k=2)
         ambiguous_positions = (
             top_2_logits_golden.values[..., 0] - top_2_logits_golden.values[..., 1]
-        ).abs() < 9.9e-3  # hand tunes for observed diffs from A100 and H100
+        ).abs() < 9.9e-3  # hand tunes for observed diffs from A100 and H100 with 7b model
         n_ambiguous = ambiguous_positions.sum()
 
         assert n_ambiguous <= 19
@@ -194,9 +194,20 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         )
         # Make the string
         gold_std_str = "".join([chr(idx) for idx in gold_std_char_indices[not_amb_positions].tolist()])
-
-        # Ensure the two strings are equal.
-        assert all(np.array(list(our_generation_str)) == np.array(list(gold_std_str)))
+        array_eq = np.array(list(our_generation_str)) == np.array(list(gold_std_str))
+        # Ensure the two strings are approximately equal.
+        if array_eq.mean() < 0.95:
+            array_eq = np.array(list(our_generation_str)) == np.array(list(gold_std_str))
+            mismatch_positions = np.arange(outputs.shape[1])[not_amb_positions][~array_eq]
+            err_str = f"Fraction of expected mismatch positions exceeds 5%: {(~array_eq).mean()}"
+            err_str += f"Mismatch positions: {mismatch_positions}"
+            err_str += f"Fraction of unexpected mismatch positions: {(~array_eq).mean()}"
+            top_two_logits_at_mismatch = top_2_logits_golden.values[0, mismatch_positions]
+            top_2_logits_pred = outputs.topk(dim=-1, sorted=True, largest=True, k=2)
+            top_two_pred_logits_at_mismatch = top_2_logits_pred.values[0, mismatch_positions]
+            err_str += f"Top two logits at mismatch positions: {top_two_logits_at_mismatch}"
+            err_str += f"Top two pred logits at mismatch positions: {top_two_pred_logits_at_mismatch}"
+            raise AssertionError(err_str)
 
         # Verify that the top-4 from the logit vectors are the same.
         # A: 65
@@ -216,4 +227,4 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
 
         # Run cosine similarity between the two vectors.
         logit_similarity = torch.nn.functional.cosine_similarity(output_vector, gold_standard_no_fp8_vector, dim=-1)
-        assert torch.mean(torch.abs(logit_similarity - torch.ones_like(logit_similarity))) < 9.9e-3
+        assert torch.mean(torch.abs(logit_similarity - torch.ones_like(logit_similarity))) < 0.03

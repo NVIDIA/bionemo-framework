@@ -91,6 +91,7 @@ class TestParallelShortHyenaOperator:
                 use_fast_causal_conv=False,
                 is_mlp=False,
                 local_init=False,
+                use_conv_bias=False,
             )
 
     def test_initialization(self, operator: ParallelShortHyenaOperator):
@@ -99,6 +100,47 @@ class TestParallelShortHyenaOperator:
         assert operator.postgate
         num_weights = sum([p.numel() for p in operator.parameters()])
         assert num_weights == 6048
+
+    def test_gpu_forward(self, operator: ParallelShortHyenaOperator):
+        device = torch.device("cuda")
+        operator = operator.to(device)
+        batch_size = 2
+        seq_len = 1024
+        g = operator.num_groups
+        dg = operator.group_dim
+
+        x1 = torch.ones((batch_size, seq_len, g, dg), device=device)
+        x2 = torch.ones((batch_size, seq_len, g, dg), device=device)
+        v = torch.ones((batch_size, seq_len, g, dg), device=device)
+
+        output = operator(x1, x2, v)
+        assert output.shape[0] == batch_size
+        assert output.shape[1] == seq_len
+        assert output.shape[2] == operator.hidden_size
+
+
+class TestParallelShortHyenaOperatorWithConvBias:
+    @pytest.fixture
+    def operator(self, transformer_config: TransformerConfig, hyena_config: HyenaConfig) -> ParallelShortHyenaOperator:
+        with megatron_parallel_state_utils.distributed_model_parallel_state():
+            yield ParallelShortHyenaOperator(
+                hidden_size=transformer_config.hidden_size,
+                transformer_config=transformer_config,
+                hyena_config=hyena_config,
+                init_method="small_init",
+                short_conv_class=ParallelCausalDepthwiseConv1d,
+                use_fast_causal_conv=False,
+                is_mlp=False,
+                local_init=False,
+                use_conv_bias=True,
+            )
+
+    def test_initialization(self, operator: ParallelShortHyenaOperator):
+        assert operator.hidden_size == 864
+        assert operator.pregate
+        assert operator.postgate
+        num_weights = sum([p.numel() for p in operator.parameters()])
+        assert num_weights == 6912
 
     def test_gpu_forward(self, operator: ParallelShortHyenaOperator):
         device = torch.device("cuda")
