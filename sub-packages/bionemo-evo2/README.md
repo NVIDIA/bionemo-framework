@@ -3,16 +3,19 @@
 `bionemo-evo2` is a `pip`-installable package that contains **data preprocessing**, **training**, and **inferencing** code for Evo2, a new `Hyena`-based foundation model for genome generation and understanding. Built upon `Megatron-LM` parallelism and `NeMo2` algorithms, `bionemo-evo2` provides the remaining tools necessary to effectively fine-tune the pre-trained Evo2 model checkpoint on user-provided sequences at scale, and generate state-of-the-art life-like DNA sequences from Evo2 for downstream metagenomic tasks.
 
 ## Quickstart tutorials
+
 Please see
 
 ## Installation
 
 To install this package, execute the following command:
+
 ```bash
 pip install -e .
 ```
 
 To run unit tests, execute the following command:
+
 ```bash
 pytest -v .
 ```
@@ -161,7 +164,30 @@ As in `train_evo2`, `--ckpt-dir` points to the NeMo2 checkpoint directory for Ev
 [NeMo I 2025-01-06 17:22:22 infer:102] ['CTCTTCTGGTATTTGG']
 ```
 
+## Prediction
+
+To run a forward pass of the Evo2 model, you can call `predict_evo2`, which processes a batch of sequences and returns either raw token logits or, if `--output-log-prob-seqs` is set, log-probability scores.
+
+For example, to predict the log-probability scores of a batch of sequences saved to `fasta_path`, you can run the following command:
+
+```bash
+predict_evo2 \
+  --fasta <fasta_path> \
+  --ckpt-dir <PATH_TO_CHECKPOINT> \
+  --output-dir <PATH_TO_OUTPUT_FILE> \
+  --model-size 1b \
+  --tensor-parallel-size 1 \
+  ----pipeline-model-parallel-size 1 \
+  --context-parallel-size 1 \
+  --output-log-prob-seqs
+```
+
+An example of using `predict_evo2` for variant effect prediction can be found in our [Evo 2 Zeroshot BRCA1 Notebook](https://docs.nvidia.com/bionemo-framework/latest/user-guide/examples/bionemo-evo2/evo2_zeroshot_brca). This notebook demonstrates how to use Evo2 to predict whether single nucleotide variants (SNVs) in the BRCA1 gene are likely to be harmful to protein function and potentially increase cancer risk, by comparing the model's log probability scores between the reference and variant sequences.
+
+Currently, `predict_evo2` will _not_ work for pre-training or fine-tuning, as that would require: 1) including "labels" in the input and 2) offsetting/rolling either the labels or input_ids to handle the off-by-one token prediction alignment.
+
 ## Checkpoint conversion from hugging face to NeMo2
+
 The following conversion script should work on any savanna formatted arc evo2 checkpoint. Make sure you match up the
 model size with the checkpoint you are converting.
 The pyproject.toml makes the conversion script available as a command line tool `evo2_convert_to_nemo2`, so you
@@ -173,6 +199,7 @@ evo2_convert_to_nemo2 \
 ```
 
 with the following if you want to run with `-m pdb` or something:
+
 ```bash
 python \
   sub-packages/bionemo-evo2/src/bionemo/evo2/utils/checkpoint/convert_to_nemo.py \
@@ -194,17 +221,20 @@ This new checkpoint `nemo2_evo2_1b_8k` is ready to go in nemo2 format in downstr
 If you want to register the checkpoint with NGC (typically only NVIDIA employees) then you can do the following.
 
 To create the checkpoint for distribution in NGC, first cd into the checkpiont directory:
+
 ```bash
 cd nemo2_evo2_1b_8k
 ```
 
 Then run the following command to make a tar of the full directory that gets unpacked into the current directory which
 our NGC loader expects:
+
 ```bash
 tar -czvf ../nemo2_evo2_1b_8k.tar.gz .
 ```
 
 Finally `sha256sum` the tar file to get the checksum:
+
 ```bash
 sha256sum nemo2_evo2_1b_8k.tar.gz
 ```
@@ -213,24 +243,31 @@ Then register it into the loader for testing purposes by editing
 `sub-packages/bionemo-core/src/bionemo/core/data/resources/evo2.yaml`.
 
 ### 7b-8k
+
 ```bash
 evo2_convert_to_nemo2 \
   --model-path hf://arcinstitute/savanna_evo2_7b_base \
   --model-size 7b --output-dir nemo2_evo2_7b_8k
 ```
+
 ### 7b-1M
+
 ```bash
 evo2_convert_to_nemo2 \
   --model-path hf://arcinstitute/savanna_evo2_7b \
   --model-size 7b_arc_longcontext --output-dir nemo2_evo2_7b_1m
 ```
+
 ### 40b-8k
+
 ```bash
 evo2_convert_to_nemo2 \
   --model-path hf://arcinstitute/savanna_evo2_40b_base \
   --model-size 40b --output-dir nemo2_evo2_40b_8k
 ```
+
 ### 40b-1M
+
 ```bash
 evo2_convert_to_nemo2 \
   --model-path hf://arcinstitute/savanna_evo2_40b \
