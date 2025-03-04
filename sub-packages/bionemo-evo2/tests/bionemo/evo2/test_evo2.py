@@ -36,6 +36,7 @@ from bionemo.llm.utils.weight_utils import (
     _munge_sharded_tensor_key_megatron_to_nemo2,
 )
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
+from bionemo.testing.torch import check_fp8_support
 
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,87 @@ def test_golden_values_top_k_logits_and_cosine_similarity(seq_len: int):
         attention_mask = None
         outputs = model(input_ids=input_ids, position_ids=position_ids, attention_mask=attention_mask)
         gold_standard_no_fp8_tensor = torch.load(gold_standard_no_fp8).to(device=outputs.device, dtype=outputs.dtype)
+        is_fp8_supported, compute_capability, device_info = check_fp8_support(device.index)
+        if is_fp8_supported:
+            # Most rigurous assertion for output equivalence currently works on devices that are new enough to
+            #  support FP8.
+            logger.info(f"Device {device_info} ({compute_capability}) supports FP8. Running most rigurous assertion.")
+            torch.testing.assert_close(outputs, gold_standard_no_fp8_tensor)
+        else:
+            logger.info(
+                f"Device {device_info} ({compute_capability}) does not support FP8. Running less rigurous assertions."
+            )
+        top_2_logits_golden = gold_standard_no_fp8_tensor.topk(dim=-1, sorted=True, largest=True, k=2)
+        ambiguous_positions = (
+            top_2_logits_golden.values[..., 0] - top_2_logits_golden.values[..., 1]
+        ).abs() < 9.9e-3  # hand tunes for observed diffs from A100 and H100
+        n_ambiguous = ambiguous_positions.sum()
 
+        assert n_ambiguous <= 19
+
+        our_char_indices = outputs.softmax(dim=-1).argmax(dim=-1).flatten().detach().cpu().numpy()
+        not_amb_positions = ~ambiguous_positions.flatten().cpu().numpy()
+        # Generate our string, removing the ambiguous positions.
+        our_generation_str = "".join([chr(idx) for idx in our_char_indices[not_amb_positions].tolist()])
+        # Do the same to the golden values
+        gold_std_char_indices = (
+            gold_standard_no_fp8_tensor.softmax(dim=-1).argmax(dim=-1).flatten().detach().cpu().numpy()
+        )
+        # Make the string
+        gold_std_str = "".join([chr(idx) for idx in gold_std_char_indices[not_amb_positions].tolist()])
+
+        # Ensure the two strings are equal.
+        assert all(np.array(list(our_generation_str)) == np.array(list(gold_std_str)))
+
+        # Verify that the top-4 from the logit vectors are the same.
+        # A: 65
+        # C: 67
+        # G: 71
+        # T: 84
+        # Find the corresponding ATGC and compare the two vectors with those four values.
+        # Ensures that the top 4 ascii characters of the output are ACGT.
+        top_4_inds = outputs.topk(dim=-1, sorted=False, largest=True, k=4)
+        assert set(top_4_inds.indices.flatten().cpu().numpy().tolist()).issubset((65, 67, 71, 84))
+        output_vector = outputs[0, -1, top_4_inds.indices]
+
+        # Then its the top 4 indices of the gold standard tensor
+        top_4_inds_golden = gold_standard_no_fp8_tensor.topk(dim=-1, sorted=False, largest=True, k=4)
+        assert set(top_4_inds_golden.indices.flatten().cpu().numpy().tolist()).issubset((65, 67, 71, 84))
+        gold_standard_no_fp8_vector = gold_standard_no_fp8_tensor[0, -1, top_4_inds_golden.indices]
+
+        # Run cosine similarity between the two vectors.
+        logit_similarity = torch.nn.functional.cosine_similarity(output_vector, gold_standard_no_fp8_vector, dim=-1)
+        assert torch.mean(torch.abs(logit_similarity - torch.ones_like(logit_similarity))) < 9.9e-3
+
+
+@pytest.mark.slow
+def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_192):
+    try:
+        evo2_7b_checkpoint_weights: Path = load("evo2/7b-8k-zarr:1.0") / "weights"
+        gold_standard_no_fp8 = load("evo2/7b-8k-nofp8-te-goldvalue-testdata:1.0")
+    except ValueError as e:
+        if e.args[0].endswith("does not have an NGC URL."):
+            raise ValueError(
+                "Please re-run test with `BIONEMO_DATA_SOURCE=pbss py.test ...`, "
+                "one or more files are missing from ngc."
+            )
+        else:
+            raise e
+    with distributed_model_parallel_state(), torch.no_grad():
+        hyena_config = llm.Hyena1bConfig(use_te=True, seq_length=seq_len)
+        tokenizer = get_nmt_tokenizer(
+            "byte-level",
+        )
+        raw_megatron_model = hyena_config.configure_model(tokenizer).eval().cuda()
+        device = raw_megatron_model.parameters().__next__().device
+        load_weights_sharded_inplace_nemo2_to_mcore(raw_megatron_model, evo2_7b_checkpoint_weights, {}, "zarr")
+        model = Float16Module(hyena_config, raw_megatron_model)
+        input_seq = "GAAATTAGCGCGTCCGGAATGATACGAGGGGAAACGAAATTTTGAATTAATGGAGAAAAAAGACGAGAAACCTTAAGCAAAAAAATTTTAGCTTCGAATATTTATTAATTTCTGAGATGTTGTTAAACGATTTTCGATTCCAAGTTGTGCGCACGAACGTTATTGCAAATAAATGCTGCTTATTCGGATGTTTCCACGATCTTTGTTGCAATGGTAGTCGAGTACCCGATAACCCAATTTCGTTACATCGGCCTATCTGTAGAATATCCAATCTATGGTTCATAAAAAATCTGATCGTTTGTTTTTAAGAAATTAAACGCGTTAAATTGAACGAATTTCGAATACCGGTCTTAGCGAAGGACCTCCCCTCTTGCTTGCGTATTGCCCCGCGAAATTTCTTTTCGGCGATGAACGATACAAAAAATTCTATCGAATGTTACTTCTATTCTCTGCCTCGTCTATGACTTGGAGATTGGTCTATGTCGTTCGTTTTCTCGCGAGTTTCCAATATGTCCGTAGTATGTGAACGCTGGTATTCGTGAAGATAAATTATTGTTTTTACAATTTCTTTCAAAAATATATAATTTTAATTTATATAAT"
+        input_ids = torch.tensor(tokenizer.text_to_ids(input_seq)).int().unsqueeze(0).to(device)
+        position_ids = torch.arange(len(input_seq)).unsqueeze(0).to(device)
+        attention_mask = None
+        outputs = model(input_ids=input_ids, position_ids=position_ids, attention_mask=attention_mask)
+        gold_standard_no_fp8_tensor = torch.load(gold_standard_no_fp8).to(device=outputs.device, dtype=outputs.dtype)
         top_2_logits_golden = gold_standard_no_fp8_tensor.topk(dim=-1, sorted=True, largest=True, k=2)
         ambiguous_positions = (
             top_2_logits_golden.values[..., 0] - top_2_logits_golden.values[..., 1]
