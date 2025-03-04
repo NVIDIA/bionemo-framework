@@ -18,7 +18,7 @@ repos:
     hooks:
       - id: detect-secrets
         name: detect-secrets (everything but notebooks)
-        args: ['--baseline', '.secrets.baseline', '--exclude-files', '(.*\.ipynb|.*\.baseline|.*\.fasta)$', ]
+        args: ['--baseline', '.secrets.baseline', '--exclude-files', '(.*\.ipynb|.*\.baseline)$', ]
         exclude: package.lock.json
       - id: detect-secrets
         name: detect-secrets (notebooks only)
