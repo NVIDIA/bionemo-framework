@@ -18,7 +18,6 @@
 
 
 import argparse
-import json
 import tempfile
 from pathlib import Path
 from typing import Literal, Optional
@@ -35,9 +34,9 @@ from nemo.lightning import NeMoLogger
 from nemo.lightning.data import WrappedDataLoader
 from torch import Tensor
 
+from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.utils.callbacks import PredictionWriter
-from bionemo.noodles.nvfaidx import NvFaidx
 
 
 CheckpointFormats = Literal["torch_dist", "zarr"]
@@ -177,48 +176,6 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, HyenaModel):
                 "pad_mask": batch["loss_mask"].cpu(),
                 "seq_idx": batch["seq_idx"].cpu(),
             }
-
-
-class SimpleFastaDataset(torch.utils.data.Dataset):
-    """A simple dataset for Evo2 prediction."""
-
-    def __init__(self, fasta_path: Path, tokenizer, prepend_bos: bool = True):
-        """Initialize the dataset."""
-        super().__init__()
-        self.fasta = NvFaidx(fasta_path)
-        self.seqids = sorted(self.fasta.keys())
-        self.tokenizer = tokenizer
-        self.prepend_bos = prepend_bos  # needed for getting predictions for the requested set of tokens.
-
-    def write_idx_map(self, output_dir: Path):
-        """Write the index map to the output directory."""
-        with open(output_dir / "seq_idx_map.json", "w") as f:
-            json.dump({seqid: idx for idx, seqid in enumerate(self.seqids)}, f)
-
-    def __len__(self):
-        """Get the length of the dataset."""
-        return len(self.seqids)
-
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        """Get an item from the dataset."""
-        sequence = self.fasta[self.seqids[idx]].sequence().upper()
-        tokenized_seq = self.tokenizer.text_to_ids(sequence)
-        if self.prepend_bos:  # in pretraining we use EOS to start new sequences.
-            tokens: list[int] = [self.tokenizer.eod] + tokenized_seq
-        else:
-            tokens: list[int] = tokenized_seq
-        loss_mask = torch.ones_like(torch.tensor(tokens, dtype=torch.long), dtype=torch.long)
-        if self.prepend_bos:
-            loss_mask[0] = (
-                0  # mask the eos token which we use for causal offsetting. Later in predict we take the output
-            )
-            #  for the first [:-1] tokens which align with the sequence starting after the EOS.
-        return {
-            "tokens": torch.tensor(tokens, dtype=torch.long),
-            "position_ids": torch.arange(len(tokens), dtype=torch.long),
-            "seq_idx": torch.tensor(idx, dtype=torch.long),
-            "loss_mask": loss_mask,
-        }
 
 
 def hyena_predict_forward_step(model, batch) -> torch.Tensor:
