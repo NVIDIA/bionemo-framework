@@ -117,6 +117,8 @@ uv pip install --no-build-isolation \
   -r /requirements-cve.txt \
   -r /requirements-test.txt
 
+uv pip uninstall sqlitedict
+
 rm -rf ./3rdparty
 rm -rf /tmp/*
 rm -rf ./sub-packages/bionemo-noodles/target
