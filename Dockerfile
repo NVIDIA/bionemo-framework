@@ -111,6 +111,10 @@ uv pip install --no-build-isolation \
   -r /requirements-cve.txt \
   -r /requirements-test.txt
 
+# Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc
+# The package is a dependency of lm_eval from NeMo requirements_eval.txt
+uv pip uninstall sqlitedict
+
 rm -rf ./3rdparty
 rm -rf /tmp/*
 rm -rf ./sub-packages/bionemo-noodles/target
