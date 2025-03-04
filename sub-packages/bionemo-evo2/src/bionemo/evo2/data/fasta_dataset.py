@@ -23,7 +23,12 @@ from pathlib import Path
 from bionemo.noodles.nvfaidx import NvFaidx
 
 class SimpleFastaDataset(torch.utils.data.Dataset):
-    """A simple dataset for Evo2 prediction."""
+    """A simple dataset for Evo2 prediction.
+    
+    Currently, this will not work for pre-training or fine-tuning, as that would require:
+    1) including "labels" in the input and 2) offsetting/rolling either the labels or
+    input_ids to handle the off-by-one token prediction alignment.
+    """
 
     def __init__(self, fasta_path: Path, tokenizer, prepend_bos: bool = True):
         """Initialize the dataset."""

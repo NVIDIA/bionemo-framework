@@ -184,8 +184,6 @@ predict_evo2 \
 
 An example of using `predict_evo2` for variant effect prediction can be found in our [Evo 2 Zeroshot BRCA1 Notebook](https://docs.nvidia.com/bionemo-framework/latest/user-guide/examples/bionemo-evo2/evo2_zeroshot_brca). This notebook demonstrates how to use Evo2 to predict whether single nucleotide variants (SNVs) in the BRCA1 gene are likely to be harmful to protein function and potentially increase cancer risk, by comparing the model's log probability scores between the reference and variant sequences.
 
-Currently, `predict_evo2` will _not_ work for pre-training or fine-tuning, as that would require: 1) including "labels" in the input and 2) offsetting/rolling either the labels or input_ids to handle the off-by-one token prediction alignment.
-
 ## Checkpoint conversion from hugging face to NeMo2
 
 The following conversion script should work on any savanna formatted arc evo2 checkpoint. Make sure you match up the
