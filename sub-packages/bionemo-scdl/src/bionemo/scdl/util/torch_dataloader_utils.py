@@ -29,7 +29,7 @@ def collate_sparse_matrix_batch(batch: tuple) -> torch.Tensor:
     Returns:
         The tensors collated into a CSR (Compressed Sparse Row) Format.
     """
-    # evey batch is a tuple of (sparse_matrix, n_features)
+    # every batch is a tuple of (sparse_matrix, n_features)
     # we use the first batch to get the number of features
     n_features = batch[0][1][0]
     batch = [x[0] for x in batch]
