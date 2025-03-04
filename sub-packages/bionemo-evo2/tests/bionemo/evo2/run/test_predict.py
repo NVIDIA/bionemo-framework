@@ -30,7 +30,7 @@ from bionemo.noodles.nvfaidx import NvFaidx
 from bionemo.testing.data.fasta import ALU_SEQUENCE, create_fasta_file
 
 
-def test_train_evo2_runs(
+def test_predict_evo2_runs(
     tmp_path, num_sequences: int = 5, target_sequence_lengths: list[int] = [3149, 3140, 1024, 3149, 3149]
 ):
     """
