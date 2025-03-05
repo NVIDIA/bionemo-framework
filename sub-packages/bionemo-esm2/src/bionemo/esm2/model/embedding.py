@@ -44,7 +44,7 @@ class ESM2Embedding(LanguageModelEmbedding):
         # ESM2 NEW ARGS
         token_dropout: bool = True,
         use_attention_mask: bool = True,
-        mask_token_id: Optional[int] = torch.nan,
+        mask_token_id: Optional[int] = None,
     ) -> None:
         """Initialize the ESM2 Embedding module."""
         super().__init__(
@@ -65,7 +65,7 @@ class ESM2Embedding(LanguageModelEmbedding):
 
     def _apply_esm2_customization(
         self, word_embeddings: Tensor, input_ids: Tensor, attention_mask: Tensor
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> Tuple[Tensor, Tensor | None]:
         """ESM2 customization for attention masking and token dropout.
 
         Args:
@@ -95,7 +95,7 @@ class ESM2Embedding(LanguageModelEmbedding):
         self,
         input_ids: Tensor,
         position_ids: Tensor,
-        tokentype_ids: Optional[int] = None,
+        tokentype_ids: Optional[Tensor] = None,
         attention_mask: Optional[Tensor] = None,
     ) -> Tensor:
         """Forward pass of the embedding module.
@@ -103,7 +103,7 @@ class ESM2Embedding(LanguageModelEmbedding):
         Args:
             input_ids (Tensor): The input tokens. Shape: [b, s]
             position_ids (Tensor): The position id's used to calculate position embeddings. Shape: [b, s]
-            tokentype_ids (int, optional): The token type ids. Used when args.bert_binary_head is set to True. Defaults to None
+            tokentype_ids (Tensor, optional): The token type ids. Used when args.bert_binary_head is set to True. Defaults to None
             attention_mask (Tensor): attention mask. Shape: [b, s]
 
         Returns:
