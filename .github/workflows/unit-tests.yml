@@ -137,7 +137,9 @@ jobs:
           (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_SLOW_TESTS'))
         env:
           BIONEMO_DATA_SOURCE: ngc
-        run: ./ci/scripts/run_pytest.sh --no-nbval --only-slow
+        # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
+        #  to run package by package like we do with the fast tests.
+        run: ./ci/scripts/run_pytest.sh --no-nbval --only-slow --allow-no-tests
 
       - name: Run notebook tests
         if: |
