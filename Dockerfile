@@ -5,8 +5,12 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.02-py3
 
+
+######################################################################################################################
+#   DOCKER STAGE BREAK
+######################################################################################################################
 FROM rust:1.82.0 AS rust-env
 
 RUN rustup set profile minimal && \
@@ -14,6 +18,9 @@ RUN rustup set profile minimal && \
   rustup target add x86_64-unknown-linux-gnu && \
   rustup default 1.82.0
 
+######################################################################################################################
+#   DOCKER STAGE BREAK
+######################################################################################################################
 FROM ${BASE_IMAGE} AS bionemo2-base
 
 # Install core apt packages.
@@ -35,14 +42,6 @@ apt-get upgrade -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
-# Reinstall TE to avoid debugpy bug in vscode: https://nvbugspro.nvidia.com/bug/5078830
-# Pull the latest TE version from https://github.com/NVIDIA/TransformerEngine/releases
-# Use the version that matches the pytorch base container.
-ARG TE_TAG=v1.13
-RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
-  pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
-
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
 RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
@@ -50,7 +49,7 @@ RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-di
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.2.2
+  git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
 RUN pip install hatchling   # needed to install nemo-run
 ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
@@ -120,6 +119,9 @@ rm -rf /tmp/*
 rm -rf ./sub-packages/bionemo-noodles/target
 EOF
 
+######################################################################################################################
+#   DOCKER STAGE BREAK
+######################################################################################################################
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
 # base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
 # they can be installed in an editable fashion from the workspace directory. This lets us install all the package
@@ -188,6 +190,10 @@ EOF
 # FIXME the following result in unstable training curves even if they are faster
 #  see https://github.com/NVIDIA/bionemo-framework/pull/421
 #ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
+
+######################################################################################################################
+#   DOCKER STAGE BREAK
+######################################################################################################################
 FROM dev AS development
 
 WORKDIR /workspace/bionemo2
@@ -217,6 +223,13 @@ ARG USERNAME=ubuntu
 RUN chown $USERNAME:$USERNAME -R /workspace/bionemo2/
 USER $USERNAME
 
+# This is required to turn off some NCCL plugins that have some strange
+# interactions with RDMA. To be fixed in the future.
+ENV NCCL_NET_PLUGIN=none
+
+######################################################################################################################
+#   DOCKER STAGE BREAK
+######################################################################################################################
 # The 'release' target needs to be last so that it's the default build target. In the future, we could consider a setup
 # similar to the devcontainer above, where we copy the dist-packages folder from the build image into the release image.
 # This would reduce the overall image size by reducing the number of intermediate layers. In the meantime, we match the
@@ -238,6 +251,10 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
 RUN chmod 777 -R /workspace/bionemo2/
+
+# This is required to turn off some NCCL plugins that have some strange
+# interactions with RDMA. To be fixed in the future.
+ENV NCCL_NET_PLUGIN=none
 
 # Transformer engine attention defaults
 # We have to declare this again because the devcontainer splits from the release image's base.
