@@ -9,7 +9,7 @@ on:
   merge_group:
     types: [checks_requested]
   schedule:
-    - cron: '0 7 * * *' # Runs at 7 AM UTC daily (12 AM MST)
+    - cron: "0 7 * * *" # Runs at 7 AM UTC daily (12 AM MST)
 
 defaults:
   run:
@@ -33,24 +33,6 @@ jobs:
           cache: "pip"
       - run: pip install -r requirements-dev.txt
       - run: ./ci/scripts/static_checks.sh
-      # For pull requests and merge_group events, trufflehog only runs on the diff between the base and head branches.
-      # For `push` events, (i.e., post-merge tests), we run trufflehog on the entire main branch by setting the base to
-      # ''. For some reason, the default behavior doesn't work well with the merge_group event, so we need to set these
-      # manually.
-      - name: Run Trufflehog scan (for push to main)
-        id: push_scan
-        if: github.event_name == 'push' || github.event_name == 'schedule'
-        uses: trufflesecurity/trufflehog@main
-        with:
-          base: ''
-          head: HEAD
-
-      - name: Run Trufflehog scan (for PRs)
-        if: steps.push_scan.outcome == 'skipped'
-        uses: trufflesecurity/trufflehog@main
-        with:
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
 
   build-bionemo-image:
     needs: pre-commit
@@ -177,6 +159,5 @@ jobs:
     steps:
       - name: clean up image
         run: docker rmi nemoci.azurecr.io/bionemo:${{ github.run_id }}
-
 # TODO: exclude tests from base image; run tests from github workspace mounted in the image.
 # TODO: figure out way of cleaning up working directory (requires sudo or for us to fix file ownership from release container)
