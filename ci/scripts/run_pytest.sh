@@ -50,6 +50,7 @@ declare -a coverage_files
 SKIP_DOCS=false
 NO_NBVAL=false
 SKIP_SLOW=false
+ONLY_SLOW=false
 error=false
 
 # Parse command line arguments
@@ -58,6 +59,7 @@ while (( $# > 0 )); do
         --skip-docs) SKIP_DOCS=true ;;
         --no-nbval) NO_NBVAL=true ;;
         --skip-slow) SKIP_SLOW=true ;;
+        --only-slow) ONLY_SLOW=true ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1" >&2; usage 1 ;;
     esac
@@ -85,6 +87,7 @@ PYTEST_OPTIONS=(
 )
 [[ "$NO_NBVAL" != true ]] && PYTEST_OPTIONS+=(--nbval-lax)
 [[ "$SKIP_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "not slow")
+[[ "$ONLY_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "slow")
 
 # Define test directories
 TEST_DIRS=(./sub-packages/bionemo-*/)
