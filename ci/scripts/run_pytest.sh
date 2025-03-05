@@ -101,7 +101,7 @@ fi
 
 echo "Test directories: ${TEST_DIRS[*]}"
 
-pyclean() {
+clean_pycache() {
     # Use the provided base directory or default to current directory
     local base_dir="${1:-.}"
     echo "Cleaning Python cache files in $base_dir..."
@@ -111,19 +111,22 @@ pyclean() {
 # Run tests with coverage
 for dir in "${TEST_DIRS[@]}"; do
     echo "Running pytest in $dir"
-    if ! pytest "${PYTEST_OPTIONS[@]}" --junitxml=$(basename $dir).junit.xml -o junit_family=legacy "$dir"; then
-        exit_code=$?  # get error code
+    # Run pytest but don't exit on failure - we'll handle the exit code separately. This is needed because our script is
+    #  running in pipefail mode and pytest will exit with a non-zero exit code if it finds no tests.
+    { pytest "${PYTEST_OPTIONS[@]}" --junitxml=$(basename $dir).junit.xml -o junit_family=legacy "$dir"; exit_code=$?; } || true
+
+    if [[ $exit_code -ne 0 ]]; then
         if [[ "$ALLOW_NO_TESTS" == true && $exit_code -eq 5 ]]; then
             # Exit code 5 means no tests found, which is allowed if --allow-no-tests is set
-            echo "No tests found in $dir"
-            continue
+            echo "No tests found in $dir (exit code $exit_code) - continuing as --allow-no-tests is set"
         else
             echo "Error: pytest failed with exit code $exit_code"
             error=true
         fi
     fi
+
     # Avoid duplicated pytest cache filenames.
-    pyclean "$dir"
+    clean_pycache "$dir"
 done
 
 # Exit with appropriate status

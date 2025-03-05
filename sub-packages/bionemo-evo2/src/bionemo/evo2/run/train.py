@@ -130,9 +130,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Faster option that is maybe less accurate (TBD) when using fp8.",
     )
-    parser.add_argument(
-        "--no-aligned-megatron-ddp", action="store_true", default=False, help="Do not do aligned gradient updates etc."
-    )
     parser.add_argument("--use-megatron-comm-overlap-llama3-8k", action="store_true", default=False)
     parser.add_argument(
         "--tp-comm-overlap-backend",
