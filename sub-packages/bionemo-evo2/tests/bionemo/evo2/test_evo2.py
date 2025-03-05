@@ -178,10 +178,13 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         outputs = model(input_ids=input_ids, position_ids=position_ids, attention_mask=attention_mask)
         gold_standard_no_fp8_tensor = torch.load(gold_standard_no_fp8).to(device=outputs.device, dtype=outputs.dtype)
         is_fp8_supported, compute_capability, device_info = check_fp8_support(device.index)
-        if is_fp8_supported:
+        if is_fp8_supported and compute_capability == "9.0":
             # Most rigurous assertion for output equivalence currently works on devices that are new enough to
             #  support FP8.
-            logger.info(f"Device {device_info} ({compute_capability}) supports FP8. Running most rigurous assertion.")
+            logger.info(
+                f"Device {device_info} ({compute_capability}) supports FP8 with 9.0 compute capability, the "
+                "same configuration as the gold standard was generated with. Running most rigurous assertion."
+            )
             torch.testing.assert_close(outputs, gold_standard_no_fp8_tensor)
         else:
             logger.info(
