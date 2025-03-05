@@ -18,6 +18,21 @@ import numpy as np
 import torch
 
 
+def check_fp8_support(device_id: int = 0) -> tuple[bool, str, str]:
+    """Check if FP8 is supported on the current GPU.
+
+    FP8 requires compute capability 8.9+ (Ada Lovelace/Hopper architecture or newer).
+    """
+    if not torch.cuda.is_available():
+        return False, "0.0", "CUDA not available"
+    device_props = torch.cuda.get_device_properties(device_id)
+    compute_capability = f"{device_props.major}.{device_props.minor}"
+    device_name = device_props.name
+    # FP8 is supported on compute capability 8.9+ (Ada Lovelace/Hopper architecture)
+    is_supported = (device_props.major > 8) or (device_props.major == 8 and device_props.minor >= 9)
+    return is_supported, compute_capability, f"Device: {device_name}, Compute Capability: {compute_capability}"
+
+
 def recursive_detach(x):
     """Detach all tensors in a nested structure."""
     if isinstance(x, torch.Tensor):

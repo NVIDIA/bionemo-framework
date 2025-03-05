@@ -11,6 +11,7 @@ exclude = [
 source_roots = [
     "sub-packages/bionemo-core/src",
     "sub-packages/bionemo-esm2/src",
+    "sub-packages/bionemo-evo2/src",
     "sub-packages/bionemo-example_model/src",
     "sub-packages/bionemo-fw/src",
     "sub-packages/bionemo-geneformer/src",
@@ -29,6 +30,14 @@ depends_on = []
 [[modules]]
 path = "bionemo.esm2"
 depends_on = [
+    "bionemo.core",
+    "bionemo.llm",
+]
+
+[[modules]]
+path = "bionemo.evo2"
+depends_on = [
+    "bionemo.noodles",
     "bionemo.core",
     "bionemo.llm",
 ]
