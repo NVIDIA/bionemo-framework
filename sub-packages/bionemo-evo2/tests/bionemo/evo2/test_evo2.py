@@ -152,7 +152,7 @@ def test_golden_values_top_k_logits_and_cosine_similarity(seq_len: int):
 @pytest.mark.slow
 def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_192):
     try:
-        evo2_7b_checkpoint_weights: Path = load("evo2/7b-8k-zarr:1.0") / "weights"
+        evo2_7b_checkpoint_weights: Path = load("evo2/7b-8k:1.0") / "weights"
         gold_standard_no_fp8 = load("evo2/7b-8k-nofp8-te-goldvalue-testdata:1.0")
     except ValueError as e:
         if e.args[0].endswith("does not have an NGC URL."):
@@ -169,7 +169,7 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         )
         raw_megatron_model = hyena_config.configure_model(tokenizer).eval().cuda()
         device = raw_megatron_model.parameters().__next__().device
-        load_weights_sharded_inplace_nemo2_to_mcore(raw_megatron_model, evo2_7b_checkpoint_weights, {}, "zarr")
+        load_weights_sharded_inplace_nemo2_to_mcore(raw_megatron_model, evo2_7b_checkpoint_weights, {}, "torch_dist")
         model = Float16Module(hyena_config, raw_megatron_model)
         input_seq = "GAAATTAGCGCGTCCGGAATGATACGAGGGGAAACGAAATTTTGAATTAATGGAGAAAAAAGACGAGAAACCTTAAGCAAAAAAATTTTAGCTTCGAATATTTATTAATTTCTGAGATGTTGTTAAACGATTTTCGATTCCAAGTTGTGCGCACGAACGTTATTGCAAATAAATGCTGCTTATTCGGATGTTTCCACGATCTTTGTTGCAATGGTAGTCGAGTACCCGATAACCCAATTTCGTTACATCGGCCTATCTGTAGAATATCCAATCTATGGTTCATAAAAAATCTGATCGTTTGTTTTTAAGAAATTAAACGCGTTAAATTGAACGAATTTCGAATACCGGTCTTAGCGAAGGACCTCCCCTCTTGCTTGCGTATTGCCCCGCGAAATTTCTTTTCGGCGATGAACGATACAAAAAATTCTATCGAATGTTACTTCTATTCTCTGCCTCGTCTATGACTTGGAGATTGGTCTATGTCGTTCGTTTTCTCGCGAGTTTCCAATATGTCCGTAGTATGTGAACGCTGGTATTCGTGAAGATAAATTATTGTTTTTACAATTTCTTTCAAAAATATATAATTTTAATTTATATAAT"
         input_ids = torch.tensor(tokenizer.text_to_ids(input_seq)).int().unsqueeze(0).to(device)
