@@ -28,6 +28,8 @@ Options:
     --skip-docs    Skip running tests in the docs directory
     --no-nbval     Skip jupyter notebook validation tests
     --skip-slow    Skip tests marked as slow (@pytest.mark.slow)
+    --only-slow    Only run tests marked as slow (@pytest.mark.slow)
+    --allow-no-tests    Allow sub-packages with no found tests (for example no slow tests if --only-slow is set)
 
 Note: Documentation tests (docs/) are only run when notebook validation
       is enabled (--no-nbval not set) and docs are not skipped
@@ -51,6 +53,7 @@ SKIP_DOCS=false
 NO_NBVAL=false
 SKIP_SLOW=false
 ONLY_SLOW=false
+ALLOW_NO_TESTS=false
 error=false
 
 # Parse command line arguments
@@ -60,6 +63,7 @@ while (( $# > 0 )); do
         --no-nbval) NO_NBVAL=true ;;
         --skip-slow) SKIP_SLOW=true ;;
         --only-slow) ONLY_SLOW=true ;;
+        --allow-no-tests) ALLOW_NO_TESTS=true ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1" >&2; usage 1 ;;
     esac
@@ -108,7 +112,15 @@ pyclean() {
 for dir in "${TEST_DIRS[@]}"; do
     echo "Running pytest in $dir"
     if ! pytest "${PYTEST_OPTIONS[@]}" --junitxml=$(basename $dir).junit.xml -o junit_family=legacy "$dir"; then
-        error=true
+        exit_code=$?  # get error code
+        if [[ "$ALLOW_NO_TESTS" == true && $exit_code -eq 5 ]]; then
+            # Exit code 5 means no tests found, which is allowed if --allow-no-tests is set
+            echo "No tests found in $dir"
+            continue
+        else
+            echo "Error: pytest failed with exit code $exit_code"
+            error=true
+        fi
     fi
     # Avoid duplicated pytest cache filenames.
     pyclean "$dir"
