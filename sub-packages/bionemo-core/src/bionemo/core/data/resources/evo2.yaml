@@ -9,7 +9,7 @@
 
 
 - tag: 7b-8k:1.0
-  ngc: null
+  ngc: nvidia/clara/evo2-7b-8k-nemo2:1.0
   ngc_registry: model
   pbss: "s3://bionemo-ci/models/nemo2_evo2_7b_8k.tar.gz"
   sha256: 78fc05536e1a9bd2febacea079a4beedf93ddcba1c69ac24690a5f7b649a0655 # pragma: allowlist secret
