@@ -94,12 +94,21 @@ fi
 
 echo "Test directories: ${TEST_DIRS[*]}"
 
+pyclean() {
+    # Use the provided base directory or default to current directory
+    local base_dir="${1:-.}"
+    echo "Cleaning Python cache files in $base_dir..."
+    find "$base_dir" -regex '^.*\(__pycache__\|\.py[co]\)$' -delete
+}
+
 # Run tests with coverage
 for dir in "${TEST_DIRS[@]}"; do
     echo "Running pytest in $dir"
     if ! pytest "${PYTEST_OPTIONS[@]}" --junitxml=$(basename $dir).junit.xml -o junit_family=legacy "$dir"; then
         error=true
     fi
+    # Avoid duplicated pytest cache filenames.
+    pyclean "$dir"
 done
 
 # Exit with appropriate status
