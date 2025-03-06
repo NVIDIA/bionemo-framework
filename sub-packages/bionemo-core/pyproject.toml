@@ -23,6 +23,7 @@ dependencies = [
     'ngcsdk',
     'pooch',
     'pydantic>=2.7.0',
+    'pydantic[email]>=2.7.0',
     'pytorch-lightning>=2.2.1',
     'pyyaml',
     'tqdm',
