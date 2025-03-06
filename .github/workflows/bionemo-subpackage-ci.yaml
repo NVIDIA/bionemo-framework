@@ -1,0 +1,151 @@
+name: BioNeMo Sub-Package Workflow
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      subpackages:
+        description: BioNeMo sub-packages (comma-separated) to test or publish. All packages are found under bionemo-framework/sub-packages.
+        required: true
+        type: string
+      publish:
+        description: Publish the built package to PyPI. Default behavior is to skip publishing, so we only build and test the package. Automatically publish to test PyPI for PRs.
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  configure-workflow-packages:
+    runs-on: ubuntu-latest
+    outputs:
+      workflow_packages: ${{ steps.collect-package-deltas.outputs.workflow_packages }}
+    # Depending on the type of GitHub Event (Dispatch or PR), we stage different packages for testing and publishing in 'workflow_packages'.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+      - id: collect-package-deltas
+        if: ${{ github.event_name == 'pull_request' }}
+        name: Check which sub-packages have been updated in the PR.
+        run: |
+          # Get list of changed files between PR base and head.
+          changed_files=$(git diff --name-only origin/${{ github.base_ref }})
+
+          # Find unique package directories that changed.
+          changed_packages=$(echo "$changed_files" | grep "^sub-packages/" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
+
+          # Send the list of changed packages to the next job.
+          echo "workflow_packages=$changed_packages" >> "$GITHUB_OUTPUT"
+          echo "[PR Mode] Sub-packages to stage: $changed_packages"
+      - id: parse-dispatch-packages
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        name: Parse the sub-packages specified in the workflow dispatch.
+        run: |
+          # Send the parsed list of sub-packages to the next job.
+          dispatch_packages=$(echo '${{ github.event.inputs.subpackage }}' | jq -R -c 'split(",")')
+          echo "workflow_packages=$dispatch_packages" >> "$GITHUB_OUTPUT"
+          echo "[Workflow Dispatch Mode] Sub-packages to stage: $dispatch_packages"
+
+  install-and-test:
+    needs: configure-workflow-packages
+    outputs:
+      test_packages: ${{ needs.configure-workflow-packages.outputs.workflow_packages }}
+    strategy:
+      matrix:
+        package: ${{ fromJson(needs.configure-workflow-packages.outputs.workflow_packages) }}
+      fail-fast: false  # Prevent all matrix jobs from failing if one fails.
+    name: Install and test ${{ matrix.package }}.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - id: install-pytest
+        name: Install prerequisites for testing sub-packages.
+        run: pip install pytest
+      - id: install-dispatch-subpackage
+        name: Install sub-package for workflow dispatch.
+        run: pip install sub-packages/${{ matrix.package }}
+      - id: test-dispatch-subpackage
+        name: Test sub-package for workflow dispatch.
+        run: pytest -vv sub-packages/${{ matrix.package }}
+
+  build-pypi:
+    # Build distributions from either the workflow dispatch or PR.
+    # Validate building before merging or publishing.
+    needs: install-and-test
+    outputs:
+      staged_packages: ${{ needs.install-and-test.outputs.test_packages }}
+    strategy:
+      matrix:
+        package: ${{ fromJson(needs.install-and-test.outputs.test_packages) }}
+      fail-fast: false  # Prevent all matrix jobs from failing if one fails.
+    name: Build a binary wheel and a source tarball for ${{ matrix.package }}.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - id: install-python-build
+        name: Install PyPI build tool.
+        run: python -m pip install build
+      - id: build-package
+        name: Build a binary wheel and a source tarball for the sub-package.
+        run: python -m build sub-packages/${{ matrix.package }}
+      - id: upload-distribution
+        name: Upload distribution packages to the workflow.
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: sub-packages/${{ matrix.package }}/dist
+
+  publish-to-pypi:
+    needs: build-pypi
+    strategy:
+      matrix:
+        package: ${{ fromJson(needs.build-pypi.outputs.staged_packages) }}
+      fail-fast: false  # Prevent all matrix jobs from failing if one fails.
+    name: Publish ${{ matrix.package }} to PyPI.
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'testpypi' || 'pypi' }}
+      url: ${{ github.event_name == 'pull_request' && format('https://test.pypi.org/p/{0}', matrix.package) || format('https://pypi.org/p/{0}', matrix.package) }}
+    permissions:
+      id-token: write
+    # Publish to Test PyPI for PRs, and publish to PyPI for (manually triggered) Workflow Dispatches.
+    # Note: Test PyPI is designed to run on each commit to the main branch and is often used to indicate a healthy release publishing pipeline.
+    steps:
+      - id: download-distribution
+        name: Download the built distribution.
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: sub-packages/${{ matrix.package }}/dist
+      - id: publish-to-testpypi
+        name: Publish distribution 📦 to Test PyPI for PR.
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true
+          packages-dir: sub-packages/${{ matrix.package }}/dist
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+      - id: publish-to-pypi
+        name: Publish distribution 📦 to PyPI for Workflow Dispatch.
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true
+          packages-dir: sub-packages/${{ matrix.package }}/dist
+          skip-existing: true
