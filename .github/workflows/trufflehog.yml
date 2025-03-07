@@ -5,6 +5,7 @@ on:
     branches:
       - main
   pull_request:
+  merge_group:
 
 permissions:
   contents: read
@@ -25,6 +26,7 @@ jobs:
           fetch-depth: 0
 
       - name: TruffleHog OSS
+        if: github.event_name != 'merge_group'
         id: trufflehog
         uses: trufflesecurity/trufflehog@main
         continue-on-error: true
