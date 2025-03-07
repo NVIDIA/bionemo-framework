@@ -21,6 +21,7 @@ jobs:
     outputs:
       workflow_packages: ${{ steps.collect-package-deltas.outputs.workflow_packages }}
     # Depending on the type of GitHub Event (Dispatch or PR), we stage different packages for testing and publishing in 'workflow_packages'.
+    name: "[Configure Workflow Packages] Identify sub-packages for testing and publishing."
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,7 +57,7 @@ jobs:
       matrix:
         package: ${{ fromJson(needs.configure-workflow-packages.outputs.workflow_packages) }}
       fail-fast: false  # Prevent all matrix jobs from failing if one fails.
-    name: Install and test ${{ matrix.package }}.
+    name: "[${{ matrix.package }}] Install and test sub-package."
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +90,7 @@ jobs:
       matrix:
         package: ${{ fromJson(needs.install-and-test.outputs.test_packages) }}
       fail-fast: false  # Prevent all matrix jobs from failing if one fails.
-    name: Build a binary wheel and a source tarball for ${{ matrix.package }}.
+    name: "[${{ matrix.package }}] Build the sub-package."
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
