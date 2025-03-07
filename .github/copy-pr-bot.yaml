@@ -1,0 +1,9 @@
+enabled: true
+additional_trustees:
+  - pstjohn
+  - trvachov
+additional_vetters:
+  - pstjohn
+  - trvachov
+auto_sync_draft: false
+auto_sync_ready: true

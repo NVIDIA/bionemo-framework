@@ -1,11 +1,11 @@
 name: "BioNemo Image Build and Unit Tests"
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches: [main]
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+      - "dependabot/**"
   merge_group:
     types: [checks_requested]
   schedule:
@@ -36,16 +36,19 @@ jobs:
 
   build-bionemo-image:
     needs: pre-commit
-    runs-on: self-hosted-azure-cpu
+    runs-on: linux-amd64-cpu4
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'SKIP_CI') }}
     steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # This working directory / path business is because our self-hosted runners are not ephemeral VMs, so we
-          # isolate each build into their own folder. Note that these are not currently cleaned up, so that will need to
-          # be automated in the future.
-          path: ${{ github.run_id }}
           submodules: "recursive"
 
       - name: Set up Docker Buildx
@@ -55,8 +58,7 @@ jobs:
         id: metadata
         uses: docker/metadata-action@v5
         with:
-          images: nemoci.azurecr.io/bionemo
-          labels: nemo.library=bionemo
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=schedule
             type=ref,event=branch
@@ -71,40 +73,27 @@ jobs:
       - uses: int128/docker-build-cache-config-action@v1
         id: cache
         with:
-          image: nemoci.azurecr.io/bionemo/build-cache
-          pull-request-cache: true
+          image: ghcr.io/${{ github.repository }}/build-cache
+          extra-cache-from: "type=registry,ref=ghcr.io/${{ github.repository }}/build-cache:main"
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          file: ${{ github.run_id }}/Dockerfile
-          context: ${{ github.run_id }}/
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: |
-            ${{ steps.cache.outputs.cache-from }}
-            ${{ github.event_name == 'merge_group' && 'nemoci.azurecr.io/bionemo/build-cache:main' || '' }}
+          cache-from: ${{ steps.cache.outputs.cache-from }}
           cache-to: ${{ steps.cache.outputs.cache-to }}
 
   run-tests:
     needs: build-bionemo-image
-    runs-on: self-hosted-nemo-gpus-1
-    defaults:
-      run:
-        working-directory: ./${{ github.run_id }}
+    runs-on: linux-amd64-gpu-l4-latest-1
     container:
-      image: nemoci.azurecr.io/bionemo:${{ github.run_id }}
-      options: --gpus all
-      # We mount the cache directory to avoid downloading the test data every run. Note that this only works because our
-      # VMs are not ephemeral, otherwise we'd need to cache the data somewhere that persists between runs.
-      volumes:
-        - /home/azureuser/actions-runner-bionemo/cache:/github/home/.cache
+      image: ghcr.io/${{ github.repository }}:${{ github.run_id }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          path: ${{ github.run_id }}
 
       - name: Run tests
         # Tests in this stage generate code coverage metrics for the repository
@@ -139,7 +128,6 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          working-directory: ${{ github.run_id }}
 
       - name: Upload test results to Codecov
         # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
@@ -148,16 +136,3 @@ jobs:
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          working-directory: ${{ github.run_id }}
-
-  # Again, because our VMs are not ephemeral, we need to clean up the image after the tests are done. Otherwise `docker
-  # images list` will get very cluttered and we'll run out of disk space on these runners.
-  clean-up:
-    needs: run-tests
-    runs-on: self-hosted-nemo-gpus-1
-    if: ${{ success() || failure() }}
-    steps:
-      - name: clean up image
-        run: docker rmi nemoci.azurecr.io/bionemo:${{ github.run_id }}
-# TODO: exclude tests from base image; run tests from github workspace mounted in the image.
-# TODO: figure out way of cleaning up working directory (requires sudo or for us to fix file ownership from release container)
