@@ -109,7 +109,7 @@ jobs:
         name: Upload distribution packages to the workflow.
         uses: actions/upload-artifact@v4
         with:
-          name: python-package-distributions
+          name: ${{ matrix.package }}-dist
           path: sub-packages/${{ matrix.package }}/dist
 
   publish-to-pypi:
@@ -132,7 +132,7 @@ jobs:
         name: Download the built distribution.
         uses: actions/download-artifact@v4
         with:
-          name: python-package-distributions
+          name: ${{ matrix.package }}-dist
           path: sub-packages/${{ matrix.package }}/dist
       - id: publish-to-testpypi
         name: Publish distribution 📦 to Test PyPI for PR.
