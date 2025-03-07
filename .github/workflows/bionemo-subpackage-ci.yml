@@ -44,7 +44,7 @@ jobs:
         name: Parse the sub-packages specified in the workflow dispatch.
         run: |
           # Send the parsed list of sub-packages to the next job.
-          dispatch_packages=$(echo '${{ github.event.inputs.subpackage }}' | jq -R -c 'split(",")')
+          dispatch_packages=$(echo '${{ github.event.inputs.subpackages }}' | jq -R -c 'split(",")')
           echo "workflow_packages=$dispatch_packages" >> "$GITHUB_OUTPUT"
           echo "[Workflow Dispatch Mode] Sub-packages to stage: $dispatch_packages"
 
@@ -71,10 +71,12 @@ jobs:
         name: Install prerequisites for testing sub-packages.
         run: pip install pytest
       - id: install-dispatch-subpackage
-        name: Install sub-package for workflow dispatch.
+        name: Install sub-package.
         run: pip install sub-packages/${{ matrix.package }}
       - id: test-dispatch-subpackage
-        name: Test sub-package for workflow dispatch.
+      # TODO(@cye): Specify packages that use GPUs and skip pytest until we have GPU support on our GitHub Action Runners.
+        if: ${{ !contains(fromJson('["bionemo-moco"]'), matrix.package) }}
+        name: Test sub-package.
         run: pytest -vv sub-packages/${{ matrix.package }}
 
   build-pypi:
