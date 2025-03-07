@@ -111,9 +111,10 @@ uv pip install --no-build-isolation \
   -r /requirements-cve.txt \
   -r /requirements-test.txt
 
-# Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc
-# The package is a dependency of lm_eval from NeMo requirements_eval.txt
-uv pip uninstall sqlitedict
+# Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
+# dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
+# seems to be causing issues with NGC downloads. See https://nvbugspro.nvidia.com/bug/5149698
+uv pip uninstall sqlitedict zstandard
 
 rm -rf ./3rdparty
 rm -rf /tmp/*
