@@ -15,6 +15,12 @@ on:
         type: boolean
         default: false
 
+env:
+  # TODO(@cspades): Skip pytest for packages that require GPU's or special installation recipes until resolved.
+  SUBPACKAGE_SKIP_TEST: '["bionemo-moco","bionemo-noodles"]'
+  # TODO(@cspades): Skip publishing for bionemo-noodles because it requires `maturin publish` as a GitHub Action.
+  SUBPACKAGE_SKIP_PUBLISH: '["bionemo-noodles"]'
+
 jobs:
   configure-workflow-packages:
     runs-on: ubuntu-latest
@@ -75,8 +81,7 @@ jobs:
         name: Install sub-package.
         run: pip install sub-packages/${{ matrix.package }}
       - id: test-dispatch-subpackage
-      # TODO(@cye): Specify packages that use GPUs and skip pytest until we have GPU support on our GitHub Action Runners.
-        if: ${{ !contains(fromJson('["bionemo-moco"]'), matrix.package) }}
+        if: ${{ !contains(fromJson(env.SUBPACKAGE_SKIP_TEST), matrix.package) }}
         name: Test sub-package.
         run: pytest -vv sub-packages/${{ matrix.package }}
 
@@ -135,9 +140,10 @@ jobs:
         with:
           name: ${{ matrix.package }}-dist
           path: sub-packages/${{ matrix.package }}/dist
+      # TODO(@cspades): Uncomment when developing on this workflow to test. Otherwise, no need to publish for every PR.
       - id: publish-to-testpypi
         name: Publish distribution 📦 to Test PyPI for PR.
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' && !contains(fromJson(env.SUBPACKAGE_SKIP_PUBLISH), matrix.package) }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           verbose: true
@@ -146,7 +152,7 @@ jobs:
           skip-existing: true
       - id: publish-to-pypi
         name: Publish distribution 📦 to PyPI for Workflow Dispatch.
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true' && !contains(fromJson(env.SUBPACKAGE_SKIP_PUBLISH), matrix.package) }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           verbose: true
