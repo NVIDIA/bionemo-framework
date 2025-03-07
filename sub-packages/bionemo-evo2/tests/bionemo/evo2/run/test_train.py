@@ -74,9 +74,18 @@ def test_train_evo2_runs(tmp_path, num_steps=5):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("model_size", ["7b_nv", 
-                                        pytest.param("7b_arc_longcontext", marks=pytest.mark.xfail(reason="Might fail on certain types of GPU. https://github.com/NVIDIA/bionemo-framework/issues/731"))
-                                       ])
+@pytest.mark.parametrize(
+    "model_size",
+    [
+        "7b_nv",
+        pytest.param(
+            "7b_arc_longcontext",
+            marks=pytest.mark.xfail(
+                reason="Might fail on certain types of GPU. https://github.com/NVIDIA/bionemo-framework/issues/731"
+            ),
+        ),
+    ],
+)
 def test_train_single_gpu(tmp_path, model_size: str):
     """
     This test runs them single gpu evo2 training command with sample data in a temporary directory.
