@@ -14,7 +14,8 @@
 # limitations under the License.
 
 
-from typing import Optional
+import math
+from typing import Literal, Optional
 
 import torch
 from torch import Tensor
@@ -255,7 +256,7 @@ class MDLM(Interpolant):
         scaled_proability = categorical_probs / gumbel_norm
         return scaled_proability.argmax(dim=-1)
 
-    def get_num_steps_confidence(self, xt: Tensor):
+    def get_num_steps_confidence(self, xt: Tensor, num_tokens_unmask: int = 1):
         """Calculate the maximum number of steps with confidence.
 
         This method computes the maximum count of occurrences where the input tensor `xt` matches the `mask_index`
@@ -263,11 +264,16 @@ class MDLM(Interpolant):
 
         Args:
             xt (Tensor): Input tensor to evaluate against the mask index.
+            num_tokens_unmask (int): number of tokens to unamsk at each step.
 
         Returns:
             float: The maximum number of steps with confidence (i.e., matching the mask index).
         """
-        return (xt == self.mask_index).sum(-1).max().item()
+        nsteps = (xt == self.mask_index).sum(-1).max().item()
+        if num_tokens_unmask == 1:
+            return int(nsteps)
+        else:
+            return int(max(math.ceil(nsteps // num_tokens_unmask), 1))
 
     def step_confidence(
         self,
@@ -301,6 +307,8 @@ class MDLM(Interpolant):
             raise NotImplementedError(
                 "step_confidence is implemented for Batch x Sequence x State Space shaped tensors."
             )
+        if curr_step < 0 or num_steps < 1 or num_tokens_unmask < 1:
+            raise ValueError("Invalid input values for curr_step, num_steps, or num_tokens_unmask.")
         xt = xt.clone()
         log_p_x0 = self._subs_parameterization(logits, xt)
         # sample the code from the softmax prediction
@@ -310,8 +318,10 @@ class MDLM(Interpolant):
         confidence = probs.gather(-1, preds.unsqueeze(-1)).squeeze(-1)
         # add Gumbel noise decreasing over the sampling process
         ratio = curr_step / (num_steps - 1)
-        # Using manual definition of 0,1 Gumbel to pass in generator
-        gumbel_sample = -torch.log(-torch.log(torch.rand(xt.shape, generator=self.rng_generator))).to(logits.device)
+        # Using manual definition of 0,1 Gumbel to pass in generator, manually specifying the device is faster than transfer
+        gumbel_sample = -torch.log(
+            -torch.log(torch.rand(xt.shape, device=logits.device, generator=self.rng_generator))
+        )
         # gumbel_sample = self.gumbel_dist.sample(xt.shape).to(logits.device)
         gumbel_noise = gumbel_sample * randomness * (1 - ratio)  # type: ignore
         confidence = (
@@ -372,3 +382,112 @@ class MDLM(Interpolant):
         log_score = masked_log_score * masked_indices + unmasked_log_score * (1 - masked_indices)
 
         return log_score.exp()
+
+    def step_self_path_planning(
+        self,
+        logits: Tensor,
+        xt: Tensor,
+        t: Tensor,
+        curr_step: int,
+        num_steps: int,
+        logit_temperature: float = 1.0,
+        randomness: float = 1.0,
+        confidence_temperature: float = 1.0,
+        score_type: Literal["confidence", "random"] = "confidence",
+        fix_mask: Optional[Tensor] = None,
+    ) -> Tensor:
+        """Self Path Planning (P2) Sampling from Peng et al. https://arxiv.org/html/2502.03540v1.
+
+        Args:
+            logits (Tensor): Predicted logits for sampling.
+            xt (Tensor): Input sequence to be updated.
+            t (Tensor): Time tensor (e.g., time steps or temporal info).
+            curr_step (int): Current iteration in the planning process.
+            num_steps (int): Total number of planning steps.
+            logit_temperature (float): Temperature for logits (default: 1.0).
+            randomness (float): Introduced randomness level (default: 1.0).
+            confidence_temperature (float): Temperature for confidence scoring (default: 1.0).
+            score_type (Literal["confidence", "random"]): Sampling score type (default: "confidence").
+            fix_mask (Optional[Tensor]): inital mask where True when not a mask tokens (default: None).
+
+        Returns:
+            Tensor: Updated input sequence xt after iterative unmasking.
+        """
+        if xt.ndim > 3:
+            raise NotImplementedError(
+                "step_confidence is implemented for Batch x Sequence x State Space shaped tensors."
+            )
+        if curr_step < 0 or num_steps < 1:
+            raise ValueError("Invalid input values for curr_step, num_steps.")
+        xt = xt.clone()
+        if fix_mask is None:
+            fix_mask = torch.zeros_like(xt).bool()  #! if any sequenes are fixed from the start of trajectory
+        last_mask = xt == self.mask_index
+        unmask_candidates = (
+            last_mask & ~fix_mask
+        )  #! I want to consider tokens to un mask that are currently masked and not fixed. This fixes a typo in pseudo code
+        x1_pred, logp = self.stochastic_sample_from_categorical(
+            logits, temperature=logit_temperature, noise_scale=confidence_temperature
+        )
+        if curr_step == num_steps - 1:
+            xt[last_mask] = x1_pred[last_mask]
+        else:
+            if score_type == "confidence":
+                score = logp
+            elif score_type == "random":
+                score = torch.rand_like(logp).log()
+
+            score = score.masked_fill(fix_mask.squeeze(-1), float("inf"))
+            score[unmask_candidates.squeeze(-1)] *= randomness
+            num_to_mask = torch.clamp(
+                ((~fix_mask).sum(dim=1, keepdim=True).float() * t.unsqueeze(-1)).long(), max=xt.shape[-1] - 1
+            )  #! here is is t since diffusion time is 1 to 0. Clamp is to set it to 0 N-1 since topk uses it as indices
+            mask = self.topk_lowest_masking(score, num_to_mask)
+            xt[mask] = self.mask_index
+            mask_to_x1 = last_mask & ~mask
+            xt[mask_to_x1] = x1_pred[mask_to_x1]
+        return xt
+
+    def topk_lowest_masking(self, scores: Tensor, cutoff_len: Tensor):
+        """Generates a mask for the lowest scoring elements up to a specified cutoff length.
+
+        Args:
+            scores (Tensor): Input scores tensor with shape (... , num_elements)
+            cutoff_len (Tensor): Number of lowest-scoring elements to mask (per batch element)
+
+        Returns:
+            Tensor: Boolean mask tensor with same shape as `scores`, where `True` indicates
+                    the corresponding element is among the `cutoff_len` lowest scores.
+
+        Example:
+            >>> scores = torch.tensor([[0.9, 0.8, 0.1, 0.05], [0.7, 0.4, 0.3, 0.2]])
+            >>> cutoff_len = 2
+            >>> mask = topk_lowest_masking(scores, cutoff_len)
+            >>> print(mask)
+            tensor([[False, False, True, True],
+                    [False, True, True, False]])
+        """
+        sorted_scores, _ = scores.sort(dim=-1)
+        threshold = sorted_scores.gather(dim=-1, index=cutoff_len)
+        return scores < threshold
+
+    def stochastic_sample_from_categorical(self, logits: Tensor, temperature: float = 1.0, noise_scale: float = 1.0):
+        """Stochastically samples from a categorical distribution defined by input logits, with optional temperature and noise scaling for diverse sampling.
+
+        Args:
+            logits (Tensor): Input logits tensor with shape (... , num_categories)
+            temperature (float, optional): Softmax temperature. Higher values produce more uniform samples. Defaults to 1.0.
+            noise_scale (float, optional): Scale for Gumbel noise. Higher values produce more diverse samples. Defaults to 1.0.
+
+        Returns:
+            tuple:
+                - **tokens** (LongTensor): Sampling result (category indices) with shape (... , )
+                - **scores** (Tensor): Corresponding log-softmax scores for the sampled tokens, with shape (... , )
+        """
+        if temperature > 0:
+            gumbel = -torch.log(
+                -torch.log(torch.rand(logits.shape, device=logits.device, generator=self.rng_generator) + 1e-8) + 1e-8
+            )  #! avoid device transfers
+            logits = logits / temperature + noise_scale * gumbel
+        scores, tokens = logits.log_softmax(dim=-1).max(dim=-1)
+        return tokens, scores

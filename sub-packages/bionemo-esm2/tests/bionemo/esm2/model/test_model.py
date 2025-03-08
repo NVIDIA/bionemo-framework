@@ -179,7 +179,7 @@ def test_esm2_loss(dummy_protein_dataset, dummy_parquet_train_val_inputs):
 def test_model_equivalence_with_huggingface_8m(precision):
     model_tag = "facebook/esm2_t6_8M_UR50D"
     ckpt_path = load("esm2/8m:2.0")
-    with megatron_parallel_state_utils.distributed_model_parallel_state(precision=precision):
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
         assert_model_equivalence(ckpt_path, model_tag, precision=precision)
 
 
@@ -195,7 +195,7 @@ def test_model_equivalence_with_huggingface_650m():
 def test_model_equivalence_with_huggingface_650m_bf16():
     model_tag = "facebook/esm2_t33_650M_UR50D"
     ckpt_path = load("esm2/650m:2.0")
-    with megatron_parallel_state_utils.distributed_model_parallel_state(precision="bf16"):
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
         assert_model_equivalence(ckpt_path, model_tag, precision="bf16")
 
 

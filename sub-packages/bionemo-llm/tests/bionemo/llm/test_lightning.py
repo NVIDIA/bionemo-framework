@@ -24,6 +24,34 @@ from bionemo.llm.lightning import batch_collator, get_dtype_device
 from bionemo.testing import megatron_parallel_state_utils
 
 
+def test_batch_collate_seqdim_and_singleton_with_padding(batch_size=2, num_batches=5):
+    raw_batches = [
+        # Try making the data with an unusual dtype (uint8) to verify that it is left unchanged with padding.
+        {"idx": torch.tensor([i] * batch_size), "seq": torch.ones(batch_size, i + 1, dtype=torch.uint8)}
+        for i in range(num_batches)
+    ]
+    result = batch_collator(raw_batches)
+    assert isinstance(result, dict), "expect output container to be the same type as input (dict)"
+    torch.testing.assert_close(result["idx"], torch.tensor([0, 0, 1, 1, 2, 2, 3, 3, 4, 4]))
+    # Make sure the padding is correct, and that the dtype is left as it was.
+    expected_result = torch.tensor(
+        [
+            [1, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0],
+            [1, 1, 0, 0, 0],
+            [1, 1, 1, 0, 0],
+            [1, 1, 1, 0, 0],
+            [1, 1, 1, 1, 0],
+            [1, 1, 1, 1, 0],
+            [1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1],
+        ],
+        dtype=torch.uint8,
+    )
+    torch.testing.assert_close(result["seq"], expected_result)
+
+
 def test_batch_collate_tuple():
     result = batch_collator(tuple((torch.tensor([i]), torch.tensor([i + 1])) for i in range(10)))
     assert isinstance(result, tuple), "expect output container to be the same type as input (tuple)"
@@ -167,7 +195,7 @@ class NestedModule(nn.Module):
 # TODO rewrite unittest and potentially LightningPassthroughPredictionMixin
 @pytest.mark.xfail(reason="MegatronStrategy no longer has '_get_loss_reduction' attribute")
 def test_mixin_strategy_contract_get_loss_reduction():
-    with megatron_parallel_state_utils.clean_parallel_state_context():
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
         strategy = nl.MegatronStrategy(
             tensor_model_parallel_size=1,
             pipeline_model_parallel_size=1,

@@ -31,9 +31,9 @@ from bionemo.llm.data.types import BertSample
 
 
 __all__: Sequence[str] = (
+    "InMemoryPerTokenValueDataset",
     "InMemoryProteinDataset",
     "InMemorySingleValueDataset",
-    "InMemoryPerTokenValueDataset",
 )
 
 
@@ -77,6 +77,7 @@ class InMemoryProteinDataset(Dataset):
         task_type: Literal["classification", "regression", None] = None,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         ignore_labels: bool = False,
+        label_column: str = "labels",
     ):
         """Class method to create a ProteinDataset instance from a CSV file.
 
@@ -85,6 +86,7 @@ class InMemoryProteinDataset(Dataset):
             task_type (str, optional): Fine-tuning task type. Defaults to None.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             ignore_labels (bool): ignore labels column if exist (to avoid reading labels during inference)
+            label_column (str): label column name in CSV file. Defaults to `labels`.
         """
         df = pd.read_csv(csv_path)
 
@@ -95,7 +97,7 @@ class InMemoryProteinDataset(Dataset):
         sequences = df["sequences"]
         labels = None
         if not ignore_labels:
-            labels = df["labels"]
+            labels = df[label_column]
 
         return cls(sequences, labels=labels, task_type=task_type, tokenizer=tokenizer)
 
@@ -177,7 +179,9 @@ class InMemorySingleValueDataset(InMemoryProteinDataset):
         self.task_type = task_type
         if self.task_type == "classification":
             label_tokenizer = Label2IDTokenizer()
-            self.label_tokenizer = label_tokenizer.build_vocab(self.labels.values.reshape(-1, 1))
+            self.label_tokenizer = label_tokenizer.build_vocab(
+                self.labels.sort_values(inplace=False).values.reshape(-1, 1)
+            )
 
     def transform_label(self, label: float | str) -> Tensor:
         """Transform the regression label.
@@ -229,7 +233,7 @@ class InMemoryPerTokenValueDataset(InMemoryProteinDataset):
             raise ValueError(f"{task_type} task type is not supported with {self.__class__.__name__}")
 
         label_tokenizer = Label2IDTokenizer()
-        self.label_tokenizer = label_tokenizer.build_vocab(self.labels.values)
+        self.label_tokenizer = label_tokenizer.build_vocab(self.labels.sort_values(inplace=False).values)
         self.label_cls_eos_id = MLM_LOSS_IGNORE_INDEX
 
     def transform_label(self, label: str) -> Tensor:

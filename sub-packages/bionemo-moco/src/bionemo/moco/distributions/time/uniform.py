@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import torch
 from jaxtyping import Bool, Float
@@ -45,7 +45,10 @@ class UniformTimeDistribution(TimeDistribution):
         super().__init__(discrete_time, nsteps, min_t, max_t, rng_generator)
 
     def sample(
-        self, n_samples: int, device: Union[str, torch.device] = "cpu", rng_generator: Optional[torch.Generator] = None
+        self,
+        n_samples: Union[int, Tuple[int, ...], torch.Size],
+        device: Union[str, torch.device] = "cpu",
+        rng_generator: Optional[torch.Generator] = None,
     ):
         """Generates a specified number of samples from the uniform time distribution.
 
@@ -62,7 +65,13 @@ class UniformTimeDistribution(TimeDistribution):
         if self.discrete_time:
             if self.nsteps is None:
                 raise ValueError("nsteps cannot be None for discrete time sampling")
-            time_step = torch.randint(0, self.nsteps, size=(n_samples,), device=device, generator=rng_generator)
+            time_step = torch.randint(
+                0,
+                self.nsteps,
+                size=(n_samples,) if isinstance(n_samples, int) else n_samples,
+                device=device,
+                generator=rng_generator,
+            )
         else:
             time_step = torch.rand(n_samples, device=device, generator=rng_generator)
             if self.min_t and self.max_t and self.min_t > 0:
@@ -93,7 +102,10 @@ class SymmetricUniformTimeDistribution(TimeDistribution):
         super().__init__(discrete_time, nsteps, min_t, max_t, rng_generator)
 
     def sample(
-        self, n_samples: int, device: Union[str, torch.device] = "cpu", rng_generator: Optional[torch.Generator] = None
+        self,
+        n_samples: Union[int, Tuple[int, ...], torch.Size],
+        device: Union[str, torch.device] = "cpu",
+        rng_generator: Optional[torch.Generator] = None,
     ):
         """Generates a specified number of samples from the uniform time distribution.
 
@@ -107,6 +119,8 @@ class SymmetricUniformTimeDistribution(TimeDistribution):
         """
         if rng_generator is None:
             rng_generator = self.rng_generator
+        if not isinstance(n_samples, int):
+            n_samples = n_samples[0]
         if self.discrete_time:
             if self.nsteps is None:
                 raise ValueError("nsteps cannot be None for discrete time sampling")

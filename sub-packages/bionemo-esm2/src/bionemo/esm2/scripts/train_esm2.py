@@ -32,8 +32,10 @@ from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
+from bionemo.llm.data.collate import MLM_LOSS_IGNORE_INDEX
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
+from bionemo.llm.model.config import TorchmetricsConfig
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
@@ -84,8 +86,6 @@ def main(
     save_best_checkpoint: bool = True,
     save_last_checkpoint: bool = True,
     metric_to_monitor_for_checkpoints: str = "val_loss",
-    log_train_ppl: bool = False,
-    log_val_ppl: bool = True,
     save_top_k: int = 2,
     nsys_profiling: bool = False,
     nsys_start_step: int = 0,
@@ -100,7 +100,7 @@ def main(
     overlap_param_gather: bool = True,
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
-) -> None:
+) -> nl.Trainer:
     """Train an ESM2 model on UR data.
 
     Args:
@@ -147,8 +147,6 @@ def main(
         save_best_checkpoint (bool): whether to save the best checkpoint
         save_last_checkpoint (bool): whether to save the last checkpoint
         metric_to_monitor_for_checkpoints (str): metric to monitor for checkpoints
-        log_train_ppl (bool): log training perplexity
-        log_val_ppl (bool): log validation perplexity
         save_top_k (int): number of top checkpoints to save
         nsys_profiling (bool): whether to enable nsys profiling
         nsys_start_step (int): start step for nsys profiling
@@ -266,6 +264,18 @@ def main(
         tokenizer=tokenizer,
     )
     # Configure the model
+    train_metric = None
+    is_model_parallel = tensor_model_parallel_size * pipeline_model_parallel_size > 1
+    if is_model_parallel:
+        valid_metric = None  # metric logging under model parallelism is not supported yet
+    else:
+        valid_metric = TorchmetricsConfig(
+            class_path="text.Perplexity",
+            task="pretraining",
+            kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX},
+            metric_name="val_ppl",
+        )
+
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
         num_layers=num_layers,
@@ -280,6 +290,8 @@ def main(
         # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
         initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
         variable_seq_lengths=min_seq_length != max_seq_length,
+        train_metric=train_metric,
+        valid_metric=valid_metric,
     )
 
     if scheduler_num_steps is None:
@@ -305,9 +317,6 @@ def main(
                 anneal_percentage=0.10,
             ),
         ),
-        # perplexity logging
-        log_train_ppl=log_train_ppl,
-        log_val_ppl=log_val_ppl,
     )
 
     # Configure our custom Checkpointer
@@ -342,6 +351,7 @@ def main(
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
     )
+    return trainer
 
 
 def train_esm2_entrypoint():
@@ -391,8 +401,6 @@ def train_esm2_entrypoint():
         save_best_checkpoint=args.save_best_checkpoint,
         save_last_checkpoint=args.save_last_checkpoint,
         metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
-        log_train_ppl=args.log_train_ppl,
-        log_val_ppl=args.log_val_ppl,
         save_top_k=args.save_top_k,
         nsys_profiling=args.nsys_profiling,
         nsys_start_step=args.nsys_start_step,
@@ -645,25 +653,6 @@ def get_parser():
         required=False,
         default="val_loss",
         help="The metric to monitor for checkpointing.",
-    )
-    parser.add_argument(
-        "--log-train-ppl",
-        action="store_true",
-        default=False,
-        help="Log perplexity during training. Requires synchronization every training step and hurts performance. Enable only when necessary.",
-    )
-    parser.add_argument(
-        "--log-val-ppl",
-        action="store_true",
-        default=False,
-        help="Log perplexity during validation.",
-    )
-    parser.add_argument(
-        "--no-log-val-ppl",
-        action="store_false",
-        dest="log_val_ppl",
-        default=True,
-        help="Disable logging perplexity during validation.",
     )
     parser.add_argument(
         "--save-top-k",

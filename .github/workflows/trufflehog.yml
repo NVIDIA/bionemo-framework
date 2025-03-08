@@ -1,0 +1,38 @@
+name: TruffleHog Scan
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  TruffleHog:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog OSS
+        if: github.event_name != 'merge_group'
+        id: trufflehog
+        uses: trufflesecurity/trufflehog@main
+        continue-on-error: true
+        with:
+          extra_args: --results=verified,unknown
+
+      - name: Scan Results Status
+        if: steps.trufflehog.outcome == 'failure'
+        run: exit 1

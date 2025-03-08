@@ -149,7 +149,7 @@ class OTSampler:
 
         return p
 
-    def apply_ot(
+    def apply_augmentation(
         self,
         x0: Tensor,
         x1: Tensor,

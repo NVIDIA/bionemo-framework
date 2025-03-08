@@ -39,11 +39,12 @@ from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
 from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
+from bionemo.llm.model.config import TorchmetricsConfig
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
-__all__: Sequence[str] = ("train_model", "finetune_esm2_entrypoint", "get_parser")
+__all__: Sequence[str] = ("finetune_esm2_entrypoint", "get_parser", "train_model")
 
 
 SUPPORTED_CONFIGS = {
@@ -115,6 +116,8 @@ def train_model(
     overlap_param_gather: bool = True,
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
+    ckpt_async_save: bool = True,
+    label_column: str = "labels",
 ) -> Tuple[Path, Callback | None, nl.Trainer]:
     """Train an ESM2 model on UR data.
 
@@ -138,7 +141,7 @@ def train_model(
             result_dir that stores the logs and checkpoints.
         resume_if_exists (bool): attempt to resume if the checkpoint exists [FIXME @skothenhill this doesn't work yet]
         precision (PrecisionTypes): Precision type for training (e.g., float16, float32)
-        task_type (str): Fine-tuning task type. Default is regression.
+        task_type (Literal["classification", "regression"]): Fine-tuning task type. Default is regression.
         encoder_frozen (bool): Freeze the encoder parameters. Default is False.
         scale_lr_layer (Optional[str]): layer names for which the lr is scaled by lr_multiplier
         lr_multiplier (float): lr multiplier for parameters in scale_lr_layer
@@ -175,6 +178,8 @@ def train_model(
         overlap_param_gather (bool): overlap parameter gather
         average_in_collective (bool): average in collective
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
+        ckpt_async_save (bool): whether to save ckpt async. Set to False for federated learning
+        label_column (str): name of label column in CSV data file. Defaults to `labels`.
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -203,7 +208,7 @@ def train_model(
         find_unused_parameters=True,
         gradient_as_bucket_view=True,
         ckpt_include_optimizer=True,
-        ckpt_async_save=True,
+        ckpt_async_save=ckpt_async_save,
         ckpt_parallel_load=True,
     )
 
@@ -262,8 +267,8 @@ def train_model(
     tokenizer = get_tokenizer()
 
     # Initialize the data module.
-    train_dataset = dataset_class.from_csv(train_data_path, task_type=task_type)
-    valid_dataset = dataset_class.from_csv(valid_data_path, task_type=task_type)
+    train_dataset = dataset_class.from_csv(train_data_path, task_type=task_type, label_column=label_column)
+    valid_dataset = dataset_class.from_csv(valid_data_path, task_type=task_type, label_column=label_column)
 
     data_module = ESM2FineTuneDataModule(
         train_dataset=train_dataset,
@@ -276,6 +281,24 @@ def train_model(
         tokenizer=tokenizer,
     )
     # Configure the model
+    train_metric = None
+    is_model_parallel = tensor_model_parallel_size * pipeline_model_parallel_size > 1
+    if is_model_parallel:
+        valid_metric = None  # metric logging under model parallelism is not supported yet
+    elif task_type == "regression":
+        valid_metric = TorchmetricsConfig(class_path="MeanSquaredError", task="regression", metric_name="val_mse")
+    else:
+        valid_metric = TorchmetricsConfig(
+            class_path="Accuracy",
+            task="classification",
+            kwargs={
+                "task": "multiclass",
+                "threshold": 0.5,
+                "num_classes": data_module.train_dataset.label_tokenizer.vocab_size,
+            },
+            metric_name="val_acc",
+        )
+
     config = config_class(
         task_type=task_type,
         encoder_frozen=encoder_frozen,
@@ -286,6 +309,8 @@ def train_model(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         initial_ckpt_path=str(restore_from_checkpoint_path),
         initial_ckpt_skip_keys_with_these_prefixes=[f"{task_type}_head"],
+        train_metric=train_metric,
+        valid_metric=valid_metric,
     )
     # Mapping of task-dependent config attributes to their new values
     task_dependent_attr = {
@@ -418,6 +443,8 @@ def finetune_esm2_entrypoint():
         overlap_param_gather=not args.no_overlap_param_gather,
         average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
+        ckpt_async_save=not args.avoid_ckpt_async_save,
+        label_column=args.label_column,
     )
 
 
@@ -454,6 +481,13 @@ def get_parser():
         required=True,
         default="regression",
         help="Fine-tuning task type.",
+    )
+    parser.add_argument(
+        "--label-column",
+        type=str,
+        required=False,
+        default="labels",
+        help="Label column name in CSV datafile.",
     )
     parser.add_argument(
         "--encoder-frozen",
@@ -717,6 +751,11 @@ def get_parser():
     )
     parser.add_argument(
         "--grad-reduce-in-fp32",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--avoid-ckpt-async-save",
         action="store_true",
         default=False,
     )
