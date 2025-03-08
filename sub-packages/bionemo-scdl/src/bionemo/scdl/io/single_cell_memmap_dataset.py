@@ -240,6 +240,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
         feature_index_name="feature_id",
+        return_padded: bool = False,
     ) -> None:
         """Instantiate the class.
 
@@ -264,6 +265,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
+        self.return_padded = return_padded
 
         # Metadata and attributes
         self.metadata: Dict[str, int] = {}
@@ -699,7 +701,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
     def __getitem__(self, idx: int) -> torch.Tensor:
         """Get the row values located and index idx."""
-        return torch.from_numpy(np.stack(self.get_row(idx)[0]))
+        if self.return_padded:
+            return torch.from_numpy(self.get_row_padded(idx)[0])
+        else:
+            return torch.from_numpy(np.stack(self.get_row(idx)[0])), self.number_of_variables()
 
     def number_of_variables(self) -> List[int]:
         """Get the number of features in every entry in the dataset.
