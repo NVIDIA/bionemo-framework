@@ -435,10 +435,8 @@ class MegatronBioBertModel(LanguageModule):
                 dtype=embeddings.dtype,
                 device=torch.cuda.current_device(),
             )
-
             for i, (embedding, mask) in enumerate(zip(embeddings, masks)):
                 output_embeddings[i, :] = torch.mean(embedding[1 : mask - 1], dim=0)
-
 
         if self.return_embeddings:
             return output_embeddings
@@ -466,7 +464,6 @@ class MegatronBioBertModel(LanguageModule):
             output["input_ids"] = input_ids
         if self.include_embeddings:
             output["embeddings"] = output_embeddings
-
         return output
 
 
