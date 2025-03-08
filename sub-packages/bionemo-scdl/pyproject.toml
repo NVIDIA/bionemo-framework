@@ -18,6 +18,7 @@ dependencies = [
     'pandas>=2.2.1',
     'pyarrow>=16.0.0',
     'scipy>=1.11.1',
+    'pydantic[email]',
 ]
 
 [project.scripts]

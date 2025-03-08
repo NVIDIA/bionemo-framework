@@ -10,7 +10,7 @@ The development of MoCo was motivated by the widespread adoption of diffusion an
 
 Inspired by the challenges in digital biology, $\text{\color{#76b900}{bionemo-moco}}$  provides a unified toolkit that can be easily integrated with any standard PyTorch representation, including graphs, images, text, and others outside the direct biological realm. While BioNeMo will leverage MoCo to accelerate advances in digital biology, MoCo’s versatility and modularity make it a valuable resource for any domain seeking to harness the power of generative models.
 
-$\text{\color{#76b900}{bionemo-moco}}$  is available as part of the free, open-source NVIDIA BioNeMo framework, enabling researchers and developers to harness its full potential without restrictions. It can also be installed via `pip install bionemo-moco==0.0.1`. To jumpstart your work, MoCo's initial release includes built-in support for six popular generative interpolant-based frameworks, each with a variety of sampling algorithms:
+$\text{\color{#76b900}{bionemo-moco}}$ is available as part of the free, open-source NVIDIA BioNeMo framework, enabling researchers and developers to harness its full potential without restrictions. It can also be installed via `pip install bionemo-moco==0.0.1`. To jumpstart your work, MoCo's initial release includes built-in support for six popular generative interpolant-based frameworks, each with a variety of sampling algorithms:
 
 #### Continuous Data
 
