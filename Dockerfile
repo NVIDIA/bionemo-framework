@@ -5,7 +5,7 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.02-py3
 
 FROM rust:1.82.0 AS rust-env
 
@@ -35,22 +35,15 @@ apt-get upgrade -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
-# Reinstall TE to avoid debugpy bug in vscode: https://nvbugspro.nvidia.com/bug/5078830
-# Pull the latest TE version from https://github.com/NVIDIA/TransformerEngine/releases
-# Use the version that matches the pytorch base container.
-ARG TE_TAG=v1.13
-RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
-  pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
-
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
 RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.2.post1
+#  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.2.post1
+  git+https://github.com/johnnynunez/causal-conv1d.git@3a5173a4183692f1994e24fe333e3c7a19239abc
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.2.2
+  git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
 RUN pip install hatchling   # needed to install nemo-run
 ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
