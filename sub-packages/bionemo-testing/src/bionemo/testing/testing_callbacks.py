@@ -50,10 +50,19 @@ class SignalAfterGivenStepCallback(Callback, CallbackMethods):
     """
 
     def __init__(
-        self, stop_step: int, signal_: signal.Signals = signal.SIGUSR2, use_trainer_should_stop: bool = False
+        self,
+        stop_step: int,
+        signal_: signal.Signals = signal.SIGUSR2,
+        use_trainer_should_stop: bool = False,
+        stop_before_step: bool = False,
     ):
         """Initializes the callback with the given stop_step."""
-        self.stop_step = stop_step
+        # Note that the stop step will be one less than the requested step if stop_before_step is True.
+        #  this is because the first step is 0 so you get i+1 steps normally.
+        if stop_before_step:
+            self.stop_step = stop_step - 1
+        else:
+            self.stop_step = stop_step
         self.signal = signal_
         # If True, ask the trainer to stop by setting should_stop to True rather than emitting a kill signal.
         self.use_trainer_should_stop = use_trainer_should_stop

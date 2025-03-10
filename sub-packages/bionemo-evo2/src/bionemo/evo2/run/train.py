@@ -482,7 +482,11 @@ def train(args: argparse.Namespace):
         callbacks.append(checkpoint_callback)
     if args.early_stop_on_step:
         # Ask the trainer to stop by setting should_stop to True rather than emitting a kill signal.
-        callbacks.append(SignalAfterGivenStepCallback(stop_step=args.early_stop_on_step, use_trainer_should_stop=True))
+        callbacks.append(
+            SignalAfterGivenStepCallback(
+                stop_step=args.early_stop_on_step, stop_before_step=True, use_trainer_should_stop=True
+            )
+        )
     if args.enable_preemption:
         callbacks.append(nl_callbacks.PreemptionCallback())
     if args.debug_ddp_parity_freq > 0:
