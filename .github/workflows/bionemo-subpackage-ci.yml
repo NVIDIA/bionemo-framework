@@ -17,9 +17,9 @@ on:
 
 env:
   # TODO(@cspades): Skip pytest for packages that require GPU's or special installation recipes until resolved.
-  SUBPACKAGE_SKIP_TEST: '["bionemo-moco","bionemo-noodles","bionemo-geometric","bionemo-webdatamodule","bionemo-size-aware-batching","bionemo-testing","bionemo-llm"]'
+  SUBPACKAGE_SKIP_TEST: '["bionemo-moco","bionemo-noodles","bionemo-geometric","bionemo-webdatamodule","bionemo-size-aware-batching","bionemo-testing","bionemo-llm","bionemo-evo2","bionemo-esm2","bionemo-geneformer","bionemo-example_model","bionemo-fw"]'
   # TODO(@cspades): Skip publishing for packages that require special installation recipes or should not be published to PyPI.
-  SUBPACKAGE_SKIP_PUBLISH: '["bionemo-noodles","bionemo-geometric","bionemo-testing"]'
+  SUBPACKAGE_SKIP_PUBLISH: '["bionemo-noodles","bionemo-geometric","bionemo-testing","bionemo-example_model"]'
 
 jobs:
   configure-workflow-packages:
