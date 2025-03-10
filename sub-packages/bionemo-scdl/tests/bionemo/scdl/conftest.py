@@ -30,7 +30,7 @@ def test_directory() -> Path:
         A Path object that is the directory with test data.
     """
     # return load("scdl/sample") / "scdl_data"
-    return load("scdl/sample_scdl_feature_ids", source="pbss") / "scdl_data_with_feature_ids"
+    return load("scdl/sample_scdl_feature_ids") / "scdl_data_with_feature_ids"
 
 
 @pytest.fixture

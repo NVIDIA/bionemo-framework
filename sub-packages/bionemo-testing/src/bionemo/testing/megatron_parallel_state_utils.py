@@ -74,6 +74,19 @@ def clean_up_distributed_and_parallel_states():
 
 
 @contextmanager
+def clean_parallel_state_context():
+    """Puts you into a clean parallel state, and again tears it down at the end."""
+    try:
+        clean_up_distributed_and_parallel_states()
+        yield
+    except Exception as e:
+        # TODO (@skothenhill) verify this is a problem and that this is a solution. Had issues with keyboard interrupts being ignored inside context manager.
+        raise Exception from e
+    finally:
+        clean_up_distributed_and_parallel_states()
+
+
+@contextmanager
 def distributed_model_parallel_state(
     seed: int = 42,
     rank: int = 0,

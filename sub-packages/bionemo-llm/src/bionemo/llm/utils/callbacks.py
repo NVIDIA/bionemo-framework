@@ -31,16 +31,25 @@ IntervalT = Literal["epoch", "batch"]
 class PredictionWriter(BasePredictionWriter, pl.Callback):
     """A callback that writes predictions to disk at specified intervals during training."""
 
-    def __init__(self, output_dir: str | os.PathLike, write_interval: IntervalT):
+    def __init__(
+        self,
+        output_dir: str | os.PathLike,
+        write_interval: IntervalT,
+        batch_dim_key_defaults: dict[str, int] | None = None,
+        seq_dim_key_defaults: dict[str, int] | None = None,
+    ):
         """Initializes the callback.
 
         Args:
             output_dir: The directory where predictions will be written.
             write_interval: The interval at which predictions will be written. (batch, epoch)
-
+            batch_dim_key_defaults: The default batch dimension for each key, if different from the standard 0.
+            seq_dim_key_defaults: The default sequence dimension for each key, if different from the standard 1.
         """
         super().__init__(write_interval)
         self.output_dir = str(output_dir)
+        self.batch_dim_key_defaults = batch_dim_key_defaults
+        self.seq_dim_key_defaults = seq_dim_key_defaults
 
     def write_on_batch_end(
         self,
@@ -92,9 +101,18 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
         result_path = os.path.join(self.output_dir, f"predictions__rank_{trainer.global_rank}.pt")
 
         # collate multiple batches / ignore empty ones
-        prediction = batch_collator([item for item in predictions if item is not None])
+        collate_kwargs = {}
+        if self.batch_dim_key_defaults is not None:
+            collate_kwargs["batch_dim_key_defaults"] = self.batch_dim_key_defaults
+        if self.seq_dim_key_defaults is not None:
+            collate_kwargs["seq_dim_key_defaults"] = self.seq_dim_key_defaults
+        prediction = batch_collator([item for item in predictions if item is not None], **collate_kwargs)
 
         # batch_indices is not captured due to a lightning bug when return_predictions = False
         # we use input IDs in the prediction to map the result to input
         torch.save(prediction, result_path)
-        logging.info(f"Inference predictions are stored in {result_path}\n{prediction.keys()}")
+        if isinstance(prediction, dict):
+            keys = prediction.keys()
+        else:
+            keys = "tensor"
+        logging.info(f"Inference predictions are stored in {result_path}\n{keys}")

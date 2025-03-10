@@ -16,6 +16,7 @@ dependencies = [
     # **ALL** bionemo sub-packages
     'bionemo-core',
     'bionemo-esm2',
+    'bionemo-evo2',
     'bionemo-example_model',
     'bionemo-fw',
     'bionemo-geneformer',
@@ -126,6 +127,7 @@ executionEnvironments = [
         # bionemo sub-packages
         './sub-packages/bionemo-core/src',
         './sub-packages/bionemo-esm2/src',
+        './sub-packages/bionemo-evo2/src',
         './sub-packages/bionemo-example_model/src',
         './sub-packages/bionemo-fw/src',
         './sub-packages/bionemo-geneformer/src',

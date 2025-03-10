@@ -20,10 +20,11 @@ check_git_repository() {
     if ! git diff-index --quiet HEAD --; then
         if [ $? -eq 128 ]; then
             echo "ERROR: Not in a git repository!" >&2
+            return 1
         else
-            echo "ERROR: Repository is dirty! Commit all changes before building the image!" >&2
+            echo "Warning: Repository is dirty! Commit all changes before building the image!" >&2
+            return 0
         fi
-        return 1
     fi
 }
 
