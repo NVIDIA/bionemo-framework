@@ -49,15 +49,23 @@ class SignalAfterGivenStepCallback(Callback, CallbackMethods):
     Use this callback for pytest based Stop and go tests.
     """
 
-    def __init__(self, stop_step: int, signal_: signal.Signals = signal.SIGUSR2):
+    def __init__(
+        self, stop_step: int, signal_: signal.Signals = signal.SIGUSR2, use_trainer_should_stop: bool = False
+    ):
         """Initializes the callback with the given stop_step."""
         self.stop_step = stop_step
         self.signal = signal_
+        # If True, ask the trainer to stop by setting should_stop to True rather than emitting a kill signal.
+        self.use_trainer_should_stop = use_trainer_should_stop
 
     def on_megatron_step_start(self, step: MegatronStep) -> MegatronStep:
         """Stop training if the global step is greater than or equal to the stop_step."""
         if step.trainer.global_step >= self.stop_step:
-            os.kill(os.getpid(), self.signal)
+            if self.use_trainer_should_stop:
+                # Ask the trainer to stop by setting should_stop to True rather than emitting a kill signal.
+                step.trainer.should_stop = True
+            else:
+                os.kill(os.getpid(), self.signal)
         return step
 
 
