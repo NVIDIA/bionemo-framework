@@ -35,6 +35,7 @@ class WandbConfig(BaseModel):
     Args:
         entity: The team posting this run (default: your username or your default team)
         project: The name of the project to which this run will belong.
+        name: Display name for the run. By default it is set by NeMoLogger to experiment name
         tags: Tags associated with this run.
         group: A unique string shared by all runs in a given group
         job_type: Type of run, which is useful when you're grouping runs together into larger experiments.
@@ -45,7 +46,7 @@ class WandbConfig(BaseModel):
 
     entity: str | None  # The team posting this run (default: your username or your default team)
     project: str  # The name of the project to which this run will belong.
-    # name: #Display name for the run. "This is handled by NeMoLogger"
+    name: str | None  # Display name for the run. By default it is set by NeMoLogger to experiment name
     # save_dir: #Path where data is saved. "This is handled by NeMoLogger"
     tags: List[str] | None  # Tags associated with this run.
     group: str | None  # A unique string shared by all runs in a given group.
@@ -59,7 +60,7 @@ class WandbConfig(BaseModel):
 
 
 def setup_nemo_lightning_logger(
-    name: str = "default-name",
+    name: str | None = None,
     root_dir: str | pathlib.Path = "./results",
     initialize_tensorboard_logger: bool = False,
     wandb_config: Optional[WandbConfig] = None,
@@ -81,7 +82,12 @@ def setup_nemo_lightning_logger(
         NeMoLogger: NeMo logger instance.
     """
     # The directory that the logger will save to
-    save_dir = pathlib.Path(root_dir) / name
+    root_dir = pathlib.Path(root_dir).resolve()  # Get the absolute path
+    if name is None:
+        name = root_dir.name
+        save_dir = root_dir
+    else:
+        save_dir = pathlib.Path(root_dir) / name
     if wandb_config is not None:
         wandb_logger = WandbLogger(save_dir=save_dir, name=name, **wandb_config.model_dump())
     else:
