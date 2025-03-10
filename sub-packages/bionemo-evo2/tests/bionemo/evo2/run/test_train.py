@@ -126,8 +126,6 @@ def test_train_evo2_stops(tmp_path, num_steps=500000, early_stop_steps=3):
 
     global_step_ints = extract_global_steps(train_stdout)
     assert global_step_ints[-1] == early_stop_steps - 1
-    # Note we stop after we see a global step matching the value requested. So you end up getting
-    # i+1 steps.
     assert len(global_step_ints) == early_stop_steps
 
 
