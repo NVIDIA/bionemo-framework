@@ -25,8 +25,8 @@ def test_sparse_collate_function_produces_correct_batch():
     columns_two = torch.tensor([1, 2, 5, 6])
     values_one = torch.tensor([1, 2, 3])
     values_two = torch.tensor([4, 5, 6, 7])
-    sparse_tensor_one = torch.stack((values_one, columns_one))
-    sparse_tensor_two = torch.stack((values_two, columns_two))
+    sparse_tensor_one = (torch.stack((values_one, columns_one)),[7])
+    sparse_tensor_two = (torch.stack((values_two, columns_two)),[7])
     csr_matrix = collate_sparse_matrix_batch([sparse_tensor_one, sparse_tensor_two])
     assert torch.equal(csr_matrix.to_dense(), torch.tensor([[0, 0, 1, 2, 0, 3, 0], [0, 4, 5, 0, 0, 6, 7]]))
 
@@ -36,8 +36,8 @@ def test_sparse_collate_function_with_one_empty_entry_correct():
     columns_two = torch.tensor([])
     values_one = torch.tensor([1, 2, 3])
     values_two = torch.tensor([])
-    sparse_tensor_one = torch.stack((values_one, columns_one))
-    sparse_tensor_two = torch.stack((values_two, columns_two))
+    sparse_tensor_one = (torch.stack((values_one, columns_one)), [6])
+    sparse_tensor_two = (torch.stack((values_two, columns_two)), [6])
     csr_matrix = collate_sparse_matrix_batch([sparse_tensor_one, sparse_tensor_two])
     assert torch.equal(csr_matrix.to_dense(), torch.tensor([[0, 0, 1, 2, 0, 3], [0, 0, 0, 0, 0, 0]]))
 
@@ -47,8 +47,8 @@ def test_sparse_collate_function_with_all_empty_entries_correct():
     columns_two = torch.tensor([])
     values_one = torch.tensor([])
     values_two = torch.tensor([])
-    sparse_tensor_one = torch.stack((values_one, columns_one))
-    sparse_tensor_two = torch.stack((values_two, columns_two))
+    sparse_tensor_one = (torch.stack((values_one, columns_one)), [0])
+    sparse_tensor_two = (torch.stack((values_two, columns_two)), [0])
     csr_matrix = collate_sparse_matrix_batch([sparse_tensor_one, sparse_tensor_two])
     assert csr_matrix.to_dense().shape == torch.Size([2, 0])
 
