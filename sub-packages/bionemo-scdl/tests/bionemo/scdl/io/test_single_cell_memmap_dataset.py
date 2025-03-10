@@ -91,11 +91,13 @@ def test_empty_dataset_save_and_reload(tmp_path):
     ds.save()
     del ds
     reloaded = SingleCellMemMapDataset(tmp_path / "scy")
+    print(reloaded.number_of_rows())
+    print(reloaded.number_of_variables())
     assert reloaded.number_of_rows() == 0
     assert reloaded.number_of_variables() == [0]
     assert reloaded.number_of_values() == 0
     assert len(reloaded) == 0
-    assert len(reloaded[1][0]) == 0
+    assert len(reloaded[1][0][0]) == 0
 
 
 def test_wrong_arguments_for_dataset(tmp_path):
