@@ -18,8 +18,8 @@ on:
 env:
   # TODO(@cspades): Skip pytest for packages that require GPU's or special installation recipes until resolved.
   SUBPACKAGE_SKIP_TEST: '["bionemo-moco","bionemo-noodles","bionemo-geometric","bionemo-webdatamodule"]'
-  # TODO(@cspades): Skip publishing for bionemo-noodles because it requires `maturin publish` as a GitHub Action.
-  SUBPACKAGE_SKIP_PUBLISH: '["bionemo-noodles","bionemo-geometric"]'
+  # TODO(@cspades): Skip publishing for packages that require special installation recipes or should not be published to PyPI.
+  SUBPACKAGE_SKIP_PUBLISH: '["bionemo-noodles","bionemo-geometric","bionemo-testing"]'
 
 jobs:
   configure-workflow-packages:
