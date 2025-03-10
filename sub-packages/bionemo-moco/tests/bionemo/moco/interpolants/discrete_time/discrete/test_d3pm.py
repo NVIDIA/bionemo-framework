@@ -16,7 +16,9 @@
 import os
 
 
-os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+os.environ["NVIDIA_TF32_OVERRIDE"] = (
+    "0"  # disable TF32 for numerical stability see sub-packages/bionemo-moco/src/bionemo/moco/interpolants/discrete_time/discrete/d3pm.py:L188
+)
 import pytest
 import torch
 
