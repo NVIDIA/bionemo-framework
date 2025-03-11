@@ -20,7 +20,7 @@ dependencies = [
     'boto3',
     'lightning>=2.2.1',
     'nest_asyncio',
-    'ngcsdk',
+    'ngcsdk==3.50.0',
     'pooch',
     'pydantic>=2.7.0',
     'pydantic[email]>=2.7.0',
