@@ -80,8 +80,8 @@ def compare_fn():
         assert dns.number_of_variables() == dt.number_of_variables()
         assert dns.number_of_rows() == dt.number_of_rows()
         for row_idx in range(len(dns)):
-            assert (dns[row_idx][0] == dt[row_idx][0]).all()
-            assert (dns[row_idx][1] == dt[row_idx][1]).all()
+            assert (dns[row_idx][0][0] == dt[row_idx][0][0]).all()
+            assert (dns[row_idx][0][1] == dt[row_idx][0][1]).all()
 
     return _compare
 
@@ -170,16 +170,16 @@ def test_SingleCellMemMapDataset_constructor(generate_dataset):
 
 
 def test_SingleCellMemMapDataset_get_row(generate_dataset):
-    assert len(generate_dataset[0][0]) == 1
-    vals, cols = generate_dataset[0]
+    assert len(generate_dataset[0][0][0]) == 1
+    vals, cols = generate_dataset[0][0]
     assert vals[0] == 6.0
     assert cols[0] == 2
-    assert len(generate_dataset[1][1]) == 0
-    assert len(generate_dataset[1][0]) == 0
-    vals, cols = generate_dataset[2]
+    assert len(generate_dataset[1][0][1]) == 0
+    assert len(generate_dataset[1][0][0]) == 0
+    vals, cols = generate_dataset[2][0]
     assert vals[0] == 19.0
     assert cols[0] == 2
-    vals, cols = generate_dataset[7]
+    vals, cols = generate_dataset[7][0]
     assert vals[0] == 1.0
     assert cols[0] == 8
 
