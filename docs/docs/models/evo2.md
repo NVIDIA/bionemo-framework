@@ -95,7 +95,7 @@ The following model versions are available to download through our CLI
 * `evo2/1b-8k:1.0` is a nemo2 format model converted from [arcinstitute/savanna_evo2_1b_base](https://huggingface.co/arcinstitute/savanna_evo2_1b_base) which is a 1b parameter
    evo2 model pre-trained on 8k context genome data.
 * `evo2/1b-8k-bf16:1.0` is a fine-tuned variant of `evo2/1b-8k:1.0` that performs well with bf16 precision.
-* `evo2/7b-8k:1.0` is a nemo2 format model converted from [arcinstitute/savanna_evo2_7b_base](https://huggingface.co/arcinstitute/savanna_evo2_7b_base) 
+* `evo2/7b-8k:1.0` is a nemo2 format model converted from [arcinstitute/savanna_evo2_7b_base](https://huggingface.co/arcinstitute/savanna_evo2_7b_base)
    which is a 7b parameter evo2 model pre-trained on 8k context genome data.
 * `evo2/7b-1m:1.0` is a nemo2 format model converted from [arcinstitute/savanna_evo2_7b](https://huggingface.co/arcinstitute/savanna_evo2_7b) which is a
    7b parameter evo2 model further fine-tuned from [arcinstitute/savanna_evo2_7b_base](https://huggingface.co/arcinstitute/savanna_evo2_7b_base) to support 1m context
@@ -110,7 +110,7 @@ the steps in our evo2 fine-tuning example notebook.
 
 ## Training, Testing, and Evaluation Datasets:
 
-Multiple datasets were used for training, testing and evaluation (see details below). 
+Multiple datasets were used for training, testing and evaluation (see details below).
 
 *OpenGenome*
 Link: [Sequence modeling and design from molecular to genome scale with Evo](https://www.science.org/doi/10.1126/science.ado9336)
