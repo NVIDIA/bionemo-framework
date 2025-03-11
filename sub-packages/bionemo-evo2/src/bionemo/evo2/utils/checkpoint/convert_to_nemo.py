@@ -61,7 +61,7 @@ def parse_args():
 
 @io.model_importer(HyenaModel, "pytorch")
 class HyenaOptimizerRemover(io.ModelConnector["HyenaModel", HyenaModel]):
-    """Importer class for converting PyTorch Hyena models to NeMo format."""
+    """Removes the optimizer state from a nemo2 format model checkpoint."""
 
     def __new__(cls, path: str, model_config=None):
         """Creates a new importer instance.
