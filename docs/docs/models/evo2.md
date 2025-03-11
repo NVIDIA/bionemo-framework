@@ -157,4 +157,8 @@ attention layers in a model like llama2. Even with this shortcoming, we see that
 makes up for the earlier stage of optimization at around the 64k context length. Beyond that point we see an improvement
 in performance even compared to a highly optimized transformer model.
 
- ![Evo2 becomes faster than llama2 beyond around 64k context length in this version](../assets/images/evo2/evo2_vs_llama2_performance_vs_context_length.png)
+![Evo2 becomes faster than llama2 beyond around 64k context length in this version](../assets/images/evo2/evo2_vs_llama2_performance_vs_context_length.png)
+
+### Performance vs cluster size
+Performance scales linearly with a very small overhead on a cluster with fast interconnects.
+![Evo2 linear scaling with increasing number of GPUs](../assets/images/evo2/evo2_performance_by_cluster_size.png)
