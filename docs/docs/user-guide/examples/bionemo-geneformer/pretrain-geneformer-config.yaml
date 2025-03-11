@@ -1,0 +1,88 @@
+bionemo_model_config:
+  activation_func: gelu
+  apply_query_key_layer_scaling: false
+  apply_residual_connection_post_layernorm: false
+  attention_dropout: 0.1
+  autocast_dtype: bf16-mixed
+  bias_activation_fusion: true
+  bias_dropout_fusion: true
+  biobert_spec_option: bert_layer_with_transformer_engine_spec
+  enable_autocast: false
+  ffn_hidden_size: 512
+  fp16_lm_cross_entropy: false
+  fp32_residual_connection: false
+  get_attention_mask_from_fusion: true
+  gradient_accumulation_fusion: false
+  hidden_dropout: 0.02
+  hidden_size: 256
+  init_method_std: 0.02
+  initial_ckpt_path: null
+  initial_ckpt_skip_keys_with_these_prefixes: []
+  kv_channels: null
+  layernorm_epsilon: 1.0e-12
+  layernorm_zero_centered_gamma: false
+  make_vocab_size_divisible_by: 128
+  masked_softmax_fusion: true
+  nemo1_ckpt_path: null
+  num_attention_heads: 4
+  num_layers: 6
+  params_dtype: bf16-mixed
+  pipeline_dtype: bf16-mixed
+  qk_layernorm: false
+  seq_length: 2048
+  share_embeddings_and_output_weights: true
+data_config:
+  data_dir: /workspace/bionemo2/geneformer-pretrain-data
+  micro_batch_size: 8
+  num_dataset_workers: 0
+  result_dir: ./results
+  seq_length: 2048
+experiment_config:
+  create_checkpoint_callback: true
+  create_tensorboard_logger: false
+  experiment_name: geneformer-10m
+  metric_to_monitor_for_checkpoints: reduced_train_loss
+  restore_from_checkpoint_path: null
+  result_dir: /workspace/bionemo2/results
+  save_every_n_steps: 100
+  save_last_checkpoint: true
+  save_top_k: 2
+optim_config:
+  cosine_hold_frac: 0.05
+  cosine_rampup_frac: 0.01
+  interval: step
+  lr: 0.001
+  lr_scheduler: cosine
+  max_steps: null
+  monitor: val_loss
+  optimizer: adam
+  warmup_steps: 0
+parallel_config:
+  accumulate_grad_batches: 1
+  ddp: megatron
+  num_devices: 1
+  num_nodes: 1
+  pipeline_model_parallel_size: 1
+  remove_unused_parameters: true
+  tensor_model_parallel_size: 1
+training_config:
+  accelerator: gpu
+  enable_checkpointing: true
+  gc_interval: 0
+  limit_val_batches: 8
+  log_train_ppl: false
+  log_val_ppl: true
+  max_steps: 400000
+  precision: bf16-mixed
+  val_check_interval: 100
+wandb_config:
+  anonymous: true
+  entity: geneformer-10m_pretraining
+  group: geneformer-10m
+  id: '1'
+  job_type: null
+  log_model: false
+  offline: true
+  project: geneformer-10m_pretraining
+  tags:
+  - geneformer-10m
