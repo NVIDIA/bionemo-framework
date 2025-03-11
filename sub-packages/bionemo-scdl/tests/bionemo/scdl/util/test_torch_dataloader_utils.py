@@ -15,7 +15,7 @@
 
 import torch
 from torch.utils.data import DataLoader
-
+import anndata as ad
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 
@@ -67,8 +67,23 @@ def test_dataloading_batch_size_one_work_without_collate(tmp_path, test_director
     for index, batch in enumerate(dataloader):
         assert torch.equal(batch[0], expected_tensors[index])
 
-
 def test_dataloading_batch_size_one_works_with_collate(tmp_path, test_directory):
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample1.h5ad")
+    dataloader = DataLoader(ds, batch_size=1, shuffle=False, collate_fn=collate_sparse_matrix_batch)
+    adata = ad.read_h5ad(test_directory / "adata_sample1.h5ad")
+
+    for idx, batch in enumerate(dataloader):
+        assert torch.equal(batch.to_dense(), adata[idx].X)
+
+def test_dataloading_batch_size_one_works_return_padded(tmp_path, test_directory):
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample1.h5ad", return_padded = True)
+    dataloader = DataLoader(ds, batch_size=1, shuffle=False)
+    adata = ad.read_h5ad(test_directory / "adata_sample1.h5ad")
+
+    for idx, batch in enumerate(dataloader):
+        assert torch.equal(batch.to_dense(), adata[idx].X)
+
+def test_dataloading_batch_size_one_padded_and_collate_equal(tmp_path, test_directory):
     ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample1.h5ad")
     dd = SingleCellMemMapDataset(tmp_path / "scy", return_padded = True)
 
