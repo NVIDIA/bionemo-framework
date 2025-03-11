@@ -102,13 +102,13 @@ Multiple datasets were used for training, testing and evaluation (see details be
 Link: [Sequence modeling and design from molecular to genome scale with Evo](https://www.science.org/doi/10.1126/science.ado9336)
 Data Collection Method: Automatic/Sensors/Human
 Labeling Method by dataset: Automatic
-The previously published OpenGenome dataset was used in its entirety as part of the training data for this study. This included representative prokaryotic genomes available through GTDB release v214.1, and curated phage and plasmid sequences retrieved through IMG/VR and IMG/PR.  
+The previously published OpenGenome dataset was used in its entirety as part of the training data for this study. This included representative prokaryotic genomes available through GTDB release v214.1, and curated phage and plasmid sequences retrieved through IMG/VR and IMG/PR.
 
 *Updated GTDB prokaryotic genomes*
 Link: [GTDB: an ongoing census of bacterial and archaeal diversity through a phylogenetically consistent, rank normalized and complete genome-based taxonomy](https://academic.oup.com/nar/advance-article/doi/10.1093/nar/gkab776/6370255)
 Data Collection Method: Automatic/Sensors/Human
 Labeling Method by dataset: Automatic
-New prokaryotic reference genomes made available through the GTDB release 220.0 update were added to the training data for this study. New genomes were identified by selecting all species’ reference genomes that had no previously published (release 214.1) genomes within their species cluster, resulting in 28,174 additional prokaryotic genomes.  
+New prokaryotic reference genomes made available through the GTDB release 220.0 update were added to the training data for this study. New genomes were identified by selecting all species’ reference genomes that had no previously published (release 214.1) genomes within their species cluster, resulting in 28,174 additional prokaryotic genomes.
 
 *NCBI Eukaryotic reference genomes*
 Link: [Mash: fast genome and metagenome distance estimation using MinHash](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-016-0997-x)
@@ -120,13 +120,13 @@ Bridge Metagenomic Data
 Link: [Bridge RNAs direct programmable recombination of target and donor DNA](https://www.nature.com/articles/s41586-024-07552-4)
 Data Collection Method: Automatic/Sensors/Human
 Labeling Method by dataset: Automatic
-A previously described metagenomics dataset was further curated as part of the training data. This included 41,253 metagenomes and metagenome-assembled genomes from NCBI, JGI IMG, MGnify, MG-RAST, Tara Oceans samples, and Youngblut et al. animal gut metagenomes.  All contigs were split at consecutive stretches of ambiguous nucleotides of length 5 bp or longer, the split contigs were filtered by a minimum sequence length of 1 kb, and only contigs with at least one open reading frame as predicted by prodigal were kept. Contig-encoded proteins were previously clustered at 90% identity using MMseqs. To further remove redundant sequences, contigs were sorted by descending length, and each contig was only retained if at least 90% of its respective protein clusters were not already in the sequence collection (determined using a bloom filter).  
+A previously described metagenomics dataset was further curated as part of the training data. This included 41,253 metagenomes and metagenome-assembled genomes from NCBI, JGI IMG, MGnify, MG-RAST, Tara Oceans samples, and Youngblut et al. animal gut metagenomes.  All contigs were split at consecutive stretches of ambiguous nucleotides of length 5 bp or longer, the split contigs were filtered by a minimum sequence length of 1 kb, and only contigs with at least one open reading frame as predicted by prodigal were kept. Contig-encoded proteins were previously clustered at 90% identity using MMseqs. To further remove redundant sequences, contigs were sorted by descending length, and each contig was only retained if at least 90% of its respective protein clusters were not already in the sequence collection (determined using a bloom filter).
 
 *NCBI Organelle*
 Link: [NCBI Organelle Genome Data Package](https://www.ncbi.nlm.nih.gov/datasets/organelle/?taxon=2759)
 Data Collection Method: Automatic/Sensors/Human
 Labeling Method by dataset: Automatic
-Eukaryotic organelle genomes: (at the time of data query) 33,457 organelle genomes were identified and downloaded using the “NCBI Organelle” web resource. Ambiguous nucleotides at the terminal ends of the organelle genome sequences were removed. Sequences that had over 25 ambiguous nucleotides were removed. This resulted in 32,241 organelle genomes that were used for training, including 1,613 mitochondria, 12,856 chloroplasts, 1,751 plastids, 18 apicoplasts, 1 cyanelle, and 1 kinetoplast.  
+Eukaryotic organelle genomes: (at the time of data query) 33,457 organelle genomes were identified and downloaded using the “NCBI Organelle” web resource. Ambiguous nucleotides at the terminal ends of the organelle genome sequences were removed. Sequences that had over 25 ambiguous nucleotides were removed. This resulted in 32,241 organelle genomes that were used for training, including 1,613 mitochondria, 12,856 chloroplasts, 1,751 plastids, 18 apicoplasts, 1 cyanelle, and 1 kinetoplast.
 
 ### Inference:
 
@@ -154,7 +154,7 @@ Please report security vulnerabilities or NVIDIA AI Concerns [here](https://www.
 ### Performance vs context length
 With the current implementation of Evo2, we do not have the heavily optimized kernels in place for convolution operators like we do for
 attention layers in a model like llama2. Even with this shortcoming, we see that the benefit from including more convolutional layers
-makes up for the earlier stage of optimization at around the 64k context length. Beyond that point we see an improvement,
-in performance, even vs a highly optimized transformer model. 
+makes up for the earlier stage of optimization at around the 64k context length. Beyond that point we see an improvement
+in performance even compared to a highly optimized transformer model.
 
  ![Evo2 becomes faster than llama2 beyond around 64k context length in this version](../assets/images/evo2/evo2_vs_llama2_performance_vs_context_length.png)
