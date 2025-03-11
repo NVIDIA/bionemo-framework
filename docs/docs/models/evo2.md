@@ -150,3 +150,11 @@ Please report security vulnerabilities or NVIDIA AI Concerns [here](https://www.
 ## Training diagnostics
 
 ## Benchmarking
+
+### Performance vs context length
+With the current implementation of Evo2, we do not have the heavily optimized kernels in place for convolution operators like we do for
+attention layers in a model like llama2. Even with this shortcoming, we see that the benefit from including more convolutional layers
+makes up for the earlier stage of optimization at around the 64k context length. Beyond that point we see an improvement,
+in performance, even vs a highly optimized transformer model. 
+
+ ![Evo2 becomes faster than llama2 beyond around 64k context length in this version](../assets/images/evo2/evo2_vs_llama2_performance_vs_context_length.png)
