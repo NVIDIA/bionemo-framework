@@ -122,7 +122,7 @@ def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:
         The full 1d numpy array representation.
     """
     ret = np.zeros(n_cols)
-    ret[row_col_ptr] = row_values
+    np.add.at(ret, row_col_ptr, row_values)
     return ret
 
 
