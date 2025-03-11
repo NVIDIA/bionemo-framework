@@ -148,8 +148,16 @@ Eukaryotic organelle genomes: (at the time of data query) 33,457 organelle genom
 
 **Test Hardware:**
 
+Evo2 NIM:
 * H200 (1 and 2 GPU configurations, 144 GB each)
 * H100 (2 GPU configuration, 80 GB each)
+
+Bionemo-framework:
+* A100 (1, 8, ..., 1024 GPU configurations)
+* H100 (1, 8, ..., 2048 GPU configurations )
+* A6000 (1, 2 GPU configurations (standard developer environment))
+* A5880 (1, 2 GPU configurations (alternative developer environment))
+* L40S (1 GPU configuration (brev.dev standard configuration))
 
 ## Ethical Considerations:
 
