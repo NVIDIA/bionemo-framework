@@ -130,8 +130,12 @@ jobs:
             contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS'))
         env:
           BIONEMO_DATA_SOURCE: ngc
-        run: pytest -v --nbval-lax -p no:python docs/ sub-packages/
-
+        run: |
+          pytest -v --nbval-lax -p no:python docs/ sub-packages/
+          echo "Cleaning up untracked files in docs/ and sub-packages/ directories..."
+          # Find and remove files not tracked by git in docs/ and sub-packages/
+          git clean -fdx docs/ sub-packages/
+          echo "Cleanup complete."
       - name: Upload coverage to Codecov
         # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
         # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
