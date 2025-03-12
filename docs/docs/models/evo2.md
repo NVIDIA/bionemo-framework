@@ -229,6 +229,6 @@ As a baseline we compared to the original training run of Evo2 7b in the Savanna
 We trained a 1b model with the same configuration as was used by savanna. We achieve a largely similar training curve
 for the first 6950 steps.
 ![7b training with bionemo reaches 1.2 loss in 6,950 steps](../assets/images/evo2/evo2_bionemo_1b_6950steps.png)
-As a baseline we compared to a to the original training run of Evo2 1b in the Savanna codebase [here on W&B](https://api.wandb.ai/links/hyena/yebyphwe). 
+As a baseline we compared to a to the original training run of Evo2 1b in the Savanna codebase [here on W&B](https://api.wandb.ai/links/hyena/yebyphwe).
 Around step 6950 this run had a loss of between 1.18 and 1.2.
 ![7b training with savanna also reaches 1.2 loss in 6,950 steps](../assets/images/evo2/evo2_savanna_1b_6950steps.png)
