@@ -14,35 +14,50 @@ script_args:
     value: evo2
   variant:
     value: train
-  config_name:
-    value: 7b
-  precision:
-    value: fp8
-  nodes:
-    value: 4
-  gpus:
-    value: 8
-  batch_size:
-    value: 2
-  pp:
-    value: 1
-  tp:
-    value: 8
-  cp:
-    value: 1
-  acc_grad:
-    value: 1
-  max_steps:
-    value: 20000
+  config_name: 1b
+  precision: fp8
+  gpus: 8
+  nodes: 4
+  batch_size: 8
+  max_steps: 490000
+  pp: 1
+  cp: 1
+  tp: 1
+  seq_len: 8192
+  acc_grad: 1
+  clip_grad:
+    value: 250
+    key_segment: False
+  seed: 3735928559
+  lr:
+    value: 0.00015
+    key_segment: False
+  min_lr:
+    value: 0.000015
+    key_segment: False
+  wu_steps:
+    value: 5000
+    key_segment: False
+  wd:
+    value: 0.1
+    key_segment: False
 script: |-
-  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
-  -d ${workspace}/sub-packages/bionemo-evo2/tests/config/test_dataset_config.yaml \
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-evo2/src/bionemo/evo2/run/${variant}.py \
+  -d /workspace/bionemo2/sub-packages/bionemo-evo2/examples/configs/full_pretrain_shortphase_config.yaml \
   --dataset-dir ${data_path} \
   --grad-acc-batches ${acc_grad} \
-  --fp8 \
+  --fp8 --fp8-wgrad --activation-checkpoint-recompute-num-layers 5 \
   --enable-preemption \
   --ckpt-async-save \
-  --seq-length=8192 \
+  --use-megatron-comm-overlap-llama3-8k \
+  --overlap-grad-reduce \
+  --clip-grad=${clip_grad} \
+  --eod-pad-in-loss-mask \
+  --seq-length=${seq_len} \
+  --lr=${lr} \
+  --wd=${wd} \
+  --min-lr=${min_lr} \
+  --warmup-steps=${wu_steps} \
   --tensor-parallel-size=${tp} \
   --context-parallel-size=${cp} \
   --pipeline-model-parallel-size=${pp} \
@@ -56,8 +71,8 @@ script: |-
   --log-every-n-steps=50 \
   --val-check-interval=500 \
   --tflops-callback \
-  --experiment-dir=${tensorboard_dir}/${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+  --experiment-dir=${tensorboard_dir} \
   --wandb-project=${wandb_project_name} \
-  --wandb-group=${model}_${variant}_${config_name}__${target} \
+  --wandb-group=${model}_${variant}_${config_name}__${target}__slen${seq_len} \
   --wandb-job-type=${pipeline_label} \
   --disable-checkpointing;
