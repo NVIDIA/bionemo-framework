@@ -132,7 +132,7 @@ def test_train_evo2_stops(tmp_path, num_steps=500000, early_stop_steps=3):
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "model_size",
-    ["7b_nv"],
+    ["1b_nv"],
 )
 def test_train_single_gpu(tmp_path, model_size: str):
     """
@@ -172,7 +172,7 @@ def test_train_single_gpu(tmp_path, model_size: str):
 
 @pytest.mark.slow
 @pytest.mark.distributed
-@pytest.mark.parametrize("model_size", ["7b_nv"])
+@pytest.mark.parametrize("model_size", ["1b_nv"])
 @pytest.mark.skip(
     reason="This tests requires to be run on a multi-gpu machine with torchrun --nproc_per_node=N_GPU -m pytest TEST_NAME"
 )
