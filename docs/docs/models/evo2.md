@@ -175,8 +175,6 @@ Users are responsible for ensuring the physical properties of model-generated mo
 
 Please report security vulnerabilities or NVIDIA AI Concerns [here](https://www.nvidia.com/en-us/support/submit-security-vulnerability/).
 
-## Training diagnostics
-
 ## Benchmarking
 
 ### Performance vs context length
@@ -214,3 +212,23 @@ Performance evaluation across multiple Evo 2 model variants was conducted by com
 | [Arc Evo 2 1B](https://github.com/ArcInstitute/evo2/blob/main/notebooks/brca1/brca1_zero_shot_vep.ipynb) | 0.73  |
 | BioNeMo Evo 2 1B                                                                                         | 0.76  |
 | BioNeMo Evo 2 7B                                                                                         | 0.87  |
+
+## Training diagnostics
+
+### 7b training equivalence with NV model variant
+For this test we demonstrate that our NV model variant has similar architecture, but uses gelus activations in the hyena
+layers as was originally intended, as well as convolutional bias in the short hyena convolutions as well as the medium
+and long layers. These changes result in a model that has similar training dynamics early in the process, but may
+have improved stability.
+![7b training with bionemo reaches 1.08 loss in 28k steps](../assets/images/evo2/evo2_bionemo_7bnv_28ksteps.png)
+
+As a baseline we compared to the original training run of Evo2 7b in the Savanna codebase [here on W&B](https://api.wandb.ai/links/hyena/opmbhm1c)
+![7b training with savanna reaches 1.075 loss in 28k steps](../assets/images/evo2/evo2_savanna_7b_28ksteps.png)
+
+### 1b training equivalence (same setup)
+We trained a 1b model with the same configuration as was used by savanna. We achieve a largely similar training curve
+for the first 6950 steps.
+![7b training with bionemo reaches 1.2 loss in 6,950 steps](../assets/images/evo2/evo2_bionemo_1b_6950steps.png)
+As a baseline we compared to a to the original training run of Evo2 1b in the Savanna codebase [here on W&B](https://api.wandb.ai/links/hyena/yebyphwe). 
+Around step 6950 this run had a loss of between 1.18 and 1.2.
+![7b training with savanna also reaches 1.2 loss in 6,950 steps](../assets/images/evo2/evo2_savanna_1b_6950steps.png)
