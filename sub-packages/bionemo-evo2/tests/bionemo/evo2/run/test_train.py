@@ -16,9 +16,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import io
 import os
+import re
+import shlex
 import subprocess
 import sys
+from contextlib import redirect_stderr, redirect_stdout
 
 import pytest
 import torch
@@ -71,6 +75,58 @@ def test_train_evo2_runs(tmp_path, num_steps=5):
     # Assert that the command completed successfully.
     assert "reduced_train_loss:" in result.stdout
     assert result.returncode == 0, "train_evo2 command failed."
+
+
+@pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+@pytest.mark.slow
+def test_train_evo2_stops(tmp_path, num_steps=500000, early_stop_steps=3):
+    """
+    This test runs the `train_evo2` command with mock data in a temporary directory.
+    It uses the temporary directory provided by pytest as the working directory.
+    The command is run in a subshell, and we assert that it returns an exit code of 0.
+    """
+    open_port = find_free_network_port()
+    # a local copy of the environment
+    env = dict(**os.environ)
+    env["MASTER_PORT"] = str(open_port)
+
+    # Build the command string.
+    # Note: The command assumes that `train_evo2` is in your PATH.
+    command = (
+        f"train_evo2 --mock-data --experiment-dir {tmp_path}/test_train "
+        "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* "
+        "--no-activation-checkpointing --add-bias-output "
+        f"--max-steps {num_steps} --early-stop-on-step {early_stop_steps} --warmup-steps 1 --no-wandb "
+        "--seq-length 128 --hidden-dropout 0.1 --attention-dropout 0.1 "
+    )
+    command_parts_no_program = shlex.split(command)[1:]
+    args = parse_args(args=command_parts_no_program)
+    with distributed_model_parallel_state():
+        # Capture stdout/stderr during train function execution
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+        with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+            train(args=args)
+        # Get the captured output
+        train_stdout = stdout_buffer.getvalue()
+        train_stderr = stderr_buffer.getvalue()
+        # Print the captured output for debugging
+        print("TRAIN FUNCTION STDOUT:")
+        print(train_stdout)
+        print("TRAIN FUNCTION STDERR:")
+        print(train_stderr)
+
+    # Assert that the command completed successfully.
+    assert "reduced_train_loss:" in train_stdout
+    pattern = r"\| global_step: (\d+) \|"
+
+    def extract_global_steps(log_string):
+        matches = re.findall(pattern, log_string)
+        return [int(step) for step in matches]
+
+    global_step_ints = extract_global_steps(train_stdout)
+    assert global_step_ints[-1] == early_stop_steps - 1
+    assert len(global_step_ints) == early_stop_steps
 
 
 @pytest.mark.slow
