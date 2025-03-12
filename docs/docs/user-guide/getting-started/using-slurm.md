@@ -210,7 +210,8 @@ set +x # Disable debugging
 
 #### SLURM Directives (Resource Allocation)
 
-After the first shebang line, you'll need to add some `#SBATCH` directives to define how SLURM manages the job:
+After the first shebang line, you'll need to add some `#SBATCH` directives to define how SLURM manages the job.
+Some of these are user-specific or project-specific, so you'll need to ask your sysadmin for the correct values.
 
 | **Directive**                                  | **Description**                                          |
 | ---------------------------------------------- | -------------------------------------------------------- |
