@@ -123,13 +123,13 @@ We'll walk through the script in detail below.
 #!/bin/bash
 # SLURM directives
 # =========================
-#SBATCH --account=healthcareeng_bionemo
+#SBATCH --account=[INSERT ACCOUNT HERE]
 #SBATCH --nodes=1
-#SBATCH --partition=batch,backfill
+#SBATCH --partition=[INSERT PARTITIONs HERE]
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=00:15:00
 #SBATCH --mem=0
-#SBATCH --job-name=healthcareeng_bionemo-evo2-training.enroot
+#SBATCH --job-name=[INSERT JOB NAME HERE]
 #SBATCH --mail-type=FAIL
 #SBATCH --exclusive
 set -x # Enable debugging (prints executed commands)
@@ -137,7 +137,6 @@ set -x # Enable debugging (prints executed commands)
 # =========================
 IMAGE_NAME=[INSERT IMAGE NAME HERE]
 EXPERIMENT_NAME=[INSERT PROJECT NAME HERE]
-MODEL_PATH=/lustre/fsw/healthcareeng_bionemo/arc_evo2/projects/qa_evo2_march2025
 MODEL_SIZE=7b
 CP_SIZE=1
 TP_SIZE=1
@@ -160,8 +159,9 @@ ADO=0.01
 HDO=0.01
 # Mounts
 # =========================
-DATA_PATH=/lustre/fsw/healthcareeng_bionemo/arc_evo2/data
+DATA_PATH=/lustre/.../[INSERT DATA PATH HERE]
 DATA_MOUNT=/workspace/bionemo2/data
+MODEL_PATH=/lustre/.../[INSERT MODEL PATH HERE]
 MODEL_MOUNT=/workspace/bionemo2/model
 RESULTS_PATH=$MODEL_PATH/experiments/${EXPERIMENT_NAME}
 mkdir -p $RESULTS_PATH
@@ -212,17 +212,17 @@ set +x # Disable debugging
 
 After the first shebang line, you'll need to add some `#SBATCH` directives to define how SLURM manages the job:
 
-| **Directive**                                                   | **Description**                                          |
-| --------------------------------------------------------------- | -------------------------------------------------------- |
-| `#SBATCH --account=healthcareeng_bionemo`                       | Specifies the **SLURM account** for billing.             |
-| `#SBATCH --nodes=1`                                             | Requests **1 compute node**.                             |
-| `#SBATCH --partition=batch,backfill`                            | Specifies **job queue (partition)**.                     |
-| `#SBATCH --ntasks-per-node=8`                                   | Requests **8 tasks per node (often maps to GPUs/CPUs)**. |
-| `#SBATCH --time=00:15:00`                                       | Limits execution time to **15 minutes**.                 |
-| `#SBATCH --mem=0`                                               | Uses **default max memory** available.                   |
-| `#SBATCH --job-name=healthcareeng_bionemo-evo2-training.enroot` | Names the job for tracking.                              |
-| `#SBATCH --mail-type=FAIL`                                      | Sends an email **if the job fails**.                     |
-| `#SBATCH --exclusive`                                           | Ensures the job **has exclusive access to the node**.    |
+| **Directive**                                  | **Description**                                          |
+| ---------------------------------------------- | -------------------------------------------------------- |
+| `#SBATCH --account=[INSERT ACCOUNT HERE]`      | Specifies the **SLURM account** for billing.             |
+| `#SBATCH --nodes=1`                            | Requests **1 compute node**.                             |
+| `#SBATCH --partition=[INSERT PARTITIONs HERE]` | Specifies **job queue (partition)**.                     |
+| `#SBATCH --ntasks-per-node=8`                  | Requests **8 tasks per node (often maps to GPUs/CPUs)**. |
+| `#SBATCH --time=00:15:00`                      | Limits execution time to **15 minutes**.                 |
+| `#SBATCH --mem=0`                              | Uses **default max memory** available.                   |
+| `#SBATCH --job-name=[INSERT JOB NAME HERE]`    | Names the job for tracking.                              |
+| `#SBATCH --mail-type=FAIL`                     | Sends an email **if the job fails**.                     |
+| `#SBATCH --exclusive`                          | Ensures the job **has exclusive access to the node**.    |
 
 **Tip**: You can check partition limits and node availability using `sinfo`
 
@@ -240,7 +240,6 @@ It's not necessary to specify these as variables, you could just specify them di
 ```bash
 IMAGE_NAME=[INSERT QA IMAGE NAME HERE]
 EXPERIMENT_NAME=[INSERT QA PROJECT HERE]
-MODEL_PATH=/lustre/fsw/healthcareeng_bionemo/arc_evo2/projects/qa_evo2_march2025
 SEQ_LEN=8192
 MAX_STEPS=100
 ...
@@ -262,10 +261,13 @@ To specify a mount, first specify the Lustre path, then the container path, sepa
 Once again, we specify the paths as variables for readability and ease of modification.
 
 ```bash
-DATA_PATH=/lustre/fsw/healthcareeng_bionemo/arc_evo2/data
+DATA_PATH=/lustre/.../[INSERT DATA PATH HERE]
+DATA_MOUNT=/workspace/bionemo2/data
+MODEL_PATH=/lustre/.../[INSERT MODEL PATH HERE]
+MODEL_MOUNT=/workspace/bionemo2/model
 RESULTS_PATH=$MODEL_PATH/experiments/${EXPERIMENT_NAME}
-...
-MOUNTS=${DATA_PATH}:/workspace/bionemo2/data,${MODEL_PATH}:/workspace/bionemo2/model
+mkdir -p $RESULTS_PATH
+MOUNTS=${DATA_PATH}:${DATA_MOUNT},${MODEL_PATH}:${MODEL_MOUNT},$HOME/.cache:/root/.cache
 ```
 
 Note that paths on EOS and ORD are different, so you'll want to mount the correct Lustre path to the correct container path.
