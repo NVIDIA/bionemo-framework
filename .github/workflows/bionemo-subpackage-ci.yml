@@ -1,8 +1,9 @@
 name: BioNeMo Sub-Package Workflow
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  # TODO(@cspades): Re-enable PR-based testing and publishing for debugging or when we have sufficient compute resources.
+  # pull_request:
+  #   types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       subpackages:
@@ -14,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      ref:
+        description: The branch, tag, or commit hash to test or publish for dispatched workflows. Used to test against a specific branch or commit such as in open pull requests (PR).
+        required: false
+        type: string
+        default: "main"
 
 env:
   # TODO(@cspades): Skip pytest for packages that require GPU's or special installation recipes until resolved.
@@ -23,6 +29,8 @@ env:
 
 jobs:
   configure-workflow-packages:
+    # Sub-package CI override label in PR's.
+    if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'SKIP_SUBPACKAGE_CI') }}
     runs-on: ubuntu-latest
     outputs:
       workflow_packages: ${{ steps.collect-package-deltas.outputs.workflow_packages }}
@@ -31,6 +39,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Use the reference branch or commit hash if provided in workflow_dispatch.inputs.ref.
+          # Otherwise, becomes a null reference, which defaults to the reference or SHA for the GitHub Actions Event.
+          ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
           submodules: "recursive"
       - id: collect-package-deltas
@@ -68,6 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
           submodules: "recursive"
       - uses: actions/setup-python@v5
@@ -100,6 +112,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.inputs.ref }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
