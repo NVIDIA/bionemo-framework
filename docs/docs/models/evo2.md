@@ -196,3 +196,21 @@ Comparing model sizes, our benchmarks show the 7B variant processes approximatel
 
 Performance scales linearly with a very small overhead on a cluster with fast interconnects.
 ![Evo2 linear scaling with increasing number of GPUs](../assets/images/evo2/evo2_performance_by_cluster_size.png)
+
+## Accuracy
+
+## Zeroshot BRCA1 VEP
+
+To evaluate Evo 2's accuracy, we replicated Arc's zero-shot variant effect prediction experiment on the BRCA1 gene using the [Findlay et al. (2018) dataset](https://www.nature.com/articles/s41586-018-0461-z) of 3,893 SNVs. The experiment tests the model's ability to predict if single nucleotide variants disrupt protein function (potentially increasing cancer risk) by analyzing experimentally determined function scores that categorize variants as LOF, INT, or FUNC based on their degree of functional disruption.
+
+Evo 2 is used to score the likelihood probabilities of both reference and variant sequences for each single nucleotide variant:
+
+![Evo2 zeroshot BRCA1 strip plot](../assets/images/evo2/evo2_zeroshot_brca1_stripplot.png)
+
+Performance evaluation across multiple Evo 2 model variants was conducted by computing likelihood scores for reference and variant sequences of each single nucleotide variant (SNV), with AUROC scores shown in the following table:
+
+| Model                                                                                                    | AUROC |
+| -------------------------------------------------------------------------------------------------------- | ----- |
+| [Arc Evo 2 1B](https://github.com/ArcInstitute/evo2/blob/main/notebooks/brca1/brca1_zero_shot_vep.ipynb) | 0.73  |
+| BioNeMo Evo 2 1B                                                                                         | 0.76  |
+| BioNeMo Evo 2 7B                                                                                         | 0.87  |
