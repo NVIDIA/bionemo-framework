@@ -102,6 +102,14 @@ def parse_args():
         default="mean",
         help="How to collapse the log probabilities across the sequence dimension.",
     )
+    ap.add_argument(
+        "--hybrid-override-pattern",
+        type=str,
+        help="Override the hybrid override pattern in the config (specifies hyena layer ordering and type).",
+    )
+    ap.add_argument(
+        "--num-layers", type=int, help="If set, override the number of layers specified in the requested config."
+    )
     return ap.parse_args()
 
 
@@ -292,6 +300,8 @@ def predict(
     log_prob_collapse_option: Literal["sum", "mean"] = "mean",
     prepend_bos: bool = False,
     no_sequence_parallel: bool = False,
+    hybrid_override_pattern: str | None = None,
+    num_layers: int | None = None,
 ):
     """Inference workflow for Evo2.
 
@@ -352,6 +362,13 @@ def predict(
             fp8_amax_compute_algo="max" if fp8 and full_fp8 else "most_recent",
         ),
     )
+    # The following two config options are really only used for testing, but may also be useful for getting output from
+    #   specific layers of the model.
+    config_modifiers_init = {}
+    if hybrid_override_pattern is not None:
+        config_modifiers_init["hybrid_override_pattern"] = hybrid_override_pattern
+    if num_layers is not None:
+        config_modifiers_init["num_layers"] = num_layers
     config = HYENA_MODEL_OPTIONS[model_size](
         forward_step_fn=hyena_predict_forward_step,
         data_step_fn=hyena_predict_data_step,  # , attention_backend=AttnBackend.fused,
@@ -359,6 +376,7 @@ def predict(
         # Only use vortex style FP8 in the model config if using FP8 and not full FP8. This will only apply FP8 to
         #   the projection layer of the hyena mixer.
         vortex_style_fp8=fp8 and not full_fp8,
+        **config_modifiers_init,
     )
     trainer.strategy._setup_optimizers = False
 
@@ -411,6 +429,8 @@ def main():
         log_prob_collapse_option=args.log_prob_collapse_option,
         prepend_bos=args.prepend_bos,
         no_sequence_parallel=args.no_sequence_parallel,
+        hybrid_override_pattern=args.hybrid_override_pattern,
+        num_layers=args.num_layers,
     )
 
 

@@ -130,6 +130,8 @@ jobs:
             contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS'))
         env:
           BIONEMO_DATA_SOURCE: ngc
+          # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
+          FAST_CI_MODE: true
         run: |
           pytest -v --nbval-lax -p no:python docs/ sub-packages/
           echo "Cleaning up untracked files in docs/ and sub-packages/ directories..."
