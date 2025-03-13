@@ -166,6 +166,8 @@ def assert_cosine_similarity(
     mask: torch.Tensor,
     rtol: float | None = None,
     atol: float | None = None,
+    magnitude_rtol: float | None = None,
+    magnitude_atol: float | None = None,
     msg: str | None = None,
 ) -> None:
     """Assert that both the cosine similarity between two tensors is close to 1, and the ratio of their magnitudes is 1.
@@ -176,6 +178,8 @@ def assert_cosine_similarity(
         mask: A mask tensor to apply to the comparison.
         rtol: The relative tolerance to use for the comparison. Defaults to 1e-4.
         atol: The absolute tolerance to use for the comparison. Defaults to 1e-4.
+        magnitude_rtol: The relative tolerance to use for the magnitude comparison. Defaults to 1e-2.
+        magnitude_atol: The absolute tolerance to use for the magnitude comparison. Defaults to 1e-2.
         msg: An optional message to include in the assertion error.
     """
     assert tensor1.size() == tensor2.size()
@@ -196,8 +200,8 @@ def assert_cosine_similarity(
     torch.testing.assert_close(
         magnitude_similarity,
         torch.ones_like(magnitude_similarity),
-        rtol=1e-2,
-        atol=1e-2,
+        rtol=magnitude_rtol,
+        atol=magnitude_atol,
         msg=lambda x: f"{msg} (magnitude): {x}",
     )
 
