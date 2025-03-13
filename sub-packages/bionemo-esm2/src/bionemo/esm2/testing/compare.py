@@ -166,8 +166,8 @@ def assert_cosine_similarity(
     mask: torch.Tensor,
     rtol: float | None = None,
     atol: float | None = None,
-    magnitude_rtol: float | None = None,
-    magnitude_atol: float | None = None,
+    magnitude_rtol: float = 1e-2,
+    magnitude_atol: float = 1e-2,
     msg: str | None = None,
 ) -> None:
     """Assert that both the cosine similarity between two tensors is close to 1, and the ratio of their magnitudes is 1.

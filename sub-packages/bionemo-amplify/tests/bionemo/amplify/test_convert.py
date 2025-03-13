@@ -37,8 +37,8 @@ def assert_amplify_equivalence(
     precision: PrecisionTypes = "fp32",
     rtol: float | None = None,
     atol: float | None = None,
-    magnitude_rtol: float | None = 1e-2,
-    magnitude_atol: float | None = 1e-2,
+    magnitude_rtol: float = 1e-2,
+    magnitude_atol: float = 1e-2,
 ) -> None:
     tokenizer = BioNeMoAMPLIFYTokenizer()
 
