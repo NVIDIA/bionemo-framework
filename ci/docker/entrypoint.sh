@@ -7,8 +7,8 @@ HOST_UID=${HOST_UID:-1000}
 HOST_GID=${HOST_GID:-1000}
 
 # Update the UID/GID of the container user
-groupmod -g $HOST_GID bionemo > /dev/null
-usermod -u $HOST_UID bionemo > /dev/null
+groupmod -g $HOST_GID ubuntu > /dev/null
+usermod -u $HOST_UID ubuntu > /dev/null
 
 # Execute the main container command
-exec gosu bionemo "$@"
+exec gosu ubuntu "$@"
