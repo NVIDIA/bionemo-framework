@@ -36,6 +36,9 @@ from nemo.lightning.data import WrappedDataLoader
 from torch import Tensor
 
 from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
+
+# Add import for Mamba models
+from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.utils.callbacks import PredictionWriter
 
@@ -66,10 +69,17 @@ def parse_args():
     )
     ap.add_argument("--batch-size", type=int, default=1, help="Batch size for prediction. Defaults to 1.")
     ap.add_argument(
+        "--model-type",
+        type=str,
+        choices=["hyena", "mamba"],
+        default="hyena",
+        help="Model architecture family to use. Choose between 'hyena' and 'mamba'.",
+    )
+    ap.add_argument(
         "--model-size",
         type=str,
         default="7b",
-        choices=sorted(HYENA_MODEL_OPTIONS.keys()),
+        choices=sorted(list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys())),
         help="Model size to use. Defaults to '7b'.",
     )
     # output args:
@@ -301,6 +311,7 @@ def predict(
     pipeline_model_parallel_size: int,
     context_parallel_size: int,
     model_size: str = "7b",
+    model_type: str = "hyena",
     ckpt_format: CheckpointFormats = "torch_dist",
     fp8: bool = False,
     full_fp8: bool = False,
@@ -380,20 +391,35 @@ def predict(
         config_modifiers_init["hybrid_override_pattern"] = hybrid_override_pattern
     if num_layers is not None:
         config_modifiers_init["num_layers"] = num_layers
-    if "-1m" in model_size and "nv" not in model_size and seq_len_interpolation_factor is None:
-        # TODO remove this override once we add this as a default upstream in NeMo.
-        #  if you see this, just check the pointed to model option for the 1m model in nemo and see if it already
-        #  has this option set.
-        config_modifiers_init["seq_len_interpolation_factor"] = 128
-    config = HYENA_MODEL_OPTIONS[model_size](
-        forward_step_fn=hyena_predict_forward_step,
-        data_step_fn=hyena_predict_data_step,  # , attention_backend=AttnBackend.fused,
-        distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
-        # Only use vortex style FP8 in the model config if using FP8 and not full FP8. This will only apply FP8 to
-        #   the projection layer of the hyena mixer.
-        vortex_style_fp8=fp8 and not full_fp8,
-        **config_modifiers_init,
-    )
+    # Select model config based on model type
+    if model_type == "hyena":
+        if "-1m" in model_size and "nv" not in model_size and seq_len_interpolation_factor is None:
+            # TODO remove this override once we add this as a default upstream in NeMo.
+            #  if you see this, just check the pointed to model option for the 1m model in nemo and see if it already
+            #  has this option set.
+            config_modifiers_init["seq_len_interpolation_factor"] = 128
+
+        if model_size not in HYENA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Hyena: {model_size}")
+        config = HYENA_MODEL_OPTIONS[model_size](
+            forward_step_fn=hyena_predict_forward_step,
+            data_step_fn=hyena_predict_data_step,  # , attention_backend=AttnBackend.fused,
+            distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
+            # Only use vortex style FP8 in the model config if using FP8 and not full FP8. This will only apply FP8 to
+            #   the projection layer of the hyena mixer.
+            vortex_style_fp8=fp8 and not full_fp8,
+            **config_modifiers_init,
+        )
+    else:  # mamba
+        if model_size not in MAMBA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Mamba: {model_size}")
+        config = MAMBA_MODEL_OPTIONS[model_size](
+            forward_step_fn=hyena_predict_forward_step,  # Can reuse the same forward steps
+            data_step_fn=hyena_predict_data_step,
+            distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
+            **config_modifiers_init,
+        )
+
     trainer.strategy._setup_optimizers = False
 
     nemo_logger = NeMoLogger(log_dir=work_dir)
@@ -410,12 +436,23 @@ def predict(
         ),
     )
     tokenizer = get_nmt_tokenizer("byte-level")
-    model = HyenaPredictor(
-        config,
-        tokenizer=tokenizer,
-        output_log_prob_seqs=output_log_prob_seqs,
-        log_prob_collapse_option=log_prob_collapse_option,
-    )
+
+    # Create appropriate model based on type
+    if model_type == "hyena":
+        model = HyenaPredictor(
+            config,
+            tokenizer=tokenizer,
+            output_log_prob_seqs=output_log_prob_seqs,
+            log_prob_collapse_option=log_prob_collapse_option,
+        )
+    else:  # mamba
+        model = MambaPredictor(
+            config,
+            tokenizer=tokenizer,
+            output_log_prob_seqs=output_log_prob_seqs,
+            log_prob_collapse_option=log_prob_collapse_option,
+        )
+
     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
 
     dataset = SimpleFastaDataset(fasta_path, tokenizer, prepend_bos=prepend_bos)
@@ -437,6 +474,7 @@ def main():
         context_parallel_size=args.context_parallel_size,
         output_dir=args.output_dir,
         model_size=args.model_size,
+        model_type=args.model_type,
         ckpt_format=args.ckpt_format,
         fp8=args.fp8,
         full_fp8=args.full_fp8,
@@ -453,3 +491,105 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# Create MambaPredictor class, similar to HyenaPredictor
+class MambaPredictor(MambaModel, LightningPassthroughPredictionMixin):
+    """Mamba model for prediction with additional metrics."""
+
+    def __init__(
+        self,
+        config,
+        tokenizer=None,
+        output_log_prob_seqs: bool = False,
+        log_prob_collapse_option: Literal["sum", "mean"] = "mean",
+    ):
+        super().__init__(config, tokenizer)
+        self.output_log_prob_seqs = output_log_prob_seqs
+        self.log_prob_collapse_option = log_prob_collapse_option
+        # Storage for the predictions
+        self.predictions = []
+        self.log_probabilities = []
+        self.tokens = []
+
+    def forward(
+        self,
+        input_ids,
+        position_ids,
+        inference_params=None,
+        attention_mask=None,
+    ):
+        """Forward pass for prediction. Overrides the base forward method to store predictions."""
+        # Call parent forward (which doesn't calculate loss)
+        logits = super().forward(
+            input_ids=input_ids,
+            position_ids=position_ids,
+            attention_mask=attention_mask,
+            inference_params=inference_params,
+        )
+
+        # Save information for each sequence
+        if self.output_log_prob_seqs:
+            for i, sequence in enumerate(input_ids):
+                logits_seq = logits[i]  # shape: [seq_len, vocab_size]
+                sequence_tokens = sequence.tolist()
+                # Get the probabilities for each token
+                log_probs = torch.log_softmax(logits_seq, dim=-1)
+                # Get the log probabilities of the actual tokens
+                token_log_probs = []
+                for j, token in enumerate(sequence_tokens):
+                    if j < len(log_probs):  # Check if we have a prediction for this position
+                        token_log_probs.append(log_probs[j, token].item())
+
+                # Depending on the option, sum or average the log probabilities
+                if self.log_prob_collapse_option == "sum":
+                    sequence_log_prob = sum(token_log_probs)
+                else:  # mean
+                    sequence_log_prob = sum(token_log_probs) / len(token_log_probs) if token_log_probs else 0
+
+                self.tokens.append(sequence_tokens)
+                self.log_probabilities.append(sequence_log_prob)
+
+        # Return the logits
+        return logits
+
+    def predict_step(self, batch, batch_idx: int, dataloader_idx: int = 0) -> dict:
+        """Prediction step, saving the results."""
+        packed_seq_params = get_packed_seq_params(None)
+
+        # Get the tokens and attention mask
+        if batch == {}:
+            batch = {"tokens": [], "position_ids": [], "attention_mask": []}
+        inference_data = {"tokens": batch["tokens"], "position_ids": batch["position_ids"]}
+
+        if self.trainer.strategy._cp_size > 1:
+            inference_data = get_batch_on_this_context_parallel_rank(
+                inference_data,
+                num_micro_batches=1,
+                micro_batch_idx=0,
+                sequence_parallel=False,
+                micro_batch_size_per_context_rank=None,
+                context_parallel_size=self.trainer.strategy._cp_size,
+                sequence_length=self.config.seq_length,
+                multiple_of=1,
+            )
+            inference_data["attention_mask"] = None
+
+        with torch.no_grad():
+            output = self(
+                input_ids=inference_data["tokens"],
+                position_ids=inference_data["position_ids"],
+                inference_params=None,
+                attention_mask=inference_data.get("attention_mask", None),
+            )
+
+            if self.trainer.strategy._tp_size > 1:
+                # TP > 1 case - all-gather the output tensor along last dimension from all TP ranks for each token
+                # [b, s, v/p] -> [b, s, v]
+                output = _gather_along_last_dim(output)
+
+            # Cache predictions
+            self.predictions.extend(torch.argmax(output, dim=-1).cpu().numpy().tolist())
+
+        # Return as dict for PredictionWriter callback
+        return {"predictions": self.predictions, "log_probabilities": self.log_probabilities, "tokens": self.tokens}

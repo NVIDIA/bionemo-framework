@@ -45,6 +45,8 @@ from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils.exp_manager import TimingCallback
 
+# Add import for Mamba models
+from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -174,13 +176,18 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--align-param-gather", action="store_true", default=False)
     # parser.add_argument("--straggler-detection", action="store_true", default=False)
     parser.add_argument(
+        "--model-type",
+        type=str,
+        choices=["hyena", "mamba"],
+        default="hyena",
+        help="Model architecture family to use. Choose between 'hyena' and 'mamba'.",
+    )
+    parser.add_argument(
         "--model-size",
         type=str,
-        choices=sorted(HYENA_MODEL_OPTIONS.keys()),
+        choices=sorted(list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys())),
         default="7b",
-        help="Model architecture to use, choose between 7b, 40b, or test (a sub-model of 4 layers, less than 1B "
-        "parameters). '_arc_1m' models have GLU / FFN dimensions that support 1M context length when trained "
-        "with TP<=8.",
+        help="Model size/configuration to use. Options depend on the selected model-type.",
     )
     parser.add_argument(
         "--add-bias-output",
@@ -508,12 +515,20 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     if args.num_layers:
         config_modifiers_init["num_layers"] = args.num_layers
 
-    if args.model_size not in HYENA_MODEL_OPTIONS:
-        raise ValueError(f"Invalid model size: {args.model_size}")
-    evo2_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
-
-    # Instantiate model.
-    model = llm.HyenaModel(evo2_config, tokenizer=data_module.tokenizer)
+    # Create model based on selected model type
+    if args.model_type == "hyena":
+        if args.model_size not in HYENA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Hyena: {args.model_size}")
+        model_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
+        model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer)
+    else:  # mamba
+        if args.model_size not in MAMBA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
+        add_bias_output = config_modifiers_init.pop("add_bias_output")
+        if add_bias_output:
+            raise ValueError("Bias output is not supported for Mamba models.")
+        model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
+        model = MambaModel(model_config, tokenizer=data_module.tokenizer)
 
     # Setup callbacks.
     callbacks = [
@@ -531,7 +546,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     if args.create_tflops_callback:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
         flop_meas_callback = FLOPsMeasurementCallback(
-            evo2_config,
+            model_config,
             data_module,
             "hyena",
         )
@@ -559,7 +574,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             tp_comm_overlap_cfg = userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192
         callbacks.append(
             MegatronCommOverlapCallback(
-                tp_comm_overlap=evo2_config.tp_comm_overlap,
+                tp_comm_overlap=model_config.tp_comm_overlap,
                 tp_comm_overlap_cfg=tp_comm_overlap_cfg,
                 tp_comm_bootstrap_backend=args.tp_comm_overlap_backend,
                 wgrad_deferral_limit=22,  # default from NeMo
@@ -590,10 +605,10 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"PP{args.pipeline_model_parallel_size}-CP{args.context_parallel_size}"
         f"-GBS{global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
         f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
-        f"-ACRNL{evo2_config.recompute_num_layers}"
-        f"-PAT{evo2_config.hybrid_override_pattern}"
-        f"-F32R{evo2_config.fp32_residual_connection}"
-        f"-FCE{evo2_config.cross_entropy_loss_fusion}"
+        f"-ACRNL{model_config.recompute_num_layers}"
+        f"-PAT{model_config.hybrid_override_pattern}"
+        f"-F32R{model_config.fp32_residual_connection}"
+        f"-FCE{model_config.cross_entropy_loss_fusion}"
         f"-AIC{not args.no_average_in_collective}"
         f"-PEOD{args.eod_pad_in_loss_mask}"
         f"-BO{args.add_bias_output}"
@@ -741,7 +756,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         constant_steps=args.constant_steps,
     )
 
-    opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=evo2_config.hyena_no_weight_decay_cond_fn)
+    opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=model_config.hyena_no_weight_decay_cond_fn)
     opt.connect(model)
 
     # Start training
