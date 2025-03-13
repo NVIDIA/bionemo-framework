@@ -20,8 +20,8 @@ import torch
 
 
 __all__: Sequence[str] = (
-    "get_autocast_dtype",
     "PrecisionTypes",
+    "get_autocast_dtype",
 )
 
 

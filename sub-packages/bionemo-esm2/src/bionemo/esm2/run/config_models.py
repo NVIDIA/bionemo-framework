@@ -214,10 +214,11 @@ class ExposedESM2PretrainConfig(ExposedModelConfig[ESM2Config]):
             global_cfg.parallel_config.tensor_model_parallel_size,
         )
         min_seq_length, max_seq_length = global_cfg.data_config.min_seq_length, global_cfg.data_config.max_seq_length
-        assert (
-            self.variable_seq_lengths
-            == (pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length)
-        ), "Must set variable_seq_lengths to True when min_seq_length != max_seq_length under pipeline or tensor parallelism."
+        assert self.variable_seq_lengths == (
+            pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length
+        ), (
+            "Must set variable_seq_lengths to True when min_seq_length != max_seq_length under pipeline or tensor parallelism."
+        )
         return global_cfg
 
     def model_class(self) -> Type[ESM2Config]:

@@ -27,11 +27,11 @@ from bionemo.core.data.permute import permute
 
 __all__: Sequence[str] = (
     "EpochIndex",
-    "SizedDataset",
+    "IdentityMultiEpochDatasetWrapper",
     "MultiEpochDataset",
     "MultiEpochDatasetResampler",
     "MultiEpochDatasetWrapper",
-    "IdentityMultiEpochDatasetWrapper",
+    "SizedDataset",
 )
 
 T = TypeVar("T")

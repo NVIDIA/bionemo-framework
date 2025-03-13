@@ -41,7 +41,7 @@ from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_globa
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
-__all__: Sequence[str] = ("main", "train_esm2_entrypoint", "get_parser")
+__all__: Sequence[str] = ("get_parser", "main", "train_esm2_entrypoint")
 
 
 def main(

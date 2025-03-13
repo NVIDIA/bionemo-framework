@@ -141,12 +141,12 @@ def test_main_runs(
     )
 
     if create_checkpoint_callback:
-        assert (
-            result_dir / "test_experiment" / uq_rundir / "checkpoints"
-        ).is_dir(), "Test experiment checkpoints directory is supposed to be a directory."
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "nemo_log_globalrank-0_localrank-0.txt"
-    ).is_file(), "Could not find experiment log."
+        assert (result_dir / "test_experiment" / uq_rundir / "checkpoints").is_dir(), (
+            "Test experiment checkpoints directory is supposed to be a directory."
+        )
+    assert (result_dir / "test_experiment" / uq_rundir / "nemo_log_globalrank-0_localrank-0.txt").is_file(), (
+        "Could not find experiment log."
+    )
 
     assert "val_ppl" in trainer.logged_metrics  # validation logging on by default
 
@@ -208,15 +208,15 @@ def test_val_dataloader_in_main_runs_with_limit_val_batches(
     children = list((result_dir / "test_experiment").iterdir())
     assert len(children) == 1, f"Expected 1 child in test experiment directory, found {children}."
     uq_rundir = children[0]  # it will be some date.
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "checkpoints"
-    ).exists(), "Could not find test experiment checkpoints directory."
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "checkpoints"
-    ).is_dir(), "Test experiment checkpoints directory is supposed to be a directory."
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "nemo_log_globalrank-0_localrank-0.txt"
-    ).is_file(), "Could not find experiment log."
+    assert (result_dir / "test_experiment" / uq_rundir / "checkpoints").exists(), (
+        "Could not find test experiment checkpoints directory."
+    )
+    assert (result_dir / "test_experiment" / uq_rundir / "checkpoints").is_dir(), (
+        "Test experiment checkpoints directory is supposed to be a directory."
+    )
+    assert (result_dir / "test_experiment" / uq_rundir / "nemo_log_globalrank-0_localrank-0.txt").is_file(), (
+        "Could not find experiment log."
+    )
 
 
 @pytest.mark.skip("duplicate with argparse, model and data unittests")
