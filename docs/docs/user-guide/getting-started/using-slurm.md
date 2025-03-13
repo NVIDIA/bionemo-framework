@@ -1,123 +1,19 @@
-# **Using SLURM to run BioNeMo training**
+# **BioNeMo Training Scripts for SLURM**
 
-SLURM (Simple Linux Utility for Resource Management) is an open-source job scheduler that distributes workloads across multiple compute nodes.
+This guide provides example SLURM scripts for running BioNeMo training jobs on HPC systems. The scripts are configured for the [DGX cloud SLURM environment](https://docs.nvidia.com/dgx-cloud/slurm/latest/cluster-user-guide.html). While some settings are specific to our cluster resources, these scripts can be adapted for other HPC environments.
 
-SLURM manages job scheduling by queuing tasks and executing them when resources become available. Compute resources are organized into **nodes**, which belong to **partitions** (queues), and users allocate resources by specifying the number of nodes, CPU cores, and memory. Jobs can be submitted as **batch scripts (`sbatch`)** for scheduled execution or run interactively using **`srun`**.
+For a list of general SLURM commands, check out the [SLURM Quick Start User Guide](https://slurm.schedmd.com/quickstart.html).
 
-This guide will walk through key SLURM concepts and how to use SLURM for running ML training jobs. In particular, we will
+## Example SBATCH Script
 
-1. Cover basic SLURM commands
-2. Walk through an example SBATCH script for running BioNeMo training
+Below is a sample SLURM batch script that runs BioNeMo Evo 2 training in a containerized environment. The script demonstrates how to:
 
-## 1. Core SLURM commands
+- Configure SLURM job parameters (nodes, partitions, etc.)
+- Set up training hyperparameters
+- Mount data and model directories
+- Launch distributed training
 
-### **`sbatch`** (Submit a Batch Job)
-
-The `sbatch` command submits a batch script to the SLURM scheduler. The script specifies the job's resource requirements and execution commands.
-
-#### **Example 1: Submitting a job**
-
-```bash
-sbatch my_training_script.sh
-```
-
-This submits the batch script `my_training_script.sh` to SLURM.
-
-We will walk through an example SBATCH script in section 3 below.
-
-### **`srun`** (Run Jobs Interactively)
-
-The `srun` command runs jobs interactively or within a batch job. It is useful for debugging, running short jobs, or launching tasks on allocated resources.
-
-#### **Example 1: Running an interactive job**
-
-```bash
-srun --partition=batch --nodes=1 --ntasks=8 --time=00:30:00 --pty bash
-```
-
-This starts an interactive session with 8 tasks on one node for 30 minutes.
-
-#### **Example 2: Running a command on allocated resources**
-
-```bash
-srun --ntasks=4 python train.py
-```
-
-This runs `train.py` using 4 tasks (e.g., GPUs or CPU cores).
-
-### **`squeue`** (Check Job Status)
-
-The `squeue` command displays the status of jobs in the SLURM queue.
-
-#### **Example 1: Viewing all jobs in the queue**
-
-```bash
-squeue
-```
-
-Lists all running and pending jobs.
-
-#### **Example 2: Checking the status of your own jobs**
-
-```bash
-squeue -u $USER
-```
-
-Shows only your jobs in the queue.
-
-#### **Example 3: Checking the status of your team's jobs**
-
-```bash
-squeue -A <account_name>
-```
-
-Shows only your team's jobs in the queue.
-
-### **`sacct`** (Check Job History)
-
-The `sacct` command retrieves historical job information, including resource usage and exit statuses.
-
-#### **Example 1: Viewing completed jobs**
-
-```bash
-sacct
-```
-
-Displays jobs that have finished or failed.
-
-#### **Example 2: Checking details of a specific job**
-
-```bash
-sacct -j 123456 --format=JobID,State,Elapsed,MaxRSS
-```
-
-Shows the **state, runtime, and memory usage** of job `123456`.
-
-### **`scancel`** (Cancel a Job)
-
-The `scancel` command cancels running or pending SLURM jobs.
-
-#### **Example 1: Canceling a specific job**
-
-```bash
-scancel 123456
-```
-
-Cancels job `123456`.
-
-#### **Example 2: Canceling all of your jobs**
-
-```bash
-scancel -u $USER
-```
-
-Cancels all jobs belonging to the current user.
-
-## 2. Example SBATCH script
-
-The following SBATCH script runs a BioNeMo Evo 2 training job inside a containerized environment.
-
-We'll walk through the script in detail below.
+We'll walk through each section of the script below.
 
 ```bash
 #!/bin/bash
