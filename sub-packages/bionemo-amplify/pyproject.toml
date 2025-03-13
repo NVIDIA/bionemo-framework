@@ -17,7 +17,7 @@ dependencies = [
     'bionemo-llm',
     'bionemo-esm2',
     # external
-    # 'xformers'
+    'xformers'
 ]
 
 [tool.setuptools.packages.find]
