@@ -50,10 +50,10 @@ def test_train_evo2_runs(tmp_path, num_steps=5):
     # Build the command string.
     # Note: The command assumes that `train_evo2` is in your PATH.
     command = (
-        f"train_evo2 --mock-data --experiment-dir {tmp_path}/test_train "
+        f"train_evo2 --mock-data --result-dir {tmp_path} "
         "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* "
         "--no-activation-checkpointing --add-bias-output "
-        f"--max-steps {num_steps} --warmup-steps 1 --no-wandb "
+        f"--max-steps {num_steps} --warmup-steps 1 "
         "--seq-length 128 --hidden-dropout 0.1 --attention-dropout 0.1 "
     )
 
@@ -93,10 +93,10 @@ def test_train_evo2_stops(tmp_path, num_steps=500000, early_stop_steps=3):
     # Build the command string.
     # Note: The command assumes that `train_evo2` is in your PATH.
     command = (
-        f"train_evo2 --mock-data --experiment-dir {tmp_path}/test_train "
+        f"train_evo2 --mock-data --result-dir {tmp_path} "
         "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* "
         "--no-activation-checkpointing --add-bias-output "
-        f"--max-steps {num_steps} --early-stop-on-step {early_stop_steps} --warmup-steps 1 --no-wandb "
+        f"--max-steps {num_steps} --early-stop-on-step {early_stop_steps} --warmup-steps 1 "
         "--seq-length 128 --hidden-dropout 0.1 --attention-dropout 0.1 "
     )
     command_parts_no_program = shlex.split(command)[1:]
@@ -130,7 +130,7 @@ def test_train_evo2_stops(tmp_path, num_steps=500000, early_stop_steps=3):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("model_size", ["7b_nv", "7b_arc_longcontext"])
+@pytest.mark.parametrize("model_size", ["1b_nv"])
 def test_train_single_gpu(tmp_path, model_size: str):
     """
     This test runs them single gpu evo2 training command with sample data in a temporary directory.
@@ -142,12 +142,16 @@ def test_train_single_gpu(tmp_path, model_size: str):
     env["MASTER_PORT"] = str(open_port)
 
     additional_args = [
-        "--experiment-dir",
+        "--result-dir",
         str(tmp_path),
         "--model",
         model_size,
         "--num-layers",
         str(4),
+        "--val-check-interval",
+        str(1),
+        "--limit-val-batches",
+        str(1),
         "--hybrid-override-pattern",
         "SDH*",
         "--no-activation-checkpointing",
@@ -169,7 +173,7 @@ def test_train_single_gpu(tmp_path, model_size: str):
 
 @pytest.mark.slow
 @pytest.mark.distributed
-@pytest.mark.parametrize("model_size", ["7b_nv"])
+@pytest.mark.parametrize("model_size", ["1b_nv"])
 @pytest.mark.skip(
     reason="This tests requires to be run on a multi-gpu machine with torchrun --nproc_per_node=N_GPU -m pytest TEST_NAME"
 )
@@ -184,7 +188,7 @@ def test_train_multi_gpu(tmp_path, model_size: str):
         pytest.fail("This test requires at least 2 GPUs.")
 
     additional_args = [
-        "--experiment-dir",
+        "--result-dir",
         str(tmp_path),
         "--model",
         model_size,

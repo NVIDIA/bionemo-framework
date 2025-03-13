@@ -36,15 +36,16 @@ Given a preprocessed collection of preprocessed datasets, and optionally a pre-t
 $ train_evo2 --help
 usage: train_evo2 [-h] (-d DATASET_CONFIG | --mock-data) [--dataset-dir DATASET_DIR] [--num-nodes NUM_NODES] [--devices DEVICES] [--seq-length SEQ_LENGTH]
                   [--tensor-parallel-size TENSOR_PARALLEL_SIZE] [--pipeline-model-parallel-size PIPELINE_MODEL_PARALLEL_SIZE] [--context-parallel-size CONTEXT_PARALLEL_SIZE]
-                  [--no-wandb] [--wandb-project WANDB_PROJECT] [--wandb-run-id WANDB_RUN_ID] [--wandb-group WANDB_GROUP] [--wandb-job-type WANDB_JOB_TYPE] [--wandb-offline]
-                  [--wandb-anonymous] [--sequence-parallel] [--fp8] [--micro-batch-size MICRO_BATCH_SIZE] [--global-batch-size GLOBAL_BATCH_SIZE]
-                  [--grad-acc-batches GRAD_ACC_BATCHES] [--max-steps MAX_STEPS] [--val-check-interval VAL_CHECK_INTERVAL] [--grad-reduce-in-fp32] [--fp8-wgrad]
-                  [--use-megatron-comm-overlap-llama3-8k] [--tp-comm-overlap-backend {nccl,mpi,gloo}] [--align-param-gather]
-                  [--model-size {1b,1b_nv,40b,40b_arc_longcontext,40b_nv,7b,7b_arc_longcontext,7b_nv,test,test_nv}] [--add-bias-output] --experiment-dir EXPERIMENT_DIR
+                  [--wandb-project WANDB_PROJECT] [--wandb-run-id WANDB_RUN_ID] [--wandb-group WANDB_GROUP] [--wandb-job-type WANDB_JOB_TYPE] [--wandb-offline]
+                  [--wandb-anonymous] [--create-tensorboard-logger] [--create-tflops-callback] [--max-steps MAX_STEPS]
+                  [--sequence-parallel] [--fp8] [--micro-batch-size MICRO_BATCH_SIZE] [--global-batch-size GLOBAL_BATCH_SIZE]
+                  [--grad-acc-batches GRAD_ACC_BATCHES] [--val-check-interval VAL_CHECK_INTERVAL] [--grad-reduce-in-fp32] [--fp8-wgrad]
+                  [--use-megatron-comm-overlap-llama3-8k] [--tp-comm-overlap-backend {nccl,mpi,gloo}] [--align-param-gather] [--add-bias-output]
+                  [--model-size {1b,1b_nv,40b,40b_arc_longcontext,40b_nv,7b,7b_arc_longcontext,7b_nv,test,test_nv}] [--result-dir RESULT_DIR] [--experiment-name EXPERIMENT_NAME]
                   [--limit-val-batches LIMIT_VAL_BATCHES] [--log-every-n-steps LOG_EVERY_N_STEPS] [--ckpt-dir CKPT_DIR] [--wd WD] [--restore-optimizer-from-ckpt]
                   [--no-average-in-collective] [--seed SEED] [--workers WORKERS] [--gc-interval GC_INTERVAL] [--enable-preemption] [--ckpt-async-save]
                   [--ckpt-format {torch_dist,zarr}] [--eod-pad-in-loss-mask] [--cross-entropy-loss-fusion] [--no-fp32-residual-connection]
-                  [--debug-ddp-parity-freq DEBUG_DDP_PARITY_FREQ] [--hybrid-override-pattern HYBRID_OVERRIDE_PATTERN] [--num-layers NUM_LAYERS] [--tflops-callback]
+                  [--debug-ddp-parity-freq DEBUG_DDP_PARITY_FREQ] [--hybrid-override-pattern HYBRID_OVERRIDE_PATTERN] [--num-layers NUM_LAYERS]
                   [--log-parameters-and-shapes] [--lr LR] [--min-lr MIN_LR] [--warmup-steps WARMUP_STEPS] [--nsys-profiling] [--nsys-start-step NSYS_START_STEP]
                   [--nsys-end-step NSYS_END_STEP] [--no-renormalize-loss] [--nsys-ranks NSYS_RANKS [NSYS_RANKS ...]]
                   [--activation-checkpoint-recompute-num-layers ACTIVATION_CHECKPOINT_RECOMPUTE_NUM_LAYERS] [--disable-checkpointing] [--clip-grad CLIP_GRAD]
@@ -72,7 +73,10 @@ options:
                         Order of pipeline parallelism. Defaults to 1. (default: 1)
   --context-parallel-size CONTEXT_PARALLEL_SIZE
                         Order of context parallelism. Defaults to 1. (default: 1)
-  --no-wandb            Disable Wandb logging (default: False)
+  --create-tensorboard-logger
+                        Create a TensorBoard logger. (default: False)
+  --create-tflops-callback
+                        Create a TFlops callback to log model FLOPs per training step. (default: False)
   --wandb-project WANDB_PROJECT
                         Wandb project name (default: bionemo_evo2)
   --wandb-run-id WANDB_RUN_ID
@@ -106,8 +110,10 @@ options:
                         Model architecture to use, choose between 7b, 40b, or test (a sub-model of 4 layers, less than 1B parameters). '_arc_1m' models have GLU / FFN
                         dimensions that support 1M context length when trained with TP<=8. (default: 7b)
   --add-bias-output     Add bias to the output layer to enable learning a simple prior. (default: False)
-  --experiment-dir EXPERIMENT_DIR
+  --result-dir RESULT_DIR
                         Directory to write model checkpoints and results to. (default: None)
+  --experiment-name EXPERIMENT_NAME
+                        Directory to write model checkpoints and loggers outputs is RESULT_DIR/EXPERIMENT_NAME. (default: None)
   --limit-val-batches LIMIT_VAL_BATCHES
                         Number of validation steps (default: 20)
   --log-every-n-steps LOG_EVERY_N_STEPS

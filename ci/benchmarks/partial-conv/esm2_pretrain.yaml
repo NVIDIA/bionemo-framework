@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 14400
+time_limit: 900
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -19,7 +19,7 @@ script_args:
   precision:
     value: [bf16-mixed]
   nodes:
-    value: [4]
+    value: [1]
   gpus:
     value: 8
   batch_size:
@@ -45,6 +45,7 @@ script: |-
     --num-attention-heads=20 \
     --ffn-hidden-size=5120 \
     --create-tensorboard-logger \
+    --create-tflops-callback \
     --experiment-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
     --result-dir=${tensorboard_dir} \
     --wandb-project=${wandb_project_name} \
