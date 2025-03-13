@@ -7,19 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       subpackages:
-        description: BioNeMo sub-packages (comma-separated) to test or publish. All packages are found under bionemo-framework/sub-packages.
+        description: BioNeMo sub-packages (comma-separated) to test or publish.
         required: true
         type: string
       publish:
-        description: Publish the built package to PyPI. Default behavior is to skip publishing, so we only build and test the package. Automatically publish to test PyPI for PRs.
+        description: Publish the built package to PyPI.
         required: false
         type: boolean
         default: false
-      ref:
-        description: The branch, tag, or commit hash to test or publish for dispatched workflows. Used to test against a specific branch or commit such as in open pull requests (PR).
-        required: false
-        type: string
-        default: "main"
 
 env:
   # TODO(@cspades): Skip pytest for packages that require GPU's or special installation recipes until resolved.
@@ -39,9 +34,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Use the reference branch or commit hash if provided in workflow_dispatch.inputs.ref.
-          # Otherwise, becomes a null reference, which defaults to the reference or SHA for the GitHub Actions Event.
-          ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
           submodules: "recursive"
       - id: collect-package-deltas
@@ -79,7 +71,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
           submodules: "recursive"
       - uses: actions/setup-python@v5
@@ -112,7 +103,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.ref }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
