@@ -17,17 +17,17 @@
 from enum import Enum
 from typing import Optional, Sequence, Type
 
+from megatron.core.extensions.transformer_engine import (
+    TEDotProductAttention,
+    TELayerNormColumnParallelLinear,
+    TERowParallelLinear,
+)
 from megatron.core.fusions.fused_bias_dropout import get_bias_dropout_add
 from megatron.core.fusions.fused_layer_norm import FusedLayerNorm
 from megatron.core.models.bert import bert_layer_specs
 from megatron.core.tensor_parallel.layers import ColumnParallelLinear, RowParallelLinear
 from megatron.core.transformer import spec_utils
 from megatron.core.transformer.attention import SelfAttention, SelfAttentionSubmodules
-from megatron.core.transformer.custom_layers.transformer_engine import (
-    TEDotProductAttention,
-    TELayerNormColumnParallelLinear,
-    TERowParallelLinear,
-)
 from megatron.core.transformer.dot_product_attention import DotProductAttention
 from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.identity_op import IdentityOp
@@ -56,6 +56,7 @@ class BiobertSpecOption(str, Enum):
     # ESM2 spec
     esm2_bert_layer_local_spec = "esm2_bert_layer_local_spec"
     esm2_bert_layer_with_transformer_engine_spec = "esm2_bert_layer_with_transformer_engine_spec"
+    amplify_with_transformer_engine_spec = "amplify_with_transformer_engine_spec"
 
 
 def get_biobert_spec(  # noqa: D417
@@ -205,6 +206,37 @@ def get_biobert_spec(  # noqa: D417
                             core_attention=core_attention,
                             linear_proj=TERowParallelLinear,
                             q_layernorm=ESM2QueryScaling,
+                            k_layernorm=IdentityOp,
+                        ),
+                    ),
+                    self_attn_bda=get_bias_dropout_add,
+                    mlp=spec_utils.ModuleSpec(
+                        module=MLP,
+                        submodules=MLPSubmodules(
+                            linear_fc1=TELayerNormColumnParallelLinear,
+                            linear_fc2=TERowParallelLinear,
+                        ),
+                    ),
+                    mlp_bda=get_bias_dropout_add,
+                ),
+            )
+            return esm2_bert_layer_local_spec
+
+        case BiobertSpecOption.amplify_with_transformer_engine_spec:
+            if core_attention is None:
+                core_attention = DotProductAttention
+
+            esm2_bert_layer_local_spec = spec_utils.ModuleSpec(
+                module=TransformerLayer,
+                submodules=TransformerLayerSubmodules(
+                    self_attention=spec_utils.ModuleSpec(
+                        module=SelfAttention,
+                        params={"attn_mask_type": AttnMaskType.padding},
+                        submodules=SelfAttentionSubmodules(
+                            linear_qkv=TELayerNormColumnParallelLinear,
+                            core_attention=core_attention,
+                            linear_proj=TERowParallelLinear,
+                            q_layernorm=IdentityOp,
                             k_layernorm=IdentityOp,
                         ),
                     ),
