@@ -188,7 +188,8 @@ class D3PM(Interpolant):
             raise ValueError(
                 f"**INVALID BEHAVIOR** Probability Distribution does not sum to 1.0 for time {t}. "
                 f"**INVESTIGATE YOUR DEVICE PRECISION**: This error has been triggered before on A100 by initializing the Qt terms on gpu. "
-                f"Normalized to ensure validity. Original sums: {probs.sum(-1)}",
+                f"NOTE: For Blackwell, tf32 must be disabled via NVIDIA_TF32_OVERRIDE=0 even when initializing the Qt terms on cpu. "
+                f"Original sums: {probs.sum(-1)}",
             )
         xt = self._sample_categorical(torch.log(probs) + 1.0e-6)
         return xt
