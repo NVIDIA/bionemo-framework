@@ -33,12 +33,12 @@ from bionemo.llm.api import MegatronLossType, MegatronModelType
 
 
 __all__: Sequence[str] = (
-    "get_dtype_device",
-    "batch_collator",
-    "PassthroughLossReduction",
-    "LightningPassthroughPredictionMixin",
     "BionemoLightningModule",
+    "LightningPassthroughPredictionMixin",
+    "PassthroughLossReduction",
+    "batch_collator",
     "default_megatron_optimizer",
+    "get_dtype_device",
 )
 
 

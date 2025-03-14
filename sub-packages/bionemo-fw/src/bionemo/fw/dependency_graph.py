@@ -208,7 +208,7 @@ if __name__ == "__main__":
         for directory in file_path_imports:
             resolved_dependencies = resolve_dependencies(directory, dependency_graph)
             if not (file_path_imports[directory] <= resolved_dependencies):
-                logger.warning(f"{directory} : {file_path_imports[directory]  - resolved_dependencies}")
+                logger.warning(f"{directory} : {file_path_imports[directory] - resolved_dependencies}")
 
     logger.warning("\nDifferences in pyproject.toml and tach.toml per-package: ")
     for d in pyproject_dependency_graph:

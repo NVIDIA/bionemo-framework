@@ -49,16 +49,16 @@ def test_cosine_schedule_direction(timesteps, device, synchronize):
     # Check if schedule has the correct shape
     assert schedule.shape == (timesteps,), f"Expected schedule shape to be {(timesteps,)}, but got {schedule.shape}"
     # Check if schedule is on the correct device
-    assert (
-        schedule.device.type == device
-    ), f"Expected schedule to be on device '{device}', but got '{schedule.device.type}'"
+    assert schedule.device.type == device, (
+        f"Expected schedule to be on device '{device}', but got '{schedule.device.type}'"
+    )
     # Check if the schedule is in the correct direction
 
     if synchronize == TimeDirection.UNIFIED:
-        assert (
-            schedule[0] < schedule[-1]
-        ), f"Expected schedule to be in increasing order when synchronized, but got {schedule[0]} >= {schedule[-1]}"
+        assert schedule[0] < schedule[-1], (
+            f"Expected schedule to be in increasing order when synchronized, but got {schedule[0]} >= {schedule[-1]}"
+        )
     else:
-        assert (
-            schedule[0] > schedule[-1]
-        ), f"Expected schedule to be in decreasing order when not synchronized, but got {schedule[0]} <= {schedule[-1]}"
+        assert schedule[0] > schedule[-1], (
+            f"Expected schedule to be in decreasing order when not synchronized, but got {schedule[0]} <= {schedule[-1]}"
+        )

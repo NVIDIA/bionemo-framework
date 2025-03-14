@@ -87,16 +87,16 @@ class SingleCellDataModule(MegatronDataModule):
     ) -> None:
         super().__init__()
         if predict_dataset_path is None:
-            assert (
-                train_dataset_path is not None and val_dataset_path is not None and test_dataset_path is not None
-            ), "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
+            assert train_dataset_path is not None and val_dataset_path is not None and test_dataset_path is not None, (
+                "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
+            )
         elif train_dataset_path is None:
-            assert (
-                val_dataset_path is None and test_dataset_path is None
-            ), "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
-            assert (
-                predict_dataset_path is not None
-            ), "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
+            assert val_dataset_path is None and test_dataset_path is None, (
+                "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
+            )
+            assert predict_dataset_path is not None, (
+                "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
+            )
         self.data_path_predict = predict_dataset_path
         self.data_path_train = train_dataset_path
         self.data_path_val = val_dataset_path

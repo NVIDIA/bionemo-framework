@@ -21,12 +21,12 @@ from torch import Tensor
 
 
 __all__: Sequence[str] = (
-    "LossType",
-    "ModelType",
-    "Model",
-    "ModelOutput",
     "BionemoModelConfig",
     "BionemoTrainableModelConfig",
+    "LossType",
+    "Model",
+    "ModelOutput",
+    "ModelType",
 )
 
 ModelOutput = TypeVar("ModelOutput", Tensor, list[Tensor], tuple[Tensor], dict[str, Tensor], covariant=True)

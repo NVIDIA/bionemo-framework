@@ -21,7 +21,7 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.utils import divide
 
 
-__all__: Sequence[str] = ("TELayerNorm", "ESM2QueryScaling")
+__all__: Sequence[str] = ("ESM2QueryScaling", "TELayerNorm")
 
 
 class TELayerNorm(te.pytorch.LayerNorm):  # noqa: D101
