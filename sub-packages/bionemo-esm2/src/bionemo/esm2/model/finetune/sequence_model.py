@@ -33,9 +33,9 @@ from bionemo.llm.utils import iomixin_utils as iom
 # to output sequence-level regression predictions.
 
 __all__: Sequence[str] = (
-    "MegatronMLPHead",
-    "ESM2FineTuneSeqModel",
     "ESM2FineTuneSeqConfig",
+    "ESM2FineTuneSeqModel",
+    "MegatronMLPHead",
 )
 
 

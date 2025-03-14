@@ -59,13 +59,13 @@ from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 
 
 __all__: Sequence[str] = (
-    "MegatronBioBertModel",
+    "OVERRIDE_BIOBERT_CONFIG_DEFAULTS",
     "BioBertConfig",
-    "MegatronBioBertModelType",
     "BioBertOutput",
     "BioBertOutputCore",
+    "MegatronBioBertModel",
+    "MegatronBioBertModelType",
     "PositionEmbeddingKinds",
-    "OVERRIDE_BIOBERT_CONFIG_DEFAULTS",
 )
 
 # Configure the logger
@@ -540,9 +540,9 @@ class BioBertConfig(
         vp_size = self.virtual_pipeline_model_parallel_size
         if vp_size:
             p_size = self.pipeline_model_parallel_size
-            assert (
-                self.num_layers // p_size
-            ) % vp_size == 0, "Make sure the number of model chunks is the same across all pipeline stages."
+            assert (self.num_layers // p_size) % vp_size == 0, (
+                "Make sure the number of model chunks is the same across all pipeline stages."
+            )
 
         # The local specs all require the standard full attention mask.
         use_full_attention_mask: bool = "transformer_engine" not in self.biobert_spec_option
