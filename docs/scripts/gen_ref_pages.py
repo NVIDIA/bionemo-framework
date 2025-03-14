@@ -15,7 +15,6 @@
 """Generate the code reference pages and copy Jupyter notebooks and README files."""
 
 import logging
-import shutil
 from pathlib import Path
 
 import mkdocs_gen_files
@@ -97,12 +96,6 @@ def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
                 fd.write(markdown.read_bytes())
             logger.info(f"Added notebook: {dest_file}")
             mkdocs_gen_files.set_edit_path(dest_file, markdown.relative_to(root))
-        # Copy assets dir if it exists
-        assets_dir = examples_dir / "assets"
-        if assets_dir.exists():
-            dest_dir = Path("user-guide/examples") / sub_package.name / "assets"
-            shutil.copytree(assets_dir, dest_dir, dirs_exist_ok=True)
-            logger.info(f"Added assets: {dest_dir}")
 
 
 def get_subpackage_readmes(sub_package: Path, root: Path) -> None:
@@ -126,6 +119,33 @@ def get_subpackage_readmes(sub_package: Path, root: Path) -> None:
         mkdocs_gen_files.set_edit_path(dest_file, readme_file.relative_to(root))
 
 
+def get_subpackage_assets(sub_package: Path, root: Path) -> None:
+    """Copy assets dir from a sub-package to the user guide's developer guide directory so that they are available for render.
+
+    Images will be copied over and must be referenced relative to assets using markdonw image syntax e.g.:
+
+    ![image](assets/image.png)
+
+    Args:
+        sub_package (Path): The path to the sub-package directory.
+        root (Path): The root directory of the project.
+
+    Returns:
+        None
+    """
+    dest_dir = Path("user-guide/developer-guide") / sub_package.name
+    assets_dir = sub_package / "assets"
+    if assets_dir.exists():
+        for asset_path in assets_dir.rglob("*"):
+            if asset_path.is_file():
+                relative_path = asset_path.relative_to(assets_dir)
+                dest_asset = dest_dir / "assets" / relative_path
+                # copy bytes bc images most likely
+                with mkdocs_gen_files.open(dest_asset, "wb") as fd:
+                    fd.write(asset_path.read_bytes())
+                logger.info(f"Added asset: {dest_asset}")
+
+
 def generate_pages() -> None:
     """Generate pages for documentation.
 
@@ -143,6 +163,7 @@ def generate_pages() -> None:
 
     for sub_package in sub_packages_dir.glob("bionemo-*"):
         if sub_package.is_dir():
+            get_subpackage_assets(sub_package, root)
             get_subpackage_notebooks(sub_package, root)
             get_subpackage_readmes(sub_package, root)
 
