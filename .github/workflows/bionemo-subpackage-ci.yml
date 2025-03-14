@@ -7,19 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       subpackages:
-        description: BioNeMo sub-packages (comma-separated) to test or publish. All packages are found under bionemo-framework/sub-packages.
+        description: BioNeMo sub-packages (comma-separated) to test or publish.
         required: true
         type: string
       publish:
-        description: Publish the built package to PyPI. Default behavior is to skip publishing, so we only build and test the package. Automatically publish to test PyPI for PRs.
+        description: Publish the built package to PyPI.
         required: false
         type: boolean
         default: false
-      ref:
-        description: The branch, tag, or commit hash to test or publish for dispatched workflows. Used to test against a specific branch or commit such as in open pull requests (PR).
-        required: false
-        type: string
-        default: "main"
 
 env:
   # TODO(@cspades): Skip pytest for packages that require GPU's or special installation recipes until resolved.
@@ -29,19 +24,16 @@ env:
 
 jobs:
   configure-workflow-packages:
+    name: "[Configure Workflow Packages] Identify sub-packages for testing and publishing."
     # Sub-package CI override label in PR's.
     if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'SKIP_SUBPACKAGE_CI') }}
     runs-on: ubuntu-latest
-    outputs:
-      workflow_packages: ${{ steps.collect-package-deltas.outputs.workflow_packages }}
     # Depending on the type of GitHub Event (Dispatch or PR), we stage different packages for testing and publishing in 'workflow_packages'.
-    name: "[Configure Workflow Packages] Identify sub-packages for testing and publishing."
+    outputs:
+      workflow_packages: ${{ steps.collect-staged-packages.outputs.workflow_packages }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # Use the reference branch or commit hash if provided in workflow_dispatch.inputs.ref.
-          # Otherwise, becomes a null reference, which defaults to the reference or SHA for the GitHub Actions Event.
-          ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
           submodules: "recursive"
       - id: collect-package-deltas
@@ -55,7 +47,7 @@ jobs:
           changed_packages=$(echo "$changed_files" | grep "^sub-packages/" | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1]')
 
           # Send the list of changed packages to the next job.
-          echo "workflow_packages=$changed_packages" >> "$GITHUB_OUTPUT"
+          echo "pr_packages=$changed_packages" >> "$GITHUB_OUTPUT"
           echo "[PR Mode] Sub-packages to stage: $changed_packages"
       - id: parse-dispatch-packages
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -63,8 +55,21 @@ jobs:
         run: |
           # Send the parsed list of sub-packages to the next job.
           dispatch_packages=$(echo '${{ github.event.inputs.subpackages }}' | jq -R -c 'split(",")')
-          echo "workflow_packages=$dispatch_packages" >> "$GITHUB_OUTPUT"
+          echo "dispatch_packages=$dispatch_packages" >> "$GITHUB_OUTPUT"
           echo "[Workflow Dispatch Mode] Sub-packages to stage: $dispatch_packages"
+      - id: collect-staged-packages
+        name: Collect the sub-packages to stage.
+        env:
+          PR_PACKAGES: ${{ steps.collect-package-deltas.outputs.pr_packages }}
+          DISPATCH_PACKAGES: ${{ steps.parse-dispatch-packages.outputs.dispatch_packages }}
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "workflow_packages=$PR_PACKAGES" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "workflow_packages=$DISPATCH_PACKAGES" >> "$GITHUB_OUTPUT"
+          else
+            echo "workflow_packages=[]" >> "$GITHUB_OUTPUT"
+          fi
 
   install-and-test:
     needs: configure-workflow-packages
@@ -79,7 +84,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
           submodules: "recursive"
       - uses: actions/setup-python@v5
@@ -112,7 +116,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.ref }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
