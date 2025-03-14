@@ -64,10 +64,10 @@ class MambaModel(GPTModel):
         # Find MCoreMambaModel instance
         mcore_model = self.module
         while mcore_model:
-            if isinstance(mcore_model, (MCoreMambaModel, CustomMCoreMambaModel)):
+            if isinstance(mcore_model, (MCoreMambaModel, Evo2StyleMCoreMambaModel)):
                 break
             mcore_model = getattr(mcore_model, "module", None)
-        if mcore_model is None or not isinstance(mcore_model, (MCoreMambaModel, CustomMCoreMambaModel)):
+        if mcore_model is None or not isinstance(mcore_model, (MCoreMambaModel, Evo2StyleMCoreMambaModel)):
             raise ValueError("Mamba model instance not found in the model structure.")
 
         vocab_size = None
@@ -259,7 +259,7 @@ class Nemotron5HybridConfig8BEvo2Loss(SSMConfig):
     apply_query_key_layer_scaling: bool = False
     persist_layer_norm: bool = True
     attention_softmax_in_fp32: bool = False
-    vocab_size: int = 131072
+    vocab_size: int = 512
     first_last_layers_bf16: bool = True
     is_hybrid_model: bool = True
     forward_step_fn: Callable = mamba_forward_step
