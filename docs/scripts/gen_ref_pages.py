@@ -15,7 +15,6 @@
 """Generate the code reference pages and copy Jupyter notebooks and README files."""
 
 import logging
-import shutil
 from pathlib import Path
 
 import mkdocs_gen_files
