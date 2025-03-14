@@ -170,9 +170,9 @@ class AMPLIFYDataModule(MegatronDataModule):
             _valid_ds, num_samples=num_val_samples, shuffle=False, seed=self._seed
         )
 
-        assert (
-            hasattr(self, "trainer") and self.trainer is not None
-        ), "Setup should be completed when trainer and config are attached."
+        assert hasattr(self, "trainer") and self.trainer is not None, (
+            "Setup should be completed when trainer and config are attached."
+        )
 
     def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:
         """Create dataloader for train, validation, and test stages.

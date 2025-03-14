@@ -91,12 +91,12 @@ def test_train_amplify_runs_small_model(tmpdir, monkeypatch, dummy_hf_dataset):
     run_dir = children[0]
 
     # Check for logs and checkpoints
-    assert (
-        result_dir / "test_amplify" / run_dir / "nemo_log_globalrank-0_localrank-0.txt"
-    ).is_file(), "Could not find experiment log"
-    assert (
-        result_dir / "test_amplify" / run_dir / "checkpoints"
-    ).exists(), "Could not find experiment checkpoints directory"
+    assert (result_dir / "test_amplify" / run_dir / "nemo_log_globalrank-0_localrank-0.txt").is_file(), (
+        "Could not find experiment log"
+    )
+    assert (result_dir / "test_amplify" / run_dir / "checkpoints").exists(), (
+        "Could not find experiment checkpoints directory"
+    )
 
     # Verify trainer completed steps
     assert trainer.global_step == 3, f"Expected 3 training steps, got {trainer.global_step}"
