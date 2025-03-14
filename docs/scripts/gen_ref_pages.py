@@ -15,6 +15,7 @@
 """Generate the code reference pages and copy Jupyter notebooks and README files."""
 
 import logging
+import shutil
 from pathlib import Path
 
 import mkdocs_gen_files
@@ -78,6 +79,7 @@ def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
     """
     examples_dir = sub_package / "examples"
     if examples_dir.exists():
+        # Copy notebooks
         for notebook in examples_dir.glob("*.ipynb"):
             dest_dir = Path("user-guide/examples") / sub_package.name
             dest_file = dest_dir / notebook.name
@@ -86,6 +88,21 @@ def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
                 fd.write(notebook.read_bytes())
             logger.info(f"Added notebook: {dest_file}")
             mkdocs_gen_files.set_edit_path(dest_file, notebook.relative_to(root))
+        # Copy markdown files
+        for markdown in examples_dir.glob("*.md"):
+            dest_dir = Path("user-guide/examples") / sub_package.name
+            dest_file = dest_dir / markdown.name
+
+            with mkdocs_gen_files.open(dest_file, "wb") as fd:
+                fd.write(markdown.read_bytes())
+            logger.info(f"Added notebook: {dest_file}")
+            mkdocs_gen_files.set_edit_path(dest_file, markdown.relative_to(root))
+        # Copy assets dir if it exists
+        assets_dir = examples_dir / "assets"
+        if assets_dir.exists():
+            dest_dir = Path("user-guide/examples") / sub_package.name / "assets"
+            shutil.copytree(assets_dir, dest_dir, dirs_exist_ok=True)
+            logger.info(f"Added assets: {dest_dir}")
 
 
 def get_subpackage_readmes(sub_package: Path, root: Path) -> None:

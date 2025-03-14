@@ -134,6 +134,7 @@ def test_train_evo2_stops(tmp_path, num_steps=500000, early_stop_steps=3):
     "model_size",
     ["1b_nv"],
 )
+@pytest.mark.skip(reason="This test requires a gpu larger than the 24Gb L4s available on GitHub Actions.")
 def test_train_single_gpu(tmp_path, model_size: str):
     """
     This test runs them single gpu evo2 training command with sample data in a temporary directory.

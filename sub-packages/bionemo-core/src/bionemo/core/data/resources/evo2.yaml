@@ -7,6 +7,18 @@
   description: >
     A 1b parameter evo2 model used in testing, torch_dist format. Converted from hf://arcinstitute/savanna_evo2_1b_base.
 
+- tag: 1b-8k-bf16:1.0
+  ngc: nvidia/clara/evo2-1b-8k-bf16-nemo2:1.0
+  ngc_registry: model
+  pbss: "s3://bionemo-ci/models/nemo2_evo2_1b_8k_bf16.tar.gz"
+  sha256: ea4a3f5c9c26d5edc10bdc85165c090ad0ff23ac2670d4f61244f5f0d9d5e817 # pragma: allowlist secret
+  owner: John St John <jstjohn@nvidia.com>
+  description: >
+    A 1b parameter evo2 model used in testing, torch_dist format. First converted from hf://arcinstitute/savanna_evo2_1b_base,
+    then fine-tuned on the same pretraining dataset for a further 30k steps with a learning rate of 1e-5, global batch size of 256,
+    and bf16 precision with 1% dropout on attention and hidden layers. This lead to a similar final loss as the original 1b model
+    on fp8 but it also generalizes to bf16 precision at inference time.
+
 
 - tag: 7b-8k:1.0
   ngc: nvidia/clara/evo2-7b-8k-nemo2:1.0
