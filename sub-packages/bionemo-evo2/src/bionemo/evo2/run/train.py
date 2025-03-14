@@ -216,7 +216,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "--enable-preemption",
         action="store_true",
         default=False,
-        help="Enable preemption hooks. If enabled this will save a checkpoint whenver slurm exits.",
+        help="Enable preemption hooks. If enabled this will save a checkpoint whenever slurm exits.",
     )
     parser.add_argument(
         "--ckpt-async-save",
