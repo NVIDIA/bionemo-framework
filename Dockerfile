@@ -94,11 +94,7 @@ COPY ./LICENSE /workspace/bionemo2/LICENSE
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
-# Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
-# Includes a hack to install tensorstore 0.1.45, which doesn't distribute a pypi wheel for python 3.12, and the metadata
-# in the source distribution doesn't match the expected pypi version.
-RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   --mount=type=cache,target=/root/.cache <<EOF
 set -eo pipefail

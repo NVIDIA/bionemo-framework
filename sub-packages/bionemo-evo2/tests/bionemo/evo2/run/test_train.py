@@ -130,6 +130,7 @@ def test_train_evo2_stops(tmp_path, num_steps=500000, early_stop_steps=3):
 
 
 @pytest.mark.slow
+@pytest.mark.skip(reason="This test requires a gpu larger than the 24Gb L4s available on GitHub Actions.")
 @pytest.mark.parametrize("model_size", ["7b_nv", "7b_arc_longcontext"])
 def test_train_single_gpu(tmp_path, model_size: str):
     """

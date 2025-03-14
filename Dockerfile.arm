@@ -193,20 +193,10 @@ RUN git clone --single-branch --branch 1.15.0rc4 https://github.com/single-cell-
     pip install -v .
 
 WORKDIR /workspace/bionemo2
-# Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
-# For some reason, we do not need to do the tensorstore verson package hack on arm64, while we do need this for x86 build.
-RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
-  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-  uv pip install maturin --no-build-isolation --break-system-packages
-RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
-  --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-  pip install --use-deprecated=legacy-resolver  --no-build-isolation \
-  tensorstore==0.1.45
+RUN uv pip install maturin --no-build-isolation --break-system-packages
+RUN pip install --use-deprecated=legacy-resolver  --no-build-isolation tensorstore==0.1.45
 
-RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
 # Comment out mamba install in NeMo as this causes issues.
   sed -i "/mamba-ssm/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt && \
