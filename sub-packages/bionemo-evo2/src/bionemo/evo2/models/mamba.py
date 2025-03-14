@@ -237,8 +237,8 @@ def mamba_no_weight_decay_cond(name, param):
 
 
 @dataclass
-class Nemotron5HybridConfig8BEvo2Loss(SSMConfig):
-    """Config for Nemotron5-style 8B hybrid Mamba model"""
+class HybridMambaConfig8BEvo2Loss(SSMConfig):
+    """Config for 8B hybrid Mamba model"""
 
     hybrid_override_pattern: str = "M-M-M-M*-M-M-M-M-M*-M-M-M-M-M*-M-M-M-M-M*-M-M-M-M-M-"
     num_layers: int = 52
@@ -254,7 +254,7 @@ class Nemotron5HybridConfig8BEvo2Loss(SSMConfig):
     make_vocab_size_divisible_by: int = 128
     tokenizer_library: str = "byte-level"  # Use Evo2 tokenizer
     tokenizer_name: str = None
-    mapping_type: str = "nvidia-hybrid-nemotron5"
+    mapping_type: str = "nvidia-hybrid-mamba"
     masked_softmax_fusion: bool = True
     apply_query_key_layer_scaling: bool = False
     persist_layer_norm: bool = True
@@ -312,5 +312,5 @@ class Nemotron5HybridConfig8BEvo2Loss(SSMConfig):
 
 # Dictionary mapping model size names to config classes
 MAMBA_MODEL_OPTIONS: dict[str, Type[SSMConfig]] = {
-    "nemotron5_8b": Nemotron5HybridConfig8BEvo2Loss,
+    "hybrid_mamba_8b": HybridMambaConfig8BEvo2Loss,
 }

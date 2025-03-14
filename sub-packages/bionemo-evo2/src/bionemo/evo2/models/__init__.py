@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, Nemotron5HybridConfig8BEvo2Loss
+from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, HybridMambaConfig8BEvo2Loss, MambaModel
 
 
-__all__ = ["MambaModel", "MAMBA_MODEL_OPTIONS", "Nemotron5HybridConfig8BEvo2Loss"]
+__all__ = ["MambaModel", "MAMBA_MODEL_OPTIONS", "HybridMambaConfig8BEvo2Loss"]

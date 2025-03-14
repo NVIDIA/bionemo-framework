@@ -36,7 +36,7 @@ from bionemo.testing.testing_callbacks import SignalAfterGivenStepCallback, Timi
 
 
 def test_mamba(
-    model_size: str = "nemotron5_8b",
+    model_size: str = "hybrid_mamba_8b",
     micro_batch_size: int = 1,
     sequence_length: int = 512,
     max_steps: int = 5,
@@ -206,7 +206,7 @@ if __name__ == "__main__":
         "--model-size",
         type=str,
         choices=sorted(MAMBA_MODEL_OPTIONS.keys()),
-        default="nemotron5_8b",
+        default="hybrid_mamba_8b",
         help="Model size to test",
     )
     parser.add_argument(
