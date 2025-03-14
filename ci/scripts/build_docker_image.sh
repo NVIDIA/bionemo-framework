@@ -106,13 +106,8 @@ else
     CONTAINER_REGISTRY_PATH=""
 fi
 
-# Ensure repository is clean
-git config --global --add safe.directory $(pwd)
-if ! set_bionemo_home; then
-    exit 1
-fi
-
 # Get Git commit SHA and sanitized branch name
+git config --global --add safe.directory "$(pwd)"
 COMMIT_SHA=$(git rev-parse HEAD)
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 SANITIZED_BRANCH_NAME=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-128)
