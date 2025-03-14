@@ -20,6 +20,7 @@ script_args:
   nodes: 4
   batch_size: 8
   max_steps: 490000
+  stop_steps: 6900
   pp: 1
   cp: 1
   tp: 1
@@ -66,7 +67,7 @@ script: |-
   --devices=${gpus} \
   --micro-batch-size=${batch_size} \
   --model-size=${config_name} \
-  --max-steps=${max_steps} \
+  --max-steps=${max_steps} --early-stop-on-step ${stop_steps} \
   --limit-val-batches=20 \
   --log-every-n-steps=50 \
   --val-check-interval=500 \
