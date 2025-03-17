@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bionemo-amplify"
 readme = "README.md"
-description = ""
+description = "A BioNeMo sub-package for training AMPLIFY models."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
 license = { file = "LICENSE" }

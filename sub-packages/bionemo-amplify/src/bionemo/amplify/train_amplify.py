@@ -31,7 +31,7 @@ from nemo.utils.exp_manager import TimingCallback
 from bionemo.amplify.datamodule import AMPLIFYDataModule
 from bionemo.amplify.model import AMPLIFYConfig
 from bionemo.amplify.tokenizer import BioNeMoAMPLIFYTokenizer
-from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
+from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.llm.data.collate import MLM_LOSS_IGNORE_INDEX
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
@@ -64,7 +64,7 @@ def main(
     accumulate_grad_batches: int = 1,
     experiment_name: str = "amplify",
     resume_if_exists: bool = False,
-    precision: PrecisionTypes = "bf16-mixed",
+    precision: str = "bf16-mixed",
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_offline: bool = False,

@@ -20,7 +20,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from bionemo.amplify import tokenizer
+from bionemo.amplify.tokenizer import BioNeMoAMPLIFYTokenizer
 from bionemo.core.data.multi_epoch_dataset import EpochIndex
 from bionemo.core.utils import random_utils
 from bionemo.esm2.data.dataset import RandomMaskStrategy, _random_crop
@@ -52,7 +52,7 @@ class AMPLIFYMaskedResidueDataset(Dataset):
         mask_token_prob: float = 0.8,
         mask_random_prob: float = 0.1,
         random_mask_strategy: RandomMaskStrategy = RandomMaskStrategy.AMINO_ACIDS_ONLY,
-        tokenizer: tokenizer.BioNeMoAMPLIFYTokenizer = tokenizer.BioNeMoAMPLIFYTokenizer(),
+        tokenizer: BioNeMoAMPLIFYTokenizer | None = None,
     ) -> None:
         """Initializes the dataset.
 
@@ -75,21 +75,23 @@ class AMPLIFYMaskedResidueDataset(Dataset):
         self.seed = seed
         self.max_seq_length = max_seq_length
         self.random_mask_strategy = random_mask_strategy
+        if tokenizer is None:
+            self.tokenizer = BioNeMoAMPLIFYTokenizer()
+        else:
+            self.tokenizer = tokenizer
 
-        if tokenizer.mask_token_id is None:
+        if self.tokenizer.mask_token_id is None:
             raise ValueError("Tokenizer does not have a mask token.")
 
         self.mask_config = masking.BertMaskConfig(
-            tokenizer=tokenizer,
-            random_tokens=range(tokenizer.vocab_size)
+            tokenizer=self.tokenizer,
+            random_tokens=range(self.tokenizer.vocab_size)
             if self.random_mask_strategy == RandomMaskStrategy.ALL_TOKENS
-            else range(6, tokenizer.vocab_size),
+            else range(6, self.tokenizer.vocab_size),
             mask_prob=mask_prob,
             mask_token_prob=mask_token_prob,
             random_token_prob=mask_random_prob,
         )
-
-        self.tokenizer = tokenizer
 
     def __len__(self) -> int:
         """Returns the total number of sequences in the dataset."""
