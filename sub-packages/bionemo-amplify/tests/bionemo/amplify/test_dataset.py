@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datasets
 import pytest
 import torch
-from datasets import Dataset
 from torch.utils.data import Dataset as TorchDataset
 
 from bionemo.amplify import tokenizer
@@ -34,7 +34,7 @@ def dummy_hf_dataset():
         "MKTVRQERLKSIVRI",
         "MRILERSKEPVSGAQLA",
     ]
-    return Dataset.from_dict({"sequence": sequences})
+    return datasets.Dataset.from_dict({"sequence": sequences})
 
 
 @pytest.fixture
@@ -220,3 +220,16 @@ def test_amplify_masked_residue_dataset_random_mask_strategy(dummy_hf_dataset, a
     masked_indices = sample["loss_mask"].nonzero().squeeze()
     masked_tokens = sample["text"][masked_indices]
     assert torch.all(masked_tokens == amplify_tokenizer.mask_token_id)
+
+
+@pytest.mark.skip(
+    reason="This test is slow and requires a real HuggingFace dataset, it's mainly here to demo the functionality "
+    "and as a fast test when the dataset is available locally."
+)
+def test_amplify_with_real_hf_dataset(amplify_tokenizer):
+    """Test that the AMPLIFYMaskedResidueDataset can be used with a real HuggingFace dataset."""
+    dataset = AMPLIFYMaskedResidueDataset(
+        datasets.load_dataset("chandar-lab/UR100P", split="test"),  # type: ignore
+        tokenizer=amplify_tokenizer,
+    )
+    assert len(dataset) > 0
