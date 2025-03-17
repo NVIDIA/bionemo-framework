@@ -77,9 +77,12 @@ def test_train_evo2_runs(tmp_path, num_steps=5):
     assert result.returncode == 0, "train_evo2 command failed."
 
 
-@pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+@pytest.mark.timeout(256)
 @pytest.mark.slow
-@pytest.mark.xfail(reason="This test fails due.")
+@pytest.mark.xfail(
+    reason="This test fails due to error when the checkpoints are saved. "
+    "Issue: https://github.com/NVIDIA/bionemo-framework/issues/760"
+)
 def test_train_evo2_stops(tmp_path, num_steps=500000, early_stop_steps=3):
     """
     This test runs the `train_evo2` command with mock data in a temporary directory.
@@ -98,7 +101,7 @@ def test_train_evo2_stops(tmp_path, num_steps=500000, early_stop_steps=3):
         "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* "
         "--no-activation-checkpointing --add-bias-output "
         f"--max-steps {num_steps} --early-stop-on-step {early_stop_steps} --warmup-steps 1 --no-wandb "
-        "--seq-length 128 --hidden-dropout 0.1 --attention-dropout 0.1 --disable-checkpointing"
+        "--seq-length 128 --hidden-dropout 0.1 --attention-dropout 0.1 "
     )
     command_parts_no_program = shlex.split(command)[1:]
     args = parse_args(args=command_parts_no_program)
