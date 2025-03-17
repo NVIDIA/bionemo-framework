@@ -4,7 +4,7 @@
 
 ### New Features
 
-* Adding the Evo2 model training workflow, including data preprocessing, pre-training, fine-tuning and inference
+* Adding the Evo2 model training workflow, including data preprocessing, pre-training, fine-tuning and inference with bf16 and fp8 support.
 
 ### Updates & Improvements
 
