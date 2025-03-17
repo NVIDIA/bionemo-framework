@@ -1,3 +1,17 @@
+# Build instructions:
+#
+# For x86_64/amd64 (default):
+#   docker build -t bionemo .
+#   # Or explicitly:
+#   docker build --build-arg TARGETARCH=amd64 -t bionemo .
+#
+# For ARM64:
+#   docker build --build-arg TARGETARCH=arm64 -t bionemo .
+#
+# For multi-platform build:
+#   docker buildx create --use
+#   docker buildx build --platform linux/amd64,linux/arm64 -t bionemo .
+#
 # Base image with apex and transformer engine, but without NeMo or Megatron-LM.
 #  Note that the core NeMo docker container is defined here:
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/llm_train/Dockerfile.train
@@ -15,6 +29,8 @@ RUN rustup set profile minimal && \
   rustup default 1.82.0
 
 FROM ${BASE_IMAGE} AS bionemo2-base
+# Default to amd64 if no TARGETARCH is specified
+ARG TARGETARCH=amd64
 
 # Install core apt packages.
 RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
@@ -29,16 +45,101 @@ apt-get install -qyy \
   curl \
   pre-commit \
   sudo \
-  gnupg
+  gnupg \
+  unzip
 apt-get upgrade -qyy \
   rsync
 rm -rf /tmp/* /var/tmp/*
 EOF
 
+# Install AWS CLI based on architecture
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+    elif [ "$TARGETARCH" = "amd64" ]; then \
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+    else \
+      echo "Unsupported architecture: $TARGETARCH" && exit 1; \
+    fi && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf aws awscliv2.zip
+
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
 RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.2.post1
+
+###############################################################################
+# ARM
+###############################################################################
+# Certain dependencies do not have prebuild ARM wheels/binaries, so we build them
+# from source here. Overall, ecosystem ARM support is much weaker than x86, so below
+# you'll see some hardcoded patches/versions/experimental branches to get i
+# everything to work.
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+    # Build LLVM and triton
+    export BUILD_DIR=/build && \
+    mkdir -p ${BUILD_DIR} && \
+    cd ${BUILD_DIR} && \
+    git clone https://github.com/llvm/llvm-project.git && \
+    pip install ninja && \
+    cd llvm-project && \
+    git fetch origin 10dc3a8e916d73291269e5e2b82dd22681489aa1 && \
+    git checkout 10dc3a8e916d73291269e5e2b82dd22681489aa1 && \
+    mkdir build && cd build && \
+    cmake -G Ninja  -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_PROJECTS="mlir;llvm" -DLLVM_TARGETS_TO_BUILD="host;NVPTX;AMDGPU" ../llvm && \
+    ninja && \
+    export LLVM_BUILD_DIR=${BUILD_DIR}/llvm-project/build && \
+    cd ${BUILD_DIR} && \
+    git clone https://github.com/triton-lang/triton.git && \
+    pip install cmake wheel pybind11 && \
+    cd triton && \
+    git fetch origin release/3.1.x && \
+    git checkout release/3.1.x && \
+    LLVM_INCLUDE_DIRS=$LLVM_BUILD_DIR/include LLVM_LIBRARY_DIR=$LLVM_BUILD_DIR/lib LLVM_SYSPATH=$LLVM_BUILD_DIR pip install --verbose python/ && \
+    cd ${BUILD_DIR} && \
+    rm -rf llvm-project && \
+    rm -rf triton; \
+fi
+
+# Decord installation
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+    apt-get update && \
+    apt-get install -y build-essential python3-dev python3-setuptools make cmake && \
+    apt-get install -y ffmpeg libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev && \
+    git clone --recursive https://github.com/dmlc/decord && \
+    cd decord && \
+    git apply /decord_ffmpeg6_fix.patch && \
+    mkdir build && cd build && \
+    cmake .. -DUSE_CUDA=0 -DCMAKE_BUILD_TYPE=Release && \
+    make && \
+    cd ../python && \
+    pip install . && \
+    cd ${BUILD_DIR} && \
+    rm -rf decord; \
+fi
+
+# TileDB installation
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+    mkdir -p /usr/lib/tiledb && \
+    cd /usr/lib/tiledb && \
+    wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.0-rc3/tiledb-linux-arm64-2.27.0-rc3-8d581f2.tar.gz -O tiledb.tar.gz && \
+    tar -xvzf tiledb.tar.gz && \
+    cd /dependencies && \
+    dpkg -l | awk '/libfmt/ {print $2}' | xargs apt-get remove -y && \
+    dpkg -l | awk '/spdlog/ {print $2}' | xargs apt-get remove -y && \
+    rm -f /usr/lib/*/cmake/spdlog/spdlogConfig.cmake && \
+    rm -f /usr/lib/cmake/spdlog/spdlogConfig.cmake && \
+    git clone --single-branch --branch 1.15.0rc4 https://github.com/single-cell-data/TileDB-SOMA.git && \
+    cd TileDB-SOMA/apis/python && \
+    pip install -v .; \
+fi
+
+# Reset workdir
+WORKDIR /
+###############################################################################
+# /end ARM
+###############################################################################
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
@@ -93,24 +194,30 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   --mount=type=cache,target=/root/.cache <<EOF
-set -eo pipefail
-
-uv pip install maturin --no-build-isolation
-
-uv pip install --no-build-isolation \
+  set -eo pipefail
+  uv pip install maturin --no-build-isolation
+  # install nvidia-resiliency-ext separately because it doesn't yet have ARM wheels
+  git clone https://github.com/NVIDIA/nvidia-resiliency-ext
+  uv pip install nvidia-resiliency-ext/
+  # ngcsdk causes strange dependency conflicts that we will resolve later
+  sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
+  uv pip install --no-build-isolation \
   ./3rdparty/* \
   ./sub-packages/bionemo-* \
   -r /requirements-cve.txt \
   -r /requirements-test.txt
 
-# Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
-# dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
-# seems to be causing issues with NGC downloads. See https://nvbugspro.nvidia.com/bug/5149698
-uv pip uninstall sqlitedict zstandard
+  # Install back ngcsdk. Somehow doing it here avoids a large dependency loop
+  uv pip install ngcsdk
 
-rm -rf ./3rdparty
-rm -rf /tmp/*
-rm -rf ./sub-packages/bionemo-noodles/target
+  # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
+  # dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
+  # seems to be causing issues with NGC downloads. See https://nvbugspro.nvidia.com/bug/5149698
+  uv pip uninstall sqlitedict zstandard
+
+  rm -rf ./3rdparty
+  rm -rf /tmp/*
+  rm -rf ./sub-packages/bionemo-noodles/target
 EOF
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
