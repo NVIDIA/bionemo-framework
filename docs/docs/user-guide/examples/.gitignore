@@ -7,4 +7,3 @@
 
 # Except this .gitignore and conftest.py
 !.gitignore
-!conftest.py
