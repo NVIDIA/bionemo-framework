@@ -8,7 +8,7 @@
 
 ### Updates & Improvements
 
-* Adding NVFlare to ESM2 fine-tuning
+* Supporting/upgrading federated learning examples of BioNeMo in [NVFlare](https://github.com/NVIDIA/NVFlare/tree/2.6.0rc1/examples/advanced/bionemo)
 * Upgrade bionemo-moco to v0.0.2
 * Brev.dev launchable tutorials
 
