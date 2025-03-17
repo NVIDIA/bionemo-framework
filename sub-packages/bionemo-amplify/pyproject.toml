@@ -20,6 +20,9 @@ dependencies = [
     'xformers'
 ]
 
+[project.scripts]
+train_amplify = "bionemo.amplify.train_amplify:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bionemo.*"]
