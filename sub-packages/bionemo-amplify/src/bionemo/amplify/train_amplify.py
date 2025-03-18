@@ -57,7 +57,7 @@ def main(
     limit_val_batches: float = 1.0,
     val_check_interval: int = 10000,
     log_every_n_steps: Optional[int] = 100,
-    num_dataset_workers: int = 1,
+    num_dataset_workers: int = 27,
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec,
     lr: float = 1e-3,
     micro_batch_size: int = 64,
