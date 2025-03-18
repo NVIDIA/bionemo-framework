@@ -226,7 +226,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "--enable-preemption",
         action="store_true",
         default=False,
-        help="Enable preemption hooks. If enabled this will save a checkpoint whenver slurm exits.",
+        help="Enable preemption hooks. If enabled this will save a checkpoint whenever slurm exits.",
     )
     parser.add_argument(
         "--ckpt-async-save",
@@ -384,7 +384,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(args=args)
 
 
-def train(args: argparse.Namespace):
+def train(args: argparse.Namespace) -> nl.Trainer:
     """Main function to run Evo2 training."""
     # Instantiate tokenizer.
     tokenizer = get_nmt_tokenizer(
@@ -706,6 +706,7 @@ def train(args: argparse.Namespace):
 
     # Start training
     trainer.fit(model, data_module)
+    return trainer
 
 
 def main():

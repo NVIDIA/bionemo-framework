@@ -27,9 +27,7 @@ from bionemo.webdatamodule.datamodule import Split
 def test_webdatamodule_init(split, create_webdatamodule):
     data_module, dirs_tars_wds = create_webdatamodule
     assert data_module._dirs_tars_wds[split] == f"{dirs_tars_wds[split]}", (
-        f"Wrong tar files directory: "
-        f"expected {dirs_tars_wds[split]} "
-        f"but got {data_module._dirs_tars_wds[split]}"
+        f"Wrong tar files directory: expected {dirs_tars_wds[split]} but got {data_module._dirs_tars_wds[split]}"
     )
 
 
@@ -89,7 +87,7 @@ def test_webdatamodule_setup_dataloader(split, create_webdatamodule, create_anot
 @pytest.mark.parametrize("split", list(Split))
 def test_webdatamodule_throw_on_many_workers(split, create_webdatamodule_with_5_workers):
     data_module = create_webdatamodule_with_5_workers[0]
-    urls = glob.glob(f"{data_module._dirs_tars_wds[split]}/" f"{data_module._prefix_tars_wds}-*.tar")
+    urls = glob.glob(f"{data_module._dirs_tars_wds[split]}/{data_module._prefix_tars_wds}-*.tar")
     n_tars = len(urls)
     data_module._kwargs_wld[split]["num_workers"] = n_tars + 1
     data_module.prepare_data()
@@ -111,11 +109,11 @@ def test_webdatamodule_throw_on_many_workers(split, create_webdatamodule_with_5_
     except ValueError as e:
         # this is expected
         assert "have fewer shards than workers" in str(e), (
-            f"'have fewer shards than workers' not found in exception " f"raised from data loading: {e}"
+            f"'have fewer shards than workers' not found in exception raised from data loading: {e}"
         )
     except Exception as e:
         raise RuntimeError(
-            f"WebLoader doesn't raise ValueError with fewer " f"shards than workers but raise this instead: {e}"
+            f"WebLoader doesn't raise ValueError with fewer shards than workers but raise this instead: {e}"
         )
     else:
         raise NotImplementedError(
@@ -167,9 +165,7 @@ def test_webdatamodule_in_lightning(
 def test_pickleddatawds_init(split, create_pickleddatawds):
     data_module, dirs_tars_wds, _ = create_pickleddatawds
     assert data_module._dirs_tars_wds[split] == dirs_tars_wds[split], (
-        f"Wrong tar files directory: "
-        f"expected {dirs_tars_wds[split]} "
-        f"but got {data_module._dirs_tars_wds[split]}"
+        f"Wrong tar files directory: expected {dirs_tars_wds[split]} but got {data_module._dirs_tars_wds[split]}"
     )
 
 
@@ -181,7 +177,7 @@ def test_pickleddatawds_prepare_data(split, create_pickleddatawds):
     tars = glob.glob(f"{dir_tars}/{data_module._prefix_tars_wds}-*.tar")
     n_tars = len(tars)
     assert n_tars_min <= n_tars and n_tars <= n_tars_min + 1, (
-        f"Number of tar files: {n_tars} in {dir_tars} is outside the range " f"[{n_tars_min}, {n_tars_min + 1}]"
+        f"Number of tar files: {n_tars} in {dir_tars} is outside the range [{n_tars_min}, {n_tars_min + 1}]"
     )
 
 

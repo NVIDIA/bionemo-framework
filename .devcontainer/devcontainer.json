@@ -17,7 +17,9 @@
 		"source=${localEnv:HOME}/.ngc,target=/home/ubuntu/.ngc,type=bind,consistency=cached",
 		"source=${localEnv:HOME}/.cache,target=/home/ubuntu/.cache,type=bind,consistency=cached",
 		"source=${localEnv:HOME}/.ssh,target=/home/ubuntu/.ssh,readonly,type=bind,consistency=cached",
-		"source=${localEnv:HOME}/.netrc,target=/home/ubuntu/.netrc,readonly,type=bind,consistency=cached"
+		"source=${localEnv:HOME}/.netrc,target=/home/ubuntu/.netrc,readonly,type=bind,consistency=cached",
+		// Mount bash history file for persistence. Created if it doesn't exist in initializeCommand.sh
+		"source=${localEnv:HOME}/.bash_history_devcontainer,target=/home/ubuntu/.bash_history,type=bind,consistency=cached"
 	],
 	"containerEnv": {
 		"TMPDIR": "/tmp",

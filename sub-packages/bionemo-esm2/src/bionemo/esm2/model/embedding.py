@@ -24,8 +24,8 @@ from torch import Tensor
 
 
 __all__: Sequence[str] = (
-    "ESM2Embedding",
     "ESM2_MASK_RATIO_TRAIN",
+    "ESM2Embedding",
 )
 
 ESM2_MASK_RATIO_TRAIN = 0.15 * 0.8  # Hardcoded as the ratio used in all ESM model training runs

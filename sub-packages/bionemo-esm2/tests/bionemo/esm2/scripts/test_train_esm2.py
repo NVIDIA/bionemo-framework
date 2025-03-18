@@ -94,7 +94,7 @@ def train_small_esm2(
             valid_database_path=valid_database_path,
             num_nodes=1,
             devices=1,
-            min_seq_length=None,
+            min_seq_length=128,
             max_seq_length=128,
             result_dir=result_dir,
             experiment_name="esm2",
@@ -111,16 +111,16 @@ def train_small_esm2(
             biobert_spec_option=BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec,
             lr=1e-4,
             micro_batch_size=2,
-            accumulate_grad_batches=2,
+            accumulate_grad_batches=1,
             precision="bf16-mixed",
             resume_if_exists=resume_if_exists,
             create_tensorboard_logger=create_tensorboard_logger,
             create_tflops_callback=create_tflops_callback,
+            create_checkpoint_callback=create_checkpoint_callback,
             num_layers=2,
             num_attention_heads=2,
             hidden_size=4,
             ffn_hidden_size=4 * 4,
-            create_checkpoint_callback=create_checkpoint_callback,
         )
     return trainer
 
@@ -194,7 +194,6 @@ def test_main_runs(tmp_path, dummy_protein_dataset, dummy_parquet_train_val_inpu
         resume_if_exists=False,
         wandb_project=None,
     )
-
     experiment_dir = tmp_path / "esm2"
     assert experiment_dir.exists(), "Could not find experiment directory."
     assert experiment_dir.is_dir(), "Experiment directory is supposed to be a directory."
@@ -204,31 +203,29 @@ def test_main_runs(tmp_path, dummy_protein_dataset, dummy_parquet_train_val_inpu
     children = list(experiment_dir.iterdir())
     # ["checkpoints", "dev"] since wandb is disabled. Offline mode was causing troubles
     expected_children = 2 if create_checkpoint_callback else 1
-    assert (
-        len(children) == expected_children
-    ), f"Expected {expected_children} child in the experiment directory, found {children}."
+    assert len(children) == expected_children, (
+        f"Expected {expected_children} child in the experiment directory, found {children}."
+    )
 
     if create_checkpoint_callback:
         checkpoints_dir = experiment_dir / "checkpoints"
         assert checkpoints_dir.exists(), "Checkpoints directory does not exist."
         # check if correct checkpoint was saved
-        expected_checkpoint_suffix = f"step={num_steps -1}"
+        expected_checkpoint_suffix = f"step={num_steps - 1}"
         matching_subfolders = [
             p
             for p in checkpoints_dir.iterdir()
             if p.is_dir() and (expected_checkpoint_suffix in p.name and "last" in p.name)
         ]
-        assert (
-            matching_subfolders
-        ), f"No checkpoint subfolder ending with '{expected_checkpoint_suffix}' found in {checkpoints_dir}."
+        assert matching_subfolders, (
+            f"No checkpoint subfolder ending with '{expected_checkpoint_suffix}' found in {checkpoints_dir}."
+        )
 
     assert (log_dir / "nemo_log_globalrank-0_localrank-0.txt").is_file(), "Could not find experiment log."
 
     # Recursively search for files from tensorboard logger
     event_files = list(log_dir.rglob("events.out.tfevents*"))
-
     assert event_files, f"No TensorBoard event files found under {log_dir}"
-
     assert "val_ppl" in trainer.logged_metrics  # validation logging on by default
     assert "tflops_per_sec_per_gpu" in trainer.logged_metrics  # ensuring that tflops logger can be added
     assert "train_step_timing in s" in trainer.logged_metrics

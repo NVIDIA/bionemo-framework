@@ -45,12 +45,12 @@ from bionemo.llm.utils import iomixin_utils as iom
 # token to output cell type predictions.
 
 __all__: Sequence[str] = (
-    "SequenceLengthRMSEPlusBERTMLMLossWithReduction",
-    "MegatronRegressionMLPHead",
-    "MegatronBioBertFineTuneSeqLengthModel",
     "FineTuneSeqLenBioBertConfig",
     "LoRAForGeneFormerTokenRegressor",
+    "MegatronBioBertFineTuneSeqLengthModel",
     "MegatronFineTuneOutput",
+    "MegatronRegressionMLPHead",
+    "SequenceLengthRMSEPlusBERTMLMLossWithReduction",
 )
 
 

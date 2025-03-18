@@ -1,5 +1,33 @@
 # Release Notes
 
+## BioNeMo Framework v2.5
+
+### New Features
+
+* Adding the Evo2 model training workflow, including data preprocessing, pre-training, fine-tuning and inference with bf16 and fp8 support.
+
+### Updates & Improvements
+
+* Supporting/upgrading federated learning examples of BioNeMo in [NVFlare](https://github.com/NVIDIA/NVFlare/tree/2.6.0rc1/examples/advanced/bionemo)
+* Upgrade bionemo-moco to v0.0.2
+* Brev.dev launchable tutorials
+
+## BioNeMo Framework v2.4.1
+
+### Updates & Improvements
+* Applies fixes to ESM2 metric logging that result in NotImplementedError while using Model Parallelism.
+
+## BioNeMo Framework v2.4
+
+### New Features
+* Draft implementation of Evo2 with support for Hyena operators
+* bionemo-moco v0.0.1 released for building diffusion-like generative models.
+
+### Updates & Improvements
+
+* ESM2 fine-tuning script with CLI (finetune_esm2) that supports sequence-level/token-level classification/regression using a CSV dataset.
+* Brev.dev launchable [fine-tuning tutorial for ESM2](https://nvidia.github.io/bionemo-framework/user-guide/examples/bionemo-esm2/finetune/)
+
 ## BioNeMo Framework v2.3
 
 ### New Features

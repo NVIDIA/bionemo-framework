@@ -120,6 +120,12 @@ Key behaviors:
 - Skips entire CI pipeline
 - Use for documentation typos, README updates
 
+#### **SKIP_SUBPACKAGE_CI**
+
+- Skips installation, testing, and publication of individual sub-packages of BioNeMo.
+- For more granular controls on a per-package basis, such as skipping only testing or only publication to PyPI, you can modify hard-coded sub-package names (`bionemo-...`) listed within `SKIP...` variables in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
+- Sub-package CI is enabled (not skipped) by default. Utilized to test individual BioNeMo sub-packages without the environmental support of the BioNeMo Framework Container, which validates if the sub-package can be pusblished standalone to PyPI.
+
 #### **INCLUDE_NOTEBOOKS_TESTS**
 
 - Enables notebook validation tests
@@ -132,7 +138,7 @@ Key behaviors:
 - Use when modifying core functionalities and require extensive, end-2-end, testing
 - Disabled by default
 
-### Developer workflows
+### Developer Workflows
 
 You should always carefully test your changes. Run `pytest ...` in your container locally. All tests are done via `pytest`.
 
@@ -173,7 +179,7 @@ For both internal and external developers, the next step is opening a PR:
 2. Once ready, CI can be started by a developer with permissions when they add a `/build-ci` comment. This must pass
   prior to merging.
 
-### General guidelines
+### General Guidelines
 
 **Send your PRs to the `main` branch**. Branch off from `main` when making your changes.
 Prefix your branches with your name or initials (for example, `your_name/branch_description`) if you have push access to
@@ -193,14 +199,14 @@ our repository otherwise please create a fork with your branch and submit a PR w
 - Your merge request must pass all pipelines and be peer-reviewed before it can be merged.
 - Make sure to merge your PR when it is ready and pipeline is successful
 
-### Unit tests
+### Unit Tests
 
 Contributors to BioNeMo FW are expected to unit test their introduced changes.
 
 After testing your code locally, trigger tests in the PR's CI. Let a code-owner know that you are ready for the build to
  run and they will leave a `/build-ci` comment on your PR which will run the CI test suite.
 
-#### Adding unit tests
+#### Adding Unit Tests
 
 Add unit tests under `tests` to examine use cases of new classes or methods that are being added to the codebase. Each
 test file must be for a particular file or module. For example if you have a file that is under
@@ -211,7 +217,7 @@ above example, if you wanted to test functions from several files together that 
 then you could create a `tests/path/to/test_module.py` file. The same is true for parents of that module and so on.
 Generally unit tests should exist at the level of the individual file however.
 
-## Pre-commit validation
+### Pre-Commit Validation
 
 We use [pre-commit](https://pre-commit.com/) for essential static checks. These checks are enforced on new PRs through
 the CI process, but should also be run locally. After following the installation instructions for pre-commit, run
@@ -220,7 +226,7 @@ the CI process, but should also be run locally. After following the installation
 To run pre-commit checks (and fix errors where possible), run `pre-commit run --all-files`. To ignore a pre-commit error
 locally, use `git commit -n ...` to allow the commit to proceed with some failing pre-commit checks.
 
-### Updating License Header on Python Files
+#### Updating License Header on Python Files
 
 If you add new Python (`.py`) files, be sure to run our license-check. If you have not already done sone, please install
 the dev-requirements.txt. If you are working directly inside a release container, you may need to manually install these.
@@ -231,7 +237,7 @@ pip install -r dev-requirements.txt --user
 python ./scripts/license_check.py --modify --replace --license-header ./license_header -c sub-packages/ -c docs/ -c scripts/ -c ci/ -c internal/
 ```
 
-### Updating the secrets baseline file
+#### Updating the secrets baseline file
 
 If false-positives are raised by the [detect-secrets](https://github.com/Yelp/detect-secrets) pre-commit hook, they can
 be added to the baseline files by running the following commands:
@@ -242,3 +248,55 @@ detect-secrets scan --baseline .secrets-nb.baseline --exclude-files '^.(?!.*\.ip
 ```
 
 The resulting altered baseline files should then be committed.
+
+## Contributing Python Sub-Packages to BioNeMo Framework
+
+### Requirements
+
+- The sub-package should be located in `bionemo-framework/sub-packages`.
+- The sub-package should have a `pyproject.toml` or equivalent package, a `VERSION` file dynamically linked to the `pyproject.toml`, a `README.md` that documents the functionality, usage, and structure of the modules in the package, and a `LICENSE`.
+- Source code should be placed into `src/bionemo/<package-name-suffix>` and testing code should be placed into `tests/...` following the exact same directory structure as the source code that is tested, i.e. `src/bionemo/evo2/run/train.py` should have unit tests located in `tests/bionemo/evo2/run/test_train.py` for organizational purposes.
+  - Unit tests not associated with source code in BioNeMo can be placed anywhere reasonable under `tests/bionemo/<package-name-suffix>`.
+- Verify that the `pyproject.toml` is `pip install`-able (and `python -m build`-able).
+  - If the sub-package is publishable, follow the instructions in [Publishing to PyPI](#publishing-to-pypi) to register or link your package to the sub-package workflow in BioNeMo Framework.
+  - If the sub-package cannot be installed, built, or published to PyPI, add the name of this sub-package to `SUBPACKAGE_SKIP_TEST` and `SUBPACKAGE_SKIP_PUBLISH` in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
+
+### Publishing to PyPI
+
+To publish your sub-package via "Trusted Publishing" to PyPI, you can follow the directions specified here: [Publishing PyPI Package Distribution Releases using GitHub Actions CI/CD Workflows](https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/#configuring-trusted-publishing)
+
+- Log in to PyPI and Test PyPI.
+- Go to `Account Settings > Publishing`, and either...
+  - If your package already exists on PyPI: `Manage [Package Name] > Add a New Publisher`.
+  - If your package does not yet exist on PyPI: `Add a New Pending Publisher`.
+- Under the `GitHub` tab of the publisher management page, input the following information:
+  - Owner: `NVIDIA`
+  - Repository Name: `bionemo-framework`
+  - Workflow: `bionemo-subpackage-ci.yml`
+  - Environment Name:
+    - `pypi` for PyPI
+    - `testpypi` for Test PyPI
+- **NVIDIA-Only**: Run the workflow!
+  - Create or update any PR with `git diff` changes to your `bionemo-framework/sub-packages`.
+    - Publishes to Test PyPI.
+  - Dispatch the `bionemo-subpackage-ci.yml` workflow from GitHub Actions.
+    - Publishes to PyPI.
+    - Required: Input a comma-separated list of sub-packages you want to test and/or publish into `subpackages`.
+    - Optional: Set `publish` to `true` if you want to publish to PyPI. (Default: `false`)
+- **Optional**: Add `bionemo` as an owner or maintainer of the PyPI package if you want help maintaining it.
+  - **Disclaimer**: If this is not done, and the package becomes dysfunctional, then NVIDIA / BioNeMo are not responsible for the health of the package or the sub-package source code, because we will not have the ability to deprecate versions, etc.
+
+### Sub-Package CI Workflow Key Points
+
+- Individually `pip install`, `pytest`, and `python -m build` every supported sub-package before publishing to PyPI.
+- Triggered by PR changes (which publish to Test PyPI) or manually-dispatched GitHub Actions Workflows.
+  - TODO(@cspades): PR workflows are deactivated pending sufficient compute resources. To reactivate them in your PR, uncomment the PR trigger in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
+- `SUBPACKAGE_SKIP_TEST` and `SUBPACKAGE_SKIP_PUBLISH` in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml) control whether your sub-package is installed/tested or published to PyPI.
+- BioNeMo Pull Request Archive
+  - Prototype: https://github.com/NVIDIA/bionemo-framework/pull/725
+
+### TODO
+
+- Support building packages that have installation dependencies, such as `bionemo-noodles` dependent on `maturin` or `bionemo-<model>` dependent on `transformer-engine`.
+- Support unit tests that require GPU.
+- Automatically cut a release tag for the sub-package via GHA.

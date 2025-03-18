@@ -149,9 +149,9 @@ class ESM2FineTuneDataModule(MegatronDataModule):
             )
             self._valid_ds = self._create_epoch_based_dataset(self.valid_dataset, num_val_samples)
 
-        assert (
-            hasattr(self, "trainer") and self.trainer is not None
-        ), "Setup should be completed when trainer and config are attached."
+        assert hasattr(self, "trainer") and self.trainer is not None, (
+            "Setup should be completed when trainer and config are attached."
+        )
 
     def _create_epoch_based_dataset(
         self,

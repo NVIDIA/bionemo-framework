@@ -15,10 +15,8 @@ classifiers = ["Private :: Do Not Upload", "Programming Language :: Python :: 3.
 license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
-    # bionemo sub-packages
     'bionemo-core',
     'bionemo-llm',
-    # external
     'megatron-core',
     'nemo_toolkit',
     'torchvision >= 0.15.1',

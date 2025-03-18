@@ -272,9 +272,9 @@ def simple_parallel_recipe(
     accumulate_grad_batches: int = 1,
 ) -> ParallelConfig:
     """Simple parallel recipe for ESM2."""
-    assert (
-        num_devices >= tensor_model_parallel_size * pipeline_model_parallel_size
-    ), "devices must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size"
+    assert num_devices >= tensor_model_parallel_size * pipeline_model_parallel_size, (
+        "devices must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size"
+    )
     return ParallelConfig(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,

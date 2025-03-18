@@ -115,7 +115,7 @@ def _add_dependency(bionemo_fw_pyproject_toml: Path, full_project_name: str) -> 
 
     if "project" not in fw_toml:
         raise ValueError(
-            "bionemo-fw's pyproject.toml is invalid! No project section found in: " f"{bionemo_fw_pyproject_toml}"
+            f"bionemo-fw's pyproject.toml is invalid! No project section found in: {bionemo_fw_pyproject_toml}"
         )
     if "dependencies" not in fw_toml["project"]:
         raise ValueError(

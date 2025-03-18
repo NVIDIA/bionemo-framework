@@ -28,8 +28,8 @@ from bionemo.core import BIONEMO_CACHE_DIR
 
 
 __all__: Sequence[str] = (
-    "RemoteResource",
     "FTPRemoteResource",
+    "RemoteResource",
 )
 
 
