@@ -23,7 +23,6 @@ import shlex
 import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
-from typing import Callable
 
 import pytest
 import torch
@@ -35,14 +34,14 @@ from bionemo.testing.megatron_parallel_state_utils import (
 )
 
 
-def run_func_with_std_redirect(args: argparse.Namespace, func: Callable) -> str:
+def run_train_with_std_redirect(args: argparse.Namespace) -> str:
     """
     Run a function with output capture.
     """
     with distributed_model_parallel_state():
         stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
-            func(args=args)
+            train(args)
 
     train_stdout = stdout_buf.getvalue()
     train_stderr = stderr_buf.getvalue()
@@ -124,7 +123,7 @@ def test_train_evo2_stops(tmp_path, num_steps=500000, early_stop_steps=3):
     )
     command_parts_no_program = shlex.split(command)[1:]
     args = parse_args(args=command_parts_no_program)
-    train_stdout = run_func_with_std_redirect(args, train)
+    train_stdout = run_train_with_std_redirect(args)
 
     # Assert that the command completed successfully.
     assert "reduced_train_loss:" in train_stdout
@@ -216,7 +215,7 @@ def test_train_multi_gpu(tmp_path, model_size: str):
 
 @pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
-def test_train_evo2_stops_at_max_steps_and_continue(tmp_path):
+def test_train_evo2_stop_at_max_steps_and_continue(tmp_path):
     # Setup
     open_port = find_free_network_port()
     env = dict(**os.environ)
@@ -242,12 +241,12 @@ def test_train_evo2_stops_at_max_steps_and_continue(tmp_path):
     # Parse args
     command_first_run = small_training_cmd(tmp_path, max_steps_first_run, val_check_interval)
     args_first_run = parse_args(shlex.split(command_first_run)[1:])
-    train_stdout_first_run = run_func_with_std_redirect(args_first_run, train)
+    train_stdout_first_run = run_train_with_std_redirect(args_first_run)
 
     # Assertions
     assert f"Training epoch 0, iteration 0/{max_steps_first_run - 1}" in train_stdout_first_run
     # Extract and validate global steps
-    global_steps_first_run = [int(m) for m in re.findall(r"\| global_step: (\d+) \|", train_stdout_first_run)]
+    global_steps_first_run = extract_global_steps_from_log(train_stdout_first_run)
     assert global_steps_first_run[0] == 0
     assert global_steps_first_run[-1] == (max_steps_first_run - 1)
     assert len(global_steps_first_run) == max_steps_first_run
@@ -265,8 +264,8 @@ def test_train_evo2_stops_at_max_steps_and_continue(tmp_path):
         matching_subfolders
     ), f"No checkpoint subfolder ending with '{expected_checkpoint_first_run_suffix}' found in {checkpoints_dir}."
 
-    # Recursively search for files starting with 'event.'
-    event_files = list(tensorboard_dir.rglob("tfevents*"))
+    # Recursively search for files from tensorboard logger
+    event_files = list(tensorboard_dir.rglob("events.out.tfevents*"))
 
     assert event_files, f"No TensorBoard event files found under {tensorboard_dir}"
 
@@ -274,13 +273,13 @@ def test_train_evo2_stops_at_max_steps_and_continue(tmp_path):
     # Parse args
     command_second_run = small_training_cmd(tmp_path, max_steps_second_run, val_check_interval)
     args_second_run = parse_args(shlex.split(command_second_run)[1:])
-    train_stdout_second_run = run_func_with_std_redirect(args_second_run, train)
+    train_stdout_second_run = run_train_with_std_redirect(args_second_run)
 
     # Assertions
     assert f"Training epoch 0, iteration 0/{max_steps_second_run - 1}" not in train_stdout_second_run
     assert f"Training epoch 0, iteration {max_steps_first_run}/{max_steps_second_run - 1}" in train_stdout_second_run
     # Extract and validate global steps
-    global_steps_second_run = [int(m) for m in re.findall(r"\| global_step: (\d+) \|", train_stdout_second_run)]
+    global_steps_second_run = extract_global_steps_from_log(train_stdout_second_run)
     assert global_steps_second_run[0] == max_steps_first_run
     assert global_steps_second_run[-1] == max_steps_second_run - 1
     assert len(global_steps_second_run) == (max_steps_second_run - max_steps_first_run)
