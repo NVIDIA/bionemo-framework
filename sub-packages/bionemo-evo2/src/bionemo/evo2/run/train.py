@@ -17,13 +17,13 @@
 # limitations under the License.
 
 import argparse
+from pathlib import Path
 from typing import List, Optional
 
 # TODO add back support for slurm resilience.
 # import nvidia_resiliency_ext.ptl_resiliency as res_module
 import torch
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
-from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
@@ -37,7 +37,6 @@ from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
     userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192,
 )
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
-from nemo.lightning import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.callbacks import ModelCheckpoint
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
@@ -50,6 +49,9 @@ from nemo.utils.exp_manager import TimingCallback
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
+from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
+
+# TODO(dorotat_nv) remove when https://github.com/NVIDIA/bionemo-framework/issues/749
 from bionemo.testing.testing_callbacks import SignalAfterGivenStepCallback
 from eden_dataset import FastaDataModule
 
@@ -99,9 +101,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--context-parallel-size", type=int, default=1, help="Order of context parallelism. Defaults to 1."
     )
-    parser.add_argument("--no-wandb", action="store_true", default=False, help="Disable Wandb logging")
-    parser.add_argument("--wandb-project", type=str, default="bionemo_evo2", help="Wandb project name")
-    parser.add_argument("--wandb-run-id", type=str, default=None, help="Wandb run identifier")
+    parser.add_argument(
+        "--create-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."
+    )
+    parser.add_argument("--wandb-entity", type=str, default=None, help="The team posting this run")
+    parser.add_argument("--wandb-project", type=str, default=None, help="Wandb project name ")
+    parser.add_argument("--wandb-tags", nargs="+", type=str, default=None, help="Tags associated with this run")
     parser.add_argument(
         "--wandb-group", type=str, default=None, help="A unique string shared by all runs in a given group"
     )
@@ -111,10 +116,16 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="A unique string representing a type of run, which is useful when you're grouping runs together into larger experiments using group.",
     )
-    parser.add_argument("--wandb-offline", action="store_true", help="Use wandb in offline mode")
+    parser.add_argument(
+        "--wandb-id", type=str, default=None, help="Sets the version, mainly used to resume a previous run"
+    )
     parser.add_argument(
         "--wandb-anonymous", action="store_true", help="Enable or explicitly disable anonymous logging"
     )
+    parser.add_argument(
+        "--wandb-log-model", action="store_true", help="Save checkpoints in wandb dir to upload on W&B servers"
+    )
+    parser.add_argument("--wandb-offline", action="store_true", help="Use wandb in offline mode")
     parser.add_argument("--sequence-parallel", action="store_true", help="Set to enable sequence parallelism.")
     parser.add_argument("--fp8", action="store_true", help="Set to enable FP8")
     parser.add_argument("--micro-batch-size", type=int, default=1, help="Micro-batch size for data-parallel training.")
@@ -180,11 +191,10 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Add bias to the output layer to enable learning a simple prior.",
     )
     parser.add_argument(
-        "--experiment-dir",
-        type=str,
-        required=True,
-        help="Directory to write model checkpoints and results to.",
+        "--result-dir", type=Path, required=False, default=Path("./results"), help="Path to the result directory."
     )
+    parser.add_argument("--experiment-name", type=str, required=False, default="evo2", help="Name of the experiment.")
+
     parser.add_argument(
         "--limit-val-batches",
         type=int,
@@ -301,7 +311,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "--num-layers", type=int, help="If set, override the number of layers specified in the requested config."
     )
     parser.add_argument(
-        "--tflops-callback",
+        "--create-tflops-callback",
         action="store_true",
         default=False,
         help="Enable tflops calculation callback for Hyena / Evo2. Defaults to False.",
@@ -416,7 +426,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(args=args)
 
 
-def train(args: argparse.Namespace):
+def train(args: argparse.Namespace) -> nl.Trainer:
     """Main function to run Evo2 training."""
     # Instantiate tokenizer.
     tokenizer = get_nmt_tokenizer(
@@ -459,7 +469,7 @@ def train(args: argparse.Namespace):
         )
         dataset_cls = Evo2DatasetPadEodLossMask if args.eod_pad_in_loss_mask else Evo2Dataset
         # Instantiate pre-training module.
-        data = PreTrainingDataModule(
+        data_module = PreTrainingDataModule(
             paths=blended_dataset_config,
             dataset_cls=dataset_cls,
             seq_length=args.seq_length,
@@ -530,16 +540,7 @@ def train(args: argparse.Namespace):
         LearningRateMonitor(),
         TimingCallback(),
     ]
-    if args.create_checkpoint_callback:
-        checkpoint_callback = ModelCheckpoint(
-            every_n_train_steps=args.val_check_interval,
-            dirpath=args.experiment_dir,
-            save_top_k=5,
-            always_save_context=True,
-            save_optim_on_train_end=True,
-            save_context_on_train_end=True,
-        )
-        callbacks.append(checkpoint_callback)
+
     if args.early_stop_on_step:
         # Ask the trainer to stop by setting should_stop to True rather than emitting a kill signal.
         callbacks.append(
@@ -553,7 +554,7 @@ def train(args: argparse.Namespace):
         callbacks.append(nl_callbacks.DdpParityChecker(interval=args.debug_ddp_parity_freq))
     if args.log_parameters_and_shapes:
         callbacks.append(nl_callbacks.ParameterDebugger())
-    if args.tflops_callback:
+    if args.create_tflops_callback:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
         flop_meas_callback = FLOPsMeasurementCallback(
             model_config,
@@ -639,21 +640,48 @@ def train(args: argparse.Namespace):
             ),
             group=args.wandb_group,
             job_type=args.wandb_job_type,
-            id=args.wandb_run_id,
-            project=args.wandb_project,
-            save_dir=args.experiment_dir,
-            offline=args.wandb_offline,
+            id=args.wandb_id,
             anonymous=args.wandb_anonymous,
+            log_model=args.wandb_log_model,
         )
-        loggers.append(wandb_logger)
-        nemo_logger_kwargs["wandb"] = wandb_logger
-    tb_logger = TensorBoardLogger(
-        save_dir="dummy",  ## NOTE: this gets overwritten by default
     )
-    nemo_logger_kwargs["tensorboard"] = tb_logger
-    loggers.append(tb_logger)
+    nemo_logger = setup_nemo_lightning_logger(
+        root_dir=args.result_dir,
+        name=args.experiment_name,
+        initialize_tensorboard_logger=args.create_tensorboard_logger,
+        wandb_config=wandb_config,
+    )
 
-    nemo_logger = NeMoLogger(log_dir=args.experiment_dir, **nemo_logger_kwargs)
+    if args.create_checkpoint_callback:
+        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
+        checkpoint_callback = ModelCheckpoint(
+            every_n_train_steps=args.val_check_interval,
+            dirpath=checkpoint_path,
+            save_top_k=5,
+            always_save_context=True,
+            save_optim_on_train_end=True,
+            save_context_on_train_end=True,
+        )
+        callbacks.append(checkpoint_callback)
+
+        auto_resume = nl.AutoResume(
+            resume_if_exists=True,
+            resume_ignore_no_checkpoint=True,
+            resume_past_end=False,
+            resume_from_directory=checkpoint_path,
+            restore_config=(
+                RestoreConfig(
+                    path=args.ckpt_dir,
+                    load_model_state=True,
+                    load_optim_state=args.restore_optimizer_from_ckpt,
+                )
+                if args.ckpt_dir
+                else None
+            ),
+        )
+    else:
+        auto_resume = None
+
     ddp: DistributedDataParallelConfig = DistributedDataParallelConfig(
         check_for_nan_in_grad=True,
         overlap_grad_reduce=args.overlap_grad_reduce,
@@ -682,7 +710,6 @@ def train(args: argparse.Namespace):
         max_steps=args.max_steps,
         accelerator="gpu",
         strategy=strategy,
-        logger=loggers,
         callbacks=callbacks,
         log_every_n_steps=args.log_every_n_steps,
         limit_val_batches=args.limit_val_batches,
@@ -710,22 +737,8 @@ def train(args: argparse.Namespace):
         resume_if_exists=True,
     )
 
-    resume = nl.AutoResume(
-        resume_if_exists=True,
-        resume_ignore_no_checkpoint=True,
-        resume_past_end=False,
-        resume_from_directory=args.experiment_dir,
-        restore_config=(
-            RestoreConfig(
-                path=args.ckpt_dir,
-                load_model_state=True,
-                load_optim_state=args.restore_optimizer_from_ckpt,
-            )
-            if args.ckpt_dir
-            else None
-        ),
-    )
-    resume.setup(trainer, model)
+    if auto_resume is not None:
+        auto_resume.setup(trainer, model)
 
     # Optimizer and scheduler setup
     opt_config = OptimizerConfig(
@@ -742,6 +755,7 @@ def train(args: argparse.Namespace):
         main_grads_dtype=torch.bfloat16,
         bf16=True,
     )
+
     sched = CosineAnnealingScheduler(
         max_steps=trainer.max_steps,
         warmup_steps=args.warmup_steps,
@@ -752,7 +766,8 @@ def train(args: argparse.Namespace):
     opt.connect(model)
 
     # Start training
-    trainer.fit(model, data)
+    trainer.fit(model, data_module)
+    return trainer
 
 
 def main():
