@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 900
+time_limit: 14400
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -19,7 +19,7 @@ script_args:
   precision:
     value: [bf16-mixed]
   nodes:
-    value: [1]
+    value: [4]
   gpus:
     value: 8
   batch_size:
