@@ -221,6 +221,24 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--wd", type=float, default=0.01, help="Weight decay for optimizer.")
     parser.add_argument(
+        "--adam-beta1",
+        type=float,
+        default=0.9,
+        help="Adam optimizer beta1 parameter.",
+    )
+    parser.add_argument(
+        "--adam-beta2",
+        type=float,
+        default=0.95,
+        help="Adam optimizer beta2 parameter.",
+    )
+    parser.add_argument(
+        "--adam-eps",
+        type=float,
+        default=1e-8,
+        help="Adam optimizer epsilon parameter. The inverse of this value (1/eps) represents the maximum adaptive learning rate per parameter.",
+    )
+    parser.add_argument(
         "--restore-optimizer-from-ckpt",
         action="store_true",
         help="Restore optimizer state from initial checkpoint. Defaults to False.",
@@ -600,37 +618,31 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             )
         )
 
-    wandb_run_name = (
-        f"evo2-size-{args.model_size}-TP{args.tensor_parallel_size}-"
-        f"PP{args.pipeline_model_parallel_size}-CP{args.context_parallel_size}"
-        f"-GBS{global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
-        f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
-        f"-ACRNL{model_config.recompute_num_layers}"
-        f"-PAT{model_config.hybrid_override_pattern}"
-        f"-F32R{model_config.fp32_residual_connection}"
-        f"-FCE{model_config.cross_entropy_loss_fusion}"
-        f"-AIC{not args.no_average_in_collective}"
-        f"-PEOD{args.eod_pad_in_loss_mask}"
-        f"-BO{args.add_bias_output}"
-        f"-B2B{args.use_b2b_causal_conv1d}"
-        f"-GCLP{args.clip_grad}"
-        f"-HDO{args.hidden_dropout}"
-        f"-ADO{args.attention_dropout}"
-        f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-CONSTSTEPS{args.constant_steps}-WD{args.wd}"
-        f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
-        f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
-        f"-NODES{args.num_nodes}-FP8{args.fp8}"
-    )
-
-    wandb_config: Optional[WandbConfig] = (
-        None
-        if args.wandb_project is None
-        else WandbConfig(
-            offline=args.wandb_offline,
-            project=args.wandb_project,
-            name=args.wandb_run_name if args.wandb_run_name is not None else wandb_run_name,
-            entity=args.wandb_entity,
-            tags=args.wandb_tags,
+    loggers = []
+    nemo_logger_kwargs = {}
+    if (not args.no_wandb) and args.wandb_project:
+        wandb_logger = WandbLogger(
+            name=(
+                f"evo2-size-{args.model_size}-TP{args.tensor_parallel_size}-"
+                f"PP{args.pipeline_model_parallel_size}-CP{args.context_parallel_size}"
+                f"-GBS{global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
+                f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
+                f"-ACRNL{model_config.recompute_num_layers}"
+                f"-PAT{model_config.hybrid_override_pattern}"
+                f"-F32R{model_config.fp32_residual_connection}"
+                f"-FCE{model_config.cross_entropy_loss_fusion}"
+                f"-AIC{not args.no_average_in_collective}"
+                f"-PEOD{args.eod_pad_in_loss_mask}"
+                f"-BO{args.add_bias_output}"
+                f"-GCLP{args.clip_grad}"
+                f"-HDO{args.hidden_dropout}"
+                f"-ADO{args.attention_dropout}"
+                f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-WD{args.wd}"
+                f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
+                f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
+                f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
+                f"-NODES{args.num_nodes}-FP8{args.fp8}"
+            ),
             group=args.wandb_group,
             job_type=args.wandb_job_type,
             id=args.wandb_id,
@@ -741,10 +753,11 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     opt_config = OptimizerConfig(
         optimizer="adam",
         lr=args.lr,
-        adam_beta1=0.9,
-        adam_beta2=0.95,
+        adam_beta1=args.adam_beta1,
+        adam_beta2=args.adam_beta2,
         weight_decay=args.wd,
         clip_grad=args.clip_grad,
+        adam_eps=args.adam_eps,
         use_distributed_optimizer=True,
         bf16=True,
     )
