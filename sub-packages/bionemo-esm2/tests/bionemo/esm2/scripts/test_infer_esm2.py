@@ -56,18 +56,25 @@ def padded_tokenized_sequences(dummy_protein_sequences):
 @pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
 @pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
 @pytest.mark.parametrize("with_peft", [True, False])
+@pytest.mark.needs_gpu(condition=lambda with_peft: with_peft)
 def test_infer_runs(
     tmpdir,
     dummy_protein_csv,
     dummy_protein_sequences,
     precision,
     prediction_interval,
+    with_peft,
     padded_tokenized_sequences,
 ):
     data_path = dummy_protein_csv
     result_dir = tmpdir / "results"
     min_seq_len = 1024  # Minimum length of the output batch; tensors will be padded to this length.
-
+    if with_peft:
+        lora_checkpoint_path = (
+            "sub-packages/results2/esm2/dev/checkpoints/checkpoint-step=4-consumed_samples=320.0-last/weights"
+        )
+    else:
+        lora_checkpoint_path = None
     infer_model(
         data_path=data_path,
         checkpoint_path=load("esm2/8m:2.0"),
@@ -81,6 +88,7 @@ def test_infer_runs(
         include_logits=True,
         micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
         config_class=ESM2Config,
+        lora_checkpoint_path=lora_checkpoint_path,
     )
     assert result_dir.exists(), "Could not find test results directory."
 

@@ -43,6 +43,7 @@ def data_to_csv(data, tmp_path):
 
 @pytest.mark.parametrize("encoder_frozen", [True, False])
 @pytest.mark.parametrize("with_peft", [True, False])
+@pytest.mark.needs_gpu(condition=lambda with_peft: with_peft)
 def test_esm2_finetune_token_classifier(
     tmp_path,
     dummy_data_per_token_classification_ft,
@@ -108,6 +109,7 @@ def test_esm2_finetune_token_classifier(
 
 @pytest.mark.parametrize("encoder_frozen", [True, False])
 @pytest.mark.parametrize("with_peft", [True, False])
+@pytest.mark.needs_gpu(condition=lambda with_peft: with_peft)
 def test_esm2_finetune_regressor(
     tmp_path,
     dummy_data_single_value_regression_ft,
@@ -173,6 +175,7 @@ def test_esm2_finetune_regressor(
 
 @pytest.mark.parametrize("encoder_frozen", [True, False])
 @pytest.mark.parametrize("with_peft", [True, False])
+@pytest.mark.needs_gpu(condition=lambda with_peft: with_peft)
 def test_esm2_finetune_classifier(
     tmp_path,
     dummy_data_single_value_classification_ft,
