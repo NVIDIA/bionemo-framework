@@ -70,13 +70,6 @@ while (( $# > 0 )); do
     shift
 done
 
-# Source utility functions
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-source "$SCRIPT_DIR/utils.sh" || { echo "Failed to source utils.sh" >&2; exit 1; }
-
-# Set up BioNeMo home directory
-set_bionemo_home || exit 1
-
 # Echo some useful information
 lscpu
 nvidia-smi

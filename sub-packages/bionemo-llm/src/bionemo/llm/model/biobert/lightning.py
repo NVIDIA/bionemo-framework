@@ -37,15 +37,15 @@ from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel
 
 
 __all__: Sequence[str] = (
-    "biobert_lightning_module",
-    "biobert_data_step",
-    "bert_forward_step",
-    "bert_default_optimizer",
-    "BertModel",
     "BertBatch",
+    "BertModel",
     "SequenceBatch",
-    "get_packed_seq_params",
+    "bert_default_optimizer",
+    "bert_forward_step",
+    "biobert_data_step",
+    "biobert_lightning_module",
     "get_batch_on_this_context_parallel_rank",
+    "get_packed_seq_params",
 )
 
 

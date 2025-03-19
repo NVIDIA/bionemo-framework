@@ -93,7 +93,6 @@ def test_esm2_finetune_token_classifier(
         encoder_requires_grad = [
             p.requires_grad for name, p in trainer.model.named_parameters() if "classification_head" not in name
         ]
-
         if with_peft:
             assert trainer.model.model_transform is not None
             model = trainer.model[0].module.module.module
@@ -171,7 +170,6 @@ def test_esm2_finetune_regressor(
             assert (
                 not all(encoder_requires_grad) == encoder_frozen
             ), f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
-
 
 @pytest.mark.parametrize("encoder_frozen", [True, False])
 @pytest.mark.parametrize("with_peft", [True, False])

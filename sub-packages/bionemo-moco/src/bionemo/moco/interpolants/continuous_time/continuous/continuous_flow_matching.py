@@ -280,7 +280,7 @@ class ContinuousFlowMatcher(Interpolant):
             pred_data = model_output
         else:
             raise ValueError(
-                f"prediction_type given as {self.prediction_type} must be `flow` " "for Continuous Flow Matching."
+                f"prediction_type given as {self.prediction_type} must be `flow` for Continuous Flow Matching."
             )
         if mask is not None:
             pred_data = pred_data * mask.unsqueeze(-1)

@@ -33,9 +33,9 @@ token to output secondary structure predictions.
 """
 
 __all__: Sequence[str] = (
-    "MegatronConvNetHead",
-    "ESM2FineTuneTokenModel",
     "ESM2FineTuneTokenConfig",
+    "ESM2FineTuneTokenModel",
+    "MegatronConvNetHead",
 )
 
 

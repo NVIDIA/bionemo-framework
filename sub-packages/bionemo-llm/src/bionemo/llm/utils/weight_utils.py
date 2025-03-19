@@ -23,8 +23,8 @@ from bionemo.llm.api import MegatronModelType
 
 
 __all__: Sequence[str] = (
-    "nemo1_to_nemo2_biobert_key_mapping",
     "load_weights_sharded_inplace_nemo2_to_mcore",
+    "nemo1_to_nemo2_biobert_key_mapping",
 )
 
 

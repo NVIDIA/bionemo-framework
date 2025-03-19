@@ -304,9 +304,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     self.__init__obj()
                     self._init_arrs(num_elements=num_elements, num_rows=num_rows)
                 case _:
-                    raise ValueError(
-                        "An np.memmap path, an h5ad path, or the number of elements and rows is required" ""
-                    )
+                    raise ValueError("An np.memmap path, an h5ad path, or the number of elements and rows is required")
 
     def __init__obj(self):
         """Initializes the datapath and writes the version."""

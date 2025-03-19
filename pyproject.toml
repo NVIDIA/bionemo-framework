@@ -103,6 +103,7 @@ select = [
 "test_*.py" = ["D"]
 "conftest.py" = ["D"]
 "scripts/*.py" = ["D"]
+"**/*.ipynb" = ["D"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2
