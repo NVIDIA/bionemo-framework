@@ -114,8 +114,7 @@ jobs:
           cache-to: ${{ steps.cache.outputs.cache-to }}
 
 
-  # Define templates using YAML anchors
-  .test-job: &test-job-template
+  run-tests:
     needs:
       - build-bionemo-image
       - get-pr-labels
@@ -125,12 +124,6 @@ jobs:
       credentials:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-  run-tests:
-    <<: *test-job-template
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -159,7 +152,15 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   run-slow-tests:
-    <<: *test-job-template
+    needs:
+      - build-bionemo-image
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-l4-latest-1
+    container:
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -176,7 +177,15 @@ jobs:
 
 
   run-notebooks-docs:
-    <<: *test-job-template
+    needs:
+      - build-bionemo-image
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-l4-latest-1
+    container:
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
