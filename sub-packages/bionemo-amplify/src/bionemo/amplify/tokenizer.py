@@ -22,4 +22,4 @@ class BioNeMoAMPLIFYTokenizer(transformers.PreTrainedTokenizerFast, IOMixin):  #
     def __init__(self):
         """A wrapper to make AutoTokenizer serializable for the ESM2 tokenizer."""
         other = transformers.AutoTokenizer.from_pretrained("chandar-lab/AMPLIFY_350M", use_fast=True)
-        self.__dict__.update(dict(other.__dict__))
+        self.__dict__.update(other.__dict__)

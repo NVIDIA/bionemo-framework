@@ -292,7 +292,7 @@ class AMPLIFYConfig(BioBertConfig[AMPLIFYModelT, MegatronLossType], iom.IOMixinW
     fp16_lm_cross_entropy: bool = False  # Move the cross entropy unreduced loss calculation for lm head to fp16
     parallel_output: bool = True
     share_embeddings_and_output_weights: bool = False
-    make_vocab_size_divisible_by: int = 1
+    make_vocab_size_divisible_by: int = 32
     position_embedding_type: PositionEmbeddingKinds = "rope"
     rotary_interleaved: bool = True
     rotary_base: int = 10_000

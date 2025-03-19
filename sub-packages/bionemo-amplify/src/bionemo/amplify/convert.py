@@ -30,7 +30,7 @@ from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 
 @io.model_importer(BionemoLightningModule, "hf")
 class HFAMPLIFYImporter(io.ModelConnector[AutoModel, BionemoLightningModule]):
-    """Converts a Hugging Face ESM-2 model to a NeMo ESM-2 model."""
+    """Converts a Hugging Face AMPLIFY model to a NeMo AMPLIFY model."""
 
     def init(self) -> BionemoLightningModule:
         """Initialize the converted model."""
@@ -49,15 +49,12 @@ class HFAMPLIFYImporter(io.ModelConnector[AutoModel, BionemoLightningModule]):
     def convert_state(self, source, target):
         """Converting HF state dict to NeMo state dict."""
         mapping = {
-            "encoder.weight": "embedding.word_embeddings.weight",
             "transformer_encoder.*.wo.weight": "encoder.layers.*.self_attention.linear_proj.weight",
             "transformer_encoder.*.ffn.w12.weight": "encoder.layers.*.mlp.linear_fc1.weight",
             "transformer_encoder.*.ffn.w3.weight": "encoder.layers.*.mlp.linear_fc2.weight",
             "transformer_encoder.*.attention_norm.weight": "encoder.layers.*.self_attention.linear_qkv.layer_norm_weight",
             "transformer_encoder.*.ffn_norm.weight": "encoder.layers.*.mlp.linear_fc1.layer_norm_weight",
             "layer_norm_2.weight": "encoder.final_layernorm.weight",
-            "decoder.weight": "output_layer.weight",
-            "decoder.bias": "output_layer.bias",
         }
 
         # lm_head.bias
@@ -65,18 +62,17 @@ class HFAMPLIFYImporter(io.ModelConnector[AutoModel, BionemoLightningModule]):
             source,
             target,
             mapping=mapping,
-            transforms=[_import_qkv_weight],
-            # transforms=[_pad_embeddings, _pad_bias, _import_qkv_weight],
+            transforms=[_import_qkv_weight, _pad_embeddings, _pad_bias, _pad_output_weights],
         )
 
     @property
     def tokenizer(self) -> BioNeMoAMPLIFYTokenizer:
-        """We just have the one tokenizer for ESM-2."""
+        """We just have the one tokenizer for AMPLIFY."""
         return BioNeMoAMPLIFYTokenizer()
 
     @property
     def config(self) -> AMPLIFYConfig:
-        """Returns the transformed ESM-2 config given the model tag."""
+        """Returns the transformed AMPLIFY config given the model tag."""
         source = HFAutoConfig.from_pretrained(str(self), trust_remote_code=True)
         output = AMPLIFYConfig(
             num_layers=source.num_hidden_layers,
@@ -91,32 +87,6 @@ class HFAMPLIFYImporter(io.ModelConnector[AutoModel, BionemoLightningModule]):
         )
 
         return output
-
-
-@io.state_transform(
-    source_key="esm.embeddings.word_embeddings.weight",
-    target_key="embedding.word_embeddings.weight",
-)
-def _pad_embeddings(ctx: io.TransformCTX, source_embed):
-    """Pad the embedding layer to the new input dimension."""
-    nemo_embedding_dimension = ctx.target.config.make_vocab_size_divisible_by
-    hf_embedding_dimension = source_embed.size(0)
-    num_padding_rows = nemo_embedding_dimension - hf_embedding_dimension
-    padding_rows = torch.zeros(num_padding_rows, source_embed.size(1))
-    return torch.cat((source_embed, padding_rows), dim=0)
-
-
-@io.state_transform(
-    source_key="lm_head.bias",
-    target_key="output_layer.bias",
-)
-def _pad_bias(ctx: io.TransformCTX, source_bias):
-    """Pad the embedding layer to the new input dimension."""
-    nemo_embedding_dimension = ctx.target.config.make_vocab_size_divisible_by
-    hf_embedding_dimension = source_bias.size(0)
-    output_bias = torch.zeros(nemo_embedding_dimension, dtype=source_bias.dtype, device=source_bias.device)
-    output_bias[:hf_embedding_dimension] = source_bias
-    return output_bias
 
 
 @io.state_transform(
@@ -142,22 +112,42 @@ def _import_qkv_weight(ctx: io.TransformCTX, query, key, value):
 
 
 @io.state_transform(
-    source_key=(
-        "esm.encoder.layer.*.attention.self.query.bias",
-        "esm.encoder.layer.*.attention.self.key.bias",
-        "esm.encoder.layer.*.attention.self.value.bias",
-    ),
-    target_key="encoder.layers.*.self_attention.linear_qkv.bias",
+    source_key="encoder.weight",
+    target_key="embedding.word_embeddings.weight",
 )
-def _import_qkv_bias(ctx: io.TransformCTX, query, key, value):
+def _pad_embeddings(ctx: io.TransformCTX, source_embed):
+    """Pad the embedding layer to the new input dimension.
+
+    This allows us to pad the input vocabulary to a dimension that's better suited for tensor core utilization.
+    """
+    nemo_embedding_dimension = ctx.target.config.make_vocab_size_divisible_by
+    hf_embedding_dimension = source_embed.size(0)
+    num_padding_rows = nemo_embedding_dimension - hf_embedding_dimension
+    padding_rows = torch.zeros(num_padding_rows, source_embed.size(1))
+    return torch.cat((source_embed, padding_rows), dim=0)
+
+
+@io.state_transform(
+    source_key="decoder.weight",
+    target_key="output_layer.weight",
+)
+def _pad_output_weights(ctx: io.TransformCTX, source_embed):
+    """Pad the output weight to the new input dimension since AMPLIFY does not tie output weights to input embeddings."""
+    nemo_embedding_dimension = ctx.target.config.make_vocab_size_divisible_by
+    hf_embedding_dimension = source_embed.size(0)
+    num_padding_rows = nemo_embedding_dimension - hf_embedding_dimension
+    padding_rows = torch.zeros(num_padding_rows, source_embed.size(1))
+    return torch.cat((source_embed, padding_rows), dim=0)
+
+
+@io.state_transform(
+    source_key="decoder.bias",
+    target_key="output_layer.bias",
+)
+def _pad_bias(ctx: io.TransformCTX, source_bias):
     """Pad the embedding layer to the new input dimension."""
-    concat_biases = torch.cat((query, key, value), dim=0)
-    input_shape = concat_biases.size()
-    np = ctx.target.config.num_attention_heads
-    # transpose biases
-    # [num_splits_model_parallel * attention head size * #attention heads]
-    # --> [attention head size * num_splits_model_parallel * #attention heads]
-    concat_biases = concat_biases.view(3, np, -1)
-    concat_biases = concat_biases.transpose(0, 1).contiguous()
-    concat_biases = concat_biases.view(*input_shape)
-    return concat_biases
+    nemo_embedding_dimension = ctx.target.config.make_vocab_size_divisible_by
+    hf_embedding_dimension = source_bias.size(0)
+    output_bias = torch.zeros(nemo_embedding_dimension, dtype=source_bias.dtype, device=source_bias.device)
+    output_bias[:hf_embedding_dimension] = source_bias
+    return output_bias

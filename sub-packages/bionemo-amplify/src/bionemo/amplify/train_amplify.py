@@ -237,7 +237,7 @@ def main(
     # Initialize the data module.
     data = AMPLIFYDataModule(
         train_hf_dataset=hf_load_dataset("chandar-lab/UR100P", split="train"),  # type: ignore
-        valid_hf_dataset=hf_load_dataset("chandar-lab/UR100P", split="test"),  # type: ignore
+        valid_hf_dataset=hf_load_dataset("chandar-lab/UR100P", data_dir="UniProt", split="test"),  # type: ignore
         global_batch_size=global_batch_size,
         micro_batch_size=micro_batch_size,
         min_seq_length=min_seq_length,

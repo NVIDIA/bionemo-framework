@@ -224,9 +224,9 @@ def get_biobert_spec(  # noqa: D417
 
         case BiobertSpecOption.amplify_with_transformer_engine_spec:
             if core_attention is None:
-                core_attention = DotProductAttention
+                core_attention = TEDotProductAttention
 
-            esm2_bert_layer_local_spec = spec_utils.ModuleSpec(
+            amplify_with_transformer_engine_spec = spec_utils.ModuleSpec(
                 module=TransformerLayer,
                 submodules=TransformerLayerSubmodules(
                     self_attention=spec_utils.ModuleSpec(
@@ -251,7 +251,7 @@ def get_biobert_spec(  # noqa: D417
                     mlp_bda=get_bias_dropout_add,
                 ),
             )
-            return esm2_bert_layer_local_spec
+            return amplify_with_transformer_engine_spec
 
         case _:
             raise NotImplementedError(f"Spec option {biobert_spec_option} not implemented")

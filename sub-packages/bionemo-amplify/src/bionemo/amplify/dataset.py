@@ -100,6 +100,8 @@ class AMPLIFYMaskedResidueDataset(Dataset):
     def __getitem__(self, index: EpochIndex) -> BertSample:
         """Deterministically masks and returns a protein sequence from the dataset.
 
+        This function is largely copied from the ESM2 dataset.
+
         Args:
             index: The current epoch and the index of the cluster to sample.
 
@@ -115,6 +117,8 @@ class AMPLIFYMaskedResidueDataset(Dataset):
 
         # We don't want special tokens before we pass the input to the masking function; we add these in the collate_fn.
         tokenized_sequence = self._tokenize(sequence)
+
+        # If the sequence is too long, we crop it to the max sequence length by randomly selecting a starting position.
         cropped_sequence = _random_crop(tokenized_sequence, self.max_seq_length, rng)
 
         # Get a single integer seed for torch from our rng, since the index tuple is hard to pass directly to torch.
