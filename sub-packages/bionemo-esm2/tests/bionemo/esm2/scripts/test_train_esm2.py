@@ -14,13 +14,11 @@
 # limitations under the License.
 import io
 import os
-import re
 import shlex
 import sqlite3
 import subprocess
-import sys
 from contextlib import redirect_stderr, redirect_stdout
-from typing import Dict, Tuple
+from typing import Dict
 
 import pandas as pd
 import pytest
@@ -29,37 +27,9 @@ from lightning.fabric.plugins.environments.lightning import find_free_network_po
 from bionemo.esm2.scripts.train_esm2 import get_parser, main
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
+from bionemo.testing.lightning import extract_global_steps_from_log
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
-
-
-def run_command_in_subprocess(command: str, path: str) -> Tuple[str, str, int]:
-    # The first training command to finish at max_steps_first_run
-    open_port = find_free_network_port()
-    # a local copy of the environment
-    env = dict(**os.environ)
-    env["MASTER_PORT"] = str(open_port)
-
-    result = subprocess.run(
-        command,
-        shell=True,  # Use the shell to interpret wildcards (e.g. SDH*)
-        cwd=path,  # Run in the temporary directory
-        capture_output=True,  # Capture stdout and stderr for debugging
-        env=env,  # Pass in the env where we override the master port.
-        text=True,  # Decode output as text
-    )
-
-    # For debugging purposes, print the output if the test fails.
-    if result.returncode != 0:
-        sys.stderr.write("STDOUT:\n" + result.stdout + "\n")
-        sys.stderr.write("STDERR:\n" + result.stderr + "\n")
-
-    return result.stdout, result.stderr, result.returncode
-
-
-def extract_global_steps_from_log(log_string):
-    pattern = r"\| global_step: (\d+) \|"
-    matches = re.findall(pattern, log_string)
-    return [int(step) for step in matches]
+from bionemo.testing.subprocess_utils import run_command_in_subprocess
 
 
 def run_train_with_std_redirect(
