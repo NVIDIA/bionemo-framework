@@ -201,6 +201,24 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--wd", type=float, default=0.01, help="Weight decay for optimizer.")
     parser.add_argument(
+        "--adam-beta1",
+        type=float,
+        default=0.9,
+        help="Adam optimizer beta1 parameter.",
+    )
+    parser.add_argument(
+        "--adam-beta2",
+        type=float,
+        default=0.95,
+        help="Adam optimizer beta2 parameter.",
+    )
+    parser.add_argument(
+        "--adam-eps",
+        type=float,
+        default=1e-8,
+        help="Adam optimizer epsilon parameter. The inverse of this value (1/eps) represents the maximum adaptive learning rate per parameter.",
+    )
+    parser.add_argument(
         "--restore-optimizer-from-ckpt",
         action="store_true",
         help="Restore optimizer state from initial checkpoint. Defaults to False.",
@@ -585,6 +603,7 @@ def train(args: argparse.Namespace):
                 f"-HDO{args.hidden_dropout}"
                 f"-ADO{args.attention_dropout}"
                 f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-WD{args.wd}"
+                f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
                 f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
                 f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
                 f"-NODES{args.num_nodes}-FP8{args.fp8}"
@@ -683,10 +702,11 @@ def train(args: argparse.Namespace):
     opt_config = OptimizerConfig(
         optimizer="adam",
         lr=args.lr,
-        adam_beta1=0.9,
-        adam_beta2=0.95,
+        adam_beta1=args.adam_beta1,
+        adam_beta2=args.adam_beta2,
         weight_decay=args.wd,
         clip_grad=args.clip_grad,
+        adam_eps=args.adam_eps,
         use_distributed_optimizer=True,
         bf16=True,
     )
