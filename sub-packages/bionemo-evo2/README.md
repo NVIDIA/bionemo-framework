@@ -34,14 +34,18 @@ Given a preprocessed collection of preprocessed datasets, and optionally a pre-t
 
 ```bash
 $ train_evo2 --help
-usage: train_evo2 [-h] (-d DATASET_CONFIG | --mock-data) [--dataset-dir DATASET_DIR] [--num-nodes NUM_NODES] [--devices DEVICES] [--seq-length SEQ_LENGTH] [--tensor-parallel-size TENSOR_PARALLEL_SIZE] [--pipeline-model-parallel-size PIPELINE_MODEL_PARALLEL_SIZE] [--context-parallel-size CONTEXT_PARALLEL_SIZE] [--create-tensorboard-logger]
-                  [--wandb-entity WANDB_ENTITY] [--wandb-project WANDB_PROJECT] [--wandb-tags WANDB_TAGS [WANDB_TAGS ...]] [--wandb-group WANDB_GROUP] [--wandb-job-type WANDB_JOB_TYPE] [--wandb-id WANDB_ID] [--wandb-anonymous] [--wandb-log-model] [--wandb-offline] [--sequence-parallel] [--fp8] [--micro-batch-size MICRO_BATCH_SIZE]
-                  [--global-batch-size GLOBAL_BATCH_SIZE] [--grad-acc-batches GRAD_ACC_BATCHES] [--max-steps MAX_STEPS] [--early-stop-on-step EARLY_STOP_ON_STEP] [--val-check-interval VAL_CHECK_INTERVAL] [--grad-reduce-in-fp32] [--fp8-wgrad] [--use-megatron-comm-overlap-llama3-8k] [--tp-comm-overlap-backend {nccl,mpi,gloo}] [--align-param-gather]
-                  [--model-size {1b,1b_nv,40b,40b_arc_longcontext,40b_nv,7b,7b_arc_longcontext,7b_nv,test,test_nv}] [--add-bias-output] [--result-dir RESULT_DIR] [--experiment-name EXPERIMENT_NAME] [--limit-val-batches LIMIT_VAL_BATCHES] [--log-every-n-steps LOG_EVERY_N_STEPS] [--ckpt-dir CKPT_DIR] [--wd WD] [--restore-optimizer-from-ckpt]
-                  [--no-average-in-collective] [--seed SEED] [--workers WORKERS] [--gc-interval GC_INTERVAL] [--enable-preemption] [--ckpt-async-save] [--ckpt-format {torch_dist,zarr}] [--eod-pad-in-loss-mask] [--cross-entropy-loss-fusion] [--no-fp32-residual-connection] [--debug-ddp-parity-freq DEBUG_DDP_PARITY_FREQ]
-                  [--hybrid-override-pattern HYBRID_OVERRIDE_PATTERN] [--num-layers NUM_LAYERS] [--create-tflops-callback] [--log-parameters-and-shapes] [--lr LR] [--min-lr MIN_LR] [--warmup-steps WARMUP_STEPS] [--nsys-profiling] [--nsys-start-step NSYS_START_STEP] [--nsys-end-step NSYS_END_STEP] [--no-renormalize-loss]
-                  [--nsys-ranks NSYS_RANKS [NSYS_RANKS ...]] [--activation-checkpoint-recompute-num-layers ACTIVATION_CHECKPOINT_RECOMPUTE_NUM_LAYERS] [--disable-checkpointing] [--clip-grad CLIP_GRAD] [--seq-len-interpolation-factor SEQ_LEN_INTERPOLATION_FACTOR] [--overlap-param-gather] [--overlap-grad-reduce] [--hidden-dropout HIDDEN_DROPOUT]
-                  [--attention-dropout ATTENTION_DROPOUT] [--no-activation-checkpointing | --selective-activation-checkpointing]
+usage: train_evo2 [-h] (-d DATASET_CONFIG | --mock-data) [--dataset-dir DATASET_DIR] [--num-nodes NUM_NODES] [--devices DEVICES] [--seq-length SEQ_LENGTH] [--tensor-parallel-size TENSOR_PARALLEL_SIZE]
+                  [--pipeline-model-parallel-size PIPELINE_MODEL_PARALLEL_SIZE] [--context-parallel-size CONTEXT_PARALLEL_SIZE] [--create-tensorboard-logger]
+                  [--wandb-entity WANDB_ENTITY] [--wandb-project WANDB_PROJECT] [--wandb-tags WANDB_TAGS [WANDB_TAGS ...]] [--wandb-group WANDB_GROUP] [--wandb-job-type WANDB_JOB_TYPE] [--wandb-id WANDB_ID]
+                  [--wandb-anonymous] [--wandb-log-model] [--wandb-offline] [--sequence-parallel] [--fp8] [--micro-batch-size MICRO_BATCH_SIZE] [--global-batch-size GLOBAL_BATCH_SIZE] [--grad-acc-batches GRAD_ACC_BATCHES]
+                  [--max-steps MAX_STEPS] [--early-stop-on-step EARLY_STOP_ON_STEP] [--val-check-interval VAL_CHECK_INTERVAL] [--grad-reduce-in-fp32] [--fp8-wgrad] [--use-megatron-comm-overlap-llama3-8k] [--tp-comm-overlap-backend {nccl,mpi,gloo}]
+                  [--align-param-gather] [--model-size {1b,1b_nv,40b,40b_arc_longcontext,40b_nv,7b,7b_arc_longcontext,7b_nv,test,test_nv}] [--add-bias-output] [--result-dir RESULT_DIR] [--experiment-name EXPERIMENT_NAME]
+                  [--limit-val-batches LIMIT_VAL_BATCHES] [--log-every-n-steps LOG_EVERY_N_STEPS] [--ckpt-dir CKPT_DIR] [--wd WD] [--restore-optimizer-from-ckpt] [--no-average-in-collective] [--seed SEED]
+                  [--workers WORKERS] [--gc-interval GC_INTERVAL] [--enable-preemption] [--ckpt-async-save] [--ckpt-format {torch_dist,zarr}] [--eod-pad-in-loss-mask] [--cross-entropy-loss-fusion] [--no-fp32-residual-connection]
+                  [--debug-ddp-parity-freq DEBUG_DDP_PARITY_FREQ] [--hybrid-override-pattern HYBRID_OVERRIDE_PATTERN] [--num-layers NUM_LAYERS] [--create-tflops-callback] [--log-parameters-and-shapes] [--lr LR] [--min-lr MIN_LR]
+                  [--warmup-steps WARMUP_STEPS] [--nsys-profiling] [--nsys-start-step NSYS_START_STEP] [--nsys-end-step NSYS_END_STEP] [--no-renormalize-loss] [--nsys-ranks NSYS_RANKS [NSYS_RANKS ...]]
+                  [--activation-checkpoint-recompute-num-layers ACTIVATION_CHECKPOINT_RECOMPUTE_NUM_LAYERS] [--disable-checkpointing] [--clip-grad CLIP_GRAD] [--seq-len-interpolation-factor SEQ_LEN_INTERPOLATION_FACTOR]
+                  [--overlap-param-gather] [--overlap-grad-reduce] [--hidden-dropout HIDDEN_DROPOUT] [--attention-dropout ATTENTION_DROPOUT] [--no-activation-checkpointing | --selective-activation-checkpointing]
 
 Train a Hyena model using NeMo 2.0.
 
