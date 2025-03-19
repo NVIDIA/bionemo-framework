@@ -22,6 +22,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Tuple
 
@@ -33,6 +34,91 @@ from bionemo.evo2.run.train import parse_args, train
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 
 
+def run_command_with_timeout(command, path, env, timeout=300):
+    """Run command with timeout and incremental output processing to prevent hanging."""
+
+    # Start process without capturing output in the main process
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        cwd=path,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,  # Line buffered
+    )
+
+    stdout_data = []
+    stderr_data = []
+    start_time = time.time()
+
+    try:
+        # Use select to handle output in a non-blocking way
+        import select
+
+        # Get file descriptors for stdout and stderr
+        stdout_fd = process.stdout.fileno()
+        stderr_fd = process.stderr.fileno()
+
+        # Set up select lists
+        read_fds = [stdout_fd, stderr_fd]
+
+        # Process output incrementally
+        while read_fds and process.poll() is None:
+            # Check for timeout
+            if timeout and time.time() - start_time > timeout:
+                process.terminate()
+                time.sleep(0.5)
+                if process.poll() is None:
+                    process.kill()
+                raise subprocess.TimeoutExpired(command, timeout)
+
+            # Wait for output with a short timeout to allow checking process status
+            ready_fds, _, _ = select.select(read_fds, [], [], 1.0)
+
+            for fd in ready_fds:
+                if fd == stdout_fd:
+                    line = process.stdout.readline()
+                    if not line:
+                        read_fds.remove(stdout_fd)
+                        continue
+                    stdout_data.append(line)
+                    # Optionally process/print output incrementally
+                    # print(f"STDOUT: {line.strip()}")
+
+                if fd == stderr_fd:
+                    line = process.stderr.readline()
+                    if not line:
+                        read_fds.remove(stderr_fd)
+                        continue
+                    stderr_data.append(line)
+                    # Optionally process/print error output incrementally
+                    # print(f"STDERR: {line.strip()}")
+
+        # Get any remaining output
+        remaining_stdout, remaining_stderr = process.communicate()
+        if remaining_stdout:
+            stdout_data.append(remaining_stdout)
+        if remaining_stderr:
+            stderr_data.append(remaining_stderr)
+
+        # Create result object similar to subprocess.run
+        result = subprocess.CompletedProcess(
+            args=command, returncode=process.returncode, stdout="".join(stdout_data), stderr="".join(stderr_data)
+        )
+        return result
+
+    except Exception as e:
+        # Make sure we don't leave zombie processes
+        if process.poll() is None:
+            process.terminate()
+            time.sleep(0.5)
+            if process.poll() is None:
+                process.kill()
+        raise e
+
+
 def run_command_in_subprocess(command: str, path: str) -> str:
     # The first training command to finish at max_steps_first_run
     open_port = find_free_network_port()
@@ -40,13 +126,11 @@ def run_command_in_subprocess(command: str, path: str) -> str:
     env = dict(**os.environ)
     env["MASTER_PORT"] = str(open_port)
 
-    result = subprocess.run(
-        command,
-        shell=True,  # Use the shell to interpret wildcards (e.g. SDH*)
-        cwd=path,  # Run in the temporary directory
-        capture_output=True,  # Capture stdout and stderr for debugging
-        env=env,  # Pass in the env where we override the master port.
-        text=True,  # Decode output as text
+    result = run_command_with_timeout(
+        command=command,
+        path=path,
+        env=env,
+        timeout=60,  # Set an appropriate timeout in seconds
     )
 
     # For debugging purposes, print the output if the test fails.
