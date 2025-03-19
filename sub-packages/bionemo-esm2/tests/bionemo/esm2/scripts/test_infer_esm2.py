@@ -55,6 +55,7 @@ def padded_tokenized_sequences(dummy_protein_sequences):
 
 @pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
 @pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
+@pytest.mark.parametrize("with_peft", [True, False])
 def test_infer_runs(
     tmpdir,
     dummy_protein_csv,
