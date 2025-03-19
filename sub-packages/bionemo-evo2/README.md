@@ -4,7 +4,11 @@
 
 ## Quickstart tutorials
 
-Please see
+Two Jupyter notebooks are available to help you get started with Evo 2: one demonstrating how to finetune the model on your own sequences, and another showing how to perform zero-shot BRCA1 variant effect prediction.
+
+- [Finetuning](./examples/fine-tuning-tutorial.ipynb)
+
+- [Zeroshot BRCA1 Variant Effect Prediction](./examples/zeroshot_brca1.ipynb)
 
 ## Installation
 
