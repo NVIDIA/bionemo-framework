@@ -113,7 +113,9 @@ jobs:
           cache-from: ${{ steps.cache.outputs.cache-from }}
           cache-to: ${{ steps.cache.outputs.cache-to }}
 
-  run-tests:
+
+  # Define templates using YAML anchors
+  .test-job: &test-job-template
     needs:
       - build-bionemo-image
       - get-pr-labels
@@ -127,6 +129,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+  run-tests:
+    <<: *test-job-template
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Run tests
         # Tests in this stage generate code coverage metrics for the repository
         # Coverage data is uploaded to Codecov in subsequent stages
@@ -134,30 +142,6 @@ jobs:
           BIONEMO_DATA_SOURCE: ngc
         run: ./ci/scripts/run_pytest.sh --no-nbval --skip-slow
 
-      - name: Run slow tests
-        if: |
-          github.event_name == 'schedule' ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS')
-        env:
-          BIONEMO_DATA_SOURCE: ngc
-        # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
-        #  to run package by package like we do with the fast tests.
-        run: ./ci/scripts/run_pytest.sh --no-nbval --only-slow --allow-no-tests
-
-      - name: Run notebook tests
-        if: |
-          github.event_name == 'schedule' ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS')
-        env:
-          BIONEMO_DATA_SOURCE: ngc
-          # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
-          FAST_CI_MODE: true
-        run: |
-          pytest -v --nbval-lax -p no:python docs/ sub-packages/
-          echo "Cleaning up untracked files in docs/ and sub-packages/ directories..."
-          # Find and remove files not tracked by git in docs/ and sub-packages/
-          git clean -fdx docs/ sub-packages/
-          echo "Cleanup complete."
       - name: Upload coverage to Codecov
         # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
         # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
@@ -173,3 +157,41 @@ jobs:
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  run-slow-tests:
+    <<: *test-job-template
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run slow tests
+        if: |
+          github.event_name == 'schedule' ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS')
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
+        #  to run package by package like we do with the fast tests.
+        run: ./ci/scripts/run_pytest.sh --no-nbval --only-slow --allow-no-tests
+
+
+  run-notebooks-docs:
+    <<: *test-job-template
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run notebook tests
+        if: |
+          github.event_name == 'schedule' ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS')
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+          # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
+          FAST_CI_MODE: true
+        run: |
+          pytest -v --nbval-lax -p no:python docs/ sub-packages/
+          echo "Cleaning up untracked files in docs/ and sub-packages/ directories..."
+          # Find and remove files not tracked by git in docs/ and sub-packages/
+          git clean -fdx docs/ sub-packages/
+          echo "Cleanup complete."
