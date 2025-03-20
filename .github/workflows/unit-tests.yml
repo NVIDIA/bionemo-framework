@@ -162,7 +162,7 @@ jobs:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
     if: |
-      github.event_name == 'schedule' || github.event_name != 'merge_group' ||
+      github.event_name == 'schedule' || github.event_name == 'merge_group' ||
       contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS')
     steps:
       - name: Checkout repository
@@ -182,7 +182,7 @@ jobs:
       - get-pr-labels
     runs-on: linux-amd64-gpu-l4-latest-1
     if: |
-      github.event_name == 'schedule' || github.event_name != 'merge_group' ||
+      github.event_name == 'schedule' || github.event_name == 'merge_group' ||
       contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS')
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
