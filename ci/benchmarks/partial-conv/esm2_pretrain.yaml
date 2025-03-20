@@ -45,6 +45,7 @@ script: |-
     --num-attention-heads=20 \
     --ffn-hidden-size=5120 \
     --create-tensorboard-logger \
+    --create-tflops-callback \
     --experiment-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
     --result-dir=${tensorboard_dir} \
     --wandb-project=${wandb_project_name} \

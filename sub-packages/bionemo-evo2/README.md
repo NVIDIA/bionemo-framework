@@ -4,7 +4,11 @@
 
 ## Quickstart tutorials
 
-Please see
+Two Jupyter notebooks are available to help you get started with Evo 2: one demonstrating how to finetune the model on your own sequences, and another showing how to perform zero-shot BRCA1 variant effect prediction.
+
+- [Finetuning](./examples/fine-tuning-tutorial.ipynb)
+
+- [Zeroshot BRCA1 Variant Effect Prediction](./examples/zeroshot_brca1.ipynb)
 
 ## Installation
 
@@ -34,22 +38,18 @@ Given a preprocessed collection of preprocessed datasets, and optionally a pre-t
 
 ```bash
 $ train_evo2 --help
-usage: train_evo2 [-h] (-d DATASET_CONFIG | --mock-data) [--dataset-dir DATASET_DIR] [--num-nodes NUM_NODES] [--devices DEVICES] [--seq-length SEQ_LENGTH]
-                  [--tensor-parallel-size TENSOR_PARALLEL_SIZE] [--pipeline-model-parallel-size PIPELINE_MODEL_PARALLEL_SIZE] [--context-parallel-size CONTEXT_PARALLEL_SIZE]
-                  [--no-wandb] [--wandb-project WANDB_PROJECT] [--wandb-run-id WANDB_RUN_ID] [--wandb-group WANDB_GROUP] [--wandb-job-type WANDB_JOB_TYPE] [--wandb-offline]
-                  [--wandb-anonymous] [--sequence-parallel] [--fp8] [--micro-batch-size MICRO_BATCH_SIZE] [--global-batch-size GLOBAL_BATCH_SIZE]
-                  [--grad-acc-batches GRAD_ACC_BATCHES] [--max-steps MAX_STEPS] [--val-check-interval VAL_CHECK_INTERVAL] [--grad-reduce-in-fp32] [--fp8-wgrad]
-                  [--use-megatron-comm-overlap-llama3-8k] [--tp-comm-overlap-backend {nccl,mpi,gloo}] [--align-param-gather]
-                  [--model-size {1b,1b_nv,40b,40b_arc_longcontext,40b_nv,7b,7b_arc_longcontext,7b_nv,test,test_nv}] [--add-bias-output] --experiment-dir EXPERIMENT_DIR
-                  [--limit-val-batches LIMIT_VAL_BATCHES] [--log-every-n-steps LOG_EVERY_N_STEPS] [--ckpt-dir CKPT_DIR] [--wd WD] [--restore-optimizer-from-ckpt]
-                  [--no-average-in-collective] [--seed SEED] [--workers WORKERS] [--gc-interval GC_INTERVAL] [--enable-preemption] [--ckpt-async-save]
-                  [--ckpt-format {torch_dist,zarr}] [--eod-pad-in-loss-mask] [--cross-entropy-loss-fusion] [--no-fp32-residual-connection]
-                  [--debug-ddp-parity-freq DEBUG_DDP_PARITY_FREQ] [--hybrid-override-pattern HYBRID_OVERRIDE_PATTERN] [--num-layers NUM_LAYERS] [--tflops-callback]
-                  [--log-parameters-and-shapes] [--lr LR] [--min-lr MIN_LR] [--warmup-steps WARMUP_STEPS] [--nsys-profiling] [--nsys-start-step NSYS_START_STEP]
-                  [--nsys-end-step NSYS_END_STEP] [--no-renormalize-loss] [--nsys-ranks NSYS_RANKS [NSYS_RANKS ...]]
-                  [--activation-checkpoint-recompute-num-layers ACTIVATION_CHECKPOINT_RECOMPUTE_NUM_LAYERS] [--disable-checkpointing] [--clip-grad CLIP_GRAD]
-                  [--seq-len-interpolation-factor SEQ_LEN_INTERPOLATION_FACTOR] [--overlap-param-gather] [--overlap-grad-reduce] [--hidden-dropout HIDDEN_DROPOUT]
-                  [--attention-dropout ATTENTION_DROPOUT] [--no-activation-checkpointing | --selective-activation-checkpointing]
+usage: train_evo2 [-h] (-d DATASET_CONFIG | --mock-data) [--dataset-dir DATASET_DIR] [--num-nodes NUM_NODES] [--devices DEVICES] [--seq-length SEQ_LENGTH] [--tensor-parallel-size TENSOR_PARALLEL_SIZE]
+                  [--pipeline-model-parallel-size PIPELINE_MODEL_PARALLEL_SIZE] [--context-parallel-size CONTEXT_PARALLEL_SIZE] [--create-tensorboard-logger]
+                  [--wandb-entity WANDB_ENTITY] [--wandb-project WANDB_PROJECT] [--wandb-tags WANDB_TAGS [WANDB_TAGS ...]] [--wandb-group WANDB_GROUP] [--wandb-job-type WANDB_JOB_TYPE] [--wandb-id WANDB_ID]
+                  [--wandb-anonymous] [--wandb-log-model] [--wandb-offline] [--sequence-parallel] [--fp8] [--micro-batch-size MICRO_BATCH_SIZE] [--global-batch-size GLOBAL_BATCH_SIZE] [--grad-acc-batches GRAD_ACC_BATCHES]
+                  [--max-steps MAX_STEPS] [--early-stop-on-step EARLY_STOP_ON_STEP] [--val-check-interval VAL_CHECK_INTERVAL] [--grad-reduce-in-fp32] [--fp8-wgrad] [--use-megatron-comm-overlap-llama3-8k] [--tp-comm-overlap-backend {nccl,mpi,gloo}]
+                  [--align-param-gather] [--model-size {1b,1b_nv,40b,40b_arc_longcontext,40b_nv,7b,7b_arc_longcontext,7b_nv,test,test_nv}] [--add-bias-output] [--result-dir RESULT_DIR] [--experiment-name EXPERIMENT_NAME]
+                  [--limit-val-batches LIMIT_VAL_BATCHES] [--log-every-n-steps LOG_EVERY_N_STEPS] [--ckpt-dir CKPT_DIR] [--wd WD] [--restore-optimizer-from-ckpt] [--no-average-in-collective] [--seed SEED]
+                  [--workers WORKERS] [--gc-interval GC_INTERVAL] [--enable-preemption] [--ckpt-async-save] [--ckpt-format {torch_dist,zarr}] [--eod-pad-in-loss-mask] [--cross-entropy-loss-fusion] [--no-fp32-residual-connection]
+                  [--debug-ddp-parity-freq DEBUG_DDP_PARITY_FREQ] [--hybrid-override-pattern HYBRID_OVERRIDE_PATTERN] [--num-layers NUM_LAYERS] [--create-tflops-callback] [--log-parameters-and-shapes] [--lr LR] [--min-lr MIN_LR]
+                  [--warmup-steps WARMUP_STEPS] [--nsys-profiling] [--nsys-start-step NSYS_START_STEP] [--nsys-end-step NSYS_END_STEP] [--no-renormalize-loss] [--nsys-ranks NSYS_RANKS [NSYS_RANKS ...]]
+                  [--activation-checkpoint-recompute-num-layers ACTIVATION_CHECKPOINT_RECOMPUTE_NUM_LAYERS] [--disable-checkpointing] [--clip-grad CLIP_GRAD] [--seq-len-interpolation-factor SEQ_LEN_INTERPOLATION_FACTOR]
+                  [--overlap-param-gather] [--overlap-grad-reduce] [--hidden-dropout HIDDEN_DROPOUT] [--attention-dropout ATTENTION_DROPOUT] [--no-activation-checkpointing | --selective-activation-checkpointing]
 
 Train a Hyena model using NeMo 2.0.
 
@@ -59,8 +59,7 @@ options:
                         Path to the blended / weighted training dataset configuration YAML. (default: None)
   --mock-data           Train with Mock data (for testing/debugging), either set this or provide a dataset config. (default: False)
   --dataset-dir DATASET_DIR
-                        Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML.
-                        (default: None)
+                        Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML. (default: None)
   --num-nodes NUM_NODES
                         Number of nodes to use for training, defaults to 1. (default: 1)
   --devices DEVICES     Number of devices to use for training, defaults to 1. (default: 1)
@@ -72,17 +71,22 @@ options:
                         Order of pipeline parallelism. Defaults to 1. (default: 1)
   --context-parallel-size CONTEXT_PARALLEL_SIZE
                         Order of context parallelism. Defaults to 1. (default: 1)
-  --no-wandb            Disable Wandb logging (default: False)
+  --create-tensorboard-logger
+                        Create a tensorboard logger. (default: False)
+  --wandb-entity WANDB_ENTITY
+                        The team posting this run (default: None)
   --wandb-project WANDB_PROJECT
-                        Wandb project name (default: bionemo_evo2)
-  --wandb-run-id WANDB_RUN_ID
-                        Wandb run identifier (default: None)
+                        Wandb project name (default: None)
+  --wandb-tags WANDB_TAGS [WANDB_TAGS ...]
+                        Tags associated with this run (default: None)
   --wandb-group WANDB_GROUP
                         A unique string shared by all runs in a given group (default: None)
   --wandb-job-type WANDB_JOB_TYPE
                         A unique string representing a type of run, which is useful when you're grouping runs together into larger experiments using group. (default: None)
-  --wandb-offline       Use wandb in offline mode (default: False)
+  --wandb-id WANDB_ID   Sets the version, mainly used to resume a previous run (default: None)
   --wandb-anonymous     Enable or explicitly disable anonymous logging (default: False)
+  --wandb-log-model     Save checkpoints in wandb dir to upload on W&B servers (default: False)
+  --wandb-offline       Use wandb in offline mode (default: False)
   --sequence-parallel   Set to enable sequence parallelism. (default: False)
   --fp8                 Set to enable FP8 (default: False)
   --micro-batch-size MICRO_BATCH_SIZE
@@ -92,7 +96,9 @@ options:
   --grad-acc-batches GRAD_ACC_BATCHES
                         Number of batches to accumulate gradients over. (default: 1)
   --max-steps MAX_STEPS
-                        Number of training optimizer update steps. (default: None)
+                        Number of training optimizer update steps. This controls the total number of steps as well as the shape of the learning rate curve. (default: 500000)
+  --early-stop-on-step EARLY_STOP_ON_STEP
+                        Stop training on this step, if set. This may be useful for testing or debugging purposes. (default: None)
   --val-check-interval VAL_CHECK_INTERVAL
                         Number of steps between validation measurements and model checkpoints. (default: None)
   --grad-reduce-in-fp32
@@ -103,11 +109,12 @@ options:
                         TP communication backend to use. Defaults to 'nccl'. (default: nccl)
   --align-param-gather
   --model-size {1b,1b_nv,40b,40b_arc_longcontext,40b_nv,7b,7b_arc_longcontext,7b_nv,test,test_nv}
-                        Model architecture to use, choose between 7b, 40b, or test (a sub-model of 4 layers, less than 1B parameters). '_arc_1m' models have GLU / FFN
-                        dimensions that support 1M context length when trained with TP<=8. (default: 7b)
+                        Model architecture to use, choose between 7b, 40b, or test (a sub-model of 4 layers, less than 1B parameters). '_arc_1m' models have GLU / FFN dimensions that support 1M context length when trained with TP<=8. (default: 7b)
   --add-bias-output     Add bias to the output layer to enable learning a simple prior. (default: False)
-  --experiment-dir EXPERIMENT_DIR
-                        Directory to write model checkpoints and results to. (default: None)
+  --result-dir RESULT_DIR
+                        Path to the result directory. (default: results)
+  --experiment-name EXPERIMENT_NAME
+                        Name of the experiment. (default: evo2)
   --limit-val-batches LIMIT_VAL_BATCHES
                         Number of validation steps (default: 20)
   --log-every-n-steps LOG_EVERY_N_STEPS
@@ -122,11 +129,10 @@ options:
   --workers WORKERS     Number of workers to use for data loading. (default: 8)
   --gc-interval GC_INTERVAL
                         Set to a value > 0 if you want to synchronize garbage collection, will do gc every gc-interval steps. (default: 0)
-  --enable-preemption   Enable preemption hooks. If enabled this will save a checkpoint whenver slurm exits. (default: False)
+  --enable-preemption   Enable preemption hooks. If enabled this will save a checkpoint whenever slurm exits. (default: False)
   --ckpt-async-save
   --ckpt-format {torch_dist,zarr}
-                        Specify checkpoint format to use. Defaults to 'torch_dist', as 'zarr' is deprecated. Only use if resuming training from a zarr checkpoint. (default:
-                        torch_dist)
+                        Specify checkpoint format to use. Defaults to 'torch_dist', as 'zarr' is deprecated. Only use if resuming training from a zarr checkpoint. (default: torch_dist)
   --eod-pad-in-loss-mask
                         Do not predict EOD/Pad tokens (typical default, but not default in original evo2). (default: False)
   --cross-entropy-loss-fusion
@@ -139,16 +145,16 @@ options:
                         Override the hybrid override pattern in the config (specifies hyena layer ordering and type). (default: None)
   --num-layers NUM_LAYERS
                         If set, override the number of layers specified in the requested config. (default: None)
-  --tflops-callback     Enable tflops calculation callback for Hyena / Evo2. Defaults to False. (default: False)
+  --create-tflops-callback
+                        Enable tflops calculation callback for Hyena / Evo2. Defaults to False. (default: False)
   --log-parameters-and-shapes
                         Log training parameters shapes and dtypes for debugging. (default: False)
   --lr LR               Learning rate. (default: 0.0003)
   --min-lr MIN_LR       Min learning rate in cosine annealing. (default: 3e-05)
   --warmup-steps WARMUP_STEPS
                         Number of warmup steps in cosine annealing (default: 2500)
-  --nsys-profiling      Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with
-                        `nsys`. For example: `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-
-                        end=stop [regular python command here]` (default: False)
+  --nsys-profiling      Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with `nsys`. For example: `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop [regular python command
+                        here]` (default: False)
   --nsys-start-step NSYS_START_STEP
                         Start nsys profiling after this step. (default: 0)
   --nsys-end-step NSYS_END_STEP
@@ -164,11 +170,9 @@ options:
   --clip-grad CLIP_GRAD
                         Grad clip value. Note that when using DDP this may need to be inflated. (default: 1.0)
   --seq-len-interpolation-factor SEQ_LEN_INTERPOLATION_FACTOR
-                        Adjusts the linear scaling of ROPE (Rotary Position Embedding) for context extension. Set this factor relative to your base context length e.g., for
-                        an original context length of 8192 and an extended context length of 524288, use 524288/8192 = 64. (default: None)
+                        Adjusts the linear scaling of ROPE (Rotary Position Embedding) for context extension. Set this factor relative to your base context length e.g., for an original context length of 8192 and an extended context length of 524288, use 524288/8192 = 64. (default: None)
   --overlap-param-gather
-                        Overlap the parameter gather with the optimizer step. This is currently disabled due to a NeMo bug when using DDP. Making this an option defaulting to
-                        False is a temporary solution until the bug is fixed. (default: False)
+                        Overlap the parameter gather with the optimizer step. This is currently disabled due to a NeMo bug when using DDP. Making this an option defaulting to False is a temporary solution until the bug is fixed. (default: False)
   --overlap-grad-reduce
                         Overlap the gradient reduce with the optimizer step. (default: False)
   --hidden-dropout HIDDEN_DROPOUT
