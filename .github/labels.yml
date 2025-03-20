@@ -1,0 +1,24 @@
+# Test pipeline labels
+- name: ciflow:L1
+  description: Run slow single GPU integration tests
+  color: FBCA04  # Yellow/Gold
+
+- name: ciflow:L2
+  description: Run multi-GPU and long-running integration tests
+  color: 6F42C1  # Purple
+
+- name: ciflow:docs
+  description: Run documentation and tutorial tests
+  color: 1D76DB  # Blue
+
+- name: ciflow:all
+  description: Run all tests (L0, L1, L2, and docs)
+  color: B60205  # Red
+
+- name: ciflow:skip
+  description: Skip all CI tests for this PR
+  color: 0E8A16  # Green
+
+- name: ciflow:skip-subpackage
+  description: Skip sub-package testing and publishing for this PR
+  color: D93F0B  # Orange
