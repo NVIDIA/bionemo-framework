@@ -115,27 +115,35 @@ Key behaviors:
 - Labels applied based on checkbox status
 - Invalid combinations default to most restrictive option
 
-#### **SKIP_CI**
+By default, CI pipeline is enabled for all PRs and and all L0 tests are run (small integration tests). To skip CI pipeline, add the `ciflow:skip` label
+
+#### **ciflow:skip**
 
 - Skips entire CI pipeline
 - Use for documentation typos, README updates
 
-#### **SKIP_SUBPACKAGE_CI**
+#### **ciflow:skip-subpackage**
 
 - Skips installation, testing, and publication of individual sub-packages of BioNeMo.
 - For more granular controls on a per-package basis, such as skipping only testing or only publication to PyPI, you can modify hard-coded sub-package names (`bionemo-...`) listed within `SKIP...` variables in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
 - Sub-package CI is enabled (not skipped) by default. Utilized to test individual BioNeMo sub-packages without the environmental support of the BioNeMo Framework Container, which validates if the sub-package can be pusblished standalone to PyPI.
 
-#### **INCLUDE_NOTEBOOKS_TESTS**
+#### **ciflow:L1**
 
-- Enables notebook validation tests
-- Use when modifying notebooks or notebook-related code
+- Enables unit tests labelled as `@pytest.mark.L1` ie CLI tests
+- Use when modifying core functionalities and require extensive moderate complexity testing on a single GPU
 - Disabled by default
 
-#### **INCLUDE_SLOW_TESTS**
+#### **ciflow:L2**
 
-- Enables unit tests labelled as slow ie CLI tests
-- Use when modifying core functionalities and require extensive, end-2-end, testing
+- Enables unit tests labelled as `@pytest.mark.L1` ie CLI tests
+- Use when modifying core functionalities and require extensive, end-2-end, testing on multi GPU
+- Disabled by default
+
+#### **ciflow:docs**
+
+- Enables notebook validation tests under `./docs` subfolder
+- Use when modifying notebooks or notebook-related code
 - Disabled by default
 
 ### Developer Workflows
