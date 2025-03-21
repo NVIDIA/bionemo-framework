@@ -1,6 +1,12 @@
 ### Description
 <!-- Provide a detailed description of the changes in this PR -->
 
+#### Usage
+<!--- How does a user interact with the changed code -->
+```python
+TODO: Add code snippet
+```
+
 ### Type of changes
 <!-- Mark the relevant option with an [x] -->
 
@@ -11,14 +17,19 @@
 - [ ]  Other (please describe):
 
 ### CI Pipeline Configuration
-Configure CI behavior by applying the relevant labels:
+Configure CI behavior by applying the relevant labels. By default, only basic unit tests (L0) are run.
 
-- [SKIP_CI](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#skip_ci) - Skip all continuous integration tests
-- [INCLUDE_NOTEBOOKS_TESTS](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#include_notebooks_tests) - Execute notebook validation tests in pytest
-- [INCLUDE_SLOW_TESTS](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#include_slow_tests) - Execute tests labelled as slow in pytest for extensive testing
+- `ciflow:L1` - Run slow single GPU integration tests, marked by `@pytest.mark.L1`
+- `ciflow:L2` - Runs multi-gpu and longer integration tests, marked by `@pytest.mark.L2`
+- `ciflow:docs` - Run documentation and tutorial tests under `./docs`
+- `ciflow:all` - Run all tests (L0, L1, and docs)
+- `ciflow:skip` - Skip all CI tests for this PR
+- `ciflow:skip-subpackage` - Skip sub-package testing and publishing
+
+For more details, see [CONTRIBUTING](CONTRIBUTING.md)
 
 > [!NOTE]
-> By default, the notebooks validation tests are skipped unless explicitly enabled.
+> By default, only basic unit tests (L0) are run. Add appropriate labels to enable additional test coverage.
 
 #### Authorizing CI Runs
 
@@ -29,12 +40,6 @@ runs on NVIDIA's compute resources.
   automatically be copied to a pull-request/ prefixed branch in the source repository (e.g. pull-request/123)
 * If a pull request is opened by an untrusted user or contains untrusted changes, an NVIDIA org member must leave an
   `/ok to test` comment on the pull request to trigger CI. This will need to be done for each new commit.
-
-### Usage
-<!--- How does a user interact with the changed code -->
-```python
-TODO: Add code snippet
-```
 
 ### Pre-submit Checklist
 <!--- Ensure all items are completed before submitting -->

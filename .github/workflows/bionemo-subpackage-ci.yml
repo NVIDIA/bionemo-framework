@@ -26,7 +26,8 @@ jobs:
   configure-workflow-packages:
     name: "[Configure Workflow Packages] Identify sub-packages for testing and publishing."
     # Sub-package CI override label in PR's.
-    if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'SKIP_SUBPACKAGE_CI') }}
+    if: ${{ github.event_name != 'pull_request' || (!contains(github.event.pull_request.labels.*.name, 'ciflow:skip-subpackage') &&
+         !contains(github.event.pull_request.labels.*.name, 'ciflow:skip')) }}
     runs-on: ubuntu-latest
     # Depending on the type of GitHub Event (Dispatch or PR), we stage different packages for testing and publishing in 'workflow_packages'.
     outputs:
