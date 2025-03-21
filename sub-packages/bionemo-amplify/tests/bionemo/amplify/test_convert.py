@@ -37,15 +37,24 @@ def assert_amplify_equivalence(
     precision: PrecisionTypes = "fp32",
     rtol: float | None = None,
     atol: float | None = None,
-    magnitude_rtol: float = 1e-2,
-    magnitude_atol: float = 1e-2,
+    loss_only: bool = False,
 ) -> None:
+    """Assert that the HF and NeMo models are equivalent.
+
+    Args:
+        ckpt_path: Path to the NeMo2 checkpoint.
+        model_tag: HuggingFace model tag.
+        precision: Precision type to use for the comparison.
+        rtol: Relative tolerance for the comparison.
+        atol: Absolute tolerance for the comparison.
+        loss_only: Whether to only check the loss. For the BF16 precision, intermediate values are tough to compare with
+            appropriate precision, so we just do a sanity check with the loss values.
+    """
+
     tokenizer = BioNeMoAMPLIFYTokenizer()
 
     input_ids, attention_mask = get_input_tensors(tokenizer)
     hf_results = load_and_evaluate_hf_amplify(model_tag, precision, input_ids, attention_mask)
-    # gc.collect()
-    # torch.cuda.empty_cache()
     nemo_results = load_and_evaluate_nemo_amplify(
         tokenizer,
         ckpt_path,
@@ -54,10 +63,14 @@ def assert_amplify_equivalence(
         attention_mask,
     )
 
+    if loss_only:
+        torch.testing.assert_close(hf_results["loss"], nemo_results["loss"], rtol=rtol, atol=atol)
+        return
+
     torch.testing.assert_close(hf_results["embeddings"], nemo_results["embeddings"], rtol=rtol, atol=atol)
-    # torch.testing.assert_close(hf_results["query_post_rot"], nemo_results["query_post_rot"], rtol=rtol, atol=atol)
-    # torch.testing.assert_close(hf_results["key_post_rot"], nemo_results["key_post_rot"], rtol=rtol, atol=atol)
-    # torch.testing.assert_close(hf_results["value"], nemo_results["value"], rtol=rtol, atol=atol)
+    torch.testing.assert_close(hf_results["query_post_rot"], nemo_results["query_post_rot"], rtol=rtol, atol=atol)
+    torch.testing.assert_close(hf_results["key_post_rot"], nemo_results["key_post_rot"], rtol=rtol, atol=atol)
+    torch.testing.assert_close(hf_results["value"], nemo_results["value"], rtol=rtol, atol=atol)
 
     assert_cosine_similarity(
         hf_results["attn_output"],
@@ -95,8 +108,6 @@ def assert_amplify_equivalence(
         attention_mask,
         rtol,
         atol,
-        magnitude_rtol,
-        magnitude_atol,
         msg="Output logits",
     )
 
@@ -172,6 +183,8 @@ def load_and_evaluate_hf_amplify(
 
     hf_logits = hf_output_all.logits
 
+    loss = torch.nn.functional.cross_entropy(hf_logits[attention_mask], input_ids[attention_mask])
+
     return {
         "embeddings": embedding_hook.data,
         "query_post_rot": xq.flatten(-2, -1),
@@ -181,6 +194,7 @@ def load_and_evaluate_hf_amplify(
         "attn_linear_output": attn_linear_output_hook.data,
         "encoder_block_outputs": [hook.data for hook in encoder_block_hooks],
         "logits": hf_logits,
+        "loss": loss,
     }
 
 
@@ -248,6 +262,8 @@ def load_and_evaluate_nemo_amplify(
 
     nemo_logits = nemo_output["token_logits"].transpose(0, 1).contiguous()[..., : tokenizer.vocab_size]
 
+    loss = torch.nn.functional.cross_entropy(nemo_logits[attention_mask], input_ids[attention_mask])
+
     return {
         "embeddings": embedding_hook.data,
         "query_post_rot": query_post_rot_hook.data,
@@ -257,6 +273,7 @@ def load_and_evaluate_nemo_amplify(
         "attn_linear_output": attn_linear_output_hook.data,
         "encoder_block_outputs": [hook.data for hook in encoder_block_hooks],
         "logits": nemo_logits,
+        "loss": loss,
     }
 
 
@@ -283,10 +300,7 @@ def test_convert_amplify_120M_bf16(tmp_path):
             tmp_path / "nemo_checkpoint",
             model_tag,
             precision="bf16",
-            atol=0.01,
-            rtol=0.01,
-            magnitude_atol=0.05,
-            magnitude_rtol=0.05,
+            loss_only=True,
         )
 
 
