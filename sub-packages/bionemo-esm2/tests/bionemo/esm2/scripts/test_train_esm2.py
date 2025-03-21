@@ -12,12 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import io
 import os
 import shlex
 import sqlite3
 import subprocess
-from pathlib import Path
+from contextlib import redirect_stderr, redirect_stdout
 from typing import Dict
 
 import pandas as pd
@@ -27,7 +27,200 @@ from lightning.fabric.plugins.environments.lightning import find_free_network_po
 from bionemo.esm2.scripts.train_esm2 import get_parser, main
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
-from bionemo.testing import megatron_parallel_state_utils
+from bionemo.testing.lightning import extract_global_steps_from_log
+from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
+from bionemo.testing.subprocess_utils import run_command_in_subprocess
+
+
+def run_train_with_std_redirect(
+    train_database_path,
+    valid_database_path,
+    parquet_train_val_inputs,
+    result_dir,
+    num_steps,
+    val_check_interval,
+    create_checkpoint_callback,
+    create_tensorboard_logger,
+    create_tflops_callback,
+    resume_if_exists,
+    wandb_project,
+) -> str:
+    """
+    Run a function with output capture.
+    """
+    stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
+    with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+        train_small_esm2(
+            train_database_path,
+            valid_database_path,
+            parquet_train_val_inputs,
+            result_dir,
+            num_steps,
+            val_check_interval,
+            create_checkpoint_callback,
+            create_tensorboard_logger,
+            create_tflops_callback,
+            resume_if_exists,
+            wandb_project,
+        )
+
+    train_stdout = stdout_buf.getvalue()
+    train_stderr = stderr_buf.getvalue()
+    print("Captured STDOUT:\n", train_stdout)
+    print("Captured STDERR:\n", train_stderr)
+    return train_stdout
+
+
+def train_small_esm2_args(
+    train_database_path,
+    valid_database_path,
+    parquet_train_val_inputs,
+    result_dir,
+    num_steps,
+    val_check_interval,
+    create_checkpoint_callback,
+    create_tensorboard_logger,
+    create_tflops_callback,
+    resume_if_exists,
+    wandb_project=None,
+    limit_val_batches=1,
+    experiment_name="esm2",
+) -> dict:
+    train_cluster_path, valid_cluster_path = parquet_train_val_inputs
+    # Extract arguments from the given function call
+    args_dict = {
+        "train_cluster_path": train_cluster_path,
+        "train_database_path": train_database_path,
+        "valid_cluster_path": valid_cluster_path,
+        "valid_database_path": valid_database_path,
+        "num_nodes": 1,
+        "devices": 1,
+        "min_seq_length": 128,
+        "max_seq_length": 128,
+        "result_dir": result_dir,
+        "experiment_name": experiment_name,
+        "wandb_project": wandb_project,
+        "wandb_offline": True,
+        "wandb_anonymous": True,
+        "num_steps": num_steps,
+        "warmup_steps": 1,
+        "limit_val_batches": limit_val_batches,
+        "val_check_interval": val_check_interval,
+        "log_every_n_steps": 1,
+        "num_dataset_workers": 1,
+        "lr": 1e-4,
+        "micro_batch_size": 2,
+        "accumulate_grad_batches": 1,
+        "precision": "bf16-mixed",
+        "resume_if_exists": resume_if_exists,
+        "create_tensorboard_logger": create_tensorboard_logger,
+        "create_tflops_callback": create_tflops_callback,
+        "create_checkpoint_callback": create_checkpoint_callback,
+        "num_layers": 2,
+        "num_attention_heads": 2,
+        "hidden_size": 4,
+        "ffn_hidden_size": 4 * 4,
+        "scheduler_num_steps": None,
+        "biobert_spec_option": BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec.value,
+    }
+    return args_dict
+
+
+def train_small_esm2_cmd(
+    train_database_path,
+    valid_database_path,
+    parquet_train_val_inputs,
+    result_dir,
+    num_steps,
+    val_check_interval,
+    create_checkpoint_callback,
+    create_tensorboard_logger,
+    create_tflops_callback,
+    resume_if_exists,
+    wandb_project=None,
+    limit_val_batches=1,
+    experiment_name="esm2",
+) -> str:
+    args = train_small_esm2_args(
+        train_database_path,
+        valid_database_path,
+        parquet_train_val_inputs,
+        result_dir,
+        num_steps,
+        val_check_interval,
+        create_checkpoint_callback,
+        create_tensorboard_logger,
+        create_tflops_callback,
+        resume_if_exists,
+        wandb_project,
+        limit_val_batches,
+        experiment_name,
+    )
+
+    def get_command_line_args(arg_name, arg_value) -> str:
+        if arg_name == "create_checkpoint_callback":
+            if not arg_value:
+                return "--disable-checkpointing"
+            else:
+                return ""
+        if arg_name in ["wandb_project", "scheduler_num_steps"] and arg_value is None:
+            return ""
+
+        if arg_name in [
+            "wandb_offline",
+            "wandb_anonymous",
+            "create_tensorboard_logger",
+            "resume_if_exists",
+            "create_tflops_callback",
+        ]:
+            if arg_value:
+                return f"--{arg_name.replace('_', '-')}"
+            else:
+                return ""
+
+        if arg_name == "devices":
+            return f"--num-gpus={arg_value}"
+
+        arg_str = f"--{arg_name.replace('_', '-')}={arg_value}"
+        return arg_str
+
+    cmd = "train_esm2 " + " ".join(get_command_line_args(arg_name, arg_value) for arg_name, arg_value in args.items())
+    return cmd
+
+
+def train_small_esm2(
+    train_database_path,
+    valid_database_path,
+    parquet_train_val_inputs,
+    result_dir,
+    num_steps,
+    val_check_interval,
+    create_checkpoint_callback,
+    create_tensorboard_logger,
+    create_tflops_callback,
+    resume_if_exists,
+    wandb_project=None,
+    limit_val_batches=1,
+    experiment_name="esm2",
+):
+    args = train_small_esm2_args(
+        train_database_path,
+        valid_database_path,
+        parquet_train_val_inputs,
+        result_dir,
+        num_steps,
+        val_check_interval,
+        create_checkpoint_callback,
+        create_tensorboard_logger,
+        create_tflops_callback,
+        resume_if_exists,
+        wandb_project,
+        limit_val_batches,
+        experiment_name,
+    )
+    with distributed_model_parallel_state():
+        trainer = main(**args)
+    return trainer
 
 
 @pytest.fixture
@@ -83,77 +276,185 @@ def dummy_parquet_train_val_inputs(tmp_path):
 
 
 @pytest.mark.parametrize("create_checkpoint_callback", [True, False])
-def test_main_runs(
-    monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs, create_checkpoint_callback
-):
-    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
+def test_main_runs(tmp_path, dummy_protein_dataset, dummy_parquet_train_val_inputs, create_checkpoint_callback):
+    val_check_interval = 2
+    num_steps = 4
+    experiment_name = "esm2"
+    trainer = train_small_esm2(
+        train_database_path=dummy_protein_dataset,
+        valid_database_path=dummy_protein_dataset,
+        parquet_train_val_inputs=dummy_parquet_train_val_inputs,
+        result_dir=tmp_path,
+        num_steps=num_steps,
+        val_check_interval=val_check_interval,
+        create_checkpoint_callback=create_checkpoint_callback,
+        create_tensorboard_logger=True,
+        create_tflops_callback=True,
+        resume_if_exists=False,
+        wandb_project=None,
+        experiment_name=experiment_name,
+    )
+    experiment_dir = tmp_path / experiment_name
+    assert experiment_dir.exists(), "Could not find experiment directory."
+    assert experiment_dir.is_dir(), "Experiment directory is supposed to be a directory."
+    log_dir = experiment_dir / "dev"
+    assert log_dir.exists(), "Directory with logs does not exist"
 
-    result_dir = Path(tmpdir.mkdir("results"))
-
-    with megatron_parallel_state_utils.distributed_model_parallel_state():
-        trainer = main(
-            train_cluster_path=train_cluster_path,
-            train_database_path=dummy_protein_dataset,
-            valid_cluster_path=valid_cluster_path,
-            valid_database_path=dummy_protein_dataset,
-            num_nodes=1,
-            devices=1,
-            min_seq_length=None,
-            max_seq_length=128,
-            result_dir=result_dir,
-            wandb_project=None,
-            wandb_offline=True,
-            num_steps=10,
-            scheduler_num_steps=None,
-            warmup_steps=5,
-            limit_val_batches=1,
-            val_check_interval=1,
-            log_every_n_steps=None,
-            num_dataset_workers=1,
-            biobert_spec_option=BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec,
-            lr=1e-4,
-            micro_batch_size=2,
-            accumulate_grad_batches=2,
-            precision="bf16-mixed",
-            experiment_name="test_experiment",
-            resume_if_exists=False,
-            create_tensorboard_logger=False,
-            num_layers=2,
-            num_attention_heads=2,
-            hidden_size=4,
-            ffn_hidden_size=4 * 4,
-            create_checkpoint_callback=create_checkpoint_callback,
-        )
-
-    assert (result_dir / "test_experiment").exists(), "Could not find test experiment directory."
-    assert (result_dir / "test_experiment").is_dir(), "Test experiment directory is supposed to be a directory."
-    children = list((result_dir / "test_experiment").iterdir())
-    assert len(children) == 1, f"Expected 1 child in test experiment directory, found {children}."
-    uq_rundir = children[0]  # it will be some date.
-
-    # checking directory with checkpoints
-    expected_exists = create_checkpoint_callback
-    actual_exists = (result_dir / "test_experiment" / uq_rundir / "checkpoints").exists()
-    assert expected_exists == actual_exists, (
-        f"Checkpoints directory existence mismatch. "
-        f"Expected: {'exists' if expected_exists else 'does not exist'}, "
-        f"Found: {'exists' if actual_exists else 'does not exist'}."
+    children = list(experiment_dir.iterdir())
+    # ["checkpoints", "dev"] since wandb is disabled. Offline mode was causing troubles
+    expected_children = 2 if create_checkpoint_callback else 1
+    assert len(children) == expected_children, (
+        f"Expected {expected_children} child in the experiment directory, found {children}."
     )
 
     if create_checkpoint_callback:
-        assert (
-            result_dir / "test_experiment" / uq_rundir / "checkpoints"
-        ).is_dir(), "Test experiment checkpoints directory is supposed to be a directory."
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "nemo_log_globalrank-0_localrank-0.txt"
-    ).is_file(), "Could not find experiment log."
+        checkpoints_dir = experiment_dir / "checkpoints"
+        assert checkpoints_dir.exists(), "Checkpoints directory does not exist."
+        # check if correct checkpoint was saved
+        expected_checkpoint_suffix = f"step={num_steps - 1}"
+        matching_subfolders = [
+            p
+            for p in checkpoints_dir.iterdir()
+            if p.is_dir() and (expected_checkpoint_suffix in p.name and "last" in p.name)
+        ]
+        assert matching_subfolders, (
+            f"No checkpoint subfolder ending with '{expected_checkpoint_suffix}' found in {checkpoints_dir}."
+        )
 
+    assert (log_dir / "nemo_log_globalrank-0_localrank-0.txt").is_file(), "Could not find experiment log."
+
+    # Recursively search for files from tensorboard logger
+    event_files = list(log_dir.rglob("events.out.tfevents*"))
+    assert event_files, f"No TensorBoard event files found under {log_dir}"
     assert "val_ppl" in trainer.logged_metrics  # validation logging on by default
+    assert "tflops_per_sec_per_gpu" in trainer.logged_metrics  # ensuring that tflops logger can be added
+    assert "train_step_timing in s" in trainer.logged_metrics
+
+
+@pytest.mark.slow
+@pytest.mark.xfail(
+    reason="ESM2 training fails to resume from checkpoints. "
+    "Issue: https://github.com/NVIDIA/bionemo-framework/issues/757"
+)
+def test_main_stop_at_num_steps_and_continue(tmp_path, dummy_protein_dataset, dummy_parquet_train_val_inputs):
+    max_steps_first_run = 4
+    max_steps_second_run = 6
+    val_check_interval = 2
+    # Expected location of logs and checkpoints
+    experiment_name = "esm2"
+    log_dir = tmp_path / experiment_name
+    checkpoints_dir = log_dir / "checkpoints"
+
+    command_first_run = train_small_esm2_cmd(
+        train_database_path=dummy_protein_dataset,
+        valid_database_path=dummy_protein_dataset,
+        parquet_train_val_inputs=dummy_parquet_train_val_inputs,
+        result_dir=tmp_path,
+        num_steps=max_steps_first_run,
+        val_check_interval=val_check_interval,
+        create_checkpoint_callback=True,
+        create_tensorboard_logger=True,
+        create_tflops_callback=True,
+        resume_if_exists=True,
+        wandb_project=None,
+        experiment_name=experiment_name,
+    )
+
+    # The first training command to finish at max_steps_first_run
+    stdout_first_run, stderr_first_run, returncode_first_run = run_command_in_subprocess(
+        command=command_first_run, path=str(tmp_path)
+    )
+
+    assert returncode_first_run == 0, "Command failed."
+
+    assert f"Training epoch 0, iteration 0/{max_steps_first_run - 1}" in stdout_first_run
+    # Extract and validate global steps
+    global_steps_first_run = extract_global_steps_from_log(stdout_first_run)
+
+    assert global_steps_first_run[0] == 0
+    assert global_steps_first_run[-1] == max_steps_first_run - 1
+    assert len(global_steps_first_run) == max_steps_first_run
+
+    # Check if checkpoints dir exists
+    assert checkpoints_dir.exists(), "Checkpoints folder does not exist."
+    # Check if any ckpt subfolder ends with the expected suffix
+    expected_checkpoint_first_run_suffix = f"step={max_steps_first_run - 1}"
+    matching_subfolders = [
+        p
+        for p in checkpoints_dir.iterdir()
+        if p.is_dir() and (expected_checkpoint_first_run_suffix in p.name and "last" in p.name)
+    ]
+    assert matching_subfolders, (
+        f"No checkpoint subfolder ending with '{expected_checkpoint_first_run_suffix}' found in {checkpoints_dir}."
+    )
+
+    # The second training command to continue from max_steps_first_run and finish at max_steps_second_run
+    command_second_run = train_small_esm2_cmd(
+        train_database_path=dummy_protein_dataset,
+        valid_database_path=dummy_protein_dataset,
+        parquet_train_val_inputs=dummy_parquet_train_val_inputs,
+        result_dir=tmp_path,
+        num_steps=max_steps_second_run,
+        val_check_interval=val_check_interval,
+        create_checkpoint_callback=True,
+        create_tensorboard_logger=False,
+        create_tflops_callback=False,
+        resume_if_exists=True,
+        wandb_project=None,
+        experiment_name=experiment_name,
+    )
+    stdout_second_run, stderr_second_run, returncode_second_run = run_command_in_subprocess(
+        command=command_second_run, path=str(tmp_path)
+    )
+
+    # Verify that the command failed with a non-zero exit code
+    # This assertion will fail if the resume functionality gets fixed, prompting us to update the test
+    assert returncode_second_run != 0, (
+        "Resuming training passed. "
+        "The resume functionality works and this test needs to be updated. "
+        "Update issue https://github.com/NVIDIA/bionemo-framework/issues/757"
+    )
+
+    # Verify the error message contains the expected exception type and error message
+    # The test fails if we get a different error than expected, which would require investigation
+    assert (
+        "megatron.core.dist_checkpointing.core.CheckpointingException" in stderr_second_run
+        and "Cannot find global shape metadata for N-D flattened tensor ShardedTensor" in stderr_second_run
+    ), f"ESM2 training resuming failed due to an unexpected error.\nActual stderr: {stderr_second_run}..."
+
+    # Output the error for logging purposes
+    pytest.fail(
+        "Detected expected failure with megatron.core.dist_checkpointing.core.CheckpointingException as anticipated. "
+        "This is a known issue tracked in: https://github.com/NVIDIA/bionemo-framework/issues/757"
+    )
+
+    ### TODO: The following section should be enabled when issue #757 is resolved ###
+    # Once the issue is fixed, we'll need to:
+    # 1. Remove the assertion expecting a non-zero return code
+    # 2. Replace with below assertions that verify successful resumption
+    # 3. Check for specific markers in the output that indicate successful state restoration
+    # 4. Verify the model can continue training from the checkpoint without errors
+
+    # global_steps_second_run = extract_global_steps_from_log(stdout_second_run)
+    #
+    # assert global_steps_second_run[0] == max_steps_first_run
+    # assert global_steps_second_run[-1] == max_steps_second_run - 1
+    # assert len(global_steps_second_run) == max_steps_second_run - max_steps_first_run
+    #
+    # expected_checkpoint_second_run_suffix = f"step={max_steps_second_run - 1}"
+    # matching_subfolders = [
+    #     p
+    #     for p in checkpoints_dir.iterdir()
+    #     if p.is_dir() and (expected_checkpoint_second_run_suffix in p.name and "last" in p.name)
+    # ]
+    # assert matching_subfolders, (
+    #     f"No checkpoint subfolder ending with '{expected_checkpoint_second_run_suffix}' found in {checkpoints_dir}."
+    # )
 
 
 @pytest.mark.parametrize("limit_val_batches", [0.0, 1.0, 4, None])
 def test_val_dataloader_in_main_runs_with_limit_val_batches(
-    monkeypatch, tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs, limit_val_batches
+    tmp_path, dummy_protein_dataset, dummy_parquet_train_val_inputs, limit_val_batches
 ):
     # TODO: pydantic.
     """Ensures doesn't run out of validation samples whenever updating limit_val_batches logic.
@@ -165,102 +466,55 @@ def test_val_dataloader_in_main_runs_with_limit_val_batches(
         dummy_parquet_train_val_inputs (tuple[str, str]): Tuple of dummy protein train and val cluster parquet paths.
         limit_val_batches (Union[int, float, None]): Limit validation batches. None implies 1.0 as in PTL.
     """
-    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
-
-    result_dir = Path(tmpdir.mkdir("results"))
-
-    with megatron_parallel_state_utils.distributed_model_parallel_state():
-        main(
-            train_cluster_path=train_cluster_path,
-            train_database_path=dummy_protein_dataset,
-            valid_cluster_path=valid_cluster_path,
-            valid_database_path=dummy_protein_dataset,
-            num_nodes=1,
-            devices=1,
-            min_seq_length=128,
-            max_seq_length=128,
-            result_dir=result_dir,
-            wandb_project=None,
-            wandb_offline=True,
-            scheduler_num_steps=None,
-            num_steps=5,
-            warmup_steps=2,
-            limit_val_batches=limit_val_batches,
-            val_check_interval=2,
-            log_every_n_steps=None,
-            num_dataset_workers=1,
-            biobert_spec_option=BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec,
-            lr=1e-4,
-            micro_batch_size=2,
-            accumulate_grad_batches=1,
-            precision="bf16-mixed",
-            experiment_name="test_experiment",
-            resume_if_exists=False,
-            create_tensorboard_logger=False,
-            num_layers=2,
-            num_attention_heads=2,
-            hidden_size=4,
-            ffn_hidden_size=4 * 4,
-        )
-
-    assert (result_dir / "test_experiment").exists(), "Could not find test experiment directory."
-    assert (result_dir / "test_experiment").is_dir(), "Test experiment directory is supposed to be a directory."
-    children = list((result_dir / "test_experiment").iterdir())
-    assert len(children) == 1, f"Expected 1 child in test experiment directory, found {children}."
-    uq_rundir = children[0]  # it will be some date.
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "checkpoints"
-    ).exists(), "Could not find test experiment checkpoints directory."
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "checkpoints"
-    ).is_dir(), "Test experiment checkpoints directory is supposed to be a directory."
-    assert (
-        result_dir / "test_experiment" / uq_rundir / "nemo_log_globalrank-0_localrank-0.txt"
-    ).is_file(), "Could not find experiment log."
+    train_small_esm2(
+        train_database_path=dummy_protein_dataset,
+        valid_database_path=dummy_protein_dataset,
+        parquet_train_val_inputs=dummy_parquet_train_val_inputs,
+        result_dir=tmp_path,
+        num_steps=4,
+        val_check_interval=2,
+        create_checkpoint_callback=False,
+        create_tensorboard_logger=False,
+        create_tflops_callback=False,
+        resume_if_exists=False,
+        wandb_project=None,
+        limit_val_batches=limit_val_batches,
+    )
 
 
 @pytest.mark.skip("duplicate with argparse, model and data unittests")
-def test_pretrain_cli(tmpdir, dummy_protein_dataset, dummy_parquet_train_val_inputs):
+def test_pretrain_cli(tmp_path, dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
-    result_dir = Path(tmpdir.mkdir("results"))
     open_port = find_free_network_port()
     # NOTE: if you need to change the following command, please update the README.md example.
-    cmd_str = f"""train_esm2     \
-    --train-cluster-path {train_cluster_path} \
-    --train-database-path {dummy_protein_dataset} \
-    --valid-cluster-path {valid_cluster_path} \
-    --valid-database-path {dummy_protein_dataset} \
-    --result-dir {result_dir}     \
-    --experiment-name test_experiment     \
-    --num-gpus 1  \
-    --num-nodes 1 \
-    --val-check-interval 2 \
-    --num-dataset-workers 1 \
-    --num-steps 5 \
-    --max-seq-length 128 \
-    --limit-val-batches 1 \
-    --val-check-interval 2 \
-    --micro-batch-size 2 \
-    --accumulate-grad-batches 2 \
-    --num-layers 2 \
-    --num-attention-heads 2 \
-    --hidden-size 4 \
-    --ffn-hidden-size 8
-    """.strip()
-
+    cmd_str = train_small_esm2_cmd(
+        train_database_path=dummy_protein_dataset,
+        valid_database_path=dummy_protein_dataset,
+        parquet_train_val_inputs=dummy_parquet_train_val_inputs,
+        result_dir=tmp_path,
+        num_steps=4,
+        val_check_interval=2,
+        create_checkpoint_callback=True,
+        create_tensorboard_logger=False,
+        create_tflops_callback=False,
+        resume_if_exists=False,
+        wandb_project=None,
+        experiment_name="esm2",
+    )
+    experiment_dir = tmp_path / "esm2"
     # a local copy of the environment
     env = dict(**os.environ)
     env["MASTER_PORT"] = str(open_port)
     cmd = shlex.split(cmd_str)
     result = subprocess.run(
         cmd,
-        cwd=tmpdir,
+        cwd=tmp_path,
         env=env,
         capture_output=True,
     )
     assert result.returncode == 0, f"Pretrain script failed: {cmd_str}"
-    assert (result_dir / "test_experiment").exists(), "Could not find test experiment directory."
+    assert experiment_dir.exists(), "Could not find the experiment directory."
 
 
 @pytest.fixture(scope="function")

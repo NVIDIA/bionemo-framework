@@ -19,8 +19,8 @@ import numpy as np
 
 
 __all__: Sequence[str] = (
-    "random_numpy_context",
     "get_seed_from_rng",
+    "random_numpy_context",
 )
 
 

@@ -70,6 +70,24 @@ plugins:
   - mkdocs-jupyter:
       theme: auto
       highlight_extra_classes: "jupyter-notebook"
+      remove_tag_config:
+        remove_input_tags:
+            - hide-code
+            - hide_code
+            - hide-input
+            - hide_input
+            - remove_input
+            - remove-input
+        remove_cell_tags:
+            - hide-cell
+            - hide_cell
+            - remove-cell
+            - remove_cell
+        remove_all_outputs_tags:
+            - hide-output
+            - hide_output
+            - remove-output
+            - remove_output
   - include_dir_to_nav:
       file_pattern: '.*\.(md|ipynb)$'
   - literate-nav:

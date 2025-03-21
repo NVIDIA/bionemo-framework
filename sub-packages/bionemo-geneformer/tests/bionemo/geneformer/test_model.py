@@ -422,9 +422,9 @@ def test_geneformer_inference_nemo1_v_nemo2_golden_values_by_layer(
     This test documents _how_ different the two models are at the moment at each layer, and highlights which layers are the most
     different. This test is useful for debugging and understanding the differences between the two models.
     """
-    assert (
-        nemo_1_per_layer_outputs_path.exists()
-    ), f"Could not find per-layer expected values at {nemo_1_per_layer_outputs_path}."
+    assert nemo_1_per_layer_outputs_path.exists(), (
+        f"Could not find per-layer expected values at {nemo_1_per_layer_outputs_path}."
+    )
     data_dir = Path(data_path)
     train_data_path = data_dir / "train"
     if not nemo1_checkpoint_path.exists():

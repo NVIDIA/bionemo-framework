@@ -87,7 +87,7 @@ def profile_memory_decorator(func: Iterable):
         pid = os.getpid()
         process = psutil.Process(pid)
         memory_info = process.memory_info()
-        print_pid(f"{pid}: RSS = {memory_info.rss / 1024 ** 2:.2f} MB")
+        print_pid(f"{pid}: RSS = {memory_info.rss / 1024**2:.2f} MB")
 
     def wrapper(*args, **kwargs):
         profile_memory()
@@ -407,9 +407,9 @@ def _get_fp32_state_dict_from_zero_checkpoint(
     assert set(optim_files) == set(optim_files_check), f"Expected {optim_files_check}, got {optim_files}"
     # check ordering as well
     for f1, f2 in zip(optim_files, optim_files_check):
-        assert os.path.basename(f1) == os.path.basename(
-            f2
-        ), f"Found mismatching optim files for rank {rank}: {os.path.basename(f1)} != {os.path.basename(f2)}"
+        assert os.path.basename(f1) == os.path.basename(f2), (
+            f"Found mismatching optim files for rank {rank}: {os.path.basename(f1)} != {os.path.basename(f2)}"
+        )
     print_pid(f" -> Optim files for rank {rank}: {len(optim_files)}")
 
     if debug:
@@ -430,14 +430,14 @@ def _get_fp32_state_dict_from_zero_checkpoint(
     assert set(model_files) == set(model_files_check), f"Expected {model_files_check}, got {model_files}"
 
     for f1, f2 in zip(model_files, model_files_check):
-        assert os.path.basename(f1) == os.path.basename(
-            f2
-        ), f"Found mismatching optim files for rank {rank}: {os.path.basename(f1)} != {os.path.basename(f2)}"
+        assert os.path.basename(f1) == os.path.basename(f2), (
+            f"Found mismatching optim files for rank {rank}: {os.path.basename(f1)} != {os.path.basename(f2)}"
+        )
     print_pid(f" -> Model files for rank {rank}: {len(model_files)}")
 
-    assert len(optim_files) == len(
-        model_files
-    ), f"Expected same number of optim and model files: {len(optim_files)} != {len(model_files)}"
+    assert len(optim_files) == len(model_files), (
+        f"Expected same number of optim and model files: {len(optim_files)} != {len(model_files)}"
+    )
     assert len(optim_files) > 0, f"Expected at least one optim file, got {len(optim_files)}"
 
     zero_model_states = parse_model_states(model_files)

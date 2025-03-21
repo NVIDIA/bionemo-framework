@@ -39,10 +39,10 @@ logger = pooch.get_logger()
 
 
 __all__: Sequence[str] = (
-    "load",
+    "NGCDownloader",
     "default_ngc_client",
     "default_pbss_client",
-    "NGCDownloader",
+    "load",
 )
 SourceOptions = Literal["ngc", "pbss"]
 DEFAULT_SOURCE: SourceOptions = os.environ.get("BIONEMO_DATA_SOURCE", "ngc")  # type: ignore

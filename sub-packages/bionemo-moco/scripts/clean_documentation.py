@@ -32,7 +32,7 @@ markdown = re.sub(r'<a id="([a-zA-Z0-9_\.]+)">', lambda match: f'<a id="{match.g
 # Replace dots with no space in links
 markdown = re.sub(
     r"\[([^\]]+)\]\(#([a-zA-Z0-9_\.]+)\)",
-    lambda match: f'[{match.group(1)}](#{match.group(2).replace(".", "")})',
+    lambda match: f"[{match.group(1)}](#{match.group(2).replace('.', '')})",
     markdown,
 )
 
