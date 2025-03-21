@@ -28,70 +28,71 @@ from bionemo.llm.run.config_models import MainConfig
 from bionemo.llm.train import NsysConfig, train
 
 
-def main():  # noqa: D103
-    def parse_args():
-        parser = argparse.ArgumentParser(description="Run Geneformer pretraining")
-        parser.add_argument("--config", type=str, required=True, help="Path to the JSON configuration file")
-        parser.add_argument(
-            "--model-config-cls",
-            default=ExposedGeneformerPretrainConfig,
-            required=False,
-            help="fully resolvable python import path to the ModelConfig class. Builtin options are ExposedGeneformerPretrainConfig and ExposedFineTuneSeqLenBioBertConfig.",
-        )
-        parser.add_argument(
-            "--data-config-cls",
-            default=GeneformerPretrainingDataConfig,
-            required=False,
-            help="fully resolvable python import path to the class.",
-        )
-        parser.add_argument(
-            "--resume-if-exists",
-            default=False,
-            action="store_true",
-            help="Resume training if a checkpoint exists that matches the current experiment configuration.",
-        )
+def parse_args():  # noqa: D103
+    parser = argparse.ArgumentParser(description="Run Geneformer pretraining")
+    parser.add_argument("--config", type=str, required=True, help="Path to the JSON configuration file")
+    parser.add_argument(
+        "--model-config-cls",
+        default=ExposedGeneformerPretrainConfig,
+        required=False,
+        help="fully resolvable python import path to the ModelConfig class. Builtin options are ExposedGeneformerPretrainConfig and ExposedFineTuneSeqLenBioBertConfig.",
+    )
+    parser.add_argument(
+        "--data-config-cls",
+        default=GeneformerPretrainingDataConfig,
+        required=False,
+        help="fully resolvable python import path to the class.",
+    )
+    parser.add_argument(
+        "--resume-if-exists",
+        default=False,
+        action="store_true",
+        help="Resume training if a checkpoint exists that matches the current experiment configuration.",
+    )
 
-        # Debug options.
-        parser.add_argument(
-            "--nsys-profiling",
-            action="store_true",
-            default=False,
-            help="Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with `nsys`. For example: "
-            " `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop  [regular python command here]`",
-        )
-        # start, end, rank
-        parser.add_argument(
-            "--nsys-start-step",
-            type=int,
-            required=False,
-            default=0,
-            help="Start nsys profiling after this step.",
-        )
-        parser.add_argument(
-            "--nsys-end-step",
-            type=int,
-            required=False,
-            help="End nsys profiling after this step.",
-        )
-        # rank as list of integers
-        parser.add_argument(
-            "--nsys-ranks",
-            type=int,
-            nargs="+",
-            required=False,
-            default=[0],
-            help="Enable nsys profiling for these ranks.",
-        )
-        parser.add_argument(
-            "--disable-checkpointing",
-            action="store_false",
-            default=True,
-            dest="create_checkpoint_callback",
-            help="Disable creating a ModelCheckpoint callback.",
-        )
+    # Debug options.
+    parser.add_argument(
+        "--nsys-profiling",
+        action="store_true",
+        default=False,
+        help="Enable targeted `nsys` profiling on the training loop for a defined step range. To actually get profiling output you must run the whole program with `nsys`. For example: "
+        " `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop  [regular python command here]`",
+    )
+    # start, end, rank
+    parser.add_argument(
+        "--nsys-start-step",
+        type=int,
+        required=False,
+        default=0,
+        help="Start nsys profiling after this step.",
+    )
+    parser.add_argument(
+        "--nsys-end-step",
+        type=int,
+        required=False,
+        help="End nsys profiling after this step.",
+    )
+    # rank as list of integers
+    parser.add_argument(
+        "--nsys-ranks",
+        type=int,
+        nargs="+",
+        required=False,
+        default=[0],
+        help="Enable nsys profiling for these ranks.",
+    )
+    parser.add_argument(
+        "--disable-checkpointing",
+        action="store_false",
+        default=True,
+        dest="create_checkpoint_callback",
+        help="Disable creating a ModelCheckpoint callback.",
+    )
 
-        return parser.parse_args()
+    return parser.parse_args()
 
+
+def main(args=None):  # noqa: D103
     def string_to_class(path: str):
         import importlib
 
@@ -129,7 +130,9 @@ def main():  # noqa: D103
             data_config_cls = string_to_class(data_config_cls)
         return MainConfig[model_config_cls, data_config_cls](**config_dict)
 
-    args = parse_args()
+    if args is None:
+        args = parse_args()
+
     config = load_config(args.config, args.model_config_cls, args.data_config_cls, args.create_checkpoint_callback)
 
     if args.nsys_profiling:
@@ -155,4 +158,5 @@ def main():  # noqa: D103
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)

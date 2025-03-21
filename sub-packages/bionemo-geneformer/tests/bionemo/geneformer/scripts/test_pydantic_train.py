@@ -13,24 +13,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 
 from bionemo.core.data.load import load
+from bionemo.geneformer.run.config_models import (
+    ExposedFineTuneSeqLenBioBertConfig,
+    ExposedGeneformerPretrainConfig,
+    GeneformerPretrainingDataConfig,
+)
+from bionemo.geneformer.run.recipes import save_recipe
 
 
 @pytest.fixture
 def data_path() -> Path:
-    """Gets the path to the directory with with cellx small dataset in Single Cell Memmap format.
+    """Gets the path to the directory with with cellxgene small dataset in Single Cell Memmap format.
     Returns:
         A Path object that is the directory with the specified test data.
     """
-    return load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
+    return (
+        load("single_cell/testdata-20241203", dest_filename="testdata-20241203")
+        / "cellxgene_2023-12-15_small_processed_scdl"
+    )
 
 
 def test_bionemo2_rootdir(data_path):
@@ -85,16 +96,79 @@ def test_pretrain_cli_from_ckpt(tmpdir, data_path):
     assert (result_dir / "test-experiment").exists(), "Could not find test experiment directory."
 
 
+@pytest.mark.slow
+def test_pretrain_api(tmpdir, data_path):
+    from bionemo.geneformer.run.main import main
+
+    result_dir = Path(tmpdir.mkdir("results"))
+    config = f"{result_dir}/test_config.yaml"
+
+    args = argparse.Namespace(
+        recipe="geneformer_tiny_test_recipe",
+        dest=config,
+        data_path=str(data_path),
+        result_dir=result_dir,
+        initial_ckpt_path=None,
+    )
+    config = save_recipe(args)
+
+    args = argparse.Namespace(
+        config=config,
+        model_config_cls=ExposedGeneformerPretrainConfig,
+        data_config_cls=GeneformerPretrainingDataConfig,
+        resume_if_exists=False,
+        nsys_profiling=False,
+        nsys_start_step=0,
+        nsys_end_step=None,
+        nsys_ranks=[0],
+        create_checkpoint_callback=True,
+    )
+    main(args)
+    # NOTE this looks a lot like a magic value. But we also could do yaml.loads(config)['experiment_config']['experiment_name']
+    assert (result_dir / "test-experiment").exists(), "Could not find test experiment directory."
+
+
+@pytest.mark.slow
+def test_finetune_api(tmpdir, data_path):
+    from bionemo.geneformer.run.main import main
+
+    """Uses CLI to invoke the entrypoint"""
+    result_dir = Path(tmpdir.mkdir("results"))
+    config = f"{result_dir}/test_config.yaml"
+    checkpoint_path: Path = load("geneformer/10M_240530:2.0")
+
+    args = argparse.Namespace(
+        recipe="finetune_test_recipe",
+        dest=config,
+        data_path=str(data_path),
+        result_dir=result_dir,
+        initial_ckpt_path=str(checkpoint_path),
+    )
+    config = save_recipe(args)
+
+    args = argparse.Namespace(
+        config=config,
+        model_config_cls=ExposedFineTuneSeqLenBioBertConfig,
+        data_config_cls=GeneformerPretrainingDataConfig,
+        resume_if_exists=False,
+        nsys_profiling=False,
+        nsys_start_step=0,
+        nsys_end_step=None,
+        nsys_ranks=[0],
+        create_checkpoint_callback=True,
+    )
+    main(args)
+    assert (result_dir / "test-experiment").exists(), "Could not find test experiment directory."
+
+
 # TODO: These tests currently take an inordinate amount of time. See https://jirasw.nvidia.com/browse/BIONEMO-553
 @pytest.mark.slow
 def test_pretrain_cli(tmpdir, data_path):
     """trains from scratch"""
-    # data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
     result_dir = Path(tmpdir.mkdir("results"))
 
     open_port = find_free_network_port()
     config = f"{result_dir}/test_config.yaml"
-    # Invoke with blocking
     cmd_str = f"""bionemo-geneformer-recipe --dest {config} --recipe geneformer_tiny_test_recipe --data-path {data_path} --result-dir {result_dir}""".strip()
     # continue when finished
     env = dict(**os.environ)  # a local copy of the environment
@@ -131,9 +205,8 @@ def test_pretrain_cli(tmpdir, data_path):
 @pytest.mark.slow
 def test_finetune_cli(tmpdir, data_path):
     """Uses CLI to invoke the entrypoint"""
-    # data_path: Path = load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data"
     result_dir = Path(tmpdir.mkdir("results"))
-    checkpoint_path: Path = load("geneformer/10M_240530:2.0")
+    checkpoint_path: Path = load("geneformer/10M_240530:2.0", source="pbss")
 
     open_port = find_free_network_port()
 
@@ -145,7 +218,6 @@ def test_finetune_cli(tmpdir, data_path):
     env = dict(**os.environ)  # a local copy of the environment
     env["MASTER_PORT"] = str(open_port)
     cmd = shlex.split(cmd_str)
-    import sys
 
     result = subprocess.run(
         cmd,

@@ -564,6 +564,30 @@ class GeneformerRecipes(BaseModel):
     ] = partial(finetune_test_recipe)
 
 
+def save_recipe(args):
+    """Loads the recipe, populates it with values from the argument parser namespace, and saves it to a yaml file.
+
+    Args:
+        args: argparse.Namespace
+            The namespace object containing the parsed arguments.
+
+    Returns:
+        str: The path to the saved yaml file.
+    """
+    config_partial: Callable[[argparse.Namespace], MainConfig] = GeneformerRecipes().__getattribute__(args.recipe)
+    config = config_partial(args)
+
+    # Save to file
+    with open(
+        args.dest,
+        "w",
+    ) as f:
+        yaml.dump(config.model_dump(), f, indent=2)
+
+    logging.info(f"Saved configuration to {args.dest=}")
+    return args.dest
+
+
 def main():  # noqa: D103
     def parse_args():
         parser = argparse.ArgumentParser(description="Create Geneformer configuration YAML.")
@@ -597,23 +621,12 @@ def main():  # noqa: D103
             default=None,
             help="Path to an existing to a checkpoint directory to restore an existing checkpoint. Not compatible with all recipes.",
         )
-
         args = parser.parse_args()
         return args
 
     """Simple example for creating a YAML from recipes."""
     args = parse_args()
-    config_partial: Callable[[argparse.Namespace], MainConfig] = GeneformerRecipes().__getattribute__(args.recipe)
-    config = config_partial(args)
-
-    # Save to file
-    with open(
-        args.dest,
-        "w",
-    ) as f:
-        yaml.dump(config.model_dump(), f, indent=2)
-
-    logging.info(f"Saved configuration to {args.dest=}")
+    save_recipe(args)
 
 
 if __name__ == "__main__":
