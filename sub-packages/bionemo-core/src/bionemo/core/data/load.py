@@ -141,7 +141,6 @@ def load(
     source: SourceOptions = DEFAULT_SOURCE,
     resources: dict[str, Resource] | None = None,
     cache_dir: Path | None = None,
-    dest_filename: str | None = None,
 ) -> Path:
     """Download a resource from PBSS or NGC.
 
@@ -150,7 +149,6 @@ def load(
         source: Either "pbss" (NVIDIA-internal download) or "ngc" (NVIDIA GPU Cloud). Defaults to "pbss".
         resources: A custom dictionary of resources. If None, the default resources will be used. (Mostly for testing.)
         cache_dir: The directory to store downloaded files. Defaults to BIONEMO_CACHE_DIR. (Mostly for testing.)
-        dest_filename: The name of the file to save the downloaded resource as. If None, dest_filename will be inferred.
 
     Raises:
         ValueError: If the desired tag was not found, or if an NGC url was requested but not provided.
@@ -196,7 +194,7 @@ def load(
 
     download = pooch.retrieve(
         url=str(url),
-        fname=dest_filename if dest_filename else f"{resource.sha256}-{filename}",
+        fname=f"{resource.sha256}-{filename}",
         known_hash=resource.sha256,
         path=cache_dir,
         downloader=download_fn,
@@ -205,8 +203,6 @@ def load(
 
     # Pooch by default returns a list of unpacked files if they unpack a zipped or tarred directory. Instead of that, we
     # just want the unpacked, parent folder.
-
-    # TODO (SKH): Would be nice to have full filename determinism, this makes it impossible without knowing the filetype and handling each case.
     if isinstance(download, list):
         return Path(processor.extract_dir)  # type: ignore
 

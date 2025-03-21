@@ -38,10 +38,7 @@ def data_path() -> Path:
     Returns:
         A Path object that is the directory with the specified test data.
     """
-    return (
-        load("single_cell/testdata-20241203", dest_filename="testdata-20241203")
-        / "cellxgene_2023-12-15_small_processed_scdl"
-    )
+    return load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
 
 
 def test_bionemo2_rootdir(data_path):
