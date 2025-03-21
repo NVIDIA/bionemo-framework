@@ -21,7 +21,6 @@ env:
   SUBPACKAGE_SKIP_TEST: '["bionemo-moco","bionemo-noodles","bionemo-geometric","bionemo-webdatamodule","bionemo-size-aware-batching","bionemo-testing","bionemo-llm","bionemo-evo2","bionemo-esm2","bionemo-geneformer","bionemo-example_model","bionemo-fw"]'
   # TODO(@cspades): Skip publishing for packages that require special installation recipes or should not be published to PyPI.
   SUBPACKAGE_SKIP_PUBLISH: '["bionemo-noodles","bionemo-geometric","bionemo-testing","bionemo-example_model"]'
-  NVIDIA_VISIBLE_DEVICES: "all"
 
 jobs:
   configure-workflow-packages:
@@ -74,6 +73,9 @@ jobs:
 
   install-and-test:
     needs: configure-workflow-packages
+    # Check if the previous job has any staged packages to test and publish.
+    # If not, skip this job and subsequent jobs that directly or indirectly depend on this job.
+    if: ${{ needs.configure-workflow-packages.outputs.workflow_packages != '[]' }}
     outputs:
       test_packages: ${{ needs.configure-workflow-packages.outputs.workflow_packages }}
     strategy:
@@ -82,10 +84,8 @@ jobs:
       fail-fast: false  # Prevent all matrix jobs from failing if one fails.
     name: "[${{ matrix.package }}] Install and test sub-package."
     runs-on: linux-amd64-gpu-l4-latest-1
-    container: # GPU jobs must run in a container
-      image: nvidia/cuda:12.0.0-base-ubuntu22.04
-      env:
-        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
+    container: # GPU jobs must run in a container. Use a fresh base container for package installation and testing.
+      image: ubuntu:latest
     steps:
       - uses: actions/checkout@v4
         with:

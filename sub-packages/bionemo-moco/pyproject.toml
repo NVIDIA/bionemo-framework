@@ -11,8 +11,6 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
-    # bionemo sub-packages
-    # external
     'torch>=2.2',
     'numpy>=1.24.4,<2',
     'jaxtyping>=0.2.34',
