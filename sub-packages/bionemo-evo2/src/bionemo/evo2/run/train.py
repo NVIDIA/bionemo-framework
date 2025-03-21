@@ -408,6 +408,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Dropout probability for the hyena layers",
     )
     parser.add_argument(
+        "--log-num-zeros-in-grad",
+        action="store_true",
+        default=False,
+        help="Log the number of zeros in the gradient.",
+    )
+    parser.add_argument(
         "--attention-dropout",
         type=float,
         default=0.0,
@@ -759,6 +765,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         clip_grad=args.clip_grad,
         adam_eps=args.adam_eps,
         use_distributed_optimizer=True,
+        log_num_zeros_in_grad=args.log_num_zeros_in_grad,
         bf16=True,
     )
 
