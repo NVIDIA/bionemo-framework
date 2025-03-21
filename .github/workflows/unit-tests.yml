@@ -200,13 +200,8 @@ jobs:
           FAST_CI_MODE: true
         run: |
           pytest -v --nbval-lax -p no:python docs/ sub-packages/
-          echo "Cleaning up untracked files in docs/ and sub-packages/ directories..."
-          # Find and remove files not tracked by git in docs/ and sub-packages/
-          git clean -fdx docs/ sub-packages/
-          echo "Cleanup complete."
 
-  verify-tests-status:
-    name: Verify All Tests Status
+  tests-status:
     needs: # List all your run-*-test jobs
       - run-tests
       - run-slow-tests
