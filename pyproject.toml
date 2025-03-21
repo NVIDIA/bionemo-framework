@@ -48,6 +48,7 @@ nemo_toolkit = { workspace = true }
 megatron-core = { workspace = true }
 # in sub-packages/
 bionemo-core = { workspace = true }
+bionemo-amplify = { workspace = true }
 bionemo-esm2 = { workspace = true }
 bionemo-example_model = { workspace = true }
 bionemo-fw = { workspace = true }
