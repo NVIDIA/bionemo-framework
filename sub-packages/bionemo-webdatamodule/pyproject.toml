@@ -11,9 +11,7 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
-    # bionemo sub-packages
     'bionemo-core',
-    # external
     'webdataset==0.2.96',
 ]
 
