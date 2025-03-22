@@ -65,7 +65,7 @@ jobs:
     needs:
       - pre-commit
       - get-pr-labels
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     if: ${{ !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'SKIP_CI') }}
     steps:
       - name: Login to Docker Hub
@@ -114,6 +114,7 @@ jobs:
             type=registry,ref=svcbionemo023/bionemo-build-cache:main
           cache-to: ${{ steps.cache.outputs.cache-to }}
 
+
   run-tests:
     needs:
       - build-bionemo-image
@@ -135,30 +136,6 @@ jobs:
           BIONEMO_DATA_SOURCE: ngc
         run: ./ci/scripts/run_pytest.sh --no-nbval --skip-slow
 
-      - name: Run slow tests
-        if: |
-          github.event_name == 'schedule' ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS')
-        env:
-          BIONEMO_DATA_SOURCE: ngc
-        # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
-        #  to run package by package like we do with the fast tests.
-        run: ./ci/scripts/run_pytest.sh --no-nbval --only-slow --allow-no-tests
-
-      - name: Run notebook tests
-        if: |
-          github.event_name == 'schedule' ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS')
-        env:
-          BIONEMO_DATA_SOURCE: ngc
-          # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
-          FAST_CI_MODE: true
-        run: |
-          pytest -v --nbval-lax -p no:python docs/ sub-packages/
-          echo "Cleaning up untracked files in docs/ and sub-packages/ directories..."
-          # Find and remove files not tracked by git in docs/ and sub-packages/
-          git clean -fdx docs/ sub-packages/
-          echo "Cleanup complete."
       - name: Upload coverage to Codecov
         # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
         # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
@@ -174,3 +151,75 @@ jobs:
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  run-slow-tests:
+    needs:
+      - build-bionemo-image
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-l4-latest-1
+    container:
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    if: |
+      github.event_name == 'schedule' || github.event_name == 'merge_group' ||
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run slow tests
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
+        #  to run package by package like we do with the fast tests.
+        run: ./ci/scripts/run_pytest.sh --no-nbval --only-slow --allow-no-tests
+
+
+  run-notebooks-docs:
+    needs:
+      - build-bionemo-image
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-l4-latest-1
+    if: |
+      github.event_name == 'schedule' || github.event_name == 'merge_group' ||
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS')
+    container:
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run notebook tests
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+          # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
+          FAST_CI_MODE: true
+        run: |
+          pytest -v --nbval-lax -p no:python docs/ sub-packages/
+
+  verify-tests-status:
+    # Base on the status of this job, the unit-tests workflow succeeds or fails
+    # This steps checks the status of all test jobs and fails if any of them failed or were cancelled.
+    # It is a workaround for the lack of a built-in feature to finalize a pipeline by checking the status of multiple jobs
+    needs: # List all your run-*-test jobs
+      - run-tests
+      - run-slow-tests
+      - run-notebooks-docs
+      # Add all other run-*-test jobs
+    runs-on: ubuntu-latest
+    if: always() # This ensures the job runs even if previous jobs fail
+    steps:
+      - name: Check test job statuses
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "Some test jobs have failed or been cancelled!"
+            exit 1
+          else
+            echo "All test jobs have completed successfully or been skipped!"
+            exit 0
+          fi
