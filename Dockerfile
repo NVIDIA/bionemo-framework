@@ -103,7 +103,8 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 fi
 
 # Decord installation
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
+RUN --mount=type=bind,source=./arm_build/decord_ffmpeg6_fix.patch,target=/decord_ffmpeg6_fix.patch \
+    if [ "$TARGETARCH" = "arm64" ]; then \
     apt-get update && \
     apt-get install -y build-essential python3-dev python3-setuptools make cmake && \
     apt-get install -y ffmpeg libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev && \
