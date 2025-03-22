@@ -124,7 +124,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     mkdir -p /usr/lib/tiledb && \
     cd /usr/lib/tiledb && \
     wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.0-rc3/tiledb-linux-arm64-2.27.0-rc3-8d581f2.tar.gz -O tiledb.tar.gz && \
-    tar -xvzf tiledb.tar.gz && \
+    tar -xvzf tiledb.tar.gz && export TILEDB_PATH=/usr/lib/tiledb && \
     cd / && \
     dpkg -l | awk '/libfmt/ {print $2}' | xargs apt-get remove -y && \
     dpkg -l | awk '/spdlog/ {print $2}' | xargs apt-get remove -y && \
