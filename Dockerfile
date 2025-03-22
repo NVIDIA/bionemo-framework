@@ -5,7 +5,7 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.02-py3
 
 FROM rust:1.82.0 AS rust-env
 
@@ -38,11 +38,12 @@ EOF
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
 RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.2.post1
+#  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.2.post1
+  git+https://github.com/johnnynunez/causal-conv1d.git@3a5173a4183692f1994e24fe333e3c7a19239abc
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.2.2
+  git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
 # Install xformers for AMPLIFY huggingface tests.
 ARG XFORMER_ENGINE_TAG=v0.0.29.post1
