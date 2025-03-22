@@ -125,7 +125,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     cd /usr/lib/tiledb && \
     wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.0-rc3/tiledb-linux-arm64-2.27.0-rc3-8d581f2.tar.gz -O tiledb.tar.gz && \
     tar -xvzf tiledb.tar.gz && \
-    cd /dependencies && \
+    cd / && \
     dpkg -l | awk '/libfmt/ {print $2}' | xargs apt-get remove -y && \
     dpkg -l | awk '/spdlog/ {print $2}' | xargs apt-get remove -y && \
     rm -f /usr/lib/*/cmake/spdlog/spdlogConfig.cmake && \
@@ -135,8 +135,6 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     pip install -v .; \
 fi
 
-# Reset workdir
-WORKDIR /
 ###############################################################################
 # /end ARM
 ###############################################################################
