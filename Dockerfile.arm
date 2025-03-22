@@ -1,65 +1,57 @@
 # Base image with apex and transformer engine, but without NeMo or Megatron-LM.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.12-py3
+#  Note that the core NeMo docker container is defined here:
+#   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/llm_train/Dockerfile.train
+#  with settings that get defined/injected from this config:
+#   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
+#  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
+#   training loss curves from NeMo.
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
 
-FROM rust:1.82.0 as rust-env
+FROM rust:1.82.0 AS rust-env
 
 RUN rustup set profile minimal && \
-    rustup install 1.82.0 && \
-    rustup target add aarch64-unknown-linux-gnu && \
-    rustup default 1.82.0
+  rustup install 1.82.0 && \
+  rustup target add x86_64-unknown-linux-gnu && \
+  rustup default 1.82.0
 
 FROM ${BASE_IMAGE} AS bionemo2-base
 
-# Install NeMo dependencies.
-ENV WORKDIR=/build
-WORKDIR ${WORKDIR}
-
-ARG MAX_JOBS=4
-ENV MAX_JOBS=${MAX_JOBS}
-
-# See NeMo readme for the latest tested versions of these libraries
-ENV TORCH_CUDA_ARCH_LIST=9.0
-ARG APEX_COMMIT=810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
-RUN git clone https://github.com/NVIDIA/apex.git && \
-  cd apex && \
-  git checkout ${APEX_COMMIT} && \
-  pip install . -v --no-build-isolation --disable-pip-version-check --no-cache-dir \
-  --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
-
-# Transformer Engine pre-1.7.0. 1.7 standardizes the meaning of bits in the attention mask to match
-ARG TE_COMMIT=c27ee60ec746210bcea4ec33958dbbff06706506
-RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
-  cd TransformerEngine && \
-  git fetch origin ${TE_COMMIT} && \
-  git checkout FETCH_HEAD && \
-  git submodule init && git submodule update && \
-  NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi pip install .
-
 # Install core apt packages.
-RUN apt-get update \
-  && apt-get install -y \
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+  <<EOF
+set -eo pipefail
+apt-get update -qy
+apt-get install -qyy \
   libsndfile1 \
   ffmpeg \
   git \
   curl \
-  cmake \
   pre-commit \
   sudo \
-  && rm -rf /var/lib/apt/lists/*
-
-RUN apt-get install -y gnupg
+  gnupg
+apt-get upgrade -qyy \
+  rsync
+rm -rf /tmp/* /var/tmp/*
+EOF
 
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
 RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.0.post2
+  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.2.post1
 
+######################################
+# ARM
+# mamba-ssm needs triton, which needs to be manually build for ARM
+#####################################
 # Build LLVM and triton
 # It's important to select a specific version of LLVM as per triton's README instructions, and
 # also important to constrain the build targets to the systems we care about or else there will
 # be many strange unlinked symbol issues. Here we assume this dockerfile is build on an aarch64
 # target (host), and build for NVIDIA GPUS (NVPTX). Unclear why, but we also need to build for
 # AMDGPUs to get triton to properly build or else there are linker issues.
+ENV BUILD_DIR=/build
+WORKDIR ${BUILD_DIR}
 RUN git clone https://github.com/llvm/llvm-project.git && \
     pip install ninja && \
     cd llvm-project && \
@@ -67,70 +59,19 @@ RUN git clone https://github.com/llvm/llvm-project.git && \
     git checkout 10dc3a8e916d73291269e5e2b82dd22681489aa1 && \
     mkdir build && cd build && \
     cmake -G Ninja  -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_PROJECTS="mlir;llvm" -DLLVM_TARGETS_TO_BUILD="host;NVPTX;AMDGPU" ../llvm && \
-    ninja && \
-    export LLVM_BUILD_DIR=${WORKDIR}/llvm-project/build && \
-    cd ${WORKDIR} && \
+    ninja
+RUN export LLVM_BUILD_DIR=${BUILD_DIR}/llvm-project/build  &&  cd ${BUILD_DIR} && \
     git clone https://github.com/triton-lang/triton.git && \
     pip install cmake wheel pybind11 && \
     cd triton && \
     git fetch origin release/3.1.x && \
     git checkout release/3.1.x && \
     LLVM_INCLUDE_DIRS=$LLVM_BUILD_DIR/include LLVM_LIBRARY_DIR=$LLVM_BUILD_DIR/lib LLVM_SYSPATH=$LLVM_BUILD_DIR pip install --verbose python/ && \
-    cd ${WORKDIR} && \
+    cd ${BUILD_DIR} && \
     rm -rf llvm-project && \
     rm -rf triton
 
-# Mamba dependancy installation
-RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.0.3
-
-RUN pip install hatchling   # needed to install nemo-run
-ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
-RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMO_RUN_TAG}
-
-RUN mkdir -p /workspace/bionemo2/
-
-# Delete the temporary /build directory.
-WORKDIR /workspace
-RUN rm -rf /build
-
-# Addressing Security Scan Vulnerabilities
-RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
-RUN apt purge -y libpmi2-0 && \
-  apt autoremove -y
-
-# Use UV to install python packages from the workspace. This just installs packages into the system's python
-# environment, and does not use the current uv.lock file. Note that with python 3.12, we now need to set
-# UV_BREAK_SYSTEM_PACKAGES, since the pytorch base image has made the decision not to use a virtual environment and UV
-# does not respect the PIP_BREAK_SYSTEM_PACKAGES environment variable set in the base dockerfile.
-COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
-ENV UV_LINK_MODE=copy \
-  UV_COMPILE_BYTECODE=1 \
-  UV_PYTHON_DOWNLOADS=never \
-  UV_SYSTEM_PYTHON=true \
-  UV_NO_CACHE=1 \
-  UV_BREAK_SYSTEM_PACKAGES=1
-
-# Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
-# installation. These involve building some torch extensions, so they can take a while to install.
-RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
-  uv pip install --no-build-isolation -r /requirements-pyg.txt
-
-ENV WORKDIR=/workspace/bionemo2
-WORKDIR ${WORKDIR}
-
-# Install 3rd-party deps and bionemo submodules.
-COPY ./LICENSE /workspace/bionemo2/LICENSE
-COPY ./3rdparty /workspace/bionemo2/3rdparty
-COPY ./sub-packages /workspace/bionemo2/sub-packages
-
-COPY --from=rust-env /usr/local/cargo /usr/local/cargo
-COPY --from=rust-env /usr/local/rustup /usr/local/rustup
-
-ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
-ENV RUSTUP_HOME="/usr/local/rustup"
-
+### **************** DECORD *******************************
 # # Build decord
 # This needs a specific version of ffmpeg:
 # root@e1fc53d00844:/workspace/bionemo2# ffmpeg -version
@@ -165,17 +106,8 @@ RUN --mount=type=bind,source=./arm_build/decord_ffmpeg6_fix.patch,target=/decord
     make && \
     cd ../python && \
     pip install . && \
-    cd ${WORKDIR} && \
+    cd ${BUILD_DIR} && \
     rm -rf decord
-
-RUN pip install --upgrade pip setuptools
-RUN pip install setuptools_scm py-cpuinfo
-# Install C++20 toolchain
-RUN apt-get update && \
-    apt-get install -y software-properties-common && \
-    add-apt-repository ppa:ubuntu-toolchain-r/test && \
-    apt-get update && \
-    apt-get install -y gcc-13 g++-13 make pkg-config opencc
 
 WORKDIR /usr/lib/tiledb
 RUN wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.0-rc3/tiledb-linux-arm64-2.27.0-rc3-8d581f2.tar.gz -O tiledb.tar.gz && \
@@ -192,20 +124,86 @@ RUN git clone --single-branch --branch 1.15.0rc4 https://github.com/single-cell-
     cd TileDB-SOMA/apis/python && \
     pip install -v .
 
+# Reset workdir to default
+WORKDIR /
+######################################
+# /end ARM
+#####################################
+
+# Mamba dependancy installation
+RUN pip --disable-pip-version-check --no-cache-dir install \
+  git+https://github.com/state-spaces/mamba.git@v2.2.2
+
+RUN pip install hatchling   # needed to install nemo-run
+ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
+RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG}
+
+RUN mkdir -p /workspace/bionemo2/
+
+WORKDIR /workspace
+
+# Addressing Security Scan Vulnerabilities
+RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
+
+
+# Use UV to install python packages from the workspace. This just installs packages into the system's python
+# environment, and does not use the current uv.lock file. Note that with python 3.12, we now need to set
+# UV_BREAK_SYSTEM_PACKAGES, since the pytorch base image has made the decision not to use a virtual environment and UV
+# does not respect the PIP_BREAK_SYSTEM_PACKAGES environment variable set in the base dockerfile.
+COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
+ENV UV_LINK_MODE=copy \
+  UV_COMPILE_BYTECODE=1 \
+  UV_PYTHON_DOWNLOADS=never \
+  UV_SYSTEM_PYTHON=true \
+  UV_BREAK_SYSTEM_PACKAGES=1
+
+# Install the bionemo-geometric requirements ahead of copying over the rest of the repo, so that we can cache their
+# installation. These involve building some torch extensions, so they can take a while to install.
+RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
+  --mount=type=cache,target=/root/.cache \
+  uv pip install --no-build-isolation -r /requirements-pyg.txt
+
+COPY --from=rust-env /usr/local/cargo /usr/local/cargo
+COPY --from=rust-env /usr/local/rustup /usr/local/rustup
+
+ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
+ENV RUSTUP_HOME="/usr/local/rustup"
+
 WORKDIR /workspace/bionemo2
-RUN uv pip install maturin --no-build-isolation --break-system-packages
-RUN pip install --use-deprecated=legacy-resolver  --no-build-isolation tensorstore==0.1.45
+
+# Install 3rd-party deps and bionemo submodules.
+COPY ./LICENSE /workspace/bionemo2/LICENSE
+COPY ./3rdparty /workspace/bionemo2/3rdparty
+COPY ./sub-packages /workspace/bionemo2/sub-packages
 
 RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-# Comment out mamba install in NeMo as this causes issues.
-  sed -i "/mamba-ssm/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt && \
+  --mount=type=cache,target=/root/.cache <<EOF
+  set -eo pipefail
+  uv pip install maturin --no-build-isolation
+  # install nvidia-resiliency-ext separately because it doesn't yet have ARM wheels
+  git clone https://github.com/NVIDIA/nvidia-resiliency-ext
+  uv pip install nvidia-resiliency-ext/
+  # ngcsdk causes strange dependency conflicts that we will resolve later
+  sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
   uv pip install --no-build-isolation \
   ./3rdparty/* \
   ./sub-packages/bionemo-* \
   -r /requirements-cve.txt \
-  -r /requirements-test.txt && rm -rf ./3rdparty && rm -rf /tmp/* && rm -rf ./sub-packages/bionemo-noodles/target \
-  && rm -rf /root/.cache/*
+  -r /requirements-test.txt
+
+  # Install back ngcsdk. Somehow doing it here avoids a large dependency loop
+  uv pip install ngcsdk
+
+  # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
+  # dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
+  # seems to be causing issues with NGC downloads. See https://nvbugspro.nvidia.com/bug/5149698
+  uv pip uninstall sqlitedict zstandard
+
+  rm -rf ./3rdparty
+  rm -rf /tmp/*
+  rm -rf ./sub-packages/bionemo-noodles/target
+EOF
 
 # In the devcontainer image, we just copy over the finished `dist-packages` folder from the build image back into the
 # base pytorch container. We can then set up a non-root user and uninstall the bionemo and 3rd-party packages, so that
@@ -223,35 +221,32 @@ apt-get install -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
-# Create a non-root user to use inside a devcontainer.
-ARG USERNAME=bionemo
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-RUN groupadd --gid $USER_GID $USERNAME \
-  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
-  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+# Use a non-root user to use inside a devcontainer (with ubuntu 23 and later, we can use the default ubuntu user).
+ARG USERNAME=ubuntu
+RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # Here we delete the dist-packages directory from the pytorch base image, and copy over the dist-packages directory from
 # the build image. This ensures we have all the necessary dependencies installed (megatron, nemo, etc.).
 RUN <<EOF
   set -eo pipefail
-  rm -rf /usr/local/lib/python3.10/dist-packages
-  mkdir -p /usr/local/lib/python3.10/dist-packages
-  chmod 777 /usr/local/lib/python3.10/dist-packages
+  rm -rf /usr/local/lib/python3.12/dist-packages
+  mkdir -p /usr/local/lib/python3.12/dist-packages
+  chmod 777 /usr/local/lib/python3.12/dist-packages
   chmod 777 /usr/local/bin
 EOF
 
 USER $USERNAME
 
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
-  /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+  /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
 
 COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=0 \
   UV_PYTHON_DOWNLOADS=never \
-  UV_SYSTEM_PYTHON=true
+  UV_SYSTEM_PYTHON=true \
+  UV_BREAK_SYSTEM_PACKAGES=1
 
 # Bring in the rust toolchain, as maturin is a dependency listed in requirements-dev
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
@@ -261,7 +256,7 @@ ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
 RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOF
+  --mount=type=cache,target=/root/.cache <<EOF
   set -eo pipefail
   uv pip install -r /workspace/bionemo2/requirements-dev.txt
   rm -rf /tmp/*
@@ -269,7 +264,7 @@ EOF
 
 RUN <<EOF
   set -eo pipefail
-  rm -rf /usr/local/lib/python3.10/dist-packages/bionemo*
+  rm -rf /usr/local/lib/python3.12/dist-packages/bionemo*
   pip uninstall -y nemo_toolkit megatron_core
 EOF
 
@@ -278,7 +273,6 @@ EOF
 # FIXME the following result in unstable training curves even if they are faster
 #  see https://github.com/NVIDIA/bionemo-framework/pull/421
 #ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
-
 FROM dev AS development
 
 WORKDIR /workspace/bionemo2
@@ -294,9 +288,6 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
-RUN uv pip uninstall maturin
-RUN uv pip install maturin --no-build-isolation
-
 RUN <<EOF
 set -eo pipefail
 find . -name __pycache__ -type d -print | xargs rm -rf
@@ -305,14 +296,9 @@ for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
     uv pip install --no-deps --no-build-isolation --editable $sub
 done
 EOF
-# This is needed because faiss is not compatible with ARM at all.
-# Bionemo doesn't use faiss, but megatron core does.
-# We do not use this codepath at all, therefore we just make is_sve_supported return False
-# to circumvent python import issues
-RUN sed -i '42i\        # Bionemo hack to fix ARM issues with faiss\n        return False' /usr/local/lib/python3.12/dist-packages/faiss/loader.py
 
-# Since the entire repo is owned by root, swithcing username for development breaks things.
-ARG USERNAME=bionemo
+# Since the entire repo is owned by root, switching username for development breaks things.
+ARG USERNAME=ubuntu
 RUN chown $USERNAME:$USERNAME -R /workspace/bionemo2/
 USER $USERNAME
 
@@ -327,7 +313,6 @@ RUN mkdir -p /workspace/bionemo2/.cache/
 COPY VERSION .
 COPY ./scripts ./scripts
 COPY ./README.md ./
-
 # Copy over folders so that the image can run tests in a self-contained fashion.
 COPY ./ci/scripts ./ci/scripts
 COPY ./docs ./docs
