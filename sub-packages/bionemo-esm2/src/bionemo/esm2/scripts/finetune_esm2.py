@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Type, get_args
 
 from lightning.pytorch.callbacks import Callback, LearningRateMonitor, RichModelSummary
+from megatron.core.dist_checkpointing.validation import StrictHandling
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
@@ -35,6 +36,7 @@ from bionemo.esm2.model.finetune.dataset import (
     InMemoryProteinDataset,
     InMemorySingleValueDataset,
 )
+from bionemo.esm2.model.finetune.peft import ESM2LoRA
 from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
 from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
@@ -42,6 +44,7 @@ from bionemo.llm.model.biobert.model import BioBertConfig
 from bionemo.llm.model.config import TorchmetricsConfig
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
+from bionemo.testing import megatron_parallel_state_utils
 
 
 __all__: Sequence[str] = ("finetune_esm2_entrypoint", "get_parser", "train_model")
@@ -118,6 +121,8 @@ def train_model(
     grad_reduce_in_fp32: bool = False,
     ckpt_async_save: bool = True,
     label_column: str = "labels",
+    lora_checkpoint_path: Optional[str] = None,
+    lora_finetune: bool = False,
 ) -> Tuple[Path, Callback | None, nl.Trainer]:
     """Train an ESM2 model on UR data.
 
@@ -180,6 +185,8 @@ def train_model(
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
         ckpt_async_save (bool): whether to save ckpt async. Set to False for federated learning
         label_column (str): name of label column in CSV data file. Defaults to `labels`.
+        lora_checkpoint_path (Optional[str]): path to the lora checkpoint file.
+        lora_finetune (bool): whether to use lora fine-tuning.
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -197,19 +204,20 @@ def train_model(
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
+        find_unused_parameters=True,
+        gradient_as_bucket_view=True,
+        ckpt_include_optimizer=True,
+        ckpt_async_save=ckpt_async_save,
+        ckpt_parallel_load=True,
+        ckpt_load_strictness=StrictHandling.LOG_UNEXPECTED,
         ddp=DistributedDataParallelConfig(
             check_for_nan_in_grad=True,
             overlap_grad_reduce=overlap_grad_reduce,
             overlap_param_gather=overlap_param_gather,
             average_in_collective=average_in_collective,
             grad_reduce_in_fp32=grad_reduce_in_fp32,
-            use_distributed_optimizer=True,
+            use_distributed_optimizer=False,
         ),
-        find_unused_parameters=True,
-        gradient_as_bucket_view=True,
-        ckpt_include_optimizer=True,
-        ckpt_async_save=ckpt_async_save,
-        ckpt_parallel_load=True,
     )
 
     # for wandb integration
@@ -244,6 +252,9 @@ def train_model(
                 start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
             )
         )
+    if lora_finetune:
+        peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
+        callbacks.append(peft)
 
     trainer = nl.Trainer(
         devices=devices,
@@ -263,7 +274,6 @@ def train_model(
             autocast_enabled=False,
         ),
     )
-
     tokenizer = get_tokenizer()
 
     # Initialize the data module.
@@ -342,7 +352,12 @@ def train_model(
         optimizer.scale_lr_cond = lambda name, param: scale_lr_layer in name
         optimizer.lr_mult = lr_multiplier
 
-    module = biobert_lightning_module(config=config, tokenizer=tokenizer, optimizer=optimizer)
+    if lora_finetune:
+        module = biobert_lightning_module(
+            config=config, tokenizer=tokenizer, optimizer=optimizer, model_transform=peft
+        )
+    else:
+        module = biobert_lightning_module(config=config, tokenizer=tokenizer, optimizer=optimizer)
 
     # Configure our custom Checkpointer
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
@@ -352,6 +367,8 @@ def train_model(
         every_n_train_steps=val_check_interval,
         always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
         filename="checkpoint-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        save_weights_only=False,
+        save_optim_on_train_end=True,
     )
 
     # Setup the logger and train the model
@@ -374,6 +391,7 @@ def train_model(
         ),
     )
     ckpt_path = Path(checkpoint_callback.last_model_path.replace(".ckpt", ""))
+
     return ckpt_path, metric_tracker, trainer
 
 
@@ -386,66 +404,71 @@ def finetune_esm2_entrypoint():
     # to avoid padding for single value labels:
     if args.min_seq_length is not None and args.datset_class is InMemorySingleValueDataset:
         parser.error("Arguments --min-seq-length cannot be set when using InMemorySingleValueDataset.")
+    if args.lora_checkpoint_path and not args.lora_finetune:
+        parser.error("Arguments --lora=checkpoint-path cannot be set when not using lora-finetune.")
 
-    # 2. Call pretrain with args
-    train_model(
-        train_data_path=args.train_data_path,
-        valid_data_path=args.valid_data_path,
-        num_nodes=args.num_nodes,
-        devices=args.num_gpus,
-        min_seq_length=args.min_seq_length,
-        max_seq_length=args.max_seq_length,
-        result_dir=args.result_dir,
-        wandb_entity=args.wandb_entity,
-        wandb_project=args.wandb_project,
-        wandb_tags=args.wandb_tags,
-        wandb_group=args.wandb_group,
-        wandb_id=args.wandb_id,
-        wandb_anonymous=args.wandb_anonymous,
-        wandb_log_model=args.wandb_log_model,
-        wandb_offline=args.wandb_offline,
-        num_steps=args.num_steps,
-        limit_val_batches=args.limit_val_batches,
-        val_check_interval=args.val_check_interval,
-        log_every_n_steps=args.log_every_n_steps,
-        num_dataset_workers=args.num_dataset_workers,
-        lr=args.lr,
-        micro_batch_size=args.micro_batch_size,
-        pipeline_model_parallel_size=args.pipeline_model_parallel_size,
-        tensor_model_parallel_size=args.tensor_model_parallel_size,
-        accumulate_grad_batches=args.accumulate_grad_batches,
-        precision=args.precision,
-        task_type=args.task_type,
-        encoder_frozen=args.encoder_frozen,
-        scale_lr_layer=args.scale_lr_layer,
-        lr_multiplier=args.lr_multiplier,
-        # single value classification / regression mlp
-        mlp_ft_dropout=args.mlp_ft_dropout,
-        mlp_hidden_size=args.mlp_hidden_size,
-        mlp_target_size=args.mlp_target_size,
-        # token-level classification cnn
-        cnn_dropout=args.cnn_dropout,
-        cnn_hidden_size=args.cnn_hidden_size,
-        cnn_num_classes=args.cnn_num_classes,
-        experiment_name=args.experiment_name,
-        resume_if_exists=args.resume_if_exists,
-        restore_from_checkpoint_path=args.restore_from_checkpoint_path,
-        save_last_checkpoint=args.save_last_checkpoint,
-        metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
-        save_top_k=args.save_top_k,
-        nsys_profiling=args.nsys_profiling,
-        nsys_start_step=args.nsys_start_step,
-        nsys_end_step=args.nsys_end_step,
-        nsys_ranks=args.nsys_ranks,
-        dataset_class=args.dataset_class,
-        config_class=args.config_class,
-        overlap_grad_reduce=args.overlap_grad_reduce,
-        overlap_param_gather=not args.no_overlap_param_gather,
-        average_in_collective=not args.no_average_in_collective,
-        grad_reduce_in_fp32=args.grad_reduce_in_fp32,
-        ckpt_async_save=not args.avoid_ckpt_async_save,
-        label_column=args.label_column,
-    )
+    with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+        # 2. Call pretrain with args
+        train_model(
+            train_data_path=args.train_data_path,
+            valid_data_path=args.valid_data_path,
+            num_nodes=args.num_nodes,
+            devices=args.num_gpus,
+            min_seq_length=args.min_seq_length,
+            max_seq_length=args.max_seq_length,
+            result_dir=args.result_dir,
+            wandb_entity=args.wandb_entity,
+            wandb_project=args.wandb_project,
+            wandb_tags=args.wandb_tags,
+            wandb_group=args.wandb_group,
+            wandb_id=args.wandb_id,
+            wandb_anonymous=args.wandb_anonymous,
+            wandb_log_model=args.wandb_log_model,
+            wandb_offline=args.wandb_offline,
+            num_steps=args.num_steps,
+            limit_val_batches=args.limit_val_batches,
+            val_check_interval=args.val_check_interval,
+            log_every_n_steps=args.log_every_n_steps,
+            num_dataset_workers=args.num_dataset_workers,
+            lr=args.lr,
+            micro_batch_size=args.micro_batch_size,
+            pipeline_model_parallel_size=args.pipeline_model_parallel_size,
+            tensor_model_parallel_size=args.tensor_model_parallel_size,
+            accumulate_grad_batches=args.accumulate_grad_batches,
+            precision=args.precision,
+            task_type=args.task_type,
+            encoder_frozen=args.encoder_frozen,
+            scale_lr_layer=args.scale_lr_layer,
+            lr_multiplier=args.lr_multiplier,
+            # single value classification / regression mlp
+            mlp_ft_dropout=args.mlp_ft_dropout,
+            mlp_hidden_size=args.mlp_hidden_size,
+            mlp_target_size=args.mlp_target_size,
+            # token-level classification cnn
+            cnn_dropout=args.cnn_dropout,
+            cnn_hidden_size=args.cnn_hidden_size,
+            cnn_num_classes=args.cnn_num_classes,
+            experiment_name=args.experiment_name,
+            resume_if_exists=args.resume_if_exists,
+            restore_from_checkpoint_path=args.restore_from_checkpoint_path,
+            save_last_checkpoint=args.save_last_checkpoint,
+            metric_to_monitor_for_checkpoints=args.metric_to_monitor_for_checkpoints,
+            save_top_k=args.save_top_k,
+            nsys_profiling=args.nsys_profiling,
+            nsys_start_step=args.nsys_start_step,
+            nsys_end_step=args.nsys_end_step,
+            nsys_ranks=args.nsys_ranks,
+            dataset_class=args.dataset_class,
+            config_class=args.config_class,
+            overlap_grad_reduce=args.overlap_grad_reduce,
+            overlap_param_gather=not args.no_overlap_param_gather,
+            average_in_collective=not args.no_average_in_collective,
+            grad_reduce_in_fp32=args.grad_reduce_in_fp32,
+            ckpt_async_save=not args.avoid_ckpt_async_save,
+            label_column=args.label_column,
+            lora_checkpoint_path=args.lora_checkpoint_path,
+            lora_finetune=args.lora_finetune,
+        )
 
 
 def get_parser():
@@ -604,7 +627,7 @@ def get_parser():
         "--num-steps",
         type=int,
         required=False,
-        default=500000,
+        default=5,
         help="Number of steps to use for training. Default is 500000.",
     )
     parser.add_argument(
@@ -618,7 +641,7 @@ def get_parser():
         "--val-check-interval",
         type=int,
         required=False,
-        default=10000,
+        default=5,
         help="Number of steps between validation. Default is 10000.",
     )
     parser.add_argument(
@@ -703,6 +726,22 @@ def get_parser():
         default=None,
         help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
     )
+
+    parser.add_argument(
+        "--lora-finetune",
+        action="store_true",
+        default=True,
+        help="Perform fine-tuning with LoRA.",
+    )
+
+    parser.add_argument(
+        "--lora-checkpoint-path",
+        type=Path,
+        required=False,
+        default=None,
+        help="Path to the lora states to restore from.",
+    )
+
     parser.add_argument(
         "--nsys-profiling",
         action="store_true",
