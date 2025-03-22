@@ -14,10 +14,15 @@
 # limitations under the License.
 
 
+import functools
 from typing import Any, Dict
 
 import lightning.pytorch as pl
+from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
+from torch.utils.data import DataLoader, Dataset
+
+from bionemo.llm.data import collate
 
 
 class MegatronDataModule(pl.LightningDataModule):
@@ -68,3 +73,84 @@ class MegatronDataModule(pl.LightningDataModule):
             consistency_check=False,
         )
         self.data_sampler.if_first_step = 1
+
+
+class MockDataModule(pl.LightningDataModule):
+    """A simple data module that just wraps input datasets with dataloaders."""
+
+    def __init__(
+        self,
+        train_dataset: Dataset | None = None,
+        valid_dataset: Dataset | None = None,
+        test_dataset: Dataset | None = None,
+        pad_token_id: int = 0,
+        min_seq_length: int | None = None,
+        max_seq_length: int = 512,
+        micro_batch_size: int = 16,
+        global_batch_size: int = 16,
+        num_workers: int = 4,
+    ):
+        super().__init__()
+        self.train_dataset = train_dataset
+        self.valid_dataset = valid_dataset
+        self.test_dataset = test_dataset
+        self.pad_token_id = pad_token_id
+        self.min_seq_length = min_seq_length
+        self.max_seq_length = max_seq_length
+        self.batch_size = micro_batch_size
+        self.num_workers = num_workers
+        self.data_sampler = MegatronDataSampler(
+            seq_len=max_seq_length,
+            micro_batch_size=micro_batch_size,
+            global_batch_size=global_batch_size,
+            dataloader_type="single",
+            output_log=False,
+        )
+
+    def setup(self, stage: str | None = None) -> None:  # noqa: D102
+        pass
+
+    def train_dataloader(self) -> DataLoader:  # noqa: D102
+        if self.train_dataset is None:
+            raise ValueError("No train_dataset was provided")
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            collate_fn=functools.partial(
+                collate.bert_padding_collate_fn,
+                padding_value=self.pad_token_id,
+                min_length=self.min_seq_length,
+                max_length=self.max_seq_length,
+            ),
+        )
+
+    def val_dataloader(self) -> DataLoader:  # noqa: D102
+        if self.valid_dataset is None:
+            raise ValueError("No valid_dataset was provided")
+        return DataLoader(
+            self.valid_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            collate_fn=functools.partial(
+                collate.bert_padding_collate_fn,
+                padding_value=self.pad_token_id,
+                min_length=self.min_seq_length,
+                max_length=self.max_seq_length,
+            ),
+        )
+
+    def test_dataloader(self) -> DataLoader:  # noqa: D102
+        if self.test_dataset is None:
+            raise ValueError("No test_dataset was provided")
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            collate_fn=functools.partial(
+                collate.bert_padding_collate_fn,
+                padding_value=self.pad_token_id,
+                min_length=self.min_seq_length,
+                max_length=self.max_seq_length,
+            ),
+        )
