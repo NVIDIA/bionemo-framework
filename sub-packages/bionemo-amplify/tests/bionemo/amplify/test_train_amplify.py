@@ -26,7 +26,7 @@ from bionemo.testing import megatron_parallel_state_utils
 
 
 @pytest.fixture
-def dummy_hf_dataset():
+def mock_hf_dataset():
     """Create a mock HuggingFace dataset with protein sequences."""
     sequences = [
         "ACDEFGHIKLMNPQRSTVWY",
@@ -38,14 +38,14 @@ def dummy_hf_dataset():
     return Dataset.from_dict({"sequence": sequences})
 
 
-def test_train_amplify_runs_small_model(tmpdir, monkeypatch, dummy_hf_dataset):
+def test_train_amplify_runs_small_model(tmpdir, monkeypatch, mock_hf_dataset):
     """Test that train_amplify can run a small model for a few steps."""
     # Set up the test directory
     result_dir = Path(tmpdir) / "results"
     result_dir.mkdir(parents=True, exist_ok=True)
 
     # Mock the HuggingFace dataset loading
-    mock_dataset = mock.MagicMock(return_value=dummy_hf_dataset)
+    mock_dataset = mock.MagicMock(return_value=mock_hf_dataset)
     monkeypatch.setattr("bionemo.amplify.train_amplify.hf_load_dataset", mock_dataset)
 
     # Run the training with minimal settings
