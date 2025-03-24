@@ -67,10 +67,13 @@ jobs:
     name: Detect Modified Tests
     runs-on: ubuntu-latest
     # Only run this job for pull requests (both standard PRs and copy-PR-bot branches)
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/pull-request/')
+    if: (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/pull-request/')) &&
+     ! (contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS') ||
+        contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS'))
+
     outputs:
       # These outputs are used to conditionally trigger specific test jobs
-      run_notebook_tests: ${{ steps.check-files.outputs.run_notebook_tests }} # Set to 'true' if notebooks (.ipynb) were modified
+      run_notebooks_tests: ${{ steps.check-files.outputs.run_notebooks_tests }} # Set to 'true' if notebooks (.ipynb) were modified
       run_slow_tests: ${{ steps.check-files.outputs.run_slow_tests }} # Set to 'true' if test files with pytest.mark.slow were modified
     steps:
       - name: Checkout repository
@@ -79,10 +82,9 @@ jobs:
           fetch-depth: 0
 
       - name: Check modified files
-        id: check-files
         run: |
           # Default both test flags to false - will be set to true if specific files are modified
-          RUN_NOTEBOOK_TESTS="false"  # Controls whether notebook tests will run
+          RUN_NOTEBOOKS_TESTS="false"  # Controls whether notebook tests will run
           RUN_SLOW_TESTS="false"      # Controls whether slow tests will run
 
           # Determine base and head commits for file comparison
@@ -99,19 +101,44 @@ jobs:
           echo "Comparing file changes between ${BASE_SHA} and ${HEAD_SHA}"
 
           # Check for Jupyter notebook modifications (.ipynb files)
-          if git diff --name-only ${BASE_SHA}..${HEAD_SHA} | grep -q '\.ipynb
+          if git diff --name-only ${BASE_SHA}..${HEAD_SHA} | grep -q '\.ipynb; then
+            RUN_NOTEBOOKS_TESTS="true"
+          fi
+
 
           # Check for slow test modifications - looking for test files that contain pytest.mark.slow
           MODIFIED_TEST_FILES=$(git diff --name-only ${BASE_SHA}..${HEAD_SHA} | grep -E '^test.*\.py
+          if MODIFIED_TEST_FILES; then
+            RUN_SLOW_TESTS="true"
+          fi
 
           # Set the output variables that will be used to determine which test jobs run
-          echo "run_notebook_tests=${RUN_NOTEBOOK_TESTS}" >> $GITHUB_OUTPUT
+          echo "run_notebooks_tests=${RUN_NOTEBOOKS_TESTS}" >> $GITHUB_OUTPUT
           echo "run_slow_tests=${RUN_SLOW_TESTS}" >> $GITHUB_OUTPUT
 
           # Output a summary for easier debugging in workflow logs
           echo "File analysis completed:"
-          echo "- Run notebook tests: ${RUN_NOTEBOOK_TESTS}"
+          echo "- Run notebooks tests: ${RUN_NOTEBOOKS_TESTS}"
           echo "- Run slow tests: ${RUN_SLOW_TESTS}"
+
+      - name: Missing PR label - slow tests
+        if: ! contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS') && (needs.check-modified-files.outputs.run_slow_tests == 'true')
+        run: |
+          then
+            echo "INCLUDE_SLOW_TESTS label is missing, but slow tests were modified. Please add the label to the PR."
+            exit 1
+          fi
+
+      - name: Missing PR label - notebooks tests
+        if: ! contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS') && (needs.check-modified-files.outputs.run_notebooks_tests == 'true')
+        run: |
+          then
+            echo "INCLUDE_SLOW_TESTS label is missing, but slow tests were modified. Please add the label to the PR."
+            exit 1
+          fi
+
+
+
 
   build-bionemo-image:
     needs:
@@ -216,8 +243,7 @@ jobs:
         password: ${{ secrets.DOCKER_PASSWORD }}
     if: |
       github.event_name == 'schedule' || github.event_name == 'merge_group' ||
-      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS') ||
-      ((github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/pull-request/')) && needs.check-modified-files.outputs.run_slow_tests == 'true')
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -237,8 +263,7 @@ jobs:
     runs-on: linux-amd64-gpu-l4-latest-1
     if: |
       github.event_name == 'schedule' || github.event_name == 'merge_group' ||
-      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS') ||
-      ((github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/pull-request/')) && needs.check-modified-files.outputs.run_notebook_tests == 'true')
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS')
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
       credentials:
