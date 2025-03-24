@@ -14,6 +14,7 @@
 # limitations under the License.
 
 
+import pytest
 import torch
 from megatron.core.models.common.embeddings.rope_utils import apply_rotary_pos_emb
 from megatron.core.models.common.embeddings.rotary_pos_embedding import RotaryEmbedding
@@ -23,6 +24,7 @@ from bionemo.amplify.hf_rotary import apply_rotary_emb, precompute_freqs_cis
 from bionemo.amplify.model import AMPLIFYConfig
 
 
+@pytest.mark.skip(reason="Skipping test due to xformers requirement")
 def test_rope_embeddings():
     rng = torch.Generator().manual_seed(42)
     q = torch.randn([2, 72, 10, 64], dtype=torch.float32, generator=rng)
