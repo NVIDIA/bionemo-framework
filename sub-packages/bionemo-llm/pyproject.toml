@@ -11,7 +11,9 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
+    # bionemo sub-packages
     'bionemo-core',
+    # external
     'lightning>=2.2.1',
     'megatron-core',
     'nemo_toolkit[all]',  # We need [all] over [nlp] for the megatron-energon dependency.
