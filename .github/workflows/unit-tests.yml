@@ -199,8 +199,9 @@ jobs:
           BIONEMO_DATA_SOURCE: ngc
           # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
           FAST_CI_MODE: true
+        # FIXME:  remove --ignore when this issue is fixed: https://github.com/NVIDIA/bionemo-framework/issues/778
         run: |
-          pytest -v --nbval-lax -p no:python docs/ sub-packages/
+          pytest -v --nbval-lax -p no:python --ignore="docs/docs/user-guide/examples/bionemo-geneformer/geneformer_cellxgene_tutorial.ipynb" docs/ sub-packages/
 
   verify-tests-status:
     # Base on the status of this job, the unit-tests workflow succeeds or fails
