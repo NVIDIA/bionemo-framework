@@ -120,12 +120,6 @@ Key behaviors:
 - Skips entire CI pipeline
 - Use for documentation typos, README updates
 
-#### **SKIP_SUBPACKAGE_CI**
-
-- Skips installation, testing, and publication of individual sub-packages of BioNeMo.
-- For more granular controls on a per-package basis, such as skipping only testing or only publication to PyPI, you can modify hard-coded sub-package names (`bionemo-...`) listed within `SKIP...` variables in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
-- Sub-package CI is enabled (not skipped) by default. Utilized to test individual BioNeMo sub-packages without the environmental support of the BioNeMo Framework Container, which validates if the sub-package can be pusblished standalone to PyPI.
-
 #### **INCLUDE_NOTEBOOKS_TESTS**
 
 - Enables notebook validation tests
@@ -259,7 +253,6 @@ The resulting altered baseline files should then be committed.
   - Unit tests not associated with source code in BioNeMo can be placed anywhere reasonable under `tests/bionemo/<package-name-suffix>`.
 - Verify that the `pyproject.toml` is `pip install`-able (and `python -m build`-able).
   - If the sub-package is publishable, follow the instructions in [Publishing to PyPI](#publishing-to-pypi) to register or link your package to the sub-package workflow in BioNeMo Framework.
-  - If the sub-package cannot be installed, built, or published to PyPI, add the name of this sub-package to `SUBPACKAGE_SKIP_TEST` and `SUBPACKAGE_SKIP_PUBLISH` in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
 
 ### Publishing to PyPI
 
@@ -276,27 +269,23 @@ To publish your sub-package via "Trusted Publishing" to PyPI, you can follow the
   - Environment Name:
     - `pypi` for PyPI
     - `testpypi` for Test PyPI
-- **NVIDIA-Only**: Run the workflow!
-  - Create or update any PR with `git diff` changes to your `bionemo-framework/sub-packages`.
-    - Publishes to Test PyPI.
-  - Dispatch the `bionemo-subpackage-ci.yml` workflow from GitHub Actions.
-    - Publishes to PyPI.
-    - Required: Input a comma-separated list of sub-packages you want to test and/or publish into `subpackages`.
-    - Optional: Set `publish` to `true` if you want to publish to PyPI. (Default: `false`)
+- **NVIDIA-Only**: Run the workflow! For more information, refer to: [Sub-Package GitHub Actions Workflow](#sub-package-github-actions-workflow)
 - **Optional**: Add `bionemo` as an owner or maintainer of the PyPI package if you want help maintaining it.
   - **Disclaimer**: If this is not done, and the package becomes dysfunctional, then NVIDIA / BioNeMo are not responsible for the health of the package or the sub-package source code, because we will not have the ability to deprecate versions, etc.
 
-### Sub-Package CI Workflow Key Points
+### Sub-Package GitHub Actions Workflow
 
-- Individually `pip install`, `pytest`, and `python -m build` every supported sub-package before publishing to PyPI.
-- Triggered by PR changes (which publish to Test PyPI) or manually-dispatched GitHub Actions Workflows.
-  - TODO(@cspades): PR workflows are deactivated pending sufficient compute resources. To reactivate them in your PR, uncomment the PR trigger in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
-- `SUBPACKAGE_SKIP_TEST` and `SUBPACKAGE_SKIP_PUBLISH` in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml) control whether your sub-package is installed/tested or published to PyPI.
-- BioNeMo Pull Request Archive
-  - Prototype: https://github.com/NVIDIA/bionemo-framework/pull/725
+- Dispatch the `bionemo-subpackage-ci.yml` workflow from GitHub Actions to test, build, and publish your sub-packages to PyPI!
+  - Required: Input a comma-separated list of sub-packages you want to test and/or publish into `subpackages`.
+    - For example, `bionemo-moco,bionemo-llm,bionemo-webdatamodule`. The sub-packages will be tested and published in separate parallel environments.
+  - Optional: Set `test` to `true` if you want to test your sub-package. (Default: `true`)
+    - Sub-packages that require pre- or post- installation steps may require modification of the `install-and-test` job in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
+  - Optional: Set `publish` to `true` if you want to publish to Test PyPI or PyPI. (Default: `false`)
+    - Pre-Requisite: [BioNeMo Publishing to PyPI](#publishing-to-pypi)
+    - Publishing requires package building, but does not require testing for flexibility of package management.
+  - Optional: Publishes to Test PyPI by default. To publish to PyPI, uncheck `Publish to Test PyPI instead of PyPI`.
 
 ### TODO
 
 - Support building packages that have installation dependencies, such as `bionemo-noodles` dependent on `maturin` or `bionemo-<model>` dependent on `transformer-engine`.
-- Support unit tests that require GPU.
 - Automatically cut a release tag for the sub-package via GHA.
