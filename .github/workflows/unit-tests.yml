@@ -62,9 +62,9 @@ jobs:
         run: echo "labels=[]" >> $GITHUB_OUTPUT
 
 
-  # This job analyzes files modified in a PR to determine which test suites should run
-  check-modified-files:
-    name: Detect Modified Tests
+  # This job analyzes files modified in a PR to determine which test suites should run and if appropriate labels are applied
+  check-pr-label-for-modified-files:
+    name: Check PR Labels for Modified Tests
     runs-on: ubuntu-latest
     # Only run this job for pull requests (both standard PRs and copy-PR-bot branches)
     if: (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/pull-request/')) &&
