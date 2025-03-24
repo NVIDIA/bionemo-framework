@@ -16,8 +16,6 @@ dependencies = [
     'bionemo-core',
     'bionemo-llm',
     'bionemo-esm2',
-    # external
-    'xformers'
 ]
 
 [project.scripts]
