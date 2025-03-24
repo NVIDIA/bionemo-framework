@@ -16,6 +16,7 @@
 
 from pathlib import Path
 
+import pytest
 import torch
 from megatron.core.transformer.module import Float16Module
 from nemo.lightning import io
@@ -277,12 +278,14 @@ def load_and_evaluate_nemo_amplify(
     }
 
 
+@pytest.mark.skip(reason="Skipping test due to xformers requirement")
 def test_convert_amplify_120M_smoke(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_120M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
 
 
+@pytest.mark.skip(reason="Skipping test due to xformers requirement")
 def test_convert_amplify_120M(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_120M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
@@ -291,6 +294,7 @@ def test_convert_amplify_120M(tmp_path):
         assert_amplify_equivalence(tmp_path / "nemo_checkpoint", model_tag, atol=1e-4, rtol=1e-4)
 
 
+@pytest.mark.skip(reason="Skipping test due to xformers requirement")
 def test_convert_amplify_120M_bf16(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_120M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
@@ -304,6 +308,7 @@ def test_convert_amplify_120M_bf16(tmp_path):
         )
 
 
+@pytest.mark.skip(reason="Skipping test due to xformers requirement")
 def test_convert_amplify_350M(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_350M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
