@@ -82,6 +82,7 @@ def test_locally_bad_dataset_fails():
         assert_dataset_compatible_with_megatron(locally_bad_ds)
 
 
+@pytest.mark.slow
 def test_distributed_bad_dataset_fails():
     distributed_bad_ds = DistributedBadDataset()
     with pytest.raises(DatasetDistributedNondeterministic):
