@@ -21,7 +21,7 @@ on:
 
 env:
   # TODO(@cspades): Skip pytest for packages that require GPU's or special installation recipes until resolved.
-  SUBPACKAGE_SKIP_TEST: '["bionemo-noodles","bionemo-geometric","bionemo-llm","bionemo-evo2","bionemo-esm2","bionemo-amplify","bionemo-geneformer","bionemo-testing","bionemo-example_model","bionemo-fw"]'
+  SUBPACKAGE_SKIP_TEST: '["bionemo-noodles","bionemo-geometric","bionemo-evo2","bionemo-esm2","bionemo-amplify","bionemo-geneformer","bionemo-testing","bionemo-example_model","bionemo-fw"]'
   # TODO(@cspades): Skip publishing for packages that require special installation recipes or should not be published to PyPI.
   SUBPACKAGE_SKIP_PUBLISH: '["bionemo-noodles","bionemo-geometric","bionemo-testing","bionemo-example_model"]'
 
@@ -115,7 +115,8 @@ jobs:
         run: |
           apt-get update
           apt-get install -y git
-          apt-get install -y lsb-release
+          apt-get install -y lsb-release      # No longer pre-installed in Ubuntu>=22.04.
+          apt-get install -y build-essential  # For installing C build tools, like GCC and make.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
