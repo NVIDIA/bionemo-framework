@@ -125,7 +125,7 @@ jobs:
         if: ! contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS') && (needs.check-modified-files.outputs.run_slow_tests == 'true')
         run: |
           then
-            echo "INCLUDE_SLOW_TESTS label is missing, but slow tests were modified. Please add the label to the PR."
+            echo "INCLUDE_SLOW_TESTS label is missing, but slow tests were modified. Please add the label to the PR and rerun pipeline."
             exit 1
           fi
 
@@ -133,7 +133,7 @@ jobs:
         if: ! contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS') && (needs.check-modified-files.outputs.run_notebooks_tests == 'true')
         run: |
           then
-            echo "INCLUDE_SLOW_TESTS label is missing, but slow tests were modified. Please add the label to the PR."
+            echo "INCLUDE_SLOW_TESTS label is missing, but slow tests were modified. Please add the label to the PR and rerun pipeline."
             exit 1
           fi
 
