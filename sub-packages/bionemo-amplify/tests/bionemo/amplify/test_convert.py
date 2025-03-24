@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import torch
+import torch.nn as nn
 from megatron.core.transformer.module import Float16Module
 from nemo.lightning import io
 from transformers import AutoModel
@@ -278,14 +280,65 @@ def load_and_evaluate_nemo_amplify(
     }
 
 
-@pytest.mark.skip(reason="Skipping test due to xformers requirement")
-def test_convert_amplify_120M_smoke(tmp_path):
+class SwiGLU(nn.Module):
+    """Mock SwiGLU module"""
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: int | None = None,
+        bias: bool = True,
+        *,
+        _pack_weights: bool = True,
+    ) -> None:
+        """Create a SwiGLU module
+
+        Args:
+            in_features (int): Number of features of the input
+            hidden_features (int): Number of hidden features
+            out_features (Optional[int], optional): Number of features of the input. Defaults to None.
+            bias (bool, optional): Whether linear layers also include a bias. Defaults to True.
+        """
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+
+        self.w12: nn.Linear | None = None
+        if _pack_weights:
+            self.w12 = nn.Linear(in_features, 2 * hidden_features, bias=bias)
+        else:
+            self.w12 = None
+            self.w1 = nn.Linear(in_features, hidden_features, bias=bias)
+            self.w2 = nn.Linear(in_features, hidden_features, bias=bias)
+        self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
+
+        self.hidden_features = hidden_features
+        self.out_features = out_features
+        self.in_features = in_features
+
+
+@pytest.fixture
+def mock_xformers():
+    sys.modules["xformers"] = MagicMock()
+
+    ops_mock = MagicMock()
+    ops_mock.memory_efficient_attention = MagicMock()
+    ops_mock.SwiGLU = SwiGLU
+
+    sys.modules["xformers.ops"] = ops_mock
+
+
+def test_convert_amplify_120M_smoke(tmp_path, mock_xformers):
     model_tag = "chandar-lab/AMPLIFY_120M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
 
 
-@pytest.mark.skip(reason="Skipping test due to xformers requirement")
+@pytest.mark.skipif(
+    not sys.modules.get("xformers"),
+    reason="AMPLIFY golden value tests require xformers.",
+)
 def test_convert_amplify_120M(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_120M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
@@ -294,7 +347,10 @@ def test_convert_amplify_120M(tmp_path):
         assert_amplify_equivalence(tmp_path / "nemo_checkpoint", model_tag, atol=1e-4, rtol=1e-4)
 
 
-@pytest.mark.skip(reason="Skipping test due to xformers requirement")
+@pytest.mark.skipif(
+    not sys.modules.get("xformers"),
+    reason="AMPLIFY golden value tests require xformers.",
+)
 def test_convert_amplify_120M_bf16(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_120M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
@@ -308,7 +364,10 @@ def test_convert_amplify_120M_bf16(tmp_path):
         )
 
 
-@pytest.mark.skip(reason="Skipping test due to xformers requirement")
+@pytest.mark.skipif(
+    not sys.modules.get("xformers"),
+    reason="AMPLIFY golden value tests require xformers.",
+)
 def test_convert_amplify_350M(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_350M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
