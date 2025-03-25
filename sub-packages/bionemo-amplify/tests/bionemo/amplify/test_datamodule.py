@@ -25,7 +25,7 @@ from bionemo.esm2.data.dataset import RandomMaskStrategy
 
 
 @pytest.fixture
-def mock_train_hf_dataset():
+def dummy_train_hf_dataset():
     """Create a mock HuggingFace training dataset with protein sequences."""
     sequences = [
         "ACDEFGHIKLMNPQRSTVWY",
@@ -38,7 +38,7 @@ def mock_train_hf_dataset():
 
 
 @pytest.fixture
-def mock_valid_hf_dataset():
+def dummy_valid_hf_dataset():
     """Create a mock HuggingFace validation dataset with protein sequences."""
     sequences = [
         "KSTVRQERLKSIVRIM",
@@ -55,12 +55,12 @@ def amplify_tokenizer():
     return tokenizer.BioNeMoAMPLIFYTokenizer()
 
 
-def test_amplify_datamodule_raises_without_trainer(mock_train_hf_dataset, mock_valid_hf_dataset, amplify_tokenizer):
+def test_amplify_datamodule_raises_without_trainer(dummy_train_hf_dataset, dummy_valid_hf_dataset, amplify_tokenizer):
     """Test that AMPLIFYDataModule raises an error when setup is called without a trainer."""
     # Initialize the data module
     data_module = AMPLIFYDataModule(
-        train_hf_dataset=mock_train_hf_dataset,
-        valid_hf_dataset=mock_valid_hf_dataset,
+        train_hf_dataset=dummy_train_hf_dataset,
+        valid_hf_dataset=dummy_valid_hf_dataset,
         tokenizer=amplify_tokenizer,
     )
     assert data_module is not None
@@ -70,13 +70,13 @@ def test_amplify_datamodule_raises_without_trainer(mock_train_hf_dataset, mock_v
 
 
 def test_amplify_datamodule_raises_without_trainer_max_steps(
-    mock_train_hf_dataset, mock_valid_hf_dataset, amplify_tokenizer
+    dummy_train_hf_dataset, dummy_valid_hf_dataset, amplify_tokenizer
 ):
     """Test that AMPLIFYDataModule raises an error when trainer.max_steps is not set."""
     # Initialize the data module
     data_module = AMPLIFYDataModule(
-        train_hf_dataset=mock_train_hf_dataset,
-        valid_hf_dataset=mock_valid_hf_dataset,
+        train_hf_dataset=dummy_train_hf_dataset,
+        valid_hf_dataset=dummy_valid_hf_dataset,
         tokenizer=amplify_tokenizer,
     )
     assert data_module is not None
@@ -89,12 +89,14 @@ def test_amplify_datamodule_raises_without_trainer_max_steps(
         data_module.setup()
 
 
-def test_amplify_datamodule_creates_valid_dataloaders(mock_train_hf_dataset, mock_valid_hf_dataset, amplify_tokenizer):
+def test_amplify_datamodule_creates_valid_dataloaders(
+    dummy_train_hf_dataset, dummy_valid_hf_dataset, amplify_tokenizer
+):
     """Test that AMPLIFYDataModule creates valid dataloaders."""
     # Initialize the data module
     data_module = AMPLIFYDataModule(
-        train_hf_dataset=mock_train_hf_dataset,
-        valid_hf_dataset=mock_valid_hf_dataset,
+        train_hf_dataset=dummy_train_hf_dataset,
+        valid_hf_dataset=dummy_valid_hf_dataset,
         global_batch_size=2,
         micro_batch_size=1,
         min_seq_length=None,
@@ -139,14 +141,16 @@ def test_amplify_datamodule_creates_valid_dataloaders(mock_train_hf_dataset, moc
         assert isinstance(batch["is_random"], torch.Tensor)
 
 
-def test_amplify_datamodule_with_different_mask_prob(mock_train_hf_dataset, mock_valid_hf_dataset, amplify_tokenizer):
+def test_amplify_datamodule_with_different_mask_prob(
+    dummy_train_hf_dataset, dummy_valid_hf_dataset, amplify_tokenizer
+):
     """Test that AMPLIFYDataModule works with different mask probabilities."""
     mask_prob = 0.2  # Different mask probability
 
     # Initialize the data module
     data_module = AMPLIFYDataModule(
-        train_hf_dataset=mock_train_hf_dataset,
-        valid_hf_dataset=mock_valid_hf_dataset,
+        train_hf_dataset=dummy_train_hf_dataset,
+        valid_hf_dataset=dummy_valid_hf_dataset,
         global_batch_size=2,
         micro_batch_size=1,
         min_seq_length=None,
@@ -171,15 +175,15 @@ def test_amplify_datamodule_with_different_mask_prob(mock_train_hf_dataset, mock
 
 
 def test_amplify_datamodule_with_different_random_mask_strategy(
-    mock_train_hf_dataset, mock_valid_hf_dataset, amplify_tokenizer
+    dummy_train_hf_dataset, dummy_valid_hf_dataset, amplify_tokenizer
 ):
     """Test that AMPLIFYDataModule works with different random mask strategies."""
     custom_strategy = RandomMaskStrategy.ALL_TOKENS  # Different random mask strategy
 
     # Initialize the data module
     data_module = AMPLIFYDataModule(
-        train_hf_dataset=mock_train_hf_dataset,
-        valid_hf_dataset=mock_valid_hf_dataset,
+        train_hf_dataset=dummy_train_hf_dataset,
+        valid_hf_dataset=dummy_valid_hf_dataset,
         global_batch_size=2,
         micro_batch_size=1,
         min_seq_length=None,
@@ -201,14 +205,14 @@ def test_amplify_datamodule_with_different_random_mask_strategy(
     assert data_module._random_mask_strategy == custom_strategy
 
 
-def test_amplify_datamodule_with_min_seq_length(mock_train_hf_dataset, mock_valid_hf_dataset, amplify_tokenizer):
+def test_amplify_datamodule_with_min_seq_length(dummy_train_hf_dataset, dummy_valid_hf_dataset, amplify_tokenizer):
     """Test that AMPLIFYDataModule works with min_seq_length."""
     min_seq_length = 20
 
     # Initialize the data module
     data_module = AMPLIFYDataModule(
-        train_hf_dataset=mock_train_hf_dataset,
-        valid_hf_dataset=mock_valid_hf_dataset,
+        train_hf_dataset=dummy_train_hf_dataset,
+        valid_hf_dataset=dummy_valid_hf_dataset,
         global_batch_size=2,
         micro_batch_size=1,
         min_seq_length=min_seq_length,
@@ -238,12 +242,12 @@ def test_amplify_datamodule_with_min_seq_length(mock_train_hf_dataset, mock_vali
         break
 
 
-def test_amplify_datamodule_tokenizer_property(mock_train_hf_dataset, mock_valid_hf_dataset, amplify_tokenizer):
+def test_amplify_datamodule_tokenizer_property(dummy_train_hf_dataset, dummy_valid_hf_dataset, amplify_tokenizer):
     """Test that AMPLIFYDataModule.tokenizer property returns the correct tokenizer."""
     # Initialize the data module
     data_module = AMPLIFYDataModule(
-        train_hf_dataset=mock_train_hf_dataset,
-        valid_hf_dataset=mock_valid_hf_dataset,
+        train_hf_dataset=dummy_train_hf_dataset,
+        valid_hf_dataset=dummy_valid_hf_dataset,
         tokenizer=amplify_tokenizer,
     )
 
@@ -251,13 +255,13 @@ def test_amplify_datamodule_tokenizer_property(mock_train_hf_dataset, mock_valid
 
 
 def test_amplify_datamodule_test_dataloader_raises_not_implemented(
-    mock_train_hf_dataset, mock_valid_hf_dataset, amplify_tokenizer
+    dummy_train_hf_dataset, dummy_valid_hf_dataset, amplify_tokenizer
 ):
     """Test that AMPLIFYDataModule.test_dataloader raises NotImplementedError."""
     # Initialize the data module
     data_module = AMPLIFYDataModule(
-        train_hf_dataset=mock_train_hf_dataset,
-        valid_hf_dataset=mock_valid_hf_dataset,
+        train_hf_dataset=dummy_train_hf_dataset,
+        valid_hf_dataset=dummy_valid_hf_dataset,
         tokenizer=amplify_tokenizer,
     )
 

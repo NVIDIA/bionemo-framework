@@ -25,7 +25,7 @@ from bionemo.esm2.data.dataset import RandomMaskStrategy
 
 
 @pytest.fixture
-def mock_hf_dataset():
+def dummy_hf_dataset():
     """Create a mock HuggingFace dataset with protein sequences."""
     sequences = [
         "ACDEFGHIKLMNPQRSTVWY",
@@ -43,10 +43,10 @@ def amplify_tokenizer():
     return tokenizer.BioNeMoAMPLIFYTokenizer()
 
 
-def test_amplify_masked_residue_dataset_init(mock_hf_dataset, amplify_tokenizer):
+def test_amplify_masked_residue_dataset_init(dummy_hf_dataset, amplify_tokenizer):
     """Test initialization of AMPLIFYMaskedResidueDataset."""
     dataset = AMPLIFYMaskedResidueDataset(
-        hf_dataset=mock_hf_dataset,
+        hf_dataset=dummy_hf_dataset,
         max_seq_length=512,
         mask_prob=0.15,
         mask_token_prob=0.8,
@@ -56,13 +56,13 @@ def test_amplify_masked_residue_dataset_init(mock_hf_dataset, amplify_tokenizer)
     )
 
     assert isinstance(dataset, TorchDataset)
-    assert len(dataset) == len(mock_hf_dataset)
+    assert len(dataset) == len(dummy_hf_dataset)
 
 
-def test_amplify_masked_residue_dataset_getitem_has_expected_structure(mock_hf_dataset, amplify_tokenizer):
+def test_amplify_masked_residue_dataset_getitem_has_expected_structure(dummy_hf_dataset, amplify_tokenizer):
     """Test that __getitem__ returns a sample with the expected structure."""
     dataset = AMPLIFYMaskedResidueDataset(
-        hf_dataset=mock_hf_dataset,
+        hf_dataset=dummy_hf_dataset,
         max_seq_length=512,
         mask_prob=0.15,
         mask_token_prob=0.8,
@@ -98,10 +98,10 @@ def test_amplify_masked_residue_dataset_getitem_has_expected_structure(mock_hf_d
     assert len(sample["is_random"]) == seq_len
 
 
-def test_amplify_masked_residue_dataset_getitem_match_for_identical_seeds(mock_hf_dataset, amplify_tokenizer):
+def test_amplify_masked_residue_dataset_getitem_match_for_identical_seeds(dummy_hf_dataset, amplify_tokenizer):
     """Test that samples are identical for the same seed."""
     dataset1 = AMPLIFYMaskedResidueDataset(
-        hf_dataset=mock_hf_dataset,
+        hf_dataset=dummy_hf_dataset,
         seed=123,
         max_seq_length=512,
         mask_prob=0.15,
@@ -112,7 +112,7 @@ def test_amplify_masked_residue_dataset_getitem_match_for_identical_seeds(mock_h
     )
 
     dataset2 = AMPLIFYMaskedResidueDataset(
-        hf_dataset=mock_hf_dataset,
+        hf_dataset=dummy_hf_dataset,
         seed=123,
         max_seq_length=512,
         mask_prob=0.15,
@@ -132,10 +132,10 @@ def test_amplify_masked_residue_dataset_getitem_match_for_identical_seeds(mock_h
                 torch.testing.assert_close(sample1[key], sample2[key])
 
 
-def test_amplify_masked_residue_dataset_getitem_is_deterministic(mock_hf_dataset, amplify_tokenizer):
+def test_amplify_masked_residue_dataset_getitem_is_deterministic(dummy_hf_dataset, amplify_tokenizer):
     """Test that __getitem__ is deterministic for the same index."""
     dataset = AMPLIFYMaskedResidueDataset(
-        hf_dataset=mock_hf_dataset,
+        hf_dataset=dummy_hf_dataset,
         seed=123,
         max_seq_length=512,
         mask_prob=0.15,
@@ -153,10 +153,10 @@ def test_amplify_masked_residue_dataset_getitem_is_deterministic(mock_hf_dataset
             torch.testing.assert_close(sample1[key], sample2[key])
 
 
-def test_amplify_masked_residue_dataset_getitem_differs_with_different_seeds(mock_hf_dataset, amplify_tokenizer):
+def test_amplify_masked_residue_dataset_getitem_differs_with_different_seeds(dummy_hf_dataset, amplify_tokenizer):
     """Test that samples differ with different seeds."""
     dataset1 = AMPLIFYMaskedResidueDataset(
-        hf_dataset=mock_hf_dataset,
+        hf_dataset=dummy_hf_dataset,
         seed=123,
         max_seq_length=512,
         mask_prob=0.15,
@@ -167,7 +167,7 @@ def test_amplify_masked_residue_dataset_getitem_differs_with_different_seeds(moc
     )
 
     dataset2 = AMPLIFYMaskedResidueDataset(
-        hf_dataset=mock_hf_dataset,
+        hf_dataset=dummy_hf_dataset,
         seed=321,
         max_seq_length=512,
         mask_prob=0.15,
@@ -184,11 +184,11 @@ def test_amplify_masked_residue_dataset_getitem_differs_with_different_seeds(moc
             assert not torch.equal(sample1["text"], sample2["text"])
 
 
-def test_amplify_masked_residue_dataset_max_seq_length(mock_hf_dataset, amplify_tokenizer):
+def test_amplify_masked_residue_dataset_max_seq_length(dummy_hf_dataset, amplify_tokenizer):
     """Test that sequences are properly truncated to max_seq_length."""
     max_seq_length = 10
     dataset = AMPLIFYMaskedResidueDataset(
-        hf_dataset=mock_hf_dataset,
+        hf_dataset=dummy_hf_dataset,
         seed=123,
         max_seq_length=max_seq_length,
         mask_prob=0.15,
@@ -202,10 +202,10 @@ def test_amplify_masked_residue_dataset_max_seq_length(mock_hf_dataset, amplify_
     assert len(sample["text"]) <= max_seq_length
 
 
-def test_amplify_masked_residue_dataset_random_mask_strategy(mock_hf_dataset, amplify_tokenizer):
+def test_amplify_masked_residue_dataset_random_mask_strategy(dummy_hf_dataset, amplify_tokenizer):
     """Test that random mask strategy affects token replacement."""
     dataset = AMPLIFYMaskedResidueDataset(
-        hf_dataset=mock_hf_dataset,
+        hf_dataset=dummy_hf_dataset,
         seed=123,
         max_seq_length=512,
         mask_prob=0.15,
