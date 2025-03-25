@@ -60,8 +60,3 @@ def get_autocast_dtype(precision: PrecisionTypes) -> torch.dtype:
         return precision_to_dtype[precision]
     else:
         raise ValueError(f"Unsupported precision: {precision}")
-
-
-def get_megatron_mixed_precision_dtype(precision: PrecisionTypes) -> Literal["16-mixed", "bf16-mixed", "32"]:
-    """Returns the megatron mixed precision string literal corresponding to the given dtype"""
-    ...

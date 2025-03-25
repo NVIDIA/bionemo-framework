@@ -156,7 +156,11 @@ def _pad_bias(ctx: io.TransformCTX, source_bias):
 
 
 class SwiGLU(nn.Module):
-    """Mock SwiGLU module."""
+    """Mock SwiGLU module.
+
+    This module is a mock implementation of the SwiGLU module that is only used to ensure we can load weight matrices
+    correctly from the huggingface checkpoint without installing xformers in the framework container.
+    """
 
     def __init__(
         self,
@@ -167,14 +171,7 @@ class SwiGLU(nn.Module):
         *,
         _pack_weights: bool = True,
     ) -> None:
-        """Create a SwiGLU module.
-
-        Args:
-            in_features (int): Number of features of the input
-            hidden_features (int): Number of hidden features
-            out_features (Optional[int], optional): Number of features of the input. Defaults to None.
-            bias (bool, optional): Whether linear layers also include a bias. Defaults to True.
-        """
+        """Create a SwiGLU module."""
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -191,6 +188,9 @@ class SwiGLU(nn.Module):
         self.hidden_features = hidden_features
         self.out_features = out_features
         self.in_features = in_features
+
+    def forward(self, x):  # noqa: D102
+        raise NotImplementedError("This SwiGLU is a mock module and should not be used.")
 
 
 def maybe_mock_xformers():
