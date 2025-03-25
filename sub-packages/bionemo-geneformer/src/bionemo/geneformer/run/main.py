@@ -27,7 +27,6 @@ from bionemo.geneformer.run.config_models import (
 from bionemo.llm.run.config_models import MainConfig
 from bionemo.llm.train import NsysConfig, train
 
-
 def main():  # noqa: D103
     def parse_args():
         parser = argparse.ArgumentParser(description="Run Geneformer pretraining")

@@ -111,6 +111,8 @@ class SingleCellDataModule(MegatronDataModule):
         self.num_workers = num_workers
         self.persistent_workers = persistent_workers
         self.pin_memory = pin_memory
+        self.global_batch_size = global_batch_size
+        self.micro_batch_size = micro_batch_size
 
         rng = np.random.default_rng(seed)
         if self.data_path_train is not None:
