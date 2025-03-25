@@ -15,16 +15,14 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 import torch
-import torch.nn as nn
 from megatron.core.transformer.module import Float16Module
 from nemo.lightning import io
 from transformers import AutoModel
 
-from bionemo.amplify.convert import HFAMPLIFYImporter  # noqa: F401
+from bionemo.amplify.convert import HFAMPLIFYImporter, maybe_mock_xformers  # noqa: F401
 from bionemo.amplify.hf_rotary import apply_rotary_emb
 from bionemo.amplify.model import AMPLIFYConfig
 from bionemo.amplify.tokenizer import BioNeMoAMPLIFYTokenizer
@@ -280,56 +278,8 @@ def load_and_evaluate_nemo_amplify(
     }
 
 
-class SwiGLU(nn.Module):
-    """Mock SwiGLU module"""
-
-    def __init__(
-        self,
-        in_features: int,
-        hidden_features: int,
-        out_features: int | None = None,
-        bias: bool = True,
-        *,
-        _pack_weights: bool = True,
-    ) -> None:
-        """Create a SwiGLU module
-
-        Args:
-            in_features (int): Number of features of the input
-            hidden_features (int): Number of hidden features
-            out_features (Optional[int], optional): Number of features of the input. Defaults to None.
-            bias (bool, optional): Whether linear layers also include a bias. Defaults to True.
-        """
-        super().__init__()
-        out_features = out_features or in_features
-        hidden_features = hidden_features or in_features
-
-        self.w12: nn.Linear | None = None
-        if _pack_weights:
-            self.w12 = nn.Linear(in_features, 2 * hidden_features, bias=bias)
-        else:
-            self.w12 = None
-            self.w1 = nn.Linear(in_features, hidden_features, bias=bias)
-            self.w2 = nn.Linear(in_features, hidden_features, bias=bias)
-        self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
-
-        self.hidden_features = hidden_features
-        self.out_features = out_features
-        self.in_features = in_features
-
-
-@pytest.fixture
-def mock_xformers():
-    sys.modules["xformers"] = MagicMock()
-
-    ops_mock = MagicMock()
-    ops_mock.memory_efficient_attention = MagicMock()
-    ops_mock.SwiGLU = SwiGLU
-
-    sys.modules["xformers.ops"] = ops_mock
-
-
-def test_convert_amplify_120M_smoke(tmp_path, mock_xformers):
+def test_convert_amplify_120M_smoke(tmp_path):
+    maybe_mock_xformers()
     model_tag = "chandar-lab/AMPLIFY_120M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
