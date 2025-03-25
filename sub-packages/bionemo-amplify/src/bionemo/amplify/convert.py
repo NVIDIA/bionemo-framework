@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import torch
+import torch.nn as nn
 from nemo.lightning import io, teardown
 from nemo.lightning.pytorch.utils import dtype_from_hf
 from transformers import AutoConfig as HFAutoConfig
@@ -151,3 +153,52 @@ def _pad_bias(ctx: io.TransformCTX, source_bias):
     output_bias = torch.zeros(nemo_embedding_dimension, dtype=source_bias.dtype, device=source_bias.device)
     output_bias[:hf_embedding_dimension] = source_bias
     return output_bias
+
+
+class SwiGLU(nn.Module):
+    """Mock SwiGLU module.
+
+    This module is a mock implementation of the SwiGLU module that is only used to ensure we can load weight matrices
+    correctly from the huggingface checkpoint without installing xformers in the framework container.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: int | None = None,
+        bias: bool = True,
+        *,
+        _pack_weights: bool = True,
+    ) -> None:
+        """Create a SwiGLU module."""
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+
+        self.w12: nn.Linear | None = None
+        if _pack_weights:
+            self.w12 = nn.Linear(in_features, 2 * hidden_features, bias=bias)
+        else:
+            self.w12 = None
+            self.w1 = nn.Linear(in_features, hidden_features, bias=bias)
+            self.w2 = nn.Linear(in_features, hidden_features, bias=bias)
+        self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
+
+        self.hidden_features = hidden_features
+        self.out_features = out_features
+        self.in_features = in_features
+
+    def forward(self, x):  # noqa: D102
+        raise NotImplementedError("This SwiGLU is a mock module and should not be used.")
+
+
+def maybe_mock_xformers():
+    """Optionally mock the xformers library to import amplify without the dependency."""
+    if "xformers" not in sys.modules:
+        ops_mock = MagicMock()
+        ops_mock.memory_efficient_attention = MagicMock()
+        ops_mock.SwiGLU = SwiGLU
+
+        sys.modules["xformers"] = MagicMock()
+        sys.modules["xformers.ops"] = ops_mock

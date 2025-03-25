@@ -13,22 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-from unittest.mock import MagicMock
-
 import torch
 from megatron.core.models.common.embeddings.rope_utils import apply_rotary_pos_emb
 from megatron.core.models.common.embeddings.rotary_pos_embedding import RotaryEmbedding
 from transformers import AutoConfig
 
+from bionemo.amplify.convert import maybe_mock_xformers
 from bionemo.amplify.hf_rotary import apply_rotary_emb, precompute_freqs_cis
 from bionemo.amplify.model import AMPLIFYConfig
 
 
 def test_rope_embeddings():
     # Mock the xformers module to allow this test to succeed without needing to install xformers.
-    sys.modules["xformers"] = MagicMock()
-    sys.modules["xformers.ops"] = MagicMock()
+    maybe_mock_xformers()
 
     rng = torch.Generator().manual_seed(42)
     q = torch.randn([2, 72, 10, 64], dtype=torch.float32, generator=rng)
