@@ -5,7 +5,7 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.02-py3q
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.02-py3
 
 FROM rust:1.82.0 AS rust-env
 
