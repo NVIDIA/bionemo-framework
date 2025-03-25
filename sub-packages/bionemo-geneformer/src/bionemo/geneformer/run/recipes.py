@@ -136,8 +136,8 @@ def geneformer_10m_wandb_config() -> WandbConfig:
         project="geneformer-10m_pretraining",
         group="geneformer-10m",
         tags=["geneformer-10m"],
-        offline=True,
-        anonymous=True,
+        offline=False,
+        anonymous=False,
         id="1",
         log_model=False,
     )
@@ -174,8 +174,8 @@ def geneformer_106m_wandb_config() -> WandbConfig:
         project="geneformer-106m_pretraining",
         group="geneformer-106m",
         tags=["geneformer-106m"],
-        offline=True,
-        anonymous=True,
+        offline=False,
+        anonymous=False,
         id="1",
         log_model=False,
     )
@@ -550,12 +550,12 @@ def geneformer_10m_finetune_recipe(
     wandb_config = WandbConfig(
         project="bionemo2-demo",
         entity="nvidia",
-        offline=True,
+        offline=False,
         tags=[],
         group="dev",
         id="dev",
         log_model=False,
-        anonymous=True,
+        anonymous=False,
     )
     main_config = MainConfig[ExposedFineTuneSeqLenBioBertConfig, GeneformerPretrainingDataConfig](
         data_config=data_config,

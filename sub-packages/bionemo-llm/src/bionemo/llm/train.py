@@ -19,6 +19,7 @@ import pathlib
 from dataclasses import field
 from typing import Optional
 
+import lightning.pytorch as pl
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
@@ -28,7 +29,9 @@ from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.utils import logging
+from nemo.utils.exp_manager import TimingCallback
 from pydantic import BaseModel
 
 from bionemo.core.utils.dtypes import get_autocast_dtype
@@ -131,6 +134,9 @@ def setup_trainer(
             RichModelSummary(max_depth=4),
             LearningRateMonitor(),
         ]
+    else:
+        callbacks.append(RichModelSummary(max_depth=4))
+        callbacks.append(LearningRateMonitor())
 
     if training_config.gc_interval > 0:
         callbacks.append(
@@ -150,6 +156,7 @@ def setup_trainer(
                 gen_shape=True,
             )
         )
+    callbacks.append(TimingCallback(log_tokens_per_sec=True))
 
     trainer = nl.Trainer(
         devices=parallel_config.num_devices,
@@ -253,7 +260,21 @@ def train(
         tokenizer=data.tokenizer,
         optimizer=optimizer,
     )
-    trainer: nl.Trainer = setup_trainer(parallel_config, training_config, nsys_config=nsys_config)
+    callbacks = []
+    class DataModule(pl.LightningDataModule):
+        def __init__(self, global_batch_size: int, vocab_size: int):
+            super().__init__()
+            self.global_batch_size = global_batch_size
+            self.vocab_size = vocab_size
+    data_module = DataModule(global_batch_size=global_batch_size, vocab_size=data.tokenizer.vocab_size)
+    flops_callback = FLOPsMeasurementCallback(
+        model_config=bionemo_model_config,
+        data_config=data_module,
+        model_name="transformer",
+    )
+    print("flops_callback", flops_callback)
+    callbacks.append(flops_callback)
+    trainer: nl.Trainer = setup_trainer(parallel_config, training_config, callbacks=callbacks, nsys_config=nsys_config)
     nemo_logger: nl.NeMoLogger = nemo_logger_factory(experiment_config, wandb_config=wandb_config)
 
     llm.train(

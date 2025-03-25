@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Sequence, Type, get_args
 
 import torch
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
+import lightning.pytorch as pl
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
@@ -37,7 +38,7 @@ from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
 from nemo.utils.exp_manager import TimingCallback
-
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.geneformer.api import FineTuneSeqLenBioBertConfig, GeneformerConfig
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
@@ -228,7 +229,9 @@ def main(
     callbacks = [
         # Skip perplexity and disable forward output in the loss for speed
         RichModelSummary(max_depth=4),
-        TimingCallback(),
+        # TimingCallback(),
+        
+        TimingCallback(log_tokens_per_sec=True),
         LearningRateMonitor(),
     ]
 
@@ -246,21 +249,7 @@ def main(
             )
         )
 
-    trainer = nl.Trainer(
-        devices=devices,
-        max_steps=num_steps,
-        accelerator="gpu",
-        strategy=strategy,
-        limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
-        val_check_interval=val_check_interval,  # TODO(@jstjohn) Checkpoint saving is currently broken, fix and change this.
-        log_every_n_steps=log_every_n_steps,
-        num_nodes=num_nodes,
-        callbacks=callbacks,
-        use_distributed_sampler=False,
-        plugins=nl.MegatronMixedPrecision(precision=precision),
-        enable_checkpointing=create_checkpoint_callback,
-    )
-
+    
     preprocessor = GeneformerPreprocess(
         download_directory=train_data_path,
         medians_file_path=train_data_path / "medians.json",
@@ -306,7 +295,42 @@ def main(
         # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
         initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
     )
+    data.global_batch_size = global_batch_size
+    geneformer_config.moe_router_topk = None
+    print("Vocab size ", data.tokenizer.vocab_size)
+    # import debugpy
+    # debugpy.listen(("0.0.0.0", 5678))
+    # print("Waiting for client")
+    # debugpy.wait_for_client()
+    class DataModule(pl.LightningDataModule):
+        def __init__(self, global_batch_size: int, vocab_size: int):
+            super().__init__()
+            self.global_batch_size = global_batch_size
+            self.vocab_size = vocab_size
+    data_module = DataModule(global_batch_size=global_batch_size, vocab_size=data.tokenizer.vocab_size)
+    flops_callback = FLOPsMeasurementCallback(
+        model_config=geneformer_config,
+        data_config=data_module,
+        model_name="geneformer",
+    )
+    callbacks.append(flops_callback)
+    print("callbacks ", callbacks)
+    trainer = nl.Trainer(
+        devices=devices,
+        max_steps=num_steps,
+        accelerator="gpu",
+        strategy=strategy,
+        limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
+        val_check_interval=val_check_interval,  # TODO(@jstjohn) Checkpoint saving is currently broken, fix and change this.
+        log_every_n_steps=log_every_n_steps,
+        num_nodes=num_nodes,
+        callbacks=callbacks,
+        use_distributed_sampler=False,
+        plugins=nl.MegatronMixedPrecision(precision=precision),
+        enable_checkpointing=create_checkpoint_callback,
+    )
 
+    print("Creating model")
     # The lightning class owns a copy of the actual model, and a loss function, both of which are configured
     #  and lazily returned by the `geneformer_config` object defined above.
     model = biobert_lightning_module(
@@ -333,6 +357,7 @@ def main(
             ),
         ),
     )
+    print("Model created")
     # Configure our custom Checkpointer
     if create_checkpoint_callback:
         checkpoint_callback = nl_callbacks.ModelCheckpoint(
@@ -346,6 +371,7 @@ def main(
     else:
         checkpoint_callback = None
 
+    print("Creating logger")
     # Setup the logger and train the model
     nemo_logger = setup_nemo_lightning_logger(
         root_dir=result_dir,
@@ -359,6 +385,7 @@ def main(
         getting recompiled. Once verified, turn this off again.
         """
         torch._dynamo.config.error_on_recompile = True
+    print("Training model")
     llm.train(
         model=model,
         data=data,
