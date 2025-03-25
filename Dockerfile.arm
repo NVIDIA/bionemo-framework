@@ -157,7 +157,7 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 RUN apt-get update && \
     apt-get install -y build-essential python3-dev python3-setuptools make cmake && \
     apt-get install -y ffmpeg libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev
-RUN --mount=type=bind,source=./arm_build/decord_ffmpeg6_fix.patch,target=/decord_ffmpeg6_fix.patch \
+RUN --mount=type=bind,source=./docker_build_patches/decord_ffmpeg6_fix.patch,target=/decord_ffmpeg6_fix.patch \
     git clone --recursive https://github.com/dmlc/decord && \
     cd decord && git apply /decord_ffmpeg6_fix.patch && \
     mkdir build && cd build && \
