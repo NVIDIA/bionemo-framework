@@ -229,12 +229,6 @@ For more details see the example notebook titled Geneformer-celltype-classificat
 
 The 106M parameter variant of Geneformer achieves over 50 TFLOPS per GPU during training. This is consistent whether trained with 1 or 8 A100s.
 
-![TFLOPs per GPU (A100) shows improved utilization by 106M variant](../assets/old_images/sc_fm/model_tflops_per_gpu_chart_tight_layout.png)
+![TFLOPs per GPU (A100) shows improved utilization by 106M variant](../assets/images/geneformer/model_tflops_per_gpu_chart_geneformer.png)
 
-!!! note "TFLOPS are from BioNeMo1, early evidence of speedups in BioNeMo2"
-
-    We have observed equivalent or better performance in BioNeMo2 vs BioNeMo1 for the Geneformer model. One example is
-    a cluster run where we see a time-per step at 0.26 seconds per iteration with a batch size of 64 through Geneformer.
-    An older BioNeMo1 run that was properly configured had a time-per-step of 0.09 with a batch size of 16. When you
-    consider samples per second this would imply a significant speedup in BioNeMo2, however this is anecdotal and a
-    more thorough comparison is forthcoming.
+    Performance will increase if the `num_dataset_workers` and the `micro_batch_size` are set appropriately. For the above metrics, we set `num_dataset_workers=8`. For the 10m model, set `micro_batch_size=120` and for the 106m model set the `micro_batch_size=16`. This will enable you to achieve similar performance results.
