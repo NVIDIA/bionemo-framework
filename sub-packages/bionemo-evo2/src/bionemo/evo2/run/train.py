@@ -51,7 +51,7 @@ from nemo.utils.exp_manager import TimingCallback
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.testing.testing_callbacks import SignalAfterGivenStepCallback
-
+from eden_dataset import FastaDataModule
 
 torch._dynamo.config.suppress_errors = True
 
@@ -74,6 +74,11 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "--mock-data",
         action="store_true",
         help="Train with Mock data (for testing/debugging), either set this or provide a dataset config.",
+    )
+    data_group.add_argument(
+        "--fasta-data",
+        action="store_true",
+        help="Train with Fasta data, either set this or provide a dataset config.",
     )
 
     parser.add_argument(
@@ -432,6 +437,16 @@ def train(args: argparse.Namespace):
         )
     if args.mock_data:
         data = MockDataModule(
+            seq_length=args.seq_length,
+            micro_batch_size=args.micro_batch_size,
+            global_batch_size=global_batch_size,
+            num_workers=args.workers,
+            tokenizer=tokenizer,
+        )
+
+    elif args.fasta_data:
+        data = FastaDataModule(
+            fasta_file="/workspace/bionemo2/bionemo-evo2/bcr_small_ctrl_tags.fasta",
             seq_length=args.seq_length,
             micro_batch_size=args.micro_batch_size,
             global_batch_size=global_batch_size,
