@@ -35,7 +35,7 @@ from bionemo.testing.megatron_parallel_state_utils import distributed_model_para
 from bionemo.testing.torch import recursive_assert_approx_equal
 
 
-__all__: Sequence[str] = ("StopAndGoHarness", "get_callback", "CallbackDict")
+__all__: Sequence[str] = ("CallbackDict", "StopAndGoHarness", "get_callback")
 
 
 Callback = TypeVar("Callback", bound=pl.Callback)

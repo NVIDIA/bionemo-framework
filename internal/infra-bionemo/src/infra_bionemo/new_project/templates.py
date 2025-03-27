@@ -20,10 +20,10 @@ from typing import Sequence
 __all__: Sequence[str] = (
     "pyproject_toml_setuptools",
     "pyproject_toml_subproject",
-    "setup_py",
-    "requirements_txt",
-    "readme_md",
     "pytest_example",
+    "readme_md",
+    "requirements_txt",
+    "setup_py",
 )
 
 

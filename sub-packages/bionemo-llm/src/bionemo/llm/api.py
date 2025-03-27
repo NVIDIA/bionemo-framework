@@ -22,10 +22,10 @@ from nemo.lightning.megatron_parallel import DataT, MegatronLossReduction
 
 
 __all__: Sequence[str] = (
-    "MegatronModelType",
-    "MegatronLossType",
     "BionemoMegatronModel",
     "MegatronLossReduction",  # re-export Megatron's loss definition as it's a core part of the bionemo-llm API
+    "MegatronLossType",
+    "MegatronModelType",
 )
 
 

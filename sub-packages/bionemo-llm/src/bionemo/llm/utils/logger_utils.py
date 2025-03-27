@@ -35,6 +35,7 @@ class WandbConfig(BaseModel):
     Args:
         entity: The team posting this run (default: your username or your default team)
         project: The name of the project to which this run will belong.
+        name: Display name for the run. By default it is set by NeMoLogger to experiment name
         tags: Tags associated with this run.
         group: A unique string shared by all runs in a given group
         job_type: Type of run, which is useful when you're grouping runs together into larger experiments.
@@ -45,7 +46,7 @@ class WandbConfig(BaseModel):
 
     entity: str | None  # The team posting this run (default: your username or your default team)
     project: str  # The name of the project to which this run will belong.
-    # name: #Display name for the run. "This is handled by NeMoLogger"
+    name: str | None = None  # Display name for the run. By default, it is set by NeMoLogger to experiment name
     # save_dir: #Path where data is saved. "This is handled by NeMoLogger"
     tags: List[str] | None  # Tags associated with this run.
     group: str | None  # A unique string shared by all runs in a given group.
@@ -59,7 +60,7 @@ class WandbConfig(BaseModel):
 
 
 def setup_nemo_lightning_logger(
-    name: str = "default-name",
+    name: str | None = None,
     root_dir: str | pathlib.Path = "./results",
     initialize_tensorboard_logger: bool = False,
     wandb_config: Optional[WandbConfig] = None,
@@ -82,24 +83,30 @@ def setup_nemo_lightning_logger(
     """
     # The directory that the logger will save to
     save_dir = pathlib.Path(root_dir) / name
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    version = "dev"
     if wandb_config is not None:
-        wandb_logger = WandbLogger(save_dir=save_dir, name=name, **wandb_config.model_dump())
+        if wandb_config.name is None:
+            wandb_config.name = name
+        wandb_logger = WandbLogger(save_dir=save_dir, **wandb_config.model_dump())
     else:
         wandb_logger = None
         logging.warning("WandB is currently turned off.")
     if initialize_tensorboard_logger:
-        tb_logger = TensorBoardLogger(save_dir=save_dir, name=name)
+        tb_logger = TensorBoardLogger(save_dir=root_dir, name=name, version=version)
     else:
         tb_logger = None
         logging.warning("User-set tensorboard is currently turned off. Internally one may still be set by NeMo2.")
+
     logger: NeMoLogger = NeMoLogger(
         name=name,
         log_dir=str(root_dir),
         tensorboard=tb_logger,
         wandb=wandb_logger,
         ckpt=ckpt_callback,
-        use_datetime_version=False,
-        version="dev",
+        version=version,
+        update_logger_directory=False,
         **kwargs,
     )
     # Needed so that the trainer can find an output directory for the profiler

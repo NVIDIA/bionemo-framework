@@ -20,6 +20,7 @@ script_args:
   nodes: 4
   batch_size: 8
   max_steps: 490000
+  stop_steps: 6900
   pp: 1
   cp: 1
   tp: 1
@@ -42,7 +43,7 @@ script_args:
     value: 0.1
     key_segment: False
 script: |-
-  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-evo2/src/bionemo/evo2/run/${variant}.py \
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
   -d /workspace/bionemo2/sub-packages/bionemo-evo2/examples/configs/full_pretrain_shortphase_config.yaml \
   --dataset-dir ${data_path} \
   --grad-acc-batches ${acc_grad} \
@@ -54,6 +55,7 @@ script: |-
   --clip-grad=${clip_grad} \
   --eod-pad-in-loss-mask \
   --seq-length=${seq_len} \
+  --seed ${seed} \
   --lr=${lr} \
   --wd=${wd} \
   --min-lr=${min_lr} \
@@ -66,12 +68,13 @@ script: |-
   --devices=${gpus} \
   --micro-batch-size=${batch_size} \
   --model-size=${config_name} \
-  --max-steps=${max_steps} \
+  --max-steps=${max_steps} --early-stop-on-step ${stop_steps} \
   --limit-val-batches=20 \
   --log-every-n-steps=50 \
   --val-check-interval=500 \
-  --tflops-callback \
-  --experiment-dir=${tensorboard_dir} \
+  --create-tflops-callback \
+  --create-tensorboard-logger \
+  --result-dir=${tensorboard_dir} \
   --wandb-project=${wandb_project_name} \
   --wandb-group=${model}_${variant}_${config_name}__${target}__slen${seq_len} \
   --wandb-job-type=${pipeline_label} \

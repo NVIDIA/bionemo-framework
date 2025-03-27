@@ -42,9 +42,9 @@ class GeneTokenizer(Label2IDTokenizer, io.IOMixin):
     def __init__(self, vocab: Dict[str, int], gene_to_ens: Dict[str, str]):  # noqa: D107
         # Sets up vocab/decode_vocab dictionaries, parent class is sateful.
         super().__init__()
-        assert set(self.special_tokens).issubset(
-            set(vocab.keys())
-        ), f"Vocab must contain all of {self.special_tokens}, missing {set(self.special_tokens) - set(vocab.keys())}"
+        assert set(self.special_tokens).issubset(set(vocab.keys())), (
+            f"Vocab must contain all of {self.special_tokens}, missing {set(self.special_tokens) - set(vocab.keys())}"
+        )
         self.gene_to_ens = deepcopy(gene_to_ens)
         self.ens_to_gene = {v: k for k, v in self.gene_to_ens.items()}
         self.vocab = deepcopy(vocab)

@@ -25,23 +25,18 @@ import click
 
 
 __all__: Sequence[str] = (
-    # main license check functionality: per file & per directory (recursively, *.py filter)
-    "license_check",
-    "check_license_project_files",
-    "Checked",
-    # error types
-    "LicenseCheckError",
-    "HeaderNotFound",
-    # functions that implement license checking behavior
-    "append_license_header",
-    "is_valid_python",
-    "has_header",
-    "ensure_license_starts_with_pound",
-    "remove_existing_license_header",
-    # default license header
     "LICENSE_HEADER",
-    # to run main CLI program logic, w/o Click runner
+    "Checked",
+    "HeaderNotFound",
+    "LicenseCheckError",
+    "append_license_header",
+    "check_license_project_files",
+    "ensure_license_starts_with_pound",
+    "has_header",
+    "is_valid_python",
+    "license_check",
     "main",
+    "remove_existing_license_header",
 )
 
 NVIDIA_COPYRIGHT: str = (
@@ -256,9 +251,9 @@ def check_license_project_files(
     For more details,
     see :func:`license_check`.
     """
-    assert (
-        python_package_directory.is_dir()
-    ), f"Input must be a directory of Python files, not a directory: {python_package_directory}"
+    assert python_package_directory.is_dir(), (
+        f"Input must be a directory of Python files, not a directory: {python_package_directory}"
+    )
     noncompliant_files = {}
     n_files = 0
     for pyfile in python_package_directory.rglob("*.py"):
@@ -364,7 +359,7 @@ def entrypoint(
 
     # check that they all exist
     if len(unknown) > 0:
-        raise ValueError(f"Found {len(unknown)} --check things that do not exist!\n" "\n".join(map(str, unknown)))
+        raise ValueError(f"Found {len(unknown)} --check things that do not exist!\n\n".join(map(str, unknown)))
 
     # check that files passed in explicitly from --check end with .py
     non_py_files = [f for f in files if not f.name.endswith(".py")]

@@ -68,9 +68,9 @@ def convert_zero_checkpoint_to_fp32_state_dict(
     if ranks_to_process is not None:
         ranks_to_process = list(ranks_to_process)
         assert len(ranks_to_process) <= mp_size, f"Expected {mp_size} ranks to process, got {len(ranks_to_process)}"
-        assert all(
-            0 <= r < mp_size for r in ranks_to_process
-        ), f"Expected ranks to be in range [0, {mp_size}), got {ranks_to_process}"
+        assert all(0 <= r < mp_size for r in ranks_to_process), (
+            f"Expected ranks to be in range [0, {mp_size}), got {ranks_to_process}"
+        )
     else:
         ranks_to_process = list(range(mp_size))
 
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "output_dir",
         type=str,
-        help="directory to the pytorch fp32 state_dict output files" "(e.g. path/checkpoint-12-output/)",
+        help="directory to the pytorch fp32 state_dict output files(e.g. path/checkpoint-12-output/)",
     )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing MP shards")
     parser.add_argument(

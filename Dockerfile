@@ -35,14 +35,6 @@ apt-get upgrade -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
-# Reinstall TE to avoid debugpy bug in vscode: https://nvbugspro.nvidia.com/bug/5078830
-# Pull the latest TE version from https://github.com/NVIDIA/TransformerEngine/releases
-# Use the version that matches the pytorch base container.
-ARG TE_TAG=v1.13
-RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
-  pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
-
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
 RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
@@ -94,11 +86,7 @@ COPY ./LICENSE /workspace/bionemo2/LICENSE
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
-# Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
-# Includes a hack to install tensorstore 0.1.45, which doesn't distribute a pypi wheel for python 3.12, and the metadata
-# in the source distribution doesn't match the expected pypi version.
-RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   --mount=type=cache,target=/root/.cache <<EOF
 set -eo pipefail

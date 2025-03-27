@@ -21,10 +21,10 @@ from torch.utils.data import Sampler
 
 
 __all__: Sequence[str] = (
-    "size_aware_batching",
-    "SizeAwareBatchSampler",
-    "Real",
     "BucketBatchSampler",
+    "Real",
+    "SizeAwareBatchSampler",
+    "size_aware_batching",
 )
 
 Data = TypeVar("Data")
@@ -131,9 +131,7 @@ def size_aware_batching(
             raise RuntimeError(f"sizeof raises error at data={data}: {e}") from e
         if new_size > max_total_size:
             if warn_logger is not None:
-                warn_logger(
-                    f"Size of element {data} exceeds max_total_size" f" ({new_size} > {max_total_size}), skipping"
-                )
+                warn_logger(f"Size of element {data} exceeds max_total_size ({new_size} > {max_total_size}), skipping")
             continue
         if new_size + batch_total_size > max_total_size:
             n_batches += 1

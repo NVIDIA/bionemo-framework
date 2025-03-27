@@ -20,4 +20,4 @@ from .discrete.mask import DiscreteMaskedPrior
 from .discrete.uniform import DiscreteUniformPrior
 
 
-__all__ = ["GaussianPrior", "DiscreteUniformPrior", "DiscreteMaskedPrior", "DiscreteCustomPrior"]
+__all__ = ["DiscreteCustomPrior", "DiscreteMaskedPrior", "DiscreteUniformPrior", "GaussianPrior"]
