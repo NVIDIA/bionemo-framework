@@ -115,7 +115,8 @@ class ExposedModelConfig(BaseModel, Generic[ModelConfigT], ABC):
     class Config:  # noqa: D106
         arbitrary_types_allowed = True
 
-    def model_class(self) -> Type[ModelConfigT]:
+    @classmethod
+    def model_class(cls) -> Type[ModelConfigT]:
         """Returns the underlying model class that this config wraps."""
         raise NotImplementedError
 
