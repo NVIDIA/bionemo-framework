@@ -21,7 +21,40 @@ docker run --rm -it -p 8000:8000 \
 And then navigate to [`http://0.0.0.0:8000`](http://0.0.0.0:8000) on your local
 machine.
 
+## Sub-package Documentation
+
+Sub-package specific documentation must be placed alongside the sub-package code in the `sub-packages/bionemo-<sub-package-name>/` directory:
+
+- `README.md` - A root level file that describes the sub-package and how to use it.
+- `examples/` - A directory that contains documentation or examples specific to the sub-package, in the form of `.md` or `.ipynb` files.
+- `assets/` - A folder that contains any static assets used in any of the above files, e.g. `.png` files.
+
+When the docs are built, these documentation files will be fetched (via the [scripts/gen_ref_pages.py](./scripts/gen_ref_pages.py) script) for rendering in the main documentation site.
+
+- The `README.md` will be rendered as an individual page in the `User Guide -> Developer Guide -> <sub-package-name>/` section of the documentation site.
+- Every file in the `examples/` directory will be rendered as an individual page in the `User Guide -> Tutorials -> <sub-package-name>/` section of the documentation site.
+
+An example sub-package structure is shown below:
+
+```
+bionemo-<sub-package-name>/
+└── assets/
+    ├── example_1.png
+├── examples/
+│   ├── example_1.md
+│   └── example_2.ipynb
+├── src/
+├── tests/
+├── LICENSE
+├── pyproject.toml
+├── README.md
+├── VERSION
+```
+
+As mentioned, `assets/`, `examples/`, and `README.md` will be rendered in the main documentation site.
+
 ## Hiding/collapsing `.ipynb` cells
+
 To remove cells from the rendered `mkdocs` html you can add a `remove-cell` tag to the cell. Note that `remove-output` is also an option to hide outputs but not the code cell. Unfortunately
 `remove-input` does not seem to be supported.
 
