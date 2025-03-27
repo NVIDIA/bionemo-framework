@@ -28,6 +28,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Optional
+
 from nemo.collections.llm import fn
 from nemo.collections.llm.fn.mixin import FNMixin
 from nemo.collections.llm.peft.lora import LoRA
@@ -37,13 +39,33 @@ from torch import nn
 class ESM2LoRA(LoRA):
     """LoRA for the BioNeMo2 ESM Model."""
 
+    def __init__(self, peft_ckpt_path: Optional[str] = None, *args, **kwarg):
+        """Initialize the LoRA Adapter.
+
+        Args:
+            peft_ckpt_path: config for peft chekpoint.
+            *args: args for the LoRA class.
+            **kwarg: kwargs for the LoRA class.
+        """
+        super().__init__(*args, **kwarg)
+        self.peft_ckpt_path = peft_ckpt_path
+
+    def setup(self, *args, **kwarg):
+        """Initialize the LoRA Adapter. Pass the peft_ckpt_path to the wrapped io.
+
+        Args:
+            *args: args for the LoRA class.
+            **kwarg: kwargs for the LoRA class.
+        """
+        super().setup(*args, **kwarg)
+        self.wrapped_io.peft_ckpt_path = self.peft_ckpt_path
+
     def __call__(self, model: nn.Module) -> nn.Module:
         """This method is called when the object is called as a function.
 
         Args:
             model: The input model.
 
-        Returns:
             The modified model.
         """
         fn.walk(model, self.selective_freeze)
