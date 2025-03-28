@@ -5,7 +5,7 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.03-py3
 
 FROM rust:1.82.0 AS rust-env
 
@@ -38,10 +38,10 @@ EOF
 # Reinstall TE to avoid debugpy bug in vscode: https://nvbugspro.nvidia.com/bug/5078830
 # Pull the latest TE version from https://github.com/NVIDIA/TransformerEngine/releases
 # Use the version that matches the pytorch base container.
-ARG TE_TAG=v1.13
-RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
-  pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
+# ARG TE_TAG=v1.13
+# RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
+#   pip --disable-pip-version-check --no-cache-dir install \
+#   git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
 
 # Check the nemo dependency for causal conv1d and make sure this checkout
 # tag matches. If not, update the tag in the following line.
