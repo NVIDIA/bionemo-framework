@@ -305,7 +305,7 @@ class AMPLIFYConfig(BioBertConfig[AMPLIFYModelT, MegatronLossType], iom.IOMixinW
     bias_dropout_fusion: bool = True
     apply_rope_fusion: bool = False
     gated_linear_unit: bool = True
-    masked_softmax_fusion: bool = False
+    masked_softmax_fusion: bool = True
     activation_func: str = silu
     normalization: str = "RMSNorm"  # AMPLIFY uses RMSNorm instead of LayerNorm
     layernorm_zero_centered_gamma: bool = False  # Zero centered gamma not supported for RMSNorm
