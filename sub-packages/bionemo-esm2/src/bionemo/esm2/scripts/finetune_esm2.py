@@ -407,7 +407,7 @@ def finetune_esm2_entrypoint():
     if args.lora_checkpoint_path and not args.lora_finetune:
         parser.error("Arguments --lora=checkpoint-path cannot be set when not using lora-finetune.")
 
-    with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+    with megatron_parallel_state_utils.distributed_model_parallel_state(args.seed):
         # 2. Call pretrain with args
         train_model(
             train_data_path=args.train_data_path,
@@ -836,6 +836,8 @@ def get_parser():
         default=InMemorySingleValueDataset,
         help=f"Dataset class name for finetuning. Choices: {config_class_options.keys()}",
     )
+    parser.add_argument("--seed", type=int, default=43, help="Random seed.")
+
     return parser
 
 
