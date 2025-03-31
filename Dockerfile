@@ -5,7 +5,7 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.03-py3
 
 FROM rust:1.82.0 AS rust-env
 
@@ -35,9 +35,9 @@ apt-get upgrade -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
-## BUMP TE from v1.14 to v1.13
- ARG TE_TAG=v1.13
- RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
+## Use Transformer Engine v2.1
+ARG TE_TAG=release_v2.1
+RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
     pip --disable-pip-version-check --no-cache-dir install \
     git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
 
@@ -49,8 +49,10 @@ RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
 RUN pip install hatchling   # needed to install nemo-run
-ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
-RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG}
+# Install nemo_run without dependencies and then install required dependencies separately
+ARG NEMO_RUN_TAG=v0.3.0
+RUN pip install --no-deps nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMO_RUN_TAG} && \
+    pip install omegaconf>=2.3.0 rich>=13.7.1 hydra-core>=1.3.2
 
 RUN mkdir -p /workspace/bionemo2/
 
