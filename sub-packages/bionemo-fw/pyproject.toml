@@ -20,6 +20,8 @@ dependencies = [
     'bionemo-scdl',
     'bionemo-size-aware-batching',
     'bionemo-webdatamodule',
+    'bionemo-amplify',
+    #
     # NOTE: DO **NOT** INCLUDE:
     #    bionemo-testing (test-time only dependency)
     #    bionemo-example_model (documentation)

@@ -62,6 +62,13 @@ def geneformer_base_training_config() -> TrainingConfig:
     )  # matches bionemo1
 
 
+def geneformer_short_base_training_config() -> TrainingConfig:
+    """Base training config for Geneformer."""
+    return TrainingConfig(
+        max_steps=500, limit_val_batches=8, val_check_interval=100, precision="bf16-mixed"
+    )  # matches bionemo1
+
+
 def geneformer_data_recipe(data_dir) -> GeneformerPretrainingDataConfig:
     """Recipe that produces the base geneformer small data configuration."""
     return GeneformerPretrainingDataConfig(data_dir=data_dir)
@@ -484,6 +491,29 @@ def geneformer_10m_pretrain_recipe(
     return main_config
 
 
+def geneformer_10m_shortpretrain_recipe(
+    args,
+) -> MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig]:
+    """Recipe for pretraining the 10m model."""
+    data_config: GeneformerPretrainingDataConfig = geneformer_data_recipe(data_dir=args.data_path)
+    parallel_config = simple_parallel_recipe()
+    training_config = geneformer_short_base_training_config()
+    bionemo_model_config = geneformer_10m_model_config(initial_ckpt_path=args.initial_ckpt_path)
+    optim_config = geneformer_base_optimizer_scheduler_config()
+    experiment_config = geneformer_10m_experiment_config(result_dir=args.result_dir)
+    wandb_config = geneformer_10m_wandb_config()
+    main_config = MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig](
+        data_config=data_config,
+        parallel_config=parallel_config,
+        training_config=training_config,
+        bionemo_model_config=bionemo_model_config,
+        optim_config=optim_config,
+        experiment_config=experiment_config,
+        wandb_config=wandb_config,
+    )
+    return main_config
+
+
 def geneformer_106m_pretrain_recipe(
     args,
 ) -> MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig]:
@@ -553,6 +583,9 @@ class GeneformerRecipes(BaseModel):
     geneformer_10m_pretrain_recipe: Callable[
         [argparse.Namespace], MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig]
     ] = partial(geneformer_10m_pretrain_recipe)
+    geneformer_10m_shortpretrain_recipe: Callable[
+        [argparse.Namespace], MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig]
+    ] = partial(geneformer_10m_shortpretrain_recipe)
     geneformer_106m_pretrain_recipe: Callable[
         [argparse.Namespace], MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig]
     ] = partial(geneformer_106m_pretrain_recipe)

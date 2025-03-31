@@ -56,23 +56,7 @@ def get_autocast_dtype(precision: PrecisionTypes) -> torch.dtype:
         ValueError: If the precision is not supported.
     """
     # TODO move this to a utilities folder, or find/import the function that does this in NeMo
-    if precision == "fp16":
-        return torch.float16
-    elif precision == "bf16":
-        return torch.bfloat16
-    elif precision == "fp32":
-        return torch.float32
-    elif precision == "16-mixed":
-        return torch.float16
-    elif precision == "fp16-mixed":
-        return torch.float16
-    elif precision == "bf16-mixed":
-        return torch.bfloat16
-    elif precision == "fp32-mixed":
-        return torch.float32
-    elif precision == 16:
-        return torch.float16
-    elif precision == 32:
-        return torch.float32
+    if precision in precision_to_dtype:
+        return precision_to_dtype[precision]
     else:
         raise ValueError(f"Unsupported precision: {precision}")
