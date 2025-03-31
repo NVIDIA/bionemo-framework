@@ -1,6 +1,10 @@
 name: "BioNemo Image Build and Unit Tests"
 
 on:
+  workflow_run:
+    workflows: ["PR Label Checks"]
+    types:
+      - completed
   push:
     branches:
       - main
@@ -34,140 +38,17 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ./ci/scripts/static_checks.sh
 
-  # With copy-pr-bot, we need to get the PR labels from the PR API rather than from the event metadata.
-  get-pr-labels:
-    runs-on: ubuntu-latest
-    outputs:
-      labels: ${{ steps.get-labels.outputs.labels }}
-      pr_num: ${{ steps.get-pr-num.outputs.pr_num || '' }}
-    steps:
-      - name: Get PR number from branch
-        if: startsWith(github.ref, 'refs/heads/pull-request/')
-        id: get-pr-num
-        run: |
-          PR_NUM=$(echo ${{ github.ref_name }} | grep -oE '[0-9]+$')
-          echo "pr_num=$PR_NUM" >> $GITHUB_OUTPUT
-
-      - name: Get PR labels
-        id: get-labels
-        if: startsWith(github.ref, 'refs/heads/pull-request/')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          LABELS=$(gh api repos/${{ github.repository }}/pulls/${{ steps.get-pr-num.outputs.pr_num }} --jq '[.labels[].name]' || echo "[]")
-          echo "labels=$LABELS" >> $GITHUB_OUTPUT
-
-      - name: Set empty labels for non-PR branches
-        if: ${{ !startsWith(github.ref, 'refs/heads/pull-request/') }}
-        id: get-labels-empty
-        run: echo "labels=[]" >> $GITHUB_OUTPUT
-
-
-  # This job analyzes files modified in a PR to determine which test suites should run and if appropriate labels are applied
-  check-pr-label-for-modified-files:
-    name: Check PR Labels for Modified Tests
-    needs: get-pr-labels
-    runs-on: ubuntu-latest
-    # Only run this job for pull requests (both standard PRs and copy-PR-bot branches)
-    if: (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/pull-request/'))
-
-    outputs:
-      # These outputs are used to conditionally trigger specific test jobs
-      run_notebooks_tests: ${{ steps.check-files.outputs.run_notebooks_tests }} # Set to 'true' if notebooks (.ipynb) were modified
-      run_slow_tests: ${{ steps.check-files.outputs.run_slow_tests }} # Set to 'true' if slow tests were modified
-      updated_labels: ${{ steps.update-labels.outputs.updated_labels || needs.get-pr-labels.outputs.labels }} # Updated labels list
-      all_labels: ${{ steps.update-labels.outputs.updated_labels || needs.get-pr-labels.outputs.labels || '[]' }} # Combined labels for easier reference
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Check modified files
-        id: check-files
-        run: |
-          # Default both test flags to false - will be set to true if specific files are modified
-          RUN_NOTEBOOKS_TESTS="false"  # Controls whether notebook tests will run
-          RUN_SLOW_TESTS="false"      # Controls whether slow tests will run
-
-          # Determine base and head commits for file comparison
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            # For standard PR events, GitHub provides the base and head SHAs
-            BASE_SHA=${{ github.event.pull_request.base.sha }}
-            HEAD_SHA=${{ github.event.pull_request.head.sha }}
-          else
-            # For pull-request/X branches, use main as the base for comparison
-            BASE_SHA=$(git rev-parse origin/main)
-            HEAD_SHA=$(git rev-parse HEAD)
-          fi
-
-          echo "Comparing file changes between ${BASE_SHA} and ${HEAD_SHA}"
-
-          # Check for Jupyter notebook modifications (.ipynb files)
-          if git diff --name-only ${BASE_SHA}..${HEAD_SHA} | grep -q '\.ipynb$'; then
-            RUN_NOTEBOOKS_TESTS="true"
-          fi
-
-          # Check for slow test modifications - looking for test files that contain pytest.mark.slow
-          # Find test files that contain pytest.mark.slow
-          if git diff --name-only ${BASE_SHA}..${HEAD_SHA} | grep -E '^test.*\.py$' | xargs grep -l "pytest.mark.slow" 2>/dev/null | grep -q .; then
-            RUN_SLOW_TESTS="true"
-          fi
-
-          # Set the output variables that will be used to determine which test jobs run
-          echo "run_notebooks_tests=${RUN_NOTEBOOKS_TESTS}" >> $GITHUB_OUTPUT
-          echo "run_slow_tests=${RUN_SLOW_TESTS}" >> $GITHUB_OUTPUT
-
-          # Output a summary for easier debugging in workflow logs
-          echo "File analysis completed:"
-          echo "- Run notebooks tests: ${RUN_NOTEBOOKS_TESTS}"
-          echo "- Run slow tests: ${RUN_SLOW_TESTS}"
-
-      - name: Add missing labels and update outputs
-        id: update-labels
-        if: ${{ startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'pull_request' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUM: ${{ needs.get-pr-labels.outputs.pr_num || github.event.pull_request.number }}
-          CURRENT_LABELS: ${{ needs.get-pr-labels.outputs.labels }}
-        run: |
-          # Parse current labels into an array
-          LABELS_ARRAY=$(echo $CURRENT_LABELS | jq -r '.')
-          UPDATED=false
-
-          # Check if slow tests label is needed
-          if [[ "${{ steps.check-files.outputs.run_slow_tests }}" == "true" && $(echo $LABELS_ARRAY | jq 'contains(["INCLUDE_SLOW_TESTS"])') == "false" ]]; then
-            echo "Adding INCLUDE_SLOW_TESTS label to PR #${PR_NUM}"
-            gh pr edit ${PR_NUM} --add-label "INCLUDE_SLOW_TESTS"
-            LABELS_ARRAY=$(echo $LABELS_ARRAY | jq '. + ["INCLUDE_SLOW_TESTS"]')
-            UPDATED=true
-          fi
-
-          # Check if notebooks tests label is needed
-          if [[ "${{ steps.check-files.outputs.run_notebooks_tests }}" == "true" && $(echo $LABELS_ARRAY | jq 'contains(["INCLUDE_NOTEBOOKS_TESTS"])') == "false" ]]; then
-            echo "Adding INCLUDE_NOTEBOOKS_TESTS label to PR #${PR_NUM}"
-            gh pr edit ${PR_NUM} --add-label "INCLUDE_NOTEBOOKS_TESTS"
-            LABELS_ARRAY=$(echo $LABELS_ARRAY | jq '. + ["INCLUDE_NOTEBOOKS_TESTS"]')
-            UPDATED=true
-          fi
-
-          # Always output the labels array, whether updated or not
-          echo "updated_labels=${LABELS_ARRAY}" >> $GITHUB_OUTPUT
-
-          if [[ "$UPDATED" == "true" ]]; then
-            echo "Labels have been updated."
-          else
-            echo "No label updates needed."
-          fi
 
 
   build-bionemo-image:
     needs:
       - pre-commit
-      - get-pr-labels
-      - check-pr-label-for-modified-files
     runs-on: linux-amd64-cpu16
-    if: ${{ !contains(fromJSON(needs.check-pr-label-for-modified-files.outputs.all_labels), 'SKIP_CI') }}
+    if: |
+      github.event_name != 'workflow_run' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion != 'cancelled' &&
+       !contains(fromJSON(github.event.workflow_run.outputs.all_labels), 'SKIP_CI'))
     steps:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -219,8 +100,6 @@ jobs:
   run-tests:
     needs:
       - build-bionemo-image
-      - check-pr-label-for-modified-files
-      - get-pr-labels
     runs-on: linux-amd64-gpu-l4-latest-1
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
@@ -257,8 +136,6 @@ jobs:
   run-slow-tests:
     needs:
       - build-bionemo-image
-      - check-pr-label-for-modified-files
-      - get-pr-labels
     runs-on: linux-amd64-gpu-l4-latest-1
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
@@ -267,7 +144,7 @@ jobs:
         password: ${{ secrets.DOCKER_PASSWORD }}
     if: |
       github.event_name == 'schedule' || github.event_name == 'merge_group' ||
-      contains(fromJSON(needs.check-pr-label-for-modified-files.outputs.all_labels), 'INCLUDE_SLOW_TESTS')
+      (github.event_name == 'workflow_run' && contains(github.event.workflow_run.outputs.run_slow_tests, 'true'))
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -283,12 +160,10 @@ jobs:
   run-notebooks-docs:
     needs:
       - build-bionemo-image
-      - check-pr-label-for-modified-files
-      - get-pr-labels
     runs-on: linux-amd64-gpu-l4-latest-1
     if: |
       github.event_name == 'schedule' || github.event_name == 'merge_group' ||
-      contains(fromJSON(needs.check-pr-label-for-modified-files.outputs.all_labels), 'INCLUDE_NOTEBOOKS_TESTS')
+      (github.event_name == 'workflow_run' && contains(github.event.workflow_run.outputs.run_notebooks_tests, 'true'))
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
       credentials:
@@ -310,11 +185,10 @@ jobs:
     # Base on the status of this job, the unit-tests workflow succeeds or fails
     # This steps checks the status of all test jobs and fails if any of them failed or were cancelled.
     # It is a workaround for the lack of a built-in feature to finalize a pipeline by checking the status of multiple jobs
-    needs: # List all your run-*-test jobs
+    needs:
       - run-tests
       - run-slow-tests
       - run-notebooks-docs
-      # Add all other run-*-test jobs
     runs-on: ubuntu-latest
     if: always() # This ensures the job runs even if previous jobs fail
     steps:
