@@ -109,10 +109,8 @@ jobs:
           fi
 
           # Check for slow test modifications - looking for test files that contain pytest.mark.slow
-          MODIFIED_TEST_FILES=$(git diff --name-only ${BASE_SHA}..${HEAD_SHA} | grep -E '^test.*\.py$')
-          if [[ ! -z "$MODIFIED_TEST_FILES" ]]; then
-            # This is a simplified check - in a real scenario you might grep through the content
-            # of each test file to check for pytest.mark.slow
+          # Find test files that contain pytest.mark.slow
+          if git diff --name-only ${BASE_SHA}..${HEAD_SHA} | grep -E '^test.*\.py$' | xargs grep -l "pytest.mark.slow" 2>/dev/null | grep -q .; then
             RUN_SLOW_TESTS="true"
           fi
 
