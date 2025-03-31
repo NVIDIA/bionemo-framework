@@ -13,15 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import sys
 from pathlib import Path
 
+import pytest
 import torch
 from megatron.core.transformer.module import Float16Module
 from nemo.lightning import io
 from transformers import AutoModel
 
-from bionemo.amplify.convert import HFAMPLIFYImporter  # noqa: F401
+from bionemo.amplify.convert import HFAMPLIFYImporter, maybe_mock_xformers  # noqa: F401
 from bionemo.amplify.hf_rotary import apply_rotary_emb
 from bionemo.amplify.model import AMPLIFYConfig
 from bionemo.amplify.tokenizer import BioNeMoAMPLIFYTokenizer
@@ -278,11 +279,16 @@ def load_and_evaluate_nemo_amplify(
 
 
 def test_convert_amplify_120M_smoke(tmp_path):
+    maybe_mock_xformers()
     model_tag = "chandar-lab/AMPLIFY_120M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
 
 
+@pytest.mark.skipif(
+    not sys.modules.get("xformers"),
+    reason="AMPLIFY golden value tests require xformers.",
+)
 def test_convert_amplify_120M(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_120M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
@@ -291,6 +297,10 @@ def test_convert_amplify_120M(tmp_path):
         assert_amplify_equivalence(tmp_path / "nemo_checkpoint", model_tag, atol=1e-4, rtol=1e-4)
 
 
+@pytest.mark.skipif(
+    not sys.modules.get("xformers"),
+    reason="AMPLIFY golden value tests require xformers.",
+)
 def test_convert_amplify_120M_bf16(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_120M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
@@ -304,6 +314,10 @@ def test_convert_amplify_120M_bf16(tmp_path):
         )
 
 
+@pytest.mark.skipif(
+    not sys.modules.get("xformers"),
+    reason="AMPLIFY golden value tests require xformers.",
+)
 def test_convert_amplify_350M(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_350M"
     module = biobert_lightning_module(config=AMPLIFYConfig())

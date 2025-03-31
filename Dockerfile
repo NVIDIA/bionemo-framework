@@ -35,18 +35,12 @@ apt-get upgrade -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
-# Check the nemo dependency for causal conv1d and make sure this checkout
-# tag matches. If not, update the tag in the following line.
-RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.2.post1
+# Use a branch of causal_conv1d while the repository works on Blackwell support.
+RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install git+https://github.com/trvachov/causal-conv1d.git@52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.2.2
-
-# Install xformers for AMPLIFY huggingface tests.
-ARG XFORMER_ENGINE_TAG=v0.0.29.post1
-RUN pip install -v -U git+https://github.com/facebookresearch/xformers.git@${XFORMER_ENGINE_TAG}#egg=xformers
+  git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
 RUN pip install hatchling   # needed to install nemo-run
 ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2

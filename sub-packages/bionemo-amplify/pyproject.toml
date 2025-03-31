@@ -16,12 +16,11 @@ dependencies = [
     'bionemo-core',
     'bionemo-llm',
     'bionemo-esm2',
-    # external
-    'xformers'
 ]
 
 [project.scripts]
 train_amplify = "bionemo.amplify.train_amplify:main"
+infer_amplify = "bionemo.amplify.infer_amplify:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
