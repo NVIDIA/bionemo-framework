@@ -36,7 +36,7 @@ rm -rf /tmp/* /var/tmp/*
 EOF
 
 ## BUMP TE from v1.14 to v1.13
- ARG TE_TAG=a132ac499d3b388b6fe658dfda03829a06edc3c3
+ ARG TE_TAG=d8b13cb0e58060e2428949faa36e625fe2978d97
  RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
     pip --disable-pip-version-check --no-cache-dir install \
     git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
