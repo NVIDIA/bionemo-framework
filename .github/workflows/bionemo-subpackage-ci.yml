@@ -9,7 +9,7 @@ on:
         required: true
         type: string
       test:
-        description: Test the sub-packages before publishing to PyPI. Strongly recommended for production releases to PyPI. Can be disabled when staging sub-packages on Test PyPI.
+        description: Test the sub-packages before publishing to PyPI. Strongly recommended for production releases to PyPI. Can be disabled when staging sub-packages on Test PyPI or publishing circular dependencies to PyPI.
         required: false
         type: boolean
         default: true
@@ -18,11 +18,11 @@ on:
         required: false
         type: boolean
         default: false
-      testpypi:
-        description: Publish to Test PyPI instead of PyPI. Recommended during development to stage experimental or pre-release dependencies.
+      pypi:
+        description: Publish to PyPI instead of Test PyPI.
         required: false
         type: boolean
-        default: true
+        default: false
 
 jobs:
   configure-workflow-packages:
@@ -31,10 +31,6 @@ jobs:
     outputs:
       workflow_packages: ${{ steps.parse-dispatch-packages.outputs.dispatch_packages }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: "recursive"
       - id: parse-dispatch-packages
         if: ${{ github.event_name == 'workflow_dispatch' }}
         name: Parse the sub-packages specified in the workflow dispatch.
@@ -47,7 +43,7 @@ jobs:
   install-and-test:
     needs: configure-workflow-packages
     # Check if the previous job has any staged packages to test and publish.
-    if: ${{ needs.configure-workflow-packages.outputs.workflow_packages != '[]' && github.event.inputs.test == 'true' }}
+    if: ${{ needs.configure-workflow-packages.outputs.workflow_packages != '[]' }}
     strategy:
       matrix:
         package: ${{ fromJson(needs.configure-workflow-packages.outputs.workflow_packages) }}
@@ -57,29 +53,34 @@ jobs:
     container: # GPU jobs must run in a container. Use a fresh base container for package installation and testing.
       image: nvidia/cuda:12.8.1-base-ubuntu22.04
     steps:
+      # Silently skip all steps if testing is disabled, which does not block building or publishing.
       - name: Install git and system dependencies.
+        if: ${{ github.event.inputs.test == 'true' }}
         run: |
           apt-get update
           apt-get install -y git
           apt-get install -y lsb-release      # No longer pre-installed in Ubuntu>=22.04.
           apt-get install -y build-essential  # For installing C build tools, like GCC and make.
       - uses: actions/checkout@v4
+        if: ${{ github.event.inputs.test == 'true' }}
         with:
           fetch-depth: 0
           submodules: "recursive"
       - uses: actions/setup-python@v5
+        if: ${{ github.event.inputs.test == 'true' }}
         with:
           python-version: "3.12"
       - id: install-dispatch-subpackage
+        if: ${{ github.event.inputs.test == 'true' }}
         name: Install sub-package.
         run: |
           # Install sub-package and dependencies.
           pip install --upgrade pip setuptools
           pip install pytest
-          # Install sub-packages and dependencies from PyPI. For experimental or pre-release sub-package versions, publish a new version to Test PyPI and specify the version in the pyproject.toml.
-          # Including the Test PyPI index allows the workflow to install & test staged sub-packages, which can resolve cases where sub-packages have circular dependencies from simultaneous updates.
-          pip install --index-url https://pypi.org/simple/ --extra-index-url https://test.pypi.org/simple/ sub-packages/${{ matrix.package }}
+          # Install required core & optional [test] dependencies.
+          pip install --no-cache-dir 'sub-packages/${{ matrix.package }}[test]'
       - id: test-dispatch-subpackage
+        if: ${{ github.event.inputs.test == 'true' }}
         name: Test sub-package.
         run: pytest -vv sub-packages/${{ matrix.package }}
 
@@ -103,10 +104,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
       - id: build-package
         name: Build a binary wheel and a source tarball for the sub-package.
         run: |
+          if [[ "${{ github.event.inputs.test }}" != "true" ]]; then
+            # For untested sub-packages, append '-dev' to the version for PyPI.
+            sed -i 's/[[:space:]]*$//' sub-packages/${{ matrix.package }}/VERSION
+            sed -i 's/$/-dev/' sub-packages/${{ matrix.package }}/VERSION
+          fi
           python -m pip install build
           python -m build sub-packages/${{ matrix.package }}
       - id: upload-distribution
@@ -127,8 +132,8 @@ jobs:
     name: Publish ${{ matrix.package }} to PyPI.
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.event.inputs.testpypi && 'testpypi' || 'pypi' }}
-      url: ${{ github.event.inputs.testpypi && format('https://test.pypi.org/p/{0}', matrix.package) || format('https://pypi.org/p/{0}', matrix.package) }}
+      name: ${{ github.event.inputs.pypi && 'pypi' || 'testpypi' }}
+      url: ${{ github.event.inputs.pypi && format('https://pypi.org/p/{0}', matrix.package) || format('https://test.pypi.org/p/{0}', matrix.package) }}
     permissions:
       id-token: write
     steps:
@@ -140,7 +145,7 @@ jobs:
           path: sub-packages/${{ matrix.package }}/dist
       - id: publish-to-testpypi
         name: Publish distribution 📦 to Test PyPI for PR.
-        if: ${{ github.event.inputs.testpypi == 'true' }}
+        if: ${{ github.event.inputs.pypi == 'false' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           verbose: true
@@ -152,7 +157,7 @@ jobs:
         # To require testing before publishing to PyPI, add: ... && needs.install-and-test.result == 'success'
         # If testing is run but fails, the workflow will fail and not publish to PyPI (or Test PyPI).
         # We strongly recommend testing when publishing to production PyPI.
-        if: ${{ github.event.inputs.testpypi == 'false' }}
+        if: ${{ github.event.inputs.pypi == 'true' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           verbose: true

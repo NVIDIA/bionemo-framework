@@ -253,6 +253,7 @@ The resulting altered baseline files should then be committed.
   - Unit tests not associated with source code in BioNeMo can be placed anywhere reasonable under `tests/bionemo/<package-name-suffix>`.
 - Verify that the `pyproject.toml` is `pip install`-able (and `python -m build`-able).
   - If the sub-package is publishable, follow the instructions in [Publishing to PyPI](#publishing-to-pypi) to register or link your package to the sub-package workflow in BioNeMo Framework.
+  - Add test dependencies to a `test` field under `[project.optional-dependencies]` for test-only dependencies.
 
 ### Publishing to PyPI
 
@@ -283,7 +284,17 @@ To publish your sub-package via "Trusted Publishing" to PyPI, you can follow the
   - Optional: Set `publish` to `true` if you want to publish to Test PyPI or PyPI. (Default: `false`)
     - Pre-Requisite: [BioNeMo Publishing to PyPI](#publishing-to-pypi)
     - Publishing requires package building, but does not require testing for flexibility of package management.
-  - Optional: Publishes to Test PyPI by default. To publish to PyPI, uncheck `Publish to Test PyPI instead of PyPI`.
+  - Optional: Publishes to Test PyPI by default. To publish to PyPI, check `Publish to PyPI instead of TestPyPI`.
+
+### FAQ
+
+- What do I do if I want to test and publish two updated sub-packages that depend on each other?
+  - To deal with circular dependencies, publish one package to PyPI first, followed by testing and publishing the other. `pip` installs dependencies in reverse topological order, and will resolve / break circular dependencies as long as dependency conflicts do not exist. (If dependency conflicts exist, resolve them!)
+  - For example, if `A` depends on `B`, and `B` depends on `A`...
+    - Publish `B` to PyPI without testing. Untested sub-packages will be published with the version suffix `*-dev`.
+    - Set `A` to depend on the latest version (i.e. the `*-dev` version) of `B`.
+    - Test and publish `A` to PyPI.
+    - Test and publish `B` (which depends on the now-released `A`) to PyPI.
 
 ### TODO
 
