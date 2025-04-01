@@ -89,7 +89,6 @@ class TestParallelShortHyenaOperator:
                 init_method="small_init",
                 short_conv_class=ParallelCausalDepthwiseConv1d,
                 use_fast_causal_conv=False,
-                is_mlp=False,
                 local_init=False,
                 use_conv_bias=False,
             )
@@ -130,7 +129,6 @@ class TestParallelShortHyenaOperatorWithConvBias:
                 init_method="small_init",
                 short_conv_class=ParallelCausalDepthwiseConv1d,
                 use_fast_causal_conv=False,
-                is_mlp=False,
                 local_init=False,
                 use_conv_bias=True,
             )
