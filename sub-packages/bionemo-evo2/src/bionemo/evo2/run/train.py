@@ -199,6 +199,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Directory to restore an initial checkpoint from. Use this for supervised fine-tuning.",
     )
+    parser.add_argument(
+        "--use-precision-aware-optimizer",
+        action="store_true",
+        default=False,
+        help="Use precision aware optimizer that stores main weights in FP32 when doing mixed precision training."
+    )
     parser.add_argument("--wd", type=float, default=0.01, help="Weight decay for optimizer.")
     parser.add_argument(
         "--adam-beta1",
@@ -612,7 +618,9 @@ def train(args: argparse.Namespace):
                 f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
                 f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
                 f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
+                f"-PAO{args.use_precision_aware_optimizer}"
                 f"-NODES{args.num_nodes}-FP8{args.fp8}"
+
             ),
             group=args.wandb_group,
             job_type=args.wandb_job_type,
@@ -715,6 +723,8 @@ def train(args: argparse.Namespace):
         adam_eps=args.adam_eps,
         use_distributed_optimizer=True,
         log_num_zeros_in_grad=args.log_num_zeros_in_grad,
+        use_precision_aware_optimizer=args.use_precision_aware_optimizer,
+        main_grads_dtype=torch.bfloat16,
         bf16=True,
     )
     sched = CosineAnnealingScheduler(
