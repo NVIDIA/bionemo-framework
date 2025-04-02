@@ -58,7 +58,7 @@ class ESM2LoRA(LoRA):
             **kwarg: kwargs for the LoRA class.
         """
         super().setup(*args, **kwarg)
-        self.wrapped_io.peft_ckpt_path = self.peft_ckpt_path
+        self.wrapped_io.adapter_ckpt_path = self.peft_ckpt_path
 
     def __call__(self, model: nn.Module) -> nn.Module:
         """This method is called when the object is called as a function.

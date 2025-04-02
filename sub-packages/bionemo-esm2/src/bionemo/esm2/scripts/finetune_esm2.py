@@ -201,6 +201,15 @@ def train_model(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
     )
 
+    # Convert lora_checkpoint_path to string if it's a Path object
+    if lora_checkpoint_path is not None:
+        lora_checkpoint_path = str(lora_checkpoint_path)
+
+    # Initialize LoRA adapter first if needed
+    peft = None
+    if lora_finetune:
+        peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
+
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
@@ -252,8 +261,7 @@ def train_model(
                 start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
             )
         )
-    if lora_finetune:
-        peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
+    if peft is not None:
         callbacks.append(peft)
 
     trainer = nl.Trainer(
@@ -344,6 +352,7 @@ def train_model(
             weight_decay=0.01,
             adam_beta1=0.9,
             adam_beta2=0.98,
+            clip_grad=1.0,  # Add gradient clipping
         ),
     )
     # fiddle is not serializing lambda fn
@@ -352,7 +361,7 @@ def train_model(
         optimizer.scale_lr_cond = lambda name, param: scale_lr_layer in name
         optimizer.lr_mult = lr_multiplier
 
-    if lora_finetune:
+    if peft is not None:
         module = biobert_lightning_module(
             config=config, tokenizer=tokenizer, optimizer=optimizer, model_transform=peft
         )
@@ -736,7 +745,7 @@ def get_parser():
 
     parser.add_argument(
         "--lora-checkpoint-path",
-        type=Path,
+        type=str,
         required=False,
         default=None,
         help="Path to the lora states to restore from.",
@@ -797,6 +806,14 @@ def get_parser():
         "--avoid-ckpt-async-save",
         action="store_true",
         default=False,
+    )
+
+    parser.add_argument(
+        "--clip-grad",
+        type=float,
+        required=False,
+        default=1.0,
+        help="Gradient clipping based on global L2 norm. Default is 1.0",
     )
 
     config_class_options: Dict[str, Type[BioBertConfig]] = SUPPORTED_CONFIGS

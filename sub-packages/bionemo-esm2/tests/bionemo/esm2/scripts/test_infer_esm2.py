@@ -28,6 +28,7 @@ from bionemo.esm2.scripts.infer_esm2 import infer_model
 from bionemo.llm.data import collate
 from bionemo.llm.lightning import batch_collator
 from bionemo.llm.utils.callbacks import IntervalT
+from bionemo.testing import megatron_parallel_state_utils
 
 
 @pytest.fixture
@@ -53,10 +54,10 @@ def padded_tokenized_sequences(dummy_protein_sequences):
     return collated_batch["text"]
 
 
-@pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
+# @pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
 @pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
+@pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
 @pytest.mark.parametrize("with_peft", [True, False])
-@pytest.mark.needs_gpu(condition=lambda with_peft: with_peft)
 def test_infer_runs(
     tmpdir,
     dummy_protein_csv,
@@ -66,54 +67,56 @@ def test_infer_runs(
     with_peft,
     padded_tokenized_sequences,
 ):
-    data_path = dummy_protein_csv
-    result_dir = tmpdir / "results"
-    min_seq_len = 1024  # Minimum length of the output batch; tensors will be padded to this length.
-    if with_peft:
-        lora_checkpoint_path = (
-            "sub-packages/results2/esm2/dev/checkpoints/checkpoint-step=4-consumed_samples=320.0-last/weights"
+    with megatron_parallel_state_utils.distributed_model_parallel_state(42):
+        checkpoint_path = load("esm2/8m:2.0")
+        data_path = dummy_protein_csv
+        result_dir = tmpdir / "results"
+        min_seq_len = 1024  # Minimum length of the output batch; tensors will be padded to this length.
+        if with_peft:
+            lora_checkpoint_path = str(
+                "sub-packages/results2/esm2/dev/checkpoints/checkpoint-step=4-consumed_samples=320.0-last/weights"
+            )
+        else:
+            lora_checkpoint_path = None
+        infer_model(
+            data_path=data_path,
+            checkpoint_path=checkpoint_path,
+            results_path=result_dir,
+            min_seq_length=min_seq_len,
+            prediction_interval=prediction_interval,
+            include_hiddens=True,
+            precision=precision,
+            include_embeddings=True,
+            include_input_ids=True,
+            include_logits=True,
+            micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
+            config_class=ESM2Config,
+            lora_checkpoint_path=lora_checkpoint_path,
         )
-    else:
-        lora_checkpoint_path = None
-    infer_model(
-        data_path=data_path,
-        checkpoint_path=load("esm2/8m:2.0"),
-        results_path=result_dir,
-        min_seq_length=min_seq_len,
-        prediction_interval=prediction_interval,
-        include_hiddens=True,
-        precision=precision,
-        include_embeddings=True,
-        include_input_ids=True,
-        include_logits=True,
-        micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
-        config_class=ESM2Config,
-        lora_checkpoint_path=lora_checkpoint_path,
-    )
-    assert result_dir.exists(), "Could not find test results directory."
+        assert result_dir.exists(), "Could not find test results directory."
 
-    if prediction_interval == "epoch":
-        results = torch.load(f"{result_dir}/predictions__rank_0.pt")
-    elif prediction_interval == "batch":
-        results = batch_collator(
-            [torch.load(f, map_location="cpu") for f in glob.glob(f"{result_dir}/predictions__rank_0__batch_*.pt")]
-        )
-    assert isinstance(results, dict)
-    keys_included = ["token_logits", "hidden_states", "embeddings", "binary_logits", "input_ids"]
-    assert all(key in results for key in keys_included)
-    assert results["binary_logits"] is None
-    assert results["embeddings"].shape[0] == len(dummy_protein_sequences)
-    assert results["embeddings"].dtype == get_autocast_dtype(precision)
-    # hidden_states are [batch, sequence, hidden_dim]
-    assert results["hidden_states"].shape[:-1] == (len(dummy_protein_sequences), min_seq_len)
-    # input_ids are [batch, sequence]
-    assert results["input_ids"].shape == (len(dummy_protein_sequences), min_seq_len)
-    # token_logits are [sequence, batch, num_tokens]
-    assert results["token_logits"].shape[:-1] == (min_seq_len, len(dummy_protein_sequences))
+        if prediction_interval == "epoch":
+            results = torch.load(f"{result_dir}/predictions__rank_0.pt")
+        elif prediction_interval == "batch":
+            results = batch_collator(
+                [torch.load(f, map_location="cpu") for f in glob.glob(f"{result_dir}/predictions__rank_0__batch_*.pt")]
+            )
+        assert isinstance(results, dict)
+        keys_included = ["token_logits", "hidden_states", "embeddings", "binary_logits", "input_ids"]
+        assert all(key in results for key in keys_included)
+        assert results["binary_logits"] is None
+        assert results["embeddings"].shape[0] == len(dummy_protein_sequences)
+        assert results["embeddings"].dtype == get_autocast_dtype(precision)
+        # hidden_states are [batch, sequence, hidden_dim]
+        assert results["hidden_states"].shape[:-1] == (len(dummy_protein_sequences), min_seq_len)
+        # input_ids are [batch, sequence]
+        assert results["input_ids"].shape == (len(dummy_protein_sequences), min_seq_len)
+        # token_logits are [sequence, batch, num_tokens]
+        assert results["token_logits"].shape[:-1] == (min_seq_len, len(dummy_protein_sequences))
 
-    # test 1:1 mapping between input sequence and results
-    # this does not apply to "batch" prediction_interval mode since the order of batches may not be consistent
-    # due distributed processing. To address this, we optionally include input_ids in the predictions, allowing
-    # for accurate mapping post-inference.
-    if prediction_interval == "epoch":
-        assert torch.equal(padded_tokenized_sequences, results["input_ids"])
+        # test 1:1 mapping between input sequence and results
+        # this does not apply to "batch" prediction_interval mode since the order of batches may not be consistent
+        # due distributed processing. To address this, we optionally include input_ids in the predictions, allowing
+        # for accurate mapping post-inference.
+        if prediction_interval == "epoch":
+            assert torch.equal(padded_tokenized_sequences, results["input_ids"])
