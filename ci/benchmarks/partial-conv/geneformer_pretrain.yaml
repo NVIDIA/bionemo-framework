@@ -33,7 +33,7 @@ script_args:
 
 script: |-
    unset NVTE_FUSED_ATTN; unset NVTE_FLASH_ATTN; WANDB_API_KEY=$BIONEMO_WANDB_API_KEY; ${variant}_${model} \
-    --data-dir ${data_path}/cellxgene_scdl \
+    --data-dir ${data_path} \
     --experiment-name ${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
     --num-gpus ${gpus} \
     --save-last-checkpoint \
