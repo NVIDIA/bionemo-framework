@@ -68,14 +68,14 @@ class TestParallelHyenaOperator:
         g = operator.num_groups
         dg = operator.group_dim
 
-        x1 = torch.ones((batch_size, seq_len, g, dg), device=device)
-        x2 = torch.ones((batch_size, seq_len, g, dg), device=device)
-        v = torch.ones((batch_size, seq_len, g, dg), device=device)
+        x1 = torch.ones((batch_size, (g * dg), seq_len), device=device)
+        x2 = torch.ones((batch_size, (g * dg), seq_len), device=device)
+        v = torch.ones((batch_size, (g * dg), seq_len), device=device)
 
         output = operator(x1, x2, v)
         assert output.shape[0] == batch_size
-        assert output.shape[1] == seq_len
-        assert output.shape[2] == operator.hidden_size
+        assert output.shape[1] == operator.hidden_size
+        assert output.shape[2] == seq_len
 
 
 class TestParallelShortHyenaOperator:
@@ -108,14 +108,14 @@ class TestParallelShortHyenaOperator:
         g = operator.num_groups
         dg = operator.group_dim
 
-        x1 = torch.ones((batch_size, seq_len, g, dg), device=device)
-        x2 = torch.ones((batch_size, seq_len, g, dg), device=device)
-        v = torch.ones((batch_size, seq_len, g, dg), device=device)
+        x1 = torch.ones((batch_size, (g * dg), seq_len), device=device)
+        x2 = torch.ones((batch_size, (g * dg), seq_len), device=device)
+        v = torch.ones((batch_size, (g * dg), seq_len), device=device)
 
         output = operator(x1, x2, v)
         assert output.shape[0] == batch_size
-        assert output.shape[1] == seq_len
-        assert output.shape[2] == operator.hidden_size
+        assert output.shape[1] == operator.hidden_size
+        assert output.shape[2] == seq_len
 
 
 class TestParallelShortHyenaOperatorWithConvBias:
@@ -148,14 +148,14 @@ class TestParallelShortHyenaOperatorWithConvBias:
         g = operator.num_groups
         dg = operator.group_dim
 
-        x1 = torch.ones((batch_size, seq_len, g, dg), device=device)
-        x2 = torch.ones((batch_size, seq_len, g, dg), device=device)
-        v = torch.ones((batch_size, seq_len, g, dg), device=device)
+        x1 = torch.ones((batch_size, (g * dg), seq_len), device=device)
+        x2 = torch.ones((batch_size, (g * dg), seq_len), device=device)
+        v = torch.ones((batch_size, (g * dg), seq_len), device=device)
 
         output = operator(x1, x2, v)
         assert output.shape[0] == batch_size
-        assert output.shape[1] == seq_len
-        assert output.shape[2] == operator.hidden_size
+        assert output.shape[1] == operator.hidden_size
+        assert output.shape[2] == seq_len
 
 
 class TestParallelCausalDepthwiseConv1d:
