@@ -189,7 +189,7 @@ class AMPLIFYModel(MegatronBioBertModel):
             # TODO: Make sure you are passing in the mpu_vocab_size properly
             self.lm_head = AMPLIFYLMHead(config)
 
-            self.output_layer = tensor_parallel.ColumnParallelLinear(
+            self.output_layer = tensor_parallel.TEColumnParallelLinear(
                 config.hidden_size,
                 self.vocab_size,
                 config=config,
