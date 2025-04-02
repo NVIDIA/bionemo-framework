@@ -18,6 +18,15 @@ dependencies = [
     'cellxgene_census',
 ]
 
+[project.optional-dependencies]
+test = [
+    "bionemo-testing"
+]
+post = [
+    # TE needs to be installed after PyTorch, NVCC, and CUDA.
+    "transformer_engine[pytorch]"
+]
+
 [project.scripts]
 bionemo-geneformer-train= "bionemo.geneformer.run.main:main"
 bionemo-geneformer-recipe= "bionemo.geneformer.run.recipes:main"

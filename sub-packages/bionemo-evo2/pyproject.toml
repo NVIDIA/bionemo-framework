@@ -16,6 +16,11 @@ dependencies = [
     "bionemo-llm",
 ]
 
+[project.optional-dependencies]
+test = [
+    "bionemo-testing"
+]
+
 [project.scripts]
 infer_evo2 = "bionemo.evo2.run.infer:main"
 train_evo2 = "bionemo.evo2.run.train:main"

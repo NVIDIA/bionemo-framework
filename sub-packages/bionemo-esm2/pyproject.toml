@@ -15,6 +15,15 @@ dependencies = [
     'bionemo-llm',
 ]
 
+[project.optional-dependencies]
+test = [
+    "bionemo-testing"
+]
+post = [
+    # TE needs to be installed after PyTorch, NVCC, and CUDA.
+    "transformer_engine[pytorch]"
+]
+
 [project.scripts]
 bionemo-esm2-train= "bionemo.esm2.run.main:main"
 bionemo-esm2-recipe= "bionemo.esm2.run.recipes:main"

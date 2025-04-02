@@ -25,6 +25,10 @@ dependencies = [
 test = [
     "bionemo-testing"
 ]
+post = [
+    # TE needs to be installed after PyTorch, NVCC, and CUDA.
+    "transformer_engine[pytorch]"
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

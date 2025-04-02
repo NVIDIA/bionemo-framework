@@ -18,6 +18,15 @@ dependencies = [
     'bionemo-esm2',
 ]
 
+[project.optional-dependencies]
+test = [
+    "bionemo-testing"
+]
+post = [
+    # TE needs to be installed after PyTorch, NVCC, and CUDA.
+    "transformer_engine[pytorch]"
+]
+
 [project.scripts]
 train_amplify = "bionemo.amplify.train_amplify:main"
 infer_amplify = "bionemo.amplify.infer_amplify:main"

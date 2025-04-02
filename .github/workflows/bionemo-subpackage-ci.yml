@@ -50,8 +50,8 @@ jobs:
       fail-fast: false  # Prevent all matrix jobs from failing if one fails.
     name: "[${{ matrix.package }}] Install and test sub-package."
     runs-on: linux-amd64-gpu-l4-latest-1
-    container: # GPU jobs must run in a container. Use a fresh base container for package installation and testing.
-      image: nvidia/cuda:12.8.1-base-ubuntu22.04
+    container: # GPU jobs must run in a container. Use a fresh CUDA base container for package installation and testing.
+      image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
     steps:
       # Silently skip all steps if testing is disabled, which does not block building or publishing.
       - name: Install git and system dependencies.
@@ -79,6 +79,12 @@ jobs:
           pip install pytest
           # Install required core & optional [test] dependencies.
           pip install --no-cache-dir 'sub-packages/${{ matrix.package }}[test]'
+      - id: install-subpackage-post-dependencies
+        if: ${{ github.event.inputs.test == 'true' }}
+        name: Install sub-package dependencies that need to be installed after the core dependencies.
+        run: |
+          # Post-dependencies are configured in the "post" field under [project.optional-dependencies].
+          pip install --no-cache-dir --no-build-isolation 'sub-packages/${{ matrix.package }}[post]'
       - id: test-dispatch-subpackage
         if: ${{ github.event.inputs.test == 'true' }}
         name: Test sub-package.

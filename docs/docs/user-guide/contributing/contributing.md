@@ -254,6 +254,7 @@ The resulting altered baseline files should then be committed.
 - Verify that the `pyproject.toml` is `pip install`-able (and `python -m build`-able).
   - If the sub-package is publishable, follow the instructions in [Publishing to PyPI](#publishing-to-pypi) to register or link your package to the sub-package workflow in BioNeMo Framework.
   - Add test dependencies to a `test` field under `[project.optional-dependencies]` for test-only dependencies.
+  - Add post-installation dependencies to a `post` field under `[project.optional-dependencies]` for dependencies that depend on pre-built dependencies to install, such as `TransformerEngine`.
 
 ### Publishing to PyPI
 
