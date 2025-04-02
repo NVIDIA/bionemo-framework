@@ -71,11 +71,12 @@ LABELS_ARGS=""
 EXTRA_ARGS=""
 CACHE_ARGS=""
 DEFAULT_BRANCH_NAME="main"
+DEFAULT_DOCKERFILE_PATH=Dockerfile
 ARCH=$(uname -m)
 if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
-    DEFAULT_DOCKERFILE_PATH="Dockerfile.arm"
+    ARCH=arm64
 else
-    DEFAULT_DOCKERFILE_PATH="Dockerfile"
+    ARCH=amd64
 fi
 
 # Parse command-line options
@@ -178,6 +179,7 @@ docker context ls
 set -u
 # Build the Docker image
 docker buildx build $EXTRA_ARGS \
+  --build-arg TARGETARCH=$ARCH \
   --provenance=false $LABELS_ARGS $CACHE_ARGS $PUSH_OPTION \
   -t "${IMAGE_NAME}" \
   -f "${DOCKERFILE_PATH}" .
