@@ -36,7 +36,8 @@ from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
-from nemo.utils.exp_manager import TimingCallback
+from nemo.utils.exp_manager import TimingCallback, SaveAtStepsCallback
+
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.geneformer.api import FineTuneSeqLenBioBertConfig, GeneformerConfig
@@ -225,11 +226,28 @@ def main(
             log_model=wandb_log_model,
         )
     )
+
+    # --- Define the path for specific step checkpoints ---
+    # Create a subdirectory within the main experiment results directory
+    specific_step_save_dir = result_dir / experiment_name / "specific_step_checkpoints"
+    print("================================================")
+    print("================================================")
+    print("================================================")
+    print("specific_step_save_dir: ", specific_step_save_dir)
+    print("================================================")
     callbacks = [
         # Skip perplexity and disable forward output in the loss for speed
         RichModelSummary(max_depth=4),
         TimingCallback(),
         LearningRateMonitor(),
+        # --- Add the SaveAtStepsCallback instance ---
+        SaveAtStepsCallback(
+            # Define the specific global steps you want to save at
+            save_steps=[1000, 2000, 3000, 4000, 4500], # <--- CHANGE THESE STEPS AS NEEDED
+            save_path=str(specific_step_save_dir), # Pass the directory path as a string
+            filename_prefix="geneformer_step",      # Optional: Customize filename prefix
+            save_context=True                       # Optional: Keep saving context
+        )
     ]
 
     if gc_interval > 0:
@@ -359,18 +377,48 @@ def main(
         getting recompiled. Once verified, turn this off again.
         """
         torch._dynamo.config.error_on_recompile = True
+    import debugpy
+    debugpy.listen(("0.0.0.0", 3000))
+    print("Waiting for debugger to attach...")
+    debugpy.wait_for_client()
+
+    # Create a proper resume argument based on whether we're restoring from a checkpoint
+    # or resuming from an existing run
+    if restore_from_checkpoint_path is not None:
+        checkpoint_path = Path(restore_from_checkpoint_path)
+        print(f"Initializing model from checkpoint: {checkpoint_path}")
+        
+        # Debug prints to verify directory structure
+        print(f"checkpoint_path exists: {checkpoint_path.exists()}")
+        context_dir = checkpoint_path / "context"
+        weights_dir = checkpoint_path / "weights"
+        print(f"context subdirectory exists: {context_dir.exists()}")
+        print(f"weights subdirectory exists: {weights_dir.exists()}")
+        
+        
+        # When checkpoint_path contains context and weights directories, it's a NeMo formatted checkpoint
+        # Use resume_from_path directly to the checkpoint directory containing context and weights
+        #TODO: This works, but now I need to remove the other checkpoint restoration logic.
+        resume_arg = resume.AutoResume(
+            resume_from_path=str(checkpoint_path),
+            resume_ignore_no_checkpoint=True,
+        )
+        print("Created AutoResume with RestoreConfig to explicitly load artifacts from context")
+    elif resume_if_exists:
+        print("Using AutoResume to continue training from last checkpoint if it exists")
+        resume_arg = resume.AutoResume(
+            resume_if_exists=True,
+            resume_ignore_no_checkpoint=True
+        )
+    else:
+        resume_arg = None
+
     llm.train(
         model=model,
         data=data,
         trainer=trainer,
         log=nemo_logger,
-        resume=resume.AutoResume(
-            # TODO: uncomment this once nemo2 supports our fine-tuning workflow
-            #  for now this happens inside of our config file in the configure_model step.
-            # path=restore_from_checkpoint_path,
-            resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
-            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
-        ),
+        resume=resume_arg,
     )
 
 
