@@ -21,6 +21,11 @@ dependencies = [
     # TODO: Figure out how (or whether) to include apex & TE as part of the dependencies.
 ]
 
+[project.optional-dependencies]
+test = [
+    "bionemo-testing"
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bionemo.*"]
