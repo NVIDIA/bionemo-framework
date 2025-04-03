@@ -175,6 +175,8 @@ uv pip install nvidia-resiliency-ext/
 rm -rf nvidia-resiliency-ext/
 # ngcsdk causes strange dependency conflicts that we will resolve later
 sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
+# Remove llama-index because bionemo doesn't use it and it adds CVEs to container
+sed -i "/llama-index/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt
 uv pip install --no-build-isolation \
 ./3rdparty/*  \
 ./sub-packages/bionemo-* \
