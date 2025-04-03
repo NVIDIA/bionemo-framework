@@ -135,22 +135,53 @@ def test_train_single_gpu(tmp_path, model_size: str):
     """
     This test runs them single gpu evo2 training command with sample data in a temporary directory.
     """
-    num_steps = 5
+    num_steps = 7
     open_port = find_free_network_port()
     # a local copy of the environment
     env = dict(**os.environ)
     env["MASTER_PORT"] = str(open_port)
 
-    additional_args = [
+    additional_args1 = [
         "--experiment-dir",
         str(tmp_path),
-        "--model",
+        "--model-size",
         model_size,
         "--num-layers",
         str(4),
         "--hybrid-override-pattern",
         "SDH*",
         "--no-activation-checkpointing",
+        "--use-precision-aware-optimizer",
+        "--add-bias-output",
+        "--bf16-main-grads",
+        "--val-check-interval",
+        str(5),
+        "--max-steps",
+        str(num_steps),
+        "--early-stop-on-step",
+        str(num_steps-2),
+        "--warmup-steps",
+        str(1),
+        "--seq-length",
+        str(128),
+        "--wandb-offline",
+        "--wandb-anonymous",
+        "--mock-data",
+    ]
+    args1 = parse_args(args=additional_args1)
+    with distributed_model_parallel_state():
+        train(args=args1)
+    additional_args2 = [
+        "--experiment-dir",
+        str(tmp_path),
+        "--model-size",
+        model_size,
+        "--num-layers",
+        str(4),
+        "--hybrid-override-pattern",
+        "SDH*",
+        "--no-activation-checkpointing",
+        "--use-precision-aware-optimizer",
         "--add-bias-output",
         "--max-steps",
         str(num_steps),
@@ -162,9 +193,9 @@ def test_train_single_gpu(tmp_path, model_size: str):
         "--wandb-anonymous",
         "--mock-data",
     ]
-    args = parse_args(args=additional_args)
+    args2 = parse_args(args=additional_args2)
     with distributed_model_parallel_state():
-        train(args=args)
+        train(args=args2)
 
 
 @pytest.mark.slow
