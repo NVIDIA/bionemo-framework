@@ -16,7 +16,8 @@ dependencies = [
     # external
     'lightning>=2.2.1',
     'megatron-core',
-    'nemo_toolkit[all]',  # We need [all] over [nlp] for the megatron-energon dependency.
+    'nemo_toolkit[nlp,multimodal]',
+    'pyzmq==26.4.0',        # TODO(@cspades): Fix this version to exclude outdated pyzmq from nemo_toolkit which doesn't have a wheel for Python 3.12.
     'pytorch-lightning>=2.2.1',
     # TODO: Figure out how (or whether) to include apex & TE as part of the dependencies.
 ]
