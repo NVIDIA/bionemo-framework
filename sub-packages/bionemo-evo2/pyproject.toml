@@ -8,7 +8,7 @@ readme = "README.md"
 description = "Library containing data preprocessing, training, and inference tooling for Evo2."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license-files = ["LICENSE"]
 dynamic = ["version"]
 dependencies = [
     "bionemo-noodles",
@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "bionemo-testing"
+    'bionemo-testing'
 ]
 
 [project.scripts]

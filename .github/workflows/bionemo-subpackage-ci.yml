@@ -5,24 +5,44 @@ on:
   workflow_dispatch:
     inputs:
       subpackages:
-        description: BioNeMo sub-packages (comma-separated) to test or publish.
+        description: "BioNeMo sub-packages (comma-separated) to test or publish."
         required: true
         type: string
       test:
-        description: Test the sub-packages before publishing to PyPI. Strongly recommended for production releases to PyPI. Can be disabled when staging sub-packages on Test PyPI or publishing circular dependencies to PyPI.
+        description: "Test the sub-packages before publishing to PyPI. Strongly recommended for production releases to PyPI. Can be disabled when staging sub-packages on Test PyPI or publishing circular dependencies to PyPI."
         required: false
         type: boolean
         default: true
       publish:
-        description: Publish the built package to PyPI. If testing is specified, requires that all sub-package tests succeed based on dependencies published to Test PyPI or PyPI.
+        description: "Publish the built package to PyPI. If testing is specified, requires that all sub-package tests succeed based on dependencies published to Test PyPI or PyPI."
         required: false
         type: boolean
         default: false
       pypi:
-        description: Publish to PyPI instead of Test PyPI.
+        description: "Publish to PyPI instead of Test PyPI."
         required: false
         type: boolean
         default: false
+      version_overwrite:
+        description: "Overwrite the published version of the sub-package. (Sets skip-existing to False.)"
+        required: false
+        type: boolean
+        default: false
+      python_version:
+        description: "Python version to use"
+        required: false
+        type: string
+        default: "3.12"
+      cuda_version:
+        description: "CUDA version to use (format: X.Y.Z)"
+        required: false
+        type: string
+        default: "12.8.1"
+      ubuntu_version:
+        description: "Ubuntu version to use"
+        required: false
+        type: string
+        default: "22.04"
 
 jobs:
   configure-workflow-packages:
@@ -51,7 +71,7 @@ jobs:
     name: "[${{ matrix.package }}] Install and test sub-package."
     runs-on: linux-amd64-gpu-l4-latest-1
     container: # GPU jobs must run in a container. Use a fresh CUDA base container for package installation and testing.
-      image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+      image: nvidia/cuda:${{ github.event.inputs.cuda_version }}-cudnn-devel-ubuntu${{ github.event.inputs.ubuntu_version }}
     steps:
       # Silently skip all steps if testing is disabled, which does not block building or publishing.
       - name: Install git and system dependencies.
@@ -69,22 +89,34 @@ jobs:
       - uses: actions/setup-python@v5
         if: ${{ github.event.inputs.test == 'true' }}
         with:
-          python-version: "3.12"
-      - id: install-dispatch-subpackage
+          python-version: ${{ github.event.inputs.python_version }}
+      - id: install-subpackage-core
         if: ${{ github.event.inputs.test == 'true' }}
         name: Install sub-package.
         run: |
           # Install sub-package and dependencies.
-          pip install --upgrade pip setuptools
-          pip install pytest
+          export PIP_ROOT_USER_ACTION=ignore
+          pip install --upgrade pip setuptools uv
           # Install required core & optional [test] dependencies.
-          pip install --no-cache-dir 'sub-packages/${{ matrix.package }}[test]'
-      - id: install-subpackage-post-dependencies
+          uv pip install --no-cache --system pytest sub-packages/${{ matrix.package }}[test]
+      - id: install-subpackage-post
         if: ${{ github.event.inputs.test == 'true' }}
         name: Install sub-package dependencies that need to be installed after the core dependencies.
         run: |
-          # Post-dependencies are configured in the "post" field under [project.optional-dependencies].
-          pip install --no-cache-dir --no-build-isolation 'sub-packages/${{ matrix.package }}[post]'
+          # DEV: Post-install dependencies are configured in [project.optional-dependencies].
+          # `uv pip install --extra <optional-dependency> -r <pyproject.toml>` tracks
+          # post-dependencies in the pyproject.toml and avoids installing core dependencies
+          # redundantly, which causes errors with incompatible --config-setting.
+
+          # Check version of PyTorch.
+          python -c "import torch; print(torch.__version__)"
+
+          # TransformerEngine
+          uv pip install --no-cache --no-build-isolation --system --extra te -r sub-packages/${{ matrix.package }}/pyproject.toml || echo "[BioNeMo Sub-Package CI] TE will not be installed."
+
+          # Apex
+          # NOTE: --cpp_ext and --cuda_ext are required for building fused Apex kernels.
+          uv pip install --no-cache --no-build-isolation --system --config-setting="--build-option=--cpp_ext" --config-setting="--build-option=--cuda_ext" --extra apex -r sub-packages/${{ matrix.package }}/pyproject.toml || echo "[BioNeMo Sub-Package CI] Apex will not be installed."
       - id: test-dispatch-subpackage
         if: ${{ github.event.inputs.test == 'true' }}
         name: Test sub-package.
@@ -109,7 +141,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ github.event.inputs.python_version }}
       - id: build-package
         name: Build a binary wheel and a source tarball for the sub-package.
         run: |
@@ -157,7 +189,7 @@ jobs:
           verbose: true
           packages-dir: sub-packages/${{ matrix.package }}/dist
           repository-url: https://test.pypi.org/legacy/
-          skip-existing: true
+          skip-existing: ${{ github.event.inputs.version_overwrite }}
       - id: publish-to-pypi
         name: Publish distribution 📦 to PyPI for Workflow Dispatch.
         # To require testing before publishing to PyPI, add: ... && needs.install-and-test.result == 'success'
@@ -168,4 +200,4 @@ jobs:
         with:
           verbose: true
           packages-dir: sub-packages/${{ matrix.package }}/dist
-          skip-existing: true
+          skip-existing: ${{ github.event.inputs.version_overwrite }}

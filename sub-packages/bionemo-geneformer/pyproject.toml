@@ -8,7 +8,7 @@ readme = "README.md"
 description = "BioNeMo Geneformer"
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license-files = ["LICENSE"]
 dynamic = ["version"]
 dependencies = [
     # bionemo sub-packages
@@ -20,11 +20,17 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "bionemo-testing"
+    'bionemo-testing'
 ]
-post = [
-    # TE needs to be installed after PyTorch, NVCC, and CUDA.
-    "transformer_engine[pytorch]"
+te = [
+    # TE & Apex need to be installed after PyTorch, NVCC, and CUDA.
+    # TODO(@pstjohn, @cspades): Figure out how to do this without post-installation.
+    'transformer_engine[pytorch]'
+]
+apex = [
+    # TE & Apex need to be installed after PyTorch, NVCC, and CUDA.
+    # TODO(@pstjohn, @cspades): Figure out how to do this without post-installation.
+    'apex@git+https://github.com/NVIDIA/apex.git'
 ]
 
 [project.scripts]

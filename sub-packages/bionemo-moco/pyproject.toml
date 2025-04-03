@@ -8,7 +8,7 @@ readme = "README.md"
 description = "BioNeMo Modular Co-Design: Making building Diffusion and Flow Matching generative models easier"
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license-files = ["LICENSE"]
 dynamic = ["version"]
 dependencies = [
     # bionemo sub-packages

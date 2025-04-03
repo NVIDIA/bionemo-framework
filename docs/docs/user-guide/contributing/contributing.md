@@ -254,7 +254,6 @@ The resulting altered baseline files should then be committed.
 - Verify that the `pyproject.toml` is `pip install`-able (and `python -m build`-able).
   - If the sub-package is publishable, follow the instructions in [Publishing to PyPI](#publishing-to-pypi) to register or link your package to the sub-package workflow in BioNeMo Framework.
   - Add test dependencies to a `test` field under `[project.optional-dependencies]` for test-only dependencies.
-  - Add post-installation dependencies to a `post` field under `[project.optional-dependencies]` for dependencies that depend on pre-built dependencies to install, such as `TransformerEngine`.
 
 ### Publishing to PyPI
 
@@ -282,10 +281,13 @@ To publish your sub-package via "Trusted Publishing" to PyPI, you can follow the
     - For example, `bionemo-moco,bionemo-llm,bionemo-webdatamodule`. The sub-packages will be tested and published in separate parallel environments.
   - Optional: Set `test` to `true` if you want to test your sub-package. (Default: `true`)
     - Sub-packages that require pre- or post- installation steps may require modification of the `install-and-test` job in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
+      - Supported `pyproject.toml` Optional Dependencies: [`te`, `apex`]
   - Optional: Set `publish` to `true` if you want to publish to Test PyPI or PyPI. (Default: `false`)
     - Pre-Requisite: [BioNeMo Publishing to PyPI](#publishing-to-pypi)
     - Publishing requires package building, but does not require testing for flexibility of package management.
   - Optional: Publishes to Test PyPI by default. To publish to PyPI, check `Publish to PyPI instead of TestPyPI`.
+  - Optional: Overwrite the published version of the sub-package on PyPI.
+    - Not recommended, because overwriting a published version will break the `pip cache` for all users. They will need to re-install the updated package.
 
 ### FAQ
 
@@ -301,3 +303,4 @@ To publish your sub-package via "Trusted Publishing" to PyPI, you can follow the
 
 - Support building packages that have installation dependencies, such as `bionemo-noodles` dependent on `maturin` or `bionemo-<model>` dependent on `transformer-engine`.
 - Automatically cut a release tag for the sub-package via GHA.
+- Support `--no-deps` installation for BioNeMo sub-packages in TestPyPI, but install OSS dependencies from PyPI, because many OSS dependencies do not have functional versions on TestPyPI.

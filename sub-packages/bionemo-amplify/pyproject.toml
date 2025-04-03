@@ -9,7 +9,7 @@ readme = "README.md"
 description = "A BioNeMo sub-package for training AMPLIFY models."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license-files = ["LICENSE"]
 dynamic = ["version"]
 dependencies = [
     # internal
@@ -20,11 +20,17 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "bionemo-testing"
+    'bionemo-testing'
 ]
-post = [
-    # TE needs to be installed after PyTorch, NVCC, and CUDA.
-    "transformer_engine[pytorch]"
+te = [
+    # TE & Apex need to be installed after PyTorch, NVCC, and CUDA.
+    # TODO(@pstjohn, @cspades): Figure out how to do this without post-installation.
+    'transformer_engine[pytorch]'
+]
+apex = [
+    # TE & Apex need to be installed after PyTorch, NVCC, and CUDA.
+    # TODO(@pstjohn, @cspades): Figure out how to do this without post-installation.
+    'apex@git+https://github.com/NVIDIA/apex.git'
 ]
 
 [project.scripts]
