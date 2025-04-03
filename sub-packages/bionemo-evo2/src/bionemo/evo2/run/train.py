@@ -176,13 +176,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--align-param-gather", action="store_true", default=False)
     # parser.add_argument("--straggler-detection", action="store_true", default=False)
     parser.add_argument(
-        "--model-type",
-        type=str,
-        choices=["hyena", "mamba"],
-        default="hyena",
-        help="Model architecture family to use. Choose between 'hyena' and 'mamba'.",
-    )
-    parser.add_argument(
         "--model-size",
         type=str,
         choices=sorted(list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys())),
@@ -224,6 +217,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Use precision aware optimizer that stores main weights in FP32 when doing mixed precision training."
+    )
+    parser.add_argument(
+        "--bf16-main-grads",
+        action="store_true",
+        default=False,
+        help="Use bf16 for main gradients, only use this with --use-precision-aware-optimizer.",
     )
     parser.add_argument("--wd", type=float, default=0.01, help="Weight decay for optimizer.")
     parser.add_argument(
@@ -544,9 +543,14 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         config_modifiers_init["hybrid_override_pattern"] = args.hybrid_override_pattern
     if args.num_layers:
         config_modifiers_init["num_layers"] = args.num_layers
-
+    if args.model_size in HYENA_MODEL_OPTIONS:
+        model_type = "hyena"
+    elif args.model_size in MAMBA_MODEL_OPTIONS:
+        model_type = "mamba"
+    else:
+        raise ValueError(f"Invalid model size: {args.model_size}")
     # Create model based on selected model type
-    if args.model_type == "hyena":
+    if model_type == "hyena":
         if args.model_size not in HYENA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Hyena: {args.model_size}")
         model_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
@@ -775,7 +779,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         use_distributed_optimizer=True,
         log_num_zeros_in_grad=args.log_num_zeros_in_grad,
         use_precision_aware_optimizer=args.use_precision_aware_optimizer,
-        main_grads_dtype=torch.bfloat16,
+        main_grads_dtype=torch.bfloat16 if args.bf16_main_grads else torch.float32,
         bf16=True,
     )
 
@@ -788,7 +792,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
 
     opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=model_config.hyena_no_weight_decay_cond_fn)
     opt.connect(model)
-
     # Start training
     trainer.fit(model, data_module)
     return trainer
