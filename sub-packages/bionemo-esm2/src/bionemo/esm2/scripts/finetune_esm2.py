@@ -388,7 +388,6 @@ def train_model(
         wandb_config=wandb_config,
         ckpt_callback=checkpoint_callback,
     )
-
     llm.train(
         model=module,
         data=data_module,
