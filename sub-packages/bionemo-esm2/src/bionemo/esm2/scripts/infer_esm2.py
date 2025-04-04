@@ -32,6 +32,7 @@ from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
 from bionemo.llm.utils.callbacks import IntervalT, PredictionWriter
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
+from bionemo.testing import megatron_parallel_state_utils
 
 
 __all__: Sequence[str] = ("infer_model",)
@@ -83,7 +84,6 @@ def infer_model(
         prediction_interval (IntervalT, optional): Intervals to write predict method output into disck for DDP inference. Defaults to epoch.
         config_class (Type[BioBertConfig]): The config class for configuring the model using checkpoint provided
         lora_checkpoint_path (Optional[str]): path to the lora checkpoint file.
-
     """
     # create the directory to save the inference results
     os.makedirs(results_path, exist_ok=True)
@@ -106,19 +106,8 @@ def infer_model(
 
     prediction_writer = PredictionWriter(output_dir=results_path, write_interval=prediction_interval)
     callbacks = [prediction_writer]
-    if lora_checkpoint_path:
-        peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
-        callbacks.append(peft)
 
-    trainer = nl.Trainer(
-        accelerator="gpu",
-        devices=devices,
-        strategy=strategy,
-        num_nodes=num_nodes,
-        callbacks=callbacks,
-        plugins=nl.MegatronMixedPrecision(precision=precision),
-    )
-
+    # Setup data
     dataset = InMemoryProteinDataset.from_csv(data_path, ignore_labels=True)
     datamodule = ESM2FineTuneDataModule(
         predict_dataset=dataset,
@@ -127,6 +116,7 @@ def infer_model(
         min_seq_length=min_seq_length,
     )
 
+    # Setup model
     config = config_class(
         params_dtype=get_autocast_dtype(precision),
         pipeline_dtype=get_autocast_dtype(precision),
@@ -142,13 +132,35 @@ def infer_model(
     )
 
     tokenizer = get_tokenizer()
+
+    # Initialize LoRA adapter if needed
+    peft = None
     if lora_checkpoint_path:
+        peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
+        callbacks.append(peft)
+
+    # Initialize base model with or without LoRA
+    if peft is not None:
         module = biobert_lightning_module(config=config, tokenizer=tokenizer, model_transform=peft)
     else:
         module = biobert_lightning_module(config=config, tokenizer=tokenizer)
-    # datamodule is responsible for transforming dataloaders by adding MegatronDataSampler. Alternatively, to
-    # directly use dataloader in predict method, the data sampler should be included in MegatronStrategy
-    trainer.predict(module, datamodule=datamodule)  # return_predictions=False failing due to a lightning bug
+
+    # Move model to GPU and ensure all parameters are on GPU
+    module = module.cuda()
+    for param in module.parameters():
+        param.data = param.data.cuda()
+
+    trainer = nl.Trainer(
+        accelerator="gpu",
+        devices=devices,
+        strategy=strategy,
+        num_nodes=num_nodes,
+        callbacks=callbacks,
+        plugins=nl.MegatronMixedPrecision(precision=precision),
+    )
+
+    # Run prediction
+    trainer.predict(module, datamodule=datamodule)
 
 
 def infer_esm2_entrypoint():
@@ -157,23 +169,24 @@ def infer_esm2_entrypoint():
     parser = get_parser()
     args = parser.parse_args()
     # 2. Call infer with args
-    infer_model(
-        data_path=args.data_path,
-        checkpoint_path=args.checkpoint_path,
-        results_path=args.results_path,
-        include_hiddens=args.include_hiddens,
-        include_embeddings=args.include_embeddings,
-        include_logits=args.include_logits,
-        include_input_ids=args.include_input_ids,
-        micro_batch_size=args.micro_batch_size,
-        precision=args.precision,
-        tensor_model_parallel_size=args.tensor_model_parallel_size,
-        pipeline_model_parallel_size=args.pipeline_model_parallel_size,
-        devices=args.num_gpus,
-        num_nodes=args.num_nodes,
-        config_class=args.config_class,
-        lora_checkpoint_path=args.lora_checkpoint_path,
-    )
+    with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+        infer_model(
+            data_path=args.data_path,
+            checkpoint_path=args.checkpoint_path,
+            results_path=args.results_path,
+            include_hiddens=args.include_hiddens,
+            include_embeddings=args.include_embeddings,
+            include_logits=args.include_logits,
+            include_input_ids=args.include_input_ids,
+            micro_batch_size=args.micro_batch_size,
+            precision=args.precision,
+            tensor_model_parallel_size=args.tensor_model_parallel_size,
+            pipeline_model_parallel_size=args.pipeline_model_parallel_size,
+            devices=args.num_gpus,
+            num_nodes=args.num_nodes,
+            config_class=args.config_class,
+            lora_checkpoint_path=args.lora_checkpoint_path,
+        )
 
 
 def get_parser():
