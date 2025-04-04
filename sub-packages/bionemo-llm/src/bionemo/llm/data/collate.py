@@ -79,7 +79,7 @@ def padding_collate_fn(
         if min_length is None:
             return batched_tensors
         return torch.nn.functional.pad(batched_tensors, (0, min_length - batched_tensors.size(1)), value=padding_value)
-
+    # breakpoint()
     return {
         k: _pad([s[k] for s in batch], padding_values[k])
         if k in padding_values
@@ -106,6 +106,7 @@ def bert_padding_collate_fn(
     """
     padding_values = {
         "text": padding_value,
+        "tokens": padding_value,
         "types": 0,
         "attention_mask": False,
         "labels": MLM_LOSS_IGNORE_INDEX,  # This should match the masked value used in the MLM loss mask.

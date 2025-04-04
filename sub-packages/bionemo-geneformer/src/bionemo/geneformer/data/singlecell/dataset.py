@@ -274,6 +274,7 @@ def process_item(  # noqa: D417
         # NeMo megatron assumes this return structure.
         return {
             "text": masked_tokens,
+            "tokens": masked_tokens,
             "types": torch.zeros_like(masked_tokens, dtype=torch.int64),
             "attention_mask": torch.ones_like(masked_tokens, dtype=torch.int64),
             "labels": labels,

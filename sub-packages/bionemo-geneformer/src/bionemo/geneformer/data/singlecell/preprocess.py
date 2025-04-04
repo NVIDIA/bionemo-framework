@@ -105,7 +105,7 @@ class GeneformerPreprocess:  # noqa: D101
         gene_name_dict_fn, gene_median_dict_fn = GeneformerResourcePreprocessor(
             dest_directory=self.download_directory,
         ).prepare()
-
+        print(gene_name_dict_fn)
         # Load artifacts
         with open(gene_name_dict_fn, "rb") as fd:
             gene_ens = pickle.load(fd)
