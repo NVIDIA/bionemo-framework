@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import numpy as np
 import pytest
 import torch
 
@@ -194,10 +193,10 @@ def test_equivariant_ot_sampler_kabsch_align(request, sampler, device):
         atol = 1e-6
     ot_sampler = ot_sampler.to_device(device)
     x0 = torch.randn(size=(32, 3), device=device)
-    alpha = np.random.rand() * 2 * np.pi
-    R = torch.Tensor(np.array([[np.cos(alpha), -np.sin(alpha), 0], [np.sin(alpha), np.cos(alpha), 0], [0, 0, 1]])).to(
-        device
-    )
+    alpha = torch.rand(1, device=device) * 2 * torch.pi
+    R = torch.Tensor(
+        [[torch.cos(alpha), -torch.sin(alpha), 0], [torch.sin(alpha), torch.cos(alpha), 0], [0, 0, 1]]
+    ).to(device)
     # Apply rotation and translation to x0
     x0_rotated = x0 @ R.T + torch.ones_like(x0) * 5
 
@@ -230,9 +229,9 @@ def test_equivariant_ot_sample_map(request, sampler, device):
     mask = torch.tensor([[1, 1, 1, 1, 0], [1, 1, 1, 0, 0], [1, 1, 1, 1, 1]], dtype=torch.bool).to(device)
     Rs = []
     for i in range(x0.shape[0]):
-        alpha = np.random.rand() * 2 * np.pi
+        alpha = torch.rand(1, device=device) * 2 * torch.pi
         R = torch.Tensor(
-            np.array([[np.cos(alpha), -np.sin(alpha), 0], [np.sin(alpha), np.cos(alpha), 0], [0, 0, 1]])
+            [[torch.cos(alpha), -torch.sin(alpha), 0], [torch.sin(alpha), torch.cos(alpha), 0], [0, 0, 1]]
         ).to(device)
         Rs.append(R)
 
@@ -290,7 +289,6 @@ def test_equivariant_ot_sample_map(request, sampler, device):
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_kabsch_augmentation(request, device):
     torch.manual_seed(42)
-    np.random.seed(42)
     augmentor = KabschAugmentation()
     assert augmentor is not None
     if device == "cuda" and not torch.cuda.is_available():
@@ -301,10 +299,10 @@ def test_kabsch_augmentation(request, device):
     else:
         atol = 1e-6
     x0 = torch.randn(size=(32, 3), device=device)
-    alpha = np.random.rand() * 2 * np.pi
-    R = torch.Tensor(np.array([[np.cos(alpha), -np.sin(alpha), 0], [np.sin(alpha), np.cos(alpha), 0], [0, 0, 1]])).to(
-        device
-    )
+    alpha = torch.rand(1, device=device) * 2 * torch.pi
+    R = torch.Tensor(
+        [[torch.cos(alpha), -torch.sin(alpha), 0], [torch.sin(alpha), torch.cos(alpha), 0], [0, 0, 1]]
+    ).to(device)
     # Apply rotation and translation to x0
     x0_rotated = x0 @ R.T + torch.ones_like(x0) * 5
     R_kabsch, _ = augmentor.kabsch_align(x0, x0_rotated)
@@ -320,10 +318,10 @@ def test_kabsch_augmentation(request, device):
 
     # Batch wise tests
     x0 = torch.randn(size=(10, 32, 3), device=device)
-    alpha = np.random.rand() * 2 * np.pi
-    R = torch.Tensor(np.array([[np.cos(alpha), -np.sin(alpha), 0], [np.sin(alpha), np.cos(alpha), 0], [0, 0, 1]])).to(
-        device
-    )
+    alpha = torch.rand(1, device=device) * 2 * torch.pi
+    R = torch.Tensor(
+        [[torch.cos(alpha), -torch.sin(alpha), 0], [torch.sin(alpha), torch.cos(alpha), 0], [0, 0, 1]]
+    ).to(device)
     # Apply rotation and translation to x0
     x0_rotated = x0 @ R.T + torch.ones_like(x0) * 5
     R_kabsch, _ = augmentor.batch_kabsch_align(x0, x0_rotated)
