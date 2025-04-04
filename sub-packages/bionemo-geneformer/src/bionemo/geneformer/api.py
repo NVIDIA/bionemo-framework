@@ -71,6 +71,8 @@ class GeneformerConfig(BioBertConfig[GeneformerModel, MegatronLossType], iom.IOM
     get_attention_mask_from_fusion: bool = True
 
     position_embedding_type: PositionEmbeddingKinds = "learned_absolute"
+    include_gene_embeddings: bool = field(default=False)
+    
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.bert_layer_with_transformer_engine_spec
     qk_layernorm: bool = False
 
