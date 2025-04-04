@@ -308,7 +308,7 @@ class BionemoLightningModule(
                 else self.config.configure_model()
             )
             self.module = model
-
+        breakpoint()
         if self.module is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
 

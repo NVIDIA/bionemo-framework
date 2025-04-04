@@ -582,6 +582,7 @@ class BioBertConfig(
             skip_logits=self.skip_logits,
             include_input_ids=self.include_input_ids,
         )
+
         # TODO (@skothenhill) this is a hack to load the old checkpoint.
         # This should be removed once we have a proper checkpoint conversion
         # see NeMo/nemo/collections/llm/gpt/model/mixtral.py for how we should do it.
