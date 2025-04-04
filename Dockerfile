@@ -123,17 +123,10 @@ RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
 # Nemo Run installation
-RUN pip install hatchling   # needed to install nemo-run
-# TorchX has a strange urllib3 dependency pin which doesn't seem necessary
-# We opened an issue for this: https://github.com/pytorch/torchx/issues/1040
-RUN git clone --depth=1 --branch v0.7.0 --single-branch https://github.com/pytorch/torchx.git \
-    && cd torchx \
-    && sed -i '/urllib3/d' requirements.txt \
-    && pip install . \
-    && cd .. \
-    && rm -rf torchx
-ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
-RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMO_RUN_TAG}
+# Some things are pip installed in advance to avoid dependency issues during nemo_run installation
+RUN pip install hatchling urllib3  # needed to install nemo-run
+ARG NEMU_RUN_TAG=v0.3.0
+RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG} --use-deprecated=legacy-resolver
 
 RUN mkdir -p /workspace/bionemo2/
 
