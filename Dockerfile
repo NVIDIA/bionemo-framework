@@ -102,14 +102,14 @@ fi
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
     mkdir -p /usr/lib/tiledb && \
     cd /usr/lib/tiledb && \
-    wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.0-rc3/tiledb-linux-arm64-2.27.0-rc3-8d581f2.tar.gz -O tiledb.tar.gz && \
+    wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.2/tiledb-linux-arm64-2.27.2-1757013.tar.gz -O tiledb.tar.gz && \
     tar -xvzf tiledb.tar.gz && export TILEDB_PATH=/usr/lib/tiledb && \
     cd / && \
     dpkg -l | awk '/libfmt/ {print $2}' | xargs apt-get remove -y && \
     dpkg -l | awk '/spdlog/ {print $2}' | xargs apt-get remove -y && \
     rm -f /usr/lib/*/cmake/spdlog/spdlogConfig.cmake && \
     rm -f /usr/lib/cmake/spdlog/spdlogConfig.cmake && \
-    git clone --single-branch --branch 1.15.0rc4 https://github.com/single-cell-data/TileDB-SOMA.git && \
+    git clone --single-branch --branch 1.16.1 https://github.com/single-cell-data/TileDB-SOMA.git && \
     cd TileDB-SOMA/apis/python && \
     pip install .; \
 fi
@@ -122,9 +122,11 @@ fi
 RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
-RUN pip install hatchling   # needed to install nemo-run
-ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
-RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMO_RUN_TAG}
+# Nemo Run installation
+# Some things are pip installed in advance to avoid dependency issues during nemo_run installation
+RUN pip install hatchling urllib3  # needed to install nemo-run
+ARG NEMU_RUN_TAG=v0.3.0
+RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG} --use-deprecated=legacy-resolver
 
 RUN mkdir -p /workspace/bionemo2/
 
