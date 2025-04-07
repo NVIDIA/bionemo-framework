@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bionemo-testing"
 readme = "README.md"
-description = "BioNeMo testing: utilities aiding test creation for bionemo packages. Do Not Distriburte on PyPI !!"
+description = "Utilities aiding test creation for BioNeMo sub-packages."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
 license-files = ["LICENSE"]
@@ -17,6 +17,7 @@ dependencies = [
     # external
     'email-validator',
     'pytest',
+    'overrides',
 ]
 
 [tool.setuptools.packages.find]

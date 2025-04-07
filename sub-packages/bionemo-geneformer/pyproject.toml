@@ -27,11 +27,6 @@ te = [
     # TODO(@pstjohn, @cspades): Figure out how to do this without post-installation.
     'transformer_engine[pytorch]'
 ]
-apex = [
-    # TE & Apex need to be installed after PyTorch, NVCC, and CUDA.
-    # TODO(@pstjohn, @cspades): Figure out how to do this without post-installation.
-    'apex@git+https://github.com/NVIDIA/apex.git'
-]
 
 [project.scripts]
 bionemo-geneformer-train= "bionemo.geneformer.run.main:main"

@@ -15,7 +15,8 @@ dependencies = [
     'bionemo-core',
     'bionemo-llm',
     # external
-    'torch>=2.3.0.dev0',  # Nightly build for PyTorch for newest CUDA builds.
+    # TODO(@cspades): Remove this version fixture when this issue is fixed: https://github.com/zarr-developers/zarr-python/issues/2963 / https://github.com/zarr-developers/zarr-python/pull/2965
+    'numcodecs[msgpack]<0.16'
 ]
 
 [project.optional-dependencies]
@@ -26,11 +27,6 @@ te = [
     # TE & Apex need to be installed after PyTorch, NVCC, and CUDA.
     # TODO(@pstjohn, @cspades): Figure out how to do this without post-installation.
     'transformer_engine[pytorch]'
-]
-apex = [
-    # TE & Apex need to be installed after PyTorch, NVCC, and CUDA.
-    # TODO(@pstjohn, @cspades): Figure out how to do this without post-installation.
-    'apex@git+https://github.com/NVIDIA/apex.git'
 ]
 
 [project.scripts]
@@ -55,13 +51,3 @@ version = { file = "VERSION" }
 
 [tool.uv]
 cache-keys = [{ git = true }]
-
-[tool.uv.sources]
-torch = [
-  { index = "pytorch-nightly-cu128" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-nightly-cu128"
-url = "https://download.pytorch.org/whl/nightly/cu128"
-explicit = true
