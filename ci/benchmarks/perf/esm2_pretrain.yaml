@@ -22,10 +22,11 @@ script_args:
       batch_size: 16
       pp: 1
       tp: 1
-    - nodes: 2
-      batch_size: 16
-      pp: 2
-      tp: 1
+#      FIXME (broken pp): https://github.com/NVIDIA/bionemo-framework/issues/784
+#    - nodes: 2
+#      batch_size: 16
+#      pp: 2
+#      tp: 1
     - nodes: 2
       batch_size: 16
       pp: 1
