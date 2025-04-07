@@ -28,6 +28,14 @@ on:
         required: false
         type: boolean
         default: false
+      build_framework:
+        description: "Build framework to use for building and publishing."
+        type: choice
+        options:
+          - "python"
+          - "rust_pyo3_maturin"
+        default: "python"
+        required: true
       python_version:
         description: "Python version to use for testing and publishing."
         required: false
@@ -81,9 +89,7 @@ jobs:
         if: ${{ github.event.inputs.test == 'true' }}
         run: |
           apt-get update
-          apt-get install -y git
-          apt-get install -y lsb-release      # No longer pre-installed in Ubuntu>=22.04.
-          apt-get install -y build-essential  # For installing C build tools, like GCC and make.
+          apt-get install -qyy git curl lsb-release build-essential
       - uses: actions/checkout@v4
         if: ${{ github.event.inputs.test == 'true' }}
         with:
@@ -93,15 +99,25 @@ jobs:
         if: ${{ github.event.inputs.test == 'true' }}
         with:
           python-version: ${{ github.event.inputs.python_version }}
+      - id: install-rust
+        if: ${{ github.event.inputs.test == 'true' }}
+        name: Install Rust.
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          . $HOME/.cargo/env
+          rustc --version
+          cargo --version
+          rustup --version
       - id: install-subpackage-core
         if: ${{ github.event.inputs.test == 'true' }}
         name: Install sub-package.
         run: |
+          # Setup environment, i.e. add Rust to PATH and silence pip root user warnings.
+          . $HOME/.cargo/env
           # Install sub-package and dependencies.
-          export PIP_ROOT_USER_ACTION=ignore
-          pip install --upgrade pip setuptools uv
+          pip install --upgrade pip setuptools uv maturin
           # Install required core & optional [test] dependencies.
-          uv pip install --no-cache --system pytest sub-packages/${{ matrix.package }}[test]
+          uv pip install --no-cache --no-build-isolation --system pytest sub-packages/${{ matrix.package }}[test]
       - id: install-subpackage-post
         if: ${{ github.event.inputs.test == 'true' }}
         name: Install sub-package dependencies that need to be installed after the core dependencies.
@@ -150,14 +166,21 @@ jobs:
             sed -i 's/[[:space:]]*$//' sub-packages/${{ matrix.package }}/VERSION
             sed -i 's/$/-dev/' sub-packages/${{ matrix.package }}/VERSION
           fi
-          python -m pip install build
-          python -m build sub-packages/${{ matrix.package }}
+          # Build the sub-package.
+          if [[ "${{ github.event.inputs.build_framework }}" == "python" ]]; then
+            pip install build
+            python -m build sub-packages/${{ matrix.package }}
+          elif [[ "${{ github.event.inputs.build_framework }}" == "rust_pyo3_maturin" ]]; then
+            # Install maturin[zig] to build the Rust sub-package with compatibility for manylinux_X_Y using zig.
+            pip install maturin[zig]
+            maturin build --release --zig -m sub-packages/${{ matrix.package }}/Cargo.toml
+          fi
       - id: upload-distribution
         name: Upload distribution packages to the workflow.
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.package }}-dist
-          path: sub-packages/${{ matrix.package }}/dist
+          name: ${{ matrix.package }}-build-artifacts
+          path: ${{ github.event.inputs.build_framework == 'rust_pyo3_maturin' && format('sub-packages/{0}/target/wheels', matrix.package) || format('sub-packages/{0}/dist', matrix.package) }}
 
   publish-to-pypi:
     needs: [build-pypi, install-and-test]
@@ -179,7 +202,7 @@ jobs:
         name: Download the built distribution.
         uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.package }}-dist
+          name: ${{ matrix.package }}-build-artifacts
           path: sub-packages/${{ matrix.package }}/dist
       - id: publish-to-testpypi
         name: Publish distribution 📦 to Test PyPI for PR.

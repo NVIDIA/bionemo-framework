@@ -288,8 +288,8 @@ To publish your sub-package via "Trusted Publishing" to PyPI, you can follow the
   - Optional: Publishes to Test PyPI by default. To publish to PyPI, check `Publish to PyPI instead of TestPyPI`.
   - Optional: Overwrite the published version of the sub-package on PyPI.
     - Not recommended, because overwriting a published version will break the `pip cache` for all users. They will need to re-install the updated package.
-  - Optional: Python, CUDA, and Ubuntu versions can be specified if your sub-package is only supported on a specific combination of libraries.
-    - Default: `python==3.12`, `cuda==12.8.1`, `ubuntu==22.04`
+  - Optional: Python-wrapped (PyO3) Rust-based sub-packages are supported with `maturin` if you set `build_framework` to `rust_pyo3_maturin`.
+  - Optional: Python, CUDA, Linux, and hardware architecture types can be specified if your sub-package is only supported on a specific ecosystem.
 
 ### FAQ
 

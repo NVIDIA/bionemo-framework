@@ -13,7 +13,7 @@ dynamic = ["version"]
 dependencies = [
     # bionemo sub-packages
     'bionemo-core',
-    'bionemo-llm',
+    'bionemo-llm>=2.4.5',
     # external
     'email-validator',
     'pytest',
