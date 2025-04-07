@@ -352,6 +352,7 @@ def main(
         ),
     )
     # Configure our custom Checkpointer
+    create_checkpoint_callback = False
     if create_checkpoint_callback:
         checkpoint_callback = nl_callbacks.ModelCheckpoint(
             save_last=save_last_checkpoint,

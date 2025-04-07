@@ -132,9 +132,11 @@ def main(
 ):
     """Inference function (requires DDP and only training data that fits in memory)."""
     # This is just used to get the tokenizer :(
-    train_data_path: Path = (
-        load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
-    )
+    train_data_path: Path = load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
+
+    # train_data_path: Path = (
+    #     load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
+    # )
     n_devices: int = torch.cuda.device_count()
     assert n_devices > 0
     preprocessor = GeneformerPreprocess(
@@ -199,7 +201,7 @@ def main(
             include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
         )
         print(f"Loaded dataset of length (NV): {len(ds_nv)}, (HF): {len(ds_hf_nvfilt)}")
-
+        # TODO: IF we can 
         dl_hf = DataLoader(
             ds_hf_nvfilt,
             batch_size=batch_size,
@@ -321,3 +323,6 @@ def entrypoint():
 
 if __name__ == "__main__":
     entrypoint()
+
+
+#python /workspace/bionemo2/sub-packages/bionemo-geneformer/scripts/geneformer_mlm_loss_eval.py --model-path $(download_bionemo_data  geneformer/106M_240530:2.0) --dataset-path data/geneformer-test/ --hf-medians-dictionary-path /workspace/bionemo2/gene_median_dictionary_gc95M.pkl --hf-token-dictionary-path /workspace/bionemo2/token_dictionary_gc95M.pkl
