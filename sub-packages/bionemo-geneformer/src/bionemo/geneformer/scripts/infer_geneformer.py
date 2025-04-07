@@ -96,7 +96,7 @@ def infer_model(
         progress_interval=1,
     )
 
-    prediction_writer = GeneformerPredictionWriter(output_dir=results_path, write_interval=prediction_interval)
+    prediction_writer = GeneformerPredictionWriter(output_dir=results_path, write_interval=prediction_interval,include_gene_embeddings=include_gene_embeddings)
 
     trainer = nl.Trainer(
         devices=devices,
@@ -140,6 +140,10 @@ def infer_model(
         skip_logits=not include_logits,
         initial_ckpt_skip_keys_with_these_prefixes=[],  # load everything from the checkpoint.
     )
+    
+    print("Here2!!!!!!!!!!!")
+    print("include_gene_embeddings:", include_gene_embeddings)
+    
     # The lightning class owns a copy of the actual model, and a loss function, both of which are configured
     #  and lazily returned by the `config` object defined above.
     module = biobert_lightning_module(config=config, tokenizer=tokenizer)
