@@ -102,6 +102,7 @@ def infer_model(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         ddp="megatron",
         find_unused_parameters=True,
+        ckpt_parallel_load=True,
     )
 
     prediction_writer = PredictionWriter(output_dir=results_path, write_interval=prediction_interval)
@@ -134,13 +135,12 @@ def infer_model(
     tokenizer = get_tokenizer()
 
     # Initialize LoRA adapter if needed
-    peft = None
+    # Initialize base model with or without LoRA
+
     if lora_checkpoint_path:
         peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
-        callbacks.append(peft)
-
-    # Initialize base model with or without LoRA
-    if peft is not None:
+        # callbacks.append(ModelTransform())
+        # callbacks.append(peft)
         module = biobert_lightning_module(config=config, tokenizer=tokenizer, model_transform=peft)
     else:
         module = biobert_lightning_module(config=config, tokenizer=tokenizer)

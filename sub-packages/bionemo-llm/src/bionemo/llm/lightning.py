@@ -308,7 +308,7 @@ class BionemoLightningModule(
                 else self.config.configure_model()
             )
             self.module = model
-        breakpoint()
+
         if self.module is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
 
@@ -339,8 +339,9 @@ class BionemoLightningModule(
         """
         # safe to do because configure_model is idempotent
         self.configure_model()
+        breakpoint()
         assert self.module is not None
-        return self._forward_step(self.module, batch)
+        return self._forward_step(self.module, batch.cuda())
 
     def update_metric(
         self, batch, outputs, metric, task: Literal["pretraining", "classification", "regression"]

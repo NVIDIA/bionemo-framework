@@ -282,6 +282,7 @@ def train_model(
             autocast_enabled=False,
         ),
     )
+
     tokenizer = get_tokenizer()
 
     # Initialize the data module.
