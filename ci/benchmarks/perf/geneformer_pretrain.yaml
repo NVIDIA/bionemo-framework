@@ -1,5 +1,5 @@
-scope: partial-conv
-time_limit: 14400
+scope: perf
+time_limit: 1800
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -18,12 +18,8 @@ script_args:
     value: geneformer_config
   precision:
     value: [bf16-mixed]
-  nodes:
-    value: [2]
   gpus:
     value: 8
-  batch_size:
-    value: 32
   max_steps:
     value: 115430
   lr:
@@ -32,6 +28,11 @@ script_args:
     value: 500
   acc:
     value: 1
+  products:
+    - nodes: 1
+      batch_size: 32
+    - nodes: 2
+      batch_size: 32
 
 script: |-
    WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
