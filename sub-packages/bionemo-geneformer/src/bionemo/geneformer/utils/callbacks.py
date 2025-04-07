@@ -114,9 +114,6 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
         # batch_indices is not captured due to a lightning bug when return_predictions = False
         # we use input IDs in the prediction to map the result to input
 
-        print("Here!!!!!!!!!!!")
-        print("self.include_gene_embeddings:", self.include_gene_embeddings)
-
         #if self.include_gene_embeddings and 'input_ids' in prediction and 'hidden_states' in prediction:
         if self.include_gene_embeddings and 'input_ids' in prediction and 'hidden_states' in prediction:
 
