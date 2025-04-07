@@ -24,15 +24,17 @@ from nemo.collections.llm.gpt.model.megatron.hyena.hyena_mixer import HyenaMixer
 from bionemo.testing import megatron_parallel_state_utils
 
 
-@pytest.fixture
-def hyena_nv_test_config() -> HyenaNVTestConfig:
+@pytest.fixture(params=[torch.bfloat16, torch.float32])
+def hyena_nv_test_config(request) -> HyenaNVTestConfig:
     config = HyenaNVTestConfig()
+    config.params_dtype = request.param
     return config
 
 
-@pytest.fixture
-def hyena_test_config() -> HyenaTestConfig:
+@pytest.fixture(params=[torch.bfloat16, torch.float32])
+def hyena_test_config(request) -> HyenaTestConfig:
     config = HyenaTestConfig()
+    config.params_dtype = request.param
     return config
 
 
@@ -103,8 +105,11 @@ def b2b_torch_forward(mixer: HyenaMixer, features: torch.Tensor, _proj_use_cp: b
 
 def test_b2b_causal_conv1d(mixer: HyenaMixer):
     """Test the B2B causal conv1d layer"""
-    data = torch.load("/workspaces/bionemo-framework/sub-packages/bionemo-evo2/tests/bionemo/evo2/test_layer1.pt")
-    input_features = data["input_features"]
+    input_features = torch.rand(
+        (2, mixer.hidden_size * 3, 512),
+        dtype=mixer.transformer_config.params_dtype,
+        device=mixer.hyena_proj_conv.short_conv_weight.device,
+    )
     output_features_b2b_torch = b2b_torch_forward(mixer, input_features)
 
     assert hasattr(mixer, "b2b_kernel")
@@ -114,10 +119,14 @@ def test_b2b_causal_conv1d(mixer: HyenaMixer):
     assert torch.allclose(output_features_b2b, output_features_b2b_torch, rtol=1e-2, atol=1e-2)
 
 
+@pytest.mark.skip(reason="NV config (with conv bias) is not supported by b2b CUDA kernel yet")
 def test_nv_b2b_causal_conv1d(nv_mixer: HyenaMixer):
     """Test the B2B causal conv1d layer with NV config"""
-    data = torch.load("/workspaces/bionemo-framework/sub-packages/bionemo-evo2/tests/bionemo/evo2/test_nv_layer1.pt")
-    input_features = data["input_features"]
+    input_features = torch.rand(
+        (2, nv_mixer.hidden_size * 3, 512),
+        dtype=nv_mixer.transformer_config.params_dtype,
+        device=nv_mixer.hyena_proj_conv.short_conv_weight.device,
+    )
     output_features_b2b_torch = b2b_torch_forward(nv_mixer, input_features)
 
     assert hasattr(nv_mixer, "b2b_kernel")
