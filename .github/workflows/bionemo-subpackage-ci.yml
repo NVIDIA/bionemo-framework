@@ -117,7 +117,7 @@ jobs:
           # Install sub-package and dependencies.
           pip install --upgrade pip setuptools uv maturin
           # Install required core & optional [test] dependencies.
-          uv pip install --no-cache --no-build-isolation --system pytest sub-packages/${{ matrix.package }}[test]
+          uv pip install --no-cache --system pytest sub-packages/${{ matrix.package }}[test]
       - id: install-subpackage-post
         if: ${{ github.event.inputs.test == 'true' }}
         name: Install sub-package dependencies that need to be installed after the core dependencies.

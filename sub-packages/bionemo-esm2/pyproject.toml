@@ -15,8 +15,6 @@ dependencies = [
     'bionemo-core',
     'bionemo-llm',
     # external
-    # TODO(@cspades): Remove this version fixture when this issue is fixed: https://github.com/zarr-developers/zarr-python/issues/2963 / https://github.com/zarr-developers/zarr-python/pull/2965
-    'numcodecs[msgpack]<0.16',
 ]
 
 [project.optional-dependencies]
