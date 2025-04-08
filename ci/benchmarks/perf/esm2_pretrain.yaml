@@ -14,7 +14,8 @@ script_args:
   variant: train
   config_name: 650M
   precision: bf16-mixed
-  max_steps: 200
+  max_steps: 500000
+  stop_steps: 200
   gpus: 8
   acc_grad: 1
   products:
@@ -47,6 +48,7 @@ script: |-
     --val-check-interval=50 \
     --limit-val-batches=1 \
     --num-steps=${max_steps} \
+    --early-stop-on-step ${stop_steps} \
     --min-seq-length=1024 \
     --max-seq-length=1024 \
     --num-layers=33 \
