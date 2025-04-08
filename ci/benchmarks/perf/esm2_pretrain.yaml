@@ -56,7 +56,7 @@ script: |-
     --num-attention-heads=20 \
     --ffn-hidden-size=5120 \
     --create-tensorboard-logger \
-    --experiment-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+    --experiment-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec_tp${tp}_pp_${pp} \
     --result-dir=${tensorboard_dir} \
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name}__${target} \
