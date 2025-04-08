@@ -52,6 +52,7 @@ def main(
     max_seq_length: int = 512,
     result_dir: Path = Path("./results"),
     num_steps: int = 1_000_000,
+    early_stop_on_step: Optional[int] = None,
     warmup_steps: int = 1000,
     decay_steps: int = 900_000,
     limit_val_batches: float = 1.0,
@@ -76,6 +77,7 @@ def main(
     pipeline_model_parallel_size: int = 1,
     tensor_model_parallel_size: int = 1,
     create_tensorboard_logger: bool = False,
+    create_checkpoint_callback: bool = True,
     nemo1_init_path: Optional[Path] = None,
     restore_from_checkpoint_path: Optional[str] = None,
     save_last_checkpoint: bool = True,
@@ -104,6 +106,7 @@ def main(
         max_seq_length (int): The maximum sequence length for the AMPLIFY transformer
         result_dir (Path): directory to store results, logs and checkpoints
         num_steps (int): number of steps to train the model for
+        early_stop_on_step (Optional[int]): Stop training on this step, if set. This may be useful for testing or debugging purposes.
         warmup_steps (int): number of steps for the learning rate warmup phase
         decay_steps (int): number of steps for the learning rate decay phase
         limit_val_batches (int): limit the number of validation global batches to this many
@@ -129,6 +132,7 @@ def main(
         pipeline_model_parallel_size (int): degree of pipeline model parallelism
         tensor_model_parallel_size (int): degree of tensor model parallelism
         create_tensorboard_logger (bool): create the tensorboard logger
+        create_checkpoint_callback (bool): create a ModelCheckpoint callback and attach it to the pytorch lightning trainer
         nemo1_init_path (Optional[Path]): path to a NeMo v1 checkpoint to initialize from
         restore_from_checkpoint_path (Optional[str]): If set, restores the model from the directory passed in. Expects the
             checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
@@ -213,9 +217,33 @@ def main(
             )
         )
 
+    # Setup the logger and train the model
+    nemo_logger = setup_nemo_lightning_logger(
+        root_dir=result_dir,
+        name=experiment_name,
+        initialize_tensorboard_logger=create_tensorboard_logger,
+        wandb_config=wandb_config,
+    )
+    # Configure our custom Checkpointer
+    if create_checkpoint_callback:
+        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            dirpath=checkpoint_path,
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="{epoch}-{step}-{consumed_samples}",
+            # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        )
+    else:
+        checkpoint_callback = None
+    callbacks.append(checkpoint_callback)
+
     trainer = nl.Trainer(
         devices=devices,
-        max_steps=num_steps,
+        max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
         accelerator="gpu",
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
@@ -298,25 +326,6 @@ def main(
                 constant_steps=0,
             ),
         ),
-    )
-
-    # Configure our custom Checkpointer
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_last=save_last_checkpoint,
-        monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
-        save_top_k=save_top_k,
-        every_n_train_steps=val_check_interval,
-        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-        filename="{epoch}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-    )
-
-    # Setup the logger and train the model
-    nemo_logger = setup_nemo_lightning_logger(
-        root_dir=result_dir,
-        name=experiment_name,
-        initialize_tensorboard_logger=create_tensorboard_logger,
-        wandb_config=wandb_config,
-        ckpt_callback=checkpoint_callback,
     )
 
     llm.train(
