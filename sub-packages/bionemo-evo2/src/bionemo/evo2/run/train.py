@@ -49,9 +49,6 @@ from nemo.utils.exp_manager import TimingCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
-# TODO(dorotat_nv) remove when https://github.com/NVIDIA/bionemo-framework/issues/749
-from bionemo.testing.testing_callbacks import SignalAfterGivenStepCallback
-
 
 torch._dynamo.config.suppress_errors = True
 
@@ -481,13 +478,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         TimingCallback(),
     ]
 
-    if args.early_stop_on_step:
-        # Ask the trainer to stop by setting should_stop to True rather than emitting a kill signal.
-        callbacks.append(
-            SignalAfterGivenStepCallback(
-                stop_step=args.early_stop_on_step, stop_before_step=True, use_trainer_should_stop=True
-            )
-        )
     if args.enable_preemption:
         callbacks.append(nl_callbacks.PreemptionCallback())
     if args.debug_ddp_parity_freq > 0:
@@ -650,7 +640,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     trainer = nl.Trainer(
         devices=args.devices,
         num_nodes=args.num_nodes,
-        max_steps=args.max_steps,
+        max_steps=args.max_steps if args.early_stop_on_step is None else args.early_stop_on_step,
         accelerator="gpu",
         strategy=strategy,
         callbacks=callbacks,

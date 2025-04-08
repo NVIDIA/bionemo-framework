@@ -38,8 +38,8 @@ script: |-
     --num-gpus=${gpus} \
     --val-check-interval=1000 \
     --limit-val-batches=1 \
-    --scheduler-num-steps=${max_steps} \
-    --num-steps=${stop_steps} \
+    --num-steps=${max_steps} \
+    --early-stop-on-step ${stop_steps} \
     --min-seq-length=1024 \
     --max-seq-length=1024 \
     --num-layers=33 \
