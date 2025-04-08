@@ -1,5 +1,5 @@
 scope: perf
-time_limit: 3600
+time_limit: 1800
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -19,7 +19,7 @@ script_args:
   gpus: 8
   batch_size: 8
   max_steps: 490000
-  stop_steps: 3600
+  stop_steps: 650
   cp: 1
   seq_len: 8192
   acc_grad: 1
