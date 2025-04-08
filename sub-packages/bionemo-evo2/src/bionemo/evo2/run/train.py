@@ -84,6 +84,11 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--fasta-file",
+        type=str,
+        help="Absolute path to fasta file containing training data"
+    )
+    parser.add_argument(
         "--dataset-dir",
         type=str,
         help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML.",
@@ -456,7 +461,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
 
     elif args.fasta_data:
         data = FastaDataModule(
-            fasta_file="/workspace/bionemo2/bionemo-evo2/bcr_small_ctrl_tags.fasta",
+            fasta_file=args.fasta_file,
             seq_length=args.seq_length,
             micro_batch_size=args.micro_batch_size,
             global_batch_size=global_batch_size,

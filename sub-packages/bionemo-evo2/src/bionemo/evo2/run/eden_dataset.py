@@ -34,7 +34,7 @@ class FastaDataModule(pl.LightningDataModule):
         vocab_file: Optional[str] = None,
         merges_file: Optional[str] = None,
         rc_aug: bool = False,
-        stride: int = None,
+        stride: int = 200,
         num_train_samples: int = None,
         num_val_samples: int = None,
         num_test_samples: int = None,

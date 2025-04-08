@@ -322,3 +322,4 @@ RUN chmod 777 -R /workspace/bionemo2/
 # FIXME the following results in unstable training curves even if faster.
 #  See https://github.com/NVIDIA/bionemo-framework/pull/421
 # ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
+ENTRYPOINT [ "/workspace/bionemo2/scripts/entrypoint.sh" ]
