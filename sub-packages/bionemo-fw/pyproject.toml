@@ -8,7 +8,7 @@ readme = "README.md"
 description = "BioNeMo Framework (FW): Production grade framework for AI-enabled Drug Discovery. Consists of all independently installable bionemo feature packages too."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
-license-files = ["LICENSE"]
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
     'bionemo-core',

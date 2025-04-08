@@ -8,7 +8,7 @@ readme = "README.md"
 description = "PyTorch Lightning Data Module for WebDataset files."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
-license-files = ["LICENSE"]
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
     # bionemo sub-packages

@@ -9,7 +9,7 @@ readme = "README.md"
 description = "A BioNeMo sub-package for training AMPLIFY models."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
-license-files = ["LICENSE"]
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
     # internal

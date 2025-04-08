@@ -12,7 +12,7 @@ description = "BioNeMo example_model: Example model for documentation and tutori
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
 classifiers = ["Private :: Do Not Upload", "Programming Language :: Python :: 3.10"]
-license-files = ["LICENSE"]
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
     'bionemo-core',

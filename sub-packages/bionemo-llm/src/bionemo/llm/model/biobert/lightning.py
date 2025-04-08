@@ -24,7 +24,6 @@ from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
 from nemo.lightning.megatron_parallel import DataT, MegatronLossReduction
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from torch import Tensor
-from torch.optim import Adam
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from bionemo.llm.lightning import (
@@ -40,7 +39,6 @@ __all__: Sequence[str] = (
     "BertBatch",
     "BertModel",
     "SequenceBatch",
-    "bert_default_optimizer",
     "bert_forward_step",
     "biobert_data_step",
     "biobert_lightning_module",
@@ -180,19 +178,6 @@ def biobert_lightning_module(
         model_transform=model_transform,
         **model_construct_args,
     )
-
-
-def bert_default_optimizer(model: torch.nn.Module):
-    """Returns the default optimizer for the BERT model.
-
-    Args:
-        model: The BERT model.
-
-    Returns:
-        The default optimizer initialized for this BERT module's parameters.
-        Uses a learning rate of 1e-4 and weight decay of 1e-2.
-    """
-    return Adam(model.parameters(), lr=1e-4, weight_decay=0.01)
 
 
 def get_batch_on_this_context_parallel_rank(batch: Dict[str, Tensor], in_place: bool = True) -> Dict[str, Tensor]:

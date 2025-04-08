@@ -8,7 +8,7 @@ readme = "README.md"
 description = "Provides a simple way to create mini-batches in a memory consumption-aware manner, making it useful for tasks like training models on datasets with varying memory requirements."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
-license-files = ["LICENSE"]
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
     # bionemo sub-packages
