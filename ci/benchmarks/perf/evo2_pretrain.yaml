@@ -17,13 +17,10 @@ script_args:
   config_name: 1b
   precision: fp8
   gpus: 8
-  nodes: 2
   batch_size: 8
   max_steps: 490000
   stop_steps: 2000
-  pp: 1
   cp: 1
-  tp: 1
   seq_len: 8192
   acc_grad: 1
   clip_grad:
@@ -42,6 +39,19 @@ script_args:
   wd:
     value: 0.1
     key_segment: False
+  products:
+    - nodes: 2
+      pp: 1
+      tp: 1
+    - nodes: 1
+      pp: 1
+      tp: 1
+    - nodes: 2
+      pp: 1
+      tp: 2
+    - nodes: 2
+      pp: 2
+      tp: 1
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
   -d /workspace/bionemo2/sub-packages/bionemo-evo2/examples/configs/full_pretrain_shortphase_config.yaml \
