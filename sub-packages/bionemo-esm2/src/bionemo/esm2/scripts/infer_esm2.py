@@ -32,7 +32,6 @@ from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
 from bionemo.llm.utils.callbacks import IntervalT, PredictionWriter
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
-from bionemo.testing import megatron_parallel_state_utils
 
 
 __all__: Sequence[str] = ("infer_model",)
@@ -140,7 +139,7 @@ def infer_model(
     if lora_checkpoint_path:
         peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
         # callbacks.append(ModelTransform())
-        # callbacks.append(peft)
+        callbacks.append(peft)
         module = biobert_lightning_module(config=config, tokenizer=tokenizer, model_transform=peft)
     else:
         module = biobert_lightning_module(config=config, tokenizer=tokenizer)
@@ -157,9 +156,18 @@ def infer_model(
         num_nodes=num_nodes,
         callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(precision=precision),
+        max_steps=100,
     )
-
+    """
+    from nemo.collections import llm
+    llm.validate(
+        model=module,
+        data=datamodule,
+        trainer=trainer,
+    )
+    """
     # Run prediction
+
     trainer.predict(module, datamodule=datamodule)
 
 
@@ -169,7 +177,8 @@ def infer_esm2_entrypoint():
     parser = get_parser()
     args = parser.parse_args()
     # 2. Call infer with args
-    with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+    # with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+    if True:
         infer_model(
             data_path=args.data_path,
             checkpoint_path=args.checkpoint_path,

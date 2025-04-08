@@ -30,6 +30,7 @@
 
 from typing import Optional
 
+import lightning.pytorch as pl
 from nemo.collections.llm import fn
 from nemo.collections.llm.fn.mixin import FNMixin
 from nemo.collections.llm.peft.lora import LoRA
@@ -59,6 +60,15 @@ class ESM2LoRA(LoRA):
         """
         super().setup(*args, **kwarg)
         self.wrapped_io.adapter_ckpt_path = self.peft_ckpt_path
+
+    def on_predict_epoch_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
+        """Event hook.
+
+        Args:
+            trainer: The trainer object.
+            pl_module: The LightningModule object.
+        """
+        self._maybe_apply_transform(trainer)
 
     def __call__(self, model: nn.Module) -> nn.Module:
         """This method is called when the object is called as a function.

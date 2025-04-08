@@ -399,6 +399,7 @@ def train_model(
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
     )
+
     ckpt_path = Path(checkpoint_callback.last_model_path.replace(".ckpt", ""))
 
     return ckpt_path, metric_tracker, trainer
@@ -739,7 +740,7 @@ def get_parser():
     parser.add_argument(
         "--lora-finetune",
         action="store_true",
-        default=True,
+        default=False,
         help="Perform fine-tuning with LoRA.",
     )
 
