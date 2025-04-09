@@ -333,7 +333,7 @@ def main(
             every_n_train_steps=val_check_interval,
             always_save_context=True,
             # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-            filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",
+            filename="{epoch}-{step}-{consumed_samples}",
             # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
         )
         callbacks.append(checkpoint_callback)
