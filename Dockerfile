@@ -1,3 +1,17 @@
+# Build instructions:
+#
+# For x86_64/amd64 (default):
+#   docker build -t bionemo .
+#   # Or explicitly:
+#   docker build --build-arg TARGETARCH=amd64 -t bionemo .
+#
+# For ARM64:
+#   docker build --build-arg TARGETARCH=arm64 -t bionemo .
+#
+# For multi-platform build:
+#   docker buildx create --use
+#   docker buildx build --platform linux/amd64,linux/arm64 -t bionemo .
+#
 # Base image with apex and transformer engine, but without NeMo or Megatron-LM.
 #  Note that the core NeMo docker container is defined here:
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/llm_train/Dockerfile.train
@@ -11,10 +25,16 @@ FROM rust:1.82.0 AS rust-env
 
 RUN rustup set profile minimal && \
   rustup install 1.82.0 && \
-  rustup target add x86_64-unknown-linux-gnu && \
+  if [ "$TARGETARCH" = "arm64" ]; then \
+    rustup target add aarch64-unknown-linux-gnu; \
+  else \
+    rustup target add x86_64-unknown-linux-gnu; \
+  fi && \
   rustup default 1.82.0
 
 FROM ${BASE_IMAGE} AS bionemo2-base
+# Default to amd64 if no TARGETARCH is specified
+ARG TARGETARCH=amd64
 
 # Install core apt packages.
 RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
@@ -29,28 +49,84 @@ apt-get install -qyy \
   curl \
   pre-commit \
   sudo \
-  gnupg
+  gnupg \
+  unzip
 apt-get upgrade -qyy \
   rsync
 rm -rf /tmp/* /var/tmp/*
 EOF
 
-## BUMP TE from v1.14 to v1.13
- ARG TE_TAG=v1.13
- RUN NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
-    pip --disable-pip-version-check --no-cache-dir install \
-    git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
+# Install AWS CLI based on architecture
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+    elif [ "$TARGETARCH" = "amd64" ]; then \
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+    else \
+      echo "Unsupported architecture: $TARGETARCH" && exit 1; \
+    fi && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf aws awscliv2.zip
 
 # Use a branch of causal_conv1d while the repository works on Blackwell support.
-RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install git+https://github.com/trvachov/causal-conv1d.git@52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
+ARG CAUSAL_CONV_TAG=52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
+RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install git+https://github.com/trvachov/causal-conv1d.git@${CAUSAL_CONV_TAG}
+
+###############################################################################
+# ARM
+###############################################################################
+# Certain dependencies do not have prebuild ARM wheels/binaries, so we build them
+# from source here. Overall, ecosystem ARM support is much weaker than x86, so below
+# you'll see some hardcoded patches/versions/experimental branches to get i
+# everything to work.
+
+# Decord installation
+RUN --mount=type=bind,source=./docker_build_patches/decord_ffmpeg6_fix.patch,target=/decord_ffmpeg6_fix.patch \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+    export BUILD_DIR=/build && mkdir ${BUILD_DIR} && cd ${BUILD_DIR} && \
+    apt-get update && \
+    apt-get install -y build-essential python3-dev python3-setuptools make cmake && \
+    apt-get install -y ffmpeg libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev && \
+    git clone --recursive https://github.com/dmlc/decord && \
+    cd decord && \
+    git apply /decord_ffmpeg6_fix.patch && \
+    mkdir build && cd build && \
+    cmake .. -DUSE_CUDA=0 -DCMAKE_BUILD_TYPE=Release && \
+    make && \
+    cd ../python && \
+    pip install . && \
+    cd / && rm -rf ${BUILD_DIR}; \
+fi
+
+# TileDB installation
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+    mkdir -p /usr/lib/tiledb && \
+    cd /usr/lib/tiledb && \
+    wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.2/tiledb-linux-arm64-2.27.2-1757013.tar.gz -O tiledb.tar.gz && \
+    tar -xvzf tiledb.tar.gz && export TILEDB_PATH=/usr/lib/tiledb && \
+    cd / && \
+    dpkg -l | awk '/libfmt/ {print $2}' | xargs apt-get remove -y && \
+    dpkg -l | awk '/spdlog/ {print $2}' | xargs apt-get remove -y && \
+    rm -f /usr/lib/*/cmake/spdlog/spdlogConfig.cmake && \
+    rm -f /usr/lib/cmake/spdlog/spdlogConfig.cmake && \
+    git clone --single-branch --branch 1.16.1 https://github.com/single-cell-data/TileDB-SOMA.git && \
+    cd TileDB-SOMA/apis/python && \
+    pip install .; \
+fi
+
+###############################################################################
+# /end ARM
+###############################################################################
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
-RUN pip install hatchling   # needed to install nemo-run
-ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
-RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG}
+# Nemo Run installation
+# Some things are pip installed in advance to avoid dependency issues during nemo_run installation
+RUN pip install hatchling urllib3  # needed to install nemo-run
+ARG NEMU_RUN_TAG=v0.3.0
+RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG} --use-deprecated=legacy-resolver
 
 RUN mkdir -p /workspace/bionemo2/
 
@@ -94,14 +170,23 @@ RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.t
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   --mount=type=cache,target=/root/.cache <<EOF
 set -eo pipefail
-
 uv pip install maturin --no-build-isolation
-
+# install nvidia-resiliency-ext separately because it doesn't yet have ARM wheels
+git clone https://github.com/NVIDIA/nvidia-resiliency-ext
+uv pip install nvidia-resiliency-ext/
+rm -rf nvidia-resiliency-ext/
+# ngcsdk causes strange dependency conflicts that we will resolve later
+sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
+# Remove llama-index because bionemo doesn't use it and it adds CVEs to container
+sed -i "/llama-index/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt
 uv pip install --no-build-isolation \
-  ./3rdparty/* \
-  ./sub-packages/bionemo-* \
-  -r /requirements-cve.txt \
-  -r /requirements-test.txt
+./3rdparty/*  \
+./sub-packages/bionemo-* \
+-r /requirements-cve.txt \
+-r /requirements-test.txt
+
+# Install back ngcsdk. Somehow doing it here avoids a large dependency loop
+uv pip install ngcsdk
 
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
 # dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
