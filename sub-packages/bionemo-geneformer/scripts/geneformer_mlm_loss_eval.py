@@ -129,14 +129,13 @@ def main(
     seq_len_hf: int = 2048,
     seed: int = 513,
     include_unrecognized_vocab_in_dataset: bool = False,
+    use_nemo_load_checkpoint: bool = False,
 ):
     """Inference function (requires DDP and only training data that fits in memory)."""
-    # This is just used to get the tokenizer :(
+    # This is just used to get the tokenizer :(. Maybe we can get it somewhere else using the gene_dict.pkl file. 
+    # Publish the tokenizer on NGC might work too.
     train_data_path: Path = load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
 
-    # train_data_path: Path = (
-    #     load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
-    # )
     n_devices: int = torch.cuda.device_count()
     assert n_devices > 0
     preprocessor = GeneformerPreprocess(
@@ -154,9 +153,13 @@ def main(
         geneformer_hf_token_dict = pickle.load(geneformer_hf_token_file)
     with open(hf_medians_dictionary_path, "rb") as geneformer_hf_median_file:
         geneformer_hf_medians_dict = pickle.load(geneformer_hf_median_file)
+    # Try to just load the checkpoint using torch.load.
+    # dummy_checkpoint = torch.load(model_path / "weights/common.pt", weights_only=False)
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         geneformer_nv_inferer_cfg = config_class(
             seq_length=seq_len_nv,
+            bf16 = True if precision == "bf16" else False,
+            fp16 = True if precision == "fp16" else False,
             params_dtype=get_autocast_dtype(precision),
             pipeline_dtype=get_autocast_dtype(precision),
             autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
@@ -164,10 +167,13 @@ def main(
             initial_ckpt_path=str(model_path) if model_path is not None else None,
             initial_ckpt_skip_keys_with_these_prefixes=[],  # load everything from the checkpoint.
         )
+        config = geneformer_nv_inferer_cfg
+        module = geneformer_nv_inferer_cfg.configure_model(tokenizer, use_nemo_load_checkpoint=use_nemo_load_checkpoint).cuda(0 % n_devices)
         geneformer_nv_inferer = Float16Module(
-            geneformer_nv_inferer_cfg, geneformer_nv_inferer_cfg.configure_model(tokenizer).cuda(0 % n_devices)
+            config=config,
+            module=module
         ).eval()
-
+        # TODO: ConfigureModel loads the checkpoint, maybe you can use Cory's method here.
         # TODO only predict with tokens that exist in both models.
 
         hf_model = GeneformerHFAdapter(hf_model_path, geneformer_hf_token_dict, tokenizer).eval().cuda(1 % n_devices)
@@ -240,7 +246,8 @@ def main(
             n_nv = 0
             nv_device = geneformer_nv_inferer.module.embedding.position_embeddings.weight.device
             hf_device = hf_model.device
-            for _ in trange(len(dl_hf)):
+            for _ in trange(100):
+            # for _ in trange(len(dl_hf)):
                 batch_hf = {k: v.to(hf_device) for k, v in next(dl_hf_iter).items()}
                 batch_nv = {k: v.to(nv_device) for k, v in next(dl_nv_iter).items()}
                 logits_hf = hf_model(batch_hf["text"].long(), batch_hf["attention_mask"])
@@ -274,6 +281,7 @@ def main(
                 n_nv += batch_nv["loss_mask"].sum().cpu().item()
         print(f"NV mean loss: {loss_nv / n_nv}")
         print(f"HF mean loss: {loss_hf / n_hf}")
+        # Note: Maybe this can be accomplished using the Trainer.test.
 
 
 def entrypoint():
@@ -309,15 +317,18 @@ def entrypoint():
         action="store_true",
         help="If set to true, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to false which means any gene identifier not in the user supplied tokenizer vocab will be excluded.",
     )
-
+    parser.add_argument("--precision", type=str, default="bf16", help="Precision to use for the evaluation.")
+    parser.add_argument("--use-nemo-load-checkpoint", action="store_true", help="Use the standard nemo load_state_dict method instead of Megatron dist_checkpointing.")
     args = parser.parse_args()
     main(
-        args.model_path,
-        args.hf_model_path,
-        args.dataset_path,
-        args.hf_token_dictionary_path,
-        args.hf_medians_dictionary_path,
-        args.include_unrecognized_vocab_in_dataset,
+        model_path=args.model_path,
+        hf_model_path=args.hf_model_path,
+        dataset_path=args.dataset_path,
+        hf_token_dictionary_path=args.hf_token_dictionary_path,
+        hf_medians_dictionary_path=args.hf_medians_dictionary_path,
+        include_unrecognized_vocab_in_dataset=args.include_unrecognized_vocab_in_dataset,
+        precision=args.precision,
+        use_nemo_load_checkpoint=args.use_nemo_load_checkpoint,
     )
 
 
