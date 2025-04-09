@@ -25,7 +25,7 @@ script_args:
   batch_size:
     value: 32
   max_steps:
-    value: 115430
+    value: 37000
   lr:
     value: 0.001
   val_check_interval:
