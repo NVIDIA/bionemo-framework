@@ -285,10 +285,10 @@ def test_convert_amplify_120M_smoke(tmp_path):
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
 
 
-# Enable these by running `pip install -v -U git+https://github.com/facebookresearch/xformers.git@v0.0.29.post1#egg=xformers`
 @pytest.mark.skipif(
     not sys.modules.get("xformers"),
-    reason="AMPLIFY golden value tests require xformers.",
+    reason="AMPLIFY golden value tests require xformers. Run `pip install -v -U "
+    "git+https://github.com/facebookresearch/xformers.git@v0.0.29.post1#egg=xformers` to enable.",
 )
 def test_convert_amplify_120M(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_120M"
@@ -300,7 +300,8 @@ def test_convert_amplify_120M(tmp_path):
 
 @pytest.mark.skipif(
     not sys.modules.get("xformers"),
-    reason="AMPLIFY golden value tests require xformers.",
+    reason="AMPLIFY golden value tests require xformers. Run `pip install -v -U "
+    "git+https://github.com/facebookresearch/xformers.git@v0.0.29.post1#egg=xformers` to enable.",
 )
 def test_convert_amplify_120M_bf16(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_120M"
@@ -317,7 +318,8 @@ def test_convert_amplify_120M_bf16(tmp_path):
 
 @pytest.mark.skipif(
     not sys.modules.get("xformers"),
-    reason="AMPLIFY golden value tests require xformers.",
+    reason="AMPLIFY golden value tests require xformers. Run `pip install -v -U "
+    "git+https://github.com/facebookresearch/xformers.git@v0.0.29.post1#egg=xformers` to enable.",
 )
 def test_convert_amplify_350M(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_350M"
