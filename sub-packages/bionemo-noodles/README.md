@@ -1,6 +1,6 @@
 # bionemo-noodles
 
-`bionemo-noodles` is a Python wrapper of [noodles](https://github.com/zaeleus/noodles) that supports `memmap`-based file I/O for FASTA files.
+`bionemo-noodles` is a Python wrapper of [noodles](https://github.com/zaeleus/noodles) that extends FAIDX to support `memmap`-based file I/O for FASTA files.
 
 ## Installation
 
