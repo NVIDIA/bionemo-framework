@@ -140,7 +140,7 @@ RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
 # environment, and does not use the current uv.lock file. Note that with python 3.12, we now need to set
 # UV_BREAK_SYSTEM_PACKAGES, since the pytorch base image has made the decision not to use a virtual environment and UV
 # does not respect the PIP_BREAK_SYSTEM_PACKAGES environment variable set in the base dockerfile.
-COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=1 \
   UV_PYTHON_DOWNLOADS=never \
@@ -175,7 +175,7 @@ uv pip install maturin --no-build-isolation
 git clone https://github.com/NVIDIA/nvidia-resiliency-ext
 uv pip install nvidia-resiliency-ext/
 rm -rf nvidia-resiliency-ext/
-# ngcsdk causes strange dependency conflicts that we will resolve later
+# ngcsdk causes strange dependency conflicts (ngcsdk requires protobuf<4, but nemo_toolkit requires protobuf==4.24.4, deleting it from the uv pip install prevents installation conflicts)
 sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
 # Remove llama-index because bionemo doesn't use it and it adds CVEs to container
 sed -i "/llama-index/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt
@@ -185,7 +185,7 @@ uv pip install --no-build-isolation \
 -r /requirements-cve.txt \
 -r /requirements-test.txt
 
-# Install back ngcsdk. Somehow doing it here avoids a large dependency loop
+# Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
 uv pip install ngcsdk
 
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
@@ -234,7 +234,7 @@ USER $USERNAME
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
   /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
 
-COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=0 \
   UV_PYTHON_DOWNLOADS=never \
