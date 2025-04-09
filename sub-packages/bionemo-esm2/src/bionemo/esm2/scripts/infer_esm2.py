@@ -177,25 +177,23 @@ def infer_esm2_entrypoint():
     parser = get_parser()
     args = parser.parse_args()
     # 2. Call infer with args
-    # with megatron_parallel_state_utils.distributed_model_parallel_state(43):
-    if True:
-        infer_model(
-            data_path=args.data_path,
-            checkpoint_path=args.checkpoint_path,
-            results_path=args.results_path,
-            include_hiddens=args.include_hiddens,
-            include_embeddings=args.include_embeddings,
-            include_logits=args.include_logits,
-            include_input_ids=args.include_input_ids,
-            micro_batch_size=args.micro_batch_size,
-            precision=args.precision,
-            tensor_model_parallel_size=args.tensor_model_parallel_size,
-            pipeline_model_parallel_size=args.pipeline_model_parallel_size,
-            devices=args.num_gpus,
-            num_nodes=args.num_nodes,
-            config_class=args.config_class,
-            lora_checkpoint_path=args.lora_checkpoint_path,
-        )
+    infer_model(
+        data_path=args.data_path,
+        checkpoint_path=args.checkpoint_path,
+        results_path=args.results_path,
+        include_hiddens=args.include_hiddens,
+        include_embeddings=args.include_embeddings,
+        include_logits=args.include_logits,
+        include_input_ids=args.include_input_ids,
+        micro_batch_size=args.micro_batch_size,
+        precision=args.precision,
+        tensor_model_parallel_size=args.tensor_model_parallel_size,
+        pipeline_model_parallel_size=args.pipeline_model_parallel_size,
+        devices=args.num_gpus,
+        num_nodes=args.num_nodes,
+        config_class=args.config_class,
+        lora_checkpoint_path=args.lora_checkpoint_path,
+    )
 
 
 def get_parser():
