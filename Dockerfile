@@ -128,6 +128,9 @@ RUN pip install hatchling urllib3  # needed to install nemo-run
 ARG NEMU_RUN_TAG=v0.3.0
 RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG} --use-deprecated=legacy-resolver
 
+# Rapids SingleCell Installation
+RUN pip install 'rapids-singlecell[rapids12]' --extra-index-url=https://pypi.nvidia.com
+
 RUN mkdir -p /workspace/bionemo2/
 
 WORKDIR /workspace
