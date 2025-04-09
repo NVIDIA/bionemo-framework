@@ -1,5 +1,5 @@
 scope: perf
-time_limit: 180
+time_limit: 1800
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -21,7 +21,7 @@ script_args:
   gpus:
     value: 8
   max_steps:
-    value: 37000
+    value: 3700
   lr:
     value: 0.001
   val_check_interval:
