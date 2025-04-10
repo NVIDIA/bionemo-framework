@@ -17,14 +17,15 @@ TODO: Add code snippet
 - [ ]  Other (please describe):
 
 ### CI Pipeline Configuration
-Configure CI behavior by applying the relevant labels. By default, only basic unit tests (L0) are run.
+Configure CI behavior by applying the relevant labels. By default, only basic unit tests are run.
 
-- `ciflow:L1` - Run slow single GPU integration tests, marked by `@pytest.mark.L1`
-- `ciflow:L2` - Runs multi-gpu and longer integration tests, marked by `@pytest.mark.L2`
-- `ciflow:docs` - Run documentation and tutorial tests under `./docs`
+- `ciflow:slow` - Run slow single GPU integration tests, marked by `@pytest.mark.slow`
+- `ciflow:notebooks` - Run Jupyter notebooks tutorial tests under `./docs` subfolder and `./sub-packages/*`
 - `ciflow:all` - Run all tests (L0, L1, and docs)
 - `ciflow:skip` - Skip all CI tests for this PR
-- `ciflow:skip-subpackage` - Skip sub-package testing and publishing
+
+Unit tests marked as `@pytest.mark.multi_gpu` or `@pytest.mark.distributed` are not run in the PR pipeline.
+
 
 For more details, see [CONTRIBUTING](CONTRIBUTING.md)
 

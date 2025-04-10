@@ -102,7 +102,6 @@ jobs:
         id: cache
         with:
           image: svcbionemo023/bionemo-build-cache
-          extra-cache-from: "type=registry,ref=svcbionemo023/bionemo-build-cache:main"
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -110,11 +109,13 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: ${{ steps.cache.outputs.cache-from }}
+          cache-from: |
+            ${{ steps.cache.outputs.cache-from }}
+            type=registry,ref=svcbionemo023/bionemo-build-cache:main
           cache-to: ${{ steps.cache.outputs.cache-to }}
 
 
-  run-tests-L0:
+  run-tests:
     needs:
       - build-bionemo-image
       - get-pr-labels
@@ -151,7 +152,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  run-tests-L1:
+  run-tests-slow:
     needs:
       - build-bionemo-image
       - get-pr-labels
@@ -161,15 +162,17 @@ jobs:
       credentials:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'merge_group' ||
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow') ||
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Run slow tests
-        if: |
-          github.event_name == 'schedule' ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:L1') ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all')
+
         env:
           BIONEMO_DATA_SOURCE: ngc
         # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
@@ -177,11 +180,18 @@ jobs:
         run: ./ci/scripts/run_pytest.sh --no-nbval --only-slow --allow-no-tests
 
 
-  run-tests-docs:
+  run-tests-notebooks:
     needs:
       - build-bionemo-image
       - get-pr-labels
     runs-on: linux-amd64-gpu-l4-latest-1
+
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'merge_group' ||
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:notebooks') ||
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all')
+
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
       credentials:
@@ -192,17 +202,31 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run notebook tests
-        if: |
-          github.event_name == 'schedule' ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:docs') ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all')
         env:
           BIONEMO_DATA_SOURCE: ngc
           # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
           FAST_CI_MODE: true
         run: |
           pytest -v --nbval-lax -p no:python docs/ sub-packages/
-          echo "Cleaning up untracked files in docs/ and sub-packages/ directories..."
-          # Find and remove files not tracked by git in docs/ and sub-packages/
-          git clean -fdx docs/ sub-packages/
-          echo "Cleanup complete."
+
+  verify-tests-status:
+    # Base on the status of this job, the unit-tests workflow succeeds or fails
+    # This steps checks the status of all test jobs and fails if any of them failed or were cancelled.
+    # It is a workaround for the lack of a built-in feature to finalize a pipeline by checking the status of multiple jobs
+    needs: # List all your run-*-test jobs
+      - run-tests
+      - run-slow-tests
+      - run-notebooks-docs
+      # Add all other run-*-test jobs
+    runs-on: ubuntu-latest
+    if: always() # This ensures the job runs even if previous jobs fail
+    steps:
+      - name: Check test job statuses
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "Some test jobs have failed or been cancelled!"
+            exit 1
+          else
+            echo "All test jobs have completed successfully or been skipped!"
+            exit 0
+          fi

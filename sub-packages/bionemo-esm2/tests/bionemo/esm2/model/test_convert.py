@@ -19,7 +19,7 @@ from nemo.lightning import io
 
 from bionemo.esm2.model.convert import HFESM2Importer  # noqa: F401
 from bionemo.esm2.model.model import ESM2Config
-from bionemo.esm2.testing.compare import assert_model_equivalence
+from bionemo.esm2.testing.compare import assert_esm2_equivalence
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.testing import megatron_parallel_state_utils
 
@@ -35,7 +35,7 @@ def test_nemo2_conversion_equivalent_8m(tmp_path):
     module = biobert_lightning_module(config=ESM2Config())
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        assert_model_equivalence(tmp_path / "nemo_checkpoint", model_tag)
+        assert_esm2_equivalence(tmp_path / "nemo_checkpoint", model_tag)
 
 
 def test_nemo2_conversion_equivalent_8m_bf16(tmp_path):
@@ -43,7 +43,7 @@ def test_nemo2_conversion_equivalent_8m_bf16(tmp_path):
     module = biobert_lightning_module(config=ESM2Config())
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        assert_model_equivalence(tmp_path / "nemo_checkpoint", model_tag, precision="bf16")
+        assert_esm2_equivalence(tmp_path / "nemo_checkpoint", model_tag, precision="bf16")
 
 
 @pytest.mark.slow
@@ -52,4 +52,4 @@ def test_nemo2_conversion_equivalent_650m(tmp_path):
     module = biobert_lightning_module(config=ESM2Config())
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        assert_model_equivalence(tmp_path / "nemo_checkpoint", model_tag, atol=1e-4, rtol=1e-4)
+        assert_esm2_equivalence(tmp_path / "nemo_checkpoint", model_tag, atol=1e-4, rtol=1e-4)
