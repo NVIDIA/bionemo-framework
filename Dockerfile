@@ -102,14 +102,14 @@ fi
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
     mkdir -p /usr/lib/tiledb && \
     cd /usr/lib/tiledb && \
-    wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.0-rc3/tiledb-linux-arm64-2.27.0-rc3-8d581f2.tar.gz -O tiledb.tar.gz && \
+    wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.2/tiledb-linux-arm64-2.27.2-1757013.tar.gz -O tiledb.tar.gz && \
     tar -xvzf tiledb.tar.gz && export TILEDB_PATH=/usr/lib/tiledb && \
     cd / && \
     dpkg -l | awk '/libfmt/ {print $2}' | xargs apt-get remove -y && \
     dpkg -l | awk '/spdlog/ {print $2}' | xargs apt-get remove -y && \
     rm -f /usr/lib/*/cmake/spdlog/spdlogConfig.cmake && \
     rm -f /usr/lib/cmake/spdlog/spdlogConfig.cmake && \
-    git clone --single-branch --branch 1.15.0rc4 https://github.com/single-cell-data/TileDB-SOMA.git && \
+    git clone --single-branch --branch 1.16.1 https://github.com/single-cell-data/TileDB-SOMA.git && \
     cd TileDB-SOMA/apis/python && \
     pip install .; \
 fi
@@ -122,9 +122,11 @@ fi
 RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
-RUN pip install hatchling   # needed to install nemo-run
-ARG NEMO_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
-RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMO_RUN_TAG}
+# Nemo Run installation
+# Some things are pip installed in advance to avoid dependency issues during nemo_run installation
+RUN pip install hatchling urllib3  # needed to install nemo-run
+ARG NEMU_RUN_TAG=v0.3.0
+RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG} --use-deprecated=legacy-resolver
 
 RUN mkdir -p /workspace/bionemo2/
 
@@ -138,7 +140,7 @@ RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
 # environment, and does not use the current uv.lock file. Note that with python 3.12, we now need to set
 # UV_BREAK_SYSTEM_PACKAGES, since the pytorch base image has made the decision not to use a virtual environment and UV
 # does not respect the PIP_BREAK_SYSTEM_PACKAGES environment variable set in the base dockerfile.
-COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=1 \
   UV_PYTHON_DOWNLOADS=never \
@@ -173,7 +175,7 @@ uv pip install maturin --no-build-isolation
 git clone https://github.com/NVIDIA/nvidia-resiliency-ext
 uv pip install nvidia-resiliency-ext/
 rm -rf nvidia-resiliency-ext/
-# ngcsdk causes strange dependency conflicts that we will resolve later
+# ngcsdk causes strange dependency conflicts (ngcsdk requires protobuf<4, but nemo_toolkit requires protobuf==4.24.4, deleting it from the uv pip install prevents installation conflicts)
 sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
 # Remove llama-index because bionemo doesn't use it and it adds CVEs to container
 sed -i "/llama-index/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt
@@ -183,7 +185,7 @@ uv pip install --no-build-isolation \
 -r /requirements-cve.txt \
 -r /requirements-test.txt
 
-# Install back ngcsdk. Somehow doing it here avoids a large dependency loop
+# Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
 uv pip install ngcsdk
 
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
@@ -232,7 +234,7 @@ USER $USERNAME
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
   /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
 
-COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=0 \
   UV_PYTHON_DOWNLOADS=never \
