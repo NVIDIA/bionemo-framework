@@ -1,6 +1,6 @@
 [package]
 name = "noodles_fasta_wrapper"
-version = "0.1.0"
+version = "0.1.2"   # Also update the VERSION file when you change the version!
 edition = "2021"
 
 [lib]
