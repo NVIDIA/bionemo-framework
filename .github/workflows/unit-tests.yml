@@ -65,7 +65,7 @@ jobs:
     needs:
       - pre-commit
       - get-pr-labels
-    runs-on: linux-amd64-cpu4
+    runs-on: linux-amd64-cpu16
     if: ${{ !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') }}
     steps:
       - name: Login to Docker Hub
