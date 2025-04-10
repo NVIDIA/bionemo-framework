@@ -142,7 +142,7 @@ class AMPLIFYModel(MegatronBioBertModel):
         self.include_input_ids = include_input_ids
         self.skip_logits = skip_logits
 
-        if config.activation_func is silu:
+        if config.gated_linear_unit:
             multiple_of = 8
             intermediate_size = int(2 * config.ffn_hidden_size / 3)
             config.ffn_hidden_size = multiple_of * ((intermediate_size + multiple_of - 1) // multiple_of)
@@ -306,7 +306,7 @@ class AMPLIFYConfig(BioBertConfig[AMPLIFYModelT, MegatronLossType], iom.IOMixinW
     apply_rope_fusion: bool = False
     gated_linear_unit: bool = True
     masked_softmax_fusion: bool = True
-    activation_func: str = silu
+    activation_func: Callable = silu
     normalization: str = "RMSNorm"  # AMPLIFY uses RMSNorm instead of LayerNorm
     layernorm_zero_centered_gamma: bool = False  # Zero centered gamma not supported for RMSNorm
     biobert_spec_option: BiobertSpecOption = BiobertSpecOption.amplify_with_transformer_engine_spec
