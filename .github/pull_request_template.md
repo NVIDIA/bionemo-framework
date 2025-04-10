@@ -21,7 +21,7 @@ Configure CI behavior by applying the relevant labels. By default, only basic un
 
 - `ciflow:slow` - Run slow single GPU integration tests, marked by `@pytest.mark.slow`
 - `ciflow:notebooks` - Run Jupyter notebooks tutorial tests under `./docs` subfolder and `./sub-packages/*`
-- `ciflow:all` - Run all tests (L0, L1, and docs)
+- `ciflow:all` - Run all tests (unit tests, slow tests and notebooks)
 - `ciflow:skip` - Skip all CI tests for this PR
 
 Unit tests marked as `@pytest.mark.multi_gpu` or `@pytest.mark.distributed` are not run in the PR pipeline.

@@ -4,11 +4,11 @@
   color: 0E8A16  # Green
 
 - name: ciflow:notebooks
-  description: Run documentation and tutorial tests
+  description: Run Jupyter notebooks execution tests
   color: 1D76DB  # Blue
 
 - name: ciflow:all
-  description: Run all tests (unit tests, slow tests, and docs)
+  description: Run all tests (unit tests, slow tests, and notebooks)
   color: FBCA04  # Yellow/Gold
 
 - name: ciflow:skip
