@@ -77,7 +77,7 @@ uname -a
 
 # Set up pytest options
 PYTEST_OPTIONS=(
-    -v
+    -vv
     --cov=bionemo
     --cov-append
     --cov-report=xml:coverage.xml
