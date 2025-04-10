@@ -45,7 +45,7 @@ from transformers import AutoModelForMaskedLM
 from bionemo.core.data.load import load
 from bionemo.core.data.multi_epoch_dataset import EpochIndex
 from bionemo.core.utils.dtypes import get_autocast_dtype
-from bionemo.geneformer.api import GeneformerConfig
+from bionemo.geneformer.api import GeneformerConfig, Geneformer106MConfig
 from bionemo.geneformer.data.singlecell.dataset import SingleCellDataset
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
@@ -124,14 +124,17 @@ def main(
     mask_prob: float = 0.15,
     batch_size: int = 16,
     precision: str = "bf16-mixed",
-    config_class: Type[BioBertConfig] = GeneformerConfig,
+    config_str: str = "GeneformerConfig",
     seq_len_nv: int = 2048,
     seq_len_hf: int = 2048,
     seed: int = 513,
     include_unrecognized_vocab_in_dataset: bool = False,
     use_nemo_load_checkpoint: bool = False,
 ):
-    """Inference function (requires DDP and only training data that fits in memory)."""
+    """Inference function (requires DDP and only training data that fits in memory).
+    
+    config: str representing which config to use.
+    """
     # This is just used to get the tokenizer :(. Maybe we can get it somewhere else using the gene_dict.pkl file. 
     # Publish the tokenizer on NGC might work too.
     train_data_path: Path = load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
@@ -155,7 +158,17 @@ def main(
         geneformer_hf_medians_dict = pickle.load(geneformer_hf_median_file)
     # Try to just load the checkpoint using torch.load.
     # dummy_checkpoint = torch.load(model_path / "weights/common.pt", weights_only=False)
+    if config_str == "GeneformerConfig":
+        config_class = GeneformerConfig
+    elif config_str == "Geneformer106MConfig":
+        config_class = Geneformer106MConfig
+    else:
+        raise ValueError(f"Invalid config class: {config_class}")
+
+
     with megatron_parallel_state_utils.distributed_model_parallel_state():
+        # TODO: Enable options here to get the 106M config. 
+        # Shouldn't that already be inside somewhere?
         geneformer_nv_inferer_cfg = config_class(
             seq_length=seq_len_nv,
             bf16 = True if precision == "bf16" else False,
@@ -246,8 +259,8 @@ def main(
             n_nv = 0
             nv_device = geneformer_nv_inferer.module.embedding.position_embeddings.weight.device
             hf_device = hf_model.device
-            for _ in trange(1000):
-            # for _ in trange(len(dl_hf)):
+            # for _ in trange(1000):
+            for _ in trange(len(dl_hf)):
                 batch_hf = {k: v.to(hf_device) for k, v in next(dl_hf_iter).items()}
                 batch_nv = {k: v.to(nv_device) for k, v in next(dl_nv_iter).items()}
                 logits_hf = hf_model(batch_hf["text"].long(), batch_hf["attention_mask"])
@@ -319,6 +332,7 @@ def entrypoint():
     )
     parser.add_argument("--precision", type=str, default="bf16", help="Precision to use for the evaluation.")
     parser.add_argument("--use-nemo-load-checkpoint", action="store_true", help="Use the standard nemo load_state_dict method instead of Megatron dist_checkpointing.")
+    parser.add_argument("--config-str", type=str, default="GeneformerConfig", help="Config class to use for the evaluation.")
     args = parser.parse_args()
     main(
         model_path=args.model_path,
@@ -329,6 +343,7 @@ def entrypoint():
         include_unrecognized_vocab_in_dataset=args.include_unrecognized_vocab_in_dataset,
         precision=args.precision,
         use_nemo_load_checkpoint=args.use_nemo_load_checkpoint,
+        config_str=args.config_str,
     )
 
 

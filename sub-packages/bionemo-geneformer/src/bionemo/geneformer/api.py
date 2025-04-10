@@ -77,3 +77,13 @@ class GeneformerConfig(BioBertConfig[GeneformerModel, MegatronLossType], iom.IOM
     enable_autocast: bool = False
     model_cls: Type[GeneformerModel] = GeneformerModel
     loss_reduction_class: Type[MegatronLossType] = BERTMLMLossWithReduction
+
+
+class Geneformer106MConfig(GeneformerConfig):
+    """Configuration for the Geneformer-106M model."""
+
+    num_layers: int = 12
+    hidden_size: int = 768
+    ffn_hidden_size: int = 3072
+    num_attention_heads: int = 12
+    
