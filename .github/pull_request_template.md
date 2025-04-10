@@ -19,10 +19,10 @@ TODO: Add code snippet
 ### CI Pipeline Configuration
 Configure CI behavior by applying the relevant labels. By default, only basic unit tests are run.
 
-- `ciflow:slow` - Run slow single GPU integration tests, marked by `@pytest.mark.slow`
-- `ciflow:notebooks` - Run Jupyter notebooks tutorial tests under `./docs` subfolder and `./sub-packages/*`
-- `ciflow:all` - Run all tests (unit tests, slow tests and notebooks)
-- `ciflow:skip` - Skip all CI tests for this PR
+- [ciflow:skip](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#ciflow:skip) - Skip all continuous integration tests
+- [ciflow:notebooks](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#ciflow:notebooks) - Execute notebook validation tests
+- [ciflow:slow](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#ciflow:slow) - Execute tests labelled as slow in pytest for extensive testing (marked by `@pytest.mark.slow`)
+- [ciflow:all](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#ciflow:all) - Run all tests (unit tests, slow tests, and notebooks)
 
 Unit tests marked as `@pytest.mark.multi_gpu` or `@pytest.mark.distributed` are not run in the PR pipeline.
 
@@ -30,7 +30,7 @@ Unit tests marked as `@pytest.mark.multi_gpu` or `@pytest.mark.distributed` are 
 For more details, see [CONTRIBUTING](CONTRIBUTING.md)
 
 > [!NOTE]
-> By default, only basic unit tests (L0) are run. Add appropriate labels to enable additional test coverage.
+> By default, only basic unit tests are run. Add appropriate labels to enable an additional test coverage.
 
 #### Authorizing CI Runs
 
