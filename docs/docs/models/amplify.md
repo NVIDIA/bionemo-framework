@@ -1,21 +1,98 @@
 ## Model Overview
 
-A NeMo and Megatron-LM compatible version of the AMPLIFY model
-(https://www.biorxiv.org/content/10.1101/2024.09.23.614603v1), a protein language model variant of ESM-2 with modified
-layer structure and dataset construction.
+### Description
 
-The model is fully compatible with weights distributed via HuggingFace
-(https://huggingface.co/chandar-lab/AMPLIFY_120M). To initialize a NeMo version of AMPLIFY from a huggingface tag, use
-the provided `HFAMPLIFYImporter`:
+A NeMo and Megatron-LM compatible version of the [AMPLIFY model](https://www.biorxiv.org/content/10.1101/2024.09.23.614603v1),
+a protein language model variant of ESM-2 with modified layer structure and dataset construction. The model is designed
+for protein sequence understanding and prediction tasks, with variants available at 120M and 350M parameter sizes.
+
+This model is ready for commercial use.
+
+### Third-Party Community Consideration
+
+This model is not owned or developed by NVIDIA. This model has been developed and built to a third-party's requirements
+for this application and use case; see the [Chandar Lab web site](https://chandar-lab.github.io/).
+
+### References
+
+[1] Protein Language Models: Is Scaling Necessary? Quentin Fournier, Robert M. Vernon, Almer van der Sloot, Benjamin
+Schulz, Sarath Chandar, Christopher James Langmead bioRxiv 2024.09.23.614603; doi:
+[https://doi.org/10.1101/2024.09.23.614603](https://doi.org/10.1101/2024.09.23.614603)
+
+### Model Architecture
+
+**Architecture Type:** Transformer
+
+**Network Architecture:** ESM-2 variant with modified layer structure
+
+### Input
+
+**Input Type(s):** Text (Protein Sequences)
+
+**Input Format(s):** String
+
+**Input Parameters:** 1D
+
+**Other Properties Related to Input:** Protein sequence represented as a string of canonical amino acids.
+
+### Output
+
+**Output Type(s):** Embeddings (Amino-acid and sequence-level)
+
+**Output Format:** Numeric vector
+
+**Output Parameters:** 1D
+
+**Other Properties Related to Output:** Numeric vector with floating-point values corresponding to an embedding for each amino acid in the input protein sequence.
+
+### Software Integration
+
+**Runtime Engine(s):**
+
+- BioNeMo, NeMo, Megatron-LM
+
+**Supported Hardware Microarchitecture Compatibility:**
+
+- NVIDIA Ampere
+- NVIDIA Hopper
+
+**[Preferred/Supported] Operating System(s):**
+
+- Linux
+
+### Model Version(s)
+
+The model is fully compatible with weights distributed via HuggingFace, i.e.
+[chandar-lab/AMPLIFY_120M](https://huggingface.co/chandar-lab/AMPLIFY_120M). To initialize a NeMo version of AMPLIFY
+from a huggingface tag, use the provided `HFAMPLIFYImporter`:
 
 ```python
 module = biobert_lightning_module(config=AMPLIFYConfig())
 io.import_ckpt(module, f"hf://chandar-lab/AMPLIFY_120M", tmp_path / "nemo_checkpoint")
 ```
 
+## Training & Evaluation
+
+### Training Dataset
+
+The model was trained on a curated dataset of protein sequences following similar principles to ESM-2's training data.
+For more details on the training dataset, see the original AMPLIFY paper.
+
+### Inference
+
+**Engine:** BioNeMo, NeMo
+
+**Test Hardware:**
+
+- NVIDIA H100
+
+## License
+
+AMPLIFY is provided under the Apache 2.0 license.
+
 ## Pre-training Performance
 
-??? Example pre-training commands
+??? Example "Example pre-training commands"
 
     === "120M"
 
@@ -56,12 +133,17 @@ io.import_ckpt(module, f"hf://chandar-lab/AMPLIFY_120M", tmp_path / "nemo_checkp
 
 ## Model Convergence
 
-![AMPLIFY Pre-training training loss](../assets/images/amplify/training_loss.png)
+Model convergence curves are shown below for the 120M and 350M models, trained on the [chardar-lab/UR100P](https://huggingface.co/datasets/chandar-lab/UR100P/tree/main) dataset for 1M steps.
 
-![AMPLIFY Pre-training validation loss](../assets/images/amplify/validation_loss.png)
+<div class="grid grid-cols-3" markdown>
 
-![AMPLIFY Pre-training validation perplexity](../assets/images/amplify/validation_ppl.png)
+![AMPLIFY Pre-training training loss](../assets/images/amplify/training_loss.png){ width="600" }
 
+![AMPLIFY Pre-training validation loss](../assets/images/amplify/validation_loss.png){ width="600" }
+
+![AMPLIFY Pre-training validation perplexity](../assets/images/amplify/validation_ppl.png){ width="600" }
+
+</div>
 
 ## Final perplexities by model size
 
