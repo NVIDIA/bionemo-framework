@@ -107,6 +107,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="A unique string representing a type of run, which is useful when you're grouping runs together into larger experiments using group.",
     )
     parser.add_argument(
+        "--wandb-run-name",
+        type=str,
+        default=None,
+        help="A unique string representing the name of the wandb run. If not provided, the name will be generated from the model and training specifications.",
+    )
+
+    parser.add_argument(
         "--wandb-id", type=str, default=None, help="Sets the version, mainly used to resume a previous run"
     )
     parser.add_argument(
@@ -568,7 +575,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         else WandbConfig(
             offline=args.wandb_offline,
             project=args.wandb_project,
-            name=wandb_run_name,
+            name=args.wandb_run_name if args.wandb_run_name is not None else wandb_run_name,
             entity=args.wandb_entity,
             tags=args.wandb_tags,
             group=args.wandb_group,
