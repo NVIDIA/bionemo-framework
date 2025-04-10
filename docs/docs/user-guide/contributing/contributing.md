@@ -115,21 +115,29 @@ Key behaviors:
 - Labels applied based on checkbox status
 - Invalid combinations default to most restrictive option
 
-#### **SKIP_CI**
+By default, CI pipeline is enabled for all PRs and only unit tests are run. To skip CI pipeline, add the `ciflow:skip` label
+
+#### **ciflow:skip**
 
 - Skips entire CI pipeline
 - Use for documentation typos, README updates
 
-#### **INCLUDE_NOTEBOOKS_TESTS**
+#### **ciflow:slow**
+- Enables unit tests labelled as `@pytest.mark.slow` ie CLI tests
+- Use when modifying core functionalities and require extensive moderate complexity testing on a single GPU
+- Disabled by default
 
-- Enables notebook validation tests
+
+#### **ciflow:notebooks**
+
+- Enables notebooks validation tests under `./docs` subfolder and `./sub-packages/*`
 - Use when modifying notebooks or notebook-related code
 - Disabled by default
 
-#### **INCLUDE_SLOW_TESTS**
+#### **ciflow:all**
 
-- Enables unit tests labelled as slow ie CLI tests
-- Use when modifying core functionalities and require extensive, end-2-end, testing
+- Runs unit tests, slow tests and tests execution of notebooks
+- Use when introducing significant codebase changes for comprehansive testing
 - Disabled by default
 
 ### Developer Workflows

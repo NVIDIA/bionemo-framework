@@ -145,3 +145,10 @@ executionEnvironments = [
         './internal/infra-bionemo/src',
     ] },
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: medium-complexity tests, like integration tests, on a single GPU",
+    "multi_gpu: tests that require multiple GPUs",
+    "distributed: tests that require distributed setup via torchrun execution",
+]
