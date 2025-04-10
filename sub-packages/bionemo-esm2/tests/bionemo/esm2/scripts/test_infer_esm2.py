@@ -53,7 +53,7 @@ def padded_tokenized_sequences(dummy_protein_sequences):
     return collated_batch["text"]
 
 
-# @pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
+@pytest.mark.needs_gpu
 @pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
 @pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
 @pytest.mark.parametrize("with_peft", [True, False])
@@ -118,3 +118,77 @@ def test_infer_runs(
     # for accurate mapping post-inference.
     if prediction_interval == "epoch":
         assert torch.equal(padded_tokenized_sequences, results["input_ids"])
+
+
+@pytest.mark.needs_gpu
+@pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
+@pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
+def test_different_results_with_peft(
+    tmpdir,
+    dummy_protein_csv,
+    dummy_protein_sequences,
+    precision,
+    prediction_interval,
+    padded_tokenized_sequences,
+):
+    checkpoint_path = load("esm2/8m:2.0")
+    data_path = dummy_protein_csv
+    result_dir_original = tmpdir / "results_original"
+    min_seq_len = 1024  # Minimum length of the output batch; tensors will be padded to this length.
+    lora_checkpoint_path = None
+    infer_model(
+        data_path=data_path,
+        checkpoint_path=checkpoint_path,
+        results_path=result_dir_original,
+        min_seq_length=min_seq_len,
+        prediction_interval=prediction_interval,
+        include_hiddens=True,
+        precision=precision,
+        include_embeddings=True,
+        include_input_ids=True,
+        include_logits=True,
+        micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
+        config_class=ESM2Config,
+        lora_checkpoint_path=lora_checkpoint_path,
+    )
+    assert result_dir_original.exists(), "Could not find test results directory."
+    result_dir_peft = tmpdir / "results_peft"
+    lora_checkpoint_path = str(
+        "sub-packages/results2/esm2/dev/checkpoints/checkpoint-step=4-consumed_samples=320.0-last/weights"
+    )
+    infer_model(
+        data_path=data_path,
+        checkpoint_path=checkpoint_path,
+        results_path=result_dir_peft,
+        min_seq_length=min_seq_len,
+        prediction_interval=prediction_interval,
+        include_hiddens=True,
+        precision=precision,
+        include_embeddings=True,
+        include_input_ids=True,
+        include_logits=True,
+        micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
+        config_class=ESM2Config,
+        lora_checkpoint_path=lora_checkpoint_path,
+    )
+
+    if prediction_interval == "epoch":
+        results_original = torch.load(f"{result_dir_original}/predictions__rank_0.pt")
+        results_peft = torch.load(f"{result_dir_peft}/predictions__rank_0.pt")
+
+    elif prediction_interval == "batch":
+        results_original = batch_collator(
+            [
+                torch.load(f, map_location="cpu")
+                for f in glob.glob(f"{result_dir_original}/predictions__rank_0__batch_*.pt")
+            ]
+        )
+        results_peft = batch_collator(
+            [
+                torch.load(f, map_location="cpu")
+                for f in glob.glob(f"{result_dir_peft}/predictions__rank_0__batch_*.pt")
+            ]
+        )
+    assert (results_original["embeddings"] != results_peft["embeddings"]).any()
+    assert (results_original["hidden_states"] != results_peft["hidden_states"]).any()
+    assert (results_original["token_logits"] != results_peft["token_logits"]).any()

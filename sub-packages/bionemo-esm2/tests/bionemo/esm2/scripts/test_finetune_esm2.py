@@ -41,6 +41,7 @@ def data_to_csv(data, tmp_path):
     return csv_file
 
 
+@pytest.mark.needs_gpu
 @pytest.mark.parametrize("encoder_frozen", [True, False])
 @pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_token_classifier(
@@ -110,6 +111,7 @@ def test_esm2_finetune_token_classifier(
             )
 
 
+@pytest.mark.needs_gpu
 @pytest.mark.parametrize("encoder_frozen", [True, False])
 @pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_regressor(
@@ -181,6 +183,7 @@ def test_esm2_finetune_regressor(
             )
 
 
+@pytest.mark.needs_gpu
 @pytest.mark.parametrize("encoder_frozen", [True, False])
 @pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_classifier(
@@ -444,6 +447,7 @@ def test_get_parser():
     assert args.scale_lr_layer == "dummy_layer"
 
 
+@pytest.mark.needs_gpu
 def test_esm2_resume_from_checkpoint(
     tmp_path,
     dummy_data_per_token_classification_ft,

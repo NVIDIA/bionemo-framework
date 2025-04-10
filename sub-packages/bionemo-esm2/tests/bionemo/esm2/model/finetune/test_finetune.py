@@ -25,7 +25,6 @@ from nemo.collections import llm as nllm
 from nemo.lightning import io, resume
 from nemo.lightning.nemo_logger import NeMoLogger
 from nemo.lightning.pytorch import callbacks as nl_callbacks
-from nemo.lightning.pytorch.callbacks.model_transform import ModelTransform
 from nemo.lightning.pytorch.callbacks.peft import PEFT
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -35,15 +34,10 @@ from bionemo.esm2.api import ESM2Config, ESM2GenericConfig
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer
 from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule
-from bionemo.esm2.model.finetune.finetune_regressor import (
-    ESM2FineTuneSeqConfig,
-    InMemorySingleValueDataset,
-)
-from bionemo.esm2.model.finetune.finetune_token_classifier import (
-    ESM2FineTuneTokenConfig,
-    InMemoryPerTokenValueDataset,
-)
+from bionemo.esm2.model.finetune.dataset import InMemoryPerTokenValueDataset, InMemorySingleValueDataset
 from bionemo.esm2.model.finetune.peft import ESM2LoRA
+from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
+from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.llm.model.biobert.lightning import BioBertLightningModule
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
@@ -131,7 +125,7 @@ def _train_model(
     metric_tracker = MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"])
     callbacks = [metric_tracker]
     if peft is not None:
-        callbacks.append(ModelTransform())
+        callbacks.append(peft)
     trainer = nl.Trainer(
         accelerator="gpu",
         devices=1,
