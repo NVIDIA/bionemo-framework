@@ -95,9 +95,9 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
 
         Args:
             trainer: The Trainer instance.
-            pl_module: The LightningModule instance.
+            pl_module: The LightningModule instance, required by PyTorch Lightning.
             predictions: The predictions made by the model.
-            batch_indices: The indices of the batch.
+            batch_indices: The indices of the batch, required by PyTorch Lightning.
         """
         # this will create N (num processes) files in `output_dir` each containing
         # the predictions of it's respective rank
@@ -158,6 +158,8 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
             for input_id in gene_embedding_accumulator.keys():
                 gene_embedding_accumulator[input_id] /= input_id_count[input_id]
 
+            num_genes = len(gene_embedding_accumulator)
+            logging.info(f"Number of unique gene input_ids in gene embeddings: {num_genes}")
             logging.info("Finished calculating gene embeddings.")
 
             prediction['gene_embeddings'] = gene_embedding_accumulator
