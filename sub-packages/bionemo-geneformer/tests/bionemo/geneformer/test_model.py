@@ -1018,7 +1018,6 @@ def test_finetune_geneformer(
 
 
 @pytest.mark.needs_gpu
-@pytest.mark.skip(reason="PEFT currently broken with fusions activated.")
 def test_finetune_geneformer_with_peft(
     tmpdir, geneformer_config: GeneformerConfig, n_layers_test: int = 3, n_steps_train: int = 100, batch_size: int = 16
 ):
@@ -1083,3 +1082,4 @@ def test_finetune_geneformer_with_peft(
         assert all(not p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" not in name)
         assert all(p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" in name)
         assert all(p.requires_grad for p in model.regression_head.parameters())
+        assert False

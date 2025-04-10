@@ -301,6 +301,7 @@ class BionemoLightningModule(
         Raises:
             ValueError iff the internal config's configure_model method returns None.
         """
+        self.trainer.strategy._init_model_parallel = True
         if self.module is None:
             model: MegatronModelType = (
                 self.config.configure_model(**self.module_construct_args)
@@ -308,7 +309,6 @@ class BionemoLightningModule(
                 else self.config.configure_model()
             )
             self.module = model
-
         if self.module is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
 
