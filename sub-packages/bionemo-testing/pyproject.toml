@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bionemo-testing"
 readme = "README.md"
-description = "BioNeMo testing: utilities aiding test creation for bionemo packages. Do Not Distriburte on PyPI !!"
+description = "Utilities aiding test creation for BioNeMo sub-packages."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -13,10 +13,11 @@ dynamic = ["version"]
 dependencies = [
     # bionemo sub-packages
     'bionemo-core',
-    'bionemo-llm',
+    'bionemo-llm>=2.4.5',
     # external
     'email-validator',
     'pytest',
+    'overrides',
 ]
 
 [tool.setuptools.packages.find]

@@ -33,4 +33,4 @@ pip install -e .
 This will install the project in editable mode, allowing you to make changes and see them reflected immediately.
 
 ## Examples
-Please see examples of all interpolants in the [examples directory](./examples).
+Please see examples of all interpolants in the [examples directory](https://github.com/NVIDIA/bionemo-framework/tree/main/sub-packages/bionemo-moco/examples).

@@ -18,9 +18,9 @@ import functools
 from typing import Any, Dict, Literal
 
 import lightning.pytorch as pl
+from megatron.core.num_microbatches_calculator import update_num_microbatches
 from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
-from nemo.utils import logging
 from torch.utils.data import DataLoader, Dataset
 
 from bionemo.llm.data import collate
@@ -58,13 +58,6 @@ class MegatronDataModule(pl.LightningDataModule):
             state_dict: the datamodule state returned by ``state_dict``.
 
         """
-        try:
-            from megatron.core.num_microbatches_calculator import update_num_microbatches
-
-        except (ImportError, ModuleNotFoundError):
-            logging.warning("Megatron num_microbatches_calculator not found, using Apex version.")
-            from apex.transformer.pipeline_parallel.utils import update_num_microbatches
-
         consumed_samples = state_dict["consumed_samples"]
         self.data_sampler.init_consumed_samples = consumed_samples
         self.data_sampler.prev_consumed_samples = consumed_samples
