@@ -14,7 +14,8 @@ script_args:
   variant: train
   config_name: 650M
   precision: bf16-mixed
-  max_steps: 200
+  max_steps: 500000
+  stop_steps: 200
   gpus: 8
   acc_grad: 1
   products:
@@ -22,10 +23,11 @@ script_args:
       batch_size: 16
       pp: 1
       tp: 1
-    - nodes: 2
-      batch_size: 16
-      pp: 2
-      tp: 1
+#      FIXME (broken pp): https://github.com/NVIDIA/bionemo-framework/issues/784
+#    - nodes: 2
+#      batch_size: 16
+#      pp: 2
+#      tp: 1
     - nodes: 2
       batch_size: 16
       pp: 1
@@ -46,6 +48,7 @@ script: |-
     --val-check-interval=50 \
     --limit-val-batches=1 \
     --num-steps=${max_steps} \
+    --early-stop-on-step ${stop_steps} \
     --min-seq-length=1024 \
     --max-seq-length=1024 \
     --num-layers=33 \
@@ -53,7 +56,7 @@ script: |-
     --num-attention-heads=20 \
     --ffn-hidden-size=5120 \
     --create-tensorboard-logger \
-    --experiment-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+    --experiment-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec_tp${tp}_pp_${pp} \
     --result-dir=${tensorboard_dir} \
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name}__${target} \
