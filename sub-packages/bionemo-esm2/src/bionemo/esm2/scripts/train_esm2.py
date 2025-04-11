@@ -69,6 +69,7 @@ def main(
     experiment_name: str,
     resume_if_exists: bool,
     precision: PrecisionTypes,
+    early_stop_on_step: Optional[int] = None,
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_offline: bool = False,
@@ -116,6 +117,7 @@ def main(
         max_seq_length (int): maximum sequence length
         result_dir (Path): directory to store results, logs and checkpoints
         num_steps (int): number of steps to train the model for
+        early_stop_on_step (Optional[int]): Stop training on this step, if set. This may be useful for testing or debugging purposes.
         warmup_steps (int): number of steps for warmup phase
         limit_val_batches (int): limit the number of validation global batches to this many
         val_check_interval (int): number of steps to periodically check the validation loss
@@ -293,6 +295,7 @@ def main(
         nl_callbacks.PreemptionCallback(),
         TimingCallback(),
     ]
+
     if nsys_profiling:
         if nsys_end_step is None:
             nsys_end_step = num_steps
@@ -333,7 +336,7 @@ def main(
             every_n_train_steps=val_check_interval,
             always_save_context=True,
             # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-            filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",
+            filename="{epoch}-{step}-{consumed_samples}",
             # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
         )
         callbacks.append(checkpoint_callback)
@@ -349,7 +352,7 @@ def main(
 
     trainer = nl.Trainer(
         devices=devices,
-        max_steps=num_steps,
+        max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
         accelerator="gpu",
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
@@ -403,6 +406,7 @@ def train_esm2_entrypoint():
         wandb_log_model=args.wandb_log_model,
         wandb_offline=args.wandb_offline,
         num_steps=args.num_steps,
+        early_stop_on_step=args.early_stop_on_step,
         warmup_steps=args.warmup_steps,
         limit_val_batches=args.limit_val_batches,
         val_check_interval=args.val_check_interval,
@@ -554,6 +558,12 @@ def get_parser():
         required=False,
         default=500000,
         help="Number of steps to use for training. Default is 500000.",
+    )
+    parser.add_argument(
+        "--early-stop-on-step",
+        type=int,
+        default=None,
+        help="Stop training on this step, if set. This may be useful for testing or debugging purposes.",
     )
     parser.add_argument(
         "--warmup-steps",
