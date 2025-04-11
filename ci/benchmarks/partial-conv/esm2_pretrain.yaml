@@ -25,7 +25,8 @@ script_args:
   batch_size:
     value: 16
   max_steps:
-    value: 26500
+    value: 500000
+  stop_steps: 26500
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=${data_path}/train_clusters.parquet \
@@ -38,6 +39,7 @@ script: |-
     --val-check-interval=1000 \
     --limit-val-batches=1 \
     --num-steps=${max_steps} \
+    --early-stop-on-step ${stop_steps} \
     --min-seq-length=1024 \
     --max-seq-length=1024 \
     --num-layers=33 \
