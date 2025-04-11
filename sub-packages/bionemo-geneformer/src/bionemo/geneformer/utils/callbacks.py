@@ -136,10 +136,6 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
                 # iterate over each gene in the cell
                 for idx, embedding in zip(cell_input_ids, cell_state):
 
-                    # idx < 5 are dummy tokens based on geneformer.vocab
-                    if idx < 5:
-                        continue
-
                     # accumulate embedding sum and count
                     if idx not in gene_embedding_accumulator:
                         # initialize embedding sum with first found embedding
@@ -158,8 +154,8 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
             for input_id in gene_embedding_accumulator.keys():
                 gene_embedding_accumulator[input_id] /= input_id_count[input_id]
 
-            num_genes = len(gene_embedding_accumulator)
-            logging.info(f"Number of unique gene input_ids in gene embeddings: {num_genes}")
+            input_ids_num = len(gene_embedding_accumulator)
+            logging.info(f"Number of unique input_ids in gene embeddings: {input_ids_num}")
             logging.info("Finished calculating gene embeddings.")
 
             prediction['gene_embeddings'] = gene_embedding_accumulator
