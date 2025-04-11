@@ -2,17 +2,17 @@
 
 This tutorial serves as a demo for pretraining [ESM2](https://www.science.org/doi/abs/10.1126/science.ade2574) from scratch with [UniProt](https://www.uniprot.org/) sequences.
 
-The ESM-2 model is a transformer-based protein language model that was pretrained on masked language model (MLM) task. The objective is to recover the original amino acid types of the perturbed locations from the rest of the protein sequences. Through pretraining, ESM-2 learns the evolutionary information in protein sequences similar to conservation analysis and Pott's model, and predicts the optimal mutations on any given protein sequence.
+The ESM-2 model is a transformer-based protein language model that was pretrained on a masked language model (MLM) task. The objective is to recover the original amino acid types of the perturbed locations from the rest of the protein sequences. Through pretraining, ESM-2 learns the evolutionary information in protein sequences similar to conservation analysis and Pott's model, and predicts the optimal mutations on any given protein sequence.
 
 # Setup and Assumptions
 
-In this tutorial, we will demonstrate how to create an ESM-2 pretraining data module, and create and train a ESM-2 model.
+In this tutorial, we will demonstrate how to create an ESM-2 pretraining data module, and create and train an ESM-2 model.
 
 All commands should be executed inside the BioNeMo docker container, which has all ESM-2 dependencies pre-installed. The BioNeMo Framework container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier so a credit card may be required. You can reach out to your NVIDIA rep for credit. After launching the instance, launch a Terminal session in the Jupyter Lab UI. (Note: This links to the nightly release and may be out of sync with these docs.)
 
-Alternatively,  more information on how to build or pull the BioNeMo2 container locally, refer to the [Initialization Guide](../../getting-started/initialization-guide.md).
+Alternatively, for more information on how to build or pull the BioNeMo2 container locally, refer to the [Initialization Guide](../../getting-started/initialization-guide.md).
 
-This tutorial assumes that a copy of the BioNeMo framework repo exists on workstation or server and has been mounted inside the container at `/workspace/bionemo2`.
+This tutorial assumes that a copy of the BioNeMo framework repo exists on your workstation or server and has been mounted inside the container at `/workspace/bionemo2`.
 
 !!! note
 
@@ -86,11 +86,11 @@ trainer = nl.Trainer(
 )
 ```
 
-Here are examples of other possible configurations.
+Here are examples of other possible configurations:
 ```python
 from bionemo.core.utils.dtypes import PrecisionTypes
 
-limit_val_batches_all_data = 1.  # validate on 100% of the validation dataset
+limit_val_batches_all_data = 1.0  # validate on 100% of the validation dataset
 limit_val_batches_half_data = 0.5  # validate on 50% of the validation dataset
 limit_val_batches_one_batch = 1  # validate on 1 batch
 
@@ -123,7 +123,7 @@ min_seq_length = None  # optional; filter sequences by minimum length if given
 max_seq_length = 128  # required; default to 1024
 
 num_dataset_workers = 1
-random_mask_strategy = RandomMaskStrategy.ALL_TOKENS  # default in BioNemo2 and HuggingFace implementation
+random_mask_strategy = RandomMaskStrategy.ALL_TOKENS  # default in BioNeMo2 and HuggingFace implementation
 
 data = ESMDataModule(
     train_cluster_path=train_cluster_path,  # UniRef50 training cluster centers
@@ -143,10 +143,10 @@ data = ESMDataModule(
 
     When trained on MLM objective, the loss function randomly includes 15% of the tokens, within which 80% are masked, 10% are replaced with a random token, and 10% are kept unchanged. Since the vocabulary includes amino acids as well as special tokens, part of the protein sequence may be replaced by a special token. This is the default in both BioNeMo2 and HuggingFace ESM-2 implementation.
 
-    To enforce amino-acid-only replacement, users can pass `random_mask_strategy=RandomMaskStrategy.AMINO_ACID_ONLY` to `ESMDataModule`.
+    To enforce amino acid-only replacement, users can pass `random_mask_strategy=RandomMaskStrategy.AMINO_ACID_ONLY` to `ESMDataModule`.
 
 ## 4. ESM2Config
-Instead of initializing the whole model on each rank, sharded models are lazily created on the target rank with the help of a configuration object. `ESM2Config` is a dataclass that envelopes architecture parameters (such as `num_layers`) and the specification of each torch module (`ModuleSpec`) in the transformer, which are accelerated with flash and fused attentions in [TransformerEngine](https://github.com/NVIDIA/TransformerEngine). While we can initialize a model from `ESM2Config`, its setup is only completed in under `trainer.setup`, which is called on individual devices.
+Instead of initializing the whole model on each rank, sharded models are lazily created on the target rank with the help of a configuration object. `ESM2Config` is a dataclass that envelopes architecture parameters (such as `num_layers`) and the specification of each torch module (`ModuleSpec`) in the transformer, which are accelerated with flash and fused attentions in [TransformerEngine](https://github.com/NVIDIA/TransformerEngine). While we can initialize a model from `ESM2Config`, the complete setup is only finalized when `trainer.setup` is called on individual devices.
 
 ```python
 from megatron.core.optimizer import OptimizerConfig
@@ -313,11 +313,11 @@ This script will automatically create `./results` and store the checkpoints unde
 
 !!! note "Weight And Biases"
 
-    If intend to use `--wandb_project`, users should log in Weight and Biases or alternatively export the environment variable `WANDB_API_KEY`. If not provided, the logger will be disabled.
+    If you intend to use `--wandb_project`, you should log in to Weights and Biases or alternatively export the environment variable `WANDB_API_KEY`. If not provided, the logger will be disabled.
 
 !!! note "Non-critical Warnings from Command Line Runs"
 
-    Users might experience `torch._dynamo.convert_frame` warning messages and depreciation warning on `async_grad_allreduce` from Megatron-LM. Users can safely ignore them and is non-critical to pretraining.
+    Users might experience `torch._dynamo.convert_frame` warning messages and deprecation warning on `async_grad_allreduce` from Megatron-LM. Users can safely ignore them as they are non-critical to pretraining.
 
 ## Recommended Pretraining Configuration
 We benchmark our implementation on the following model sizes[^1]. These parameters are handled by
@@ -329,7 +329,7 @@ We benchmark our implementation on the following model sizes[^1]. These paramete
 | 3B         | 36       | 2560        | 40                | 10240           |
 | 15B        | 48       | 5120        | 40                | 20480           |
 
-In our current benchmark, we recommend the following trainiing and device configurations on A100 80GB GPUs to match with the published 2M token global batch size.
+In our current benchmark, we recommend the following training and device configurations on A100 80GB GPUs to match with the published 2M token global batch size.
 
 | Model Size | # GPUs | Micro Batch Size | Tensor Model Parallel Size |
 |------------|--------|------------------|----------------------------|
@@ -357,4 +357,4 @@ Maximum micro batch sizes for these model sizes are tested on 2 nodes of A100 80
 
     Distributed optimizer is enabled by default for improved memory allocation. Users might observe that the same micro batch size used on multi-device pretraining results in OOM on a single device. If additional optimization is necessary, we recommend running short benchmark on the same number of devices as in the production run.
 
-[^1]: Lin, Zeming, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, et al. “Evolutionary-Scale Prediction of Atomic-Level Protein Structure with a Language Model.” Science 379, no. 6637 (March 17, 2023): 1123–30. https://doi.org/10.1126/science.ade2574
+[^1]: Lin, Zeming, Halil Akin, Roshan Rao, Brian Hie, Zhongkai Zhu, Wenting Lu, Nikita Smetanin, et al. "Evolutionary-Scale Prediction of Atomic-Level Protein Structure with a Language Model." Science 379, no. 6637 (March 17, 2023): 1123–30. https://doi.org/10.1126/science.ade2574

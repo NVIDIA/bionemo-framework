@@ -39,7 +39,6 @@ learn more about getting an enterprise license for improved expert-level support
     [Explore Models](models){ .md-button .md-button }
 
 
-
 -   :material-database-outline:{ .lg } __Datasets__
 
     ---
@@ -47,6 +46,5 @@ learn more about getting an enterprise license for improved expert-level support
     Explore biomolecular datasets that come pre-packaged with the BioNeMo Framework.
 
     [Explore Datasets](datasets){ .md-button .md-button }
-
 
 </div>
