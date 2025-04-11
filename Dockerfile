@@ -114,6 +114,12 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     pip install .; \
 fi
 
+# On ARM, bits and bytes needs to be built from scratch
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+    cd / && pip uninstall bitsandbytes && \
+    git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
+    cd bitsandbytes && pip install . && cd .. && rm -rf bitsandbytes; \
+fi
 ###############################################################################
 # /end ARM
 ###############################################################################
