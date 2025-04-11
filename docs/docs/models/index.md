@@ -5,6 +5,7 @@ State-of-the-art models are continually integrated into the BioNeMo Framework. T
 | **Model**                                  | **Modality**       | **Uses**                                      |
 | ------------------------------------------ | ------------------ | --------------------------------------------- |
 | [ESM-2](./ESM-2/index.md)                  | Protein            | Representation Learning                       |
+| [AMPLIFY](./amplify.md)                    | Protein            | Representation Learning                       |
 | [Geneformer](./geneformer.md)              | Single Cell        | Representation Learning                       |
 | [Evo2](./evo2.md)                          | DNA                | Generative AI                                 |
 
