@@ -21,7 +21,7 @@
 #   training loss curves from NeMo.
 ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
 
-FROM rust:1.82.0 AS rust-env
+FROM rust:1.86.0 AS rust-env
 
 RUN rustup set profile minimal && \
   rustup install 1.82.0 && \
@@ -127,6 +127,9 @@ RUN pip --disable-pip-version-check --no-cache-dir install \
 RUN pip install hatchling urllib3  # needed to install nemo-run
 ARG NEMU_RUN_TAG=v0.3.0
 RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG} --use-deprecated=legacy-resolver
+
+# Rapids SingleCell Installation
+RUN pip install 'rapids-singlecell' --extra-index-url=https://pypi.nvidia.com
 
 RUN mkdir -p /workspace/bionemo2/
 
