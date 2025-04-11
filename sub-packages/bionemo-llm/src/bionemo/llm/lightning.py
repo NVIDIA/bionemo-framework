@@ -258,6 +258,7 @@ class BionemoLightningModule(
         data_step: DataStep,
         optimizer: MegatronOptimizerModule,
         model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
+        configure_init_model_parallel: bool = False,
         **model_construct_args,
     ) -> None:
         """Constructor.
@@ -273,6 +274,7 @@ class BionemoLightningModule(
             model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s
                 `configure_model` method.
             model_transform: Optional. The model transform function.
+            configure_init_model_parallel: Optional. Whether to initialize the model parallel at configuration time.
             **model_construct_args: Optional. Arguments necessary for the supplied model configuration's
                 `configure_model` method, which will make an instance of the model.
         """
@@ -288,7 +290,7 @@ class BionemoLightningModule(
         self._data_step = data_step
         self._forward_step = forward_step
         self.model_transform = model_transform
-
+        self.configure_init_model_parallel = configure_init_model_parallel
         # configure metrics
         self.train_metric = self.config.train_metric.get_instance() if self.config.train_metric else None
         self.valid_metric = self.config.valid_metric.get_instance() if self.config.valid_metric else None
@@ -301,7 +303,8 @@ class BionemoLightningModule(
         Raises:
             ValueError iff the internal config's configure_model method returns None.
         """
-        self.trainer.strategy._init_model_parallel = True
+        if self.configure_init_model_parallel:
+            self.trainer.strategy._init_model_parallel = True
         if self.module is None:
             model: MegatronModelType = (
                 self.config.configure_model(**self.module_construct_args)

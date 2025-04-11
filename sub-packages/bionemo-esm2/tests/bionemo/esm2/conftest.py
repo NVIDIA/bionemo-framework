@@ -14,11 +14,28 @@
 # limitations under the License.
 
 
+import pandas as pd
 import pytest
 import torch
 
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.testing.data.esm2 import create_mock_parquet_train_val_inputs, create_mock_protein_dataset
+
+
+@pytest.fixture
+def data_to_csv():
+    """Create a mock protein dataset."""
+
+    def _data_to_csv(data, path):
+        csv_file = path / "protein_dataset.csv"
+        # Create a DataFrame
+        df = pd.DataFrame(data, columns=["sequences", "labels"])
+
+        # Save the DataFrame to a CSV file
+        df.to_csv(csv_file, index=False)
+        return csv_file
+
+    return _data_to_csv
 
 
 @pytest.fixture

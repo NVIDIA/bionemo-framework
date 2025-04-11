@@ -144,11 +144,7 @@ def infer_model(
     else:
         module = biobert_lightning_module(config=config, tokenizer=tokenizer)
 
-    # Move model to GPU and ensure all parameters are on GPU
-    module = module.cuda()
-    for param in module.parameters():
-        param.data = param.data.cuda()
-
+    module.configure_init_model_parallel = True
     trainer = nl.Trainer(
         accelerator="gpu",
         devices=devices,
@@ -158,14 +154,7 @@ def infer_model(
         plugins=nl.MegatronMixedPrecision(precision=precision),
         max_steps=100,
     )
-    """
-    from nemo.collections import llm
-    llm.validate(
-        model=module,
-        data=datamodule,
-        trainer=trainer,
-    )
-    """
+
     # Run prediction
 
     trainer.predict(module, datamodule=datamodule)
