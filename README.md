@@ -13,6 +13,8 @@ fastest performance on the market. You can access BioNeMo Framework as a free co
 or learn more at <https://www.nvidia.com/en-us/clara/bionemo/> about getting an enterprise license for improved
 expert-level support.
 
+BioNeMo Framework is part of a larger ecosystem of NVIDIA Biopharma products. Get notified of new releases, bug fixes, critical security updates, and more for biopharma. [Subscribe.](https://www.nvidia.com/en-us/clara/biopharma/product-updates/)
+
 ## Structure of the Framework
 
 The `bionemo-framework` is organized into independently installable namespace packages. These are located under the
