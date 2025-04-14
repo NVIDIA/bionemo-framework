@@ -6,6 +6,8 @@ on:
       - main
       - "pull-request/[0-9]+"
       - "dependabot/**"
+      - "jwilber/642-ci-push-to-gitlab-registry" # Add to trigger todo remove
+
   merge_group:
     types: [checks_requested]
   schedule:
