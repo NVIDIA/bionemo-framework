@@ -55,3 +55,28 @@ script: |-
     --wandb-job-type=${pipeline_label} \
     --log-every-n-steps=50 \
     --disable-checkpointing;
+tests:
+  - logic_type: static
+    logic_spec:
+      exit_codes:
+        - 0
+      baselines:
+        consumed_samples:
+          operator: eq
+          value: 13568000.0
+        val_loss:
+          operator: range
+          max: 2.5696
+          min: 2.4998
+        reduced_train_loss:
+          operator: range
+          max: 2.5471
+          min: 2.4737
+        grad_norm:
+          operator: range
+          max: 0.6061
+          min: 0.0953
+        val_ppl:
+          operator: range
+          max: 13.1102
+          min: 12.0954
