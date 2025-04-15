@@ -49,6 +49,6 @@ script: |-
     --wandb-job-type=${pipeline_label} \
     --cosine-rampup-frac 0.004331629559040111 \
     --cosine-hold-frac 0.021658147795200554 \
-    --accumulate-grad-batches ${acc} \
+    --accumulate-grad-batches ${acc_grad} \
     --precision ${precision} \
     --disable-checkpointing;
