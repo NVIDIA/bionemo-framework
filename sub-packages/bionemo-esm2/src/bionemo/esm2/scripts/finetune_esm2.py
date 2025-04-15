@@ -299,32 +299,40 @@ def train_model(
             metric_name="val_acc",
         )
 
-    config = config_class(
-        task_type=task_type,
-        encoder_frozen=encoder_frozen,
-        params_dtype=get_autocast_dtype(precision),
-        pipeline_dtype=get_autocast_dtype(precision),
-        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
-        tensor_model_parallel_size=tensor_model_parallel_size,
-        pipeline_model_parallel_size=pipeline_model_parallel_size,
-        initial_ckpt_path=str(restore_from_checkpoint_path),
-        initial_ckpt_skip_keys_with_these_prefixes=[f"{task_type}_head"],
-        train_metric=train_metric,
-        valid_metric=valid_metric,
-    )
-    # Mapping of task-dependent config attributes to their new values
-    task_dependent_attr = {
-        "mlp_ft_dropout": mlp_ft_dropout,
-        "mlp_hidden_size": mlp_hidden_size,
-        "mlp_target_size": mlp_target_size,
-        "cnn_dropout": cnn_dropout,
-        "cnn_hidden_size": cnn_hidden_size,
-        "cnn_num_classes": cnn_num_classes,
-    }
-    # Update attributes only if they exist in the config
-    for attr, value in task_dependent_attr.items():
-        if hasattr(config, attr):
-            setattr(config, attr, value)
+    if config_class == ESM2FineTuneSeqConfig:
+        config = config_class(
+            task_type=task_type,
+            encoder_frozen=encoder_frozen,
+            params_dtype=get_autocast_dtype(precision),
+            pipeline_dtype=get_autocast_dtype(precision),
+            autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
+            tensor_model_parallel_size=tensor_model_parallel_size,
+            pipeline_model_parallel_size=pipeline_model_parallel_size,
+            initial_ckpt_path=str(restore_from_checkpoint_path),
+            initial_ckpt_skip_keys_with_these_prefixes=[f"{task_type}_head"],
+            train_metric=train_metric,
+            valid_metric=valid_metric,
+            mlp_ft_dropout=mlp_ft_dropout,
+            mlp_hidden_size=mlp_hidden_size,
+            mlp_target_size=mlp_target_size
+        )
+    else:
+            config = config_class(
+            task_type=task_type,
+            encoder_frozen=encoder_frozen,
+            params_dtype=get_autocast_dtype(precision),
+            pipeline_dtype=get_autocast_dtype(precision),
+            autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
+            tensor_model_parallel_size=tensor_model_parallel_size,
+            pipeline_model_parallel_size=pipeline_model_parallel_size,
+            initial_ckpt_path=str(restore_from_checkpoint_path),
+            initial_ckpt_skip_keys_with_these_prefixes=[f"{task_type}_head"],
+            train_metric=train_metric,
+            valid_metric=valid_metric,
+            cnn_dropout=cnn_dropout,
+            cnn_hidden_size=cnn_hidden_size,
+            cnn_num_classes=cnn_num_classes
+        )
 
     optimizer = MegatronOptimizerModule(
         config=OptimizerConfig(
