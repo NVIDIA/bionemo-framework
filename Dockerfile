@@ -57,7 +57,7 @@ rm -rf /tmp/* /var/tmp/*
 EOF
 
 
-## BUMP TE as a solution to the issue https://github.com/NVIDIA/bionemo-framework/issues/422
+## BUMP TE as a solution to the issue https://github.com/NVIDIA/bionemo-framework/issues/422. Drop this when pytorch images ship the fixed commit.
  ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
  RUN PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
     pip --disable-pip-version-check --no-cache-dir install \
