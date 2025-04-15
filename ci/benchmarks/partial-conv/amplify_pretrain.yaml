@@ -52,7 +52,7 @@ script: |-
     --tensor-model-parallel-size ${tp} \
     --num-nodes=${nodes} \
     --devices=${gpus} \
-    --precision=${precision}
+    --precision=${precision} \
     --val-check-interval=1000 \
     --limit-val-batches=1.0 \
     --log-every-n-steps=50 \
