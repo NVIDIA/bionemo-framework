@@ -11,9 +11,7 @@ script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
   # See jet/core/configs.py for the specification of the configuration class
-  workspace:
-    value: /workspace/bionemo2
-    key_segment: False
+  workspace: /workspace/bionemo2
   model: amplify
   variant: train
   precision: bf16-mixed
