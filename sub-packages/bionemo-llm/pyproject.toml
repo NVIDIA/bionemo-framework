@@ -16,14 +16,19 @@ dependencies = [
     # external
     'lightning>=2.2.1',
     'megatron-core',
-    'nemo_toolkit[all]',  # We need [all] over [nlp] for the megatron-energon dependency.
-    'pytorch-lightning>=2.2.1',
-    # TODO: Figure out how (or whether) to include apex & TE as part of the dependencies.
+    'nemo_toolkit[nlp]>=2.2.1',
+    'nemo-run',
+    'hatchling',
 ]
 
 [project.optional-dependencies]
 test = [
-    "bionemo-testing"
+    'bionemo-testing'
+]
+te = [
+    # TE & Apex need to be installed after PyTorch, NVCC, and CUDA.
+    # TODO(@pstjohn, @cspades): Figure out how to do this without post-installation.
+    'transformer_engine[pytorch]'
 ]
 
 [tool.setuptools.packages.find]
