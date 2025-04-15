@@ -99,7 +99,7 @@ The 1% hold-out evaluation set was split further into a validation and test set.
 23.64 million non-diseased and human-derived single cells were chosen from the CZI CELLxGENE census, which is characterized as follows: <br>
 
 - **Assay Bias:**
-  - The vast majority of the dataset is one of the 10x genomics assays. Approximately 20M of 26M cells are genomic assays, 4M are sci-RNA-seq, while remaining assays (microwell-seq, drop-seq, bd rhapsody, smart-seq, seq-well, and MARS-seq) represent small fractions of the full datasets.
+  - The vast majority of the dataset is one of the 10x genomics assays. Approximately 20M of the 26M cells are genomic assays, 4M are sci-RNA-seq, while remaining assays (microwell-seq, drop-seq, bd rhapsody, smart-seq, seq-well, and MARS-seq) represent small fractions of the full datasets.
 - **Sex:**
   - 12.5M are male-derived cells; 10M are female derived cells. The remaining cells are not annotated.
 - **Self-Reported Ethnicity:**
