@@ -52,7 +52,7 @@ def hyena_config() -> HyenaConfig:
         (1, 1),  # (TP=1, CP=1)
         (2, 1),  # (TP=2, CP=1)
         (1, 2),  # (TP=1, CP=2)
-        # (2, 2),  # Uncomment if you want to test TP=2, CP=2
+        # (2, 2),  # Uncomment if you have 4 GPUs
     ]
 )
 def parallel_config(request):
@@ -80,7 +80,6 @@ def mixer(hyena_test_config: HyenaTestConfig, hyena_config: HyenaConfig, paralle
         # Create necessary submodules - use the mixer submodules like in the regular mixer fixture
         submodules = hyena_stack_spec_no_te.submodules.hyena_layer.submodules.mixer.submodules
 
-        # Initialize with different operator types for testing
         yield HyenaMixer(
             transformer_config=hyena_test_config,
             hyena_config=hyena_config,
@@ -143,12 +142,10 @@ def test_b2b_causal_conv1d(mixer: HyenaMixer, parallel_config):
 
     # Choose whether to use CP based on the parallel configuration
     use_cp = cp_size > 1
-    output_features_b2b_torch = b2b_torch_forward(
-        mixer, input_features, _proj_use_cp=use_cp
-    )  # Always disable CP for b2b_torch_forward
+    output_features_b2b_torch = b2b_torch_forward(mixer, input_features, _proj_use_cp=use_cp)
 
     assert hasattr(mixer, "b2b_kernel")
-    output_features_b2b = mixer.b2b_kernel(input_features, _use_cp=use_cp)  # Always disable CP for the CUDA kernel
+    output_features_b2b = mixer.b2b_kernel(input_features, _use_cp=use_cp)
 
     # Compare with stored expected output using parametrized tolerance
     assert torch.allclose(output_features_b2b, output_features_b2b_torch, rtol=1e-2, atol=1e-2)
@@ -178,12 +175,10 @@ def test_nv_b2b_causal_conv1d(nv_mixer: HyenaMixer, parallel_config):
 
     # Choose whether to use CP based on the parallel configuration
     use_cp = cp_size > 1
-    output_features_b2b_torch = b2b_torch_forward(
-        nv_mixer, input_features, _proj_use_cp=use_cp
-    )  # Always disable CP for b2b_torch_forward
+    output_features_b2b_torch = b2b_torch_forward(nv_mixer, input_features, _proj_use_cp=use_cp)
 
     assert hasattr(nv_mixer, "b2b_kernel")
-    output_features_b2b = nv_mixer.b2b_kernel(input_features, _use_cp=use_cp)  # Always disable CP for the CUDA kernel
+    output_features_b2b = nv_mixer.b2b_kernel(input_features, _use_cp=use_cp)
 
     # Compare with stored expected output using parametrized tolerance
     assert torch.allclose(output_features_b2b, output_features_b2b_torch, rtol=1e-2, atol=1e-2)
