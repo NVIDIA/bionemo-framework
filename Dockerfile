@@ -197,6 +197,9 @@ uv pip install --no-build-isolation \
 # Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
 uv pip install ngcsdk
 
+# Install nvidia-pytriton which seems to cause a conflict with pyzmq versions
+uv pip install nvidia-pytriton  # Temporary dependency until this gets added to requirements_nlp.txt in NeMo.
+
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
 # dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
 # seems to be causing issues with NGC downloads. See https://nvbugspro.nvidia.com/bug/5149698
