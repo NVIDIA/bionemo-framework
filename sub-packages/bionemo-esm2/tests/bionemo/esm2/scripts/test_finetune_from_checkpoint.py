@@ -14,15 +14,16 @@
 # limitations under the License.
 
 
-import pytest
-from nemo.lightning import io
+import io
 
-from bionemo.core.data.load import load
-from bionemo.esm2.model.finetune.dataset import InMemoryPerTokenValueDataset
-from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
-from bionemo.esm2.scripts.finetune_esm2 import train_model
-from bionemo.testing import megatron_parallel_state_utils
-from bionemo.testing.callbacks import MetricTracker
+import pytest
+
+from bionemo.esm2.scripts import megatron_parallel_state_utils
+from bionemo.esm2.scripts.esm2_fine_tune_token_config import ESM2FineTuneTokenConfig
+from bionemo.esm2.scripts.in_memory_per_token_value_dataset import InMemoryPerTokenValueDataset
+from bionemo.esm2.scripts.load_checkpoint import load
+from bionemo.esm2.scripts.metric_tracker import MetricTracker
+from bionemo.esm2.scripts.train_model import train_model
 
 
 @pytest.mark.needs_gpu
@@ -35,10 +36,47 @@ def test_esm2_resume_from_checkpoint(
     n_steps_train: int = 50,
     seed: int = 42,
 ):
-    with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        # First training run
-        weights_ckpt_first = "/workspaces/bionemo-framework/weights"
-        # Second training run - ensure LoRA is initialized before loading checkpoint
+    # First training run
+    weights_ckpt_first = "/workspaces/bionemo-framework/weights"
+
+    # First training run with distributed state
+    with megatron_parallel_state_utils.distributed_model_parallel_state(seed=seed):
+        simple_ft_checkpoint, simple_ft_metrics_first, trainer = train_model(
+            train_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
+            valid_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
+            experiment_name="finetune_new_head_token_classification1",
+            restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
+            num_steps=n_steps_train,
+            num_nodes=1,
+            devices=1,
+            min_seq_length=None,
+            max_seq_length=1024,
+            result_dir=tmp_path / "finetune_from_checkpoint",
+            limit_val_batches=2,
+            val_check_interval=n_steps_train // 2,
+            log_every_n_steps=n_steps_train // 2,
+            num_dataset_workers=1,
+            lr=1e-5,
+            scale_lr_layer="classification_head",
+            lr_multiplier=1e2,
+            micro_batch_size=4,
+            accumulate_grad_batches=1,
+            resume_if_exists=False,
+            precision="bf16-mixed",
+            task_type="classification",
+            encoder_frozen=False,
+            dataset_class=InMemoryPerTokenValueDataset,
+            config_class=ESM2FineTuneTokenConfig,
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
+            lora_finetune=with_peft,
+        )
+        weights_ckpt_first = simple_ft_checkpoint / "weights"
+
+    # Clean up distributed state between runs
+    megatron_parallel_state_utils.clean_up_distributed_and_parallel_states()
+
+    # Second training run with distributed state
+    with megatron_parallel_state_utils.distributed_model_parallel_state(seed=seed):
         simple_ft_checkpoint, simple_ft_metrics_second, trainer = train_model(
             train_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
             valid_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
@@ -97,3 +135,6 @@ def test_esm2_resume_from_checkpoint(
         for param in weight_param_dict_first.keys():
             assert any(keyword in param for keyword in {"head", "adapter", "optimizer", "output"})
             assert weight_param_dict_first[param] != weight_param_dict_second[param]
+
+    # Final cleanup
+    megatron_parallel_state_utils.clean_up_distributed_and_parallel_states()
