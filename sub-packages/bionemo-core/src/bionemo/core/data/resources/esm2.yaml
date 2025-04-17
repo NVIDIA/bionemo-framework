@@ -84,3 +84,11 @@
   sha256: 14ae3acfbf82218bc9e3e53d21a5b0594ba7c0369e169c9f1034e3fe4378d175 # pragma: allowlist secret
   owner: Farhad Ramezanghorbani <farhadr@nvidia.com>
   description: Test data for ESM2 inference.
+
+- tag: esm2_finetuned_peft_weights:1.0
+  ngc: nvidia/clara/esm2_finetuned_peft_weights:1.0 # TODO: upload to NGC
+  ngc_registry: resource
+  pbss: "s3://general-purpose/esm2/checkpoints/finetuned_peft_weights.tar.gz"
+  sha256: ffce714478009c353f20e8c1ad8e49638128f0cc936ebe1d44c161ac89831dcb # pragma: allowlist secret
+  owner: Polina Binder <pbinder@nvidia.com>
+  description: Weights for a PEFT finetuned ESM2 model.

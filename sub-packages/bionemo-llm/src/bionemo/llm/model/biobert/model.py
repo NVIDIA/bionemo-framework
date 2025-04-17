@@ -554,7 +554,6 @@ class BioBertConfig(
 
         if self.initial_ckpt_path:
             self.load_settings_from_checkpoint(self.initial_ckpt_path)
-
         model = self.model_cls(
             self,
             transformer_layer_spec=get_biobert_spec(
