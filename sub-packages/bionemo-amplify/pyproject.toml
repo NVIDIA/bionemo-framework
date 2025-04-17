@@ -29,8 +29,8 @@ te = [
 ]
 
 [project.scripts]
-train_amplify = "bionemo.amplify.train_amplify:main"
-infer_amplify = "bionemo.amplify.infer_amplify:main"
+train_amplify = "bionemo.amplify.train_amplify:app"
+infer_amplify = "bionemo.amplify.infer_amplify:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
