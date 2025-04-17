@@ -195,7 +195,7 @@ uv pip install --no-build-isolation \
 -r /requirements-test.txt
 
 # Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
-uv pip install ngcsdk
+uv pip install ngcsdk==3.63.0  # Remove when https://nvidia.slack.com/archives/CEX3JC6SF/p1744898511311379 is fixed.
 
 # Install nvidia-pytriton which seems to cause a conflict with pyzmq versions
 uv pip install nvidia-pytriton  # Temporary dependency until this gets added to requirements_nlp.txt in NeMo.
