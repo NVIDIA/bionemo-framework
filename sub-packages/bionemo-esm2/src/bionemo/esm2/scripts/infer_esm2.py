@@ -128,7 +128,6 @@ def infer_model(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         initial_ckpt_path=str(checkpoint_path),
-        initial_ckpt_skip_keys_with_these_prefixes=[],  # load everything from the checkpoint.
     )
 
     tokenizer = get_tokenizer()
@@ -138,13 +137,15 @@ def infer_model(
 
     if lora_checkpoint_path:
         peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
-        # callbacks.append(ModelTransform())
         callbacks.append(peft)
         module = biobert_lightning_module(config=config, tokenizer=tokenizer, model_transform=peft)
+        module.configure_init_model_parallel = True
     else:
         module = biobert_lightning_module(config=config, tokenizer=tokenizer)
+        # In this case, the weights of the heads will be in the fine-tuned files and should be read
+        # from there as opposed to the base model checkpoint.
+        config_class.initial_ckpt_skip_keys_with_these_prefixes = []
 
-    module.configure_init_model_parallel = True
     trainer = nl.Trainer(
         accelerator="gpu",
         devices=devices,
@@ -156,7 +157,6 @@ def infer_model(
     )
 
     # Run prediction
-
     trainer.predict(module, datamodule=datamodule)
 
 

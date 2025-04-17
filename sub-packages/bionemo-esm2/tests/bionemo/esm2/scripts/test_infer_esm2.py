@@ -24,6 +24,7 @@ from bionemo.core.data.load import load
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.tokenizer import get_tokenizer
+from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.esm2.scripts.infer_esm2 import infer_model
 from bionemo.llm.data import collate
 from bionemo.llm.lightning import batch_collator
@@ -57,6 +58,7 @@ def padded_tokenized_sequences(dummy_protein_sequences):
 @pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
 @pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
 @pytest.mark.parametrize("with_peft", [True, False])
+@pytest.mark.parametrize("config_class", [ESM2Config, ESM2FineTuneTokenConfig])
 def test_infer_runs(
     tmpdir,
     dummy_protein_csv,
@@ -65,6 +67,7 @@ def test_infer_runs(
     prediction_interval,
     with_peft,
     padded_tokenized_sequences,
+    config_class,
 ):
     checkpoint_path = load("esm2/8m:2.0")
     data_path = dummy_protein_csv
@@ -86,7 +89,7 @@ def test_infer_runs(
         include_input_ids=True,
         include_logits=True,
         micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
-        config_class=ESM2Config,
+        config_class=config_class,
         lora_checkpoint_path=lora_checkpoint_path,
     )
     assert result_dir.exists(), "Could not find test results directory."

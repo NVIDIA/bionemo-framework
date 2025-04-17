@@ -401,7 +401,6 @@ def train_model(
     )
 
     ckpt_path = Path(checkpoint_callback.last_model_path.replace(".ckpt", ""))
-
     return ckpt_path, metric_tracker, trainer
 
 
