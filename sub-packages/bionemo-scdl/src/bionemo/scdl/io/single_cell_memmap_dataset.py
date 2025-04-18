@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import tempfile
+import warnings
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -222,12 +223,20 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         data: A numpy array of the data
         row_index: A numpy array of row pointers
         col_index: A numpy array of column values
-        metadata: Various metata about the dataset.
+        metadata: Various metadata about the dataset.
         _feature_index: The corresponding RowFeatureIndex where features are
         stored
         dtypes: A dictionary containing the datatypes of the data, row_index,
         and col_index arrays.
         _version: The version of the dataset
+        load_neighbors (bool, optional): Whether to load and utilize neighbor information
+            from the 'neighbor_key' in AnnData's .obsp. Defaults to False.
+        neighbor_key (str, optional): The key in AnnData's .obsp containing the
+            sparse adjacency matrix for neighbors. Defaults to 'next_cell_ids'.
+        neighbor_sampling_strategy (str, optional): Strategy for sampling neighbors ('random').
+            Defaults to 'random'.
+        fallback_to_identity (bool, optional): If a cell has no neighbors, whether
+            to use the cell itself as its neighbor. Defaults to True.
     """
 
     def __init__(
@@ -240,6 +249,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
         feature_index_name="feature_id",
+        # --- Neighbor Args ---
+        load_neighbors: bool = False,
+        neighbor_key: str = 'next_cell_ids',
+        neighbor_sampling_strategy: str = 'random',
+        fallback_to_identity: bool = True,
     ) -> None:
         """Instantiate the class.
 
@@ -253,6 +267,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
             load_block_row_size: Number of rows to load into memory with paginated load
             feature_index_name: The name of the features if the features are only stored in features_df.index.values
+            # --- New Neighbor Args ---
+            load_neighbors (bool, optional): Boolean to control to control whether to load and utilize neighbor information
+            neighbor_key (str, optional): The key in AnnData's .obsp containing neighbor information.
+            neighbor_sampling_strategy (str, optional): Sampling strategy for neighbors.
+            fallback_to_identity (bool, optional): If a cell has no neighbors, whether to use the cell itself as its neighbor.
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
@@ -279,6 +298,27 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             f"{FileNames.COLPTR.value}": "uint32",
             f"{FileNames.ROWPTR.value}": "uint64",
         }
+
+        # Neighbor configuration
+        self.load_neighbors = load_neighbors
+        self.neighbor_key = neighbor_key
+        if neighbor_sampling_strategy not in ['random']:
+             raise ValueError(f"Unsupported neighbor_sampling_strategy: {neighbor_sampling_strategy}")
+        self.neighbor_sampling_strategy = neighbor_sampling_strategy
+        self.fallback_to_identity = fallback_to_identity
+
+        # Neighbor tracking
+        self._has_neighbors = False # Track if neighbor data was successfully loaded/found
+    
+        # Set paths for neighbor data files
+        self._neighbor_indices_path = os.path.join(self.data_path, "neighbor_indices.npy")
+        self._neighbor_indptr_path = os.path.join(self.data_path, "neighbor_indptr.npy")
+        self._neighbor_data_path = os.path.join(self.data_path, "neighbor_values.npy")
+
+        # Placeholders for neighbor Memory-mapped arrays
+        self._neighbor_indices = None
+        self._neighbor_indptr = None
+        self._neighbor_data = None
 
         if mode == Mode.CREATE_APPEND and os.path.exists(data_path):
             raise FileExistsError(f"Output directory already exists: {data_path}")
@@ -335,6 +375,52 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         return self._version
 
+    def _extract_neighbor_data(self, adata) -> bool:
+        """Extracts neighbor data from AnnData.obsp object and saves to memmap files.
+
+        Args:
+            adata: AnnData object containing neighbor information
+        Returns:
+            bool: True if neighbor data was successfully loaded/found, False otherwise.
+        """
+        # Skip if neighbor loading is not enabled
+        if not self.load_neighbors:
+            return False
+
+        # Check if neighbor key exists in AnnData.obsp
+        if self.neighbor_key not in adata.obsp:
+            warnings.warn(
+                f"Neighbor key '{self.neighbor_key}' not found in AnnData.obsp. Neighbor loading skipped."
+            )
+            return False
+
+        print(f"Extracting neighbor data from {self.neighbor_key} in AnnData.obsp")
+
+        # Get the neighbor matrix from obsp
+        neighbor_matrix = adata.obsp[self.neighbor_key]
+
+        # NOTE: We can raise an error if not sparse or do the conversion ourselves here
+        # # Check if the neighbor matrix is a sparse matrix
+        # if not scipy.sparse.issparse(neighbor_matrix):
+        #     raise ValueError(f"Neighbor matrix for key '{self.neighbor_key}' is not a sparse matrix.")
+        
+
+        # Convert to CSR if it's not already
+        # NOTE: SCDL only suppports CSR, no use for this conversion
+        # if not isinstance(neighbor_matrix, scipy.sparse.csr_matrix):
+        #     print("Converting neighbor matrix to CSR format...")
+        #     neighbor_matrix = neighbor_matrix.tocsr()
+
+        #NOTE: should saving happen here or in the save() method?
+        # Save the CSR components to memory-mapped files
+        # NOTE: Polina - saving to disk happens in save()
+        np.save(self._neighbor_indptr_path, neighbor_matrix.indptr)
+        np.save(self._neighbor_indices_path, neighbor_matrix.indices)
+        np.save(self._neighbor_data_path, neighbor_matrix.data)
+
+        print(f"Neighbor data saved to {self.data_path}")
+        return True
+            
     def get_row(
         self,
         index: int,
@@ -489,6 +575,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         adata = ad.read_h5ad(anndata_path)  # slow
 
+        # Check and load neighbor data
+        # NOTE: More clear to have a check here and not call _extract_neighbor_data() if there no neighbors
+        self._has_neighbors = self._extract_neighbor_data(adata)
+
         if not isinstance(adata.X, scipy.sparse.spmatrix):
             raise NotImplementedError("Error: dense matrix loading not yet implemented.")
 
@@ -523,6 +613,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Store the row idx array
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
 
+        #NOTE: Polina - use pattern of init arrs to reserves that memory space then maps the data using self.data-self.row_index (replaces load neighbor memmap)
+        
+        # NOTE: Maybe there is no need to store this metadata
+        # self.metadata["has_neighbors"] = self._has_neighbors
+        #FIXME: metadata expect integer
+        #self.metadata["neighbor_key"] = self.neighbor_key if self._has_neighbors else None
+
         return adata.var, num_rows
 
     def paginated_load_h5ad(
@@ -543,6 +640,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             int: number of rows in the dataframe.
         """
         adata = ad.read_h5ad(anndata_path, backed=True)
+
+        self._has_neighbors = self._extract_neighbor_data(adata)
 
         if not isinstance(adata.X, ad.experimental.CSRDataset):
             raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
@@ -588,6 +687,19 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             shape=(n_elements,),
         )
         return adata.var, num_rows
+
+    def _load_neighbor_memmaps(self):
+        if not self._has_neighbors:
+            return
+        
+        # Load the neighbor data
+        try:
+            self._neighbor_indices = np.load(self._neighbor_indices_path)
+            self._neighbor_indptr = np.load(self._neighbor_indptr_path)
+            self._neighbor_data = np.load(self._neighbor_data_path)
+        except (FileNotFoundError, IOError) as e:
+            warnings.warn(f"Failed to load neighbor data: {e}")
+            self._has_neighbors = False
 
     def load_h5ad(
         self,
@@ -652,7 +764,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             if not os.path.exists(f"{self.data_path}/{postfix}"):
                 raise FileNotFoundError(f"This file should exist from object creation: {self.data_path}/{postfix}")
 
-        self.data.flush()
+        self.data.flush() # NOTE: saves the data to disk, do the approach for neighbor data
         self.row_index.flush()
         self.col_index.flush()
 
