@@ -45,8 +45,8 @@ NGC_CLI_FORMAT_TYPE
 WANDB_API_KEY
 ```
 
-For each of these variables, you can define them inside the `.env` file using `=`. For example, you can set the NGC API
-key using `NGC_CLI_API_KEY=<your API key here>`. You can then define these variables in your current shell using:
+Define these variables in the `.env` file using the `=` operator. For example, you can set the NGC API
+key using `NGC_CLI_API_KEY=<your API key here>`. You can then load these variables into your current shell using:
 
 ```bash
 source .env
@@ -68,8 +68,8 @@ Refer to the list below for an explanation of each of these variables:
 - `LOCAL_DATA_PATH` and `DOCKER_DATA_PATH`: Paths for storing data, again with `LOCAL` and `DOCKER` distinctions.
 - `LOCAL_MODELS_PATH` and `DOCKER_MODELS_PATH`: Paths for storing machine learning models, with the same local and
     Docker differences.
-- `JUPYTER_PORT`: The port number for a Jupyter Lab server, default port is 8888.
--  `NGC_CLI_API_KEY`, `NGC_CLI_ORG`, `NGC_CLI_TEAM`, and `NGC_CLI_FORMAT_TYPE`: API key, organization, team, and format
+- `JUPYTER_PORT`: The port number for a Jupyter Lab server. The default port is 8888.
+- `NGC_CLI_API_KEY`, `NGC_CLI_ORG`, `NGC_CLI_TEAM`, and `NGC_CLI_FORMAT_TYPE`: API key, organization, team, and format
     type for the NVIDIA GPU Cloud (NGC) command-line interface (CLI).
 - `WANDB_API_KEY`: An API key for Weights and Biases (W&B), a platform for machine learning experiment tracking and
     visualization.
