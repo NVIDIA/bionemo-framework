@@ -267,9 +267,9 @@ An example of using `predict_evo2` for variant effect prediction can be found in
 
 ## Context Extension
 
-Evo2 supports extended context lengths beyond its pretraining limit.
+Evo2 supports continuing training with longer context lengths beyond those used to train a prior checkpoint. For example, when training the original Evo2 model, the first phase of training was performed at 8192 context length while the next phase continued training at 1m context length, but starting from the prior 8192 context length checkpoint. We call this process context extension.
 
-To extend Evo2 to support longer sequences, update the `--seq-length` and the `--seq-len-interpolation-factor` arguments. The `--seq-len-interpolation-factor` argument is used to linearly scale the ROPE (Rotary Position Embedding) for context extension. For example, if the base context length is 8192 and the extended context length is 65536, the factor would be 65536/8192 = 8.
+To change the sequence length used in training in this way, supply the prior checkpoint as the `--ckpt-dir` argument, and set your new desired sequence length with `--seq-length`. Only doing these two things will run, but one issue is that the model's ROPE embeddings may not be scaled properly out of the box for a new context length. The way that Arc institute handled this was by setting the `--seq-len-interpolation-factor` to linearly scale the ROPE embedding for context extension. For example, if the base context length is 8192 and the extended context length is 65536, the factor would be 65536/8192 = 8. There are other ways of accomplishing this as well that may require some minor code changes, such as the approach used in llama-3, which is also available in megatron and could be added into argparse as an alternative.
 
 ## Checkpoint conversion from hugging face to NeMo2
 
