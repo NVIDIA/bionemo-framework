@@ -265,6 +265,12 @@ predict_evo2 \
 
 An example of using `predict_evo2` for variant effect prediction can be found in our [Evo 2 Zeroshot BRCA1 Notebook](https://docs.nvidia.com/bionemo-framework/latest/user-guide/examples/bionemo-evo2/evo2_zeroshot_brca). This notebook demonstrates how to use Evo2 to predict whether single nucleotide variants (SNVs) in the BRCA1 gene are likely to be harmful to protein function and potentially increase cancer risk, by comparing the model's log probability scores between the reference and variant sequences.
 
+## Context Extension
+
+Evo2 supports extended context lengths beyond its pretraining limit.
+
+To extend Evo2 to support longer sequences, update the `--seq-length` and the `--seq-len-interpolation-factor` arguments. The `--seq-len-interpolation-factor` argument is used to linearly scale the ROPE (Rotary Position Embedding) for context extension. For example, if the base context length is 8192 and the extended context length is 65536, the factor would be 65536/8192 = 8.
+
 ## Checkpoint conversion from hugging face to NeMo2
 
 The following conversion script should work on any savanna formatted arc evo2 checkpoint. Make sure you match up the
