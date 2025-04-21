@@ -353,7 +353,6 @@ def train_model(
             weight_decay=0.01,
             adam_beta1=0.9,
             adam_beta2=0.98,
-            clip_grad=1.0,  # Add gradient clipping
         ),
     )
     # fiddle is not serializing lambda fn
@@ -636,7 +635,7 @@ def get_parser():
         "--num-steps",
         type=int,
         required=False,
-        default=5,
+        default=500000,
         help="Number of steps to use for training. Default is 500000.",
     )
     parser.add_argument(
@@ -650,7 +649,7 @@ def get_parser():
         "--val-check-interval",
         type=int,
         required=False,
-        default=5,
+        default=10000,
         help="Number of steps between validation. Default is 10000.",
     )
     parser.add_argument(
@@ -748,7 +747,7 @@ def get_parser():
         type=str,
         required=False,
         default=None,
-        help="Path to the lora states to restore from.",
+        help="Path to the LoRA states to restore from.",
     )
 
     parser.add_argument(
