@@ -141,8 +141,6 @@ def load_dcp():
 
     def _load_dcp(ckpt_dir):
         from pathlib import Path
-
-        import torch
         import torch.distributed.checkpoint as dcp
         from torch.distributed.checkpoint import FileSystemReader
 
