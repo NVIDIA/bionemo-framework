@@ -204,8 +204,9 @@ Elmentaite et al. (2020), Developmental Cell. This dataset contains approximatel
 
 For more details see the example notebook titled Geneformer-celltype-classification-example.ipynb
 
-![F1-score for both released models, a random baseline, and a PCA based transformation of the raw expression.](../assets/images/geneformer/F1-score-models-04-18-25.png)
-![Average accuracy across cell types for both released models, a random baseline, and a PCA based transformation of the raw expression.](../assets/images/geneformer/average-accuracy-models-04-18-25.png)
+
+![F1-score for both released models, a random baseline, and a PCA based transformation of the raw expression.](../assets/images/geneformer/F1-score-models-04-18-2025.png)
+![Average accuracy across cell types for both released models, a random baseline, and a PCA based transformation of the raw expression.](../assets/images/geneformer/average-accuracy-models-04-18-2025.png)
 
 ### Performance Benchmarks
 
