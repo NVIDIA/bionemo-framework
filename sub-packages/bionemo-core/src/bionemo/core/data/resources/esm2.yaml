@@ -85,10 +85,10 @@
   owner: Farhad Ramezanghorbani <farhadr@nvidia.com>
   description: Test data for ESM2 inference.
 
-- tag: esm2_finetuned_peft_weights:1.0
-  ngc: nvidia/clara/esm2_finetuned_peft_weights:1.0 # TODO: upload to NGC
+- tag: esm2_lora_weights:1.1
+  ngc: nvidia/clara/esm2_lora_weights:1.1
   ngc_registry: resource
   pbss: "s3://general-purpose/esm2/checkpoints/finetuned_peft_weights.tar.gz"
   sha256: ffce714478009c353f20e8c1ad8e49638128f0cc936ebe1d44c161ac89831dcb # pragma: allowlist secret
   owner: Polina Binder <pbinder@nvidia.com>
-  description: Weights for a PEFT finetuned ESM2 model.
+  description: Weights for a LoRA finetuned ESM2 model.

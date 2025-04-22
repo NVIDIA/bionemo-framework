@@ -40,7 +40,7 @@ def test_esm2_resume_from_checkpoint(
     seed: int = 42,
 ):
     with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        weights_ckpt_first = load("esm2/esm2_finetuned_peft_weights:1.0", source="pbss") / "weights"
+        weights_ckpt_first = load("esm2/esm2_lora_weights:1.1") / "weights"
         # Second training run - ensure LoRA is initialized before loading checkpoint
         simple_ft_checkpoint, simple_ft_metrics_second, trainer = train_model(
             train_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),

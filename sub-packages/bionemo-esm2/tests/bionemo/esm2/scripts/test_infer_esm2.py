@@ -74,7 +74,7 @@ def test_infer_runs(
     result_dir = tmpdir / "results"
     min_seq_len = 1024  # Minimum length of the output batch; tensors will be padded to this length.
     if with_peft:
-        lora_checkpoint_path = load("esm2/esm2_finetuned_peft_weights:1.0", source="pbss") / "weights"
+        lora_checkpoint_path = load("esm2/esm2_lora_weights:1.1") / "weights"
     else:
         lora_checkpoint_path = None
     infer_model(
@@ -154,7 +154,7 @@ def test_different_results_with_peft(
     )
     assert result_dir_original.exists(), "Could not find test results directory."
     result_dir_peft = tmpdir / "results_peft"
-    lora_checkpoint_path = load("esm2/esm2_finetuned_peft_weights:1.0", source="pbss") / "weights"
+    lora_checkpoint_path = load("esm2/esm2_lora_weights:1.1") / "weights"
     infer_model(
         data_path=data_path,
         checkpoint_path=checkpoint_path,
