@@ -150,11 +150,11 @@ NVIDIA believes Trustworthy AI is a shared responsibility and we have establishe
 
 ### geneformer-10M
 <!-- WandB Logs: https://wandb.ai/clara-discovery/Geneformer-pretraining-jsjconfigs/runs/i8LWOctg?nw=nwuserjomitchell -->
-Training was performed on 8 servers with 8 A100 GPUs each for a total of 81485 steps using the CELLxGENE split with a per-gpu micro batch size 32 and global batch size of 2048. Training took a total of 4 days, 8 hours of wallclock time. As can be seen in the following images, training and validation curves both decreased fairly smoothly throughout the course of training. 
+Training was performed on 8 servers with 8 A100 GPUs each for a total of 81485 steps using the CELLxGENE split with a per-gpu micro batch size 32 and global batch size of 2048. Training took a total of 4 days, 8 hours of wallclock time. As can be seen in the following images, training and validation curves both decreased fairly smoothly throughout the course of training.
 
 ![Training Loss Geneformer 10M](../assets/images/geneformer/geneformer_10m_training_loss.png)
 ![Validation Loss Geneformer 10M](../assets/images/geneformer/geneformer_10m_val_loss.png)
- 
+
 
 
 ### geneformer-106M
