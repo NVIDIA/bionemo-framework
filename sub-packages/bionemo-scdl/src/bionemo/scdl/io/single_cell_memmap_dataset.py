@@ -383,9 +383,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Returns:
             bool: True if neighbor data was successfully loaded/found, False otherwise.
         """
+        # NOTE: this is no longer needed as we have a check in load_h5ad before we call this function
         # Skip if neighbor loading is not enabled
-        if not self.load_neighbors:
-            return False
+        # if not self.load_neighbors:
+        #     return False
 
         # Check if neighbor key exists in AnnData.obsp
         if self.neighbor_key not in adata.obsp:
@@ -399,28 +400,121 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Get the neighbor matrix from obsp
         neighbor_matrix = adata.obsp[self.neighbor_key]
 
-        # NOTE: We can raise an error if not sparse or do the conversion ourselves here
-        # # Check if the neighbor matrix is a sparse matrix
-        # if not scipy.sparse.issparse(neighbor_matrix):
-        #     raise ValueError(f"Neighbor matrix for key '{self.neighbor_key}' is not a sparse matrix.")
+        # Check if the neighbor matrix is a sparse matrix
+        if not scipy.sparse.issparse(neighbor_matrix):
+            raise ValueError(f"Neighbor matrix for key '{self.neighbor_key}' is not a sparse matrix.")
+
+        # Initialize memory-mapped arrays for neighbor data with proper sizes
+        indptr_len = len(neighbor_matrix.indptr)
+        indices_len = len(neighbor_matrix.indices)
+        data_len = len(neighbor_matrix.data)
         
-
-        # Convert to CSR if it's not already
-        # NOTE: SCDL only suppports CSR, no use for this conversion
-        # if not isinstance(neighbor_matrix, scipy.sparse.csr_matrix):
-        #     print("Converting neighbor matrix to CSR format...")
-        #     neighbor_matrix = neighbor_matrix.tocsr()
-
-        #NOTE: should saving happen here or in the save() method?
-        # Save the CSR components to memory-mapped files
-        # NOTE: Polina - saving to disk happens in save()
-        np.save(self._neighbor_indptr_path, neighbor_matrix.indptr)
-        np.save(self._neighbor_indices_path, neighbor_matrix.indices)
-        np.save(self._neighbor_data_path, neighbor_matrix.data)
-
-        print(f"Neighbor data saved to {self.data_path}")
+        # Create memory-mapped arrays for neighbor data
+        self._neighbor_indptr = np.memmap(
+            self._neighbor_indptr_path,
+            dtype=neighbor_matrix.indptr.dtype,
+            mode=Mode.CREATE_APPEND.value,
+            shape=(indptr_len,)
+        )
+        
+        self._neighbor_indices = np.memmap(
+            self._neighbor_indices_path, 
+            dtype=neighbor_matrix.indices.dtype, 
+            mode=Mode.CREATE_APPEND.value,
+            shape=(indices_len,)
+        )
+        
+        self._neighbor_data = np.memmap(
+            self._neighbor_data_path, 
+            dtype=neighbor_matrix.data.dtype, 
+            mode=Mode.CREATE_APPEND.value,
+            shape=(data_len,)
+        )
+        
+        # Copy data into memory-mapped arrays
+        self._neighbor_indptr[:] = neighbor_matrix.indptr
+        self._neighbor_indices[:] = neighbor_matrix.indices
+        self._neighbor_data[:] = neighbor_matrix.data
+        
+        print(f"Neighbor data extracted to memory-mapped arrays")
         return True
-            
+    
+    def _extract_neighbor_data_paginated(self, adata) -> bool:
+        """Extracts neighbor data using paginated approach for large datasets.
+        
+        Uses the same pattern as paginated_load_h5ad with binary file I/O and chunking
+        to efficiently handle large neighbor matrices without loading everything at once.
+        
+        Args:
+            adata: AnnData object containing neighbor information
+        Returns:
+            bool: True if neighbor data was successfully loaded/found, False otherwise.
+        """
+        # Check if neighbor key exists in AnnData.obsp
+        if self.neighbor_key not in adata.obsp:
+            warnings.warn(
+                f"Neighbor key '{self.neighbor_key}' not found in AnnData.obsp. Neighbor loading skipped."
+            )
+            return False
+
+        print(f"Extracting neighbor data from {self.neighbor_key} in AnnData.obsp using chunked approach")
+
+        # Get the neighbor matrix from obsp
+        neighbor_matrix = adata.obsp[self.neighbor_key]
+
+        # Check if the neighbor matrix is a sparse matrix
+        if not scipy.sparse.issparse(neighbor_matrix):
+            raise ValueError(f"Neighbor matrix for key '{self.neighbor_key}' is not a sparse matrix.")
+        
+        # First write indptr which gives us the structure - this is usually small enough to handle in one go
+        with open(self._neighbor_indptr_path, "wb") as indptr_file:
+            indptr_file.write(neighbor_matrix.indptr.tobytes())
+        
+        # Get dimensions from indptr
+        num_rows = len(neighbor_matrix.indptr) - 1
+        
+        # Process indices and data in chunks based on rows
+        with (
+            open(self._neighbor_indices_path, "wb") as indices_file,
+            open(self._neighbor_data_path, "wb") as data_file,
+        ):
+            for row_start in range(0, num_rows, self.load_block_row_size):
+                row_end = min(row_start + self.load_block_row_size, num_rows)
+                
+                # Get slice of the matrix for this chunk of rows
+                chunk = neighbor_matrix[row_start:row_end]
+                
+                # Write chunk data to files
+                indices_file.write(chunk.indices.tobytes())
+                data_file.write(chunk.data.tobytes())
+                
+                print(f"Processed neighbor data rows {row_start} to {row_end-1}")
+        
+        # Then re-open as memory-mapped arrays with the final shapes
+        self._neighbor_indptr = np.memmap(
+            self._neighbor_indptr_path,
+            dtype=neighbor_matrix.indptr.dtype,
+            mode=Mode.READ_APPEND.value,
+            shape=(len(neighbor_matrix.indptr),)
+        )
+        
+        self._neighbor_indices = np.memmap(
+            self._neighbor_indices_path,
+            dtype=neighbor_matrix.indices.dtype,
+            mode=Mode.READ_APPEND.value,
+            shape=(len(neighbor_matrix.indices),)
+        )
+        
+        self._neighbor_data = np.memmap(
+            self._neighbor_data_path,
+            dtype=neighbor_matrix.data.dtype,
+            mode=Mode.READ_APPEND.value,
+            shape=(len(neighbor_matrix.data),)
+        )
+        
+        print(f"Neighbor data extracted to memory-mapped arrays using chunked approach")
+        return True
+       
     def get_row(
         self,
         index: int,
@@ -577,7 +671,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Check and load neighbor data
         # NOTE: More clear to have a check here and not call _extract_neighbor_data() if there no neighbors
-        self._has_neighbors = self._extract_neighbor_data(adata)
+        if self.load_neighbors:
+            self._has_neighbors = self._extract_neighbor_data(adata)
 
         if not isinstance(adata.X, scipy.sparse.spmatrix):
             raise NotImplementedError("Error: dense matrix loading not yet implemented.")
@@ -641,7 +736,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         adata = ad.read_h5ad(anndata_path, backed=True)
 
-        self._has_neighbors = self._extract_neighbor_data(adata)
+        if self.load_neighbors:           
+            self._has_neighbors = self._extract_neighbor_data_paginated(adata)
 
         if not isinstance(adata.X, ad.experimental.CSRDataset):
             raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
@@ -694,9 +790,23 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         
         # Load the neighbor data
         try:
-            self._neighbor_indices = np.load(self._neighbor_indices_path)
-            self._neighbor_indptr = np.load(self._neighbor_indptr_path)
-            self._neighbor_data = np.load(self._neighbor_data_path)
+            self._neighbor_indices = np.memmap(
+                self._neighbor_indices_path,
+                dtype='int32',  # typical dtype for indices
+                mode=Mode.READ_APPEND.value
+            )
+            
+            self._neighbor_indptr = np.memmap(
+                self._neighbor_indptr_path,
+                dtype='int32',  # typical dtype for indptr
+                mode=Mode.READ_APPEND.value
+            )
+            
+            self._neighbor_data = np.memmap(
+                self._neighbor_data_path,
+                dtype='float32',  # typical dtype for values
+                mode=Mode.READ_APPEND.value
+            )
         except (FileNotFoundError, IOError) as e:
             warnings.warn(f"Failed to load neighbor data: {e}")
             self._has_neighbors = False
@@ -767,6 +877,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.data.flush() # NOTE: saves the data to disk, do the approach for neighbor data
         self.row_index.flush()
         self.col_index.flush()
+        
+        # Flush neighbor data to disk if it exists
+        if self._has_neighbors and self._neighbor_indptr is not None:
+            self._neighbor_indptr.flush()
+            self._neighbor_indices.flush()
+            self._neighbor_data.flush()
 
         if output_path is not None:
             raise NotImplementedError("Saving to separate path is not yet implemented.")
