@@ -118,7 +118,7 @@ def setup_trainer(
             overlap_grad_reduce=True,
             overlap_param_gather=False,  # TODO waiting for NeMo fix
             average_in_collective=True,
-            use_distributed_optimizer=True,
+            use_distributed_optimizer=parallel_config.use_distributed_optimizer,
         ),
         find_unused_parameters=True,
         gradient_as_bucket_view=True,
@@ -240,8 +240,11 @@ def train(
     optimizer = MegatronOptimizerModule(
         config=OptimizerConfig(
             lr=optim_config.lr,
+            weight_decay=optim_config.weight_decay,
+            sgd_momentum=optim_config.sgd_momentum,
+            adam_eps=optim_config.adam_eps,
             optimizer=optim_config.optimizer,
-            use_distributed_optimizer=True,
+            use_distributed_optimizer=parallel_config.use_distributed_optimizer,
             fp16=bionemo_model_config.fp16,
             bf16=bionemo_model_config.bf16,
         ),
