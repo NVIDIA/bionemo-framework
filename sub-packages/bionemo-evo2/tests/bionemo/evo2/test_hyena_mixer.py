@@ -15,7 +15,6 @@
 
 import pytest
 import torch
-from einops import rearrange
 from nemo.collections.llm.gpt.model.hyena import HyenaNVTestConfig, HyenaTestConfig
 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_config import HyenaConfig
 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
@@ -59,14 +58,14 @@ def parallel_config(request):
     """Return tuple of (tensor_parallel_size, context_parallel_size)"""
     tp_size, cp_size = request.param
     # Calculate required GPU count
-    required_gpus = tp_size * cp_size
+    # required_gpus = tp_size * cp_size
 
     # Skip this configuration if not enough GPUs
-    available_gpus = torch.cuda.device_count()
-    if required_gpus > available_gpus:
-        pytest.skip(
-            f"Skipping test with TP={tp_size}, CP={cp_size} - requires {required_gpus} GPUs, but only {available_gpus} available"
-        )
+    # available_gpus = torch.cuda.device_count()
+    # if required_gpus > available_gpus:
+    #     pytest.skip(
+    #         f"Skipping test with TP={tp_size}, CP={cp_size} - requires {required_gpus} GPUs, but only {available_gpus} available"
+    #     )
     return request.param
 
 
@@ -113,10 +112,7 @@ def nv_mixer(hyena_nv_test_config: HyenaNVTestConfig, hyena_config: HyenaConfig,
 
 
 def b2b_torch_forward(mixer: HyenaMixer, features: torch.Tensor, _proj_use_cp: bool = False):
-    features = mixer.hyena_proj_conv(features, _use_cp=_proj_use_cp)  # [B, D, L]
-    x1, x2, v = rearrange(features, "b (g dg p) l -> b (g dg) p l", p=3, g=mixer.num_groups_per_tp_rank).unbind(dim=2)
-    z = mixer.mixer(x1, x2, v)
-    return z
+    return mixer(features, _hyena_use_cp=_proj_use_cp)
 
 
 def test_b2b_causal_conv1d(mixer: HyenaMixer, parallel_config):
@@ -128,9 +124,13 @@ def test_b2b_causal_conv1d(mixer: HyenaMixer, parallel_config):
 
     # Scale input features based on TP size
     hidden_size_per_tp = mixer.hidden_size // mixer.model_parallel_size
+
+    # Choose whether to use CP based on the parallel configuration
+    use_cp = cp_size > 1
+
     # For CP, we need to adjust sequence length in some cases
     seq_len = 512
-    if cp_size > 1:
+    if use_cp:
         # When using CP, make sure sequence length is divisible by 2*CP for zigzag splitting
         seq_len = ((seq_len + (2 * cp_size - 1)) // (2 * cp_size)) * (2 * cp_size)
 
@@ -140,8 +140,6 @@ def test_b2b_causal_conv1d(mixer: HyenaMixer, parallel_config):
         device=mixer.hyena_proj_conv.short_conv_weight.device,
     )
 
-    # Choose whether to use CP based on the parallel configuration
-    use_cp = cp_size > 1
     output_features_b2b_torch = b2b_torch_forward(mixer, input_features, _proj_use_cp=use_cp)
 
     assert hasattr(mixer, "b2b_kernel")
@@ -161,9 +159,13 @@ def test_nv_b2b_causal_conv1d(nv_mixer: HyenaMixer, parallel_config):
 
     # Scale input features based on TP size
     hidden_size_per_tp = nv_mixer.hidden_size // nv_mixer.model_parallel_size
+
+    # Choose whether to use CP based on the parallel configuration
+    use_cp = cp_size > 1
+
     # For CP, we need to adjust sequence length in some cases
     seq_len = 512
-    if cp_size > 1:
+    if use_cp:
         # When using CP, make sure sequence length is divisible by 2*CP for zigzag splitting
         seq_len = ((seq_len + (2 * cp_size - 1)) // (2 * cp_size)) * (2 * cp_size)
 
@@ -173,8 +175,6 @@ def test_nv_b2b_causal_conv1d(nv_mixer: HyenaMixer, parallel_config):
         device=nv_mixer.hyena_proj_conv.short_conv_weight.device,
     )
 
-    # Choose whether to use CP based on the parallel configuration
-    use_cp = cp_size > 1
     output_features_b2b_torch = b2b_torch_forward(nv_mixer, input_features, _proj_use_cp=use_cp)
 
     assert hasattr(nv_mixer, "b2b_kernel")
