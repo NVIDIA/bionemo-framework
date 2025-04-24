@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 
-{% block outdated %}
-  You're not viewing the latest version.
-  <a href="{{ '../' ~ base_url }}">
-    <strong>Click here to go to latest.</strong>
-  </a>
+<!-- version banner -->
+{% block outdated %} You're not viewing the latest version.
+<a href="{{ '../' ~ base_url }}">
+  <strong>Click here to go to latest.</strong>
+</a>
+{% endblock %} {% block styles %} {{ super() }}
+<link rel="stylesheet" href="{{ 'assets/css/chatbot.css' | url }}" />
+{% endblock %} {% block scripts %} {{ super() }}
+<script src="{{ 'assets/javascripts/chatbot.js' | url }}"></script>
 {% endblock %}
