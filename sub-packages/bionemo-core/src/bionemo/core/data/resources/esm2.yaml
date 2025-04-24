@@ -87,7 +87,7 @@
 
 - tag: esm2_lora_weights:1.1
   ngc: nvidia/clara/esm2_lora_weights:1.1
-  ngc_registry: resource
+  ngc_registry: model
   pbss: "s3://general-purpose/esm2/checkpoints/finetuned_peft_weights.tar.gz"
   sha256: ffce714478009c353f20e8c1ad8e49638128f0cc936ebe1d44c161ac89831dcb # pragma: allowlist secret
   owner: Polina Binder <pbinder@nvidia.com>
