@@ -8,7 +8,7 @@ This model is ready for commercial use.
 
 ### Third-Party Community Consideration
 
-This model is not owned or developed by NVIDIA. This model has been developed and built to a third-party’s requirements for this application and use case; see [Arc Institute web site](https://arcinstitute.org).
+This model is not owned or developed by NVIDIA. This model has been developed and built to a third-party's requirements for this application and use case; see [Arc Institute website](https://arcinstitute.org).
 
 ### License/Terms of Use:
 
@@ -93,26 +93,26 @@ Evo is able to perform zero-shot function prediction for genes. Evo also can per
 
 - Linux
 
-### Model Version(s):
+### Model Versions:
 
-The following model versions are available to download through our CLI
+The following model versions are available to download through our CLI:
 
-- `evo2/1b-8k:1.0` is a nemo2 format model converted from [arcinstitute/savanna_evo2_1b_base](https://huggingface.co/arcinstitute/savanna_evo2_1b_base) which is a 1b parameter
-  evo2 model pre-trained on 8k context genome data.
-- `evo2/1b-8k-bf16:1.0` is a fine-tuned variant of `evo2/1b-8k:1.0` that performs well with bf16 precision.
-- `evo2/7b-8k:1.0` is a nemo2 format model converted from [arcinstitute/savanna_evo2_7b_base](https://huggingface.co/arcinstitute/savanna_evo2_7b_base)
-  which is a 7b parameter evo2 model pre-trained on 8k context genome data.
-- `evo2/7b-1m:1.0` is a nemo2 format model converted from [arcinstitute/savanna_evo2_7b](https://huggingface.co/arcinstitute/savanna_evo2_7b) which is a
-  7b parameter evo2 model further fine-tuned from [arcinstitute/savanna_evo2_7b_base](https://huggingface.co/arcinstitute/savanna_evo2_7b_base) to support 1m context
+- `evo2/1b-8k:1.0` is a NeMo2 format model converted from [arcinstitute/savanna_evo2_1b_base](https://huggingface.co/arcinstitute/savanna_evo2_1b_base) which is a 1B parameter
+  Evo2 model pre-trained on 8K context genome data.
+- `evo2/1b-8k-bf16:1.0` is a fine-tuned variant of `evo2/1b-8k:1.0` that performs well with BF16 precision.
+- `evo2/7b-8k:1.0` is a NeMo2 format model converted from [arcinstitute/savanna_evo2_7b_base](https://huggingface.co/arcinstitute/savanna_evo2_7b_base)
+  which is a 7B parameter Evo2 model pre-trained on 8K context genome data.
+- `evo2/7b-1m:1.0` is a NeMo2 format model converted from [arcinstitute/savanna_evo2_7b](https://huggingface.co/arcinstitute/savanna_evo2_7b) which is a
+  7B parameter Evo2 model further fine-tuned from [arcinstitute/savanna_evo2_7b_base](https://huggingface.co/arcinstitute/savanna_evo2_7b_base) to support 1M context
   lengths.
 
-The following savanna format checkpoints are also available on hugging face, and may be converted to NeMo2 format following
-the steps in our evo2 fine-tuning example notebook.
+The following Savanna format checkpoints are also available on HuggingFace and may be converted to NeMo2 format following
+the steps in our Evo2 fine-tuning example notebook:
 
-- [arcinstitute/savanna_evo2_40b_base](https://huggingface.co/arcinstitute/savanna_evo2_40b_base) A 40b model trained
-  on 8k context data.
-- [arcinstitute/savanna_evo2_40b](https://huggingface.co/arcinstitute/savanna_evo2_40b) A 40b model fine-tuned from [arcinstitute/savanna_evo2_40b_base](https://huggingface.co/arcinstitute/savanna_evo2_40b_base)
-  to support 1m context data.
+- [arcinstitute/savanna_evo2_40b_base](https://huggingface.co/arcinstitute/savanna_evo2_40b_base) - A 40B model trained
+  on 8K context data.
+- [arcinstitute/savanna_evo2_40b](https://huggingface.co/arcinstitute/savanna_evo2_40b) - A 40B model fine-tuned from [arcinstitute/savanna_evo2_40b_base](https://huggingface.co/arcinstitute/savanna_evo2_40b_base)
+  to support 1M context data.
 
 ## Training, Testing, and Evaluation Datasets:
 
@@ -128,15 +128,15 @@ _Updated GTDB prokaryotic genomes_
 Link: [GTDB: an ongoing census of bacterial and archaeal diversity through a phylogenetically consistent, rank normalized and complete genome-based taxonomy](https://academic.oup.com/nar/advance-article/doi/10.1093/nar/gkab776/6370255)
 Data Collection Method: Automatic/Sensors/Human
 Labeling Method by dataset: Automatic
-New prokaryotic reference genomes made available through the GTDB release 220.0 update were added to the training data for this study. New genomes were identified by selecting all species’ reference genomes that had no previously published (release 214.1) genomes within their species cluster, resulting in 28,174 additional prokaryotic genomes.
+New prokaryotic reference genomes made available through the GTDB release 220.0 update were added to the training data for this study. New genomes were identified by selecting all species' reference genomes that had no previously published (release 214.1) genomes within their species cluster, resulting in 28,174 additional prokaryotic genomes.
 
 _NCBI Eukaryotic reference genomes_
 Link: [Mash: fast genome and metagenome distance estimation using MinHash](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-016-0997-x)
 Data Collection Method: Automatic/Sensors/Human
 Labeling Method by dataset: Automatic
-All available eukaryotic reference genomes were downloaded from NCBI on 05/32/2024, excluding atypical genomes, metagenome-assembled genomes, and genomes from large multi-isolate projects. This resulted in 16,704 genomes including an estimated \~10.7 trillion nucleotides. Only contigs that were annotated as ‘Primary Assembly’, ‘non-nuclear’, or ‘aGasCar1.hap1’ (an aberrant annotation that applied only to GCA_027917425.1) were retained. Mash sketch was run on each individual genome with the flag “-s 10000” and the mash distance was calculated between all genomes as an estimate for their pairwise 1-ANI (average nucleotide identity). All genomes with a mash distance \< 0.01 were joined with edges in a graph, and clusters were identified by finding connected components. One representative genome per cluster was chosen, prioritizing genomes with a higher assembly level and genomes with longer total sequence length. This clustering resulted in 15,148 candidate genomes. Genomes were further filtered by removing ambiguous nucleotides at the termini of each contig, by removing regions annotated as “centromere” in an available GFF file, and by removing contigs that were less than 10 kb in total length. Finally, contigs that were composed of more than 5% ambiguous nucleotides were removed. This final filtered set included 15,032 genomes and 6.98 trillion nucleotides.
+All available eukaryotic reference genomes were downloaded from NCBI on 05/32/2024, excluding atypical genomes, metagenome-assembled genomes, and genomes from large multi-isolate projects. This resulted in 16,704 genomes including an estimated ~10.7 trillion nucleotides. Only contigs that were annotated as 'Primary Assembly', 'non-nuclear', or 'aGasCar1.hap1' (an aberrant annotation that applied only to GCA_027917425.1) were retained. Mash sketch was run on each individual genome with the flag "-s 10000" and the mash distance was calculated between all genomes as an estimate for their pairwise 1-ANI (average nucleotide identity). All genomes with a mash distance < 0.01 were joined with edges in a graph, and clusters were identified by finding connected components. One representative genome per cluster was chosen, prioritizing genomes with a higher assembly level and genomes with longer total sequence length. This clustering resulted in 15,148 candidate genomes. Genomes were further filtered by removing ambiguous nucleotides at the termini of each contig, by removing regions annotated as "centromere" in an available GFF file, and by removing contigs that were less than 10 kb in total length. Finally, contigs that were composed of more than 5% ambiguous nucleotides were removed. This final filtered set included 15,032 genomes and 6.98 trillion nucleotides.
 
-Bridge Metagenomic Data
+_Bridge Metagenomic Data_
 Link: [Bridge RNAs direct programmable recombination of target and donor DNA](https://www.nature.com/articles/s41586-024-07552-4)
 Data Collection Method: Automatic/Sensors/Human
 Labeling Method by dataset: Automatic
@@ -146,7 +146,7 @@ _NCBI Organelle_
 Link: [NCBI Organelle Genome Data Package](https://www.ncbi.nlm.nih.gov/datasets/organelle/?taxon=2759)
 Data Collection Method: Automatic/Sensors/Human
 Labeling Method by dataset: Automatic
-Eukaryotic organelle genomes: (at the time of data query) 33,457 organelle genomes were identified and downloaded using the “NCBI Organelle” web resource. Ambiguous nucleotides at the terminal ends of the organelle genome sequences were removed. Sequences that had over 25 ambiguous nucleotides were removed. This resulted in 32,241 organelle genomes that were used for training, including 1,613 mitochondria, 12,856 chloroplasts, 1,751 plastids, 18 apicoplasts, 1 cyanelle, and 1 kinetoplast.
+Eukaryotic organelle genomes: (at the time of data query) 33,457 organelle genomes were identified and downloaded using the "NCBI Organelle" web resource. Ambiguous nucleotides at the terminal ends of the organelle genome sequences were removed. Sequences that had over 25 ambiguous nucleotides were removed. This resulted in 32,241 organelle genomes that were used for training, including 1,613 mitochondria, 12,856 chloroplasts, 1,751 plastids, 18 apicoplasts, 1 cyanelle, and 1 kinetoplast.
 
 ### Inference:
 
@@ -159,10 +159,10 @@ Evo2 NIM:
 - H200 (1 and 2 GPU configurations, 144 GB each)
 - H100 (2 GPU configuration, 80 GB each)
 
-Bionemo-framework:
+BioNeMo Framework:
 
 - A100 (1, 8, ..., 1024 GPU configurations)
-- H100 (1, 8, ..., 2048 GPU configurations )
+- H100 (1, 8, ..., 2048 GPU configurations)
 - A6000 (1, 2 GPU configurations (standard developer environment))
 - A5880 (1, 2 GPU configurations (alternative developer environment))
 - L40S (1 GPU configuration (brev.dev standard configuration))
@@ -177,20 +177,20 @@ Please report security vulnerabilities or NVIDIA AI Concerns [here](https://www.
 
 ## Benchmarking
 
-### Performance vs context length
+### Performance vs Context Length
 
 With the current implementation of Evo2, we do not have the heavily optimized kernels in place for convolution operators like we do for
-attention layers in a model like llama2. Even with this shortcoming, we see that the benefit from including more convolutional layers
-makes up for the earlier stage of optimization at around the 64k context length. Beyond that point we see an improvement
+attention layers in a model like Llama 2. Even with this shortcoming, we see that the benefit from including more convolutional layers
+makes up for the earlier stage of optimization at around the 64K context length. Beyond that point we see an improvement
 in performance even compared to a highly optimized transformer model.
 
-![Evo2 becomes faster than llama2 beyond around 64k context length in this version](../assets/images/evo2/evo2_vs_llama2_performance_vs_context_length.png)
+![Evo2 becomes faster than Llama 2 beyond around 64K context length in this version](../assets/images/evo2/evo2_vs_llama2_performance_vs_context_length.png)
 
-Comparing model sizes, our benchmarks show the 7B variant processes approximately 4.9x more tokens per step than the 40B variant across tested configurations. When scaling from 8k to 1M sequence length, throughput decreases as expected, with the 7B model processing 9.7x fewer tokens per step and the 40B model processing 8.9x fewer tokens per step at the longer context length:
+Comparing model sizes, our benchmarks show the 7B variant processes approximately 4.9x more tokens per step than the 40B variant across tested configurations. When scaling from 8K to 1M sequence length, throughput decreases as expected, with the 7B model processing 9.7x fewer tokens per step and the 40B model processing 8.9x fewer tokens per step at the longer context length:
 
 ![Evo2 7B vs 40B performance by sequence length](../assets/images/evo2/evo2_vs_7b_40b_performance_vs_context_length.png)
 
-### Performance vs cluster size
+### Performance vs Cluster Size
 
 Performance scales linearly with a very small overhead on a cluster with fast interconnects.
 ![Evo2 linear scaling with increasing number of GPUs](../assets/images/evo2/evo2_performance_by_cluster_size.png)
