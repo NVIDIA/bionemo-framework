@@ -57,7 +57,7 @@ Dataset (e.g., a publication that produces data and uploads to CELLxGENE) leads 
 
 ![Top datasets make up a large fraction of cells](../assets/old_images/cellxgene/num_cells_by_dataset.png)
 
-Looking at the makeup of these top datasets, we see that most represent single tissue categories predominately. Most of these tend to be nervous system datasets with the exception of one which is balanced between many cell types.
+Looking at the makeup of these top datasets, we see that they represent single tissue categories predominately. Most of these tend to be nervous system datasets, with the exception of one that is balanced between many cell types.
 ![Top 9 datasets are largely biased toward single cell types](../assets/old_images/cellxgene/top9_datasets_tissue_distribution.png)
 
 ## References
