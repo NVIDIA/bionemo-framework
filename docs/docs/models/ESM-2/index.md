@@ -144,11 +144,11 @@ extrapolating single-node (8 GPU) performance, representing a model flops utiliz
 
 ### LoRA Fine-tuning Performace
 
-Fine-tuning ESM-3B and ESM-650M with LoRA achieves improvements in GPU utilization and training time.
+Fine-tuning ESM-3B and ESM-650M with LoRA achieves improvements in GPU utilization and training time over fine-tuning a full ESM2 model. In models with LoRA, the encoder and embedding layers are replaced with LoRA modules.
 
 #### LoRA GPU Memory Usage
 
-GPU memory usage decreases by a factor of 2.5 - 4.
+GPU memory usage decreases by a factor of 2.5 - 4 in a model fine-tuned with LoRA.
 
 ![ESM2 Memory Usage](../../assets/images/esm2/esm2_peft_memory_usage.png)
 
