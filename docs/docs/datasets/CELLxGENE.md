@@ -53,7 +53,7 @@ Different assays have different ranges of reported gene measurements. On the low
 
 #### Dataset distribution
 
-Dataset (e.g., a publication that produces data and uploads to CELLxGENE) leads to known batch effects due to different handling procedures, collection procedures, etc. We stratify our training vs hold-out split by this covariate for this reason. Exploring the breakdown of datasets we see that the top 10 datasets represent approximately 10 million cells of the full CELLxGENE dataset. The largest dataset alone has 4 million cells.
+Dataset (for example, a publication that produces data and uploads to CELLxGENE) leads to known batch effects due to different handling procedures, collection procedures, and more. Hence, we stratify our training rather than hold out split by this covariate. Exploring the breakdown of datasets, we see that the top 10 datasets represent approximately 10 million cells of the full CELLxGENE dataset. The largest dataset alone has 4 million cells.
 
 ![Top datasets make up a large fraction of cells](../assets/old_images/cellxgene/num_cells_by_dataset.png)
 
