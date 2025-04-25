@@ -322,6 +322,8 @@ COPY ./docs ./docs
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
+# Fix a CRIT vuln: https://github.com/advisories/GHSA-vqfr-h8mv-ghfj
+RUN uv pip install h11==0.16.0
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
 RUN chmod 777 -R /workspace/bionemo2/
