@@ -147,7 +147,13 @@ extrapolating single-node (8 GPU) performance, representing a model flops utiliz
 Fine-tuning ESM-3B and ESM-650M with LoRA achieves improvements in GPU utilization and training time.
 
 #### LoRA GPU Memory Usage
-![ESM2 Memory Usage](../../assets/images/esm2/esm2_peft_memory_usage.png){width=350px}
+
+GPU memory usage decreases by a factor of 2.5 - 4.
+
+![ESM2 Memory Usage](../../assets/images/esm2/esm2_peft_memory_usage.png)
 
 #### LoRA Scaling
-![ESM2 Memory Usage](../../assets/images/esm2/esm2_peft_time.png){width=350px}
+
+The number of tokens processed per second increases by 25-80%.
+
+![ESM2 Memory Usage](../../assets/images/esm2/esm2_peft_time.png)
