@@ -304,40 +304,6 @@ def main(
                 start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
             )
         )
-    # Configure our custom ModelCheckpointe callback and AutoResume to save at nemo_logger.save_dir/checkpoints
-    if create_checkpoint_callback:
-        checkpoint_callback = nl_callbacks.ModelCheckpoint(
-            save_last=save_last_checkpoint,
-            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
-            save_top_k=save_top_k,
-            every_n_train_steps=val_check_interval,
-            always_save_context=True,
-            # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-            filename="{epoch}-{step}-{consumed_samples}",
-            # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-        )
-
-    else:
-        checkpoint_callback = None
-    # Setup the logger and train the model
-    nemo_logger = setup_nemo_lightning_logger(
-        root_dir=result_dir,
-        name=experiment_name,
-        initialize_tensorboard_logger=create_tensorboard_logger,
-        wandb_config=wandb_config,
-        ckpt_callback=checkpoint_callback,
-    )
-
-    if create_checkpoint_callback:
-        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
-        auto_resume = resume.AutoResume(
-            resume_from_directory=checkpoint_path,
-            resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
-            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
-            resume_past_end=False,
-        )
-    else:
-        auto_resume = None
 
     if create_tflops_callback:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
@@ -350,6 +316,39 @@ def main(
             "bert",
         )
         callbacks.append(flop_meas_callback)
+
+    # Setup the logger and train the model
+    nemo_logger = setup_nemo_lightning_logger(
+        root_dir=result_dir,
+        name=experiment_name,
+        initialize_tensorboard_logger=create_tensorboard_logger,
+        wandb_config=wandb_config,
+    )
+
+    # Configure our custom ModelCheckpointe callback and AutoResume to save at nemo_logger.save_dir/checkpoints
+    if create_checkpoint_callback:
+        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            dirpath=checkpoint_path,
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,
+            # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="{epoch}-{step}-{consumed_samples}",
+            # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        )
+        callbacks.append(checkpoint_callback)
+
+        auto_resume = resume.AutoResume(
+            resume_from_directory=checkpoint_path,
+            resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
+            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
+            resume_past_end=False,
+        )
+    else:
+        auto_resume = None
 
     trainer = nl.Trainer(
         devices=devices,
