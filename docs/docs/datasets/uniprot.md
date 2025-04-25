@@ -23,7 +23,7 @@ randomly chosen UniRef90 sequence from each.
 
 Two versions of the dataset are distributed, a full training dataset (~80GB) and a 10,000 UniRef50 cluster random slice
 (~150MB). To load and use the sanity dataset, the [bionemo.core.data.load][bionemo.core.data.load.load] function
-can be used to materialize the sanity dataset in the BioNeMo2 cache directory:
+to materialize the sanity dataset in the BioNeMo2 cache directory:
 
 ```python
 from bionemo.core.data.load import load
