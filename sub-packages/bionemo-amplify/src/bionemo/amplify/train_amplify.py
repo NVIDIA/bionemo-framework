@@ -234,9 +234,10 @@ def main(
 
     tokenizer = BioNeMoAMPLIFYTokenizer()
 
-    # Initialize the data module.
+    # Initialize the data module. hf_load_dataset loads these datasets from the huggingface hub if they're not available
+    # locally, but the download and pre-processing can take a while.
     data = AMPLIFYDataModule(
-        train_hf_dataset=hf_load_dataset("chandar-lab/UR100P", data_dir="UniProt", split="train"),  # type: ignore
+        train_hf_dataset=hf_load_dataset("chandar-lab/UR100P", split="train"),  # type: ignore
         valid_hf_dataset=hf_load_dataset("chandar-lab/UR100P", data_dir="UniProt", split="test"),  # type: ignore
         global_batch_size=global_batch_size,
         micro_batch_size=micro_batch_size,

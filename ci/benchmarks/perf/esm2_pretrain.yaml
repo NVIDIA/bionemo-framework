@@ -1,20 +1,20 @@
 scope: perf
 time_limit: 1800
+key_segments:
+  # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
+  data_path: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
   # See jet/core/configs.py for the specification of the configuration class
-  workspace:
-    value: /workspace/bionemo2
-    key_segment: False
-  data_path:
-    value: /data/20240809_uniref_2024_03/data
-    key_segment: False
+  workspace: /workspace/bionemo2
+  data_path: /data/20240809_uniref_2024_03/data
   model: esm2
   variant: train
   config_name: 650M
   precision: bf16-mixed
-  max_steps: 200
+  max_steps: 500000
+  stop_steps: 200
   gpus: 8
   acc_grad: 1
   products:
@@ -22,10 +22,11 @@ script_args:
       batch_size: 16
       pp: 1
       tp: 1
-    - nodes: 2
-      batch_size: 16
-      pp: 2
-      tp: 1
+#      FIXME (broken pp): https://github.com/NVIDIA/bionemo-framework/issues/784
+#    - nodes: 2
+#      batch_size: 16
+#      pp: 2
+#      tp: 1
     - nodes: 2
       batch_size: 16
       pp: 1
@@ -46,6 +47,7 @@ script: |-
     --val-check-interval=50 \
     --limit-val-batches=1 \
     --num-steps=${max_steps} \
+    --early-stop-on-step ${stop_steps} \
     --min-seq-length=1024 \
     --max-seq-length=1024 \
     --num-layers=33 \
@@ -53,7 +55,7 @@ script: |-
     --num-attention-heads=20 \
     --ffn-hidden-size=5120 \
     --create-tensorboard-logger \
-    --experiment-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+    --experiment-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec_tp${tp}_pp_${pp} \
     --result-dir=${tensorboard_dir} \
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name}__${target} \

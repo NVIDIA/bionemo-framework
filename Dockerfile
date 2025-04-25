@@ -21,7 +21,7 @@
 #   training loss curves from NeMo.
 ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
 
-FROM rust:1.82.0 AS rust-env
+FROM rust:1.86.0 AS rust-env
 
 RUN rustup set profile minimal && \
   rustup install 1.82.0 && \
@@ -114,6 +114,12 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     pip install .; \
 fi
 
+# On ARM, bits and bytes needs to be built from scratch
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+    cd / && pip uninstall bitsandbytes && \
+    git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
+    cd bitsandbytes && pip install . && cd .. && rm -rf bitsandbytes; \
+fi
 ###############################################################################
 # /end ARM
 ###############################################################################
@@ -127,6 +133,9 @@ RUN pip --disable-pip-version-check --no-cache-dir install \
 RUN pip install hatchling urllib3  # needed to install nemo-run
 ARG NEMU_RUN_TAG=v0.3.0
 RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG} --use-deprecated=legacy-resolver
+
+# Rapids SingleCell Installation
+RUN pip install 'rapids-singlecell' --extra-index-url=https://pypi.nvidia.com
 
 RUN mkdir -p /workspace/bionemo2/
 
