@@ -141,3 +141,13 @@ nodes. <sup>*</sup>*Note:* 15B model variants were trained on 64 GPUs with the B
 
 Training ESM-3B on 256 NVIDIA A100s on 32 nodes achieved 96.85% of the theoretical linear throughput expected from
 extrapolating single-node (8 GPU) performance, representing a model flops utilization of 60.6% at 256 devices.
+
+### LoRA Fine-tuning Performace
+
+Fine-tuning ESM-3B and ESM-650M with LoRA achieves improvements in GPU utilization and training time.
+
+#### LoRA GPU Memory Usage
+![ESM2 Memory Usage](../../assets/images/esm2/esm2_peft_memory_usage.png){width=350px}
+
+#### LoRA Scaling
+![ESM2 Memory Usage](../../assets/images/esm2/esm2_peft_time.png){width=350px}
