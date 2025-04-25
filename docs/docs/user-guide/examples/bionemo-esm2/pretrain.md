@@ -2,13 +2,13 @@
 
 This tutorial serves as a demo for pretraining [ESM2](https://www.science.org/doi/abs/10.1126/science.ade2574) from scratch with [UniProt](https://www.uniprot.org/) sequences.
 
-The ESM-2 model is a transformer-based protein language model that was pretrained on masked language model (MLM) task. The objective is to recover the original amino acid types of the perturbed locations from the rest of the protein sequences. Through pretraining, ESM-2 learns the evolutionary information in protein sequences similar to conservation analysis and Pott's model, and predicts the optimal mutations on any given protein sequence.
+The ESM-2 model is a transformer-based protein language model that was pretrained on masked language model (MLM) task. The objective is to recover the original amino acid types of the perturbed locations from the rest of the protein sequences. Through pretraining, ESM-2 learns the evolutionary information in protein sequences similar to conservation analysis and Potts model, and predicts the optimal mutations on any given protein sequence.
 
 # Setup and Assumptions
 
 In this tutorial, we will demonstrate how to create an ESM-2 pretraining data module, and create and train a ESM-2 model.
 
-All commands should be executed inside the BioNeMo docker container, which has all ESM-2 dependencies pre-installed. The BioNeMo Framework container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier so a credit card may be required. You can reach out to your NVIDIA rep for credit. After launching the instance, launch a Terminal session in the Jupyter Lab UI. (Note: This links to the nightly release and may be out of sync with these docs.)
+All commands should be executed inside the BioNeMo docker container, which has all ESM-2 dependencies pre-installed. The BioNeMo Framework container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier, so a credit card may be required. You can reach out to your NVIDIA rep for credit. After launching the instance, launch a Terminal session in the Jupyter Lab UI. (Note: This links to the nightly release and may be out of sync with these docs.)
 
 Alternatively,  more information on how to build or pull the BioNeMo2 container locally, refer to the [Initialization Guide](../../getting-started/initialization-guide.md).
 
@@ -22,7 +22,7 @@ Similar to PyTorch Lightning, we have to define some key classes:
 
 1. `MegatronStrategy` - To launch and setup parallelism for [NeMo](https://github.com/NVIDIA/NeMo/tree/main) and [Megatron-LM](https://github.com/NVIDIA/Megatron-LM).
 2. `Trainer` - To configure training configurations and logging.
-3. `ESMDataModule` - To load pretraining training and validation data with mapped UniRef90 sequences to UniRef50 clusters.
+3. `ESMDataModule` - To load pretraining and validation data with mapped UniRef90 sequences to UniRef50 clusters.
 4. `ESM2Config` - To configure the ESM-2 model as `BionemoLightningModule`.
 
 ## 1 - MegatronStrategy
