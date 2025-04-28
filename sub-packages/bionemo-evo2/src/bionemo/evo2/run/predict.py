@@ -504,6 +504,15 @@ class MambaPredictor(MambaModel, LightningPassthroughPredictionMixin):
         output_log_prob_seqs: bool = False,
         log_prob_collapse_option: Literal["sum", "mean"] = "mean",
     ):
+        """Initialize the MambaPredictor, which wraps the mamba model for prediction handling model parallelism.
+
+        Args:
+            config: Model Config
+            tokenizer: tokenizer for the model. Defaults to None.
+            output_log_prob_seqs: If you want to output the log probabilities of the sequences. Defaults to False.
+            log_prob_collapse_option: collapse the log probabilities of the sequences with this prior to return.
+                Defaults to "mean".
+        """
         super().__init__(config, tokenizer)
         self.output_log_prob_seqs = output_log_prob_seqs
         self.log_prob_collapse_option = log_prob_collapse_option
@@ -555,8 +564,6 @@ class MambaPredictor(MambaModel, LightningPassthroughPredictionMixin):
 
     def predict_step(self, batch, batch_idx: int, dataloader_idx: int = 0) -> dict:
         """Prediction step, saving the results."""
-        packed_seq_params = get_packed_seq_params(None)
-
         # Get the tokens and attention mask
         if batch == {}:
             batch = {"tokens": [], "position_ids": [], "attention_mask": []}

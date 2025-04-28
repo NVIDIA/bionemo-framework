@@ -17,11 +17,13 @@
 # limitations under the License.
 import argparse
 import io
+import os
 import shlex
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Tuple
 
 import pytest
+from lightning.fabric.plugins.environments.lightning import find_free_network_port
 from nemo import lightning as nl
 from transformer_engine.pytorch.fp8 import check_fp8_support
 
