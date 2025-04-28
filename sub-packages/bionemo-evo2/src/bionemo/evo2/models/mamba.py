@@ -268,8 +268,8 @@ class HybridMambaConfig8BEvo2Loss(SSMConfig):
     to_upper: str = "normalized_weighted"
     # Set lowercase loss reweighting factor
     lowercase_loss_reweighting: float = 1.0
-    # Squared ReLU activation
-    activation_func: Callable = lambda x: torch.pow(F.relu(x), 2)
+    # Squared ReLU activation -> tanh(x) * relu(x) which doesn't explode as much as relu^2 but still differentiable.
+    activation_func: Callable = lambda x: F.relu(x) * F.tanh(x)  # lambda x: torch.pow(F.relu(x), 2)
     hyena_no_weight_decay_cond_fn: Callable = mamba_no_weight_decay_cond
 
     def configure_model(self, tokenizer, pre_process=None, post_process=None) -> "Evo2StyleMCoreMambaModel":
