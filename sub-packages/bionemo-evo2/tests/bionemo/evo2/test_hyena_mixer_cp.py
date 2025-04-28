@@ -14,9 +14,10 @@
 # limitations under the License.
 
 """Usage:
-torchrun --nproc_per_node=2 sub-packages/bionemo-evo2/tests/bionemo/evo2/test_hyena_mixer_cp.py
+torchrun --nproc_per_node=2 sub-packages/bionemo-evo2/tests/bionemo/evo2/test_hyena_mixer_cp.py [--use_b2b_causal_conv1d]
 """
 
+import argparse
 import os
 from datetime import timedelta
 
@@ -163,7 +164,7 @@ def zigzag_gather_from_group_ranks(data, group, seq_dim=0):
 
 
 class B2BConv1d(torch.nn.Module):
-    def __init__(self, hyena_config, hyena_test_config, seq_len):
+    def __init__(self, hyena_config, hyena_test_config, seq_len, use_b2b_causal_conv1d=False):
         super().__init__()
 
         # Create necessary submodules - use the mixer submodules like in the regular mixer fixture
@@ -177,7 +178,7 @@ class B2BConv1d(torch.nn.Module):
             submodules=submodules,
             layer_number=1,
             operator_type="hyena_short_conv",
-            use_b2b_causal_conv1d=True,
+            use_b2b_causal_conv1d=use_b2b_causal_conv1d,
         )
 
     def forward(self, x, _use_cp=True):
@@ -190,6 +191,16 @@ class B2BConv1d(torch.nn.Module):
 
 
 if __name__ == "__main__":
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Test hyena mixer with context parallelism")
+    parser.add_argument(
+        "--use_b2b_causal_conv1d",
+        action="store_true",
+        default=False,
+        help="Whether to use b2b causal conv1d implementation",
+    )
+    args = parser.parse_args()
+
     # Initialize parallel state
     local_rank = init_parallel_state(context_parallel_size=2)
 
@@ -202,7 +213,13 @@ if __name__ == "__main__":
 
     batch_size = 2
     seq_len = 512
-    b2b_conv1d = B2BConv1d(hyena_config, hyena_test_config, seq_len=512)
+    b2b_conv1d = B2BConv1d(
+        hyena_config, hyena_test_config, seq_len=512, use_b2b_causal_conv1d=args.use_b2b_causal_conv1d
+    )
+
+    # Print configuration
+    print(f"Rank {dist.get_rank()}: Using b2b_causal_conv1d: {args.use_b2b_causal_conv1d}")
+
     ddp_b2b_conv1d = DDP(
         b2b_conv1d,
         process_group=parallel_state.get_data_parallel_group(with_context_parallel=True),
