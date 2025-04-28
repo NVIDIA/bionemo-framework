@@ -199,10 +199,32 @@ if __name__ == "__main__":
         default=False,
         help="Whether to use b2b causal conv1d implementation",
     )
+    parser.add_argument(
+        "--tensor_model_parallel_size",
+        type=int,
+        default=1,
+        help="Tensor model parallel size",
+    )
+    parser.add_argument(
+        "--pipeline_model_parallel_size",
+        type=int,
+        default=1,
+        help="Pipeline model parallel size",
+    )
+    parser.add_argument(
+        "--context_parallel_size",
+        type=int,
+        default=2,
+        help="Context parallel size",
+    )
     args = parser.parse_args()
 
     # Initialize parallel state
-    local_rank = init_parallel_state(context_parallel_size=2)
+    local_rank = init_parallel_state(
+        tensor_model_parallel_size=args.tensor_model_parallel_size,
+        pipeline_model_parallel_size=args.pipeline_model_parallel_size,
+        context_parallel_size=args.context_parallel_size,
+    )
 
     # Initialize the model parallel RNG
     model_parallel_cuda_manual_seed(42)
