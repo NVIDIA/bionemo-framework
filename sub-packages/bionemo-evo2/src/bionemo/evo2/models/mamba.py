@@ -63,7 +63,8 @@ def mamba_forward_step(model, batch) -> torch.Tensor:
 
 class MambaModel(GPTModel):
     """Mamba model that extends GPTModel for integration with NeMo.
-    Loss calculation is handled by CustomMCoreMambaModel instead.
+
+    Note that the loss calculation is handled by CustomMCoreMambaModel instead.
     """
 
     def get_inference_wrapper(self, params_dtype, inference_batch_times_seqlen_threshold) -> torch.Tensor:
@@ -128,8 +129,9 @@ class MambaModel(GPTModel):
 
 # Custom MCoreMambaModel with reweighted loss calculation
 class Evo2StyleMCoreMambaModel(MCoreMambaModel):
-    """Custom version of MCoreMambaModel that implements reweighted loss calculation
-    similar to the HyenaModel for uppercase/lowercase handling.
+    """Custom version of MCoreMambaModel that implements reweighted loss calculation.
+
+    Note that this is similar to the HyenaModel for uppercase/lowercase handling.
     """
 
     def __init__(
@@ -141,7 +143,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         pre_process: bool = True,
         hybrid_attention_ratio: float = 0.0,
         hybrid_mlp_ratio: float = 0.0,
-        hybrid_override_pattern: str = None,
+        hybrid_override_pattern: str | None = None,
         post_process: bool = True,
         fp16_lm_cross_entropy: bool = False,
         parallel_output: bool = True,
@@ -157,6 +159,34 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         spike_no_more_embedding_init: bool = False,
         layernorm_embeddings: bool = False,
     ):
+        """Ingest the config and create a CustomMCoreMambaModel instance.
+
+        Args:
+            config: TransformerConfig
+            mamba_stack_spec: ModuleSpec
+            vocab_size: int
+            max_sequence_length: int
+            pre_process: bool. Defaults to True.
+            hybrid_attention_ratio: float. Defaults to 0.0.
+            hybrid_mlp_ratio: float. Defaults to 0.0.
+            hybrid_override_pattern: Override pattern for layer order in the mamba stack. Defaults to None.
+            post_process: Apply post processing to the output. Defaults to True.
+            fp16_lm_cross_entropy: Use the fp16 version of the loss calculation. Defaults to False.
+            parallel_output: Keep output in sequence parallel. Defaults to True.
+            share_embeddings_and_output_weights: Share weights between embedding and output layer. Defaults to False.
+            position_embedding_type: If you want ROPE etc embeddings set to something other than "none".
+                Defaults to "none".
+            rotary_percent: Percent of the sequence length to use for the rotary embeddings. Defaults to 1.0.
+            rotary_base: Base for the rotary embeddings. Defaults to 10000.
+            scatter_embedding_sequence_parallel: Scatter the embedding to sequence parallel. Defaults to True.
+            seq_len_interpolation_factor: Factor to interpolate the sequence length. Defaults to None.
+            lowercase_loss_reweighting: Loss reweighting for lowercase characters. Defaults to 1.0.
+            to_upper: How lowercase characters are handled in the loss calculation. Defaults to "normalized_weighted".
+            spike_no_more_embedding_init: Initialize embeddings with sd=1 normal rather than the model default.
+                Defaults to False.
+            layernorm_embeddings: Apply layernorm to the embedding output as suggested in the spike no more paper.
+                Defaults to False.
+        """
         # Save any additional kwargs we might need
         self.lowercase_loss_reweighting = lowercase_loss_reweighting
         self.to_upper = to_upper
@@ -251,7 +281,8 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         **kwargs,
     ):
         """Forward pass with custom loss calculation for uppercase/lowercase reweighting.
-        This mimics the behavior in hyena_model.py lines 273-292.
+
+        Note that this mimics the behavior in hyena_model.py lines 273-292.
 
         Forward function of the Mamba model. This function passes the input tensors
         through the embedding layer, and then the decoder and finally into the post
@@ -327,7 +358,8 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
 
 def mamba_no_weight_decay_cond(name, param, exclude_embeddings: bool = False):
     """Condition for no weight decay for Mamba parameters.
-    Following the same pattern as in the original Mamba implementation.
+
+    Note that this follows the same pattern as in the original Mamba implementation.
     """
     # Mamba-specific parameters that should not have weight decay
     if (
@@ -347,14 +379,17 @@ def mamba_no_weight_decay_cond(name, param, exclude_embeddings: bool = False):
     return no_wd
 
 
-mamba_no_weight_decay_cond_with_embeddings = lambda name, param: mamba_no_weight_decay_cond(
-    name, param, exclude_embeddings=True
-)
+def mamba_no_weight_decay_cond_with_embeddings(name, param):
+    """Condition for no weight decay for Mamba parameters with embeddings.
+
+    Note that this follows the same pattern as in the original Mamba implementation but also skips WD on embeddings.
+    """
+    return mamba_no_weight_decay_cond(name, param, exclude_embeddings=True)
 
 
 @dataclass
 class HybridMambaConfig8BEvo2Loss(SSMConfig):
-    """Config for 8B hybrid Mamba model"""
+    """Config for 8B hybrid Mamba model."""
 
     hybrid_override_pattern: str = "M-M-M-M*-M-M-M-M-M*-M-M-M-M-M*-M-M-M-M-M*-M-M-M-M-M-"
     num_layers: int = 52
@@ -389,10 +424,11 @@ class HybridMambaConfig8BEvo2Loss(SSMConfig):
     # The trainer is responsible for using this when initializing the optimizer state:
     #  opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=model_config.hyena_no_weight_decay_cond_fn)
     hyena_no_weight_decay_cond_fn: Callable = mamba_no_weight_decay_cond
+    spike_no_more_embedding_init: bool = False
+    layernorm_embeddings: bool = False
 
     def configure_model(self, tokenizer, pre_process=None, post_process=None) -> "Evo2StyleMCoreMambaModel":
-        """Override the configure_model method to properly configure a CustomMCoreMambaModel
-        with reweighted loss calculation for uppercase/lowercase handling.
+        """Override the configure_model method to properly configure a CustomMCoreMambaModel with Evo2 style loss.
 
         Args:
             tokenizer: Tokenizer to use with the model
@@ -424,6 +460,8 @@ class HybridMambaConfig8BEvo2Loss(SSMConfig):
             # Pass our custom parameters for loss calculation
             to_upper=self.to_upper,
             lowercase_loss_reweighting=self.lowercase_loss_reweighting,
+            spike_no_more_embedding_init=self.spike_no_more_embedding_init,
+            layernorm_embeddings=self.layernorm_embeddings,
         )
 
 
