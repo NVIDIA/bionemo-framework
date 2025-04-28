@@ -190,7 +190,10 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         # Save any additional kwargs we might need
         self.lowercase_loss_reweighting = lowercase_loss_reweighting
         self.to_upper = to_upper
-        super().__init__(config=config)
+        # NOTE: the following code is copied from the MambaModel class in Megatron-LM's __init__
+        #  This is so we can override the config specifically in the LanguageModelEmbedding.
+        #  A better approach would be to make this a configuration in the parent class and call super().__init__
+        super(MCoreMambaModel, self).__init__(config=config)
 
         if has_config_logger_enabled(config):
             log_config_to_disk(config, locals(), prefix=type(self).__name__)
