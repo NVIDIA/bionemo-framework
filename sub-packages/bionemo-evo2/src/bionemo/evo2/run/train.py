@@ -46,7 +46,7 @@ from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils.exp_manager import TimingCallback
 
 # Add import for Mamba models
-from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
+from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -216,7 +216,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "--use-precision-aware-optimizer",
         action="store_true",
         default=False,
-        help="Use precision aware optimizer that stores main weights in FP32 when doing mixed precision training."
+        help="Use precision aware optimizer that stores main weights in FP32 when doing mixed precision training.",
     )
     parser.add_argument(
         "--bf16-main-grads",
@@ -346,6 +346,26 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         required=False,
         default=0,
         help="Start nsys profiling after this step.",
+    )
+    parser.add_argument(
+        "--spike-no-more-embedding-init",
+        action="store_true",
+        default=False,
+        help="If set, do not initialize the embeddings with a normal distribution. This along with "
+        "--layernorm-embeddings and --no-weight-decay-embeddings should be used to replicate the 'Spike No More'"
+        " publication.",
+    )
+    parser.add_argument(
+        "--layernorm-embeddings",
+        action="store_true",
+        default=False,
+        help="If set, use a layer norm for the embeddings.",
+    )
+    parser.add_argument(
+        "--no-weight-decay-embeddings",
+        action="store_true",
+        default=False,
+        help="If set, do not apply weight decay to the embeddings.",
     )
     parser.add_argument(
         "--nsys-end-step",
@@ -556,6 +576,12 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         model_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer)
     else:  # mamba
+        if args.no_weight_decay_embeddings:
+            config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
+        if args.spike_no_more_embedding_init:  # --spike-no-more-embedding-init
+            config_modifiers_init["spike_no_more_embedding_init"] = True
+        if args.layernorm_embeddings:  # --layernorm-embeddings
+            config_modifiers_init["layernorm_embeddings"] = True
         if args.model_size not in MAMBA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
         add_bias_output = config_modifiers_init.pop("add_bias_output")
@@ -659,7 +685,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
                 f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
                 f"-PAO{args.use_precision_aware_optimizer}"
                 f"-NODES{args.num_nodes}-FP8{args.fp8}"
-
             ),
             group=args.wandb_group,
             job_type=args.wandb_job_type,
@@ -789,7 +814,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         min_lr=args.min_lr,
         constant_steps=args.constant_steps,
     )
-
+    # This is where the no weight decay condition is applied to the optimizer state.
     opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=model_config.hyena_no_weight_decay_cond_fn)
     opt.connect(model)
     # Start training

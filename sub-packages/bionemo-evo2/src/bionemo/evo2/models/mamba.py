@@ -13,17 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Callable, Optional, Type
+from typing import Callable, Literal, Optional, Type
 
 import torch
 import torch.nn.functional as F
-from megatron.core import parallel_state
+from megatron.core import parallel_state, tensor_parallel
+from megatron.core.config_logger import has_config_logger_enabled, log_config_to_disk
+from megatron.core.extensions.transformer_engine import TENorm
 from megatron.core.inference.model_inference_wrappers.gpt.gpt_inference_wrapper import GPTInferenceWrapper
 from megatron.core.inference.model_inference_wrappers.inference_wrapper_config import InferenceWrapperConfig
+from megatron.core.models.common.embeddings.language_model_embedding import LanguageModelEmbedding
+from megatron.core.models.common.embeddings.rotary_pos_embedding import RotaryEmbedding
 
 # Import original MCoreMambaModel for subclassing
 from megatron.core.models.mamba import MambaModel as MCoreMambaModel
+from megatron.core.transformer import TransformerConfig
+from megatron.core.transformer.enums import ModelType
+from megatron.core.transformer.spec_utils import ModuleSpec, build_module
+from megatron.core.utils import init_method_normal
 from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step
 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import make_upper_case, reweighted_cross_entropy
 from nemo.collections.llm.gpt.model.ssm import (
@@ -124,12 +133,110 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
     """
 
     def __init__(
-        self, *args, lowercase_loss_reweighting: float = 1.0, to_upper: str = "normalized_weighted", **kwargs
+        self,
+        config: TransformerConfig,
+        mamba_stack_spec: ModuleSpec,
+        vocab_size: int,
+        max_sequence_length: int,
+        pre_process: bool = True,
+        hybrid_attention_ratio: float = 0.0,
+        hybrid_mlp_ratio: float = 0.0,
+        hybrid_override_pattern: str = None,
+        post_process: bool = True,
+        fp16_lm_cross_entropy: bool = False,
+        parallel_output: bool = True,
+        share_embeddings_and_output_weights: bool = False,
+        # Mamba with no attention has no need for position embeddings, so none is default
+        position_embedding_type: Literal["learned_absolute", "rope", "none"] = "none",
+        rotary_percent: float = 1.0,
+        rotary_base: int = 10000,
+        scatter_embedding_sequence_parallel: bool = True,
+        seq_len_interpolation_factor: Optional[float] = None,
+        lowercase_loss_reweighting: float = 1.0,
+        to_upper: str = "normalized_weighted",
+        spike_no_more_embedding_init: bool = False,
+        layernorm_embeddings: bool = False,
     ):
         # Save any additional kwargs we might need
         self.lowercase_loss_reweighting = lowercase_loss_reweighting
         self.to_upper = to_upper
-        super().__init__(*args, **kwargs)
+        super().__init__(config=config)
+
+        if has_config_logger_enabled(config):
+            log_config_to_disk(config, locals(), prefix=type(self).__name__)
+
+        self.mamba_stack_spec: ModuleSpec = mamba_stack_spec
+        self.vocab_size = vocab_size
+        self.max_sequence_length = max_sequence_length
+        self.pre_process = pre_process
+        self.hybrid_attention_ratio = hybrid_attention_ratio
+        self.hybrid_mlp_ratio = hybrid_mlp_ratio
+        self.hybrid_override_pattern = hybrid_override_pattern
+        self.post_process = post_process
+        self.fp16_lm_cross_entropy = fp16_lm_cross_entropy
+        self.parallel_output = parallel_output
+        self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
+        self.position_embedding_type = position_embedding_type
+
+        # megatron core pipelining currently depends on model type
+        # TODO: remove this dependency ?
+        self.model_type = ModelType.encoder_or_decoder
+
+        if self.pre_process:
+            if spike_no_more_embedding_init:
+                embedding_config = deepcopy(self.config)
+                embedding_config.init_method = init_method_normal(1.0)
+            else:
+                embedding_config = self.config
+            self.embedding = LanguageModelEmbedding(
+                config=embedding_config,
+                vocab_size=self.vocab_size,
+                max_sequence_length=self.max_sequence_length,
+                position_embedding_type=position_embedding_type,
+                scatter_to_sequence_parallel=scatter_embedding_sequence_parallel,
+            )
+            if layernorm_embeddings:
+                self.post_embedding_norm = TENorm(
+                    config=self.config,
+                    hidden_size=config.hidden_size,
+                    eps=config.layernorm_epsilon,
+                )
+
+        if self.position_embedding_type == "rope":
+            self.rotary_pos_emb = RotaryEmbedding(
+                kv_channels=self.config.kv_channels,
+                rotary_percent=rotary_percent,
+                seq_len_interpolation_factor=seq_len_interpolation_factor,
+                rotary_base=rotary_base,
+                use_cpu_initialization=self.config.use_cpu_initialization,
+            )
+
+        self.decoder = build_module(
+            mamba_stack_spec,
+            self.config,
+            pre_process=self.pre_process,
+            hybrid_attention_ratio=self.hybrid_attention_ratio,
+            hybrid_mlp_ratio=self.hybrid_mlp_ratio,
+            hybrid_override_pattern=self.hybrid_override_pattern,
+            post_process=self.post_process,
+            dtype=config.params_dtype,
+        )
+
+        # Output
+        if post_process:
+            self.output_layer = tensor_parallel.ColumnParallelLinear(
+                config.hidden_size,
+                self.vocab_size,
+                config=config,
+                init_method=config.init_method,
+                bias=False,
+                skip_bias_add=False,
+                gather_output=not self.parallel_output,
+                skip_weight_param_allocation=self.pre_process and self.share_embeddings_and_output_weights,
+            )
+
+        if self.pre_process or self.post_process:
+            self.setup_embeddings_and_output_layer()
 
     def forward(
         self,
@@ -160,6 +267,8 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
             pass
         elif self.pre_process:
             decoder_input = self.embedding(input_ids=input_ids, position_ids=position_ids)
+            if self.post_embedding_norm is not None:
+                decoder_input = self.post_embedding_norm(decoder_input)
         else:
             # intermediate stage of pipeline
             # decoder will get hidden_states from encoder.input_tensor
@@ -216,7 +325,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         return loss
 
 
-def mamba_no_weight_decay_cond(name, param):
+def mamba_no_weight_decay_cond(name, param, exclude_embeddings: bool = False):
     """Condition for no weight decay for Mamba parameters.
     Following the same pattern as in the original Mamba implementation.
     """
@@ -225,15 +334,22 @@ def mamba_no_weight_decay_cond(name, param):
         name.endswith("dt_bias")
         or name.endswith("A_log")
         or name.endswith("D")
+        or ("embedding" in name and exclude_embeddings)
         or getattr(param, "_no_weight_decay", False)
     ):
         no_wd = True
     # All other parameters - use default MCore behavior:
     # Do not regularize biases and norm parameters
     # (See megatron.core.optimizer._get_pram_groups)
+    # TODO exclude embeddings
     else:
         no_wd = name.endswith(".bias") or len(param.shape) == 1
     return no_wd
+
+
+mamba_no_weight_decay_cond_with_embeddings = lambda name, param: mamba_no_weight_decay_cond(
+    name, param, exclude_embeddings=True
+)
 
 
 @dataclass
@@ -270,6 +386,8 @@ class HybridMambaConfig8BEvo2Loss(SSMConfig):
     lowercase_loss_reweighting: float = 1.0
     # Squared ReLU activation -> tanh(x) * relu(x) which doesn't explode as much as relu^2 but still differentiable.
     activation_func: Callable = lambda x: F.relu(x) * F.tanh(x)  # lambda x: torch.pow(F.relu(x), 2)
+    # The trainer is responsible for using this when initializing the optimizer state:
+    #  opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=model_config.hyena_no_weight_decay_cond_fn)
     hyena_no_weight_decay_cond_fn: Callable = mamba_no_weight_decay_cond
 
     def configure_model(self, tokenizer, pre_process=None, post_process=None) -> "Evo2StyleMCoreMambaModel":

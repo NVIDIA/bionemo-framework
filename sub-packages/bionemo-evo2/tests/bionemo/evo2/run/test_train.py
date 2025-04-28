@@ -180,7 +180,7 @@ def test_train_single_gpu(tmp_path, model_size: str):
         "--max-steps",
         str(num_steps),
         "--early-stop-on-step",
-        str(num_steps-2),
+        str(num_steps - 2),
         "--warmup-steps",
         str(1),
         "--seq-length",
