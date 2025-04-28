@@ -76,61 +76,76 @@ def init_parallel_state(tensor_model_parallel_size=1, pipeline_model_parallel_si
 
 
 def zigzag_split_across_group_ranks(data, group, seq_dim=0):
-    """Splits the data across group ranks along the seq dimension in a zigzag fashion.
+    """Distributes tensor data across group ranks using zigzag pattern.
+
+    Divides the input tensor along sequence dimension and distributes chunks
+    in an alternating pattern across different ranks.
 
     Arguments:
-        data: tensor to split across ranks.
-        group: the group to split the data across.
-        seq_dim: the sequence dimension to split.
+        data: original tensor to split across group ranks.
+        group: the group to distribute the data across.
+        seq_dim: the sequence/context dimension to split.
 
     Returns:
-        data: split of the data on the current rank.
+        Tensor slice for the current rank following zigzag distribution.
     """
-    world_size = len(dist.get_process_group_ranks(group))
-    # first check if we can just skip it...
-    if world_size == 1:
+    # Get group information
+    process_count = len(dist.get_process_group_ranks(group))
+    current_rank = dist.get_rank(group)
+
+    # Skip distribution for single process
+    if process_count == 1:
         return data
 
-    rank = dist.get_rank(group)
+    # Calculate number of chunks for zigzag distribution
+    total_chunks = 2 * process_count
 
-    # Zigzag-split the data
-    # Split into 2*world_size chunks
-    seq_chunks = torch.chunk(data, 2 * world_size, dim=seq_dim)
+    # Divide data into equal chunks
+    tensor_chunks = list(torch.chunk(data, total_chunks, dim=seq_dim))
 
-    # Combine chunks in zigzag pattern:
-    # Rank i gets chunk i and chunk -(i+1)
-    # For example with 2 ranks: [0,3] for rank 0, [1,2] for rank 1
-    _data = [torch.cat((seq_chunks[i], seq_chunks[-(i + 1)]), dim=seq_dim) for i in range(world_size)]
+    # Implement zigzag distribution logic:
+    # Each rank gets two chunks in specific positions
+    # First chunk is at position equal to rank
+    first_chunk_idx = current_rank
+    # Second chunk is from the end, offset by rank+1
+    second_chunk_idx = total_chunks - 1 - current_rank
 
-    # Select the corresponding rank
-    return _data[rank].contiguous()
+    # Combine the appropriate chunks for this rank
+    rank_data = torch.cat([tensor_chunks[first_chunk_idx], tensor_chunks[second_chunk_idx]], dim=seq_dim)
+
+    return rank_data.contiguous()
 
 
 def zigzag_gather_from_group_ranks(data, group, seq_dim=0):
-    """Gathers data from all group ranks according to zigzag splitting.
+    """Reconstructs complete tensor from zigzag-distributed chunks.
+
+    Takes data distributed across ranks in zigzag pattern and reassembles
+    the original complete tensor.
 
     Arguments:
-        data: tensor to gather across group ranks.
-        seq_dim: the sequence dimension to concatenate chunks.
+        data: tensor fragment from current rank to be gathered.
+        group: the group to gather data from.
+        seq_dim: dimension along which to concatenate fragments.
 
     Returns:
-        data: gathered data from all group ranks concatenated along the seq_dim.
-
+        Reconstructed tensor with fragments from all ranks.
     """
+    # Get group information
+    process_count = len(dist.get_process_group_ranks(group))
 
-    world_size = len(dist.get_process_group_ranks(group))
-    # first check if we can just skip it...
-    if world_size == 1:
+    # Skip gathering for single process
+    if process_count == 1:
         return data
 
     # Gather from all ranks using autograd-enabled all_gather
     gathered_data = functional_all_gather(data, group=group)
 
-    # Initialize a list to store the original sequence chunks
-    # `gathered_data` is a list of tensors from all ranks
-    # Each rank's data consists of two chunks concatenated along seq_dim
-    seq_chunks = [None] * (2 * world_size)
+    # Initialize a list to store the original sequence chunks with proper tensor type
+    seq_chunks = []
+    for i in range(2 * process_count):
+        seq_chunks.append(None)  # Will be replaced with tensors
 
+    # Process each gathered tensor
     for i, data_i in enumerate(gathered_data):
         chunk_size = data_i.size(seq_dim) // 2
 
@@ -162,7 +177,7 @@ class B2BConv1d(torch.nn.Module):
             submodules=submodules,
             layer_number=1,
             operator_type="hyena_short_conv",
-            use_b2b_causal_conv1d=False,
+            use_b2b_causal_conv1d=True,
         )
 
     def forward(self, x, _use_cp=True):
