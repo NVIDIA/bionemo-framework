@@ -44,16 +44,16 @@ from bionemo.llm.utils import iomixin_utils as iom
 
 
 __all__: Sequence[str] = (
-    "PretrainConfig",
-    "MSELossReduction",
     "BionemoLightningModule",
+    "ExampleFineTuneOutput",
     "ExampleModel",
+    "ExampleModelOutput",
     "MNISTCustomDataset",
     "MNISTDataModule",
-    "SameSizeLossDict",
+    "MSELossReduction",
     "MnistItem",
-    "ExampleModelOutput",
-    "ExampleFineTuneOutput",
+    "PretrainConfig",
+    "SameSizeLossDict",
     "checkpoint_callback",
     "data_module",
 )

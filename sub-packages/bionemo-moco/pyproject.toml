@@ -14,11 +14,11 @@ dependencies = [
     # bionemo sub-packages
     # external
     'torch>=2.2',
-    'numpy>=1.24.4,<2',
+    'numpy>=1.24.4,<2',    #needed for notebooks
     'jaxtyping>=0.2.34',
-    'pot>=0.9.5',
-    'scikit-learn>=1.6.0',
-    'matplotlib>=3.3.2'
+    'pot>=0.9.5',          #needed for optimal transport
+    'scikit-learn>=1.6.0', #needed for notebooks
+    'matplotlib>=3.3.2'    #needed for notebooks
 ]
 
 [tool.setuptools.packages.find]

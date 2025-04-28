@@ -20,7 +20,7 @@ from typing import Callable, Iterable, List, NamedTuple, Optional, Sequence, Tup
 import torch
 
 
-__all__: Sequence[str] = ("collect_cuda_peak_alloc", "create_buckets", "Buckets")
+__all__: Sequence[str] = ("Buckets", "collect_cuda_peak_alloc", "create_buckets")
 
 Data = TypeVar("Data")
 Feature = TypeVar("Feature")

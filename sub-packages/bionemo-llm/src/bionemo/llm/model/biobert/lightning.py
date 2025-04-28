@@ -18,7 +18,6 @@ from typing import Callable, Dict, Iterable, Optional, Protocol, Sequence, Typed
 
 import lightning.pytorch as pl
 import torch.distributed
-from apex.optimizers import FusedAdam
 from megatron.core import parallel_state
 from megatron.core.packed_seq_params import PackedSeqParams
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
@@ -37,15 +36,14 @@ from bionemo.llm.model.biobert.model import BioBertConfig, MegatronBioBertModel
 
 
 __all__: Sequence[str] = (
-    "biobert_lightning_module",
-    "biobert_data_step",
-    "bert_forward_step",
-    "bert_default_optimizer",
-    "BertModel",
     "BertBatch",
+    "BertModel",
     "SequenceBatch",
-    "get_packed_seq_params",
+    "bert_forward_step",
+    "biobert_data_step",
+    "biobert_lightning_module",
     "get_batch_on_this_context_parallel_rank",
+    "get_packed_seq_params",
 )
 
 
@@ -180,19 +178,6 @@ def biobert_lightning_module(
         model_transform=model_transform,
         **model_construct_args,
     )
-
-
-def bert_default_optimizer(model: torch.nn.Module) -> FusedAdam:
-    """Returns the default optimizer for the BERT model.
-
-    Args:
-        model: The BERT model.
-
-    Returns:
-        The default optimizer initialized for this BERT module's parameters.
-        Uses a learning rate of 1e-4 and weight decay of 1e-2.
-    """
-    return FusedAdam(model.parameters(), lr=1e-4, weight_decay=0.01)
 
 
 def get_batch_on_this_context_parallel_rank(batch: Dict[str, Tensor], in_place: bool = True) -> Dict[str, Tensor]:

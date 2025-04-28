@@ -243,7 +243,7 @@ class WebDataModule(L.LightningDataModule):
 
         """
         if split not in self._dirs_tars_wds.keys():
-            raise RuntimeError(f"_setup_wds() is called with {split} " f"split that doesn't have the input tar dir")
+            raise RuntimeError(f"_setup_wds() is called with {split} split that doesn't have the input tar dir")
         urls = sorted(glob.glob(f"{self._dirs_tars_wds[split]}/{self._prefix_tars_wds}-*.tar"))
         kwargs = self._kwargs_wds[split] if self._kwargs_wds is not None else None
         dataset = wds.WebDataset(urls, **(kwargs if kwargs is not None else {})).decode()

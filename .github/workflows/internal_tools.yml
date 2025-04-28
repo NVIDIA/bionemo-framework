@@ -3,10 +3,9 @@ name: Install internal tools Python packages & run test suite
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
-  merge_group:
-    types: [checks_requested]
+    paths:
+      - internal/infra-bionemo/**
+
 jobs:
   infra-bionemo:
     runs-on: ubuntu-latest
@@ -14,11 +13,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: 'recursive'
+          submodules: "recursive"
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: "3.10"
+          cache: "pip"
       - run: pip install -r requirements-dev.txt -r requirements-test.txt
       - run: pip install internal/infra-bionemo
       - run: cd internal/infra-bionemo && pytest -v --cov=infra_bionemo --cov-report=term .

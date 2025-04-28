@@ -71,11 +71,12 @@ LABELS_ARGS=""
 EXTRA_ARGS=""
 CACHE_ARGS=""
 DEFAULT_BRANCH_NAME="main"
+DEFAULT_DOCKERFILE_PATH=Dockerfile
 ARCH=$(uname -m)
 if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
-    DEFAULT_DOCKERFILE_PATH="Dockerfile.arm"
+    ARCH=arm64
 else
-    DEFAULT_DOCKERFILE_PATH="Dockerfile"
+    ARCH=amd64
 fi
 
 # Parse command-line options
@@ -106,13 +107,8 @@ else
     CONTAINER_REGISTRY_PATH=""
 fi
 
-# Ensure repository is clean
-git config --global --add safe.directory $(pwd)
-if ! set_bionemo_home; then
-    exit 1
-fi
-
 # Get Git commit SHA and sanitized branch name
+git config --global --add safe.directory "$(pwd)"
 COMMIT_SHA=$(git rev-parse HEAD)
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
 SANITIZED_BRANCH_NAME=$(echo "$BRANCH_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-128)
@@ -183,6 +179,7 @@ docker context ls
 set -u
 # Build the Docker image
 docker buildx build $EXTRA_ARGS \
+  --build-arg TARGETARCH=$ARCH \
   --provenance=false $LABELS_ARGS $CACHE_ARGS $PUSH_OPTION \
   -t "${IMAGE_NAME}" \
   -f "${DOCKERFILE_PATH}" .

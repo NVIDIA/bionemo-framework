@@ -2,6 +2,7 @@
 
 ## Description
 MoCo enables abstracted interpolants for building and sampling from a variety of popular generative model frameworks. Specifically, MoCo supports interpolants for both continuous and discrete data types.
+[![PyPI version](https://badge.fury.io/py/bionemo-moco.svg)](https://pypi.org/project/bionemo-moco/)
 
 ### Continuous Data Interpolants
 MoCo currently supports the following continuous data interpolants:
@@ -32,4 +33,4 @@ pip install -e .
 This will install the project in editable mode, allowing you to make changes and see them reflected immediately.
 
 ## Examples
-Please see examples of all interpolants in the [examples directory](./examples).
+Please see examples of all interpolants in the [examples directory](https://github.com/NVIDIA/bionemo-framework/tree/main/sub-packages/bionemo-moco/examples).

@@ -1,0 +1,54 @@
+scope: perf
+time_limit: 3600
+key_segments:
+  # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
+  data_path: False
+  val_check_interval: False
+  lr: False
+script_args:
+  # All arguments referenced in the script string must be specified here.
+  # Arguments not referenced in the script string must have the 'arg' field specified.
+  # See jet/core/configs.py for the specification of the configuration class
+  workspace: /workspace/bionemo2
+  data_path: /data/cellxgene_scdl
+  model: geneformer
+  variant: train
+  config_name: geneformer_config
+  precision: [bf16-mixed]
+  gpus:  8
+  max_steps: 1000
+  lr: 0.001
+  val_check_interval: 500
+  acc_grad: 1
+  products:
+    - nodes: 1
+      batch_size: 32
+    - nodes: 2
+      batch_size: 32
+
+script: |-
+   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
+    --data-dir ${data_path} \
+    --experiment-name ${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+    --num-gpus ${gpus} \
+    --save-last-checkpoint \
+    --num-nodes ${nodes} \
+    --val-check-interval ${val_check_interval} \
+    --num-dataset-workers 8 \
+    --num-steps ${max_steps} \
+    --seq-length 2048 \
+    --limit-val-batches 8 \
+    --micro-batch-size ${batch_size} \
+    --resume-if-exists \
+    --log-every-n-steps 50 \
+    --lr ${lr} \
+    --create-tensorboard-logger \
+    --result-dir=${tensorboard_dir} \
+    --wandb-group=${model}_${variant}_${config_name}__${target} \
+    --wandb-project ${wandb_project_name} \
+    --wandb-job-type=${pipeline_label} \
+    --cosine-rampup-frac 0.004331629559040111 \
+    --cosine-hold-frac 0.021658147795200554 \
+    --accumulate-grad-batches ${acc_grad} \
+    --precision ${precision} \
+    --disable-checkpointing;

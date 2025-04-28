@@ -146,7 +146,7 @@ def test_find_bionemo_subpackages(temp_project_structure):
     # Create a Python file with some bionemo imports
     python_file = subpackage_src / "example.py"
     with open(python_file, "w") as f:
-        f.write("import bionemo.core\n" "from bionemo.utils import some_function\n" "import bionemo.experiment\n")
+        f.write("import bionemo.core\nfrom bionemo.utils import some_function\nimport bionemo.experiment\n")
 
     directories = ["bionemo-subpackage1"]
     found_imports = find_bionemo_subpackages(temp_project_structure, directories)

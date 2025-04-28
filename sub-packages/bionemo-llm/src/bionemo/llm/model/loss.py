@@ -29,9 +29,9 @@ from torch import Tensor
 
 __all__: Sequence[str] = (
     "BERTMLMLossWithReduction",
+    "DataParallelGroupLossAndIO",
     "PerTokenLossDict",
     "SameSizeLossDict",
-    "DataParallelGroupLossAndIO",
 )
 
 
@@ -110,9 +110,9 @@ class _Nemo2CompatibleLossReduceMixin:
 
         # do the gather
         keys = list(losses_reduced_per_micro_batch[0].keys())
-        assert (
-            sum(("avg" in keys, "loss_sum_and_microbatch_size" in keys)) == 1
-        ), "Expected only either 'avg' or 'loss_sum_and_microbatch_size' in keys but got both"
+        assert sum(("avg" in keys, "loss_sum_and_microbatch_size" in keys)) == 1, (
+            "Expected only either 'avg' or 'loss_sum_and_microbatch_size' in keys but got both"
+        )
         key: Literal["avg", "loss_sum_and_microbatch_size"] = (
             "avg" if "avg" in keys else "loss_sum_and_microbatch_size"
         )

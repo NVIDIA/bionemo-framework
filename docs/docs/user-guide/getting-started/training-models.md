@@ -3,12 +3,12 @@
 ## Pydantic Configuration
 
 BioNeMo 2 provides two entrypoints for models with both argparse and pydantic. Both documented in the `Models` section below.
-Pydantic based configuration is designed to accept a configuration yaml file as input, along with context specific
+Pydantic based configuration is designed to accept a configuration yaml file as input, along with context-specific
 arguments (e.g., should we resume from existing checkpoints?). These YAML configs go through a Pydantic Validator, in
 this case referred to as `MainConfig`. This Config is composed of several other Pydantic models, see the class
 definition for details. To pre-populate a config with reasonable defaults for various standard models, we provide
 'recipes.' These are simple methods that instantiate the config object and then serialize it to a YAML configuration
-file. From this file, you may either submit it directly, or modify the various parameters to meet your usecase. For
+file. From this file, you may either submit it directly, or modify the various parameters to meet your use case. For
 example, Weights and biases, devices, precision, and dataset options are all extremely useful to modify. Then, you would
 submit this config for training.
 
@@ -196,7 +196,7 @@ three things:
     This allows for mixing/matching Data Modules with various tasks.
 - Data Config type, this specifies how to parse, validate, and prepare the DataModule. This may change depending on task,
 for example, while fine-tuning you may want to use a custom Dataset/DataModule that includes PERTURB-seq. In this case,
-the default pretraining DataConfig and DataModule will be insufficient. See ESM2 for additional example usecases.
+the default pretraining DataConfig and DataModule will be insufficient. See ESM2 for additional example use cases.
 
 > ⚠️ **Warning:** This setup does NO configuration of Weights and Biases. Edit your config YAML and populate it with your WandB details.
 

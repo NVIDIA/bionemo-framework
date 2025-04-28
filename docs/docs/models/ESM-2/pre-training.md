@@ -1,8 +1,8 @@
 # Pre-training ESM-2
 
 Pre-trained checkpoints for ESM-2 are available at the 8M, 650M, and 3B model sizes. These models were trained by the
-bionemo-framework team to reproduce the original training results from Lin et al, Science (2023), with more recent
-UniProt data and leveraging the bionemo training infrastructure. The full [pre-training data](../../datasets/uniprot.md)
+BioNeMo Framework team to reproduce the original training results from Lin et al., Science (2023), with more recent
+UniProt data and leveraging the BioNeMo training infrastructure. The full [pre-training data](../../datasets/uniprot.md)
 and train/test splits are available.
 
 ## Model Convergence
@@ -11,13 +11,13 @@ Validation perplexity evaluated on the NVIDIA validation set.
 
 ![ESM-2 Pre-training Convergence](../../assets/images/esm2/esm2_pretrain_convergence.png)
 
-| Model Size     | Perplexity at 500k updates  |
+| Model Size     | Perplexity at 500K Updates  |
 | -------------- | ------ |
 | 8M             | 10.26  |
 | 650M           | 7.14   |
 | 3B             | 6.42   |
 
-## Pre-training recipes
+## Pre-training Recipes
 
 === "8M"
 
@@ -29,9 +29,9 @@ Validation perplexity evaluated on the NVIDIA validation set.
 
     | Training Parameters     | Value  |
     | ----------------------- | ------ |
-    | # of GPUs               | 32    |
+    | # of GPUs               | 32     |
     | GPU Type                | A100   |
-    | Batch size (per device) | 64     |
+    | Batch Size (per device) | 64     |
 
     ```bash
     train_esm2 \
@@ -70,9 +70,9 @@ Validation perplexity evaluated on the NVIDIA validation set.
 
     | Training Parameters     | Value  |
     | ----------------------- | ------ |
-    | # of GPUs               | 64    |
+    | # of GPUs               | 64     |
     | GPU Type                | H100   |
-    | Batch size (per device) | 32     |
+    | Batch Size (per device) | 32     |
 
     ```bash
     train_esm2 \
@@ -115,8 +115,8 @@ Validation perplexity evaluated on the NVIDIA validation set.
     | ----------------------- | ------ |
     | # of GPUs               | 128    |
     | GPU Type                | H100   |
-    | Batch size (per device) | 16     |
-    | warmup steps            | 20,000 |
+    | Batch Size (per device) | 16     |
+    | Warmup Steps            | 20,000 |
 
     ```bash
     train_esm2 \

@@ -22,6 +22,11 @@ dependencies = [
     'torchvision >= 0.15.1',
 ]
 
+[project.optional-dependencies]
+test = [
+    "bionemo-testing"
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bionemo.*"]
