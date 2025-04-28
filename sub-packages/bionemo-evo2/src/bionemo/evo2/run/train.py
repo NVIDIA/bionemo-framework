@@ -537,7 +537,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         if args.model_size not in HYENA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Hyena: {args.model_size}")
         model_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
-        model = llm.HyenaModel(model_config, tokenizer=data.tokenizer)
+        model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer)
     else:  # mamba
         if args.no_weight_decay_embeddings:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
@@ -551,7 +551,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         if add_bias_output:
             raise ValueError("Bias output is not supported for Mamba models.")
         model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
-        model = MambaModel(model_config, tokenizer=data.tokenizer)
+        model = MambaModel(model_config, tokenizer=data_module.tokenizer)
 
     # Setup callbacks.
     callbacks = [
@@ -570,7 +570,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
         flop_meas_callback = FLOPsMeasurementCallback(
             model_config,
-            data,
+            data_module,
             "hyena",
         )
         callbacks.append(flop_meas_callback)
@@ -628,10 +628,10 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"PP{args.pipeline_model_parallel_size}-CP{args.context_parallel_size}"
         f"-GBS{global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
         f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
-        f"-ACRNL{evo2_config.recompute_num_layers}"
-        f"-PAT{evo2_config.hybrid_override_pattern}"
-        f"-F32R{evo2_config.fp32_residual_connection}"
-        f"-FCE{evo2_config.cross_entropy_loss_fusion}"
+        f"-ACRNL{model_config.recompute_num_layers}"
+        f"-PAT{model_config.hybrid_override_pattern}"
+        f"-F32R{model_config.fp32_residual_connection}"
+        f"-FCE{model_config.cross_entropy_loss_fusion}"
         f"-AIC{not args.no_average_in_collective}"
         f"-PEOD{args.eod_pad_in_loss_mask}"
         f"-BO{args.add_bias_output}"
@@ -640,6 +640,10 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-ADO{args.attention_dropout}"
         f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-WD{args.wd}"
         f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
+        f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
+        f"-PAO{args.use_precision_aware_optimizer}"
+        f"-B16MG{args.bf16_main_grads}"
+        f"-EWD{args.no_weight_decay_embeddings}-LE{args.layernorm_embeddings}-SNI{args.spike_no_more_embedding_init}"
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
     )
