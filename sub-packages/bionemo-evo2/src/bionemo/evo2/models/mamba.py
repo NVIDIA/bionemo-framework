@@ -424,8 +424,7 @@ class HybridMambaConfig8BEvo2Loss(SSMConfig):
     to_upper: str = "normalized_weighted"
     # Set lowercase loss reweighting factor
     lowercase_loss_reweighting: float = 1.0
-    # Squared ReLU activation -> tanh(x) * relu(x) which doesn't explode as much as relu^2 but still differentiable.
-    activation_func: Callable = lambda x: F.relu(x) * F.tanh(x)  # lambda x: torch.pow(F.relu(x), 2)
+    activation_func: Callable = lambda x: torch.square(F.relu(x))  # lambda x: torch.pow(F.relu(x), 2)
     # The trainer is responsible for using this when initializing the optimizer state:
     #  opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=model_config.hyena_no_weight_decay_cond_fn)
     hyena_no_weight_decay_cond_fn: Callable = mamba_no_weight_decay_cond
