@@ -214,7 +214,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         # megatron core pipelining currently depends on model type
         # TODO: remove this dependency ?
         self.model_type = ModelType.encoder_or_decoder
-
+        self.layernorm_embeddings: bool = layernorm_embeddings
         if self.pre_process:
             if spike_no_more_embedding_init:
                 embedding_config = deepcopy(self.config)
@@ -228,7 +228,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
                 position_embedding_type=position_embedding_type,
                 scatter_to_sequence_parallel=scatter_embedding_sequence_parallel,
             )
-            if layernorm_embeddings:
+            if self.layernorm_embeddings:
                 self.post_embedding_norm = TENorm(
                     config=self.config,
                     hidden_size=config.hidden_size,
@@ -301,7 +301,9 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
             pass
         elif self.pre_process:
             decoder_input = self.embedding(input_ids=input_ids, position_ids=position_ids)
-            if self.post_embedding_norm is not None:
+            if self.layernorm_embeddings:
+                # TODO verify that this is correctly applied with Tensor +/- Sequence
+                #   and Context parallel
                 decoder_input = self.post_embedding_norm(decoder_input)
         else:
             # intermediate stage of pipeline
