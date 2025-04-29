@@ -207,4 +207,4 @@ The 106M parameter variant of Geneformer achieves over 50 TFLOPS per GPU during 
 
 ![GPU Performance (TFLOPS) Comparison Between Geneformer Model Variants on A100 GPUs](../assets/images/geneformer/model_tflops_per_gpu_chart_geneformer.png)
 
-    Performance will increase if the `num_dataset_workers` and the `micro_batch_size` are set appropriately. For the above metrics, we set `num_dataset_workers=8`. For the 10m model, set `micro_batch_size=120` and for the 106m model set the `micro_batch_size=16`. This will enable you to achieve similar performance results.
+Performance will increase if the `num_dataset_workers` and the `micro_batch_size` are set appropriately. For the above metrics, we set `num_dataset_workers=8`. For the 10m model, set `micro_batch_size=120` and for the 106m model set the `micro_batch_size=16`. This will enable you to achieve similar performance results.
