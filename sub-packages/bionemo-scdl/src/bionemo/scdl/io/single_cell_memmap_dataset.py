@@ -647,6 +647,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             f"{self.data_path}/{FileNames.COLPTR.value}", dtype=self.dtypes[f"{FileNames.COLPTR.value}"]
         )
 
+        # Load neighbor data
+        if self.load_neighbors:
+            self._load_neighbor_memmaps()
+
     def _write_metadata(self) -> None:
         with open(f"{self.data_path}/{FileNames.METADATA.value}", f"{Mode.CREATE.value}") as mfi:
             json.dump(self.metadata, mfi)
@@ -789,27 +793,38 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             return
         
         # Load the neighbor data
-        try:
-            self._neighbor_indices = np.memmap(
-                self._neighbor_indices_path,
-                dtype='int32',  # typical dtype for indices
-                mode=Mode.READ_APPEND.value
-            )
+        # try:
+        #     self._neighbor_indices = np.memmap(
+        #         self._neighbor_indices_path,
+        #         dtype='int32',  # typical dtype for indices
+        #         mode=Mode.READ_APPEND.value
+        #     )
             
-            self._neighbor_indptr = np.memmap(
-                self._neighbor_indptr_path,
-                dtype='int32',  # typical dtype for indptr
-                mode=Mode.READ_APPEND.value
-            )
+        #     self._neighbor_indptr = np.memmap(
+        #         self._neighbor_indptr_path,
+        #         dtype='int32',  # typical dtype for indptr
+        #         mode=Mode.READ_APPEND.value
+        #     )
             
-            self._neighbor_data = np.memmap(
-                self._neighbor_data_path,
-                dtype='float32',  # typical dtype for values
-                mode=Mode.READ_APPEND.value
-            )
-        except (FileNotFoundError, IOError) as e:
-            warnings.warn(f"Failed to load neighbor data: {e}")
-            self._has_neighbors = False
+        #     self._neighbor_data = np.memmap(
+        #         self._neighbor_data_path,
+        #         dtype='float32',  # typical dtype for values
+        #         mode=Mode.READ_APPEND.value
+        #     )
+        # except (FileNotFoundError, IOError) as e:
+        #     warnings.warn(f"Failed to load neighbor data: {e}")
+        #     self._has_neighbors = False
+
+        # mmap the existing arrays
+        self._neighbor_indices = self._load_mmap_file_if_exists(
+            self._neighbor_indices_path, dtype='int32'
+        )
+        self._neighbor_indptr = self._load_mmap_file_if_exists(
+            self._neighbor_indptr_path, dtype='int32'
+        )
+        self._neighbor_data = self._load_mmap_file_if_exists(
+            self._neighbor_data_path, dtype='float32'
+        )
 
     def load_h5ad(
         self,
@@ -888,6 +903,100 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             raise NotImplementedError("Saving to separate path is not yet implemented.")
 
         return True
+
+    def get_neighbor_indices_for_cell(self, cell_index: int) -> np.ndarray:
+        """
+        Returns the array of neighbor indices for a given cell.
+        
+        Args:
+            cell_index: Index of the cell to get neighbors for
+            
+        Returns:
+            np.ndarray: Array of neighbor indices, empty if no neighbors
+            
+        Raises:
+            IndexError: If cell_index is out of bounds
+        """
+        if not self.load_neighbors or not self._has_neighbors or self._neighbor_indptr is None:
+            return np.array([], dtype=int)  # Return empty array if neighbor data not available
+            
+        if not (0 <= cell_index < self.number_of_rows()):
+            raise IndexError(f"Cell index {cell_index} out of bounds for dataset with {self.number_of_rows()} cells")
+            
+        # Get neighbor indices using CSR format indptr and indices
+        start = self._neighbor_indptr[cell_index]
+        end = self._neighbor_indptr[cell_index + 1]
+        return self._neighbor_indices[start:end]
+
+    def get_neighbor_weights_for_cell(self, cell_index: int) -> np.ndarray:
+        """
+        Returns the array of neighbor weights (e.g., pseudotime differences) for a given cell.
+        
+        Args:
+            cell_index: Index of the cell to get neighbor weights for
+            
+        Returns:
+            np.ndarray: Array of weights corresponding to neighbors, empty if no neighbors
+            
+        Raises:
+            IndexError: If cell_index is out of bounds
+        """
+        if not self.load_neighbors or not self._has_neighbors or self._neighbor_indptr is None or self._neighbor_data is None:
+            return np.array([], dtype=float)
+            
+        if not (0 <= cell_index < self.number_of_rows()):
+            raise IndexError(f"Cell index {cell_index} out of bounds for dataset with {self.number_of_rows()} cells")
+            
+        # Get neighbor weights using CSR format indptr and data
+        start = self._neighbor_indptr[cell_index]
+        end = self._neighbor_indptr[cell_index + 1]
+        return self._neighbor_data[start:end]
+
+    def sample_neighbor_index(self, cell_index: int) -> int:
+        """
+        Samples a neighbor index for the given cell based on the configured sampling strategy.
+        
+        Args:
+            cell_index: Index of the cell to sample a neighbor for
+            
+        Returns:
+            int: Index of the sampled neighbor
+                 If no neighbors exist and fallback_to_identity is True, returns cell_index
+                 
+        Raises:
+            ValueError: If an unsupported sampling strategy is specified
+            IndexError: If cell_index is out of bounds
+        """
+        # Basic validation
+        if not (0 <= cell_index < self.number_of_rows()):
+            raise IndexError(f"Cell index {cell_index} out of bounds for dataset with {self.number_of_rows()} cells")
+            
+        # Skip sampling if neighbor functionality is disabled
+        if not self.load_neighbors or not self._has_neighbors:
+            return cell_index  # Always return self as neighbor when neighbors disabled
+            
+        # Get the neighbor indices for this cell
+        neighbor_indices = self.get_neighbor_indices_for_cell(cell_index)
+        
+        # If no neighbors found, handle according to fallback policy
+        if len(neighbor_indices) == 0:
+            if self.fallback_to_identity:
+                return cell_index  # Return the cell itself
+            else:
+                warnings.warn(
+                    f"Cell {cell_index} has no neighbors and fallback_to_identity=False. "
+                    f"Returning cell index itself anyway."
+                )
+                return cell_index  # Currently always return self if no neighbors
+                
+        # Sample neighbor based on strategy
+        if self.neighbor_sampling_strategy == 'random':
+            # Simple random sampling with equal probability
+            chosen_index = np.random.choice(neighbor_indices)
+            return chosen_index
+         
+        else:
+            raise ValueError(f"Unsupported neighbor sampling strategy: {self.neighbor_sampling_strategy}")
 
     def number_of_values(self) -> int:
         """Get the total number of values in the array.
