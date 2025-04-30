@@ -183,6 +183,7 @@ def train_small_esm2_cmd(
 
         arg_str = f"--{arg_name.replace('_', '-')}={arg_value}"
         return arg_str
+
     cmd = f"train_esm2 {' '.join(get_command_line_args(arg_name, arg_value) for arg_name, arg_value in args.items())}"
     return cmd
 
