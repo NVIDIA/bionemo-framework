@@ -98,8 +98,11 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
         result_path = os.path.join(self.output_dir, f"predictions__rank_{trainer.global_rank}__batch_{batch_idx}.pt")
 
         # batch_indices is not captured due to a lightning bug when return_predictions = False
-        # we use input IDs in the prediction to map the result to input
-        prediction["batch_idx"] = batch_idx
+        # we use input IDs in the prediction to map the result to input.
+
+        # NOTE store the batch_idx so we do not need to rely on filenames for reconstruction of inputs. This is wrapped
+        # in a tensor and list container to ensure compatibility with batch_collator.
+        prediction["batch_idx"] = torch.tensor([batch_idx], dtype=torch.int64)
 
         torch.save(prediction, result_path)
         logging.info(f"Inference predictions are stored in {result_path}\n{prediction.keys()}")
