@@ -19,7 +19,10 @@ import torch
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.fusions.fused_cross_entropy import fused_vocab_parallel_cross_entropy
 from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
-from nemo.lightning.megatron_parallel import MegatronLossReduction, masked_token_loss
+from nemo.lightning.megatron_parallel import (
+    MegatronLossReduction,
+    masked_token_loss,
+)
 from torch import Tensor
 
 
