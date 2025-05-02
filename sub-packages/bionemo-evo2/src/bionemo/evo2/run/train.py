@@ -385,6 +385,11 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
+    parser.add_argument(
+        "--use-b2b-causal-conv1d",
+        action="store_true",
+        help="Use back-to-back causal convolution CUDA kernel for hyena short conv layers for improved performance.",
+    )
     return parser.parse_args(args=args)
 
 
@@ -464,6 +469,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "cross_entropy_loss_fusion": args.cross_entropy_loss_fusion,
         "fp32_residual_connection": not args.no_fp32_residual_connection,
         "add_bias_output": args.add_bias_output,
+        "use_b2b_causal_conv1d": args.use_b2b_causal_conv1d,
         **activation_checkpointing_args,
     }
     if args.hybrid_override_pattern:
@@ -560,6 +566,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-AIC{not args.no_average_in_collective}"
         f"-PEOD{args.eod_pad_in_loss_mask}"
         f"-BO{args.add_bias_output}"
+        f"-B2B{args.use_b2b_causal_conv1d}"
         f"-GCLP{args.clip_grad}"
         f"-HDO{args.hidden_dropout}"
         f"-ADO{args.attention_dropout}"
