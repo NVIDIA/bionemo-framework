@@ -184,6 +184,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         # of non-masked tokens (loss_mask.sum()) to compute the mean reduced loss per token.
         cp_size = parallel_state.get_context_parallel_world_size()
         loss_for_microbatch = masked_token_loss(unreduced_token_loss, batch["loss_mask"], cp_size=cp_size)
+        num_valid_tokens_in_microbatch = batch["loss_mask"].sum()
 
         # If we do not drop the last partial batch of validation, we need to do fancy reduction handling to support
         #  reducing the loss across the data parallel group.
@@ -194,7 +195,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
                 #  re-defining it as a 0 loss. This is standard in NeMo/NeMo2.
                 if batch["loss_mask"].count_nonzero() != 0:
                     raise ValueError("Got NaN loss with non-empty input")
-                loss_sum_for_microbatch = torch.zeros_like(batch["num_valid_tokens_in_ub"])
+                loss_sum_for_microbatch = torch.zeros_like(num_valid_tokens_in_microbatch)
             else:
                 # The reduced loss is already the sum of all losses from masked_token_loss().
                 loss_sum_for_microbatch = loss_for_microbatch
@@ -203,7 +204,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
             loss_sum_and_microbatch_size_all_gpu = torch.cat(
                 [
                     loss_sum_for_microbatch.clone().detach().view(1),
-                    Tensor([batch["num_valid_tokens_in_ub"]]).cuda().clone().detach(),
+                    Tensor([num_valid_tokens_in_microbatch]).cuda().clone().detach(),
                 ]
             )
 
@@ -223,7 +224,11 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
 
         # Return the loss tensor multiplied by the context parallel size, as well as
         # the data-parallel averaged loss, i.e. the loss divided by the DP size.
-        reduced_loss = average_losses_across_data_parallel_group([loss_for_microbatch])
+        # Normalize the loss by the number of "valid" tokens, because masked_token_loss
+        # no longer does this normalization, and BioNeMo losses expect this normalization.
+        reduced_loss = (
+            average_losses_across_data_parallel_group([loss_for_microbatch]) / num_valid_tokens_in_microbatch
+        )
         return loss_for_microbatch * cp_size, {"avg": reduced_loss}
 
 
