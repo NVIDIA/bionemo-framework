@@ -13,7 +13,7 @@ script_args:
   data_path: /data/cellxgene_scdl
   model: geneformer
   variant: train
-  config_name: geneformer_config
+  config_name: 10M
   precision: [bf16-mixed]
   nodes: [2]
   gpus: 8
@@ -42,6 +42,7 @@ script: |-
     --result-dir=${tensorboard_dir} \
     --wandb-project ${wandb_project_name} \
     --wandb-job-type=${pipeline_label} \
+    --wandb-group=${model}_${variant}_${config_name}__${target} \
     --cosine-rampup-frac 0.004331629559040111 \
     --cosine-hold-frac 0.021658147795200554 \
     --accumulate-grad-batches ${acc_grad} \
