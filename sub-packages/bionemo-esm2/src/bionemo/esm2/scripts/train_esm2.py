@@ -338,7 +338,11 @@ def main(
             # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
             filename="{epoch}-{step}-{consumed_samples}",
             # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+            # Save both the weights and the optimizer state.
+            save_weights_only=False,
+            save_optim_on_train_end=True,
         )
+
         callbacks.append(checkpoint_callback)
 
         auto_resume = resume.AutoResume(
