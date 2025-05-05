@@ -47,7 +47,6 @@ script: |-
     --wandb-group=${model}_${variant}_${config_name}__${target} \
     --wandb-project ${wandb_project_name} \
     --wandb-job-type=${pipeline_label} \
-    --wandb-group=${model}_${variant}_${config_name}__${target} \
     --cosine-rampup-frac 0.004331629559040111 \
     --cosine-hold-frac 0.021658147795200554 \
     --accumulate-grad-batches ${acc_grad} \
