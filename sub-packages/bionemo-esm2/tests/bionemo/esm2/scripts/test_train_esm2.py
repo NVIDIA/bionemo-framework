@@ -327,7 +327,7 @@ def test_main_runs(tmp_path, dummy_protein_dataset, dummy_parquet_train_val_inpu
     event_files = list(log_dir.rglob("events.out.tfevents*"))
     assert event_files, f"No TensorBoard event files found under {log_dir}"
     assert "val_ppl" in trainer.logged_metrics  # validation logging on by default
-    assert "tflops_per_sec_per_gpu" in trainer.logged_metrics  # ensuring that tflops logger can be added
+    assert "TFLOPS_per_GPU" in trainer.logged_metrics  # ensuring that tflops logger can be added
     assert "train_step_timing in s" in trainer.logged_metrics
 
 
