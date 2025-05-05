@@ -351,14 +351,14 @@ def main(
 
     if create_tflops_callback:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
-        class tflops_data_module:
+        class SimpleDataModule:
             def __init__(self, tokenizer_vocab_size, global_batch_size):
                 self.tokenizer_vocab_size = tokenizer_vocab_size
                 self.global_batch_size = global_batch_size
 
         callbacks.append(
             FLOPsMeasurementCallback(
-                geneformer_config, tflops_data_module(tokenizer.vocab_size, global_batch_size), "bert"
+                geneformer_config, SimpleDataModule(tokenizer.vocab_size, global_batch_size), "bert"
             )
         )
 
