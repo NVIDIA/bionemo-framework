@@ -56,6 +56,13 @@ apt-get upgrade -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
+
+## BUMP TE as a solution to the issue https://github.com/NVIDIA/bionemo-framework/issues/422. Drop this when pytorch images ship the fixed commit.
+ ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
+ RUN PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
+    pip --disable-pip-version-check --no-cache-dir install \
+    git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
+
 # Install AWS CLI based on architecture
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
@@ -67,6 +74,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     unzip awscliv2.zip && \
     ./aws/install && \
     rm -rf aws awscliv2.zip
+
 
 # Use a branch of causal_conv1d while the repository works on Blackwell support.
 ARG CAUSAL_CONV_TAG=52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
@@ -196,9 +204,6 @@ uv pip install --no-build-isolation \
 
 # Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
 uv pip install ngcsdk==3.64.3  # Temporary fix for changed filename, see https://nvidia.slack.com/archives/C074Z808N05/p1746231345981209
-
-# Install nvidia-pytriton which seems to cause a conflict with pyzmq versions
-uv pip install nvidia-pytriton  # Temporary dependency until this gets added to requirements_nlp.txt in NeMo.
 
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
 # dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
