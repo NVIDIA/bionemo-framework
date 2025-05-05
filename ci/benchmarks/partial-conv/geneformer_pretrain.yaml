@@ -18,7 +18,7 @@ script_args:
   nodes: [2]
   gpus: 8
   batch_size: 32
-  max_steps: 37000
+  max_steps: 33000
   lr: 0.001
   val_check_interval: 500
   acc_grad: 1
