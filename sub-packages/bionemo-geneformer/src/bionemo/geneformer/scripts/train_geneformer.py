@@ -20,6 +20,7 @@
 #  use cases and not hide too much complexity that a user would want to customize, while reducing code duplication
 #  between scripts.
 
+
 import argparse
 import math
 from pathlib import Path
@@ -228,6 +229,34 @@ def main(
             log_model=wandb_log_model,
         )
     )
+    geneformer_config = config_class(
+        num_layers=num_layers,
+        hidden_size=hidden_size,
+        ffn_hidden_size=ffn_hidden_size,
+        num_attention_heads=num_attention_heads,
+        seq_length=seq_length,
+        bias_dropout_fusion=True,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
+        bias_activation_fusion=True,  # TODO same note as above. Set these to False to see recompilation go away
+        defer_embedding_wgrad_compute=pipeline_model_parallel_size > 1,
+        params_dtype=get_autocast_dtype(precision),
+        pipeline_dtype=get_autocast_dtype(precision),
+        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
+        biobert_spec_option=biobert_spec_option,
+        nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
+        # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
+        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
+    )
+    preprocessor = GeneformerPreprocess(
+        download_directory=train_data_path,
+        medians_file_path=train_data_path / "medians.json",
+        tokenizer_vocab_path=train_data_path / "geneformer.vocab",
+    )
+    match preprocessor.preprocess():
+        case {"tokenizer": tokenizer, "median_dict": median_dict}:
+            logging.info("*************** Preprocessing Finished ************")
+        case _:
+            logging.error("Preprocessing failed.")
+
     callbacks = [
         # Skip perplexity and disable forward output in the loss for speed
         RichModelSummary(max_depth=4),
@@ -248,7 +277,7 @@ def main(
                 start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
             )
         )
-        
+
     if create_tflops_callback:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
         class SimpleDataModule:
@@ -277,17 +306,6 @@ def main(
         enable_checkpointing=create_checkpoint_callback,
     )
 
-    preprocessor = GeneformerPreprocess(
-        download_directory=train_data_path,
-        medians_file_path=train_data_path / "medians.json",
-        tokenizer_vocab_path=train_data_path / "geneformer.vocab",
-    )
-    match preprocessor.preprocess():
-        case {"tokenizer": tokenizer, "median_dict": median_dict}:
-            logging.info("*************** Preprocessing Finished ************")
-        case _:
-            logging.error("Preprocessing failed.")
-
     # Configure the data module and model
     data = SingleCellDataModule(
         seq_length=seq_length,
@@ -304,23 +322,6 @@ def main(
         pin_memory=False,
         num_workers=num_dataset_workers,
         include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
-    )
-    geneformer_config = config_class(
-        num_layers=num_layers,
-        hidden_size=hidden_size,
-        ffn_hidden_size=ffn_hidden_size,
-        num_attention_heads=num_attention_heads,
-        seq_length=seq_length,
-        bias_dropout_fusion=True,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
-        bias_activation_fusion=True,  # TODO same note as above. Set these to False to see recompilation go away
-        defer_embedding_wgrad_compute=pipeline_model_parallel_size > 1,
-        params_dtype=get_autocast_dtype(precision),
-        pipeline_dtype=get_autocast_dtype(precision),
-        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
-        biobert_spec_option=biobert_spec_option,
-        nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
-        # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
-        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
     )
 
     # The lightning class owns a copy of the actual model, and a loss function, both of which are configured
