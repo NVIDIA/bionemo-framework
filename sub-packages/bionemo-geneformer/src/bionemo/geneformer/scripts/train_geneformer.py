@@ -248,6 +248,19 @@ def main(
                 start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
             )
         )
+        
+    if create_tflops_callback:
+        # Add callback that logs the tera-FLOPS per second per GPU during training.
+        class SimpleDataModule:
+            def __init__(self, tokenizer_vocab_size, global_batch_size):
+                self.tokenizer_vocab_size = tokenizer_vocab_size
+                self.global_batch_size = global_batch_size
+
+        callbacks.append(
+            FLOPsMeasurementCallback(
+                geneformer_config, SimpleDataModule(tokenizer.vocab_size, global_batch_size), "bert"
+            )
+        )
 
     trainer = nl.Trainer(
         devices=devices,
@@ -348,19 +361,6 @@ def main(
         )
     else:
         checkpoint_callback = None
-
-    if create_tflops_callback:
-        # Add callback that logs the tera-FLOPS per second per GPU during training.
-        class SimpleDataModule:
-            def __init__(self, tokenizer_vocab_size, global_batch_size):
-                self.tokenizer_vocab_size = tokenizer_vocab_size
-                self.global_batch_size = global_batch_size
-
-        callbacks.append(
-            FLOPsMeasurementCallback(
-                geneformer_config, SimpleDataModule(tokenizer.vocab_size, global_batch_size), "bert"
-            )
-        )
 
     # Setup the logger and train the model
     nemo_logger = setup_nemo_lightning_logger(
