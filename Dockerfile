@@ -21,7 +21,7 @@
 #   training loss curves from NeMo.
 ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
 
-FROM rust:1.82.0 AS rust-env
+FROM rust:1.86.0 AS rust-env
 
 RUN rustup set profile minimal && \
   rustup install 1.82.0 && \
@@ -56,6 +56,13 @@ apt-get upgrade -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
+
+## BUMP TE as a solution to the issue https://github.com/NVIDIA/bionemo-framework/issues/422. Drop this when pytorch images ship the fixed commit.
+ ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
+ RUN PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
+    pip --disable-pip-version-check --no-cache-dir install \
+    git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
+
 # Install AWS CLI based on architecture
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
@@ -67,6 +74,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     unzip awscliv2.zip && \
     ./aws/install && \
     rm -rf aws awscliv2.zip
+
 
 # Use a branch of causal_conv1d while the repository works on Blackwell support.
 ARG CAUSAL_CONV_TAG=52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
@@ -114,6 +122,12 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     pip install .; \
 fi
 
+# On ARM, bits and bytes needs to be built from scratch
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+    cd / && pip uninstall bitsandbytes && \
+    git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
+    cd bitsandbytes && pip install . && cd .. && rm -rf bitsandbytes; \
+fi
 ###############################################################################
 # /end ARM
 ###############################################################################
@@ -128,6 +142,9 @@ RUN pip install hatchling urllib3  # needed to install nemo-run
 ARG NEMU_RUN_TAG=v0.3.0
 RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG} --use-deprecated=legacy-resolver
 
+# Rapids SingleCell Installation
+RUN pip install 'rapids-singlecell' --extra-index-url=https://pypi.nvidia.com
+
 RUN mkdir -p /workspace/bionemo2/
 
 WORKDIR /workspace
@@ -140,7 +157,7 @@ RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
 # environment, and does not use the current uv.lock file. Note that with python 3.12, we now need to set
 # UV_BREAK_SYSTEM_PACKAGES, since the pytorch base image has made the decision not to use a virtual environment and UV
 # does not respect the PIP_BREAK_SYSTEM_PACKAGES environment variable set in the base dockerfile.
-COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=1 \
   UV_PYTHON_DOWNLOADS=never \
@@ -175,7 +192,7 @@ uv pip install maturin --no-build-isolation
 git clone https://github.com/NVIDIA/nvidia-resiliency-ext
 uv pip install nvidia-resiliency-ext/
 rm -rf nvidia-resiliency-ext/
-# ngcsdk causes strange dependency conflicts that we will resolve later
+# ngcsdk causes strange dependency conflicts (ngcsdk requires protobuf<4, but nemo_toolkit requires protobuf==4.24.4, deleting it from the uv pip install prevents installation conflicts)
 sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
 # Remove llama-index because bionemo doesn't use it and it adds CVEs to container
 sed -i "/llama-index/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt
@@ -185,8 +202,8 @@ uv pip install --no-build-isolation \
 -r /requirements-cve.txt \
 -r /requirements-test.txt
 
-# Install back ngcsdk. Somehow doing it here avoids a large dependency loop
-uv pip install ngcsdk
+# Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
+uv pip install ngcsdk==3.64.3  # Temporary fix for changed filename, see https://nvidia.slack.com/archives/C074Z808N05/p1746231345981209
 
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
 # dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
@@ -234,7 +251,7 @@ USER $USERNAME
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
   /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
 
-COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=0 \
   UV_PYTHON_DOWNLOADS=never \
@@ -313,6 +330,8 @@ COPY ./docs ./docs
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
+# Fix a CRIT vuln: https://github.com/advisories/GHSA-vqfr-h8mv-ghfj
+RUN uv pip install h11==0.16.0
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
 RUN chmod 777 -R /workspace/bionemo2/

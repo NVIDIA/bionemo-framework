@@ -207,6 +207,9 @@ jobs:
     # This steps checks the status of all test jobs and fails if any of them failed or were cancelled.
     # It is a workaround for the lack of a built-in feature to finalize a pipeline by checking the status of multiple jobs
     needs: # List all your run-*-test jobs
+      - pre-commit
+      - get-pr-labels
+      - build-bionemo-image
       - run-tests
       - run-slow-tests
       - run-notebooks-docs
