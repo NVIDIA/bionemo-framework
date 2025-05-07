@@ -157,7 +157,9 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, HyenaModel):
             return forward_out
         # Reminder: the model's predictions for input i land at output i+1. To get everything to align, we prepend the
         # EOS token to the input sequences and take the outputs for all but the first token.
-        forward_out_tp_gathered = _gather_along_last_dim(forward_out)
+        forward_out_tp_gathered = _gather_along_last_dim(
+            forward_out, group=parallel_state.get_tensor_model_parallel_group()
+        )
         # else:
         #     forward_out_tp_gathered = _collect_into_dim(forward_out, dim=-1)
         forward_out_gathered = _gather_along_cp_dim(forward_out_tp_gathered)
