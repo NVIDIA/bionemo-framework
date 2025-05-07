@@ -112,7 +112,7 @@ class B2BConv1d(torch.nn.Module):
         submodules = hyena_stack_spec_no_te.submodules.hyena_layer.submodules.mixer.submodules
 
         # Set the b2b parameter in the config
-        hyena_config.use_b2b_causal_conv1d = use_b2b_causal_conv1d
+        hyena_test_config.use_b2b_causal_conv1d = use_b2b_causal_conv1d
 
         print("Creating HyenaMixer...")
         self.mixer = HyenaMixer(
