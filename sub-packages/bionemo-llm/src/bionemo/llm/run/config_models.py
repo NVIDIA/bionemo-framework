@@ -315,6 +315,7 @@ class TrainingConfig(BaseModel):
     log_train_ppl: bool = False
     log_val_ppl: bool = True
     enable_checkpointing: bool = True
+    create_tflops_callback: bool = False
 
 
 class OptimizerSchedulerConfig(BaseModel):
