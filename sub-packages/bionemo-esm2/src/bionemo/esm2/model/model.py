@@ -162,6 +162,9 @@ class ESM2Model(MegatronBioBertModel):
                 seq_len_interpolation_factor=seq_len_interpolation_factor,
             )
 
+        self.config.num_layers = (
+            self.config.num_layers // self.config.pipeline_model_parallel_size
+        ) * self.config.pipeline_model_parallel_size
         # Transformer.
         self.encoder = TransformerBlock(
             config=self.config,
