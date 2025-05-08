@@ -18,7 +18,9 @@ import math
 import pathlib
 from dataclasses import field
 from typing import Optional
+from types import SimpleNamespace
 
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
@@ -118,7 +120,7 @@ def setup_trainer(
             overlap_grad_reduce=True,
             overlap_param_gather=False,  # TODO waiting for NeMo fix
             average_in_collective=True,
-            use_distributed_optimizer=True,
+            use_distributed_optimizer=parallel_config.use_distributed_optimizer,
         ),
         find_unused_parameters=True,
         gradient_as_bucket_view=True,
@@ -240,8 +242,11 @@ def train(
     optimizer = MegatronOptimizerModule(
         config=OptimizerConfig(
             lr=optim_config.lr,
+            weight_decay=optim_config.weight_decay,
+            sgd_momentum=optim_config.sgd_momentum,
+            adam_eps=optim_config.adam_eps,
             optimizer=optim_config.optimizer,
-            use_distributed_optimizer=True,
+            use_distributed_optimizer=parallel_config.use_distributed_optimizer,
             fp16=bionemo_model_config.fp16,
             bf16=bionemo_model_config.bf16,
         ),
@@ -253,6 +258,22 @@ def train(
         tokenizer=data.tokenizer,
         optimizer=optimizer,
     )
+    # NOTE (SKH): lifted default callbacks out of setup_trainer
+    callbacks = [
+        RichModelSummary(max_depth=4),
+        LearningRateMonitor(),
+    ]
+    if training_config.create_tflops_callback:
+        dummy_data_module = SimpleNamespace()
+        dummy_data_module.global_batch_size = (
+            global_batch_size  # TODO(dorotat): remove this change after FLOPsMeasurementCallback is refactored
+        )
+        flop_meas_callback = FLOPsMeasurementCallback(
+            bionemo_model_config,
+            dummy_data_module, 
+            "bert",
+        )
+        callbacks.append(flop_meas_callback)
     trainer: nl.Trainer = setup_trainer(parallel_config, training_config, nsys_config=nsys_config)
     nemo_logger: nl.NeMoLogger = nemo_logger_factory(experiment_config, wandb_config=wandb_config)
 

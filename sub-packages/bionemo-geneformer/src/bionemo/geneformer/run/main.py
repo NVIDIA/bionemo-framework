@@ -89,6 +89,12 @@ def main():  # noqa: D103
             dest="create_checkpoint_callback",
             help="Disable creating a ModelCheckpoint callback.",
         )
+        parser.add_argument(
+            "--create-tflops-callback",
+            action="store_true",
+            default=False,
+            help="Creates a special callback for measuring tflops. Results are logged to wandb"
+        )
 
         return parser.parse_args()
 
@@ -104,6 +110,7 @@ def main():  # noqa: D103
         model_config_cls: Optional[str],
         data_config_cls: Optional[str],
         create_checkpoint_callback: bool,
+        create_tflops_callback
     ) -> MainConfig:
         with open(config_path, "r") as f:
             config_dict = yaml.safe_load(f)
@@ -123,6 +130,9 @@ def main():  # noqa: D103
             config_dict["training_config"]["enable_checkpointing"] = create_checkpoint_callback
             config_dict["experiment_config"]["create_checkpoint_callback"] = create_checkpoint_callback
 
+        if create_tflops_callback:
+            config_dict["training_config"]["create_tflops_callback"] = create_checkpoint_callback
+
         if data_config_cls is None:
             data_config_cls = GeneformerPretrainingDataConfig
         elif isinstance(data_config_cls, str):
@@ -130,7 +140,7 @@ def main():  # noqa: D103
         return MainConfig[model_config_cls, data_config_cls](**config_dict)
 
     args = parse_args()
-    config = load_config(args.config, args.model_config_cls, args.data_config_cls, args.create_checkpoint_callback)
+    config = load_config(args.config, args.model_config_cls, args.data_config_cls, args.create_checkpoint_callback, args.create_tflops_callback)
 
     if args.nsys_profiling:
         nsys_config = NsysConfig(
