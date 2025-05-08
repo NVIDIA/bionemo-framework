@@ -77,10 +77,11 @@ uname -a
 
 # Set up pytest options
 PYTEST_OPTIONS=(
-    -v
+    -vv
     --cov=bionemo
     --cov-append
     --cov-report=xml:coverage.xml
+    --durations=0
 )
 [[ "$NO_NBVAL" != true ]] && PYTEST_OPTIONS+=(--nbval-lax)
 [[ "$SKIP_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "not slow")
