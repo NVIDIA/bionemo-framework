@@ -10,9 +10,7 @@ theme:
     - content.code.annotate
     - navigation.tabs
     - navigation.indexes
-    - navigation.instant
     - navigation.path
-    - navigation.instant.prefetch
     - navigation.top
     - navigation.footer
     - search.suggest
