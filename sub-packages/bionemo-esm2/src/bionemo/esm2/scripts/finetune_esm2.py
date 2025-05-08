@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Type, get_args
 
 from lightning.pytorch.callbacks import Callback, LearningRateMonitor, RichModelSummary
+from megatron.core.dist_checkpointing.validation import StrictHandling
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
@@ -35,6 +36,7 @@ from bionemo.esm2.model.finetune.dataset import (
     InMemoryProteinDataset,
     InMemorySingleValueDataset,
 )
+from bionemo.esm2.model.finetune.peft import ESM2LoRA
 from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
 from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
@@ -118,6 +120,8 @@ def train_model(
     grad_reduce_in_fp32: bool = False,
     ckpt_async_save: bool = True,
     label_column: str = "labels",
+    lora_checkpoint_path: Optional[str] = None,
+    lora_finetune: bool = False,
 ) -> Tuple[Path, Callback | None, nl.Trainer]:
     """Train an ESM2 model on UR data.
 
@@ -180,6 +184,8 @@ def train_model(
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
         ckpt_async_save (bool): whether to save ckpt async. Set to False for federated learning
         label_column (str): name of label column in CSV data file. Defaults to `labels`.
+        lora_checkpoint_path (Optional[str]): path to the lora checkpoint file.
+        lora_finetune (bool): whether to use lora fine-tuning.
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -194,22 +200,32 @@ def train_model(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
     )
 
+    # Convert lora_checkpoint_path to string if it's a Path object
+    if lora_checkpoint_path is not None:
+        lora_checkpoint_path = str(lora_checkpoint_path)
+
+    # Initialize LoRA adapter first if needed
+    peft = None
+    if lora_finetune:
+        peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
+
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
+        find_unused_parameters=True,
+        gradient_as_bucket_view=True,
+        ckpt_include_optimizer=True,
+        ckpt_async_save=ckpt_async_save,
+        ckpt_parallel_load=True,
+        ckpt_load_strictness=StrictHandling.LOG_UNEXPECTED,
         ddp=DistributedDataParallelConfig(
             check_for_nan_in_grad=True,
             overlap_grad_reduce=overlap_grad_reduce,
             overlap_param_gather=overlap_param_gather,
             average_in_collective=average_in_collective,
             grad_reduce_in_fp32=grad_reduce_in_fp32,
-            use_distributed_optimizer=True,
+            use_distributed_optimizer=False,
         ),
-        find_unused_parameters=True,
-        gradient_as_bucket_view=True,
-        ckpt_include_optimizer=True,
-        ckpt_async_save=ckpt_async_save,
-        ckpt_parallel_load=True,
     )
 
     # for wandb integration
@@ -244,6 +260,8 @@ def train_model(
                 start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
             )
         )
+    if peft is not None:
+        callbacks.append(peft)
 
     trainer = nl.Trainer(
         devices=devices,
@@ -342,7 +360,12 @@ def train_model(
         optimizer.scale_lr_cond = lambda name, param: scale_lr_layer in name
         optimizer.lr_mult = lr_multiplier
 
-    module = biobert_lightning_module(config=config, tokenizer=tokenizer, optimizer=optimizer)
+    if peft is not None:
+        module = biobert_lightning_module(
+            config=config, tokenizer=tokenizer, optimizer=optimizer, model_transform=peft
+        )
+    else:
+        module = biobert_lightning_module(config=config, tokenizer=tokenizer, optimizer=optimizer)
 
     # Configure our custom Checkpointer
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
@@ -352,6 +375,8 @@ def train_model(
         every_n_train_steps=val_check_interval,
         always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
         filename="checkpoint-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        save_weights_only=False,
+        save_optim_on_train_end=True,
     )
 
     # Setup the logger and train the model
@@ -362,7 +387,6 @@ def train_model(
         wandb_config=wandb_config,
         ckpt_callback=checkpoint_callback,
     )
-
     llm.train(
         model=module,
         data=data_module,
@@ -373,6 +397,7 @@ def train_model(
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
     )
+
     ckpt_path = Path(checkpoint_callback.last_model_path.replace(".ckpt", ""))
     return ckpt_path, metric_tracker, trainer
 
@@ -386,8 +411,10 @@ def finetune_esm2_entrypoint():
     # to avoid padding for single value labels:
     if args.min_seq_length is not None and args.datset_class is InMemorySingleValueDataset:
         parser.error("Arguments --min-seq-length cannot be set when using InMemorySingleValueDataset.")
+    if args.lora_checkpoint_path and not args.lora_finetune:
+        parser.error("Arguments --lora=checkpoint-path cannot be set when not using lora-finetune.")
 
-    # 2. Call pretrain with args
+    # 2. Call training with args
     train_model(
         train_data_path=args.train_data_path,
         valid_data_path=args.valid_data_path,
@@ -445,6 +472,8 @@ def finetune_esm2_entrypoint():
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
         ckpt_async_save=not args.avoid_ckpt_async_save,
         label_column=args.label_column,
+        lora_checkpoint_path=args.lora_checkpoint_path,
+        lora_finetune=args.lora_finetune,
     )
 
 
@@ -703,6 +732,22 @@ def get_parser():
         default=None,
         help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
     )
+
+    parser.add_argument(
+        "--lora-finetune",
+        action="store_true",
+        default=False,
+        help="Perform fine-tuning with LoRA.",
+    )
+
+    parser.add_argument(
+        "--lora-checkpoint-path",
+        type=str,
+        required=False,
+        default=None,
+        help="Path to the LoRA states to restore from.",
+    )
+
     parser.add_argument(
         "--nsys-profiling",
         action="store_true",
@@ -760,6 +805,14 @@ def get_parser():
         default=False,
     )
 
+    parser.add_argument(
+        "--clip-grad",
+        type=float,
+        required=False,
+        default=1.0,
+        help="Gradient clipping based on global L2 norm. Default is 1.0",
+    )
+
     config_class_options: Dict[str, Type[BioBertConfig]] = SUPPORTED_CONFIGS
 
     def config_class_type(desc: str) -> Type[BioBertConfig]:
@@ -797,6 +850,8 @@ def get_parser():
         default=InMemorySingleValueDataset,
         help=f"Dataset class name for finetuning. Choices: {config_class_options.keys()}",
     )
+    parser.add_argument("--seed", type=int, default=43, help="Random seed.")
+
     return parser
 
 
