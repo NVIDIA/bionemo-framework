@@ -43,7 +43,9 @@ class FileNames(str, Enum):
     DTYPE = "dtypes.json"
     FEATURES = "features"
     VERSION = "version.json"
-
+    NEIGHBOR_INDICES = "neighbor_indices.npy"
+    NEIGHBOR_INDICES_PTR = "neighbor_indptr.npy"
+    NEIGHBOR_VALUES = "neighbor_values.npy"
 
 class Mode(str, Enum):
     """Valid modes for the single cell memory mapped dataset.
@@ -297,29 +299,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             f"{FileNames.DATA.value}": "float32",
             f"{FileNames.COLPTR.value}": "uint32",
             f"{FileNames.ROWPTR.value}": "uint64",
+            f"{FileNames.NEIGHBOR_INDICES.value}": "uint32",
+            f"{FileNames.NEIGHBOR_INDICES_PTR.value}": "uint64",
+            f"{FileNames.NEIGHBOR_VALUES.value}": "float32",
         }
 
         # Neighbor configuration
         self.load_neighbors = load_neighbors
-        self.neighbor_key = neighbor_key
-        if neighbor_sampling_strategy not in ['random']:
-             raise ValueError(f"Unsupported neighbor_sampling_strategy: {neighbor_sampling_strategy}")
-        self.neighbor_sampling_strategy = neighbor_sampling_strategy
-        self.fallback_to_identity = fallback_to_identity
+        if load_neighbors:
+            self.init_neighbor_args(neighbor_key, neighbor_sampling_strategy, fallback_to_identity)
 
-        # Neighbor tracking
-        self._has_neighbors = False # Track if neighbor data was successfully loaded/found
-    
-        # Set paths for neighbor data files
-        self._neighbor_indices_path = os.path.join(self.data_path, "neighbor_indices.npy")
-        self._neighbor_indptr_path = os.path.join(self.data_path, "neighbor_indptr.npy")
-        self._neighbor_data_path = os.path.join(self.data_path, "neighbor_values.npy")
-
-        # Placeholders for neighbor Memory-mapped arrays
-        self._neighbor_indices = None
-        self._neighbor_indptr = None
-        self._neighbor_data = None
-
+            
         if mode == Mode.CREATE_APPEND and os.path.exists(data_path):
             raise FileExistsError(f"Output directory already exists: {data_path}")
 
@@ -346,6 +336,27 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 case _:
                     raise ValueError("An np.memmap path, an h5ad path, or the number of elements and rows is required")
 
+    # NOTE: initialize neighbor args
+    def init_neighbor_args(self, neighbor_key, neighbor_sampling_strategy, fallback_to_identity):
+        # Neighbor tracking
+        self._has_neighbors = False # Track if neighbor data was successfully loaded/found
+
+        self.neighbor_key = neighbor_key
+        if neighbor_sampling_strategy not in ['random']:
+            raise ValueError(f"Unsupported neighbor_sampling_strategy: {neighbor_sampling_strategy}")
+        self.neighbor_sampling_strategy = neighbor_sampling_strategy
+        self.fallback_to_identity = fallback_to_identity
+
+        # Set paths for neighbor data files
+        self._neighbor_indices_path = os.path.join(self.data_path, FileNames.NEIGHBOR_INDICES.value)
+        self._neighbor_indptr_path = os.path.join(self.data_path, FileNames.NEIGHBOR_INDICES_PTR.value)
+        self._neighbor_data_path = os.path.join(self.data_path, FileNames.NEIGHBOR_VALUES.value)
+
+        # Placeholders for neighbor Memory-mapped arrays
+        self._neighbor_indices = None
+        self._neighbor_indptr = None
+        self._neighbor_data = None
+    
     def __init__obj(self):
         """Initializes the datapath and writes the version."""
         os.makedirs(self.data_path, exist_ok=True)
@@ -406,29 +417,38 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Initialize memory-mapped arrays for neighbor data with proper sizes
         indptr_len = len(neighbor_matrix.indptr)
-        indices_len = len(neighbor_matrix.indices)
-        data_len = len(neighbor_matrix.data)
+        nnz = len(neighbor_matrix.indices)  # number of non-zero elements
+        # No need to calculate data_len separately since it equals nnz
+
+        # self.mode = Mode.CREATE_APPEND
+        # self._neighbor_data , self._neighbor_indices, self._neighbor_indptr= _create_compressed_sparse_row_memmaps(
+        #     num_elements=indices_len,
+        #     num_rows=indptr_len,
+        #     memmap_dir_path=Path(self.data_path), #need to figure out the filenaming
+        #     mode=self.mode,
+        #     dtypes=self.dtypes,
+        # )
         
         # Create memory-mapped arrays for neighbor data
         self._neighbor_indptr = np.memmap(
-            self._neighbor_indptr_path,
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}",
             dtype=neighbor_matrix.indptr.dtype,
             mode=Mode.CREATE_APPEND.value,
             shape=(indptr_len,)
         )
         
         self._neighbor_indices = np.memmap(
-            self._neighbor_indices_path, 
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}", 
             dtype=neighbor_matrix.indices.dtype, 
             mode=Mode.CREATE_APPEND.value,
-            shape=(indices_len,)
+            shape=(nnz,)
         )
         
         self._neighbor_data = np.memmap(
-            self._neighbor_data_path, 
+            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}", 
             dtype=neighbor_matrix.data.dtype, 
             mode=Mode.CREATE_APPEND.value,
-            shape=(data_len,)
+            shape=(nnz,)
         )
         
         # Copy data into memory-mapped arrays
@@ -472,11 +492,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         
         # Get dimensions from indptr
         num_rows = len(neighbor_matrix.indptr) - 1
-        
+        memmap_dir_path = Path(self.data_path)
         # Process indices and data in chunks based on rows
         with (
-            open(self._neighbor_indices_path, "wb") as indices_file,
-            open(self._neighbor_data_path, "wb") as data_file,
+            open(f"{memmap_dir_path}/{FileNames.NEIGHBOR_INDICES.value}", "wb") as indices_file,
+            open(f"{memmap_dir_path}/{FileNames.NEIGHBOR_VALUES.value}", "wb") as data_file,
         ):
             for row_start in range(0, num_rows, self.load_block_row_size):
                 row_end = min(row_start + self.load_block_row_size, num_rows)
@@ -492,22 +512,22 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         
         # Then re-open as memory-mapped arrays with the final shapes
         self._neighbor_indptr = np.memmap(
-            self._neighbor_indptr_path,
-            dtype=neighbor_matrix.indptr.dtype,
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}",
+            dtype=self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"],
             mode=Mode.READ_APPEND.value,
             shape=(len(neighbor_matrix.indptr),)
         )
         
         self._neighbor_indices = np.memmap(
-            self._neighbor_indices_path,
-            dtype=neighbor_matrix.indices.dtype,
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}",
+            dtype=self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"],
             mode=Mode.READ_APPEND.value,
             shape=(len(neighbor_matrix.indices),)
         )
         
         self._neighbor_data = np.memmap(
-            self._neighbor_data_path,
-            dtype=neighbor_matrix.data.dtype,
+            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}",
+            dtype=self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"],
             mode=Mode.READ_APPEND.value,
             shape=(len(neighbor_matrix.data),)
         )
@@ -711,8 +731,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Store the row idx array
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
-
-        #NOTE: Polina - use pattern of init arrs to reserves that memory space then maps the data using self.data-self.row_index (replaces load neighbor memmap)
         
         # NOTE: Maybe there is no need to store this metadata
         # self.metadata["has_neighbors"] = self._has_neighbors
@@ -791,39 +809,18 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
     def _load_neighbor_memmaps(self):
         if not self._has_neighbors:
             return
-        
-        # Load the neighbor data
-        # try:
-        #     self._neighbor_indices = np.memmap(
-        #         self._neighbor_indices_path,
-        #         dtype='int32',  # typical dtype for indices
-        #         mode=Mode.READ_APPEND.value
-        #     )
-            
-        #     self._neighbor_indptr = np.memmap(
-        #         self._neighbor_indptr_path,
-        #         dtype='int32',  # typical dtype for indptr
-        #         mode=Mode.READ_APPEND.value
-        #     )
-            
-        #     self._neighbor_data = np.memmap(
-        #         self._neighbor_data_path,
-        #         dtype='float32',  # typical dtype for values
-        #         mode=Mode.READ_APPEND.value
-        #     )
-        # except (FileNotFoundError, IOError) as e:
-        #     warnings.warn(f"Failed to load neighbor data: {e}")
-        #     self._has_neighbors = False
 
         # mmap the existing arrays
         self._neighbor_indices = self._load_mmap_file_if_exists(
-            self._neighbor_indices_path, dtype='int32'
+            # self._neighbor_indices_path, dtype='int32'
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}", self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"]
         )
         self._neighbor_indptr = self._load_mmap_file_if_exists(
-            self._neighbor_indptr_path, dtype='int32'
+            # self._neighbor_indptr_path, dtype='int32'
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}", self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"]
         )
         self._neighbor_data = self._load_mmap_file_if_exists(
-            self._neighbor_data_path, dtype='float32'
+            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}", self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"]
         )
 
     def load_h5ad(
