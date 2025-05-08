@@ -991,9 +991,37 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             # Simple random sampling with equal probability
             chosen_index = np.random.choice(neighbor_indices)
             return chosen_index
-         
+         # NOTE: Future - Add weighted sampling strategy
         else:
             raise ValueError(f"Unsupported neighbor sampling strategy: {self.neighbor_sampling_strategy}")
+        
+    def get_neighbor_stats(self) -> dict:
+        """
+        Returns statistics about the neighbors in the dataset.
+        
+        Returns:
+            dict: Dictionary with neighbor statistics:
+                - has_neighbors: Whether dataset has neighbor data
+                - total_connections: Total number of neighbor relationships
+                - min_neighbors_per_cell: Minimum number of neighbors any cell has
+                - max_neighbors_per_cell: Maximum number of neighbors any cell has
+                - avg_neighbors_per_cell: Average number of neighbors per cell
+                - cells_with_no_neighbors: Count of cells that have no neighbors
+        """
+        if not self._has_neighbors or self._neighbor_indptr is None or self._neighbor_indices is None:
+            return {"has_neighbors": False}
+            
+        # Calculate stats based on CSR indptr (difference between consecutive elements)
+        neighbor_counts = np.diff(self._neighbor_indptr)
+        
+        return {
+            "has_neighbors": True,
+            "total_connections": len(self._neighbor_indices),
+            "min_neighbors_per_cell": int(np.min(neighbor_counts)),
+            "max_neighbors_per_cell": int(np.max(neighbor_counts)),
+            "avg_neighbors_per_cell": float(np.mean(neighbor_counts)),
+            "cells_with_no_neighbors": int(np.sum(neighbor_counts == 0)),
+        }
 
     def number_of_values(self) -> int:
         """Get the total number of values in the array.
