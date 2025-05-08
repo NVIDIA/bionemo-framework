@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
+
 import torch
 
 
-def collate_sparse_matrix_batch(batch: list[torch.Tensor]) -> torch.Tensor:
+def collate_sparse_matrix_batch(batch: tuple) -> torch.Tensor:
     """Collate function to create a batch out of sparse tensors.
 
     This is necessary to collate sparse matrices of various lengths.
@@ -27,14 +29,17 @@ def collate_sparse_matrix_batch(batch: list[torch.Tensor]) -> torch.Tensor:
     Returns:
         The tensors collated into a CSR (Compressed Sparse Row) Format.
     """
+    # every batch is a tuple of (sparse_matrix, n_features)
+    # we use the first batch to get the number of features
+    n_features = batch[0][1][0]
+    batch = [x[0] for x in batch]
     batch_rows = torch.cumsum(
         torch.tensor([0] + [sparse_representation.shape[1] for sparse_representation in batch]), dim=0
     )
     batch_cols = torch.cat([sparse_representation[1] for sparse_representation in batch]).to(torch.int32)
     batch_values = torch.cat([sparse_representation[0] for sparse_representation in batch])
-    if len(batch_cols) == 0:
-        max_pointer = 0
-    else:
-        max_pointer = int(batch_cols.max().item() + 1)
-    batch_sparse_tensor = torch.sparse_csr_tensor(batch_rows, batch_cols, batch_values, size=(len(batch), max_pointer))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        batch_sparse_tensor = torch.sparse_csr_tensor(batch_rows, batch_cols, batch_values, size=(len(batch), n_features))
     return batch_sparse_tensor
