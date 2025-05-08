@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import tempfile
+import warnings
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -42,7 +43,9 @@ class FileNames(str, Enum):
     DTYPE = "dtypes.json"
     FEATURES = "features"
     VERSION = "version.json"
-
+    NEIGHBOR_INDICES = "neighbor_indices.npy"
+    NEIGHBOR_INDICES_PTR = "neighbor_indptr.npy"
+    NEIGHBOR_VALUES = "neighbor_values.npy"
 
 class Mode(str, Enum):
     """Valid modes for the single cell memory mapped dataset.
@@ -222,12 +225,20 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         data: A numpy array of the data
         row_index: A numpy array of row pointers
         col_index: A numpy array of column values
-        metadata: Various metata about the dataset.
+        metadata: Various metadata about the dataset.
         _feature_index: The corresponding RowFeatureIndex where features are
         stored
         dtypes: A dictionary containing the datatypes of the data, row_index,
         and col_index arrays.
         _version: The version of the dataset
+        load_neighbors (bool, optional): Whether to load and utilize neighbor information
+            from the 'neighbor_key' in AnnData's .obsp. Defaults to False.
+        neighbor_key (str, optional): The key in AnnData's .obsp containing the
+            sparse adjacency matrix for neighbors. Defaults to 'next_cell_ids'.
+        neighbor_sampling_strategy (str, optional): Strategy for sampling neighbors ('random').
+            Defaults to 'random'.
+        fallback_to_identity (bool, optional): If a cell has no neighbors, whether
+            to use the cell itself as its neighbor. Defaults to True.
     """
 
     def __init__(
@@ -240,6 +251,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
         feature_index_name="feature_id",
+        # --- Neighbor Args ---
+        load_neighbors: bool = False,
+        neighbor_key: str = 'next_cell_ids',
+        neighbor_sampling_strategy: str = 'random',
+        fallback_to_identity: bool = True,
     ) -> None:
         """Instantiate the class.
 
@@ -253,6 +269,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
             load_block_row_size: Number of rows to load into memory with paginated load
             feature_index_name: The name of the features if the features are only stored in features_df.index.values
+            # --- New Neighbor Args ---
+            load_neighbors (bool, optional): Boolean to control to control whether to load and utilize neighbor information
+            neighbor_key (str, optional): The key in AnnData's .obsp containing neighbor information.
+            neighbor_sampling_strategy (str, optional): Sampling strategy for neighbors.
+            fallback_to_identity (bool, optional): If a cell has no neighbors, whether to use the cell itself as its neighbor.
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
@@ -278,8 +299,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             f"{FileNames.DATA.value}": "float32",
             f"{FileNames.COLPTR.value}": "uint32",
             f"{FileNames.ROWPTR.value}": "uint64",
+            f"{FileNames.NEIGHBOR_INDICES.value}": "uint32",
+            f"{FileNames.NEIGHBOR_INDICES_PTR.value}": "uint64",
+            f"{FileNames.NEIGHBOR_VALUES.value}": "float32",
         }
 
+        # Neighbor configuration
+        self.load_neighbors = load_neighbors
+        if load_neighbors:
+            self.init_neighbor_args(neighbor_key, neighbor_sampling_strategy, fallback_to_identity)
+
+            
         if mode == Mode.CREATE_APPEND and os.path.exists(data_path):
             raise FileExistsError(f"Output directory already exists: {data_path}")
 
@@ -306,6 +336,27 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 case _:
                     raise ValueError("An np.memmap path, an h5ad path, or the number of elements and rows is required")
 
+    # NOTE: initialize neighbor args
+    def init_neighbor_args(self, neighbor_key, neighbor_sampling_strategy, fallback_to_identity):
+        # Neighbor tracking
+        self._has_neighbors = False # Track if neighbor data was successfully loaded/found
+
+        self.neighbor_key = neighbor_key
+        if neighbor_sampling_strategy not in ['random']:
+            raise ValueError(f"Unsupported neighbor_sampling_strategy: {neighbor_sampling_strategy}")
+        self.neighbor_sampling_strategy = neighbor_sampling_strategy
+        self.fallback_to_identity = fallback_to_identity
+
+        # Set paths for neighbor data files
+        self._neighbor_indices_path = os.path.join(self.data_path, FileNames.NEIGHBOR_INDICES.value)
+        self._neighbor_indptr_path = os.path.join(self.data_path, FileNames.NEIGHBOR_INDICES_PTR.value)
+        self._neighbor_data_path = os.path.join(self.data_path, FileNames.NEIGHBOR_VALUES.value)
+
+        # Placeholders for neighbor Memory-mapped arrays
+        self._neighbor_indices = None
+        self._neighbor_indptr = None
+        self._neighbor_data = None
+    
     def __init__obj(self):
         """Initializes the datapath and writes the version."""
         os.makedirs(self.data_path, exist_ok=True)
@@ -335,6 +386,155 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         return self._version
 
+    def _extract_neighbor_data(self, adata) -> bool:
+        """Extracts neighbor data from AnnData.obsp object and saves to memmap files.
+
+        Args:
+            adata: AnnData object containing neighbor information
+        Returns:
+            bool: True if neighbor data was successfully loaded/found, False otherwise.
+        """
+        # NOTE: this is no longer needed as we have a check in load_h5ad before we call this function
+        # Skip if neighbor loading is not enabled
+        # if not self.load_neighbors:
+        #     return False
+
+        # Check if neighbor key exists in AnnData.obsp
+        if self.neighbor_key not in adata.obsp:
+            warnings.warn(
+                f"Neighbor key '{self.neighbor_key}' not found in AnnData.obsp. Neighbor loading skipped."
+            )
+            return False
+
+        print(f"Extracting neighbor data from {self.neighbor_key} in AnnData.obsp")
+
+        # Get the neighbor matrix from obsp
+        neighbor_matrix = adata.obsp[self.neighbor_key]
+
+        # Check if the neighbor matrix is a sparse matrix
+        if not scipy.sparse.issparse(neighbor_matrix):
+            raise ValueError(f"Neighbor matrix for key '{self.neighbor_key}' is not a sparse matrix.")
+
+        # Initialize memory-mapped arrays for neighbor data with proper sizes
+        indptr_len = len(neighbor_matrix.indptr)
+        nnz = len(neighbor_matrix.indices)  # number of non-zero elements
+        # No need to calculate data_len separately since it equals nnz
+
+        # self.mode = Mode.CREATE_APPEND
+        # self._neighbor_data , self._neighbor_indices, self._neighbor_indptr= _create_compressed_sparse_row_memmaps(
+        #     num_elements=indices_len,
+        #     num_rows=indptr_len,
+        #     memmap_dir_path=Path(self.data_path), #need to figure out the filenaming
+        #     mode=self.mode,
+        #     dtypes=self.dtypes,
+        # )
+        
+        # Create memory-mapped arrays for neighbor data
+        self._neighbor_indptr = np.memmap(
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}",
+            dtype=neighbor_matrix.indptr.dtype,
+            mode=Mode.CREATE_APPEND.value,
+            shape=(indptr_len,)
+        )
+        
+        self._neighbor_indices = np.memmap(
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}", 
+            dtype=neighbor_matrix.indices.dtype, 
+            mode=Mode.CREATE_APPEND.value,
+            shape=(nnz,)
+        )
+        
+        self._neighbor_data = np.memmap(
+            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}", 
+            dtype=neighbor_matrix.data.dtype, 
+            mode=Mode.CREATE_APPEND.value,
+            shape=(nnz,)
+        )
+        
+        # Copy data into memory-mapped arrays
+        self._neighbor_indptr[:] = neighbor_matrix.indptr
+        self._neighbor_indices[:] = neighbor_matrix.indices
+        self._neighbor_data[:] = neighbor_matrix.data
+        
+        print(f"Neighbor data extracted to memory-mapped arrays")
+        return True
+    
+    def _extract_neighbor_data_paginated(self, adata) -> bool:
+        """Extracts neighbor data using paginated approach for large datasets.
+        
+        Uses the same pattern as paginated_load_h5ad with binary file I/O and chunking
+        to efficiently handle large neighbor matrices without loading everything at once.
+        
+        Args:
+            adata: AnnData object containing neighbor information
+        Returns:
+            bool: True if neighbor data was successfully loaded/found, False otherwise.
+        """
+        # Check if neighbor key exists in AnnData.obsp
+        if self.neighbor_key not in adata.obsp:
+            warnings.warn(
+                f"Neighbor key '{self.neighbor_key}' not found in AnnData.obsp. Neighbor loading skipped."
+            )
+            return False
+
+        print(f"Extracting neighbor data from {self.neighbor_key} in AnnData.obsp using chunked approach")
+
+        # Get the neighbor matrix from obsp
+        neighbor_matrix = adata.obsp[self.neighbor_key]
+
+        # Check if the neighbor matrix is a sparse matrix
+        if not scipy.sparse.issparse(neighbor_matrix):
+            raise ValueError(f"Neighbor matrix for key '{self.neighbor_key}' is not a sparse matrix.")
+        
+        # First write indptr which gives us the structure - this is usually small enough to handle in one go
+        with open(self._neighbor_indptr_path, "wb") as indptr_file:
+            indptr_file.write(neighbor_matrix.indptr.tobytes())
+        
+        # Get dimensions from indptr
+        num_rows = len(neighbor_matrix.indptr) - 1
+        memmap_dir_path = Path(self.data_path)
+        # Process indices and data in chunks based on rows
+        with (
+            open(f"{memmap_dir_path}/{FileNames.NEIGHBOR_INDICES.value}", "wb") as indices_file,
+            open(f"{memmap_dir_path}/{FileNames.NEIGHBOR_VALUES.value}", "wb") as data_file,
+        ):
+            for row_start in range(0, num_rows, self.load_block_row_size):
+                row_end = min(row_start + self.load_block_row_size, num_rows)
+                
+                # Get slice of the matrix for this chunk of rows
+                chunk = neighbor_matrix[row_start:row_end]
+                
+                # Write chunk data to files
+                indices_file.write(chunk.indices.tobytes())
+                data_file.write(chunk.data.tobytes())
+                
+                print(f"Processed neighbor data rows {row_start} to {row_end-1}")
+        
+        # Then re-open as memory-mapped arrays with the final shapes
+        self._neighbor_indptr = np.memmap(
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}",
+            dtype=self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"],
+            mode=Mode.READ_APPEND.value,
+            shape=(len(neighbor_matrix.indptr),)
+        )
+        
+        self._neighbor_indices = np.memmap(
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}",
+            dtype=self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"],
+            mode=Mode.READ_APPEND.value,
+            shape=(len(neighbor_matrix.indices),)
+        )
+        
+        self._neighbor_data = np.memmap(
+            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}",
+            dtype=self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"],
+            mode=Mode.READ_APPEND.value,
+            shape=(len(neighbor_matrix.data),)
+        )
+        
+        print(f"Neighbor data extracted to memory-mapped arrays using chunked approach")
+        return True
+       
     def get_row(
         self,
         index: int,
@@ -360,6 +560,87 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             return ret, self._feature_index.lookup(index, select_features=feature_vars)[0]
         else:
             return ret, None
+    
+    # FOR POLINA: this can be separate function or integrated into get_row
+    # FOR POLINA: how might your rowfeatureindex approach be relavant here? 
+    def get_row_with_neighbor(
+        self,
+        index: int,
+        return_features: bool = False,
+        feature_vars: Optional[List[str]] = None,
+        include_neighbor: Optional[bool] = None,
+        ) -> Union[
+            Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]],
+            Dict[str, Union[Tuple[np.ndarray, np.ndarray], int, Optional[List[np.ndarray]]]]
+    ]:
+        """Returns a given row in the dataset along with optional features and neighbor data.
+        
+        Args:
+            index: The row to be returned. This is in the range of [0, num_rows)
+            return_features: Boolean that indicates whether to return features
+            feature_vars: Optional, feature variables to extract
+            include_neighbor: Whether to include neighbor data in the result.
+                              If None, defaults to self.load_neighbors
+        
+        Returns:
+            If include_neighbor is False or neighbor functionality is disabled:
+                Original return type: Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]]
+                (values, columns), features
+            
+            If include_neighbor is True and neighbor functionality is enabled:
+                Dict with keys:
+                - 'current_cell': Tuple[np.ndarray, np.ndarray] - (values, columns) for current cell
+                - 'next_cell': Tuple[np.ndarray, np.ndarray] - (values, columns) for neighbor cell
+                - 'current_cell_index': int - Index of current cell
+                - 'next_cell_index': int - Index of neighbor cell
+                - 'features': List[np.ndarray] - Features if return_features is True, else None
+        """
+        # Determine whether to include neighbor
+        if include_neighbor is None:
+            include_neighbor = self.load_neighbors and self._has_neighbors
+        
+        # Validate index
+        if not (0 <= index < self.number_of_rows()):
+            raise IndexError(f"Index {index} out of bounds for dataset with size {self.number_of_rows()}")
+        
+        # Get current cell data
+        start = self.row_index[index]
+        end = self.row_index[index + 1]
+        values = self.data[start:end]
+        columns = self.col_index[start:end]
+        current_cell_data = (values, columns)
+        
+        # Get features if requested
+        features = None
+        if return_features:
+            features = self._feature_index.lookup(index, select_features=feature_vars)[0]
+        
+        # If no neighbor requested, return in original format
+        if not include_neighbor:
+            return current_cell_data, features
+        
+        # Sample neighbor and get its data
+        neighbor_index = self.sample_neighbor_index(index)
+        
+        # Case where neighbor is the same as current cell
+        if neighbor_index == index:
+            next_cell_data = current_cell_data
+        else:
+            # Get neighbor cell data
+            n_start = self.row_index[neighbor_index]
+            n_end = self.row_index[neighbor_index + 1]
+            n_values = self.data[n_start:n_end]
+            n_columns = self.col_index[n_start:n_end]
+            next_cell_data = (n_values, n_columns)
+        
+        # Return all data in a dictionary format
+        return {
+            'current_cell': current_cell_data,
+            'next_cell': next_cell_data,
+            'current_cell_index': index,
+            'next_cell_index': neighbor_index,
+            'features': features,
+        }
 
     def get_row_padded(
         self,
@@ -467,6 +748,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             f"{self.data_path}/{FileNames.COLPTR.value}", dtype=self.dtypes[f"{FileNames.COLPTR.value}"]
         )
 
+        # Load neighbor data
+        if self.load_neighbors:
+            self._load_neighbor_memmaps()
+
     def _write_metadata(self) -> None:
         with open(f"{self.data_path}/{FileNames.METADATA.value}", f"{Mode.CREATE.value}") as mfi:
             json.dump(self.metadata, mfi)
@@ -488,6 +773,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         """
         adata = ad.read_h5ad(anndata_path)  # slow
+
+        # Check and load neighbor data
+        # NOTE: More clear to have a check here and not call _extract_neighbor_data() if there no neighbors
+        if self.load_neighbors:
+            self._has_neighbors = self._extract_neighbor_data(adata)
 
         if not isinstance(adata.X, scipy.sparse.spmatrix):
             raise NotImplementedError("Error: dense matrix loading not yet implemented.")
@@ -522,6 +812,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Store the row idx array
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
+        
+        # NOTE: Maybe there is no need to store this metadata
+        # self.metadata["has_neighbors"] = self._has_neighbors
+        #FIXME: metadata expect integer
+        #self.metadata["neighbor_key"] = self.neighbor_key if self._has_neighbors else None
 
         return adata.var, num_rows
 
@@ -543,6 +838,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             int: number of rows in the dataframe.
         """
         adata = ad.read_h5ad(anndata_path, backed=True)
+
+        if self.load_neighbors:           
+            self._has_neighbors = self._extract_neighbor_data_paginated(adata)
 
         if not isinstance(adata.X, ad.experimental.CSRDataset):
             raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
@@ -588,6 +886,23 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             shape=(n_elements,),
         )
         return adata.var, num_rows
+
+    def _load_neighbor_memmaps(self):
+        if not self._has_neighbors:
+            return
+
+        # mmap the existing arrays
+        self._neighbor_indices = self._load_mmap_file_if_exists(
+            # self._neighbor_indices_path, dtype='int32'
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}", self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"]
+        )
+        self._neighbor_indptr = self._load_mmap_file_if_exists(
+            # self._neighbor_indptr_path, dtype='int32'
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}", self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"]
+        )
+        self._neighbor_data = self._load_mmap_file_if_exists(
+            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}", self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"]
+        )
 
     def load_h5ad(
         self,
@@ -652,14 +967,142 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             if not os.path.exists(f"{self.data_path}/{postfix}"):
                 raise FileNotFoundError(f"This file should exist from object creation: {self.data_path}/{postfix}")
 
-        self.data.flush()
+        self.data.flush() # NOTE: saves the data to disk, do the approach for neighbor data
         self.row_index.flush()
         self.col_index.flush()
+        
+        # Flush neighbor data to disk if it exists
+        if self._has_neighbors and self._neighbor_indptr is not None:
+            self._neighbor_indptr.flush()
+            self._neighbor_indices.flush()
+            self._neighbor_data.flush()
 
         if output_path is not None:
             raise NotImplementedError("Saving to separate path is not yet implemented.")
 
         return True
+
+    def get_neighbor_indices_for_cell(self, cell_index: int) -> np.ndarray:
+        """
+        Returns the array of neighbor indices for a given cell.
+        
+        Args:
+            cell_index: Index of the cell to get neighbors for
+            
+        Returns:
+            np.ndarray: Array of neighbor indices, empty if no neighbors
+            
+        Raises:
+            IndexError: If cell_index is out of bounds
+        """
+        if not self.load_neighbors or not self._has_neighbors or self._neighbor_indptr is None:
+            return np.array([], dtype=int)  # Return empty array if neighbor data not available
+            
+        if not (0 <= cell_index < self.number_of_rows()):
+            raise IndexError(f"Cell index {cell_index} out of bounds for dataset with {self.number_of_rows()} cells")
+            
+        # Get neighbor indices using CSR format indptr and indices
+        start = self._neighbor_indptr[cell_index]
+        end = self._neighbor_indptr[cell_index + 1]
+        return self._neighbor_indices[start:end]
+
+    def get_neighbor_weights_for_cell(self, cell_index: int) -> np.ndarray:
+        """
+        Returns the array of neighbor weights (e.g., pseudotime differences) for a given cell.
+        
+        Args:
+            cell_index: Index of the cell to get neighbor weights for
+            
+        Returns:
+            np.ndarray: Array of weights corresponding to neighbors, empty if no neighbors
+            
+        Raises:
+            IndexError: If cell_index is out of bounds
+        """
+        if not self.load_neighbors or not self._has_neighbors or self._neighbor_indptr is None or self._neighbor_data is None:
+            return np.array([], dtype=float)
+            
+        if not (0 <= cell_index < self.number_of_rows()):
+            raise IndexError(f"Cell index {cell_index} out of bounds for dataset with {self.number_of_rows()} cells")
+            
+        # Get neighbor weights using CSR format indptr and data
+        start = self._neighbor_indptr[cell_index]
+        end = self._neighbor_indptr[cell_index + 1]
+        return self._neighbor_data[start:end]
+
+    def sample_neighbor_index(self, cell_index: int) -> int:
+        """
+        Samples a neighbor index for the given cell based on the configured sampling strategy.
+        
+        Args:
+            cell_index: Index of the cell to sample a neighbor for
+            
+        Returns:
+            int: Index of the sampled neighbor
+                 If no neighbors exist and fallback_to_identity is True, returns cell_index
+                 
+        Raises:
+            ValueError: If an unsupported sampling strategy is specified
+            IndexError: If cell_index is out of bounds
+        """
+        # Basic validation
+        if not (0 <= cell_index < self.number_of_rows()):
+            raise IndexError(f"Cell index {cell_index} out of bounds for dataset with {self.number_of_rows()} cells")
+            
+        # Skip sampling if neighbor functionality is disabled
+        if not self.load_neighbors or not self._has_neighbors:
+            return cell_index  # Always return self as neighbor when neighbors disabled
+            
+        # Get the neighbor indices for this cell
+        neighbor_indices = self.get_neighbor_indices_for_cell(cell_index)
+        
+        # If no neighbors found, handle according to fallback policy
+        if len(neighbor_indices) == 0:
+            if self.fallback_to_identity:
+                return cell_index  # Return the cell itself
+            else:
+                warnings.warn(
+                    f"Cell {cell_index} has no neighbors and fallback_to_identity=False. "
+                    f"Returning cell index itself anyway."
+                )
+                return cell_index  # Currently always return self if no neighbors
+                
+        # Sample neighbor based on strategy
+        if self.neighbor_sampling_strategy == 'random':
+            # Simple random sampling with equal probability
+            chosen_index = np.random.choice(neighbor_indices)
+            return chosen_index
+         # NOTE: Future - Add weighted sampling strategy
+        else:
+            raise ValueError(f"Unsupported neighbor sampling strategy: {self.neighbor_sampling_strategy}")
+        
+    def get_neighbor_stats(self) -> dict:
+        """
+        Returns statistics about the neighbors in the dataset.
+        
+        Returns:
+            dict: Dictionary with neighbor statistics:
+                - has_neighbors: Whether dataset has neighbor data
+                - total_connections: Total number of neighbor relationships
+                - min_neighbors_per_cell: Minimum number of neighbors any cell has
+                - max_neighbors_per_cell: Maximum number of neighbors any cell has
+                - avg_neighbors_per_cell: Average number of neighbors per cell
+                - cells_with_no_neighbors: Count of cells that have no neighbors
+        """
+        if not self._has_neighbors or self._neighbor_indptr is None or self._neighbor_indices is None:
+            return {"has_neighbors": False}
+            
+        # Calculate stats based on CSR indptr (difference between consecutive elements)
+        neighbor_counts = np.diff(self._neighbor_indptr)
+        
+        return {
+            "has_neighbors": True,
+            "total_connections": len(self._neighbor_indices),
+            "min_neighbors_per_cell": int(np.min(neighbor_counts)),
+            "max_neighbors_per_cell": int(np.max(neighbor_counts)),
+            "avg_neighbors_per_cell": float(np.mean(neighbor_counts)),
+            "cells_with_no_neighbors": int(np.sum(neighbor_counts == 0)),
+        }
 
     def number_of_values(self) -> int:
         """Get the total number of values in the array.
