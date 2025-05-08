@@ -560,6 +560,87 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             return ret, self._feature_index.lookup(index, select_features=feature_vars)[0]
         else:
             return ret, None
+    
+    # FOR POLINA: this can be separate function or integrated into get_row
+    # FOR POLINA: how might your rowfeatureindex approach be relavant here? 
+    def get_row_with_neighbor(
+        self,
+        index: int,
+        return_features: bool = False,
+        feature_vars: Optional[List[str]] = None,
+        include_neighbor: Optional[bool] = None,
+        ) -> Union[
+            Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]],
+            Dict[str, Union[Tuple[np.ndarray, np.ndarray], int, Optional[List[np.ndarray]]]]
+    ]:
+        """Returns a given row in the dataset along with optional features and neighbor data.
+        
+        Args:
+            index: The row to be returned. This is in the range of [0, num_rows)
+            return_features: Boolean that indicates whether to return features
+            feature_vars: Optional, feature variables to extract
+            include_neighbor: Whether to include neighbor data in the result.
+                              If None, defaults to self.load_neighbors
+        
+        Returns:
+            If include_neighbor is False or neighbor functionality is disabled:
+                Original return type: Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]]
+                (values, columns), features
+            
+            If include_neighbor is True and neighbor functionality is enabled:
+                Dict with keys:
+                - 'current_cell': Tuple[np.ndarray, np.ndarray] - (values, columns) for current cell
+                - 'next_cell': Tuple[np.ndarray, np.ndarray] - (values, columns) for neighbor cell
+                - 'current_cell_index': int - Index of current cell
+                - 'next_cell_index': int - Index of neighbor cell
+                - 'features': List[np.ndarray] - Features if return_features is True, else None
+        """
+        # Determine whether to include neighbor
+        if include_neighbor is None:
+            include_neighbor = self.load_neighbors and self._has_neighbors
+        
+        # Validate index
+        if not (0 <= index < self.number_of_rows()):
+            raise IndexError(f"Index {index} out of bounds for dataset with size {self.number_of_rows()}")
+        
+        # Get current cell data
+        start = self.row_index[index]
+        end = self.row_index[index + 1]
+        values = self.data[start:end]
+        columns = self.col_index[start:end]
+        current_cell_data = (values, columns)
+        
+        # Get features if requested
+        features = None
+        if return_features:
+            features = self._feature_index.lookup(index, select_features=feature_vars)[0]
+        
+        # If no neighbor requested, return in original format
+        if not include_neighbor:
+            return current_cell_data, features
+        
+        # Sample neighbor and get its data
+        neighbor_index = self.sample_neighbor_index(index)
+        
+        # Case where neighbor is the same as current cell
+        if neighbor_index == index:
+            next_cell_data = current_cell_data
+        else:
+            # Get neighbor cell data
+            n_start = self.row_index[neighbor_index]
+            n_end = self.row_index[neighbor_index + 1]
+            n_values = self.data[n_start:n_end]
+            n_columns = self.col_index[n_start:n_end]
+            next_cell_data = (n_values, n_columns)
+        
+        # Return all data in a dictionary format
+        return {
+            'current_cell': current_cell_data,
+            'next_cell': next_cell_data,
+            'current_cell_index': index,
+            'next_cell_index': neighbor_index,
+            'features': features,
+        }
 
     def get_row_padded(
         self,
