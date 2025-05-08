@@ -9,4 +9,6 @@
 <link rel="stylesheet" href="{{ 'assets/css/chatbot.css' | url }}" />
 {% endblock %} {% block scripts %} {{ super() }}
 <script src="{{ 'assets/javascripts/chatbot.js' | url }}"></script>
+{% endblock %} {% block content %} {{ super() }}
+<div id="chatbot"></div>
 {% endblock %}
