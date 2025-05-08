@@ -17,10 +17,9 @@
 import math
 import pathlib
 from dataclasses import field
-from typing import Optional
 from types import SimpleNamespace
+from typing import Optional
 
-from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
@@ -28,6 +27,7 @@ from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
@@ -270,7 +270,7 @@ def train(
         )
         flop_meas_callback = FLOPsMeasurementCallback(
             bionemo_model_config,
-            dummy_data_module, 
+            dummy_data_module,
             "bert",
         )
         callbacks.append(flop_meas_callback)

@@ -93,7 +93,7 @@ def main():  # noqa: D103
             "--create-tflops-callback",
             action="store_true",
             default=False,
-            help="Creates a special callback for measuring tflops. Results are logged to wandb"
+            help="Creates a special callback for measuring tflops. Results are logged to wandb",
         )
 
         return parser.parse_args()
@@ -110,7 +110,7 @@ def main():  # noqa: D103
         model_config_cls: Optional[str],
         data_config_cls: Optional[str],
         create_checkpoint_callback: bool,
-        create_tflops_callback
+        create_tflops_callback,
     ) -> MainConfig:
         with open(config_path, "r") as f:
             config_dict = yaml.safe_load(f)
@@ -140,7 +140,13 @@ def main():  # noqa: D103
         return MainConfig[model_config_cls, data_config_cls](**config_dict)
 
     args = parse_args()
-    config = load_config(args.config, args.model_config_cls, args.data_config_cls, args.create_checkpoint_callback, args.create_tflops_callback)
+    config = load_config(
+        args.config,
+        args.model_config_cls,
+        args.data_config_cls,
+        args.create_checkpoint_callback,
+        args.create_tflops_callback,
+    )
 
     if args.nsys_profiling:
         nsys_config = NsysConfig(
