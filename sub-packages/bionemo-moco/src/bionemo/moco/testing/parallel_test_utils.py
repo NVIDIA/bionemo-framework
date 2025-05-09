@@ -15,6 +15,7 @@
 
 
 import os
+import socket
 from contextlib import contextmanager
 
 import torch
@@ -25,6 +26,18 @@ from pytest import MonkeyPatch
 
 DEFAULT_MASTER_ADDR = "localhost"
 DEFAULT_MASTER_PORT = "29500"
+
+
+def find_free_network_port(address: str = "localhost") -> int:
+    """Finds a free port for the specified address. Defaults to localhost."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind((address, 0))
+    addr_port = s.getsockname()
+    s.close()
+    if addr_port is None:
+        # Could not find any free port.
+        return None, None
+    return addr_port
 
 
 @contextmanager
@@ -50,7 +63,8 @@ def parallel_context(
         if not os.environ.get("MASTER_ADDR", None):
             context.setenv("MASTER_ADDR", DEFAULT_MASTER_ADDR)
         if not os.environ.get("MASTER_PORT", None):
-            context.setenv("MASTER_PORT", DEFAULT_MASTER_PORT)
+            network_address, free_network_port = find_free_network_port(address=DEFAULT_MASTER_ADDR)
+            context.setenv("MASTER_PORT", free_network_port if free_network_port is not None else DEFAULT_MASTER_PORT)
         context.setenv("RANK", str(rank))
 
         dist.init_process_group(backend="nccl", world_size=world_size)
