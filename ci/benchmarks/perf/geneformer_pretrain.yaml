@@ -41,6 +41,7 @@ script: |-
     --micro-batch-size ${batch_size} \
     --resume-if-exists \
     --log-every-n-steps 50 \
+    --create-tflops-callback \
     --lr ${lr} \
     --create-tensorboard-logger \
     --result-dir=${tensorboard_dir} \
