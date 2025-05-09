@@ -55,11 +55,31 @@ def geneformer_base_optimizer_scheduler_config() -> OptimizerSchedulerConfig:
     return OptimizerSchedulerConfig(lr=1e-3, lr_scheduler="cosine")  # Matches bionemo1
 
 
+def geneformer_1b_optimizer_scheduler_config() -> OptimizerSchedulerConfig:
+    """Optimizer scheduler config for Geneformer 1B."""
+    return OptimizerSchedulerConfig(
+        lr=0.0004,
+        lr_scheduler="warmup_anneal",
+        cosine_hold_frac=0.05,
+        cosine_rampup_frac=0.01,
+        interval="step",
+        max_steps=123125,
+        monitor="val_loss",
+        optimizer="adam",
+        warmup_steps=500,
+    )
+
+
 def geneformer_base_training_config() -> TrainingConfig:
     """Base training config for Geneformer."""
     return TrainingConfig(
         max_steps=400000, limit_val_batches=8, val_check_interval=100, precision="bf16-mixed"
     )  # matches bionemo1
+
+
+def geneformer_1b_training_config() -> TrainingConfig:
+    """Training config for Geneformer 1B."""
+    return TrainingConfig(max_steps=123125, limit_val_batches=8, val_check_interval=100, precision="bf16-mixed")
 
 
 def geneformer_short_base_training_config() -> TrainingConfig:
@@ -208,6 +228,88 @@ def geneformer_106m_model_config(
         pipeline_dtype=precision,
         autocast_dtype=precision,
         gradient_accumulation_fusion=False,
+        layernorm_zero_centered_gamma=False,
+        layernorm_epsilon=1.0e-12,
+        activation_func="gelu",
+        qk_layernorm=False,
+        apply_residual_connection_post_layernorm=False,
+        bias_activation_fusion=True,
+        bias_dropout_fusion=True,
+        get_attention_mask_from_fusion=True,
+        attention_dropout=0.1,
+        share_embeddings_and_output_weights=True,
+        enable_autocast=False,
+        biobert_spec_option=biobert_spec_option,
+        nemo1_ckpt_path=nemo1_init_path,
+        initial_ckpt_path=initial_ckpt_path,
+    )
+    return geneformer_config
+
+
+# 1B definition, model, experiment, wandb, parallel
+def geneformer_1b_parallel_config() -> ParallelConfig:
+    """Base parallel config for Geneformer 1B. Increase devices as needed for DDP."""
+    return ParallelConfig(
+        tensor_model_parallel_size=1,
+        pipeline_model_parallel_size=1,
+        accumulate_grad_batches=1,
+        ddp="megatron",
+        num_devices=1,
+        num_nodes=1,
+    )
+
+
+def geneformer_1b_experiment_config(result_dir) -> ExperimentConfig:
+    """Experiment config for Geneformer 1B."""
+    return ExperimentConfig(
+        save_every_n_steps=100,
+        result_dir=result_dir,
+        experiment_name="geneformer-1b",
+        restore_from_checkpoint_path=None,
+    )
+
+
+def geneformer_1b_wandb_config() -> WandbConfig:
+    """Wandb config for Geneformer 1B."""
+    wandb_config = WandbConfig(
+        entity="geneformer-1b_pretraining",
+        project="geneformer-1b_pretraining",
+        group="geneformer-1b",
+        tags=["geneformer-1b"],
+        offline=True,
+        anonymous=True,
+        id="1",
+        log_model=False,
+    )
+    return wandb_config
+
+
+def geneformer_1b_model_config(
+    seq_length: int = 2048,
+    precision: PrecisionTypes = "bf16-mixed",
+    nemo1_init_path: Optional[str] = None,
+    initial_ckpt_path: Optional[str] = None,
+    biobert_spec_option: BiobertSpecOption = BiobertSpecOption.bert_layer_with_transformer_engine_spec,
+) -> ExposedGeneformerPretrainConfig:
+    """Geneformer 1B model config settings."""
+    geneformer_config = ExposedGeneformerPretrainConfig(
+        num_layers=48,
+        hidden_size=1280,
+        ffn_hidden_size=5120,
+        num_attention_heads=20,
+        seq_length=seq_length,
+        fp32_residual_connection=False,
+        hidden_dropout=0.1,
+        init_method_std=0.02,
+        kv_channels=None,
+        apply_query_key_layer_scaling=True,
+        make_vocab_size_divisible_by=128,
+        masked_softmax_fusion=True,
+        fp16_lm_cross_entropy=False,
+        params_dtype=precision,
+        pipeline_dtype=precision,
+        autocast_dtype=precision,
+        gradient_accumulation_fusion=True,
         layernorm_zero_centered_gamma=False,
         layernorm_epsilon=1.0e-12,
         activation_func="gelu",
@@ -537,6 +639,29 @@ def geneformer_106m_pretrain_recipe(
     return main_config
 
 
+def geneformer_1b_pretrain_recipe(
+    args,
+) -> MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig]:
+    """Recipe for pretraining the 1B model. Uses tensor and pipeline parallelism across multiple nodes."""
+    data_config: GeneformerPretrainingDataConfig = geneformer_data_recipe(data_dir=args.data_path)
+    parallel_config = geneformer_1b_parallel_config()
+    training_config = geneformer_1b_training_config()
+    bionemo_model_config = geneformer_1b_model_config(initial_ckpt_path=args.initial_ckpt_path)
+    optim_config = geneformer_1b_optimizer_scheduler_config()
+    experiment_config = geneformer_1b_experiment_config(result_dir=args.result_dir)
+    wandb_config = geneformer_1b_wandb_config()
+    main_config = MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig](
+        data_config=data_config,
+        parallel_config=parallel_config,
+        training_config=training_config,
+        bionemo_model_config=bionemo_model_config,
+        optim_config=optim_config,
+        experiment_config=experiment_config,
+        wandb_config=wandb_config,
+    )
+    return main_config
+
+
 def geneformer_10m_finetune_recipe(
     args,
 ) -> MainConfig[ExposedFineTuneSeqLenBioBertConfig, GeneformerPretrainingDataConfig]:
@@ -589,6 +714,9 @@ class GeneformerRecipes(BaseModel):
     geneformer_106m_pretrain_recipe: Callable[
         [argparse.Namespace], MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig]
     ] = partial(geneformer_106m_pretrain_recipe)
+    geneformer_1b_pretrain_recipe: Callable[
+        [argparse.Namespace], MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig]
+    ] = partial(geneformer_1b_pretrain_recipe)
     geneformer_tiny_test_recipe: Callable[
         [argparse.Namespace], MainConfig[ExposedGeneformerPretrainConfig, GeneformerPretrainingDataConfig]
     ] = partial(pretrain_tiny_test_recipe)
