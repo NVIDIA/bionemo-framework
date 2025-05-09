@@ -2072,7 +2072,8 @@ def loss(logits: Tensor,
          xt: Tensor,
          time: Tensor,
          mask: Optional[Tensor] = None,
-         use_weight=True)
+         use_weight=True,
+         global_mean: bool = False)
 ```
 
 Calculate the cross-entropy loss between the model prediction and the target output.
@@ -2093,6 +2094,7 @@ certain times in the diffusion process.
 - `time` _Tensor_ - The time at which the loss is calculated.
 - `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
 - `use_weight` _bool, optional_ - Whether to use the MDLM time weight for the loss. Defaults to True.
+- `global_mean` _bool, optional_ - All token losses are summed and divided by total token count. Examples with more tokens (longer sequences) implicitly contribute more to the loss. Defaults to False.
 
 
 **Returns**:

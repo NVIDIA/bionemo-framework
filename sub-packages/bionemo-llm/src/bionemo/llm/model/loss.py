@@ -18,12 +18,13 @@ from typing import Dict, List, Literal, Sequence, Tuple, TypedDict
 import torch
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.fusions.fused_cross_entropy import fused_vocab_parallel_cross_entropy
-from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
 from nemo.lightning.megatron_parallel import (
     MegatronLossReduction,
     masked_token_loss,
 )
 from torch import Tensor
+
+from bionemo.llm.utils.megatron_utils import average_losses_across_data_parallel_group
 
 
 __all__: Sequence[str] = (
@@ -179,12 +180,14 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         # TODO(@jstjohn) also handle different output keys, like the sequence loss.
 
         # Compute loss over "valid" tokens in the microbatch, i.e. the non-masked tokens.
-        # The loss is not normalized, only potentially reduced via torch.distributed.ReduceOp.SUM
-        # across the context parallel process group, so you need to divide by the number
-        # of non-masked tokens (loss_mask.sum()) to compute the mean reduced loss per token.
+        # The loss is not normalized, so you need to divide by the number of non-masked
+        # tokens (loss_mask.sum()) to compute the mean loss per token.
+        loss_for_microbatch, num_valid_tokens_in_microbatch = masked_token_loss(
+            unreduced_token_loss, batch["loss_mask"]
+        )
+
+        # Get the context parallel size for some normalizations and reductions.
         cp_size = parallel_state.get_context_parallel_world_size()
-        loss_for_microbatch = masked_token_loss(unreduced_token_loss, batch["loss_mask"], cp_size=cp_size)
-        num_valid_tokens_in_microbatch = batch["loss_mask"].sum()
 
         # If we do not drop the last partial batch of validation, we need to do fancy reduction handling to support
         #  reducing the loss across the data parallel group.
@@ -197,7 +200,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
                     raise ValueError("Got NaN loss with non-empty input")
                 loss_sum_for_microbatch = torch.zeros_like(num_valid_tokens_in_microbatch)
             else:
-                # The reduced loss is already the sum of all losses from masked_token_loss().
+                # The loss is already the sum of all losses from masked_token_loss().
                 loss_sum_for_microbatch = loss_for_microbatch
 
             # In this case we need to store the loss sum as well as the number of valid tokens in the microbatch.
@@ -212,7 +215,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
             # for all data parallel / distributed microbatches.
             torch.distributed.all_reduce(
                 loss_sum_and_microbatch_size_all_gpu,
-                group=parallel_state.get_data_parallel_group(),
+                group=parallel_state.get_data_parallel_group(with_context_parallel=True),
                 op=torch.distributed.ReduceOp.SUM,
             )
 
@@ -227,7 +230,8 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         # Normalize the loss by the number of "valid" tokens, because masked_token_loss
         # no longer does this normalization, and BioNeMo losses expect this normalization.
         reduced_loss = (
-            average_losses_across_data_parallel_group([loss_for_microbatch]) / num_valid_tokens_in_microbatch
+            average_losses_across_data_parallel_group([loss_for_microbatch], with_context_parallel=True)
+            / num_valid_tokens_in_microbatch
         )
         return loss_for_microbatch * cp_size, {"avg": reduced_loss}
 
