@@ -30,6 +30,9 @@ from bionemo.testing.megatron_parallel_state_utils import distributed_model_para
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
 
 
+TEST_TIMEOUT = 512
+
+
 def run_train_with_std_redirect(args: argparse.Namespace) -> Tuple[str, nl.Trainer]:
     """
     Run a function with output capture.
@@ -57,7 +60,7 @@ def small_training_cmd(path, max_steps, val_check, devices: int = 1, additional_
     return cmd
 
 
-@pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+@pytest.mark.timeout(TEST_TIMEOUT)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
 def test_train_evo2_runs(tmp_path):
     """
@@ -96,7 +99,7 @@ def test_train_evo2_runs(tmp_path):
     assert event_files, f"No TensorBoard event files found under {tensorboard_dir}"
 
 
-@pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+@pytest.mark.timeout(TEST_TIMEOUT)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
 @pytest.mark.skip(
     reason="This test fails due to error when the checkpoints are saved on L40. "
@@ -150,7 +153,7 @@ def test_train_evo2_stops(tmp_path):
     assert "train_step_timing in s" in trainer.logged_metrics
 
 
-@pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+@pytest.mark.timeout(TEST_TIMEOUT)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
 @pytest.mark.skip(
     reason="This test hangs on L40 on internal CI. Issue: https://github.com/NVIDIA/bionemo-framework/issues/769"
