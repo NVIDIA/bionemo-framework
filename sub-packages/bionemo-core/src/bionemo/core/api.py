@@ -22,6 +22,6 @@ from bionemo.core.model.config import BionemoModelConfig, BionemoTrainableModelC
 __all__: Sequence[str] = (
     "BionemoModelConfig",
     "BionemoTrainableModelConfig",
-    "ModelOutput",
     "Model",
+    "ModelOutput",
 )

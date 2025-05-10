@@ -27,24 +27,12 @@ from bionemo.llm.utils import iomixin_utils as iom
 
 
 __all__: Sequence[str] = (
-    "GeneformerModel",
-    "GeneformerConfig",
     "FineTuneSeqLenBioBertConfig",
+    "GeneformerConfig",
+    "GeneformerModel",
 )
 
 GeneformerModel = MegatronBioBertModel
-
-
-class BERTMLMLossWithReductionNoForward(BERTMLMLossWithReduction):
-    def __init__(
-        self,
-        validation_step: bool = False,
-        val_drop_last: bool = True,
-        send_train_output: bool = False,
-        send_val_output: bool = False,
-    ) -> None:
-        """Same as BERTMLMLossWithReduction but set send_val_output=False by default since we do not use perplexity."""
-        super().__init__(validation_step, val_drop_last, send_train_output, send_val_output)
 
 
 @dataclass
@@ -88,4 +76,4 @@ class GeneformerConfig(BioBertConfig[GeneformerModel, MegatronLossType], iom.IOM
 
     enable_autocast: bool = False
     model_cls: Type[GeneformerModel] = GeneformerModel
-    loss_reduction_class: Type[MegatronLossType] = BERTMLMLossWithReductionNoForward
+    loss_reduction_class: Type[MegatronLossType] = BERTMLMLossWithReduction

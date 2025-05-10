@@ -16,11 +16,13 @@ dependencies = [
     # **ALL** bionemo sub-packages
     'bionemo-core',
     'bionemo-esm2',
+    'bionemo-evo2',
     'bionemo-example_model',
     'bionemo-fw',
     'bionemo-geneformer',
     'bionemo-geometric',
     'bionemo-llm',
+    'bionemo-moco',
     'bionemo-scdl',
     'bionemo-size-aware-batching',
     'bionemo-testing',
@@ -36,11 +38,7 @@ dependencies = [
 build = ['flash-attn', 'pip']
 
 [tool.uv.workspace]
-members = [
-    "3rdparty/*",
-    "sub-packages/bionemo-*/",
-    "internal/infra-bionemo/",
-]
+members = ["3rdparty/*", "internal/infra-bionemo/", "sub-packages/bionemo-*/"]
 
 [tool.uv.sources]
 # external
@@ -50,12 +48,14 @@ nemo_toolkit = { workspace = true }
 megatron-core = { workspace = true }
 # in sub-packages/
 bionemo-core = { workspace = true }
+bionemo-amplify = { workspace = true }
 bionemo-esm2 = { workspace = true }
 bionemo-example_model = { workspace = true }
 bionemo-fw = { workspace = true }
 bionemo-geneformer = { workspace = true }
 bionemo-geometric = { workspace = true }
 bionemo-llm = { workspace = true }
+bionemo-moco = { workspace = true }
 bionemo-noodles = { workspace = true }
 bionemo-scdl = { workspace = true }
 bionemo-size-aware-batching = { workspace = true }
@@ -76,6 +76,7 @@ dev-dependencies = [
     "tenacity",
 ]
 no-build-isolation-package = ["flash-attn"]
+cache-keys = [{ git = { commit = true } }]
 
 [tool.black]
 line-length = 119
@@ -103,6 +104,7 @@ select = [
 "test_*.py" = ["D"]
 "conftest.py" = ["D"]
 "scripts/*.py" = ["D"]
+"**/*.ipynb" = ["D"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2
@@ -113,10 +115,11 @@ convention = "google"
 
 [tool.pytest.ini_options]
 norecursedirs = ["3rdparty"]
-addopts = ["--ignore=3rdparty"]
+addopts = ["--durations-min=30.0", "--durations=0", "--ignore=3rdparty"]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.pyright]
-include = ["./scripts/", "./sub-packages/", "./internal/"]
+include = ["./internal/", "./scripts/", "./sub-packages/"]
 exclude = ["*/tests/"]
 executionEnvironments = [
     { "root" = ".", pythonVersion = "3.10", extraPaths = [
@@ -126,11 +129,13 @@ executionEnvironments = [
         # bionemo sub-packages
         './sub-packages/bionemo-core/src',
         './sub-packages/bionemo-esm2/src',
+        './sub-packages/bionemo-evo2/src',
         './sub-packages/bionemo-example_model/src',
         './sub-packages/bionemo-fw/src',
         './sub-packages/bionemo-geneformer/src',
         './sub-packages/bionemo-geometric/src',
         './sub-packages/bionemo-llm/src',
+        './sub-packages/bionemo-moco/src',
         './sub-packages/bionemo-noodles/src',
         './sub-packages/bionemo-scdl/src',
         './sub-packages/bionemo-size-aware-batching/src',

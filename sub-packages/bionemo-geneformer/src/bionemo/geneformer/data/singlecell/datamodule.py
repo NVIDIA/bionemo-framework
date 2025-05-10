@@ -51,6 +51,7 @@ class SingleCellDataModule(MegatronDataModule):
         num_mask_per_sample (int): Number of masked versions of a single sample to be returned by each worker
         train_batch_size (int): Batch size for training
         val_batch_size (int): Batch size for validation
+        include_unrecognized_vocab_in_dataset (bool, optional): If set to True, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded.
 
     Attributes:
         cfg (Config): Configuration object
@@ -82,19 +83,20 @@ class SingleCellDataModule(MegatronDataModule):
         num_workers: int = 10,  # TODO can this be automatically set?
         persistent_workers: bool = True,
         pin_memory: bool = True,
+        include_unrecognized_vocab_in_dataset: bool = False,
     ) -> None:
         super().__init__()
         if predict_dataset_path is None:
-            assert (
-                train_dataset_path is not None and val_dataset_path is not None and test_dataset_path is not None
-            ), "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
+            assert train_dataset_path is not None and val_dataset_path is not None and test_dataset_path is not None, (
+                "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
+            )
         elif train_dataset_path is None:
-            assert (
-                val_dataset_path is None and test_dataset_path is None
-            ), "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
-            assert (
-                predict_dataset_path is not None
-            ), "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
+            assert val_dataset_path is None and test_dataset_path is None, (
+                "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
+            )
+            assert predict_dataset_path is not None, (
+                "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
+            )
         self.data_path_predict = predict_dataset_path
         self.data_path_train = train_dataset_path
         self.data_path_val = val_dataset_path
@@ -122,6 +124,7 @@ class SingleCellDataModule(MegatronDataModule):
                 mask_token_prob=self.mask_token_prob,
                 random_token_prob=self.random_token_prob,
                 seed=random_utils.get_seed_from_rng(rng),
+                include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
             )
             self._val_dataset_ori = SingleCellDataset(
                 self.data_path_val,
@@ -132,6 +135,7 @@ class SingleCellDataModule(MegatronDataModule):
                 mask_token_prob=self.mask_token_prob,
                 random_token_prob=self.random_token_prob,
                 seed=random_utils.get_seed_from_rng(rng),
+                include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
             )
             self._test_dataset_ori = SingleCellDataset(
                 self.data_path_test,
@@ -142,6 +146,7 @@ class SingleCellDataModule(MegatronDataModule):
                 mask_token_prob=self.mask_token_prob,
                 random_token_prob=self.random_token_prob,
                 seed=random_utils.get_seed_from_rng(rng),
+                include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
             )
             self._predict_dataset_ori = None
         else:
@@ -155,6 +160,7 @@ class SingleCellDataModule(MegatronDataModule):
                 mask_token_prob=self.mask_token_prob,
                 random_token_prob=self.random_token_prob,
                 seed=random_utils.get_seed_from_rng(rng),
+                include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
             )
             self._train_dataset_ori = None
             self._val_dataset_ori = None
@@ -193,18 +199,6 @@ class SingleCellDataModule(MegatronDataModule):
             assert max_train_steps > 0, "Please specify trainer.max_steps"
 
             num_train_samples = int(max_train_steps * self.data_sampler.global_batch_size)
-            num_val_samples = infer_num_samples(
-                limit_batches=self.trainer.limit_val_batches,
-                num_samples_in_dataset=len(self._val_dataset_ori),
-                global_batch_size=self.data_sampler.global_batch_size,
-                stage="val",
-            )
-            num_test_samples = infer_num_samples(
-                limit_batches=self.trainer.limit_test_batches,
-                num_samples_in_dataset=len(self._test_dataset_ori),
-                global_batch_size=self.data_sampler.global_batch_size,
-                stage="test",
-            )
 
             # This happens exactly once during setup.
             self._train_ds = MultiEpochDatasetResampler(
@@ -213,18 +207,37 @@ class SingleCellDataModule(MegatronDataModule):
                 shuffle=True,
                 seed=self.seed,
             )
-            self._validation_ds = MultiEpochDatasetResampler(
-                self._val_dataset_ori,
-                num_samples=num_val_samples,
-                shuffle=False,
-                seed=self.seed,
-            )
-            self._test_ds = MultiEpochDatasetResampler(
-                self._test_dataset_ori,
-                num_samples=num_test_samples,
-                shuffle=False,
-                seed=self.seed,
-            )
+            if self.trainer.limit_val_batches == 0:  # disable validation
+                logging.info("Skip creating validation dataset because trainer.limit_val_batches=0.")
+            else:
+                num_val_samples = infer_num_samples(
+                    limit_batches=self.trainer.limit_val_batches,
+                    num_samples_in_dataset=len(self._val_dataset_ori),
+                    global_batch_size=self.data_sampler.global_batch_size,
+                    stage="val",
+                )
+                self._validation_ds = MultiEpochDatasetResampler(
+                    self._val_dataset_ori,
+                    num_samples=num_val_samples,
+                    shuffle=False,
+                    seed=self.seed,
+                )
+            if self.trainer.limit_test_batches == 0:  # disable testing
+                logging.info("Skip creating test dataset because trainer.limit_test_batches=0.")
+
+            else:
+                num_test_samples = infer_num_samples(
+                    limit_batches=self.trainer.limit_test_batches,
+                    num_samples_in_dataset=len(self._test_dataset_ori),
+                    global_batch_size=self.data_sampler.global_batch_size,
+                    stage="test",
+                )
+                self._test_ds = MultiEpochDatasetResampler(
+                    self._test_dataset_ori,
+                    num_samples=num_test_samples,
+                    shuffle=False,
+                    seed=self.seed,
+                )
         else:
             assert self._predict_dataset_ori is not None
             self._predict_ds = MultiEpochDatasetResampler(

@@ -1,4 +1,4 @@
-# BioNemo-SCDL: Single Cell Data Loading for Scalable Training of Single Cell Foundation Models.
+# BioNeMo-SCDL: Single Cell Data Loading for Scalable Training of Single Cell Foundation Models.
 
 ## Package Overview
 
@@ -17,9 +17,11 @@ In most places a simple swap from an attribute to a function is sufficient (i.e.
 ## Installation
 
 This package can be installed with
+
 ```bash
 pip install bionemo-scdl
 ```
+
 ## Usage
 
 ### Getting example data
@@ -41,6 +43,7 @@ This creates a `SingleCellMemMapDataset` that is stored at 97e_scmm in large, me
 that enables fast access of datasets larger than the available amount of RAM on a system.
 
 If the dataset is large, the AnnData file can be lazy-loaded and then read in based on chunks of rows in a paginated manner. This can be done by setting the parameters when instantiating the `SingleCellMemMapDataset`:
+
 - `paginated_load_cutoff`, which sets the minimal file size in megabytes at which an AnnData file will be read in in a paginated manner.
 - `load_block_row_size`, which is the number of rows that are read into memory at a given time.
 
@@ -109,6 +112,13 @@ for e in range(n_epochs):
         model(batch)
 ```
 
+For some applications, we might want to also use the features. These can be specified with get_row(index, return_features = True). By default, all features are returned, but the features can be specified with the feature_vars argument in get_row, which corresponds to a list of the feature names to return.
+
+```
+for index in range(len(data)):
+    model(data.get_row(index,return_features = True))
+```
+
 ## Examples
 
 The examples directory contains various examples for utilizing SCDL.
@@ -125,6 +135,16 @@ Here's an example:
 convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
 ```
 
+## Runtimes with SCDL
+
+The runtime and memory usage are examined on a CellXGene Dataset with ~1.5 million rows and a size of 24 GB. On this dataset, there is a 4.9x memory speed up.
+
+![Throughput Image](assets/throughput.png)
+
+Additionally, the peak memory usage when iterating over the datasets with the SCDL dataloader is only 36.5 MB, since the whole dataset is never loaded into memory due to the numpy memomory-mapped backing.
+
+![Memory Image](assets/disk_space.png)
+
 ## Future Work and Roadmap
 
 SCDL is currently in public beta. In the future, expect improvements in data compression
@@ -132,4 +152,4 @@ and data loading performance.
 
 ## LICENSE
 
-BioNemo-SCDL has an Apache 2.0 license, as found in the LICENSE file.
+BioNeMo-SCDL has an Apache 2.0 license, as found in the LICENSE file.

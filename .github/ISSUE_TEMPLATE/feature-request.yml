@@ -1,0 +1,63 @@
+name: Feature request
+description: Propose a feature
+title: "[Feature] <Title>"
+labels: ["triage", "feature"]
+body:
+ - type: textarea
+   attributes:
+     label: Problem & Motivation
+     description: What problem does this solve?
+     placeholder: |
+       - Problem description
+       - Current pain points
+       - Related issues
+   validations:
+     required: true
+
+ - type: input
+   id: version
+   attributes:
+     label: BioNeMo Framework Version
+     description: What version or commit hash of the framework are you using? Please, specify a commit hash or version tag. Do not use 'latest', 'ToT' or 'nightly' as a reference.
+     placeholder: commit-hash or version tag, ie v1.2.3.
+   validations:
+     required: true
+
+ - type: dropdown
+   attributes:
+     label: Category
+     options:
+       - Model/Training
+       - Data Processing
+       - Inference
+       - API/Interface
+       - Other
+   validations:
+     required: true
+
+ - type: textarea
+   attributes:
+     label: Proposed Solution
+     description: Technical approach
+     placeholder: |
+       - Implementation details
+       - Required changes
+       - Performance impact
+   validations:
+     required: true
+
+ - type: textarea
+   attributes:
+     label: Expected Benefits
+     description: Quantify improvements
+     placeholder: |
+       - Performance gains
+       - Resource savings
+   validations:
+     required: true
+
+ - type: textarea
+   attributes:
+     label: Code Example
+     description: Example code/pseudocode
+     render: python

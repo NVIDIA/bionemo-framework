@@ -13,40 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
+import glob
+from typing import get_args
 
 import pandas as pd
 import pytest
 import torch
-from torch.utils.data import DataLoader
 
 from bionemo.core.data.load import load
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.tokenizer import get_tokenizer
-from bionemo.esm2.model.finetune.datamodule import ESM2FineTuneDataModule, InMemoryCSVDataset
+from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.esm2.scripts.infer_esm2 import infer_model
-
-
-esm2_650m_checkpoint_path = load("esm2/650m:2.0")
-
-
-@pytest.fixture
-def dummy_protein_sequences():
-    """Create a list of artificial protein sequences"""
-    artificial_sequence_data = [
-        "TLILGWSDKLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
-        "LYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
-        "GRFNVWLGGNESKIRQVLKAVKEIGVSPTLFAVYEKN",
-        "DELTALGGLLHDIGKPVQRAGLYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
-        "KLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
-        "LFGAIGNAISAIHGQSAVEELVDAFVGGARISSAFPYSGDTYYLPKP",
-        "LGGLLHDIGKPVQRAGLYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
-        "LYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
-        "ISAIHGQSAVEELVDAFVGGARISSAFPYSGDTYYLPKP",
-        "SGSKASSDSQDANQCCTSCEDNAPATSYCVECSEPLCETCVEAHQRVKYTKDHTVRSTGPAKT",
-    ]
-    return artificial_sequence_data
+from bionemo.llm.data import collate
+from bionemo.llm.lightning import batch_collator
+from bionemo.llm.utils.callbacks import IntervalT
 
 
 @pytest.fixture
@@ -62,90 +44,62 @@ def dummy_protein_csv(tmp_path, dummy_protein_sequences):
 
 
 @pytest.fixture
-def dataset(dummy_protein_csv):
-    return InMemoryCSVDataset(dummy_protein_csv)
-
-
-@pytest.fixture
-def data_module(dataset):
-    return ESM2FineTuneDataModule(predict_dataset=dataset)
-
-
-def test_in_memory_csv_dataset(dataset):
-    assert len(dataset) > 0
-    sample = dataset[0]
-    assert isinstance(sample, dict)
-    assert "text" in sample
-    assert "labels" in sample
-
-
-def test_in_memory_csv_dataset_load_data(dataset, dummy_protein_csv):
-    sequences, labels = dataset.load_data(dummy_protein_csv)
-    assert isinstance(sequences, list)
-    assert isinstance(labels, list)
-
-
-def test_esm2_fine_tune_data_module_init(data_module):
-    assert data_module.train_dataset is None
-    assert data_module.valid_dataset is None
-    assert data_module.predict_dataset is not None
-
-
-def test_esm2_fine_tune_data_module_predict_dataloader(data_module):
-    predict_dataloader = data_module.predict_dataloader()
-    assert isinstance(predict_dataloader, DataLoader)
-    batch = next(iter(predict_dataloader))
-    assert isinstance(batch, dict)
-    assert "text" in batch
-
-
-def test_esm2_fine_tune_data_module_setup(data_module):
-    with pytest.raises(RuntimeError):
-        data_module.setup("fit")
-
-
-def test_esm2_fine_tune_data_module_train_dataloader(data_module):
-    with pytest.raises(AttributeError):
-        data_module.train_dataloader()
-
-
-def test_esm2_fine_tune_data_module_val_dataloader(data_module):
-    with pytest.raises(AttributeError):
-        data_module.val_dataloader()
-
-
-def test_in_memory_csv_dataset_tokenizer():
+def padded_tokenized_sequences(dummy_protein_sequences):
     tokenizer = get_tokenizer()
-    sequence = "sequence"
-    tokenized_sequence = tokenizer.encode(sequence, add_special_tokens=True, return_tensors="pt")
-    assert isinstance(tokenized_sequence, torch.Tensor)
+    tokenized_sequences = [
+        tokenizer.encode(seq, add_special_tokens=True, return_tensors="pt") for seq in dummy_protein_sequences
+    ]
+    batch = [{"text": tensor.flatten()} for tensor in tokenized_sequences]
+    collated_batch = collate.bert_padding_collate_fn(batch, padding_value=tokenizer.pad_token_id, min_length=1024)
+    return collated_batch["text"]
 
 
+@pytest.mark.needs_gpu
+@pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
 @pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
-def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences, precision):
+@pytest.mark.parametrize("with_peft", [True, False])
+@pytest.mark.parametrize("config_class", [ESM2Config, ESM2FineTuneTokenConfig])
+def test_infer_runs(
+    tmpdir,
+    dummy_protein_csv,
+    dummy_protein_sequences,
+    precision,
+    prediction_interval,
+    with_peft,
+    padded_tokenized_sequences,
+    config_class,
+):
+    checkpoint_path = load("esm2/8m:2.0")
     data_path = dummy_protein_csv
-    result_dir = Path(tmpdir.mkdir("results"))
-    results_path = result_dir / "esm2_infer_results.pt"
-
-    max_dataset_seq_len = max(len(seq) for seq in dummy_protein_sequences)
-
+    result_dir = tmpdir / "results"
+    min_seq_len = 1024  # Minimum length of the output batch; tensors will be padded to this length.
+    if with_peft:
+        lora_checkpoint_path = load("esm2/esm2_lora_weights:1.1") / "weights"
+    else:
+        lora_checkpoint_path = None
     infer_model(
         data_path=data_path,
-        checkpoint_path=esm2_650m_checkpoint_path,
-        results_path=results_path,
-        min_seq_length=max_dataset_seq_len,
+        checkpoint_path=checkpoint_path,
+        results_path=result_dir,
+        min_seq_length=min_seq_len,
+        prediction_interval=prediction_interval,
         include_hiddens=True,
         precision=precision,
         include_embeddings=True,
         include_input_ids=True,
         include_logits=True,
         micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
-        # config_class=SUPPORTED_CONFIGS[config_class_name],
-        config_class=ESM2Config,
+        config_class=config_class,
+        lora_checkpoint_path=lora_checkpoint_path,
     )
-    assert results_path.exists(), "Could not find test results pt file."
+    assert result_dir.exists(), "Could not find test results directory."
 
-    results = torch.load(results_path)
+    if prediction_interval == "epoch":
+        results = torch.load(f"{result_dir}/predictions__rank_0.pt")
+    elif prediction_interval == "batch":
+        results = batch_collator(
+            [torch.load(f, map_location="cpu") for f in glob.glob(f"{result_dir}/predictions__rank_0__batch_*.pt")]
+        )
     assert isinstance(results, dict)
     keys_included = ["token_logits", "hidden_states", "embeddings", "binary_logits", "input_ids"]
     assert all(key in results for key in keys_included)
@@ -153,8 +107,87 @@ def test_infer_runs(tmpdir, dummy_protein_csv, dummy_protein_sequences, precisio
     assert results["embeddings"].shape[0] == len(dummy_protein_sequences)
     assert results["embeddings"].dtype == get_autocast_dtype(precision)
     # hidden_states are [batch, sequence, hidden_dim]
-    assert results["hidden_states"].shape[:-1] == (len(dummy_protein_sequences), max_dataset_seq_len)
+    assert results["hidden_states"].shape[:-1] == (len(dummy_protein_sequences), min_seq_len)
     # input_ids are [batch, sequence]
-    assert results["input_ids"].shape == (len(dummy_protein_sequences), max_dataset_seq_len)
+    assert results["input_ids"].shape == (len(dummy_protein_sequences), min_seq_len)
     # token_logits are [sequence, batch, num_tokens]
-    assert results["token_logits"].shape[:-1] == (max_dataset_seq_len, len(dummy_protein_sequences))
+    assert results["token_logits"].shape[:-1] == (min_seq_len, len(dummy_protein_sequences))
+
+    # test 1:1 mapping between input sequence and results
+    # this does not apply to "batch" prediction_interval mode since the order of batches may not be consistent
+    # due distributed processing. To address this, we optionally include input_ids in the predictions, allowing
+    # for accurate mapping post-inference.
+    if prediction_interval == "epoch":
+        assert torch.equal(padded_tokenized_sequences, results["input_ids"])
+
+
+@pytest.mark.needs_gpu
+@pytest.mark.parametrize("prediction_interval", get_args(IntervalT))
+@pytest.mark.parametrize("precision", ["fp32", "bf16-mixed"])
+def test_different_results_with_peft(
+    tmpdir,
+    dummy_protein_csv,
+    dummy_protein_sequences,
+    precision,
+    prediction_interval,
+    padded_tokenized_sequences,
+):
+    checkpoint_path = load("esm2/8m:2.0")
+    data_path = dummy_protein_csv
+    result_dir_original = tmpdir / "results_original"
+    min_seq_len = 1024  # Minimum length of the output batch; tensors will be padded to this length.
+    lora_checkpoint_path = None
+    infer_model(
+        data_path=data_path,
+        checkpoint_path=checkpoint_path,
+        results_path=result_dir_original,
+        min_seq_length=min_seq_len,
+        prediction_interval=prediction_interval,
+        include_hiddens=True,
+        precision=precision,
+        include_embeddings=True,
+        include_input_ids=True,
+        include_logits=True,
+        micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
+        config_class=ESM2Config,
+        lora_checkpoint_path=lora_checkpoint_path,
+    )
+    assert result_dir_original.exists(), "Could not find test results directory."
+    result_dir_peft = tmpdir / "results_peft"
+    lora_checkpoint_path = load("esm2/esm2_lora_weights:1.1") / "weights"
+    infer_model(
+        data_path=data_path,
+        checkpoint_path=checkpoint_path,
+        results_path=result_dir_peft,
+        min_seq_length=min_seq_len,
+        prediction_interval=prediction_interval,
+        include_hiddens=True,
+        precision=precision,
+        include_embeddings=True,
+        include_input_ids=True,
+        include_logits=True,
+        micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
+        config_class=ESM2Config,
+        lora_checkpoint_path=lora_checkpoint_path,
+    )
+
+    if prediction_interval == "epoch":
+        results_original = torch.load(f"{result_dir_original}/predictions__rank_0.pt")
+        results_peft = torch.load(f"{result_dir_peft}/predictions__rank_0.pt")
+
+    elif prediction_interval == "batch":
+        results_original = batch_collator(
+            [
+                torch.load(f, map_location="cpu")
+                for f in glob.glob(f"{result_dir_original}/predictions__rank_0__batch_*.pt")
+            ]
+        )
+        results_peft = batch_collator(
+            [
+                torch.load(f, map_location="cpu")
+                for f in glob.glob(f"{result_dir_peft}/predictions__rank_0__batch_*.pt")
+            ]
+        )
+    assert (results_original["embeddings"] != results_peft["embeddings"]).any()
+    assert (results_original["hidden_states"] != results_peft["hidden_states"]).any()
+    assert (results_original["token_logits"] != results_peft["token_logits"]).any()

@@ -8,3 +8,8 @@ awscli==1.33.33
 nbval==0.11.0
 # For NvFaidx equivalence tests
 pyfaidx==0.8.1.3
+
+# Temporary pin for pytorch-lightning until megatron callbacks in ProgressPrinter can get fixed.
+# See https://nvidia.slack.com/archives/C02A7LYGHK8/p1734727482697309
+pytorch-lightning<2.5.0
+lightning<2.5.0

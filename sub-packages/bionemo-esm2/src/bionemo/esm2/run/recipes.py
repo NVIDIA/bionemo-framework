@@ -36,10 +36,10 @@ from bionemo.llm.run.config_models import (
 from bionemo.llm.utils.logger_utils import WandbConfig
 
 
-def esm2_base_training_config() -> TrainingConfig:
+def esm2_base_training_config(max_steps: int = 500000) -> TrainingConfig:
     """Base training config for ESM2."""
     return TrainingConfig(
-        max_steps=500000,
+        max_steps=max_steps,
         limit_val_batches=1.0,
         val_check_interval=10_000,
         precision="bf16-mixed",
@@ -47,10 +47,16 @@ def esm2_base_training_config() -> TrainingConfig:
     )
 
 
-def esm2_base_optimizer_scheduler_config() -> OptimizerSchedulerConfig:
+def esm2_base_optimizer_scheduler_config(max_steps: Optional[int] = None) -> OptimizerSchedulerConfig:
     """Base optimizer scheduler config for ESM2."""
     return OptimizerSchedulerConfig(
-        optimizer="adam", lr=4e-4, interval="step", monitor="val_loss", lr_scheduler="warmup_anneal", warmup_steps=2000
+        optimizer="adam",
+        lr=4e-4,
+        interval="step",
+        monitor="val_loss",
+        lr_scheduler="warmup_anneal",
+        warmup_steps=2000,
+        max_steps=max_steps,
     )
 
 
@@ -128,9 +134,9 @@ def esm2_8m_recipe(args) -> MainConfig[ExposedESM2PretrainConfig, ESM2DataConfig
     return MainConfig(
         data_config=esm2_base_data_config(args),
         parallel_config=esm2_base_parallel_config(),
-        training_config=esm2_base_training_config(),  # no changes for 8m
+        training_config=esm2_base_training_config(max_steps=args.max_steps),  # no changes for 8m
         bionemo_model_config=esm2_8m_model_config(args.initial_ckpt_path),
-        optim_config=esm2_base_optimizer_scheduler_config(),  # no changes for 8m
+        optim_config=esm2_base_optimizer_scheduler_config(max_steps=args.scheduler_max_steps),  # no changes for 8m
         experiment_config=esm2_8m_experiment_config(args.result_dir),
         wandb_config=esm2_8m_wandb_config(),
     )
@@ -183,9 +189,9 @@ def esm2_650m_recipe(args) -> MainConfig[ExposedESM2PretrainConfig, ESM2DataConf
     return MainConfig(
         data_config=esm2_base_data_config(args),
         parallel_config=esm2_base_parallel_config(),
-        training_config=esm2_base_training_config(),  # no changes for 8m
+        training_config=esm2_base_training_config(max_steps=args.max_steps),  # no changes for 8m
         bionemo_model_config=esm2_650m_model_config(args.initial_ckpt_path),
-        optim_config=esm2_base_optimizer_scheduler_config(),  # no changes for 8m
+        optim_config=esm2_base_optimizer_scheduler_config(max_steps=args.scheduler_max_steps),  # no changes for 8m
         experiment_config=esm2_650m_experiment_config(args.result_dir),
         wandb_config=esm2_650m_wandb_config(),
     )
@@ -251,9 +257,9 @@ def esm2_3b_recipe(args) -> MainConfig[ExposedESM2PretrainConfig, ESM2DataConfig
     return MainConfig(
         data_config=esm2_base_data_config(args),
         parallel_config=esm2_3b_parallel_config(),
-        training_config=esm2_base_training_config(),  # no changes for 8m
+        training_config=esm2_base_training_config(max_steps=args.max_steps),  # no changes for 8m
         bionemo_model_config=esm2_3b_model_config(args.initial_ckpt_path),
-        optim_config=esm2_base_optimizer_scheduler_config(),  # no changes for 8m
+        optim_config=esm2_base_optimizer_scheduler_config(max_steps=args.scheduler_max_steps),  # no changes for 8m
         experiment_config=esm2_3b_experiment_config(args.result_dir),
         wandb_config=esm2_3b_wandb_config(),
     )
@@ -266,9 +272,9 @@ def simple_parallel_recipe(
     accumulate_grad_batches: int = 1,
 ) -> ParallelConfig:
     """Simple parallel recipe for ESM2."""
-    assert (
-        num_devices >= tensor_model_parallel_size * pipeline_model_parallel_size
-    ), "devices must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size"
+    assert num_devices >= tensor_model_parallel_size * pipeline_model_parallel_size, (
+        "devices must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size"
+    )
     return ParallelConfig(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
@@ -282,9 +288,9 @@ def tiny_train_config_recipe() -> TrainingConfig:
     return TrainingConfig(max_steps=10, limit_val_batches=2, val_check_interval=2)
 
 
-def default_adam_optimizer_with_cosine_annealing_recipe() -> OptimizerSchedulerConfig:
+def default_adam_optimizer_with_cosine_annealing_recipe(max_steps: Optional[int] = None) -> OptimizerSchedulerConfig:
     """Default optimizer scheduler config for ESM2."""
-    return OptimizerSchedulerConfig()
+    return OptimizerSchedulerConfig(max_steps=max_steps)
 
 
 def experiment_config_recipe(result_dir="./results") -> ExperimentConfig:
@@ -347,7 +353,7 @@ def esm2_tiny_test_recipe(args):
         seq_length=data_config.max_seq_length, initial_ckpt_path=args.initial_ckpt_path
     )
 
-    optim_config = default_adam_optimizer_with_cosine_annealing_recipe()
+    optim_config = default_adam_optimizer_with_cosine_annealing_recipe(max_steps=args.scheduler_max_steps)
     experiment_config = experiment_config_recipe(args.result_dir)
     wandb_config = WandbConfig(
         project="bionemo2-demo",
@@ -434,6 +440,17 @@ def main():  # noqa: D103
             required=False,
             default=None,
             help="Path to an existing to a checkpoint directory to restore an existing checkpoint. Not compatible with all recipes.",
+        )
+
+        parser.add_argument(
+            "--max-steps", type=int, required=False, default=500000, help="Max steps for training. Default to 500000."
+        )
+
+        parser.add_argument(
+            "--scheduler-max-steps",
+            type=int,
+            required=False,
+            help="Set scheduler max_steps directly. Otherwise default to None, which uses max_steps from training config.",
         )
 
         args = parser.parse_args()

@@ -25,7 +25,6 @@ from pydantic import field_serializer, field_validator, model_validator
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
-from bionemo.esm2.model.attention import ESM2DotProductAttention, ESM2TEDotProductAttention
 from bionemo.esm2.model.model import ESM2Config
 from bionemo.llm.model.biobert.model import BiobertSpecOption
 from bionemo.llm.run.config_models import (
@@ -188,14 +187,12 @@ class ExposedESM2PretrainConfig(ExposedModelConfig[ESM2Config]):
         )
         if self.biobert_spec_option == BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec:
             self.apply_query_key_layer_scaling = False
-            self.core_attention_override = ESM2TEDotProductAttention
         elif self.biobert_spec_option == BiobertSpecOption.esm2_bert_layer_local_spec:
             logging.warning(
                 "BiobertSpecOption.esm2_bert_layer_local_spec is deprecated. "
                 "Use BiobertSpecOption.esm2_bert_layer_with_transformer_engine_spec instead."
             )
             self.apply_query_key_layer_scaling = True
-            self.core_attention_override = ESM2DotProductAttention
         return self
 
     def model_validator(self, global_cfg: MainConfig) -> MainConfig:
@@ -217,10 +214,11 @@ class ExposedESM2PretrainConfig(ExposedModelConfig[ESM2Config]):
             global_cfg.parallel_config.tensor_model_parallel_size,
         )
         min_seq_length, max_seq_length = global_cfg.data_config.min_seq_length, global_cfg.data_config.max_seq_length
-        assert (
-            self.variable_seq_lengths
-            == (pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length)
-        ), "Must set variable_seq_lengths to True when min_seq_length != max_seq_length under pipeline or tensor parallelism."
+        assert self.variable_seq_lengths == (
+            pipeline_model_parallel_size * tensor_model_parallel_size > 1 and min_seq_length != max_seq_length
+        ), (
+            "Must set variable_seq_lengths to True when min_seq_length != max_seq_length under pipeline or tensor parallelism."
+        )
         return global_cfg
 
     def model_class(self) -> Type[ESM2Config]:

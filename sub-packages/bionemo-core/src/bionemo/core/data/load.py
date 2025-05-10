@@ -21,11 +21,9 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional, Sequence, TextIO
+from typing import TYPE_CHECKING, Literal, Optional, Sequence, TextIO
 
-import boto3
 import nest_asyncio
-import ngcsdk
 import pooch
 from botocore.config import Config
 from tqdm import tqdm
@@ -34,11 +32,17 @@ from bionemo.core import BIONEMO_CACHE_DIR
 from bionemo.core.data.resource import Resource, get_all_resources
 
 
+if TYPE_CHECKING:
+    import ngcsdk
+
+logger = pooch.get_logger()
+
+
 __all__: Sequence[str] = (
-    "load",
+    "NGCDownloader",
     "default_ngc_client",
     "default_pbss_client",
-    "NGCDownloader",
+    "load",
 )
 SourceOptions = Literal["ngc", "pbss"]
 DEFAULT_SOURCE: SourceOptions = os.environ.get("BIONEMO_DATA_SOURCE", "ngc")  # type: ignore
@@ -46,6 +50,11 @@ DEFAULT_SOURCE: SourceOptions = os.environ.get("BIONEMO_DATA_SOURCE", "ngc")  # 
 
 def default_pbss_client():
     """Create a default S3 client for PBSS."""
+    try:
+        import boto3
+    except ImportError:
+        raise ImportError("boto3 is required to download from PBSS.")
+
     retry_config = Config(retries={"max_attempts": 10, "mode": "standard"})
     return boto3.client("s3", endpoint_url="https://pbss.s8k.io", config=retry_config)
 
@@ -69,12 +78,33 @@ def _s3_download(url: str, output_file: str | Path, _: pooch.Pooch) -> None:
         s3.download_file(bucket, key, output_file, Callback=progress_callback)
 
 
-def default_ngc_client() -> ngcsdk.Client:
+def default_ngc_client(use_guest_if_api_key_invalid: bool = True) -> "ngcsdk.Client":
     """Create a default NGC client.
 
     This should load the NGC API key from ~/.ngc/config, or from environment variables passed to the docker container.
     """
-    return ngcsdk.Client()
+    import ngcsdk
+
+    client = ngcsdk.Client()
+
+    try:
+        client.configure()
+
+    except ValueError as e:
+        if use_guest_if_api_key_invalid:
+            logger.error(f"Error configuring NGC client: {e}, signing in as guest.")
+            client = ngcsdk.Client("no-apikey")
+            client.configure(
+                api_key="no-apikey",  # pragma: allowlist secret
+                org_name="no-org",
+                team_name="no-team",
+                ace_name="no-ace",
+            )
+
+        else:
+            raise
+
+    return client
 
 
 @dataclass
@@ -91,7 +121,6 @@ class NGCDownloader:
     def __call__(self, url: str, output_file: str | Path, _: pooch.Pooch) -> None:
         """Download a file from NGC."""
         client = default_ngc_client()
-        client.configure()
         nest_asyncio.apply()
 
         download_fns = {

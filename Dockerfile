@@ -1,97 +1,180 @@
+# Build instructions:
+#
+# For x86_64/amd64 (default):
+#   docker build -t bionemo .
+#   # Or explicitly:
+#   docker build --build-arg TARGETARCH=amd64 -t bionemo .
+#
+# For ARM64:
+#   docker build --build-arg TARGETARCH=arm64 -t bionemo .
+#
+# For multi-platform build:
+#   docker buildx create --use
+#   docker buildx build --platform linux/amd64,linux/arm64 -t bionemo .
+#
 # Base image with apex and transformer engine, but without NeMo or Megatron-LM.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:24.02-py3
+#  Note that the core NeMo docker container is defined here:
+#   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/llm_train/Dockerfile.train
+#  with settings that get defined/injected from this config:
+#   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
+#  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
+#   training loss curves from NeMo.
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
 
-FROM rust:1.82.0 as rust-env
+FROM rust:1.86.0 AS rust-env
 
 RUN rustup set profile minimal && \
-    rustup install 1.82.0 && \
-    rustup target add x86_64-unknown-linux-gnu && \
-    rustup default 1.82.0
+  rustup install 1.82.0 && \
+  if [ "$TARGETARCH" = "arm64" ]; then \
+    rustup target add aarch64-unknown-linux-gnu; \
+  else \
+    rustup target add x86_64-unknown-linux-gnu; \
+  fi && \
+  rustup default 1.82.0
 
 FROM ${BASE_IMAGE} AS bionemo2-base
-
-# Install NeMo dependencies.
-WORKDIR /build
-
-ARG MAX_JOBS=4
-ENV MAX_JOBS=${MAX_JOBS}
-
-# See NeMo readme for the latest tested versions of these libraries
-ARG APEX_COMMIT=810ffae374a2b9cb4b5c5e28eaeca7d7998fca0c
-RUN git clone https://github.com/NVIDIA/apex.git && \
-  cd apex && \
-  git checkout ${APEX_COMMIT} && \
-  pip install . -v --no-build-isolation --disable-pip-version-check --no-cache-dir \
-  --config-settings "--build-option=--cpp_ext --cuda_ext --fast_layer_norm --distributed_adam --deprecated_fused_adam --group_norm"
-
-# Transformer Engine pre-1.7.0. 1.7 standardizes the meaning of bits in the attention mask to match
-ARG TE_COMMIT=c27ee60ec746210bcea4ec33958dbbff06706506
-RUN git clone https://github.com/NVIDIA/TransformerEngine.git && \
-  cd TransformerEngine && \
-  git fetch origin ${TE_COMMIT} && \
-  git checkout FETCH_HEAD && \
-  git submodule init && git submodule update && \
-  NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi pip install .
+# Default to amd64 if no TARGETARCH is specified
+ARG TARGETARCH=amd64
 
 # Install core apt packages.
-RUN apt-get update \
-  && apt-get install -y \
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,id=apt-lib,target=/var/lib/apt,sharing=locked \
+  <<EOF
+set -eo pipefail
+apt-get update -qy
+apt-get install -qyy \
   libsndfile1 \
   ffmpeg \
   git \
   curl \
   pre-commit \
   sudo \
-  && rm -rf /var/lib/apt/lists/*
+  gnupg \
+  unzip
+apt-get upgrade -qyy \
+  rsync
+rm -rf /tmp/* /var/tmp/*
+EOF
 
-RUN apt-get install -y gnupg
 
-# Check the nemo dependency for causal conv1d and make sure this checkout
-# tag matches. If not, update the tag in the following line.
-RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/Dao-AILab/causal-conv1d.git@v1.2.0.post2
+## BUMP TE as a solution to the issue https://github.com/NVIDIA/bionemo-framework/issues/422. Drop this when pytorch images ship the fixed commit.
+ ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
+ RUN PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
+    pip --disable-pip-version-check --no-cache-dir install \
+    git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
+
+# Install AWS CLI based on architecture
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+    elif [ "$TARGETARCH" = "amd64" ]; then \
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+    else \
+      echo "Unsupported architecture: $TARGETARCH" && exit 1; \
+    fi && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf aws awscliv2.zip
+
+
+# Use a branch of causal_conv1d while the repository works on Blackwell support.
+ARG CAUSAL_CONV_TAG=52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
+RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install git+https://github.com/trvachov/causal-conv1d.git@${CAUSAL_CONV_TAG}
+
+###############################################################################
+# ARM
+###############################################################################
+# Certain dependencies do not have prebuild ARM wheels/binaries, so we build them
+# from source here. Overall, ecosystem ARM support is much weaker than x86, so below
+# you'll see some hardcoded patches/versions/experimental branches to get i
+# everything to work.
+
+# Decord installation
+RUN --mount=type=bind,source=./docker_build_patches/decord_ffmpeg6_fix.patch,target=/decord_ffmpeg6_fix.patch \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+    export BUILD_DIR=/build && mkdir ${BUILD_DIR} && cd ${BUILD_DIR} && \
+    apt-get update && \
+    apt-get install -y build-essential python3-dev python3-setuptools make cmake && \
+    apt-get install -y ffmpeg libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev && \
+    git clone --recursive https://github.com/dmlc/decord && \
+    cd decord && \
+    git apply /decord_ffmpeg6_fix.patch && \
+    mkdir build && cd build && \
+    cmake .. -DUSE_CUDA=0 -DCMAKE_BUILD_TYPE=Release && \
+    make && \
+    cd ../python && \
+    pip install . && \
+    cd / && rm -rf ${BUILD_DIR}; \
+fi
+
+# TileDB installation
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+    mkdir -p /usr/lib/tiledb && \
+    cd /usr/lib/tiledb && \
+    wget https://github.com/TileDB-Inc/TileDB/releases/download/2.27.2/tiledb-linux-arm64-2.27.2-1757013.tar.gz -O tiledb.tar.gz && \
+    tar -xvzf tiledb.tar.gz && export TILEDB_PATH=/usr/lib/tiledb && \
+    cd / && \
+    dpkg -l | awk '/libfmt/ {print $2}' | xargs apt-get remove -y && \
+    dpkg -l | awk '/spdlog/ {print $2}' | xargs apt-get remove -y && \
+    rm -f /usr/lib/*/cmake/spdlog/spdlogConfig.cmake && \
+    rm -f /usr/lib/cmake/spdlog/spdlogConfig.cmake && \
+    git clone --single-branch --branch 1.16.1 https://github.com/single-cell-data/TileDB-SOMA.git && \
+    cd TileDB-SOMA/apis/python && \
+    pip install .; \
+fi
+
+# On ARM, bits and bytes needs to be built from scratch
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+    cd / && pip uninstall bitsandbytes && \
+    git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
+    cd bitsandbytes && pip install . && cd .. && rm -rf bitsandbytes; \
+fi
+###############################################################################
+# /end ARM
+###############################################################################
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.0.3
+  git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
-RUN pip install hatchling   # needed to install nemo-run
-ARG NEMU_RUN_TAG=34259bd3e752fef94045a9a019e4aaf62bd11ce2
-RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG}
+# Nemo Run installation
+# Some things are pip installed in advance to avoid dependency issues during nemo_run installation
+RUN pip install hatchling urllib3  # needed to install nemo-run
+ARG NEMU_RUN_TAG=v0.3.0
+RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG} --use-deprecated=legacy-resolver
+
+# Rapids SingleCell Installation
+RUN pip install 'rapids-singlecell' --extra-index-url=https://pypi.nvidia.com
 
 RUN mkdir -p /workspace/bionemo2/
 
-# Delete the temporary /build directory.
 WORKDIR /workspace
-RUN rm -rf /build
 
 # Addressing Security Scan Vulnerabilities
 RUN rm -rf /opt/pytorch/pytorch/third_party/onnx
-RUN apt-get update  && \
-  apt-get install -y openssh-client=1:8.9p1-3ubuntu0.10 && \
-  rm -rf /var/lib/apt/lists/*
-RUN apt purge -y libslurm37 libpmi2-0 && \
-  apt autoremove -y
-RUN source /usr/local/nvm/nvm.sh && \
-  NODE_VER=$(nvm current) && \
-  nvm deactivate && \
-  nvm uninstall $NODE_VER && \
-  sed -i "/NVM/d" /root/.bashrc && \
-  sed -i "/nvm.sh/d" /etc/bash.bashrc
+
 
 # Use UV to install python packages from the workspace. This just installs packages into the system's python
-# environment, and does not use the current uv.lock file.
-COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
+# environment, and does not use the current uv.lock file. Note that with python 3.12, we now need to set
+# UV_BREAK_SYSTEM_PACKAGES, since the pytorch base image has made the decision not to use a virtual environment and UV
+# does not respect the PIP_BREAK_SYSTEM_PACKAGES environment variable set in the base dockerfile.
+COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=1 \
   UV_PYTHON_DOWNLOADS=never \
-  UV_SYSTEM_PYTHON=true
+  UV_SYSTEM_PYTHON=true \
+  UV_BREAK_SYSTEM_PACKAGES=1
 
-# Install the bionemo-geomtric requirements ahead of copying over the rest of the repo, so that we can cache their
+# Install the bionemo-geometric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
 RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked \
+  --mount=type=cache,target=/root/.cache \
   uv pip install --no-build-isolation -r /requirements-pyg.txt
+
+COPY --from=rust-env /usr/local/cargo /usr/local/cargo
+COPY --from=rust-env /usr/local/rustup /usr/local/rustup
+
+ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
+ENV RUSTUP_HOME="/usr/local/rustup"
 
 WORKDIR /workspace/bionemo2
 
@@ -100,23 +183,33 @@ COPY ./LICENSE /workspace/bionemo2/LICENSE
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
-COPY --from=rust-env /usr/local/cargo /usr/local/cargo
-COPY --from=rust-env /usr/local/rustup /usr/local/rustup
-
-ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
-ENV RUSTUP_HOME="/usr/local/rustup"
-
-# Note, we need to mount the .git folder here so that setuptools-scm is able to fetch git tag for version.
-RUN --mount=type=bind,source=./.git,target=./.git \
-  --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
+RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
-  <<EOF
+  --mount=type=cache,target=/root/.cache <<EOF
 set -eo pipefail
-uv pip install maturin --no-build-isolation && uv pip install --no-build-isolation \
-  ./3rdparty/* \
-  ./sub-packages/bionemo-* \
-  -r /requirements-cve.txt \
-  -r /requirements-test.txt
+uv pip install maturin --no-build-isolation
+# install nvidia-resiliency-ext separately because it doesn't yet have ARM wheels
+git clone https://github.com/NVIDIA/nvidia-resiliency-ext
+uv pip install nvidia-resiliency-ext/
+rm -rf nvidia-resiliency-ext/
+# ngcsdk causes strange dependency conflicts (ngcsdk requires protobuf<4, but nemo_toolkit requires protobuf==4.24.4, deleting it from the uv pip install prevents installation conflicts)
+sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
+# Remove llama-index because bionemo doesn't use it and it adds CVEs to container
+sed -i "/llama-index/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt
+uv pip install --no-build-isolation \
+./3rdparty/*  \
+./sub-packages/bionemo-* \
+-r /requirements-cve.txt \
+-r /requirements-test.txt
+
+# Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
+uv pip install ngcsdk==3.64.3  # Temporary fix for changed filename, see https://nvidia.slack.com/archives/C074Z808N05/p1746231345981209
+
+# Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
+# dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
+# seems to be causing issues with NGC downloads. See https://nvbugspro.nvidia.com/bug/5149698
+uv pip uninstall sqlitedict zstandard
+
 rm -rf ./3rdparty
 rm -rf /tmp/*
 rm -rf ./sub-packages/bionemo-noodles/target
@@ -138,35 +231,32 @@ apt-get install -qyy \
 rm -rf /tmp/* /var/tmp/*
 EOF
 
-# Create a non-root user to use inside a devcontainer.
-ARG USERNAME=bionemo
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-RUN groupadd --gid $USER_GID $USERNAME \
-  && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
-  && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+# Use a non-root user to use inside a devcontainer (with ubuntu 23 and later, we can use the default ubuntu user).
+ARG USERNAME=ubuntu
+RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # Here we delete the dist-packages directory from the pytorch base image, and copy over the dist-packages directory from
 # the build image. This ensures we have all the necessary dependencies installed (megatron, nemo, etc.).
 RUN <<EOF
   set -eo pipefail
-  rm -rf /usr/local/lib/python3.10/dist-packages
-  mkdir -p /usr/local/lib/python3.10/dist-packages
-  chmod 777 /usr/local/lib/python3.10/dist-packages
+  rm -rf /usr/local/lib/python3.12/dist-packages
+  mkdir -p /usr/local/lib/python3.12/dist-packages
+  chmod 777 /usr/local/lib/python3.12/dist-packages
   chmod 777 /usr/local/bin
 EOF
 
 USER $USERNAME
 
 COPY --from=bionemo2-base --chown=$USERNAME:$USERNAME --chmod=777 \
-  /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+  /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
 
-COPY --from=ghcr.io/astral-sh/uv:0.4.25 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=0 \
   UV_PYTHON_DOWNLOADS=never \
-  UV_SYSTEM_PYTHON=true
+  UV_SYSTEM_PYTHON=true \
+  UV_BREAK_SYSTEM_PACKAGES=1
 
 # Bring in the rust toolchain, as maturin is a dependency listed in requirements-dev
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
@@ -176,7 +266,7 @@ ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
 RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
-  --mount=type=cache,id=uv-cache,target=/root/.cache,sharing=locked <<EOF
+  --mount=type=cache,target=/root/.cache <<EOF
   set -eo pipefail
   uv pip install -r /workspace/bionemo2/requirements-dev.txt
   rm -rf /tmp/*
@@ -184,7 +274,7 @@ EOF
 
 RUN <<EOF
   set -eo pipefail
-  rm -rf /usr/local/lib/python3.10/dist-packages/bionemo*
+  rm -rf /usr/local/lib/python3.12/dist-packages/bionemo*
   pip uninstall -y nemo_toolkit megatron_core
 EOF
 
@@ -208,9 +298,6 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}"
 ENV RUSTUP_HOME="/usr/local/rustup"
 
-RUN uv pip uninstall maturin
-RUN uv pip install maturin --no-build-isolation
-
 RUN <<EOF
 set -eo pipefail
 find . -name __pycache__ -type d -print | xargs rm -rf
@@ -220,8 +307,8 @@ for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
 done
 EOF
 
-# Since the entire repo is owned by root, swithcing username for development breaks things.
-ARG USERNAME=bionemo
+# Since the entire repo is owned by root, switching username for development breaks things.
+ARG USERNAME=ubuntu
 RUN chown $USERNAME:$USERNAME -R /workspace/bionemo2/
 USER $USERNAME
 
@@ -243,6 +330,8 @@ COPY ./docs ./docs
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
+# Fix a CRIT vuln: https://github.com/advisories/GHSA-vqfr-h8mv-ghfj
+RUN uv pip install h11==0.16.0
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
 RUN chmod 777 -R /workspace/bionemo2/

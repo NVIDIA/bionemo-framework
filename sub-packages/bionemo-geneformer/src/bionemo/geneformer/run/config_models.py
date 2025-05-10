@@ -44,7 +44,7 @@ class GeneformerDataArtifacts:
 class GeneformerPretrainingDataConfig(DataConfig[SingleCellDataModule]):
     """Configuration class for Geneformer pretraining data.
 
-    Expects train/test/val to be prior split by directory and processed by `sub-packages/bionemo-geneformer/src/bionemo/geneformer/data/singlecell/sc_memmap.py`.
+    Expects train/test/val to be prior split by directory and processed by `sub-packages/bionemo-scdl/src/bionemo/scdl/scripts/convert_h5ad_to_scdl.py`.
 
     Attributes:
         data_dir (str): Directory where the data is stored.

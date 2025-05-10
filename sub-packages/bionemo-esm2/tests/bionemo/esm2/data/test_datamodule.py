@@ -39,6 +39,21 @@ def test_create_esm_datamodule_raises_without_trainer(dummy_protein_dataset, dum
         data_module.setup()
 
 
+def test_esm_datamodule_sets_min_seq_len_to_max_seq_len(dummy_protein_dataset, dummy_parquet_train_val_inputs):
+    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
+
+    # Initialize the data module.
+    data_module = ESMDataModule(
+        train_cluster_path=train_cluster_path,
+        train_database_path=dummy_protein_dataset,
+        valid_cluster_path=valid_cluster_path,
+        valid_database_path=dummy_protein_dataset,
+        max_seq_length=36,
+    )
+
+    assert data_module._min_seq_length == 36
+
+
 def test_create_esm_datamodule_raises_without_trainer_max_steps(dummy_protein_dataset, dummy_parquet_train_val_inputs):
     train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
 
@@ -171,35 +186,6 @@ def test_create_esm_datamodule_creates_valid_dataloaders_fractional_limit_val_ba
 
     # num_val_cluster * limit_val_batches = 4 * 0.5 = 1 < global_batch_size
     with pytest.raises(ValueError, match="The limited number of val samples 2 is less than the global batch size 8"):
-        data_module.setup()
-
-
-@pytest.mark.parametrize("limit_val_batches", [0, 0.0])
-def test_create_esm_datamodule_creates_valid_dataloaders_fractional_limit_val_batches_0(
-    dummy_protein_dataset, dummy_parquet_train_val_inputs, limit_val_batches
-):
-    train_cluster_path, valid_cluster_path = dummy_parquet_train_val_inputs
-
-    # Initialize the data module.
-    data_module = ESMDataModule(
-        train_cluster_path=train_cluster_path,
-        train_database_path=dummy_protein_dataset,
-        valid_cluster_path=valid_cluster_path,
-        valid_database_path=dummy_protein_dataset,
-        global_batch_size=8,
-        micro_batch_size=4,
-        min_seq_length=36,
-        max_seq_length=36,
-    )
-    assert data_module is not None
-
-    data_module.trainer = mock.Mock()
-    data_module.trainer.max_epochs = 1
-    data_module.trainer.max_steps = 10
-    data_module.trainer.val_check_interval = 2
-    data_module.trainer.limit_val_batches = limit_val_batches
-
-    with pytest.raises(ValueError, match="Invalid choice of limit_val_batches size: %s" % limit_val_batches):
         data_module.setup()
 
 

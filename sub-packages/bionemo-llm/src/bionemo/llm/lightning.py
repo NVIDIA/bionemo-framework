@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Callable, Dict, Generic, Iterable, Iterator, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Any, Callable, Generic, Iterable, Iterator, List, Literal, Optional, Sequence, Tuple, TypeVar, Union
 
 import lightning.pytorch as pl
 import torch.distributed
@@ -21,29 +21,24 @@ from megatron.core import parallel_state
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from nemo.lightning import io as nlio
 from nemo.lightning.megatron_parallel import (
-    CallbackMethods,
     DataT,
     MegatronLossReduction,
-    MegatronStep,
     ReductionT,
 )
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from torch import Tensor
-from typing_extensions import override
 
 from bionemo.core.model.config import BionemoTrainableModelConfig
 from bionemo.llm.api import MegatronLossType, MegatronModelType
-from bionemo.llm.model.loss import unreduced_token_loss_fn
 
 
 __all__: Sequence[str] = (
-    "get_dtype_device",
-    "batch_collator",
-    "PassthroughLossReduction",
-    "LightningPassthroughPredictionMixin",
-    "PerplexityLoggingCallback",
     "BionemoLightningModule",
+    "LightningPassthroughPredictionMixin",
+    "PassthroughLossReduction",
+    "batch_collator",
     "default_megatron_optimizer",
+    "get_dtype_device",
 )
 
 
@@ -87,7 +82,9 @@ def get_dtype_device(torch_object) -> Tuple[torch.dtype, torch.device]:  # noqa:
 def batch_collator(
     batches: Optional[Union[Tuple[ReductionT], List[ReductionT]]],
     batch_dim: int = 0,
+    seq_dim: int = 1,
     batch_dim_key_defaults: dict[str, int] = {"token_logits": 1},
+    seq_dim_key_defaults: dict[str, int] = {"token_logits": 0},
 ) -> Optional[ReductionT]:
     """Takes a sequence of batches and collates them into a single batch.
 
@@ -111,9 +108,14 @@ def batch_collator(
         batches (Optional[Sequence[ReductionT]]): sequence of batches to collate into a single batch.
         batch_dim: If you know that the batch dim for the batch you are concatenating is not the 0th dimension (for
             example it is sequence first) then supply that dimension.
+        seq_dim: If you know that the sequence dim for the batch you are concatenating is not the 1st dimension (for
+            example it is sequence first) then supply that dimension. This is used for padding to the max length.
         batch_dim_key_defaults (dictionary of keys to integers): If your batch is a dictionary and you know that some
             keys have non-standard (0) batch dimensions, supply those here. By default "token_logits" has batch dim 1
             and otherwise all keys are assumed to have batch dim 0.
+        seq_dim_key_defaults (dictionary of keys to integers): If your batch is a dictionary and you know that some
+            keys have non-standard (1) sequence dimensions, supply those here. By default "token_logits" has seq dim 0
+            and otherwise all keys are assumed to have seq dim 1.
 
     Returns:
         A single batch of the same type as the elements of your input sequence.
@@ -123,28 +125,58 @@ def batch_collator(
         case [None, *_]:
             return None
         case [Tensor(), *_]:
-            return torch.cat(batches, dim=batch_dim)
+            # First shortcut if all tensors are 1D (they have at least one batch dim, and it must be at 0)
+            if len(batches) > 0 and isinstance(batches[0], Tensor) and batches[0].ndim == 1:
+                return torch.cat(batches, dim=0)
+            # Find max sequence length across all tensors
+            max_seq_len = max(batch.size(seq_dim) for batch in batches)
+            # Pad each tensor to max length along seq_dim
+            padded_batches = []
+            for batch in batches:
+                # Initialize padding tuple - needs 2 values per dim, starting from last dim
+                # e.g. for 3D tensor: [left_pad_dim2, right_pad_dim2, left_pad_dim1, right_pad_dim1, left_pad_dim0, right_pad_dim0]
+                pad_size = [0] * (2 * batch.ndim)
+                # Calculate padding needed at end of sequence dimension
+                pad_amount = max_seq_len - batch.size(seq_dim)
+                # Pad end of sequence dimension by putting padding amount in correct position
+                # For seq_dim=1 in 3D tensor: [0, 0, 0, pad_amount, 0, 0]
+                pad_size[2 * (batch.ndim - 1 - seq_dim) + 1] = pad_amount
+                padded_batch = torch.nn.functional.pad(batch, tuple(pad_size))
+                padded_batches.append(padded_batch)
+            padded_batch = torch.cat(padded_batches, dim=batch_dim)
+            assert padded_batch.size(seq_dim) == max_seq_len
+            return padded_batch
         # Next 3 calls are the recursive calls into the sub-structures of the batch. We handle dictionaries, tuples, and lists
         case [dict(), *_]:
             return {
                 key: batch_collator(
                     [batch[key] for batch in batches],
-                    batch_dim=batch_dim_key_defaults.get(key, 0),
+                    batch_dim=batch_dim_key_defaults.get(key, batch_dim),
+                    seq_dim=seq_dim_key_defaults.get(key, seq_dim),
                     batch_dim_key_defaults=batch_dim_key_defaults,
+                    seq_dim_key_defaults=seq_dim_key_defaults,
                 )
                 for key in batches[0]
             }
         case [tuple(), *_]:
             return tuple(
                 batch_collator(
-                    [batch[i] for batch in batches], batch_dim=batch_dim, batch_dim_key_defaults=batch_dim_key_defaults
+                    [batch[i] for batch in batches],
+                    batch_dim=batch_dim,
+                    seq_dim=seq_dim,
+                    batch_dim_key_defaults=batch_dim_key_defaults,
+                    seq_dim_key_defaults=seq_dim_key_defaults,
                 )
                 for i in range(len(batches[0]))
             )
         case [list(), *_]:
             return [
                 batch_collator(
-                    [batch[i] for batch in batches], batch_dim=batch_dim, batch_dim_key_defaults=batch_dim_key_defaults
+                    [batch[i] for batch in batches],
+                    batch_dim=batch_dim,
+                    seq_dim=seq_dim,
+                    batch_dim_key_defaults=batch_dim_key_defaults,
+                    seq_dim_key_defaults=seq_dim_key_defaults,
                 )
                 for i in range(len(batches[0]))
             ]
@@ -177,8 +209,7 @@ class PassthroughLossReduction(MegatronLossReduction, Generic[DataT]):
         Returns:
             A tuple containing the loss tensor (dummy in this case) and the forward output (unmodified).
         """
-        dtype, device = get_dtype_device(forward_out)
-        return torch.zeros(1, device=device, dtype=dtype), forward_out
+        return torch.zeros((1, 1)), forward_out
 
     def reduce(self, forward_out: List[DataT]) -> DataT:
         """Collates list of model's outputs into a single output."""
@@ -225,9 +256,9 @@ class BionemoLightningModule(
         config: BionemoTrainableModelConfig[MegatronModelType, MegatronLossType],
         forward_step: ForwardStep,
         data_step: DataStep,
-        # TODO: Add transformer_layer_spec when we update mcore
         optimizer: MegatronOptimizerModule,
         model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
+        configure_init_model_parallel: bool = False,
         **model_construct_args,
     ) -> None:
         """Constructor.
@@ -243,6 +274,7 @@ class BionemoLightningModule(
             model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s
                 `configure_model` method.
             model_transform: Optional. The model transform function.
+            configure_init_model_parallel: Optional. Whether to initialize the model parallel at configuration time.
             **model_construct_args: Optional. Arguments necessary for the supplied model configuration's
                 `configure_model` method, which will make an instance of the model.
         """
@@ -258,6 +290,10 @@ class BionemoLightningModule(
         self._data_step = data_step
         self._forward_step = forward_step
         self.model_transform = model_transform
+        self.configure_init_model_parallel = configure_init_model_parallel
+        # configure metrics
+        self.train_metric = self.config.train_metric.get_instance() if self.config.train_metric else None
+        self.valid_metric = self.config.valid_metric.get_instance() if self.config.valid_metric else None
 
     def configure_model(self) -> None:
         """Updates internal state: instantiates the model from the object's config, assigns to `model` attribute.
@@ -267,6 +303,8 @@ class BionemoLightningModule(
         Raises:
             ValueError iff the internal config's configure_model method returns None.
         """
+        if self.configure_init_model_parallel:
+            self.trainer.strategy._init_model_parallel = True
         if self.module is None:
             model: MegatronModelType = (
                 self.config.configure_model(**self.module_construct_args)
@@ -276,6 +314,10 @@ class BionemoLightningModule(
             self.module = model
         if self.module is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
+
+    def is_on_logging_device(self):
+        """Return True if last stage of pipeline parallel and first tensor parallel rank."""
+        return parallel_state.is_pipeline_last_stage() and parallel_state.get_tensor_model_parallel_rank() == 0
 
     def forward(self, *args, **kwargs) -> DataT:
         """Call the forward method of the underlying model, and return whatever it outputs."""
@@ -303,16 +345,56 @@ class BionemoLightningModule(
         assert self.module is not None
         return self._forward_step(self.module, batch)
 
+    def update_metric(
+        self, batch, outputs, metric, task: Literal["pretraining", "classification", "regression"]
+    ) -> None:
+        """Update metric for logging."""
+        match task:
+            case "pretraining":
+                logits = outputs["token_logits"].detach().transpose(0, 1)  #  [s, b, v] -> [b, s, v]
+                metric(logits, batch["labels"])
+            case "classification":
+                classification_output = outputs["classification_output"]
+                num_classes = classification_output.shape[-1]
+                metric(
+                    classification_output.reshape(-1, num_classes),
+                    batch["labels"].reshape(-1),
+                )
+            case "regression":
+                regression_output = outputs["regression_output"]
+                metric(regression_output, batch["labels"])
+            case _:
+                raise NotImplementedError(f"unrecognized task {task}")
+
     def training_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
-        return self.forward_step(batch)
+        outputs = self.forward_step(batch)
+        if self.train_metric is not None:
+            if self.is_on_logging_device():
+                self.update_metric(batch, outputs, self.train_metric, self.config.train_metric.task)
+
+            self.log(
+                self.config.train_metric.metric_name,
+                self.train_metric,
+                on_step=True,
+                on_epoch=False,
+                prog_bar=True,
+            )
+
+        return outputs
 
     def validation_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """In mcore the loss-function is part of the forward-pass when labels are provided."""
-        return self.forward_step(batch)
+        outputs = self.forward_step(batch)
+        if self.valid_metric is not None and self.is_on_logging_device():
+            self.update_metric(batch, outputs, self.valid_metric, self.config.valid_metric.task)
+
+        return outputs
 
     def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """Alias for forward_step."""
+        if len(batch) == 0:
+            return
         return self.forward_step(batch)
 
     def training_loss_reduction(self) -> MegatronLossType:
@@ -325,114 +407,25 @@ class BionemoLightningModule(
     def test_loss_reduction(self) -> MegatronLossType:  # noqa: D102
         return self.loss_reduction_class(validation_step=True)
 
+    def on_validation_epoch_end(self):  # noqa: D102
+        if self.valid_metric is None:
+            return
+
+        if self.trainer.sanity_checking:
+            self.valid_metric.reset()  # clean up sanity runs
+            return
+
+        self.log(
+            self.config.valid_metric.metric_name,
+            self.valid_metric,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+        )
+
 
 def default_megatron_optimizer() -> MegatronOptimizerModule:
     """Default distributed optimizer uses Adam with a 1e-4 learning rate."""
     return MegatronOptimizerModule(
         config=OptimizerConfig(lr=1e-4, optimizer="adam", use_distributed_optimizer=True),
     )
-
-
-class PerplexityLoggingCallback(pl.Callback, CallbackMethods):
-    """Megatron Callback to log perplexity in validation and optionally training.
-
-    NeMo2.0 checks whether a callback is an instance of {LightningModule,LightningDataModule,Callback} but only megatron_hooks are useful.
-    """
-
-    def __init__(self, log_train: bool = False, log_val: bool = True):
-        """Initialize PerplexityLoggingCallback.
-
-        Args:
-            log_train: whether to log train perplexity. Defaults to False.
-            log_val: whether to log validation perplexity. Defaults to True.
-        """
-        super().__init__()
-        self.log_train = log_train
-        self.log_val = log_val
-
-    def _pad_to_max_length(
-        self,
-        microbatch_outputs: List[Dict[str, Dict[str, Tensor]]],
-        key1: str,
-        key2: str,
-        pad_value: int = 0,
-        seq_dim: int = 1,
-        batch_dim: int = 0,
-    ) -> Tensor:
-        """Pad tensors to max length in microbatch_outputs."""
-        assert seq_dim != batch_dim, "Forgot to set one of seq_dim, batch_dim, they are equal!"
-        max_sequence_length: int = max(output[key1][key2].shape[seq_dim] for output in microbatch_outputs)
-
-        tensors: List[Tensor] = []
-        for microbatch_output in microbatch_outputs:
-            tensor = microbatch_output[key1][key2]
-            assert (
-                tensor.dim() >= 2
-            ), f"Tensor in microbatch_outputs must have at least 2 dimensions, but got {tensor.dim()} dimensions"
-            pad_size = [(0, 0)] * tensor.dim()
-            pad_size[seq_dim] = (0, max_sequence_length - tensor.shape[seq_dim])
-            # Flatten pad size list for F.pad
-            pad_size_flat = [item for sublist in reversed(pad_size) for item in sublist]
-            tensors.append(
-                torch.nn.functional.pad(  # padding reverse in order
-                    tensor,
-                    pad_size_flat,
-                    mode="constant",
-                    value=pad_value,
-                )
-            )
-
-        return torch.cat(tensors, dim=batch_dim)  # concat on batch dim
-
-    @override
-    def on_megatron_reduce_microbatches_end(
-        self,
-        step: MegatronStep,
-        microbatch_outputs: List[Any],
-        loss_reduction: MegatronLossReduction,
-        reduced: Tensor | dict[str, Tensor],
-    ) -> None:
-        """Log after MegatronReductionLoss.reduce is called.
-
-        Expected microbatch_outputs to be a list of dicts with the following keys:
-            - batch: dict of tensors with the following keys:
-                - labels: [b s]
-                - loss_mask: [b s]; 1 means included 0 means ignored
-            - forward_out: dict of tensors with the following keys:
-                - token_logits: [b s vocab]
-        """
-        if step.trainer.sanity_checking:  # skip sanity check
-            return
-
-        if step.trainer.training and not self.log_train:
-            return
-
-        if not parallel_state.is_pipeline_last_stage():
-            return
-
-        assert step.num_microbatches is not None, "num_microbatches must be initialized to non-None"
-        assert step.num_microbatches > 0, "num_microbatches must be greater than 0"
-        assert (
-            len(microbatch_outputs) == step.num_microbatches
-        ), "microbatch_outputs length does not match num_microbatches"
-        labels = self._pad_to_max_length(microbatch_outputs, "batch", "labels", pad_value=-100)
-        loss_mask = self._pad_to_max_length(microbatch_outputs, "batch", "loss_mask")
-        token_logits = self._pad_to_max_length(
-            microbatch_outputs, "forward_out", "token_logits", seq_dim=0, batch_dim=1
-        )
-
-        unreduced_token_loss = unreduced_token_loss_fn(
-            token_logits.clone(),  # [s,b] as expected unreduced_token_loss_fn has inplace operation on token_logits
-            labels.clone(),  # [b,s] as expected
-        )  # [b s] is the return
-
-        cp_size = parallel_state.get_context_parallel_world_size()
-        if cp_size == 1:
-            ppl = torch.exp((unreduced_token_loss * loss_mask).sum() / loss_mask.sum())
-        else:
-            raise NotImplementedError("Context parallel perplexity logging is not supported yet")
-
-        if self.log_val and not step.trainer.training:
-            step.pl_module.log("val_ppl", ppl, prog_bar=True, on_epoch=True)
-        elif self.log_train and step.trainer.training:
-            step.pl_module.log("train_ppl", ppl, prog_bar=True, batch_size=1, sync_dist=False)

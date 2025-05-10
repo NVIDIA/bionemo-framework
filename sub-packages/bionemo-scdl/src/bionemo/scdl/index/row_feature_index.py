@@ -28,6 +28,20 @@ import pyarrow.parquet as pq
 __all__: Sequence[str] = ("RowFeatureIndex",)
 
 
+def are_dicts_equal(dict1: dict[str, np.ndarray], dict2: dict[str, np.ndarray]) -> bool:
+    """Compare two dictionaries with string keys and numpy.ndarray values.
+
+    Args:
+        dict1 (dict[str, np.ndarray]): The first dictionary to compare.
+        dict2 (dict[str, np.ndarray]): The second dictionary to compare.
+
+    Returns:
+        bool: True if the dictionaries have the same keys and all corresponding
+              numpy arrays are equal; False otherwise.
+    """
+    return dict1.keys() == dict2.keys() and all(np.array_equal(dict1[k], dict2[k]) for k in dict1)
+
+
 class RowFeatureIndex:
     """Maintains a mapping between a row and its features.
 
@@ -82,9 +96,7 @@ class RowFeatureIndex:
         """The length is the number of rows or RowFeatureIndex length."""
         return len(self._feature_arr)
 
-    def append_features(
-        self, n_obs: int, features: dict[str, np.ndarray], num_genes: int, label: Optional[str] = None
-    ) -> None:
+    def append_features(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
         """Updates the index with the given features.
 
         The dict is inserted into the feature array by adding a
@@ -94,16 +106,25 @@ class RowFeatureIndex:
             n_obs (int): The number of times that these feature occur in the
             class.
             features (dict): Corresponding features.
-            num_genes (int): the length of the features for each feature key in features (i.e., number of genes)
             label (str): Label for the features.
         """
         if isinstance(features, pd.DataFrame):
             raise TypeError("Expected a dictionary, but received a Pandas DataFrame.")
         csum = max(self._cumulative_sum_index[-1], 0)
-        self._cumulative_sum_index = np.append(self._cumulative_sum_index, csum + n_obs)
-        self._feature_arr.append(features)
-        self._num_genes_per_row.append(num_genes)
-        self._labels.append(str(label))
+
+        # If the new feature array is identical to the last one, it is not appended. Instead, the last array accounts
+        # for the additional n_obs also.
+        if len(self._feature_arr) > 0 and are_dicts_equal(self._feature_arr[-1], features):
+            self._cumulative_sum_index[-1] = csum + n_obs
+        else:
+            self._cumulative_sum_index = np.append(self._cumulative_sum_index, csum + n_obs)
+            self._feature_arr.append(features)
+            self._labels.append(label)
+            if len(features) == 0:
+                num_genes = 0
+            else:
+                num_genes = len(features[next(iter(features.keys()))])
+            self._num_genes_per_row.append(num_genes)
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
         """Find the features at a given row.
@@ -228,8 +249,7 @@ class RowFeatureIndex:
         for i, feats in enumerate(list(other_row_index._feature_arr)):
             c_span = other_row_index._cumulative_sum_index[i + 1]
             label = other_row_index._labels[i]
-            num_genes = other_row_index._num_genes_per_row[i]
-            self.append_features(c_span, feats, num_genes, label)
+            self.append_features(c_span, feats, label)
 
         return self
 

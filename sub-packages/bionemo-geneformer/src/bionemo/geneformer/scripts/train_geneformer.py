@@ -48,7 +48,7 @@ from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_globa
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
-__all__: Sequence[str] = ("main", "get_parser")
+__all__: Sequence[str] = ("get_parser", "main")
 
 
 def main(
@@ -75,12 +75,18 @@ def main(
     wandb_offline: bool = False,
     wandb_tags: List[str] | None = None,
     wandb_group: Optional[str] = None,
+    wandb_job_type: Optional[str] = None,
     wandb_id: Optional[str] = None,
     wandb_anonymous: bool = False,
     wandb_log_model: bool = False,
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Path | None = None,
+    create_checkpoint_callback: bool = True,
     restore_from_checkpoint_path: Path | None = None,
+    num_layers: int = 6,
+    hidden_size: int = 256,
+    ffn_hidden_size: int = 512,
+    num_attention_heads: int = 4,
     save_last_checkpoint: bool = True,
     metric_to_monitor_for_checkpoints: str = "val_loss",
     save_top_k: int = 2,
@@ -93,6 +99,7 @@ def main(
     gc_interval: int = 0,
     aligned_megatron_ddp: bool = False,
     recompilation_check: bool = False,
+    include_unrecognized_vocab_in_dataset: bool = False,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
     """Train a Geneformer model on single cell data.
@@ -127,13 +134,19 @@ def main(
         wandb_project (str): The name of the project to which this run will belong.
         wandb_tags (List[str]): Tags associated with this run.
         wandb_group (str): A unique string shared by all runs in a given group
+        wandb_job_type (Optional[str]): Type of run, which is useful when you're grouping runs together into larger experiments using group.
         wandb_offline (bool): Run offline (data can be streamed later to wandb servers).
         wandb_id (str): Sets the version, mainly used to resume a previous run.
         wandb_anonymous (bool): Enables or explicitly disables anonymous logging.
         wandb_log_model (bool): Save checkpoints in wandb dir to upload on W&B servers.
         create_tensorboard_logger (bool): create the tensorboard logger
+        create_checkpoint_callback (bool): create a ModelCheckpoint callback and attach it to the pytorch lightning trainer
         restore_from_checkpoint_path (path): If set, restores the model from the directory passed in. Expects the
             checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
+        num_layers (int): Number of layers in geneformer. Default to 6.
+        hidden_size (int): Hidden size in geneformer. Default to 256.
+        ffn_hidden_size (int): Feedforward hidden size in geneformer. Default to 512.
+        num_attention_heads (int): Number of attention heads in geneformer. Default to 4.
         log_every_n_steps (int): log at this interval.
         nsys_profiling (bool): Whether to enable the nsys profiling callback hooks. You still need to execute the
             function with nsys on the command line, but this enables more useful outputs in your nsys profiles, as
@@ -147,6 +160,7 @@ def main(
             good for clusters. This will likely slow down single node runs though.
         recompilation_check (bool): enable a recompilation check (only do on a small run) to verify that fused gpu
             kernels are not being regularly recompiled, which is very expensive, with a particular model/settings.
+        include_unrecognized_vocab_in_dataset (bool): If set to True, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded..
     """
     # Create the result directory if it does not exist.
     if wandb_tags is None:
@@ -205,6 +219,7 @@ def main(
             entity=wandb_entity,
             tags=wandb_tags,
             group=wandb_group,
+            job_type=wandb_job_type,
             id=wandb_id,
             anonymous=wandb_anonymous,
             log_model=wandb_log_model,
@@ -243,6 +258,7 @@ def main(
         callbacks=callbacks,
         use_distributed_sampler=False,
         plugins=nl.MegatronMixedPrecision(precision=precision),
+        enable_checkpointing=create_checkpoint_callback,
     )
 
     preprocessor = GeneformerPreprocess(
@@ -271,13 +287,13 @@ def main(
         persistent_workers=num_dataset_workers > 0,
         pin_memory=False,
         num_workers=num_dataset_workers,
+        include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
     )
     geneformer_config = config_class(
-        # TODO let users set different num layers/model shapes here to support bigger/smaller architectures
-        num_layers=6,
-        hidden_size=256,
-        ffn_hidden_size=512,
-        num_attention_heads=4,
+        num_layers=num_layers,
+        hidden_size=hidden_size,
+        ffn_hidden_size=ffn_hidden_size,
+        num_attention_heads=num_attention_heads,
         seq_length=seq_length,
         bias_dropout_fusion=True,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
         bias_activation_fusion=True,  # TODO same note as above. Set these to False to see recompilation go away
@@ -318,14 +334,17 @@ def main(
         ),
     )
     # Configure our custom Checkpointer
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_last=save_last_checkpoint,
-        monitor=metric_to_monitor_for_checkpoints,
-        save_top_k=save_top_k,
-        every_n_train_steps=val_check_interval,
-        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-        filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-    )
+    if create_checkpoint_callback:
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        )
+    else:
+        checkpoint_callback = None
 
     # Setup the logger and train the model
     nemo_logger = setup_nemo_lightning_logger(
@@ -400,6 +419,12 @@ def get_parser():
         "--wandb-group", type=str, default=None, help="A unique string shared by all runs in a given group"
     )
     parser.add_argument(
+        "--wandb-job-type",
+        type=str,
+        default=None,
+        help="A unique string representing a type of run, which is useful when you're grouping runs together into larger experiments using group.",
+    )
+    parser.add_argument(
         "--wandb-id", type=str, default=None, help="Sets the version, mainly used to resume a previous run"
     )
     parser.add_argument(
@@ -415,6 +440,11 @@ def get_parser():
         required=False,
         default=0.01,
         help="Fraction of steps in which to ramp up the learning rate. Default is 0.01.",
+    )
+    parser.add_argument(
+        "--include-unrecognized-vocab-in-dataset",
+        action="store_true",
+        help="If set to true, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded.",
     )
     parser.add_argument(
         "--cosine-hold-frac",
@@ -509,6 +539,13 @@ def get_parser():
         help="Path to nemo1 file, if desired to load at init time.",
     )
     parser.add_argument(
+        "--disable-checkpointing",
+        action="store_false",
+        default=True,
+        dest="create_checkpoint_callback",
+        help="Disable creating a ModelCheckpoint callback.",
+    )
+    parser.add_argument(
         "--save-best-checkpoint",
         action="store_true",
         default=True,
@@ -541,7 +578,14 @@ def get_parser():
         default=None,
         help="Path to the checkpoint directory to restore from. Will override `--resume-if-exists` when set.",
     )
-
+    parser.add_argument("--num-layers", type=int, default=6, help="Number of layers in geneformer. Default to 6.")
+    parser.add_argument("--hidden-size", type=int, default=256, help="Hidden size in geneformer. Default to 256.")
+    parser.add_argument(
+        "--ffn-hidden-size", type=int, default=512, help="Feedforward hidden size in geneformer. Default to 512."
+    )
+    parser.add_argument(
+        "--num-attention-heads", type=int, default=4, help="Number of attention heads in geneformer. Default to 4."
+    )
     # TODO consider whether nemo.run or some other method can simplify this config class lookup.
     config_class_options: Dict[str, Type[BioBertConfig]] = {
         "GeneformerConfig": GeneformerConfig,
@@ -640,6 +684,7 @@ def entrypoint():
         wandb_project=args.wandb_project,
         wandb_tags=args.wandb_tags,
         wandb_group=args.wandb_group,
+        wandb_job_type=args.wandb_job_type,
         wandb_id=args.wandb_id,
         wandb_anonymous=args.wandb_anonymous,
         wandb_log_model=args.wandb_log_model,
@@ -662,6 +707,7 @@ def entrypoint():
         nsys_start_step=args.nsys_start_step,
         nsys_end_step=args.nsys_end_step,
         nsys_ranks=args.nsys_ranks,
+        create_checkpoint_callback=args.create_checkpoint_callback,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
         config_class=args.training_model_config_class,
         save_last_checkpoint=args.save_last_checkpoint,
@@ -671,6 +717,7 @@ def entrypoint():
         gc_interval=args.gc_interval,
         aligned_megatron_ddp=args.aligned_megatron_ddp,
         recompilation_check=args.recompilation_check,
+        include_unrecognized_vocab_in_dataset=args.include_unrecognized_vocab_in_dataset,
     )
 
 

@@ -301,6 +301,7 @@ class TrainingConfig(BaseModel):
         accelerator (str, optional): The type of accelerator to use for training. Defaults to "gpu".
         gc_interval (int, optional): The interval of global steps at which to run synchronized garbage collection. Useful for synchronizing garbage collection when performing distributed training. Defaults to 0.
         include_perplexity (bool, optional): Whether to include perplexity in the validation logs. Defaults to False.
+        enable_checkpointing (bool, optional): Whether to enable checkpointing and configure a default ModelCheckpoint callback if there is no user-defined ModelCheckpoint. Corresponds to the same parameter name in pl.Trainer
     """
 
     max_steps: int
@@ -310,7 +311,9 @@ class TrainingConfig(BaseModel):
     accelerator: str = "gpu"
     # NOTE: VERY important for distributed training performance.
     gc_interval: int = 0
-    include_perplexity: bool = False
+    log_train_ppl: bool = False
+    log_val_ppl: bool = True
+    enable_checkpointing: bool = True
 
 
 class OptimizerSchedulerConfig(BaseModel):
@@ -325,6 +328,7 @@ class OptimizerSchedulerConfig(BaseModel):
         monitor (str): Metric to monitor for learning rate adjustments. Default is "val_loss".
         warmup_steps (int): Number of warmup steps for use with the warmup annealing learning rate scheduler. Default is 0.
         lr_scheduler (Literal['warmup_anneal', 'cosine']): Type of learning rate scheduler to use. Default is 'warmup_anneal'. NOTE this is likely to change.
+        max_steps (Optional[int]): max_steps used in optimizer. Default to None which uses max_steps from TrainingConfig.
     """
 
     lr: float = 1e-4
@@ -335,6 +339,7 @@ class OptimizerSchedulerConfig(BaseModel):
     cosine_hold_frac: float = 0.05
     warmup_steps: int = 0
     lr_scheduler: Literal["warmup_anneal", "cosine"] = "warmup_anneal"
+    max_steps: Optional[int] = None
 
 
 class ExperimentConfig(BaseModel):
@@ -349,6 +354,7 @@ class ExperimentConfig(BaseModel):
         metric_to_monitor_for_checkpoints (str): Metric to monitor for saving top-k checkpoints. Default is "reduced_train_loss".
         save_top_k (int): Number of top checkpoints to save based on the monitored metric. Default is 2.
         create_tensorboard_logger (bool): Flag to create a TensorBoard logger. Default is False.
+        create_checkpoint_callback (bool): Flag to create a ModelCheckpoint callback
     """
 
     save_every_n_steps: int
@@ -360,6 +366,7 @@ class ExperimentConfig(BaseModel):
     metric_to_monitor_for_checkpoints: str = "reduced_train_loss"
     save_top_k: int = 2
     create_tensorboard_logger: bool = False
+    create_checkpoint_callback: bool = True
 
     @field_serializer("result_dir")
     def serialize_paths(self, value: pathlib.Path) -> str:  # noqa: D102
@@ -423,3 +430,9 @@ class MainConfig(BaseModel, Generic[ExModelConfigT, DataConfigT]):
     def run_data_config_model_validators(self) -> "MainConfig":
         """Runs the model validators on the data_config."""
         return self.data_config.custom_model_validator(self)
+
+    @model_validator(mode="after")
+    def validate_checkpointing_setting(self) -> "MainConfig":
+        """Validates the master configuration object."""
+        self.training_config.enable_checkpointing = self.experiment_config.create_checkpoint_callback
+        return self

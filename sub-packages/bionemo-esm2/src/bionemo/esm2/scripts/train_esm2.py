@@ -18,27 +18,31 @@ from pathlib import Path
 from typing import List, Optional, Sequence, get_args
 
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
+from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
+from nemo.utils.exp_manager import TimingCallback
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.dataset import RandomMaskStrategy
 from bionemo.esm2.data.tokenizer import get_tokenizer
-from bionemo.llm.lightning import PerplexityLoggingCallback
+from bionemo.llm.data.collate import MLM_LOSS_IGNORE_INDEX
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BiobertSpecOption
+from bionemo.llm.model.config import TorchmetricsConfig
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
-__all__: Sequence[str] = ("main", "train_esm2_entrypoint", "get_parser")
+__all__: Sequence[str] = ("get_parser", "main", "train_esm2_entrypoint")
 
 
 def main(
@@ -52,23 +56,26 @@ def main(
     max_seq_length: int,
     result_dir: Path,
     num_steps: int,
+    scheduler_num_steps: Optional[int],
     warmup_steps: int,
     limit_val_batches: int,
     val_check_interval: int,
     log_every_n_steps: Optional[int],
     num_dataset_workers: int,
-    biobert_spec_option: BiobertSpecOption,  # TODO(@farhadrgh) clarify how to parse this.
+    biobert_spec_option: BiobertSpecOption,
     lr: float,
     micro_batch_size: int,
     accumulate_grad_batches: int,
     experiment_name: str,
     resume_if_exists: bool,
     precision: PrecisionTypes,
+    early_stop_on_step: Optional[int] = None,
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_offline: bool = False,
     wandb_tags: Optional[List[str]] = None,
     wandb_group: Optional[str] = None,
+    wandb_job_type: Optional[str] = None,
     wandb_id: Optional[str] = None,
     wandb_anonymous: Optional[bool] = False,
     wandb_log_model: bool = False,
@@ -76,6 +83,8 @@ def main(
     tensor_model_parallel_size: int = 1,
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Optional[Path] = None,
+    create_tflops_callback: bool = True,
+    create_checkpoint_callback: bool = True,
     restore_from_checkpoint_path: Optional[str] = None,
     save_best_checkpoint: bool = True,
     save_last_checkpoint: bool = True,
@@ -90,7 +99,11 @@ def main(
     hidden_size: int = 1280,
     num_attention_heads: int = 20,
     ffn_hidden_size: int = 1280 * 4,
-) -> None:
+    overlap_grad_reduce: bool = True,
+    overlap_param_gather: bool = True,
+    average_in_collective: bool = True,
+    grad_reduce_in_fp32: bool = False,
+) -> nl.Trainer:
     """Train an ESM2 model on UR data.
 
     Args:
@@ -104,6 +117,7 @@ def main(
         max_seq_length (int): maximum sequence length
         result_dir (Path): directory to store results, logs and checkpoints
         num_steps (int): number of steps to train the model for
+        early_stop_on_step (Optional[int]): Stop training on this step, if set. This may be useful for testing or debugging purposes.
         warmup_steps (int): number of steps for warmup phase
         limit_val_batches (int): limit the number of validation global batches to this many
         val_check_interval (int): number of steps to periodically check the validation loss
@@ -111,6 +125,7 @@ def main(
         num_dataset_workers (int): number of dataset workers
         biobert_spec_option (BiobertSpecOption): the biobert spec option (architecture) to use for this run
         lr (float): learning rate
+        scheduler_num_steps (Optional[int]): Number of steps in learning rate scheduler. Use num_steps if not provided.
         micro_batch_size (int): micro batch size, from this and parallelism settings we infer the global batch size
         accumulate_grad_batches (int): number of batches to accumulate gradients for
         experiment_name (str): experiment name, this is the name used for the wandb run, and the sub-directory of the
@@ -122,6 +137,7 @@ def main(
         wandb_offline (bool): Run offline (data can be streamed later to wandb servers).
         wandb_tags (Optional[List[str]]): Tags associated with this run
         wandb_group (Optional[str]): A unique string shared by all runs in a given group
+        wandb_job_type (Optional[str]): Type of run, which is useful when you're grouping runs together into larger experiments using group.
         wandb_id (Optional[str]): Sets the version, mainly used to resume a previous run
         wandb_anonymous (Optional[bool]): Enables or explicitly disables anonymous logging
         wandb_log_model (bool): Save checkpoints in wandb dir to upload on W&B servers
@@ -129,6 +145,8 @@ def main(
         tensor_model_parallel_size (int): tensor model parallel size
         create_tensorboard_logger (bool): create the tensorboard logger
         nemo1_init_path (Optional[Path]): Nemo 1 initialization path
+        create_tflops_callback (bool): create the FLOPsMeasurementCallback and attach it to the pytorch lightning trainer to log TFlops per training step
+        create_checkpoint_callback (bool): create a ModelCheckpoint callback and attach it to the pytorch lightning trainer
         restore_from_checkpoint_path (Optional[str]): If set, restores the model from the directory passed in. Expects the
             checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
         save_best_checkpoint (bool): whether to save the best checkpoint
@@ -144,6 +162,10 @@ def main(
         hidden_size (int): hidden size
         num_attention_heads (int): number of attention heads
         ffn_hidden_size (int): feed forward hidden size
+        overlap_grad_reduce (bool): overlap gradient reduction
+        overlap_param_gather (bool): overlap parameter gather
+        average_in_collective (bool): average in collective
+        grad_reduce_in_fp32 (bool): gradient reduction in fp32
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -158,13 +180,93 @@ def main(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
     )
 
+    tokenizer = get_tokenizer()
+
+    # Initialize the data module.
+    data_module = ESMDataModule(
+        train_cluster_path=train_cluster_path,
+        train_database_path=train_database_path,
+        valid_cluster_path=valid_cluster_path,
+        valid_database_path=valid_database_path,
+        global_batch_size=global_batch_size,
+        micro_batch_size=micro_batch_size,
+        min_seq_length=min_seq_length,
+        max_seq_length=max_seq_length,
+        num_workers=num_dataset_workers,
+        random_mask_strategy=random_mask_strategy,
+        tokenizer=tokenizer,
+    )
+    # Configure the model
+    train_metric = None
+    is_model_parallel = tensor_model_parallel_size * pipeline_model_parallel_size > 1
+    if is_model_parallel:
+        valid_metric = None  # metric logging under model parallelism is not supported yet
+    else:
+        valid_metric = TorchmetricsConfig(
+            class_path="text.Perplexity",
+            task="pretraining",
+            kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX},
+            metric_name="val_ppl",
+        )
+
+    esm2_config = ESM2Config(
+        seq_length=max_seq_length,
+        num_layers=num_layers,
+        hidden_size=hidden_size,
+        num_attention_heads=num_attention_heads,
+        ffn_hidden_size=ffn_hidden_size,
+        params_dtype=get_autocast_dtype(precision),
+        pipeline_dtype=get_autocast_dtype(precision),
+        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
+        biobert_spec_option=biobert_spec_option,
+        nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
+        # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
+        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
+        variable_seq_lengths=min_seq_length != max_seq_length,
+        train_metric=train_metric,
+        valid_metric=valid_metric,
+    )
+
+    if scheduler_num_steps is None:
+        scheduler_num_steps = num_steps
+
+    model = biobert_lightning_module(
+        esm2_config,
+        tokenizer=tokenizer,
+        optimizer=MegatronOptimizerModule(
+            config=OptimizerConfig(
+                lr=lr,
+                optimizer="adam",
+                use_distributed_optimizer=True,
+                weight_decay=0.01,
+                adam_beta1=0.9,
+                adam_beta2=0.98,
+            ),
+            lr_scheduler=WarmupAnnealDecayHoldScheduler(
+                warmup_steps=warmup_steps,
+                max_steps=scheduler_num_steps,
+                max_lr=lr,
+                min_lr=0.0,
+                anneal_percentage=0.10,
+            ),
+        ),
+    )
+
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
-        ddp="megatron",
+        pipeline_dtype=get_autocast_dtype(precision),
+        ddp=DistributedDataParallelConfig(
+            check_for_nan_in_grad=True,
+            overlap_grad_reduce=overlap_grad_reduce,
+            overlap_param_gather=overlap_param_gather,
+            average_in_collective=average_in_collective,
+            grad_reduce_in_fp32=grad_reduce_in_fp32,
+            use_distributed_optimizer=True,
+        ),
         find_unused_parameters=True,
+        gradient_as_bucket_view=True,
         ckpt_include_optimizer=True,
-        # NOTE: there are issues related to async that may occur, most recently observed due to duplicate filenames.
         ckpt_async_save=True,
         ckpt_parallel_load=True,
     )
@@ -180,6 +282,7 @@ def main(
             entity=wandb_entity,
             tags=wandb_tags,
             group=wandb_group,
+            job_type=wandb_job_type,
             id=wandb_id,
             anonymous=wandb_anonymous,
             log_model=wandb_log_model,
@@ -187,11 +290,12 @@ def main(
     )
 
     callbacks = [
-        PerplexityLoggingCallback(log_train=False, log_val=True),
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         nl_callbacks.PreemptionCallback(),
+        TimingCallback(),
     ]
+
     if nsys_profiling:
         if nsys_end_step is None:
             nsys_end_step = num_steps
@@ -201,79 +305,17 @@ def main(
             )
         )
 
-    trainer = nl.Trainer(
-        devices=devices,
-        max_steps=num_steps,
-        accelerator="gpu",
-        strategy=strategy,
-        limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
-        val_check_interval=val_check_interval,
-        log_every_n_steps=log_every_n_steps,
-        num_nodes=num_nodes,
-        callbacks=callbacks,
-        plugins=nl.MegatronMixedPrecision(precision=precision),
-    )
-
-    tokenizer = get_tokenizer()
-
-    # Initialize the data module.
-    data = ESMDataModule(
-        train_cluster_path=train_cluster_path,
-        train_database_path=train_database_path,
-        valid_cluster_path=valid_cluster_path,
-        valid_database_path=valid_database_path,
-        global_batch_size=global_batch_size,
-        micro_batch_size=micro_batch_size,
-        min_seq_length=min_seq_length,
-        max_seq_length=max_seq_length,
-        num_workers=num_dataset_workers,
-        random_mask_strategy=random_mask_strategy,
-        tokenizer=tokenizer,
-    )
-    # Configure the model
-    esm2_config = ESM2Config(
-        seq_length=max_seq_length,
-        num_layers=num_layers,
-        hidden_size=hidden_size,
-        num_attention_heads=num_attention_heads,
-        ffn_hidden_size=ffn_hidden_size,
-        params_dtype=get_autocast_dtype(precision),
-        pipeline_dtype=get_autocast_dtype(precision),
-        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
-        biobert_spec_option=biobert_spec_option,
-        nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
-        # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
-        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
-        variable_seq_lengths=min_seq_length != max_seq_length,
-    )
-
-    model = biobert_lightning_module(
-        esm2_config,
-        tokenizer=tokenizer,
-        optimizer=MegatronOptimizerModule(
-            config=OptimizerConfig(
-                lr=lr,
-                optimizer="adam",  # fused_adam not supported
-                use_distributed_optimizer=True,
-                weight_decay=0.01,
-                adam_beta1=0.9,
-                adam_beta2=0.98,
-            ),
-            lr_scheduler=WarmupAnnealDecayHoldScheduler(
-                warmup_steps=warmup_steps, max_steps=num_steps, max_lr=lr, min_lr=0.0, anneal_percentage=0.10
-            ),
-        ),
-    )
-
-    # Configure our custom Checkpointer
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_last=save_last_checkpoint,
-        monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
-        save_top_k=save_top_k,
-        every_n_train_steps=val_check_interval,
-        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-        filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-    )
+    if create_tflops_callback:
+        # Add callback that logs the tera-FLOPS per second per GPU during training.
+        data_module.global_batch_size = (
+            global_batch_size  # TODO(dorotat): remove this change after FLOPsMeasurementCallback is refactored
+        )
+        flop_meas_callback = FLOPsMeasurementCallback(
+            esm2_config,
+            data_module,
+            "bert",
+        )
+        callbacks.append(flop_meas_callback)
 
     # Setup the logger and train the model
     nemo_logger = setup_nemo_lightning_logger(
@@ -281,19 +323,65 @@ def main(
         name=experiment_name,
         initialize_tensorboard_logger=create_tensorboard_logger,
         wandb_config=wandb_config,
-        ckpt_callback=checkpoint_callback,
+    )
+
+    # Configure our custom ModelCheckpointe callback and AutoResume to save at nemo_logger.save_dir/checkpoints
+    if create_checkpoint_callback:
+        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            dirpath=checkpoint_path,
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,
+            # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="{epoch}-{step}-{consumed_samples}",
+            # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+            # Save both the weights and the optimizer state.
+            save_weights_only=False,
+            save_optim_on_train_end=True,
+        )
+
+        callbacks.append(checkpoint_callback)
+
+        auto_resume = resume.AutoResume(
+            resume_from_directory=checkpoint_path,
+            resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
+            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
+            resume_past_end=False,
+        )
+    else:
+        auto_resume = None
+
+    trainer = nl.Trainer(
+        devices=devices,
+        max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
+        accelerator="gpu",
+        strategy=strategy,
+        limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
+        val_check_interval=val_check_interval,
+        log_every_n_steps=log_every_n_steps,
+        num_nodes=num_nodes,
+        callbacks=callbacks,
+        plugins=nl.MegatronMixedPrecision(
+            precision=precision,
+            params_dtype=get_autocast_dtype(precision),
+            pipeline_dtype=get_autocast_dtype(precision),
+            grad_reduce_in_fp32=grad_reduce_in_fp32,
+            autocast_enabled=False,
+        ),
+        enable_checkpointing=create_checkpoint_callback,
     )
 
     llm.train(
         model=model,
-        data=data,
+        data=data_module,
         trainer=trainer,
         log=nemo_logger,
-        resume=resume.AutoResume(
-            resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
-            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
-        ),
+        resume=auto_resume,
     )
+    return trainer
 
 
 def train_esm2_entrypoint():
@@ -316,11 +404,13 @@ def train_esm2_entrypoint():
         wandb_project=args.wandb_project,
         wandb_tags=args.wandb_tags,
         wandb_group=args.wandb_group,
+        wandb_job_type=args.wandb_job_type,
         wandb_id=args.wandb_id,
         wandb_anonymous=args.wandb_anonymous,
         wandb_log_model=args.wandb_log_model,
         wandb_offline=args.wandb_offline,
         num_steps=args.num_steps,
+        early_stop_on_step=args.early_stop_on_step,
         warmup_steps=args.warmup_steps,
         limit_val_batches=args.limit_val_batches,
         val_check_interval=args.val_check_interval,
@@ -328,6 +418,7 @@ def train_esm2_entrypoint():
         num_dataset_workers=args.num_dataset_workers,
         biobert_spec_option=args.biobert_spec_option,
         lr=args.lr,
+        scheduler_num_steps=args.scheduler_num_steps,
         micro_batch_size=args.micro_batch_size,
         pipeline_model_parallel_size=args.pipeline_model_parallel_size,
         tensor_model_parallel_size=args.tensor_model_parallel_size,
@@ -336,6 +427,9 @@ def train_esm2_entrypoint():
         experiment_name=args.experiment_name,
         resume_if_exists=args.resume_if_exists,
         nemo1_init_path=args.nemo1_init_path,
+        create_tflops_callback=args.create_tflops_callback,
+        create_checkpoint_callback=args.create_checkpoint_callback,
+        create_tensorboard_logger=args.create_tensorboard_logger,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
         save_best_checkpoint=args.save_best_checkpoint,
         save_last_checkpoint=args.save_last_checkpoint,
@@ -350,6 +444,10 @@ def train_esm2_entrypoint():
         hidden_size=args.hidden_size,
         num_attention_heads=args.num_attention_heads,
         ffn_hidden_size=args.ffn_hidden_size,
+        overlap_grad_reduce=not args.no_overlap_grad_reduce,
+        overlap_param_gather=not args.no_overlap_param_gather,
+        average_in_collective=not args.no_average_in_collective,
+        grad_reduce_in_fp32=args.grad_reduce_in_fp32,
     )
 
 
@@ -399,6 +497,18 @@ def get_parser():
         help="Learning rate for training. Default is 4e-4",
     )
     parser.add_argument(
+        "--scheduler-num-steps",
+        type=int,
+        required=False,
+        help="Number of steps for learning rate scheduler. Will use --num-steps if not given. Default is None.",
+    )
+    parser.add_argument(
+        "--create-tflops-callback",
+        action="store_true",
+        default=False,
+        help="Enable tflops calculation callback for Hyena / Evo2. Defaults to False.",
+    )
+    parser.add_argument(
         "--create-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."
     )
     # FIXME (@skothenhill) figure out how checkpointing and resumption should work with the new nemo trainer
@@ -415,6 +525,12 @@ def get_parser():
     parser.add_argument("--wandb-tags", nargs="+", type=str, default=None, help="Tags associated with this run")
     parser.add_argument(
         "--wandb-group", type=str, default=None, help="A unique string shared by all runs in a given group"
+    )
+    parser.add_argument(
+        "--wandb-job-type",
+        type=str,
+        default=None,
+        help="A unique string representing a type of run, which is useful when you're grouping runs together into larger experiments using group.",
     )
     parser.add_argument(
         "--wandb-id", type=str, default=None, help="Sets the version, mainly used to resume a previous run"
@@ -446,6 +562,12 @@ def get_parser():
         required=False,
         default=500000,
         help="Number of steps to use for training. Default is 500000.",
+    )
+    parser.add_argument(
+        "--early-stop-on-step",
+        type=int,
+        default=None,
+        help="Stop training on this step, if set. This may be useful for testing or debugging purposes.",
     )
     parser.add_argument(
         "--warmup-steps",
@@ -536,6 +658,13 @@ def get_parser():
         type=Path,
         required=False,
         help="Path to nemo1 file, if desired to load at init time.",
+    )
+    parser.add_argument(
+        "--disable-checkpointing",
+        action="store_false",
+        default=True,
+        dest="create_checkpoint_callback",
+        help="Disable creating a ModelCheckpoint callback.",
     )
     parser.add_argument(
         "--save-best-checkpoint",
@@ -650,6 +779,27 @@ def get_parser():
         required=False,
         default=4 * 1280,
         help="FFN hidden size of the model. Default is 4 * 1280.",
+    )
+    # DDP config
+    parser.add_argument(
+        "--no-overlap-grad-reduce",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--no-overlap-param-gather",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--no-average-in-collective",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--grad-reduce-in-fp32",
+        action="store_true",
+        default=False,
     )
     return parser
 

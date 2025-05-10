@@ -128,8 +128,8 @@ impl PyIndexedMmapFastaReader {
     }
 
     #[staticmethod]
-    fn create_faidx(fasta_filename: &str) -> PyResult<String> {
-        match IndexedMmapFastaReader::create_faidx(fasta_filename) {
+    fn create_faidx(fasta_filename: &str, force: bool) -> PyResult<String> {
+        match IndexedMmapFastaReader::create_faidx(fasta_filename, force) {
             Ok(fai_filename) => Ok(fai_filename),
             Err(e) => {
                 let py_err = match e.kind() {
@@ -155,6 +155,7 @@ impl PyIndexedMmapFastaReader {
             .map(|record| PyFaidxRecord::from(record))
             .collect();
     }
+
     fn read_sequence_mmap(&self, region_str: &str) -> PyResult<String> {
         self.inner
             .read_sequence_mmap(region_str)
@@ -180,6 +181,10 @@ impl PyIndexedMmapFastaReader {
 fn noodles_fasta_wrapper(_: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyIndexedMmapFastaReader>()?;
     m.add_class::<PyFaidxRecord>()?;
+    m.add_function(wrap_pyfunction!(complement_sequence, m)?)?;
+    m.add_function(wrap_pyfunction!(reverse_sequence, m)?)?;
+    m.add_function(wrap_pyfunction!(transcribe_sequence, m)?)?;
+    m.add_function(wrap_pyfunction!(back_transcribe_sequence, m)?)?;
     Ok(())
 }
 
@@ -220,7 +225,7 @@ impl IndexedMmapFastaReader {
         Ok(IndexedMmapFastaReader { mmap_reader, index })
     }
 
-    fn create_faidx(fasta_filename: &str) -> std::io::Result<String> {
+    fn create_faidx(fasta_filename: &str, force: bool) -> std::io::Result<String> {
         let fasta_path = Path::new(fasta_filename);
         let index: fai::Index = fasta::io::index(fasta_path).map_err(|e| {
             std::io::Error::new(
@@ -235,7 +240,7 @@ impl IndexedMmapFastaReader {
 
         let fai_filename = fasta_filename.to_string() + ".fai";
         let fai_path = Path::new(&fai_filename); // Convert back to a Path
-        if fai_path.exists() {
+        if fai_path.exists() && !force {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
                 format!("Fai file {} already exists", fai_path.display()),
@@ -260,10 +265,11 @@ impl IndexedMmapFastaReader {
     }
 
     fn new(fasta_path: &str, ignore_existing_fai: bool) -> std::io::Result<Self> {
-        if !ignore_existing_fai {
+        let fasta_fai_str = fasta_path.to_string() + ".fai";
+        let fasta_fai_path = Path::new(&fasta_fai_str);
+        if !ignore_existing_fai && fasta_fai_path.exists() {
             // load the .fai files if they exist
-            let fasta_fai_path = fasta_path.to_string() + ".fai";
-            Self::from_fasta_and_faidx(fasta_path, &fasta_fai_path as &str)
+            Self::from_fasta_and_faidx(fasta_path, &fasta_fai_str)
         } else {
             Self::from_fasta(fasta_path)
         }
@@ -351,6 +357,35 @@ fn read_sequence_mmap(index: &fai::Index, reader: &Mmap, region_str: &str) -> io
         &mut result,
     );
     return Ok(result);
+}
+
+#[pyfunction]
+fn reverse_sequence(s: &str) -> String {
+    return s.chars().rev().collect();
+}
+
+#[pyfunction]
+fn complement_sequence(s: &str) -> String {
+    // Produces a complement of the input DNA sequence
+    s.chars()
+        .map(|c| match c {
+            'A' => 'T',
+            'T' => 'A',
+            'C' => 'G',
+            'G' => 'C',
+            _ => c, // Keeps unknown characters unchanged
+        })
+        .collect()
+}
+
+#[pyfunction]
+fn transcribe_sequence(s: &str) -> String {
+    s.replace("T", "U")
+}
+
+#[pyfunction]
+fn back_transcribe_sequence(s: &str) -> String {
+    s.replace("U", "T")
 }
 
 /// Compute the number of bytes from start to the end of the line, half interval.
@@ -615,17 +650,38 @@ fn test_mmap_reads() {
     // Note these are the same tests we use in python, but having them here can prevent us from building a wheel with broken code.
     assert_eq!(reader.read_sequence_mmap("chr1:1-1").unwrap(), "A");
     assert_eq!(reader.read_sequence_mmap("chr1:1-2").unwrap(), "AC");
-    assert_eq!(reader.read_sequence_mmap("chr1:1-100000").unwrap(), "ACTGACTGACTG");
+    assert_eq!(
+        reader.read_sequence_mmap("chr1:1-100000").unwrap(),
+        "ACTGACTGACTG"
+    );
     assert_eq!(reader.read_sequence_mmap("chr2:1-2").unwrap(), "GG");
-    assert_eq!(reader.read_sequence_mmap("chr2:1-1000000").unwrap(), "GGTCAAGGTCAA");
+    assert_eq!(
+        reader.read_sequence_mmap("chr2:1-1000000").unwrap(),
+        "GGTCAAGGTCAA"
+    );
     //Recall to get python based assert_eq!(readering we add 1 to both start and end, so 1-13 is a 12 character string(full sequence)
-    assert_eq!(reader.read_sequence_mmap("chr2:1-11").unwrap(), "GGTCAAGGTCA");
-    assert_eq!(reader.read_sequence_mmap("chr2:1-12").unwrap(), "GGTCAAGGTCAA");
-    assert_eq!(reader.read_sequence_mmap("chr2:1-13").unwrap(), "GGTCAAGGTCAA");
+    assert_eq!(
+        reader.read_sequence_mmap("chr2:1-11").unwrap(),
+        "GGTCAAGGTCA"
+    );
+    assert_eq!(
+        reader.read_sequence_mmap("chr2:1-12").unwrap(),
+        "GGTCAAGGTCAA"
+    );
+    assert_eq!(
+        reader.read_sequence_mmap("chr2:1-13").unwrap(),
+        "GGTCAAGGTCAA"
+    );
 
     assert_eq!(reader.read_sequence_mmap("chr3:1-2").unwrap(), "AG");
-    assert_eq!(reader.read_sequence_mmap("chr3:1-13").unwrap(), "AGTCAAGGTCCAC");
-    assert_eq!(reader.read_sequence_mmap("chr3:1-14").unwrap(), "AGTCAAGGTCCACG"); // adds first character from next line
+    assert_eq!(
+        reader.read_sequence_mmap("chr3:1-13").unwrap(),
+        "AGTCAAGGTCCAC"
+    );
+    assert_eq!(
+        reader.read_sequence_mmap("chr3:1-14").unwrap(),
+        "AGTCAAGGTCCACG"
+    ); // adds first character from next line
     assert_eq!(
         reader.read_sequence_mmap("chr3:1-83").unwrap(),
         "AGTCAAGGTCCACGTCAAGGTCCCGGTCAAGGTCCGTGTCAAGGTCCTAGTCAAGGTCAACGTCAAGGTCACGGTCAAGGTCA"
@@ -648,15 +704,58 @@ fn test_mmap_reads() {
 
     // Handles end of multi line but non-full sequence entry
     // Full sequence
-    assert_eq!(reader.read_sequence_mmap("chr4:1-16").unwrap(), "CCCCCCCCCCCCACGT");
-    assert_eq!(reader.read_sequence_mmap("chr4:1-17").unwrap(), "CCCCCCCCCCCCACGT");
+    assert_eq!(
+        reader.read_sequence_mmap("chr4:1-16").unwrap(),
+        "CCCCCCCCCCCCACGT"
+    );
+    assert_eq!(
+        reader.read_sequence_mmap("chr4:1-17").unwrap(),
+        "CCCCCCCCCCCCACGT"
+    );
     assert_eq!(
         reader.read_sequence_mmap("chr4:1-1000000").unwrap(),
         "CCCCCCCCCCCCACGT"
     );
 
-    assert_eq!(reader.read_sequence_mmap("chr4:1-17").unwrap(), "CCCCCCCCCCCCACGT");
+    assert_eq!(
+        reader.read_sequence_mmap("chr4:1-17").unwrap(),
+        "CCCCCCCCCCCCACGT"
+    );
 
-    assert_eq!(reader.read_sequence_mmap("chr4:3-16").unwrap(), "CCCCCCCCCCACGT");
+    assert_eq!(
+        reader.read_sequence_mmap("chr4:3-16").unwrap(),
+        "CCCCCCCCCCACGT"
+    );
     assert_eq!(reader.read_sequence_mmap("chr4:17-17").unwrap(), "");
+}
+
+#[test]
+fn test_reverse_sequence() {
+    assert_eq!(reverse_sequence("ACGTACGTACGT"), "TGCATGCATGCA");
+}
+
+#[test]
+fn test_complement_sequence() {
+    // test simple complement
+    assert_eq!(complement_sequence("ACGTACGTACGT"), "TGCATGCATGCA");
+    // test identity
+    assert_eq!(
+        complement_sequence(&complement_sequence("ACGTACGTACGT")),
+        "ACGTACGTACGT"
+    );
+}
+
+#[test]
+fn test_transcribe_sequence() {
+    assert_eq!(transcribe_sequence("ACGTACGTACGT"), "ACGUACGUACGU");
+    // test identity
+    assert_eq!(
+        back_transcribe_sequence(&transcribe_sequence("ACGTACGTACGT")),
+        "ACGTACGTACGT"
+    );
+}
+
+#[test]
+fn test_back_transcribe_sequence() {
+    assert_eq!(back_transcribe_sequence("ACGUACGUACGU"), "ACGTACGTACGT");
 }

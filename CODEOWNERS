@@ -31,6 +31,8 @@
 # @trvachov - Timur Rvachov
 # @yzhang123 - Yang Zhang
 
+# TODO: make this a team of bionemo-core contributors
+* @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov @sichu2023 @skothenhill-nv @jomitchellnv @jwilber @cspades
 
 #
 ## LEGAL
@@ -42,41 +44,23 @@ license_header @dorotat-nv @jstjohn @malcolmgreaves @trvachov
 #
 ## DOCUMENTATION
 #
-README.md @dorotat-nv @jstjohn @malcolmgreaves @pstjohn
-docs @dorotat-nv @jstjohn @malcolmgreaves @pstjohn
-# These 2 are symlinks: actual content is under docs/
-CODE-REVIEW.md @jstjohn @malcolmgreaves @pstjohn @trvachov
-CONTRIBUTING.md @jstjohn @malcolmgreaves @pstjohn @trvachov
-docs/CODE-REVIEW.md  @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov
-docs/CONTRIBUTING.md @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov
+**.md @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov @jwilber
+docs @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov @jwilber
 
 
 #
 ## INFRASTRUCTURE
 #
-.gitignore @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-.dockerignore @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-.devcontainer @dorotat-nv @malcolmgreaves @pstjohn
-CODEOWNERS @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov
+.* @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov
+*.txt @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov
+CODEOWNERS @jstjohn @pstjohn @trvachov
 Dockerfile @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-justfile  @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-internal/ @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-3rdparty       @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-pyproject.toml @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-requirements-cve.txt @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-requirements-dev.txt @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-requirements-test.txt @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-tach.yml @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-.secrets.baseline @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
 ci/ @dorotat-nv @malcolmgreaves @pstjohn
-.nspect-allowlist.toml @dorotat-nv @jstjohn @malcolmgreaves @ohadmo @pstjohn @trvachov
-VERSION @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov
+.github @dorotat-nv @jstjohn @pstjohn @trvachov
 
 #
 ## LIBRARY CODE
 #
-scripts @jstjohn @malcolmgreaves @skothenhill-nv
-
 sub-packages/bionemo-fw @DejunL @dorotat-nv @farhadrgh @guoqing-zhou @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
 
 sub-packages/bionemo-testing @dorotat-nv @farhadrgh @jstjohn @malcolmgreaves @pstjohn @skothenhill-nv
@@ -87,10 +71,14 @@ sub-packages/bionemo-llm @farhadrgh @dorotat-nv @jstjohn @malcolmgreaves @pstjoh
 
 sub-packages/bionemo-geometric @DejunL @guoqing-zhou @jstjohn @malcolmgreaves
 
+sub-packages/bionemo-esm2 @pstjohn @jstjohn @skothenhill-nv @jomitchellnv @farhadrgh @sichu2023
+
 sub-packages/bionemo-example_model @jstjohn @malcolmgreaves @skothenhill-nv
 
 sub-packages/bionemo-geneformer @jstjohn @malcolmgreaves @skothenhill-nv
 
 sub-packages/bionemo-scdl @jstjohn @malcolmgreaves @polinabinder1 @skothenhill-nv
 
-sub-packages/bionemo-noodles @skothenhill-nv @malcolmgreaves @jstjohn @edawson
+sub-packages/bionemo-noodles @skothenhill-nv @malcolmgreaves @jstjohn @edawson @cspades
+
+sub-packages/bionemo-moco @nvdreidenbach @DejunL @dorotat-nv @guoqing-zhou @jstjohn @malcolmgreaves @pstjohn @sichu2023 @zcao0420 @youhanl-nvidia

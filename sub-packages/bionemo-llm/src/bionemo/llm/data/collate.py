@@ -28,6 +28,9 @@ _T = TypeVar("_T", bound=dict[str, torch.Tensor])
 _warned_once: bool = False
 
 
+MLM_LOSS_IGNORE_INDEX = -100  # This should match the masked value used in the MLM loss mask.
+
+
 def padding_collate_fn(
     batch: Sequence[_T],
     padding_values: dict[str, int],
@@ -49,6 +52,10 @@ def padding_collate_fn(
     """
     global _warned_once
     keys: set[str] | None = None
+
+    if len(batch) == 0:  # empty batches passed through in DDP inference
+        return {}
+
     for entry in batch:
         # First check that we have sane batches where keys align with each other.
         if keys is None:
@@ -101,7 +108,7 @@ def bert_padding_collate_fn(
         "text": padding_value,
         "types": 0,
         "attention_mask": False,
-        "labels": -100,  # This should match the masked value used in the MLM loss mask.
+        "labels": MLM_LOSS_IGNORE_INDEX,  # This should match the masked value used in the MLM loss mask.
         "loss_mask": False,
         "is_random": 0,
     }

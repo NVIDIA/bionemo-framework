@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import argparse
+import os
 from pathlib import Path
 from typing import Dict, Type, get_args
 
-import torch
 from nemo import lightning as nl
 from nemo.utils import logging
 
@@ -25,9 +25,9 @@ from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.geneformer.api import FineTuneSeqLenBioBertConfig, GeneformerConfig
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
-from bionemo.llm.lightning import batch_collator
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
+from bionemo.llm.utils.callbacks import IntervalT, PredictionWriter
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 
 
@@ -38,6 +38,7 @@ def infer_model(
     include_hiddens: bool = False,
     include_embeddings: bool = False,
     include_logits: bool = False,
+    include_input_ids: bool = False,
     seq_length: int = 2048,
     micro_batch_size: int = 64,
     precision: PrecisionTypes = "bf16-mixed",
@@ -46,12 +47,17 @@ def infer_model(
     devices: int = 1,
     num_nodes: int = 1,
     num_dataset_workers: int = 0,
+    prediction_interval: IntervalT = "epoch",
     config_class: Type[BioBertConfig] = GeneformerConfig,
+    include_unrecognized_vocab_in_dataset: bool = False,
 ) -> None:
     """Inference function (requires DDP and only training data that fits in memory)."""
+    # create the directory to save the inference results
+    os.makedirs(results_path, exist_ok=True)
+
     # This is just used to get the tokenizer :(
     train_data_path: Path = (
-        load("single_cell/testdata-20240506") / "cellxgene_2023-12-15_small" / "processed_data" / "train"
+        load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl" / "train"
     )
 
     # Setup the strategy and trainer
@@ -86,16 +92,19 @@ def infer_model(
         ckpt_include_optimizer=True,
         progress_interval=1,
     )
+
+    prediction_writer = PredictionWriter(output_dir=results_path, write_interval=prediction_interval)
+
     trainer = nl.Trainer(
         devices=devices,
         accelerator="gpu",
         strategy=strategy,
         num_nodes=num_nodes,
-        callbacks=[],
+        callbacks=[prediction_writer],
         plugins=nl.MegatronMixedPrecision(precision=precision),
     )
     # Configure the data module and model
-    data = SingleCellDataModule(
+    datamodule = SingleCellDataModule(
         seq_length=seq_length,
         tokenizer=tokenizer,
         train_dataset_path=None,
@@ -112,8 +121,9 @@ def infer_model(
         persistent_workers=num_dataset_workers > 0,
         pin_memory=False,
         num_workers=num_dataset_workers,
+        include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
     )
-    geneformer_config = config_class(
+    config = config_class(
         seq_length=seq_length,
         params_dtype=get_autocast_dtype(precision),
         pipeline_dtype=get_autocast_dtype(precision),
@@ -122,20 +132,15 @@ def infer_model(
         initial_ckpt_path=str(checkpoint_path) if checkpoint_path is not None else None,
         include_embeddings=include_embeddings,
         include_hiddens=include_hiddens,
+        include_input_ids=include_input_ids,
         skip_logits=not include_logits,
         initial_ckpt_skip_keys_with_these_prefixes=[],  # load everything from the checkpoint.
     )
     # The lightning class owns a copy of the actual model, and a loss function, both of which are configured
-    #  and lazily returned by the `geneformer_config` object defined above.
-    model = biobert_lightning_module(
-        geneformer_config,
-        tokenizer=tokenizer,
-    )
+    #  and lazily returned by the `config` object defined above.
+    module = biobert_lightning_module(config=config, tokenizer=tokenizer)
 
-    results_dict = batch_collator(trainer.predict(model, datamodule=data, return_predictions=True))
-    non_none_keys = [key for key, val in results_dict.items() if val is not None]
-    print(f"Writing output {str(non_none_keys)} into {results_path}")
-    torch.save(results_dict, results_path)
+    trainer.predict(module, datamodule=datamodule)  # return_predictions=False failing due to a lightning bug
 
 
 def geneformer_infer_entrypoint():
@@ -147,24 +152,26 @@ def geneformer_infer_entrypoint():
     infer_model(
         data_path=args.data_dir,
         checkpoint_path=args.checkpoint_path,
-        results_path=args.result_path,
+        results_path=args.results_path,
         include_hiddens=args.include_hiddens,
         micro_batch_size=args.micro_batch_size,
         include_embeddings=not args.no_embeddings,
         include_logits=args.include_logits,
+        include_input_ids=args.include_input_ids,
         seq_length=args.seq_length,
         precision=args.precision,
         devices=args.num_gpus,
         num_nodes=args.num_nodes,
         num_dataset_workers=args.num_dataset_workers,
         config_class=args.config_class,
+        include_unrecognized_vocab_in_dataset=args.include_unrecognized_vocab_in_dataset,
     )
 
 
 def get_parser():
     """Return the cli parser for this tool."""
     parser = argparse.ArgumentParser(
-        description="Infer sc_memmap processed single cell data with Geneformer from a checkpiont."
+        description="Infer processed single cell data in SCDL memmap format with Geneformer from a checkpoint."
     )
     parser.add_argument(
         "--data-dir",
@@ -193,10 +200,13 @@ def get_parser():
     parser.add_argument(
         "--include-logits", action="store_true", default=False, help="Include per-token logits in output."
     )
-
     parser.add_argument(
-        "--result-path", type=Path, required=False, default=Path("./results.pt"), help="Path to the result file."
+        "--include-input-ids",
+        action="store_true",
+        default=False,
+        help="Include input_ids in output of inference",
     )
+    parser.add_argument("--results-path", type=Path, required=True, help="Path to the results directory.")
     parser.add_argument(
         "--num-gpus",
         type=int,
@@ -210,6 +220,14 @@ def get_parser():
         required=False,
         default=1,
         help="Number of nodes to use for training. Default is 1.",
+    )
+    parser.add_argument(
+        "--prediction-interval",
+        type=str,
+        required=False,
+        choices=get_args(IntervalT),
+        default="epoch",
+        help="Intervals to write DDP predictions into disk",
     )
     parser.add_argument(
         "--num-dataset-workers",
@@ -231,6 +249,12 @@ def get_parser():
         required=False,
         default=32,
         help="Micro-batch size. Global batch size is inferred from this.",
+    )
+
+    parser.add_argument(
+        "--include-unrecognized-vocab-in-dataset",
+        action="store_true",
+        help="If set to True, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded.",
     )
 
     # TODO consider whether nemo.run or some other method can simplify this config class lookup.

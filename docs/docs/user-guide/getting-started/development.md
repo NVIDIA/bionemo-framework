@@ -56,6 +56,9 @@ The following components are present in each package:
 
 ## Model Training Process
 
+!!! note
+    See also [Training Models](./training-models.md)
+
 The process for pretraining models from BioNeMo involves running scripts located in the `scripts` directory. Each script
 exposes a Command-Line Interface (CLI) that contains and documents the options available for that model.
 
@@ -133,7 +136,7 @@ of the model. The fine-tuning steps will be application-specific, but a general 
 6. **Run inference**: Once the model is fine-tuned, use it to make predictions on new, unseen data.
 
 For more information on fine-tuning a model, refer to the [ESM-2 Fine-tuning
-Tutorial](../examples/bionemo-esm2/finetune.md).
+Tutorial](../examples/bionemo-esm2/finetune.ipynb).
 
 ## Advanced Developer Documentation
 

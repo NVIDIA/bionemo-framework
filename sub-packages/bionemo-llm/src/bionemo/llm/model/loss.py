@@ -18,20 +18,20 @@ from typing import Dict, List, Literal, Sequence, Tuple, TypedDict
 import torch
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.fusions.fused_cross_entropy import fused_vocab_parallel_cross_entropy
-from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
 from nemo.lightning.megatron_parallel import (
     MegatronLossReduction,
     masked_token_loss,
-    masked_token_loss_context_parallel,
 )
 from torch import Tensor
+
+from bionemo.llm.utils.megatron_utils import average_losses_across_data_parallel_group
 
 
 __all__: Sequence[str] = (
     "BERTMLMLossWithReduction",
+    "DataParallelGroupLossAndIO",
     "PerTokenLossDict",
     "SameSizeLossDict",
-    "DataParallelGroupLossAndIO",
 )
 
 
@@ -110,9 +110,9 @@ class _Nemo2CompatibleLossReduceMixin:
 
         # do the gather
         keys = list(losses_reduced_per_micro_batch[0].keys())
-        assert (
-            sum(("avg" in keys, "loss_sum_and_microbatch_size" in keys)) == 1
-        ), "Expected only either 'avg' or 'loss_sum_and_microbatch_size' in keys but got both"
+        assert sum(("avg" in keys, "loss_sum_and_microbatch_size" in keys)) == 1, (
+            "Expected only either 'avg' or 'loss_sum_and_microbatch_size' in keys but got both"
+        )
         key: Literal["avg", "loss_sum_and_microbatch_size"] = (
             "avg" if "avg" in keys else "loss_sum_and_microbatch_size"
         )
@@ -143,26 +143,18 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         self,
         validation_step: bool = False,
         val_drop_last: bool = True,
-        send_train_output: bool = False,
-        send_val_output: bool = True,
     ) -> None:
         """Initializes the Model class.
 
         Args:
             validation_step (bool, optional): Whether this object is being applied to the validation step. Defaults to False.
             val_drop_last (bool, optional): Whether the last batch is configured to be dropped during validation. Defaults to True.
-            send_train_output (bool): Whether to return the model output in training. Defaults to False.
-            send_val_output (bool, optional): Whether to return the model output in validation. Defaults to True.
-            include_forward_output_for_metrics (bool): Some downstream metrics such as perplexity require this. It can be
-                expensive to return however, so disable this if performance is a top consideration.
         """
         # TODO(@jomitchell): Track down how we handle test. This is a common pattern in NeMo2, but these parameters seem likely
         #  to change in the future.
         super().__init__()
         self.validation_step = validation_step
         self.val_drop_last = val_drop_last
-        self.send_train_output = send_train_output
-        self.send_val_output = send_val_output
 
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
@@ -182,43 +174,24 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         if "labels" not in batch:
             raise ValueError("Labels not provided in the batch. These are required for this loss computation.")
 
-        train_step: bool = not self.validation_step
-        # Determine if we need to capture/send forward output for downstream metrics, such as perplexity logging
-        #  this is expensive so only do if necessary.
-        send_forward_output: bool = (self.validation_step and self.send_val_output) or (
-            train_step and self.send_train_output
-        )
-
-        if send_forward_output:
-            forward_out_report = {
-                k: v.detach().clone() if torch.is_tensor(v) else v for k, v in forward_out.items()
-            }  # avoid impact from inplace operation on token_logits in unreduced_token_loss_fn
-        else:
-            forward_out_report = {}
-
         # NOTE: token_logits is [sequence, batch] but labels and other fiels, including the loss are [batch, sequence]
         unreduced_token_loss = unreduced_token_loss_fn(forward_out["token_logits"], batch["labels"])  # [b s]
 
         # TODO(@jstjohn) also handle different output keys, like the sequence loss.
 
-        # compute loss
+        # Compute loss over "valid" tokens in the microbatch, i.e. the non-masked tokens.
+        # The loss is not normalized, so you need to divide by the number of non-masked
+        # tokens (loss_mask.sum()) to compute the mean loss per token.
+        loss_for_microbatch, num_valid_tokens_in_microbatch = masked_token_loss(
+            unreduced_token_loss, batch["loss_mask"]
+        )
+
+        # Get the context parallel size for some normalizations and reductions.
         cp_size = parallel_state.get_context_parallel_world_size()
-        if cp_size == 1:
-            # reduce the loss across the micro batch per valid token
-            loss_for_microbatch = masked_token_loss(unreduced_token_loss, batch["loss_mask"])
-        else:
-            # reduce the loss across the micro batch per valid token.
-            # TODO(@jomitchell): Figure out who defines "num_valid_tokens_in_ub" in the batch and document/understand this.
-            #  This has something to do with context parallel, and there is probably a megatron or nemo function that adds this and
-            #  other necessary keys to the batch. Thanks!
-            loss_for_microbatch = masked_token_loss_context_parallel(
-                unreduced_token_loss, batch["loss_mask"], batch["num_valid_tokens_in_ub"]
-            )
 
         # If we do not drop the last partial batch of validation, we need to do fancy reduction handling to support
         #  reducing the loss across the data parallel group.
         if self.validation_step and not self.val_drop_last:
-            num_valid_tokens_in_microbatch = batch["loss_mask"].sum()
             if loss_for_microbatch.isnan():
                 # TODO(@jomitchell): Add a unit test for this. This is the case where there are no valid tokens in the microbatch for the loss
                 #  to be computed over, so we expect a NaN loss (divide by zero for a mean) but we make this an expected and non-breaking case,
@@ -227,9 +200,8 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
                     raise ValueError("Got NaN loss with non-empty input")
                 loss_sum_for_microbatch = torch.zeros_like(num_valid_tokens_in_microbatch)
             else:
-                loss_sum_for_microbatch = (
-                    num_valid_tokens_in_microbatch * loss_for_microbatch
-                )  # sum over all valid tokens
+                # The loss is already the sum of all losses from masked_token_loss().
+                loss_sum_for_microbatch = loss_for_microbatch
 
             # In this case we need to store the loss sum as well as the number of valid tokens in the microbatch.
             loss_sum_and_microbatch_size_all_gpu = torch.cat(
@@ -238,25 +210,30 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
                     Tensor([num_valid_tokens_in_microbatch]).cuda().clone().detach(),
                 ]
             )
+
+            # Reduce the loss sum across the data parallel group to get the total loss
+            # for all data parallel / distributed microbatches.
             torch.distributed.all_reduce(
                 loss_sum_and_microbatch_size_all_gpu,
-                group=parallel_state.get_data_parallel_group(),
+                group=parallel_state.get_data_parallel_group(with_context_parallel=True),
                 op=torch.distributed.ReduceOp.SUM,
             )
+
+            # Return the loss tensor multiplied by the context parallel size,
+            # and the data & context parallel reduced loss sum.
             return loss_for_microbatch * cp_size, {
                 "loss_sum_and_microbatch_size": loss_sum_and_microbatch_size_all_gpu
             }
 
-        # average the losses across the data parallel group, but also return the unreduced loss
-        reduced_loss = average_losses_across_data_parallel_group([loss_for_microbatch])
-        if send_forward_output:
-            return loss_for_microbatch * cp_size, {
-                "avg": reduced_loss,
-                "batch": batch,
-                "forward_out": forward_out_report,
-            }
-        else:
-            return loss_for_microbatch * cp_size, {"avg": reduced_loss}
+        # Return the loss tensor multiplied by the context parallel size, as well as
+        # the data-parallel averaged loss, i.e. the loss divided by the DP size.
+        # Normalize the loss by the number of "valid" tokens, because masked_token_loss
+        # no longer does this normalization, and BioNeMo losses expect this normalization.
+        reduced_loss = (
+            average_losses_across_data_parallel_group([loss_for_microbatch], with_context_parallel=True)
+            / num_valid_tokens_in_microbatch
+        )
+        return loss_for_microbatch * cp_size, {"avg": reduced_loss}
 
 
 def unreduced_token_loss_fn(logits: Tensor, labels: Tensor, cross_entropy_loss_fusion: bool = False) -> Tensor:

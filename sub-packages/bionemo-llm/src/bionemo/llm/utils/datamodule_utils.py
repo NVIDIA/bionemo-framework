@@ -61,6 +61,7 @@ def infer_global_batch_size(
     accumulate_grad_batches: int = 1,
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
+    context_model_parallel_size: int = 1,
 ) -> int:
     """Infers the global batch size based on the micro batch size, number of nodes, devices, accumulation of gradient batches, and model parallel sizes.
 
@@ -71,6 +72,7 @@ def infer_global_batch_size(
         accumulate_grad_batches (int): The accumulation of gradient batches. Defaults to 1.
         tensor_model_parallel_size (int): The tensor model parallel size. Defaults to 1.
         pipeline_model_parallel_size (int): The pipeline model parallel size. Defaults to 1.
+        context_model_parallel_size (int): The context model parallel size. Defaults to 1.
 
     Returns:
         int: The global batch size.
@@ -84,11 +86,12 @@ def infer_global_batch_size(
             accumulate_grad_batches,
             tensor_model_parallel_size,
             pipeline_model_parallel_size,
+            context_model_parallel_size,
         ]
     ):
         raise ValueError(
             f"All arguments must be of type int, got {type(micro_batch_size)}, {type(num_nodes)}, {type(devices)}, "
-            f"{type(accumulate_grad_batches)}, {type(tensor_model_parallel_size)}, and {type(pipeline_model_parallel_size)}"
+            f"{type(accumulate_grad_batches)}, {type(tensor_model_parallel_size)}, {type(pipeline_model_parallel_size)}, and {type(context_model_parallel_size)}"
         )
     if micro_batch_size <= 0:
         raise ValueError(f"micro_batch_size must be greater than 0, got {micro_batch_size}")
@@ -102,15 +105,17 @@ def infer_global_batch_size(
         raise ValueError(f"tensor_model_parallel_size must be greater than 0, got {tensor_model_parallel_size}")
     if pipeline_model_parallel_size <= 0:
         raise ValueError(f"pipeline_model_parallel_size must be greater than 0, got {pipeline_model_parallel_size}")
+    if context_model_parallel_size <= 0:
+        raise ValueError(f"context_model_parallel_size must be greater than 0, got {context_model_parallel_size}")
 
     world_size = num_nodes * devices
-    if world_size % (tensor_model_parallel_size * pipeline_model_parallel_size) != 0:
+    if world_size % (tensor_model_parallel_size * pipeline_model_parallel_size * context_model_parallel_size) != 0:
         raise ValueError(
-            f"world_size must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size, "
-            f"got {world_size} and {tensor_model_parallel_size} * {pipeline_model_parallel_size}"
+            f"world_size must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size * context_model_parallel_size, "
+            f"got {world_size} and TP{tensor_model_parallel_size} * PP{pipeline_model_parallel_size} * CP{context_model_parallel_size}"
         )
 
-    model_parallel_size = tensor_model_parallel_size * pipeline_model_parallel_size
+    model_parallel_size = tensor_model_parallel_size * pipeline_model_parallel_size * context_model_parallel_size
     data_parallel_size = world_size // model_parallel_size
     global_batch_size = micro_batch_size * data_parallel_size * accumulate_grad_batches
     return global_batch_size
@@ -137,7 +142,7 @@ def infer_num_samples(
 
     If limit_batches is a float between 0 and 1, the number of samples is inferred as a fraction of the number of samples
     in the dataset. If limit_batches is an integer greater than or equal to 1, the number of limited samples is inferred
-    as the product of limit_batches and global batch size. If limit_batches is None, it defaultsto 1.0, indicating that
+    as the product of limit_batches and global batch size. If limit_batches is None, it defaults to 1.0, indicating that
     all dataset samples should be used.
     """
     limit_batches = 1.0 if limit_batches is None else limit_batches  # validation data does not require upsampling

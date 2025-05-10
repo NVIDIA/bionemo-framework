@@ -1,5 +1,88 @@
 # Release Notes
 
+## BioNeMo Framework v2.6
+
+### New Features
+
+* Adds support for AMPLIFY [doi:10.1101/2024.09.23.614603](https://doi.org/10.1101/2024.09.23.614603) pre-training and inference, offering a 70% speedup over the xformers-based attention backend with similar final perplexity values at 1M pre-training steps. (4.23 for 120M, 3.05 for 350M). The model is fully compatible with existing weights on HuggingFace.
+* Adds alpha support for [LoRA fine-tuning to for ESM2 models](https://nvidia.github.io/bionemo-framework/models/ESM-2/#lora-fine-tuning-performace). Inference and fine-tuning are enabled along with resumption from a checkpoint.
+
+### Updates & Improvements
+
+* Blackwell support, tested on B200 systems.
+* Fixed Grace CPU support, released ARM compatible container.
+
+## BioNeMo Framework v2.5
+
+### New Features
+
+* Adding the Evo2 model training workflow, including data preprocessing, pre-training, fine-tuning and inference with bf16 and fp8 support.
+
+### Updates & Improvements
+
+* Supporting/upgrading federated learning examples of BioNeMo in [NVFlare](https://github.com/NVIDIA/NVFlare/tree/2.6.0rc1/examples/advanced/bionemo)
+* Upgrade bionemo-moco to v0.0.2
+* Brev.dev launchable tutorials
+
+#### Known Issues
+* Partial test failures on ARM CPUs.
+
+## BioNeMo Framework v2.4.1
+
+### Updates & Improvements
+* Applies fixes to ESM2 metric logging that result in NotImplementedError while using Model Parallelism.
+
+## BioNeMo Framework v2.4
+
+### New Features
+* Draft implementation of Evo2 with support for Hyena operators
+* bionemo-moco v0.0.1 released for building diffusion-like generative models.
+
+### Known Issues
+* Partial test failures on ARM CPUs.
+
+### Updates & Improvements
+
+* ESM2 fine-tuning script with CLI (finetune_esm2) that supports sequence-level/token-level classification/regression using a CSV dataset.
+* Brev.dev launchable [fine-tuning tutorial for ESM2](https://nvidia.github.io/bionemo-framework/user-guide/examples/bionemo-esm2/finetune/)
+
+## BioNeMo Framework v2.3
+
+### New Features
+
+* Distributed Inference Support for ESM2 and Geneformer
+  * Enables linear inference throughput as GPU number is increased
+  * [See ESM2 inference notebook](https://github.com/NVIDIA/bionemo-framework/blob/release-v2.3/docs/docs/user-guide/examples/bionemo-esm2/inference.ipynb) and use `--num-gpus` parameter.
+
+### Updates & Improvements
+
+* Prior Geneformer inference on H100 accuracy regression fixed.
+* Base image updated to `nvcr.io/nvidia/pytorch:24.12-py3`; python updated to 3.12 among other core dependency upgrades ([base container release notes here](https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/rel-24-12.html#rel-24-12)).
+
+## BioNeMo Framework v2.2
+
+### New Features
+
+* Small Molecule Featurization
+  * Implemented elementary and advanced atom, bond, and full molecule featurizers.
+* GH200 Support for BioNeMo
+  * Added a `Dockerfile.arm` that builds a BioNeMo container that runs on GH200 machines.
+  * Publish a version of the BioNeMo container that supports multiple architectures to NGC.
+
+### Updates & Improvements
+
+* Single-Cell Dataloader (SCDL)
+  * Changed metadata storage to `parquet` files, which creates a 30x speed up when iterating over a large dataset.
+  * Added functionality to concatenate several `anndata` files without doubling disk memory usage.
+* ESM2
+  * Added support for `SIGTERM` preemption checkpoint saving.
+  * Moved ESM-2 and Geneformer training scripts to new executables, `train_esm2` and `train_geneformer`, respectively.
+  * Moved inference script to a new executable `infer_esm2`, and deprecated the inference example in the fine-tuning tutorial.
+  * Added new Jupyter notebook tutorials for inference and zero-shot protein design. These notebooks can be deployed on the cloud resources as a [brev.dev](https://www.brev.dev/) launchable.
+
+###  Known Issues:
+* Loading a checkpoint for Geneformer inference on H100 has a known regression in accuracy. Work is in progress to resolve by next release.
+
 ## BioNeMo Framework v2.1
 
 ### New Features:

@@ -1,0 +1,74 @@
+name: Enforce Tiered Approvals
+
+on:
+  pull_request_review:
+
+env:
+  TIER2_REVIEWERS: "jstjohn,trvachov,pstjohn"
+
+jobs:
+  check_approval:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.check_tier2.outputs.status }}
+    steps:
+      - name: Get PR reviews
+        id: get_reviews
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            const latestReviews = {};
+            for (const review of reviews) {
+              latestReviews[review.user.login] = review.state;
+            }
+
+            console.log('Latest Reviews:', latestReviews);
+
+            const approvedUsers = Object.keys(latestReviews).filter(user => latestReviews[user] === 'APPROVED');
+
+            core.setOutput('approvedUsers', approvedUsers.join(','));
+
+      - name: Check +2 approvals (global tier)
+        id: check_tier2
+        run: |
+          echo "Checking for +2 approvals..."
+          APPROVED_USERS="${{ steps.get_reviews.outputs.approvedUsers }}"
+
+          TIER2_APPROVED=false
+
+          echo "Approved Users: $APPROVED_USERS"
+          echo "Tier 2 Reviewers: $TIER2_REVIEWERS"
+
+          IFS=',' read -ra reviewer_array <<< "$TIER2_REVIEWERS"
+          # Iterate over approved users and compare with cleaned TIER2_REVIEWERS
+          for USER in ${APPROVED_USERS//,/ }; do
+            echo "Checking approved USER: $USER"
+            for REVIEWER in "${reviewer_array[@]}"; do
+              echo "Comparing USER: $USER with REVIEWER: $REVIEWER"
+              if [[ "$USER" == "$REVIEWER" ]]; then
+                TIER2_APPROVED=true
+                break 2
+              fi
+            done
+          done
+
+          if [[ "$TIER2_APPROVED" == "true" ]]; then
+            echo "status=passed" >> $GITHUB_OUTPUT
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+          fi
+
+  has_approval:
+    needs: check_approval
+    if : ${{ needs.check_approval.outputs.status == 'passed' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approved
+        run: echo "This PR has been approved by a Tier 2 reviewer."

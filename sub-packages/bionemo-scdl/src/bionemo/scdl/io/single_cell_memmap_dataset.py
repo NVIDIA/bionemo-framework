@@ -194,6 +194,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         mode: Mode = Mode.READ_APPEND,
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
+        feature_index_name="feature_id",
     ) -> None:
         """Instantiate the class.
 
@@ -206,12 +207,14 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             mode: Whether to read or write from the data_path.
             paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
             load_block_row_size: Number of rows to load into memory with paginated load
+            feature_index_name: The name of the features if the features are only stored in features_df.index.values
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
         self.mode: Mode = mode
         self.paginated_load_cutoff = paginated_load_cutoff
         self.load_block_row_size = load_block_row_size
+        self.feature_index_name = feature_index_name
         # Backing arrays
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
@@ -256,9 +259,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     self.__init__obj()
                     self._init_arrs(num_elements=num_elements, num_rows=num_rows)
                 case _:
-                    raise ValueError(
-                        "An np.memmap path, an h5ad path, or the number of elements and rows is required" ""
-                    )
+                    raise ValueError("An np.memmap path, an h5ad path, or the number of elements and rows is required")
 
     def __init__obj(self):
         """Initializes the datapath and writes the version."""
@@ -573,14 +574,15 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         if file_size_MB < self.paginated_load_cutoff:
             features_df, num_rows = self.regular_load_h5ad(anndata_path)
-
         else:
             features_df, num_rows = self.paginated_load_h5ad(anndata_path)
-
-        features = {col: np.array(features_df[col].values) for col in features_df.columns}
-        self._feature_index.append_features(
-            n_obs=num_rows, features=features, num_genes=len(features[next(iter(features.keys()))]), label=anndata_path
-        )
+        if len(features_df.columns) > 0:
+            features = {col: np.array(features_df[col].values) for col in features_df.columns}
+        elif len(features_df.index) > 0:
+            features = {self.feature_index_name: features_df.index.values}
+        else:
+            features = {}
+        self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
         self.save()
 
     def save(self, output_path: Optional[str] = None) -> None:

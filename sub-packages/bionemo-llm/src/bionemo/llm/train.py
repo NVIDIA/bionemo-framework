@@ -20,6 +20,7 @@ from dataclasses import field
 from typing import Optional
 
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
+from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -30,7 +31,8 @@ from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
 from pydantic import BaseModel
 
-from bionemo.llm.lightning import BionemoLightningModule, PerplexityLoggingCallback
+from bionemo.core.utils.dtypes import get_autocast_dtype
+from bionemo.llm.lightning import BionemoLightningModule
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.lr_scheduler import WarmupAnnealDecayHoldScheduler
 from bionemo.llm.run.config_models import (
@@ -65,14 +67,17 @@ def nemo_logger_factory(experiment_config: ExperimentConfig, wandb_config: Optio
     Returns:
         nl.NeMoLogger: An instance of NeMoLogger configured with the specified settings.
     """
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_last=experiment_config.save_last_checkpoint,
-        monitor=experiment_config.metric_to_monitor_for_checkpoints,
-        save_top_k=experiment_config.save_top_k,
-        every_n_train_steps=experiment_config.save_every_n_steps,
-        always_save_context=True,
-        filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-    )
+    if experiment_config.create_checkpoint_callback:
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            save_last=experiment_config.save_last_checkpoint,
+            monitor=experiment_config.metric_to_monitor_for_checkpoints,
+            save_top_k=experiment_config.save_top_k,
+            every_n_train_steps=experiment_config.save_every_n_steps,
+            always_save_context=True,
+            filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        )
+    else:
+        checkpoint_callback = None
 
     nemo_logger = setup_nemo_lightning_logger(
         root_dir=experiment_config.result_dir,
@@ -107,10 +112,17 @@ def setup_trainer(
     strategy = nl.MegatronStrategy(
         tensor_model_parallel_size=parallel_config.tensor_model_parallel_size,
         pipeline_model_parallel_size=parallel_config.pipeline_model_parallel_size,
-        ddp="megatron",
+        pipeline_dtype=get_autocast_dtype(training_config.precision),
+        ddp=DistributedDataParallelConfig(
+            check_for_nan_in_grad=True,
+            overlap_grad_reduce=True,
+            overlap_param_gather=False,  # TODO waiting for NeMo fix
+            average_in_collective=True,
+            use_distributed_optimizer=True,
+        ),
         find_unused_parameters=True,
+        gradient_as_bucket_view=True,
         ckpt_include_optimizer=True,
-        # NOTE: there are issues related to async that may occur, most recently observed due to duplicate filenames.
         ckpt_async_save=True,
         ckpt_parallel_load=True,
     )
@@ -119,9 +131,6 @@ def setup_trainer(
             RichModelSummary(max_depth=4),
             LearningRateMonitor(),
         ]
-
-    if training_config.include_perplexity:
-        callbacks.append(PerplexityLoggingCallback())
 
     if training_config.gc_interval > 0:
         callbacks.append(
@@ -151,7 +160,14 @@ def setup_trainer(
         val_check_interval=training_config.val_check_interval,
         num_nodes=parallel_config.num_nodes,
         callbacks=callbacks,
-        plugins=nl.MegatronMixedPrecision(precision=training_config.precision),
+        plugins=nl.MegatronMixedPrecision(
+            precision=training_config.precision,
+            params_dtype=get_autocast_dtype(training_config.precision),
+            pipeline_dtype=get_autocast_dtype(training_config.precision),
+            grad_reduce_in_fp32=False,
+            autocast_enabled=False,
+        ),
+        enable_checkpointing=training_config.enable_checkpointing,
     )
     return trainer
 
@@ -203,7 +219,7 @@ def train(
     # TODO: need an abstraction for LrSchedulerConfig
     if optim_config.lr_scheduler == "cosine":
         lr_scheduler = CosineAnnealingScheduler(
-            max_steps=training_config.max_steps,
+            max_steps=training_config.max_steps if optim_config.max_steps is None else optim_config.max_steps,
             min_lr=optim_config.lr / 100,
             warmup_steps=int(math.ceil(training_config.max_steps * optim_config.cosine_rampup_frac)),
             interval=optim_config.interval,
@@ -213,7 +229,7 @@ def train(
     elif optim_config.lr_scheduler == "warmup_anneal":
         lr_scheduler = WarmupAnnealDecayHoldScheduler(
             warmup_steps=optim_config.warmup_steps,
-            max_steps=training_config.max_steps,
+            max_steps=training_config.max_steps if optim_config.max_steps is None else optim_config.max_steps,
             max_lr=optim_config.lr,
             min_lr=optim_config.lr / 10.0,
             anneal_percentage=0.10,
@@ -233,7 +249,9 @@ def train(
     )
 
     model: BionemoLightningModule = biobert_lightning_module(
-        config=bionemo_model_config, tokenizer=data.tokenizer, optimizer=optimizer
+        config=bionemo_model_config,
+        tokenizer=data.tokenizer,
+        optimizer=optimizer,
     )
     trainer: nl.Trainer = setup_trainer(parallel_config, training_config, nsys_config=nsys_config)
     nemo_logger: nl.NeMoLogger = nemo_logger_factory(experiment_config, wandb_config=wandb_config)

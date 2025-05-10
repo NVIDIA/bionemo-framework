@@ -52,19 +52,20 @@ from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption, get_b
 from bionemo.llm.model.config import (
     OVERRIDE_BIONEMO_CONFIG_DEFAULTS,
     MegatronBioNeMoTrainableModelConfig,
+    TorchmetricsConfig,
 )
 from bionemo.llm.model.loss import BERTMLMLossWithReduction
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 
 
 __all__: Sequence[str] = (
-    "MegatronBioBertModel",
+    "OVERRIDE_BIOBERT_CONFIG_DEFAULTS",
     "BioBertConfig",
-    "MegatronBioBertModelType",
     "BioBertOutput",
     "BioBertOutputCore",
+    "MegatronBioBertModel",
+    "MegatronBioBertModelType",
     "PositionEmbeddingKinds",
-    "OVERRIDE_BIOBERT_CONFIG_DEFAULTS",
 )
 
 # Configure the logger
@@ -531,13 +532,17 @@ class BioBertConfig(
     # loss reduction class
     loss_reduction_class: Type[MegatronLossType] = BERTMLMLossWithReduction
 
+    # metric logging
+    train_metric: Optional[TorchmetricsConfig] = None
+    valid_metric: Optional[TorchmetricsConfig] = None
+
     def configure_model(self, tokenizer: AutoTokenizer) -> MegatronBioBertModelType:  # noqa: D102
         vp_size = self.virtual_pipeline_model_parallel_size
         if vp_size:
             p_size = self.pipeline_model_parallel_size
-            assert (
-                self.num_layers // p_size
-            ) % vp_size == 0, "Make sure the number of model chunks is the same across all pipeline stages."
+            assert (self.num_layers // p_size) % vp_size == 0, (
+                "Make sure the number of model chunks is the same across all pipeline stages."
+            )
 
         # The local specs all require the standard full attention mask.
         use_full_attention_mask: bool = "transformer_engine" not in self.biobert_spec_option
@@ -549,7 +554,6 @@ class BioBertConfig(
 
         if self.initial_ckpt_path:
             self.load_settings_from_checkpoint(self.initial_ckpt_path)
-
         model = self.model_cls(
             self,
             transformer_layer_spec=get_biobert_spec(

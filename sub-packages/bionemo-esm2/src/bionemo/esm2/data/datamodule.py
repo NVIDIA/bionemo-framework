@@ -65,8 +65,8 @@ class ESMDataModule(MegatronDataModule):
             valid_cluster_path: A path to the parquet files containing UniRef50 validation clusters.
             valid_database_path: A path to the sqlite file mapping UniRef50 cluster IDs to sequences.
             seed: Input random seed. If None, initializes randomly. Defaults to 42.
-            min_seq_length: Whether to pad sequences to a minimum length. If None, no extra padding is added. Defaults
-                to None.
+            min_seq_length: Whether to pad sequences to a minimum length. If None, sequences are padded to the maximum
+                sequence length. Defaults to None.
             max_seq_length: The maximum context length for the ESM transformer. Defaults to 1024.
             micro_batch_size: Passed to MegatronDataSampler. Defaults to 4.
             global_batch_size: Passed to MegatronDataSampler.. Defaults to 8.
@@ -87,7 +87,7 @@ class ESMDataModule(MegatronDataModule):
         self._valid_cluster_path = valid_cluster_path
         self._valid_database_path = valid_database_path
         self._seed = seed
-        self._min_seq_length = min_seq_length
+        self._min_seq_length = min_seq_length if min_seq_length is not None else max_seq_length
         self._max_seq_length = max_seq_length
         self._mask_prob = mask_prob
         self._mask_token_prob = mask_token_prob
@@ -156,28 +156,31 @@ class ESMDataModule(MegatronDataModule):
 
         # Create validation dataset
         val_clusters = dataset.create_valid_clusters(self._valid_cluster_path)
-        num_val_samples = infer_num_samples(
-            limit_batches=self.trainer.limit_val_batches,
-            num_samples_in_dataset=len(val_clusters),
-            global_batch_size=self.data_sampler.global_batch_size,
-            stage="val",
-        )
-        self._valid_ds = dataset.create_valid_dataset(
-            clusters=self._valid_cluster_path,
-            db_path=self._valid_database_path,
-            total_samples=num_val_samples,
-            seed=self._seed,
-            max_seq_length=self._max_seq_length,
-            mask_prob=self._mask_prob,
-            mask_token_prob=self._mask_token_prob,
-            mask_random_prob=self._mask_random_prob,
-            random_mask_strategy=self._random_mask_strategy,
-            tokenizer=self._tokenizer,
-        )
+        if self.trainer.limit_val_batches == 0:  # disable validation
+            logging.info("Skip creating validation dataset because trainer.limit_val_batches=0.")
+        else:
+            num_val_samples = infer_num_samples(
+                limit_batches=self.trainer.limit_val_batches,
+                num_samples_in_dataset=len(val_clusters),
+                global_batch_size=self.data_sampler.global_batch_size,
+                stage="val",
+            )
+            self._valid_ds = dataset.create_valid_dataset(
+                clusters=self._valid_cluster_path,
+                db_path=self._valid_database_path,
+                total_samples=num_val_samples,
+                seed=self._seed,
+                max_seq_length=self._max_seq_length,
+                mask_prob=self._mask_prob,
+                mask_token_prob=self._mask_token_prob,
+                mask_random_prob=self._mask_random_prob,
+                random_mask_strategy=self._random_mask_strategy,
+                tokenizer=self._tokenizer,
+            )
 
-        assert (
-            hasattr(self, "trainer") and self.trainer is not None
-        ), "Setup should be completed when trainer and config are attached."
+        assert hasattr(self, "trainer") and self.trainer is not None, (
+            "Setup should be completed when trainer and config are attached."
+        )
 
     def _create_dataloader(self, dataset, mode: Mode, **kwargs) -> WrappedDataLoader:
         """Create dataloader for train, validation, and test stages.
