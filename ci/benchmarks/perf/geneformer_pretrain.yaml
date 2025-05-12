@@ -16,7 +16,7 @@ script_args:
   config_name: 10M
   precision: [bf16-mixed]
   gpus:  8
-  max_steps: TODO
+  max_steps: 1000
   stop_steps: 1000
   lr: 0.001
   val_check_interval: 500

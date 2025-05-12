@@ -70,6 +70,7 @@ def main(
     experiment_name: str,
     resume_if_exists: bool,
     precision: PrecisionTypes,
+    early_stop_on_step: Optional[int] = None,
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_offline: bool = False,
@@ -111,6 +112,7 @@ def main(
         seq_length (int): sequence length
         result_dir (Path): directory to store results, logs and checkpoints
         num_steps (int): number of steps to train the model for
+        early_stop_on_step (Optional[int]): Stop training on this step, if set. This may be useful for testing or debugging purposes.
         limit_val_batches (int): limit the number of validation global batches to this many
         val_check_interval (int): number of steps to periodically check the validation loss and save
         num_dataset_workers (int): num dataset workers
@@ -166,7 +168,9 @@ def main(
     if wandb_tags is None:
         wandb_tags = []
     result_dir.mkdir(parents=True, exist_ok=True)
-    val_check_interval = min(val_check_interval, num_steps)  # Training will fail if val_check_interval > num_steps
+    val_check_interval = min(
+        val_check_interval, num_steps if early_stop_on_step is None else early_stop_on_step
+    )  # Training will fail if val_check_interval > num_steps
 
     # Setup train/test/val data paths
     train_data_path = data_dir / "train"
@@ -239,7 +243,7 @@ def main(
 
     if nsys_profiling:
         if nsys_end_step is None:
-            nsys_end_step = num_steps
+            nsys_end_step = (num_steps if early_stop_on_step is None else early_stop_on_step,)
         callbacks.append(
             nl_callbacks.NsysCallback(
                 start_step=nsys_start_step, end_step=nsys_end_step, ranks=nsys_ranks, gen_shape=True
@@ -248,7 +252,7 @@ def main(
 
     trainer = nl.Trainer(
         devices=devices,
-        max_steps=num_steps,
+        max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
         accelerator="gpu",
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
@@ -474,6 +478,12 @@ def get_parser():
         required=False,
         default=10000,
         help="Number of steps to use for training. Default is 10000.",
+    )
+    parser.add_argument(
+        "--early-stop-on-step",
+        type=int,
+        default=None,
+        help="Stop training on this step, if set. This may be useful for testing or debugging purposes.",
     )
     parser.add_argument(
         "--num-dataset-workers",
