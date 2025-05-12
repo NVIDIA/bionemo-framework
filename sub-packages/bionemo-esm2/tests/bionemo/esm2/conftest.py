@@ -14,10 +14,28 @@
 # limitations under the License.
 
 
+import pandas as pd
 import pytest
+import torch
 
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.testing.data.esm2 import create_mock_parquet_train_val_inputs, create_mock_protein_dataset
+
+
+@pytest.fixture
+def data_to_csv():
+    """Create a mock protein dataset."""
+
+    def _data_to_csv(data, path):
+        csv_file = path / "protein_dataset.csv"
+        # Create a DataFrame
+        df = pd.DataFrame(data, columns=["sequences", "labels"])
+
+        # Save the DataFrame to a CSV file
+        df.to_csv(csv_file, index=False)
+        return csv_file
+
+    return _data_to_csv
 
 
 @pytest.fixture
@@ -109,3 +127,41 @@ def dummy_protein_sequences(dummy_data_per_token_classification_ft):
     """
     data = [seq for seq, _ in dummy_data_per_token_classification_ft]
     return data
+
+
+@pytest.fixture
+def load_dcp():
+    """Fixture to load distributed checkpoints.
+
+    Returns:
+        Callable: A function that takes a checkpoint directory path and returns the loaded state dict.
+    """
+    if not torch.cuda.is_available():
+        pytest.skip("Distributed checkpoint loading requires CUDA")
+
+    def _load_dcp(ckpt_dir):
+        from pathlib import Path
+
+        import torch.distributed.checkpoint as dcp
+        from torch.distributed.checkpoint import FileSystemReader
+
+        if not isinstance(ckpt_dir, Path):
+            ckpt_dir = Path(ckpt_dir)
+        fs_reader = FileSystemReader(ckpt_dir)
+        metadata = fs_reader.read_metadata()
+
+        # Create tensors directly on GPU
+        state_dict = {
+            k: torch.empty(tp.size, dtype=tp.properties.dtype, device="cuda")
+            for k, tp in metadata.state_dict_metadata.items()
+            if type(tp).__name__ == "TensorStorageMetadata"
+            and not any(keyword in k for keyword in {"head", "adapter", "optimizer", "output"})
+        }
+
+        dcp.load(
+            state_dict,
+            storage_reader=fs_reader,
+        )
+        return state_dict
+
+    return _load_dcp

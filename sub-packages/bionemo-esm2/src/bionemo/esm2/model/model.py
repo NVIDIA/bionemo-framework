@@ -172,7 +172,6 @@ class ESM2Model(MegatronBioBertModel):
             pre_process=self.pre_process,
             post_process=self.post_process,
         )
-
         # Output
         if post_process:
             # TODO: Make sure you are passing in the mpu_vocab_size properly
