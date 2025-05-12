@@ -267,7 +267,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Metadata and attributes
         self.metadata: Dict[str, int] = {}
-
+        self.include_obs = True
         # Stores the Feature Index, which tracks
         # the original AnnData features (e.g., gene names)
         # and allows us to store ragged arrays in our SCMMAP structure.
@@ -282,7 +282,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         if mode == Mode.CREATE_APPEND and os.path.exists(data_path):
             raise FileExistsError(f"Output directory already exists: {data_path}")
-
         if h5ad_path is not None and (data_path is not None and os.path.exists(data_path)):
             raise FileExistsError(
                 "Invalid input; both an existing SCMMAP and an h5ad file were passed. "
@@ -522,6 +521,27 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Store the row idx array
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
+
+        if self.include_obs:
+            self.obs = {}
+            os.makedirs(f"{self.data_path}/obs", exist_ok=True)
+            for obs_name in adata.obs:
+                if adata.obs[obs_name].dtype == "category":
+                    self.obs[obs_name] = np.memmap(
+                        f"{str(Path(self.data_path).absolute())}/obs/{obs_name}",
+                        dtype="S20",
+                        shape=(num_rows + 1,),
+                        mode=Mode.CREATE_APPEND,
+                    )
+
+                else:
+                    self.obs[obs_name] = np.memmap(
+                        f"{str(Path(self.data_path).absolute())}/obs/{obs_name}",
+                        dtype=adata.obs[obs_name].dtype,
+                        shape=(num_rows + 1,),
+                        mode=Mode.CREATE_APPEND,
+                    )
+                self.obs[obs_name][0:num_rows] = adata.obs[obs_name].values
 
         return adata.var, num_rows
 
