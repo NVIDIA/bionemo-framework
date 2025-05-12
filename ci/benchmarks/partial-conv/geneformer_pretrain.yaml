@@ -18,10 +18,16 @@ script_args:
   nodes: [2]
   gpus: 8
   batch_size: 32
-  max_steps: 30000
+  max_steps: 115430
   lr: 0.001
   val_check_interval: 500
   acc_grad: 1
+  products:
+    # For debugging purposes, we define two training durations: the full version of the partial-convergence training, and a shortened version (e.g., 1 hour = 3600 seconds)
+    - time_limit: 14400
+      stop_steps: 30000
+    - time_limit: 3600
+      stop_steps: 30000
 script: |-
    WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --data-dir ${data_path} \
@@ -32,6 +38,7 @@ script: |-
     --val-check-interval ${val_check_interval} \
     --num-dataset-workers 8 \
     --num-steps ${max_steps} \
+    --early-stop-on-step ${stop_steps} \
     --seq-length 2048 \
     --limit-val-batches 8 \
     --micro-batch-size ${batch_size} \

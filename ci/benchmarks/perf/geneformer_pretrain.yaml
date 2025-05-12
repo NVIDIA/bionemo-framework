@@ -16,7 +16,8 @@ script_args:
   config_name: 10M
   precision: [bf16-mixed]
   gpus:  8
-  max_steps: 1000
+  max_steps: TODO
+  stop_steps: 1000
   lr: 0.001
   val_check_interval: 500
   acc_grad: 1
@@ -36,6 +37,7 @@ script: |-
     --val-check-interval ${val_check_interval} \
     --num-dataset-workers 8 \
     --num-steps ${max_steps} \
+    --early-stop-on-step ${stop_steps} \
     --seq-length 2048 \
     --limit-val-batches 8 \
     --micro-batch-size ${batch_size} \

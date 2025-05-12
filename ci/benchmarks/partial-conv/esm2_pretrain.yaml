@@ -1,5 +1,4 @@
 scope: partial-conv
-time_limit: 14400
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   data_path: False
@@ -17,7 +16,12 @@ script_args:
   gpus: 8
   batch_size: 16
   max_steps: 500000
-  stop_steps: 26500
+  products:
+  # For debugging purposes, we define two training durations: the full version of the partial-convergence training, and a shortened version (e.g., 1 hour = 3600 seconds)
+    - time_limit: 14400
+      stop_steps: 26500
+    - time_limit: 3600
+      stop_steps: 26500
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=${data_path}/train_clusters.parquet \
@@ -48,6 +52,7 @@ script: |-
     --disable-checkpointing;
 tests:
   - logic_type: static
+    product_identifier: {'time_limit': 14000 }
     logic_spec:
       exit_codes:
         - 0
@@ -63,7 +68,28 @@ tests:
           operator: range
           max: 2.5640
           min: 2.4578
-        tflops_per_sec_per_gpu:
+        TFLOPS_per_GPU:
+          operator: range
+          max: 157.9352
+          min: 141.2835
+  - logic_type: static
+    product_identifier: { 'time_limit': 3600 }
+    logic_spec:
+      exit_codes:
+        - 0
+      baselines:
+        consumed_samples:
+          operator: eq
+          value: 13568000.0
+        val_loss:
+          operator: range
+          max: 2.5906
+          min: 2.4833
+        reduced_train_loss:
+          operator: range
+          max: 2.5640
+          min: 2.4578
+        TFLOPS_per_GPU:
           operator: range
           max: 157.9352
           min: 141.2835
