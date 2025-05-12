@@ -290,6 +290,6 @@ class RowFeatureIndex:
         ]
 
         new_row_feat_index._cumulative_sum_index = np.load(Path(datapath) / "cumulative_sum_index.npy")
-        new_row_feat_index._labels = np.load(Path(datapath) / "labels.npy", allow_pickle=False)
+        new_row_feat_index._labels = np.load(Path(datapath) / "labels.npy", allow_pickle=True)
         new_row_feat_index._version = np.load(Path(datapath) / "version.npy").item()
         return new_row_feat_index
