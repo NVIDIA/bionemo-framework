@@ -72,6 +72,7 @@ def main(
     wandb_tags: Optional[List[str]] = None,
     wandb_group: Optional[str] = None,
     wandb_id: Optional[str] = None,
+    wandb_job_type: Optional[str] = None,
     wandb_anonymous: bool = False,
     wandb_log_model: bool = False,
     pipeline_model_parallel_size: int = 1,
@@ -127,6 +128,7 @@ def main(
         wandb_group (str): A unique string shared by all runs in a given group
         wandb_offline (bool): Run offline (data can be streamed later to wandb servers).
         wandb_id (str): Sets the version, mainly used to resume a previous run.
+        wandb_job_type (str): A unique string representing a type of run, which is useful when you're grouping runs together into larger experiments using group.
         wandb_anonymous (bool): Enables or explicitly disables anonymous logging.
         wandb_log_model (bool): Save checkpoints in wandb dir to upload on W&B servers.
         pipeline_model_parallel_size (int): degree of pipeline model parallelism
@@ -197,6 +199,7 @@ def main(
             tags=wandb_tags,
             group=wandb_group,
             id=wandb_id,
+            job_type=wandb_job_type,
             anonymous=wandb_anonymous,
             log_model=wandb_log_model,
         )
@@ -223,7 +226,9 @@ def main(
         name=experiment_name,
         initialize_tensorboard_logger=create_tensorboard_logger,
         wandb_config=wandb_config,
+        log_global_rank_0_only=True,
     )
+
     # Configure our custom Checkpointer
     if create_checkpoint_callback:
         checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
@@ -237,9 +242,9 @@ def main(
             filename="{epoch}-{step}-{consumed_samples}",
             # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
         )
+        callbacks.append(checkpoint_callback)
     else:
         checkpoint_callback = None
-    callbacks.append(checkpoint_callback)
 
     trainer = nl.Trainer(
         devices=devices,
@@ -251,6 +256,7 @@ def main(
         log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
+        enable_checkpointing=create_checkpoint_callback,
         plugins=nl.MegatronMixedPrecision(
             precision=precision,
             params_dtype=get_autocast_dtype(precision),
