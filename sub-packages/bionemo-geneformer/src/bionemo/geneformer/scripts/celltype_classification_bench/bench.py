@@ -19,6 +19,7 @@ import warnings
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from anndata import read_h5ad
 from sklearn.decomposition import PCA
 from sklearn.exceptions import ConvergenceWarning
@@ -143,14 +144,17 @@ def run_benchmark(data, labels, use_pca=True):
     return results_out, conf_matrix
 
 
-def load_data_run_benchmark(result_path, adata):
+def load_data_run_benchmark(result_path, adata_path, write_results=True):
     """Load the inference embeddings, original h5ad file for metadata, and finally run the benchmark.
 
     Args:
         result_path: (Path) path to the directory containing the inference results
-        adata: (AnnData) the original AnnData object- IMPORTANT, this is used for fetching labels.
+        adata_path: (AnnData) the original AnnData object- IMPORTANT, this is used for fetching labels.
+        write_results: (bool) whether to write the results to a csv file.
     """
     import torch
+
+    adata = read_h5ad(adata_path)
 
     infer_Xs = torch.load(result_path / "predictions__rank_0.pt")["embeddings"].float().cpu().numpy()
     assert len(adata) == len(infer_Xs), (len(adata), len(infer_Xs))
@@ -188,26 +192,28 @@ def load_data_run_benchmark(result_path, adata):
     # get the column names in a stable order
     columns = list(data.keys())
 
-    with open(output_path, "w") as f:
-        # write header
-        f.write(",".join(columns) + "\n")
+    rows = []
+    for i in range(len(data[columns[0]])):
+        row = [data[col][i] for col in columns]
+        rows.append(row)
 
-        # figure out how many rows we have (assumes all lists are same length)
-        num_rows = len(data[columns[0]])
+    df = pd.DataFrame(rows, columns=columns)
 
-        # write each row
-        for i in range(num_rows):
-            row = [str(data[col][i]) for col in columns]
-            f.write(",".join(row) + "\n")
+    if write_results:
+        with open(output_path, "w") as f:
+            # figure out how many rows we have (assumes all lists are same length)
+            # write header
+            f.write(",".join(columns) + "\n")
+            for row in rows:
+                f.write(",".join(map(str, row)) + "\n")
 
-    print(f"Wrote {num_rows} rows to {output_path}")
+    return df
 
 
 def main():  # noqa: D103
     adata_path = Path(sys.argv[1])
     result_path = Path(sys.argv[2])
-    adata = read_h5ad(adata_path)
-    load_data_run_benchmark(result_path, adata)
+    load_data_run_benchmark(result_path, adata_path)
 
 
 if __name__ == "__main__":

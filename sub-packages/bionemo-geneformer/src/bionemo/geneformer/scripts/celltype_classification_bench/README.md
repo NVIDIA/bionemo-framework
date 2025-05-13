@@ -34,7 +34,7 @@ infer_geneformer \
 4) Run the cell type classification script. This requires the original h5ad file (for metadata) and the inference embeddings.
 
 ```
-python celltype-class-bench.py path/to/result/hs-celltype-bench.h5ad path/to/result/inference-embeddings
+python bench.py path/to/result/hs-celltype-bench.h5ad path/to/result/inference-embeddings
 ```
 
 Results are then saved in a csv file (results.csv) in the same directory as inference embeddings.
