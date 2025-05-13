@@ -5,6 +5,7 @@
 # Ignore everything in this directory
 /*
 
-# Except this .gitignore & the conftest.py file
+# Except the SUMMARY.md file, this .gitignore & the conftest.py file
 !.gitignore
 !conftest.py
+!SUMMARY.md
