@@ -11,10 +11,20 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
-    # bionemo sub-packages
+    # internal
     'bionemo-core',
     'bionemo-llm',
     # external
+]
+
+[project.optional-dependencies]
+test = [
+    'bionemo-testing'
+]
+te = [
+    # TE & Apex need to be installed after PyTorch, NVCC, and CUDA.
+    # TODO(@pstjohn, @cspades): Figure out how to do this without post-installation.
+    'transformer_engine[pytorch]'
 ]
 
 [project.scripts]

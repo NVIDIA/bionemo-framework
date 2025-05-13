@@ -21,8 +21,8 @@ from bionemo.noodles import PyFaidxRecord, PyIndexedMmapFastaReader
 
 
 __all__: Sequence[str] = (
-    "SequenceAccessor",
     "NvFaidx",
+    "SequenceAccessor",
 )
 
 

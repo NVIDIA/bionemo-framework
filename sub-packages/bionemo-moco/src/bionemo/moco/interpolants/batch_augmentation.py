@@ -14,17 +14,17 @@
 # limitations under the License.
 
 
-from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport.equivariant_ot_sampler import (
+from bionemo.moco.interpolants.continuous_time.continuous.data_augmentation.augmentation_types import AugmentationType
+from bionemo.moco.interpolants.continuous_time.continuous.data_augmentation.equivariant_ot_sampler import (
     EquivariantOTSampler,
 )
-from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport.kabsch_augmentation import (
+from bionemo.moco.interpolants.continuous_time.continuous.data_augmentation.kabsch_augmentation import (
     KabschAugmentation,
 )
-from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport.ot_sampler import OTSampler
-from bionemo.moco.interpolants.continuous_time.continuous.optimal_transport.ot_types import OptimalTransportType
+from bionemo.moco.interpolants.continuous_time.continuous.data_augmentation.ot_sampler import OTSampler
 
 
-class BatchAugmentation:
+class BatchDataAugmentation:
     """Facilitates the creation of batch augmentation objects based on specified optimal transport types.
 
     Args:
@@ -42,20 +42,20 @@ class BatchAugmentation:
         self.device = device
         self.num_threads = num_threads
 
-    def create(self, method_type: OptimalTransportType):
+    def create(self, method_type: AugmentationType):
         """Creates a batch augmentation object of the specified type.
 
         Args:
-            method_type (OptimalTransportType): The type of optimal transport method.
+            method_type (AugmentationType): The type of optimal transport method.
 
         Returns:
             The augmentation object if the type is supported, otherwise **None**.
         """
-        if method_type == OptimalTransportType.EXACT:
+        if method_type == AugmentationType.EXACT_OT:
             augmentation = OTSampler(method="exact", device=self.device, num_threads=self.num_threads)
-        elif method_type == OptimalTransportType.KABSCH:
+        elif method_type == AugmentationType.KABSCH:
             augmentation = KabschAugmentation()
-        elif method_type == OptimalTransportType.EQUIVARIANT:
+        elif method_type == AugmentationType.EQUIVARIANT_OT:
             augmentation = EquivariantOTSampler(method="exact", device=self.device, num_threads=self.num_threads)
         else:
             return None

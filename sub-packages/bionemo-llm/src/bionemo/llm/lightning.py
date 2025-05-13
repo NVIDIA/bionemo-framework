@@ -33,12 +33,12 @@ from bionemo.llm.api import MegatronLossType, MegatronModelType
 
 
 __all__: Sequence[str] = (
-    "get_dtype_device",
-    "batch_collator",
-    "PassthroughLossReduction",
-    "LightningPassthroughPredictionMixin",
     "BionemoLightningModule",
+    "LightningPassthroughPredictionMixin",
+    "PassthroughLossReduction",
+    "batch_collator",
     "default_megatron_optimizer",
+    "get_dtype_device",
 )
 
 
@@ -82,7 +82,9 @@ def get_dtype_device(torch_object) -> Tuple[torch.dtype, torch.device]:  # noqa:
 def batch_collator(
     batches: Optional[Union[Tuple[ReductionT], List[ReductionT]]],
     batch_dim: int = 0,
+    seq_dim: int = 1,
     batch_dim_key_defaults: dict[str, int] = {"token_logits": 1},
+    seq_dim_key_defaults: dict[str, int] = {"token_logits": 0},
 ) -> Optional[ReductionT]:
     """Takes a sequence of batches and collates them into a single batch.
 
@@ -106,9 +108,14 @@ def batch_collator(
         batches (Optional[Sequence[ReductionT]]): sequence of batches to collate into a single batch.
         batch_dim: If you know that the batch dim for the batch you are concatenating is not the 0th dimension (for
             example it is sequence first) then supply that dimension.
+        seq_dim: If you know that the sequence dim for the batch you are concatenating is not the 1st dimension (for
+            example it is sequence first) then supply that dimension. This is used for padding to the max length.
         batch_dim_key_defaults (dictionary of keys to integers): If your batch is a dictionary and you know that some
             keys have non-standard (0) batch dimensions, supply those here. By default "token_logits" has batch dim 1
             and otherwise all keys are assumed to have batch dim 0.
+        seq_dim_key_defaults (dictionary of keys to integers): If your batch is a dictionary and you know that some
+            keys have non-standard (1) sequence dimensions, supply those here. By default "token_logits" has seq dim 0
+            and otherwise all keys are assumed to have seq dim 1.
 
     Returns:
         A single batch of the same type as the elements of your input sequence.
@@ -118,28 +125,58 @@ def batch_collator(
         case [None, *_]:
             return None
         case [Tensor(), *_]:
-            return torch.cat(batches, dim=batch_dim)
+            # First shortcut if all tensors are 1D (they have at least one batch dim, and it must be at 0)
+            if len(batches) > 0 and isinstance(batches[0], Tensor) and batches[0].ndim == 1:
+                return torch.cat(batches, dim=0)
+            # Find max sequence length across all tensors
+            max_seq_len = max(batch.size(seq_dim) for batch in batches)
+            # Pad each tensor to max length along seq_dim
+            padded_batches = []
+            for batch in batches:
+                # Initialize padding tuple - needs 2 values per dim, starting from last dim
+                # e.g. for 3D tensor: [left_pad_dim2, right_pad_dim2, left_pad_dim1, right_pad_dim1, left_pad_dim0, right_pad_dim0]
+                pad_size = [0] * (2 * batch.ndim)
+                # Calculate padding needed at end of sequence dimension
+                pad_amount = max_seq_len - batch.size(seq_dim)
+                # Pad end of sequence dimension by putting padding amount in correct position
+                # For seq_dim=1 in 3D tensor: [0, 0, 0, pad_amount, 0, 0]
+                pad_size[2 * (batch.ndim - 1 - seq_dim) + 1] = pad_amount
+                padded_batch = torch.nn.functional.pad(batch, tuple(pad_size))
+                padded_batches.append(padded_batch)
+            padded_batch = torch.cat(padded_batches, dim=batch_dim)
+            assert padded_batch.size(seq_dim) == max_seq_len
+            return padded_batch
         # Next 3 calls are the recursive calls into the sub-structures of the batch. We handle dictionaries, tuples, and lists
         case [dict(), *_]:
             return {
                 key: batch_collator(
                     [batch[key] for batch in batches],
-                    batch_dim=batch_dim_key_defaults.get(key, 0),
+                    batch_dim=batch_dim_key_defaults.get(key, batch_dim),
+                    seq_dim=seq_dim_key_defaults.get(key, seq_dim),
                     batch_dim_key_defaults=batch_dim_key_defaults,
+                    seq_dim_key_defaults=seq_dim_key_defaults,
                 )
                 for key in batches[0]
             }
         case [tuple(), *_]:
             return tuple(
                 batch_collator(
-                    [batch[i] for batch in batches], batch_dim=batch_dim, batch_dim_key_defaults=batch_dim_key_defaults
+                    [batch[i] for batch in batches],
+                    batch_dim=batch_dim,
+                    seq_dim=seq_dim,
+                    batch_dim_key_defaults=batch_dim_key_defaults,
+                    seq_dim_key_defaults=seq_dim_key_defaults,
                 )
                 for i in range(len(batches[0]))
             )
         case [list(), *_]:
             return [
                 batch_collator(
-                    [batch[i] for batch in batches], batch_dim=batch_dim, batch_dim_key_defaults=batch_dim_key_defaults
+                    [batch[i] for batch in batches],
+                    batch_dim=batch_dim,
+                    seq_dim=seq_dim,
+                    batch_dim_key_defaults=batch_dim_key_defaults,
+                    seq_dim_key_defaults=seq_dim_key_defaults,
                 )
                 for i in range(len(batches[0]))
             ]
@@ -221,6 +258,7 @@ class BionemoLightningModule(
         data_step: DataStep,
         optimizer: MegatronOptimizerModule,
         model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
+        configure_init_model_parallel: bool = False,
         **model_construct_args,
     ) -> None:
         """Constructor.
@@ -236,6 +274,7 @@ class BionemoLightningModule(
             model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s
                 `configure_model` method.
             model_transform: Optional. The model transform function.
+            configure_init_model_parallel: Optional. Whether to initialize the model parallel at configuration time.
             **model_construct_args: Optional. Arguments necessary for the supplied model configuration's
                 `configure_model` method, which will make an instance of the model.
         """
@@ -251,7 +290,7 @@ class BionemoLightningModule(
         self._data_step = data_step
         self._forward_step = forward_step
         self.model_transform = model_transform
-
+        self.configure_init_model_parallel = configure_init_model_parallel
         # configure metrics
         self.train_metric = self.config.train_metric.get_instance() if self.config.train_metric else None
         self.valid_metric = self.config.valid_metric.get_instance() if self.config.valid_metric else None
@@ -264,6 +303,8 @@ class BionemoLightningModule(
         Raises:
             ValueError iff the internal config's configure_model method returns None.
         """
+        if self.configure_init_model_parallel:
+            self.trainer.strategy._init_model_parallel = True
         if self.module is None:
             model: MegatronModelType = (
                 self.config.configure_model(**self.module_construct_args)
@@ -271,7 +312,6 @@ class BionemoLightningModule(
                 else self.config.configure_model()
             )
             self.module = model
-
         if self.module is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
 

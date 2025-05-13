@@ -28,6 +28,8 @@ Options:
     --skip-docs    Skip running tests in the docs directory
     --no-nbval     Skip jupyter notebook validation tests
     --skip-slow    Skip tests marked as slow (@pytest.mark.slow)
+    --only-slow    Only run tests marked as slow (@pytest.mark.slow)
+    --allow-no-tests    Allow sub-packages with no found tests (for example no slow tests if --only-slow is set)
 
 Note: Documentation tests (docs/) are only run when notebook validation
       is enabled (--no-nbval not set) and docs are not skipped
@@ -50,6 +52,8 @@ declare -a coverage_files
 SKIP_DOCS=false
 NO_NBVAL=false
 SKIP_SLOW=false
+ONLY_SLOW=false
+ALLOW_NO_TESTS=false
 error=false
 
 # Parse command line arguments
@@ -58,18 +62,13 @@ while (( $# > 0 )); do
         --skip-docs) SKIP_DOCS=true ;;
         --no-nbval) NO_NBVAL=true ;;
         --skip-slow) SKIP_SLOW=true ;;
+        --only-slow) ONLY_SLOW=true ;;
+        --allow-no-tests) ALLOW_NO_TESTS=true ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1" >&2; usage 1 ;;
     esac
     shift
 done
-
-# Source utility functions
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-source "$SCRIPT_DIR/utils.sh" || { echo "Failed to source utils.sh" >&2; exit 1; }
-
-# Set up BioNeMo home directory
-set_bionemo_home || exit 1
 
 # Echo some useful information
 lscpu
@@ -85,6 +84,7 @@ PYTEST_OPTIONS=(
 )
 [[ "$NO_NBVAL" != true ]] && PYTEST_OPTIONS+=(--nbval-lax)
 [[ "$SKIP_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "not slow")
+[[ "$ONLY_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "slow")
 
 # Define test directories
 TEST_DIRS=(./sub-packages/bionemo-*/)
@@ -94,13 +94,32 @@ fi
 
 echo "Test directories: ${TEST_DIRS[*]}"
 
+clean_pycache() {
+    # Use the provided base directory or default to current directory
+    local base_dir="${1:-.}"
+    echo "Cleaning Python cache files in $base_dir..."
+    find "$base_dir" -regex '^.*\(__pycache__\|\.py[co]\)$' -delete
+}
+
 # Run tests with coverage
 for dir in "${TEST_DIRS[@]}"; do
     echo "Running pytest in $dir"
+    # Run pytest but don't exit on failure - we'll handle the exit code separately. This is needed because our script is
+    #  running in pipefail mode and pytest will exit with a non-zero exit code if it finds no tests.
+    { pytest "${PYTEST_OPTIONS[@]}" --junitxml=$(basename $dir).junit.xml -o junit_family=legacy "$dir"; exit_code=$?; } || true
 
-    if ! pytest "${PYTEST_OPTIONS[@]}" --junitxml=$(basename $dir).junit.xml -o junit_family=legacy "$dir"; then
-        error=true
+    if [[ $exit_code -ne 0 ]]; then
+        if [[ "$ALLOW_NO_TESTS" == true && $exit_code -eq 5 ]]; then
+            # Exit code 5 means no tests found, which is allowed if --allow-no-tests is set
+            echo "No tests found in $dir (exit code $exit_code) - continuing as --allow-no-tests is set"
+        else
+            echo "Error: pytest failed with exit code $exit_code"
+            error=true
+        fi
     fi
+
+    # Avoid duplicated pytest cache filenames.
+    clean_pycache "$dir"
 done
 
 # Exit with appropriate status

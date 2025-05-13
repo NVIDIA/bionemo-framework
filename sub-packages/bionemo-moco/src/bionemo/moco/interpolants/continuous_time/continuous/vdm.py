@@ -108,7 +108,7 @@ class VDM(Interpolant):
             t (Tensor): time
             noise (Tensor): noise from prior()
         """
-        log_snr = self.noise_schedule.calculate_log_snr(t, device=self.device)
+        log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
         psi, omega = self.noise_schedule.log_snr_to_alphas_sigmas(log_snr)
         psi = pad_like(psi, data)
         omega = pad_like(omega, data)
@@ -148,7 +148,7 @@ class VDM(Interpolant):
         Raises:
             ValueError: If the prediction type is not one of "noise", "data", or "v_prediction".
         """
-        log_snr = self.noise_schedule.calculate_log_snr(t, device=self.device)
+        log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
         data_scale, noise_scale = self.noise_schedule.log_snr_to_alphas_sigmas(log_snr)
         data_scale = pad_like(data_scale, model_output)
         noise_scale = pad_like(noise_scale, model_output)
@@ -179,7 +179,7 @@ class VDM(Interpolant):
         Raises:
             ValueError: If the prediction type is not "noise".
         """
-        log_snr = self.noise_schedule.calculate_log_snr(t, device=self.device)
+        log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
         data_scale, noise_scale = self.noise_schedule.log_snr_to_alphas_sigmas(log_snr)
         data_scale = pad_like(data_scale, model_output)
         noise_scale = pad_like(noise_scale, model_output)
@@ -227,7 +227,7 @@ class VDM(Interpolant):
             model_out = model_out * mask.unsqueeze(-1)
         x_hat = self.process_data_prediction(model_out, xt, t)
 
-        log_snr = self.noise_schedule.calculate_log_snr(t, device=self.device)
+        log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
         alpha_t, sigma_t = self.noise_schedule.log_snr_to_alphas_sigmas(log_snr)
 
         if (t - dt < 0).any():
@@ -235,7 +235,7 @@ class VDM(Interpolant):
                 "Error in inference schedule: t - dt < 0. Please ensure that your inference time schedule has shape T with the final t = dt to make s = 0"
             )
 
-        log_snr_s = self.noise_schedule.calculate_log_snr(t - dt, device=self.device)
+        log_snr_s = self.noise_schedule.calculate_log_snr(t - dt, device=t.device)
         alpha_s, sigma_s = self.noise_schedule.log_snr_to_alphas_sigmas(log_snr_s)
         sigma_s_2 = sigma_s * sigma_s
         sigma_t_2 = sigma_t * sigma_t
@@ -271,7 +271,7 @@ class VDM(Interpolant):
         Returns:
             The estimated score function.
         """
-        log_snr = self.noise_schedule.calculate_log_snr(t, device=self.device)
+        log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
         psi, omega = self.noise_schedule.log_snr_to_alphas_sigmas(log_snr)
         psi = pad_like(psi, x_hat)
         omega = pad_like(omega, x_hat)
@@ -307,10 +307,10 @@ class VDM(Interpolant):
         data_pred = self.process_data_prediction(model_out, xt, t)
         noise_pred = self.process_noise_prediction(model_out, xt, t)
         eps = torch.randn_like(data_pred).to(model_out.device)
-        log_snr = self.noise_schedule.calculate_log_snr(t, device=self.device)
+        log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
         squared_alpha = log_snr.sigmoid()
         squared_sigma = (-log_snr).sigmoid()
-        log_snr_prev = self.noise_schedule.calculate_log_snr(t - dt, device=self.device)
+        log_snr_prev = self.noise_schedule.calculate_log_snr(t - dt, device=t.device)
         squared_alpha_prev = log_snr_prev.sigmoid()
         squared_sigma_prev = (-log_snr_prev).sigmoid()
         sigma_t_2 = squared_sigma_prev / squared_sigma * (1 - squared_alpha / squared_alpha_prev)
@@ -341,12 +341,12 @@ class VDM(Interpolant):
         The available weight types are:
         - "ones": uniform weight of 1.0
         - "data_to_noise": derived from Equation (9) of https://arxiv.org/pdf/2202.00512
-        - "variational_objective": based on the variational objective, see https://arxiv.org/pdf/2202.00512
+        - "variational_objective_discrete": based on the variational objective, see https://arxiv.org/pdf/2202.00512
 
         Args:
             raw_loss (Tensor): The raw loss calculated from the model prediction and target.
             t (Tensor): The time step.
-            weight_type (str): The type of weight to use. Can be "ones", "data_to_noise", or "variational_objective".
+            weight_type (str): The type of weight to use. Can be "ones", "data_to_noise", or "variational_objective_discrete".
             dt (Float, optional): The time step increment. Defaults to 0.001.
 
         Returns:
@@ -358,16 +358,46 @@ class VDM(Interpolant):
         if weight_type == "ones":
             schedule = torch.ones_like(raw_loss).to(raw_loss.device)
         elif weight_type == "data_to_noise":  #
-            log_snr = self.noise_schedule.calculate_log_snr(t, device=self.device)
+            log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
             psi, omega = self.noise_schedule.log_snr_to_alphas_sigmas(log_snr)
             schedule = (psi**2) / (omega**2)
             for _ in range(raw_loss.ndim - 1):
                 schedule = schedule.unsqueeze(-1)
-        elif weight_type == "variational_objective":
-            # (1-SNR(t-1)/SNR(t)),
-            snr = torch.exp(self.noise_schedule.calculate_log_snr(t, device=self.device))
-            snr_m1 = torch.exp(self.noise_schedule.calculate_log_snr(t - dt, device=self.device))
-            schedule = 1 - snr_m1 / snr
+        elif weight_type == "variational_objective_discrete":
+            # Equation 14 https://arxiv.org/pdf/2107.00630
+            schedule = -torch.expm1(
+                self.noise_schedule.calculate_log_snr(t, device=t.device)
+                - self.noise_schedule.calculate_log_snr(t - dt, device=t.device)
+            )
+            for _ in range(raw_loss.ndim - 1):
+                schedule = schedule.unsqueeze(-1)
+        elif weight_type == "variational_objective_continuous_noise":
+            # equation 21 https://arxiv.org/pdf/2303.00848
+            t = t.requires_grad_()
+            log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
+            gamma = log_snr
+            gamma_grad = -torch.autograd.grad(  # gamma_grad shape: (B, )
+                gamma,  # (B, )
+                t,  # (B, )
+                grad_outputs=torch.ones_like(gamma),
+                create_graph=True,
+                retain_graph=True,
+            )[0]
+            schedule = 0.5 * gamma_grad
+            for _ in range(raw_loss.ndim - 1):
+                schedule = schedule.unsqueeze(-1)
+        elif weight_type == "variational_objective_continuous_data":
+            t = t.requires_grad_()
+            log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
+            snr = log_snr.exp()
+            snr_grad = torch.autograd.grad(  # gamma_grad shape: (B, )
+                snr,  # (B, )
+                t,  # (B, )
+                grad_outputs=torch.ones_like(snr),
+                create_graph=True,
+                retain_graph=True,
+            )[0]
+            schedule = -0.5 * snr_grad
             for _ in range(raw_loss.ndim - 1):
                 schedule = schedule.unsqueeze(-1)
         else:
@@ -440,7 +470,7 @@ class VDM(Interpolant):
         if mask is not None:
             model_out = model_out * mask.unsqueeze(-1)
         x_hat = self.process_data_prediction(model_out, xt, t)
-        log_snr = self.noise_schedule.calculate_log_snr(t, device=self.device)
+        log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
         alpha, sigma = self.noise_schedule.log_snr_to_alphas_sigmas(log_snr)
         # Schedule coeffiecients
         beta = self.noise_schedule.calculate_beta(t)
@@ -494,7 +524,7 @@ class VDM(Interpolant):
         if mask is not None:
             model_out = model_out * mask.unsqueeze(-1)
         x_hat = self.process_data_prediction(model_out, xt, t)
-        log_snr = self.noise_schedule.calculate_log_snr(t, device=self.device)
+        log_snr = self.noise_schedule.calculate_log_snr(t, device=t.device)
         alpha, sigma = self.noise_schedule.log_snr_to_alphas_sigmas(log_snr)
         # Schedule coeffiecients
         beta = self.noise_schedule.calculate_beta(t)

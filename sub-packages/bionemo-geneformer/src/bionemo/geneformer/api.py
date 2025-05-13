@@ -27,9 +27,9 @@ from bionemo.llm.utils import iomixin_utils as iom
 
 
 __all__: Sequence[str] = (
-    "GeneformerModel",
-    "GeneformerConfig",
     "FineTuneSeqLenBioBertConfig",
+    "GeneformerConfig",
+    "GeneformerModel",
 )
 
 GeneformerModel = MegatronBioBertModel

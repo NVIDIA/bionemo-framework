@@ -24,8 +24,8 @@ from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, S
 
 
 __all__: Sequence[str] = (
-    "RegressorLossReduction",
     "ClassifierLossReduction",
+    "RegressorLossReduction",
 )
 
 

@@ -14,11 +14,13 @@
 # limitations under the License.
 
 
+from typing import Optional
+
 import torch
 from torch import Tensor
 
 
-def safe_index(tensor: Tensor, index: Tensor, device: torch.device):
+def safe_index(tensor: Tensor, index: Tensor, device: Optional[torch.device]):
     """Safely indexes a tensor using a given index and returns the result on a specified device.
 
     Note can implement forcing with  return tensor[index.to(tensor.device)].to(device) but has costly migration.
@@ -32,12 +34,12 @@ def safe_index(tensor: Tensor, index: Tensor, device: torch.device):
         Tensor: The indexed tensor on the specified device.
 
     Raises:
-        ValueError: If tensor, index, and device are not all on the same device.
+        ValueError: If tensor, index are not all on the same device.
     """
-    if not (tensor.device == index.device == device):
+    if not (tensor.device == index.device):
         raise ValueError(
             f"Tensor, index, and device must all be on the same device. "
             f"Got tensor.device={tensor.device}, index.device={index.device}, and device={device}."
         )
 
-    return tensor[index]
+    return tensor[index].to(device)

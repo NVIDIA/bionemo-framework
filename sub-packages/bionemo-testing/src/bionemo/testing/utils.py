@@ -19,8 +19,8 @@ import torch
 
 
 __all__: Sequence[str] = (
-    "assert_matrix_mape_below_value",
     "assert_matrix_correlation_above_value",
+    "assert_matrix_mape_below_value",
 )
 
 

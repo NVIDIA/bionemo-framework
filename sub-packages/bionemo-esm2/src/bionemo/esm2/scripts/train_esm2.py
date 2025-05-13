@@ -24,6 +24,7 @@ from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.utils.exp_manager import TimingCallback
 
@@ -41,7 +42,7 @@ from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_globa
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
-__all__: Sequence[str] = ("main", "train_esm2_entrypoint", "get_parser")
+__all__: Sequence[str] = ("get_parser", "main", "train_esm2_entrypoint")
 
 
 def main(
@@ -68,6 +69,7 @@ def main(
     experiment_name: str,
     resume_if_exists: bool,
     precision: PrecisionTypes,
+    early_stop_on_step: Optional[int] = None,
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_offline: bool = False,
@@ -81,6 +83,7 @@ def main(
     tensor_model_parallel_size: int = 1,
     create_tensorboard_logger: bool = False,
     nemo1_init_path: Optional[Path] = None,
+    create_tflops_callback: bool = True,
     create_checkpoint_callback: bool = True,
     restore_from_checkpoint_path: Optional[str] = None,
     save_best_checkpoint: bool = True,
@@ -114,6 +117,7 @@ def main(
         max_seq_length (int): maximum sequence length
         result_dir (Path): directory to store results, logs and checkpoints
         num_steps (int): number of steps to train the model for
+        early_stop_on_step (Optional[int]): Stop training on this step, if set. This may be useful for testing or debugging purposes.
         warmup_steps (int): number of steps for warmup phase
         limit_val_batches (int): limit the number of validation global batches to this many
         val_check_interval (int): number of steps to periodically check the validation loss
@@ -141,6 +145,7 @@ def main(
         tensor_model_parallel_size (int): tensor model parallel size
         create_tensorboard_logger (bool): create the tensorboard logger
         nemo1_init_path (Optional[Path]): Nemo 1 initialization path
+        create_tflops_callback (bool): create the FLOPsMeasurementCallback and attach it to the pytorch lightning trainer to log TFlops per training step
         create_checkpoint_callback (bool): create a ModelCheckpoint callback and attach it to the pytorch lightning trainer
         restore_from_checkpoint_path (Optional[str]): If set, restores the model from the directory passed in. Expects the
             checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
@@ -173,6 +178,78 @@ def main(
         accumulate_grad_batches=accumulate_grad_batches,
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
+    )
+
+    tokenizer = get_tokenizer()
+
+    # Initialize the data module.
+    data_module = ESMDataModule(
+        train_cluster_path=train_cluster_path,
+        train_database_path=train_database_path,
+        valid_cluster_path=valid_cluster_path,
+        valid_database_path=valid_database_path,
+        global_batch_size=global_batch_size,
+        micro_batch_size=micro_batch_size,
+        min_seq_length=min_seq_length,
+        max_seq_length=max_seq_length,
+        num_workers=num_dataset_workers,
+        random_mask_strategy=random_mask_strategy,
+        tokenizer=tokenizer,
+    )
+    # Configure the model
+    train_metric = None
+    is_model_parallel = tensor_model_parallel_size * pipeline_model_parallel_size > 1
+    if is_model_parallel:
+        valid_metric = None  # metric logging under model parallelism is not supported yet
+    else:
+        valid_metric = TorchmetricsConfig(
+            class_path="text.Perplexity",
+            task="pretraining",
+            kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX},
+            metric_name="val_ppl",
+        )
+
+    esm2_config = ESM2Config(
+        seq_length=max_seq_length,
+        num_layers=num_layers,
+        hidden_size=hidden_size,
+        num_attention_heads=num_attention_heads,
+        ffn_hidden_size=ffn_hidden_size,
+        params_dtype=get_autocast_dtype(precision),
+        pipeline_dtype=get_autocast_dtype(precision),
+        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
+        biobert_spec_option=biobert_spec_option,
+        nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
+        # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
+        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
+        variable_seq_lengths=min_seq_length != max_seq_length,
+        train_metric=train_metric,
+        valid_metric=valid_metric,
+    )
+
+    if scheduler_num_steps is None:
+        scheduler_num_steps = num_steps
+
+    model = biobert_lightning_module(
+        esm2_config,
+        tokenizer=tokenizer,
+        optimizer=MegatronOptimizerModule(
+            config=OptimizerConfig(
+                lr=lr,
+                optimizer="adam",
+                use_distributed_optimizer=True,
+                weight_decay=0.01,
+                adam_beta1=0.9,
+                adam_beta2=0.98,
+            ),
+            lr_scheduler=WarmupAnnealDecayHoldScheduler(
+                warmup_steps=warmup_steps,
+                max_steps=scheduler_num_steps,
+                max_lr=lr,
+                min_lr=0.0,
+                anneal_percentage=0.10,
+            ),
+        ),
     )
 
     strategy = nl.MegatronStrategy(
@@ -218,6 +295,7 @@ def main(
         nl_callbacks.PreemptionCallback(),
         TimingCallback(),
     ]
+
     if nsys_profiling:
         if nsys_end_step is None:
             nsys_end_step = num_steps
@@ -227,9 +305,58 @@ def main(
             )
         )
 
+    if create_tflops_callback:
+        # Add callback that logs the tera-FLOPS per second per GPU during training.
+        data_module.global_batch_size = (
+            global_batch_size  # TODO(dorotat): remove this change after FLOPsMeasurementCallback is refactored
+        )
+        flop_meas_callback = FLOPsMeasurementCallback(
+            esm2_config,
+            data_module,
+            "bert",
+        )
+        callbacks.append(flop_meas_callback)
+
+    # Setup the logger and train the model
+    nemo_logger = setup_nemo_lightning_logger(
+        root_dir=result_dir,
+        name=experiment_name,
+        initialize_tensorboard_logger=create_tensorboard_logger,
+        wandb_config=wandb_config,
+    )
+
+    # Configure our custom ModelCheckpointe callback and AutoResume to save at nemo_logger.save_dir/checkpoints
+    if create_checkpoint_callback:
+        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            dirpath=checkpoint_path,
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,
+            # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="{epoch}-{step}-{consumed_samples}",
+            # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+            # Save both the weights and the optimizer state.
+            save_weights_only=False,
+            save_optim_on_train_end=True,
+        )
+
+        callbacks.append(checkpoint_callback)
+
+        auto_resume = resume.AutoResume(
+            resume_from_directory=checkpoint_path,
+            resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
+            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
+            resume_past_end=False,
+        )
+    else:
+        auto_resume = None
+
     trainer = nl.Trainer(
         devices=devices,
-        max_steps=num_steps,
+        max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
         accelerator="gpu",
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
@@ -247,109 +374,12 @@ def main(
         enable_checkpointing=create_checkpoint_callback,
     )
 
-    tokenizer = get_tokenizer()
-
-    # Initialize the data module.
-    data = ESMDataModule(
-        train_cluster_path=train_cluster_path,
-        train_database_path=train_database_path,
-        valid_cluster_path=valid_cluster_path,
-        valid_database_path=valid_database_path,
-        global_batch_size=global_batch_size,
-        micro_batch_size=micro_batch_size,
-        min_seq_length=min_seq_length,
-        max_seq_length=max_seq_length,
-        num_workers=num_dataset_workers,
-        random_mask_strategy=random_mask_strategy,
-        tokenizer=tokenizer,
-    )
-    # Configure the model
-    train_metric = None
-    valid_metric = TorchmetricsConfig(
-        class_path="text.Perplexity",
-        task="pretraining",
-        kwargs={"ignore_index": MLM_LOSS_IGNORE_INDEX},
-        metric_name="val_ppl",
-    )
-    if tensor_model_parallel_size * pipeline_model_parallel_size > 1 and (
-        train_metric is not None or valid_metric is not None
-    ):
-        raise NotImplementedError("Metric logging under model parallelism is not supported yet.")
-
-    esm2_config = ESM2Config(
-        seq_length=max_seq_length,
-        num_layers=num_layers,
-        hidden_size=hidden_size,
-        num_attention_heads=num_attention_heads,
-        ffn_hidden_size=ffn_hidden_size,
-        params_dtype=get_autocast_dtype(precision),
-        pipeline_dtype=get_autocast_dtype(precision),
-        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
-        biobert_spec_option=biobert_spec_option,
-        nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
-        # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
-        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
-        variable_seq_lengths=min_seq_length != max_seq_length,
-        train_metric=train_metric,
-        valid_metric=valid_metric,
-    )
-
-    if scheduler_num_steps is None:
-        scheduler_num_steps = num_steps
-
-    model = biobert_lightning_module(
-        esm2_config,
-        tokenizer=tokenizer,
-        optimizer=MegatronOptimizerModule(
-            config=OptimizerConfig(
-                lr=lr,
-                optimizer="adam",
-                use_distributed_optimizer=True,
-                weight_decay=0.01,
-                adam_beta1=0.9,
-                adam_beta2=0.98,
-            ),
-            lr_scheduler=WarmupAnnealDecayHoldScheduler(
-                warmup_steps=warmup_steps,
-                max_steps=scheduler_num_steps,
-                max_lr=lr,
-                min_lr=0.0,
-                anneal_percentage=0.10,
-            ),
-        ),
-    )
-
-    # Configure our custom Checkpointer
-    if create_checkpoint_callback:
-        checkpoint_callback = nl_callbacks.ModelCheckpoint(
-            save_last=save_last_checkpoint,
-            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
-            save_top_k=save_top_k,
-            every_n_train_steps=val_check_interval,
-            always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-            filename="{epoch}-{val_loss:.2f}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-        )
-    else:
-        checkpoint_callback = None
-
-    # Setup the logger and train the model
-    nemo_logger = setup_nemo_lightning_logger(
-        root_dir=result_dir,
-        name=experiment_name,
-        initialize_tensorboard_logger=create_tensorboard_logger,
-        wandb_config=wandb_config,
-        ckpt_callback=checkpoint_callback,
-    )
-
     llm.train(
         model=model,
-        data=data,
+        data=data_module,
         trainer=trainer,
         log=nemo_logger,
-        resume=resume.AutoResume(
-            resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
-            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
-        ),
+        resume=auto_resume,
     )
     return trainer
 
@@ -380,6 +410,7 @@ def train_esm2_entrypoint():
         wandb_log_model=args.wandb_log_model,
         wandb_offline=args.wandb_offline,
         num_steps=args.num_steps,
+        early_stop_on_step=args.early_stop_on_step,
         warmup_steps=args.warmup_steps,
         limit_val_batches=args.limit_val_batches,
         val_check_interval=args.val_check_interval,
@@ -396,7 +427,9 @@ def train_esm2_entrypoint():
         experiment_name=args.experiment_name,
         resume_if_exists=args.resume_if_exists,
         nemo1_init_path=args.nemo1_init_path,
+        create_tflops_callback=args.create_tflops_callback,
         create_checkpoint_callback=args.create_checkpoint_callback,
+        create_tensorboard_logger=args.create_tensorboard_logger,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
         save_best_checkpoint=args.save_best_checkpoint,
         save_last_checkpoint=args.save_last_checkpoint,
@@ -470,6 +503,12 @@ def get_parser():
         help="Number of steps for learning rate scheduler. Will use --num-steps if not given. Default is None.",
     )
     parser.add_argument(
+        "--create-tflops-callback",
+        action="store_true",
+        default=False,
+        help="Enable tflops calculation callback for Hyena / Evo2. Defaults to False.",
+    )
+    parser.add_argument(
         "--create-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."
     )
     # FIXME (@skothenhill) figure out how checkpointing and resumption should work with the new nemo trainer
@@ -523,6 +562,12 @@ def get_parser():
         required=False,
         default=500000,
         help="Number of steps to use for training. Default is 500000.",
+    )
+    parser.add_argument(
+        "--early-stop-on-step",
+        type=int,
+        default=None,
+        help="Stop training on this step, if set. This may be useful for testing or debugging purposes.",
     )
     parser.add_argument(
         "--warmup-steps",

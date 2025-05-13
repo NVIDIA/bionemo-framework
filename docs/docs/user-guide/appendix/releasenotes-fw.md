@@ -1,5 +1,51 @@
 # Release Notes
 
+## BioNeMo Framework v2.6
+
+### New Features
+
+* Adds support for AMPLIFY [doi:10.1101/2024.09.23.614603](https://doi.org/10.1101/2024.09.23.614603) pre-training and inference, offering a 70% speedup over the xformers-based attention backend with similar final perplexity values at 1M pre-training steps. (4.23 for 120M, 3.05 for 350M). The model is fully compatible with existing weights on HuggingFace.
+* Adds alpha support for [LoRA fine-tuning to for ESM2 models](https://nvidia.github.io/bionemo-framework/models/ESM-2/#lora-fine-tuning-performace). Inference and fine-tuning are enabled along with resumption from a checkpoint.
+
+### Updates & Improvements
+
+* Blackwell support, tested on B200 systems.
+* Fixed Grace CPU support, released ARM compatible container.
+
+## BioNeMo Framework v2.5
+
+### New Features
+
+* Adding the Evo2 model training workflow, including data preprocessing, pre-training, fine-tuning and inference with bf16 and fp8 support.
+
+### Updates & Improvements
+
+* Supporting/upgrading federated learning examples of BioNeMo in [NVFlare](https://github.com/NVIDIA/NVFlare/tree/2.6.0rc1/examples/advanced/bionemo)
+* Upgrade bionemo-moco to v0.0.2
+* Brev.dev launchable tutorials
+
+#### Known Issues
+* Partial test failures on ARM CPUs.
+
+## BioNeMo Framework v2.4.1
+
+### Updates & Improvements
+* Applies fixes to ESM2 metric logging that result in NotImplementedError while using Model Parallelism.
+
+## BioNeMo Framework v2.4
+
+### New Features
+* Draft implementation of Evo2 with support for Hyena operators
+* bionemo-moco v0.0.1 released for building diffusion-like generative models.
+
+### Known Issues
+* Partial test failures on ARM CPUs.
+
+### Updates & Improvements
+
+* ESM2 fine-tuning script with CLI (finetune_esm2) that supports sequence-level/token-level classification/regression using a CSV dataset.
+* Brev.dev launchable [fine-tuning tutorial for ESM2](https://nvidia.github.io/bionemo-framework/user-guide/examples/bionemo-esm2/finetune/)
+
 ## BioNeMo Framework v2.3
 
 ### New Features

@@ -1,15 +1,15 @@
 name: "BioNemo Image Build and Unit Tests"
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches: [main]
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+      - "dependabot/**"
   merge_group:
     types: [checks_requested]
   schedule:
-    - cron: '0 7 * * *' # Runs at 7 AM UTC daily (12 AM MST)
+    - cron: "0 7 * * *" # Runs at 7 AM UTC daily (12 AM MST)
 
 defaults:
   run:
@@ -33,29 +33,50 @@ jobs:
           cache: "pip"
       - run: pip install -r requirements-dev.txt
       - run: ./ci/scripts/static_checks.sh
-      # For pull requests and merge_group events, trufflehog only runs on the diff between the base and head branches.
-      # For `push` events, (i.e., post-merge tests), we run trufflehog on the entire main branch by setting the base to
-      # ''. For some reason, the default behavior doesn't work well with the merge_group event, so we need to set these
-      # manually.
-      - uses: trufflesecurity/trufflehog@main
-        with:
-          path: ./
-          base: ${{ github.event_name != 'push' && github.event.repository.default_branch || '' }}
-          head: HEAD
-          extra_args: --only-verified
+
+  # With copy-pr-bot, we need to get the PR labels from the PR API rather than from the event metadata.
+  get-pr-labels:
+    runs-on: ubuntu-latest
+    outputs:
+      labels: ${{ steps.get-labels.outputs.labels }}
+    steps:
+      - name: Get PR number from branch
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        id: get-pr-num
+        run: |
+          PR_NUM=$(echo ${{ github.ref_name }} | grep -oE '[0-9]+$')
+          echo "pr_num=$PR_NUM" >> $GITHUB_OUTPUT
+
+      - name: Get PR labels
+        id: get-labels
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LABELS=$(gh api repos/${{ github.repository }}/pulls/${{ steps.get-pr-num.outputs.pr_num }} --jq '[.labels[].name]' || echo "[]")
+          echo "labels=$LABELS" >> $GITHUB_OUTPUT
+
+      - name: Set empty labels for non-PR branches
+        if: ${{ !startsWith(github.ref, 'refs/heads/pull-request/') }}
+        id: get-labels-empty
+        run: echo "labels=[]" >> $GITHUB_OUTPUT
 
   build-bionemo-image:
-    needs: pre-commit
-    runs-on: self-hosted-azure-cpu
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'SKIP_CI') }}
+    needs:
+      - pre-commit
+      - get-pr-labels
+    runs-on: linux-amd64-cpu16
+    if: ${{ !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'SKIP_CI') }}
     steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # This working directory / path business is because our self-hosted runners are not ephemeral VMs, so we
-          # isolate each build into their own folder. Note that these are not currently cleaned up, so that will need to
-          # be automated in the future.
-          path: ${{ github.run_id }}
           submodules: "recursive"
 
       - name: Set up Docker Buildx
@@ -65,8 +86,7 @@ jobs:
         id: metadata
         uses: docker/metadata-action@v5
         with:
-          images: nemoci.azurecr.io/bionemo
-          labels: nemo.library=bionemo
+          images: svcbionemo023/bionemo-framework
           tags: |
             type=schedule
             type=ref,event=branch
@@ -81,40 +101,33 @@ jobs:
       - uses: int128/docker-build-cache-config-action@v1
         id: cache
         with:
-          image: nemoci.azurecr.io/bionemo/build-cache
-          pull-request-cache: true
+          image: svcbionemo023/bionemo-build-cache
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          file: ${{ github.run_id }}/Dockerfile
-          context: ${{ github.run_id }}/
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: |
             ${{ steps.cache.outputs.cache-from }}
-            ${{ github.event_name == 'merge_group' && 'nemoci.azurecr.io/bionemo/build-cache:main' || '' }}
+            type=registry,ref=svcbionemo023/bionemo-build-cache:main
           cache-to: ${{ steps.cache.outputs.cache-to }}
 
+
   run-tests:
-    needs: build-bionemo-image
-    runs-on: self-hosted-nemo-gpus-1
-    defaults:
-      run:
-        working-directory: ./${{ github.run_id }}
+    needs:
+      - build-bionemo-image
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-l4-latest-1
     container:
-      image: nemoci.azurecr.io/bionemo:${{ github.run_id }}
-      options: --gpus all
-      # We mount the cache directory to avoid downloading the test data every run. Note that this only works because our
-      # VMs are not ephemeral, otherwise we'd need to cache the data somewhere that persists between runs.
-      volumes:
-        - /home/azureuser/actions-runner-bionemo/cache:/github/home/.cache
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          path: ${{ github.run_id }}
 
       - name: Run tests
         # Tests in this stage generate code coverage metrics for the repository
@@ -123,23 +136,6 @@ jobs:
           BIONEMO_DATA_SOURCE: ngc
         run: ./ci/scripts/run_pytest.sh --no-nbval --skip-slow
 
-      - name: Run slow tests
-        if: |
-          github.event_name == 'merge_group' || github.event_name == 'schedule' ||
-          (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'INCLUDE_SLOW_TESTS'))
-        env:
-          BIONEMO_DATA_SOURCE: ngc
-        run: pytest -v -m "slow" sub-packages/
-
-      - name: Run notebook tests
-        if: |
-          github.event_name == 'merge_group' || github.event_name == 'schedule' ||
-          (github.event_name == 'pull_request' &&
-            contains(github.event.pull_request.labels.*.name, 'INCLUDE_NOTEBOOKS_TESTS'))
-        env:
-          BIONEMO_DATA_SOURCE: ngc
-        run: pytest -v --nbval-lax -p no:python docs/ sub-packages/
-
       - name: Upload coverage to Codecov
         # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
         # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
@@ -147,7 +143,6 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          working-directory: ${{ github.run_id }}
 
       - name: Upload test results to Codecov
         # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
@@ -156,17 +151,78 @@ jobs:
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          working-directory: ${{ github.run_id }}
 
-  # Again, because our VMs are not ephemeral, we need to clean up the image after the tests are done. Otherwise `docker
-  # images list` will get very cluttered and we'll run out of disk space on these runners.
-  clean-up:
-    needs: run-tests
-    runs-on: self-hosted-nemo-gpus-1
-    if: ${{ success() || failure() }}
+  run-slow-tests:
+    needs:
+      - build-bionemo-image
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-l4-latest-1
+    container:
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    if: |
+      github.event_name == 'schedule' || github.event_name == 'merge_group' ||
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS')
     steps:
-      - name: clean up image
-        run: docker rmi nemoci.azurecr.io/bionemo:${{ github.run_id }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-# TODO: exclude tests from base image; run tests from github workspace mounted in the image.
-# TODO: figure out way of cleaning up working directory (requires sudo or for us to fix file ownership from release container)
+      - name: Run slow tests
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
+        #  to run package by package like we do with the fast tests.
+        run: ./ci/scripts/run_pytest.sh --no-nbval --only-slow --allow-no-tests
+
+
+  run-notebooks-docs:
+    needs:
+      - build-bionemo-image
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-l4-latest-1
+    if: |
+      github.event_name == 'schedule' || github.event_name == 'merge_group' ||
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS')
+    container:
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run notebook tests
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+          # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
+          FAST_CI_MODE: true
+        run: |
+          pytest -v --nbval-lax -p no:python docs/ sub-packages/
+
+  verify-tests-status:
+    # Base on the status of this job, the unit-tests workflow succeeds or fails
+    # This steps checks the status of all test jobs and fails if any of them failed or were cancelled.
+    # It is a workaround for the lack of a built-in feature to finalize a pipeline by checking the status of multiple jobs
+    needs: # List all your run-*-test jobs
+      - pre-commit
+      - get-pr-labels
+      - build-bionemo-image
+      - run-tests
+      - run-slow-tests
+      - run-notebooks-docs
+      # Add all other run-*-test jobs
+    runs-on: ubuntu-latest
+    if: always() # This ensures the job runs even if previous jobs fail
+    steps:
+      - name: Check test job statuses
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "Some test jobs have failed or been cancelled!"
+            exit 1
+          else
+            echo "All test jobs have completed successfully or been skipped!"
+            exit 0
+          fi
