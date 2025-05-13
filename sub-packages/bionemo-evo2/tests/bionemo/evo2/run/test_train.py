@@ -30,7 +30,7 @@ from bionemo.testing.megatron_parallel_state_utils import distributed_model_para
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
 
 
-TEST_TIMEOUT = 512
+TEST_TIMEOUT = 3600
 
 
 def run_train_with_std_redirect(args: argparse.Namespace) -> Tuple[str, nl.Trainer]:

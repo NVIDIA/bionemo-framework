@@ -30,6 +30,7 @@ def my_test():
 
 """
 
+import gc
 import os
 import socket
 from contextlib import contextmanager
@@ -65,13 +66,31 @@ def _reset_microbatch_calculator():
     megatron.core.num_microbatches_calculator._GLOBAL_NUM_MICROBATCHES_CALCULATOR = None
 
 
-def clean_up_distributed_and_parallel_states():
+def clean_up_distributed_and_parallel_states(verify_distributed_state=True):
     """Clean up parallel states, torch.distributed and torch cuda cache."""
     _reset_microbatch_calculator()
     parallel_state.destroy_model_parallel()  # destroy parallel state before distributed
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
+    gc.collect()
     torch.cuda.empty_cache()
+    if verify_distributed_state:
+        # Calculate orphaned process memory.
+        allocated_vram = torch.cuda.memory_allocated() / 1024**3
+        reserved_vram = torch.cuda.memory_reserved() / 1024**3
+        print(
+            "\n--------------------------------\n"
+            f"Memory Profile for Device: {torch.cuda.current_device()}\n"
+            f"Allocated: {allocated_vram} GB\n"
+            f"Reserved: {reserved_vram} GB\n"
+            f"GPU Processes:\n{torch.cuda.list_gpu_processes()}\n"
+            "--------------------------------\n"
+        )
+        # if allocated_vram + reserved_vram > 1:
+        #     raise RuntimeError(
+        #         "Memory allocated or reserved is greater than 1 GB after cleaning up distributed and parallel states: "
+        #         f"Allocated: {allocated_vram} GB + Reserved: {reserved_vram} GB = {allocated_vram + reserved_vram} GB"
+        #     )
 
 
 @contextmanager
