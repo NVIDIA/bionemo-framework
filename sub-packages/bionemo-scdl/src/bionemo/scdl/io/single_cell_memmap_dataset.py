@@ -348,6 +348,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.fallback_to_identity = fallback_to_identity
 
         # Set paths for neighbor data files
+        #NOTE: no longer needed
         self._neighbor_indices_path = os.path.join(self.data_path, FileNames.NEIGHBOR_INDICES.value)
         self._neighbor_indptr_path = os.path.join(self.data_path, FileNames.NEIGHBOR_INDICES_PTR.value)
         self._neighbor_data_path = os.path.join(self.data_path, FileNames.NEIGHBOR_VALUES.value)
@@ -667,6 +668,77 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             _pad_sparse_array(row_values, row_column_pointer, self._feature_index.number_vars_at_row(index)),
             features,
         )
+    
+    # FOR POLINA: this can be separate function or integrated into get_row_padded
+    def get_row_padded_with_neighbor(
+        self,
+        index: int,
+        return_features: bool = False,
+        feature_vars: Optional[List[str]] = None,
+        include_neighbor: Optional[bool] = None,
+    ) -> Union[
+        Tuple[np.ndarray, List[np.ndarray]],  # Original return type
+        Dict[str, Union[np.ndarray, int, List[np.ndarray]]]  # With neighbor
+    ]:
+        """Returns a padded version of a row with optional neighbor data.
+        
+        A padded version converts sparse representation to a dense array where
+        missing values are filled with zeros.
+        
+        Args:
+            index: The row to be returned
+            return_features: Boolean that indicates whether to return features
+            feature_vars: Optional, feature variables to extract
+            include_neighbor: Whether to include neighbor data in the result.
+                              If None, defaults to self.load_neighbors
+                              
+        Returns:
+            If include_neighbor is False or neighbor functionality is disabled:
+                Original return type: Tuple[np.ndarray, List[np.ndarray]]
+                padded_row, features
+            
+            If include_neighbor is True and neighbor functionality is enabled:
+                Dict with keys:
+                - 'current_cell': np.ndarray - Padded array for current cell
+                - 'next_cell': np.ndarray - Padded array for neighbor cell
+                - 'current_cell_index': int - Index of current cell
+                - 'next_cell_index': int - Index of neighbor cell
+                - 'features': List[np.ndarray] - Features if return_features is True, else None
+        """
+        # Determine whether to include neighbor
+        if include_neighbor is None:
+            include_neighbor = self.load_neighbors and self._has_neighbors
+        
+        # If no neighbor requested, use original implementation
+        if not include_neighbor:
+            result, features = self.get_row(index, return_features, feature_vars)
+            row_values, row_column_pointer = result
+            return (
+                _pad_sparse_array(row_values, row_column_pointer, self._feature_index.number_vars_at_row(index)),
+                features,
+            )
+        
+        # Get both current cell and neighbor data
+        result = self.get_row_with_neighbor(index, return_features, feature_vars, include_neighbor=True)
+        
+        # Get the padded arrays for both cells
+        curr_values, curr_cols = result['current_cell']
+        next_values, next_cols = result['next_cell']
+        
+        curr_padded = _pad_sparse_array(curr_values, curr_cols, self._feature_index.number_vars_at_row(index))
+        
+        # For neighbor, we need to get the correct feature count for its row
+        next_idx = result['next_cell_index']
+        next_padded = _pad_sparse_array(next_values, next_cols, self._feature_index.number_vars_at_row(next_idx))
+        
+        # Return in dictionary format similar to get_row
+        return { #type: ignore
+            'current_cell': curr_padded,
+            'next_cell': next_padded,
+            'current_cell_index': result['current_cell_index'],
+            'next_cell_index': result['next_cell_index'],
+            'features': result['features'],
+        }
 
     def get_row_column(self, index: int, column: int, impute_missing_zeros: bool = True) -> Optional[float]:
         """Returns the value at a given index and the corresponding column.
