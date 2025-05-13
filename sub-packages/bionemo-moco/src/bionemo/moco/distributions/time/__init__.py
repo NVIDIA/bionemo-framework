@@ -24,6 +24,6 @@ __all__ = [
     "BetaTimeDistribution",
     "LogitNormalTimeDistribution",
     "MixTimeDistribution",
-    "UniformTimeDistribution",
     "TimeDistribution",
+    "UniformTimeDistribution",
 ]

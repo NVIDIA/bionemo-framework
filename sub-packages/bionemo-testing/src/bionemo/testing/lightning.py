@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-from typing import Dict
+import re
+from typing import Dict, List
 
 import torch
 
@@ -57,3 +57,10 @@ def get_random_microbatch(
         "forward_out": {"token_logits": token_logits},
     }
     return microbatch_output
+
+
+def extract_global_steps_from_log(log_string: str) -> List[int]:
+    """Extract global steps from a Pytorch lightening log string."""
+    pattern = r"\| global_step: (\d+) \|"
+    matches = re.findall(pattern, log_string)
+    return [int(step) for step in matches]

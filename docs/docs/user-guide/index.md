@@ -8,6 +8,8 @@ BioNeMo is a software ecosystem produced by NVIDIA for the development and deplo
 
 When choosing between the BioNeMo Framework and BioNeMo NIMs, consider your project's specific requirements. The Framework is ideal for scenarios that require model training, fine-tuning, or customization, offering a comprehensive suite of tools and packages. In contrast, NIMs are optimized for inference-only workflows, providing easy-to-use, enterprise-ready microservices with built-in API endpoints. As a rule, use the Framework for custom model development or high-control modeling, and NIMs for inference against existing models.
 
+Get notified of new releases, bug fixes, critical security updates, and more for biopharma. [Subscribe.](https://www.nvidia.com/en-us/clara/biopharma/product-updates/)
+
 ## BioNeMo User Success Stories
 
 [Enhancing Biologics Discovery and Development With Generative AI](https://www.nvidia.com/en-us/case-studies/amgen-biologics-discovery-and-development/) - Amgen leverages BioNeMo and DGX Cloud to train large language models (LLMs) on proprietary protein sequence data, predicting protein properties and designing biologics with enhanced capabilities. By using BioNeMo, Amgen achieved faster training and up to 100X faster post-training analysis, accelerating the drug discovery process.

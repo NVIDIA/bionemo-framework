@@ -20,6 +20,7 @@
 #  use cases and not hide too much complexity that a user would want to customize, while reducing code duplication
 #  between scripts.
 
+
 import argparse
 import math
 from pathlib import Path
@@ -33,6 +34,7 @@ from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
@@ -48,7 +50,7 @@ from bionemo.llm.utils.datamodule_utils import float_or_int_or_none, infer_globa
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
-__all__: Sequence[str] = ("main", "get_parser")
+__all__: Sequence[str] = ("get_parser", "main")
 
 
 def main(
@@ -94,6 +96,7 @@ def main(
     nsys_start_step: int = 0,
     nsys_end_step: Optional[int] = None,
     nsys_ranks: List[int] = [0],
+    create_tflops_callback: bool = False,
     config_class: Type[BioBertConfig] = GeneformerConfig,
     log_every_n_steps: int = 50,
     gc_interval: int = 0,
@@ -122,6 +125,7 @@ def main(
         experiment_name (str): experiment name, this is the name used for the wandb run, and the sub-directory of the
             result_dir that stores the logs and checkpoints.
         accumulate_grad_batches (int): if requested, gradients are only updated every `accumulate_grad_batches` steps.
+        create_tflops_callback (bool): if True, a callback that logs the tera-FLOPS per second per GPU during training is added.
         config_class (Type[BioBertConfig]): which model config do you want to train?
         metric_to_monitor_for_checkpoints (str): which metric do you want to monitor for checkpoints?
         nemo1_init_path (str): if you have a nemo1 checkpoint you want to initialize the model weights from, you can
@@ -225,6 +229,34 @@ def main(
             log_model=wandb_log_model,
         )
     )
+    geneformer_config = config_class(
+        num_layers=num_layers,
+        hidden_size=hidden_size,
+        ffn_hidden_size=ffn_hidden_size,
+        num_attention_heads=num_attention_heads,
+        seq_length=seq_length,
+        bias_dropout_fusion=True,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
+        bias_activation_fusion=True,  # TODO same note as above. Set these to False to see recompilation go away
+        defer_embedding_wgrad_compute=pipeline_model_parallel_size > 1,
+        params_dtype=get_autocast_dtype(precision),
+        pipeline_dtype=get_autocast_dtype(precision),
+        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
+        biobert_spec_option=biobert_spec_option,
+        nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
+        # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
+        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
+    )
+    preprocessor = GeneformerPreprocess(
+        download_directory=train_data_path,
+        medians_file_path=train_data_path / "medians.json",
+        tokenizer_vocab_path=train_data_path / "geneformer.vocab",
+    )
+    match preprocessor.preprocess():
+        case {"tokenizer": tokenizer, "median_dict": median_dict}:
+            logging.info("*************** Preprocessing Finished ************")
+        case _:
+            logging.error("Preprocessing failed.")
+
     callbacks = [
         # Skip perplexity and disable forward output in the loss for speed
         RichModelSummary(max_depth=4),
@@ -246,6 +278,19 @@ def main(
             )
         )
 
+    if create_tflops_callback:
+        # Add callback that logs the tera-FLOPS per second per GPU during training.
+        class SimpleDataModule:
+            def __init__(self, tokenizer_vocab_size, global_batch_size):
+                self.tokenizer_vocab_size = tokenizer_vocab_size
+                self.global_batch_size = global_batch_size
+
+        callbacks.append(
+            FLOPsMeasurementCallback(
+                geneformer_config, SimpleDataModule(tokenizer.vocab_size, global_batch_size), "bert"
+            )
+        )
+
     trainer = nl.Trainer(
         devices=devices,
         max_steps=num_steps,
@@ -260,17 +305,6 @@ def main(
         plugins=nl.MegatronMixedPrecision(precision=precision),
         enable_checkpointing=create_checkpoint_callback,
     )
-
-    preprocessor = GeneformerPreprocess(
-        download_directory=train_data_path,
-        medians_file_path=train_data_path / "medians.json",
-        tokenizer_vocab_path=train_data_path / "geneformer.vocab",
-    )
-    match preprocessor.preprocess():
-        case {"tokenizer": tokenizer, "median_dict": median_dict}:
-            logging.info("*************** Preprocessing Finished ************")
-        case _:
-            logging.error("Preprocessing failed.")
 
     # Configure the data module and model
     data = SingleCellDataModule(
@@ -288,23 +322,6 @@ def main(
         pin_memory=False,
         num_workers=num_dataset_workers,
         include_unrecognized_vocab_in_dataset=include_unrecognized_vocab_in_dataset,
-    )
-    geneformer_config = config_class(
-        num_layers=num_layers,
-        hidden_size=hidden_size,
-        ffn_hidden_size=ffn_hidden_size,
-        num_attention_heads=num_attention_heads,
-        seq_length=seq_length,
-        bias_dropout_fusion=True,  # TODO fix the recompilation issue, but for now it's faster even with recompilations
-        bias_activation_fusion=True,  # TODO same note as above. Set these to False to see recompilation go away
-        defer_embedding_wgrad_compute=pipeline_model_parallel_size > 1,
-        params_dtype=get_autocast_dtype(precision),
-        pipeline_dtype=get_autocast_dtype(precision),
-        autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
-        biobert_spec_option=biobert_spec_option,
-        nemo1_ckpt_path=str(nemo1_init_path) if nemo1_init_path is not None else None,
-        # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
-        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
     )
 
     # The lightning class owns a copy of the actual model, and a loss function, both of which are configured
@@ -665,6 +682,12 @@ def get_parser():
         help="Activate this and make sure a small training loop runs, this tells you that your settings are not "
         "triggering regular recompilations which can be very expensive for fused gpu kernels.",
     )
+    parser.add_argument(
+        "--create-tflops-callback",
+        action="store_true",
+        default=False,
+        help="Enable tflops calculation callback for Geneformer. Defaults to False.",
+    )
 
     return parser
 
@@ -708,6 +731,7 @@ def entrypoint():
         nsys_end_step=args.nsys_end_step,
         nsys_ranks=args.nsys_ranks,
         create_checkpoint_callback=args.create_checkpoint_callback,
+        create_tflops_callback=args.create_tflops_callback,
         restore_from_checkpoint_path=args.restore_from_checkpoint_path,
         config_class=args.training_model_config_class,
         save_last_checkpoint=args.save_last_checkpoint,

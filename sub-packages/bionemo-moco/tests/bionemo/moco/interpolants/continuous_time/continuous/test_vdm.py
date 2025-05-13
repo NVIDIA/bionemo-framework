@@ -117,15 +117,23 @@ def test_vdm_centered_step(vdm_centered, device):
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-@pytest.mark.parametrize("weight_type", ["ones", "data_to_noise"])
+@pytest.mark.parametrize(
+    "weight_type",
+    [
+        "ones",
+        "data_to_noise",
+        "variational_objective_discrete",
+        "variational_objective_continuous_noise",
+        "variational_objective_continuous_data",
+    ],
+)
 def test_vdm_loss(vdm, device, weight_type):
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
     vdm = vdm.to_device(device)
     indices = torch.arange(3).repeat(32, 10)
     data = F.one_hot(indices, 3).float().to(device)
-    T = 1
-    time = vdm.sample_time(32, device=device) * 0 + T
+    time = vdm.sample_time(32, device=device)  # * 0 + T T = 1
     noise = vdm.sample_prior(data.shape, device=device)
     model_out = 0.9999 * data + 0.0001 * noise
     mask = torch.ones(32, 30, dtype=torch.bool).to(device)

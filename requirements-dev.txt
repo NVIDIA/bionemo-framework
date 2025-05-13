@@ -1,5 +1,4 @@
-ruff==0.5.1  # Needs to match the version of ruff used in .pre-commit-config.yaml.
-black==23.1.0
+ruff==0.9.10  # Needs to match the version of ruff used in .pre-commit-config.yaml.
 pre-commit==3.4.0
 virtualenv==20.26.6
 ipdb==0.13.11

@@ -32,14 +32,14 @@ from infra_bionemo.new_project.templates import (
 
 
 __all__: Sequence[str] = (
-    "File",
     "Dir",
-    "create_on_filesystem",
+    "File",
     "bionemo_subproject_structure",
-    "namespace_py_project_structure",
-    "py_project_structure",
     "check",
     "convert",
+    "create_on_filesystem",
+    "namespace_py_project_structure",
+    "py_project_structure",
 )
 
 

@@ -26,13 +26,13 @@ from .discrete_time.discrete.d3pm import D3PM
 
 
 __all__ = [
-    "DDPM",
     "D3PM",
-    "VDM",
+    "DDPM",
     "MDLM",
+    "VDM",
     "ContinuousFlowMatcher",
     "DiscreteFlowMatcher",
     "EquivariantOTSampler",
-    "OTSampler",
     "KabschAugmentation",
+    "OTSampler",
 ]

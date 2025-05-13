@@ -146,9 +146,9 @@ def test_ensure_license_starts_with_pound(license_text: str, license_text_not_es
 
 
 def test_remove_existing_license_header(valid: str, license_text: str):
-    assert (
-        len(remove_existing_license_header(license_text)) == 0
-    ), "Removing from a header-only file should result in an empty string."
+    assert len(remove_existing_license_header(license_text)) == 0, (
+        "Removing from a header-only file should result in an empty string."
+    )
 
     pyfile_with_header = append_license_header(valid, license_header=license_text, n_sep_lines=1)
     removed_pyfile = remove_existing_license_header(pyfile_with_header)

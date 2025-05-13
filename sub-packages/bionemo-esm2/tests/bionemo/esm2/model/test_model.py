@@ -29,7 +29,7 @@ from bionemo.esm2.api import ESM2Config, ESM2Model
 from bionemo.esm2.data.datamodule import ESMDataModule
 from bionemo.esm2.data.tokenizer import get_tokenizer
 from bionemo.esm2.model.embedding import ESM2Embedding
-from bionemo.esm2.testing.compare import assert_model_equivalence
+from bionemo.esm2.testing.compare import assert_esm2_equivalence
 from bionemo.llm.model.biobert.model import MegatronBioBertModel
 from bionemo.llm.utils.weight_utils import nemo1_to_nemo2_biobert_key_mapping
 from bionemo.testing import megatron_parallel_state_utils
@@ -180,7 +180,7 @@ def test_model_equivalence_with_huggingface_8m(precision):
     model_tag = "facebook/esm2_t6_8M_UR50D"
     ckpt_path = load("esm2/8m:2.0")
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        assert_model_equivalence(ckpt_path, model_tag, precision=precision)
+        assert_esm2_equivalence(ckpt_path, model_tag, precision=precision)
 
 
 @pytest.mark.slow
@@ -188,7 +188,7 @@ def test_model_equivalence_with_huggingface_650m():
     model_tag = "facebook/esm2_t33_650M_UR50D"
     ckpt_path = load("esm2/650m:2.0")
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        assert_model_equivalence(ckpt_path, model_tag, atol=1e-4, rtol=1e-4)
+        assert_esm2_equivalence(ckpt_path, model_tag, atol=1e-4, rtol=1e-4)
 
 
 @pytest.mark.slow
@@ -196,7 +196,7 @@ def test_model_equivalence_with_huggingface_650m_bf16():
     model_tag = "facebook/esm2_t33_650M_UR50D"
     ckpt_path = load("esm2/650m:2.0")
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        assert_model_equivalence(ckpt_path, model_tag, precision="bf16")
+        assert_esm2_equivalence(ckpt_path, model_tag, precision="bf16")
 
 
 @pytest.mark.slow
@@ -205,4 +205,4 @@ def test_model_equivalence_with_huggingface_3b():
     model_tag = "facebook/esm2_t36_3B_UR50D"
     ckpt_path = load("esm2/3b:2.0")
     with megatron_parallel_state_utils.distributed_model_parallel_state():
-        assert_model_equivalence(ckpt_path, model_tag, atol=1e-4, rtol=1e-4)
+        assert_esm2_equivalence(ckpt_path, model_tag, atol=1e-4, rtol=1e-4)

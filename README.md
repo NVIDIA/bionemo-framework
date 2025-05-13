@@ -1,10 +1,4 @@
 # BioNeMo Framework
-**ANNOUNCEMENT 🥳 :**
-Evo 2 now available as a draft PR here: https://github.com/NVIDIA/bionemo-framework/pull/694
-- Pretrain from scratch
-- Run inference on the trained models
-- Fine-tuning with custom data available (no pre-trained checkpoints available yet, its WIP - stay tuned!)
-****************************************************************************************************************************************************
 
 [![Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU)
 [![Docs Build](https://img.shields.io/github/actions/workflow/status/NVIDIA/bionemo-framework/pages/pages-build-deployment?label=docs-build)](https://nvidia.github.io/bionemo-framework)
@@ -18,6 +12,8 @@ domain-specific, optimized models and tooling that are easily integrated into GP
 fastest performance on the market. You can access BioNeMo Framework as a free community resource here in this repository
 or learn more at <https://www.nvidia.com/en-us/clara/bionemo/> about getting an enterprise license for improved
 expert-level support.
+
+BioNeMo Framework is part of a larger ecosystem of NVIDIA Biopharma products. Get notified of new releases, bug fixes, critical security updates, and more for biopharma. [Subscribe.](https://www.nvidia.com/en-us/clara/biopharma/product-updates/)
 
 ## Structure of the Framework
 

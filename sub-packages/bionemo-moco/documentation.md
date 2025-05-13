@@ -2072,7 +2072,8 @@ def loss(logits: Tensor,
          xt: Tensor,
          time: Tensor,
          mask: Optional[Tensor] = None,
-         use_weight=True)
+         use_weight=True,
+         global_mean: bool = False)
 ```
 
 Calculate the cross-entropy loss between the model prediction and the target output.
@@ -2093,6 +2094,7 @@ certain times in the diffusion process.
 - `time` _Tensor_ - The time at which the loss is calculated.
 - `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
 - `use_weight` _bool, optional_ - Whether to use the MDLM time weight for the loss. Defaults to True.
+- `global_mean` _bool, optional_ - All token losses are summed and divided by total token count. Examples with more tokens (longer sequences) implicitly contribute more to the loss. Defaults to False.
 
 
 **Returns**:
@@ -2229,19 +2231,20 @@ Returns score of the given sample x at time t with the corresponding model outpu
 #### step\_self\_path\_planning
 
 ```python
-def step_self_path_planning(
-        logits: Tensor,
-        xt: Tensor,
-        t: Tensor,
-        curr_step: int,
-        num_steps: int,
-        logit_temperature: float = 1.0,
-        randomness: float = 1.0,
-        confidence_temperature: float = 1.0,
-        score_type: Literal["confidence", "random"] = "confidence") -> Tensor
+def step_self_path_planning(logits: Tensor,
+                            xt: Tensor,
+                            t: Tensor,
+                            curr_step: int,
+                            num_steps: int,
+                            logit_temperature: float = 1.0,
+                            randomness: float = 1.0,
+                            confidence_temperature: float = 1.0,
+                            score_type: Literal["confidence",
+                                                "random"] = "confidence",
+                            fix_mask: Optional[Tensor] = None) -> Tensor
 ```
 
-Updates the input sequence xt by iteratively sampling from logits with Gumbel noise.
+Self Path Planning (P2) Sampling from Peng et al. https://arxiv.org/html/2502.03540v1.
 
 **Arguments**:
 
@@ -2254,6 +2257,7 @@ Updates the input sequence xt by iteratively sampling from logits with Gumbel no
 - `randomness` _float_ - Introduced randomness level (default: 1.0).
 - `confidence_temperature` _float_ - Temperature for confidence scoring (default: 1.0).
 - `score_type` _Literal["confidence", "random"]_ - Sampling score type (default: "confidence").
+- `fix_mask` _Optional[Tensor]_ - inital mask where True when not a mask tokens (default: None).
 
 
 **Returns**:
@@ -3224,13 +3228,13 @@ This function computes the loss weight according to the specified `weight_type`.
 The available weight types are:
 - "ones": uniform weight of 1.0
 - "data_to_noise": derived from Equation (9) of https://arxiv.org/pdf/2202.00512
-- "variational_objective": based on the variational objective, see https://arxiv.org/pdf/2202.00512
+- "variational_objective_discrete": based on the variational objective, see https://arxiv.org/pdf/2202.00512
 
 **Arguments**:
 
 - `raw_loss` _Tensor_ - The raw loss calculated from the model prediction and target.
 - `t` _Tensor_ - The time step.
-- `weight_type` _str_ - The type of weight to use. Can be "ones", "data_to_noise", or "variational_objective".
+- `weight_type` _str_ - The type of weight to use. Can be "ones", "data_to_noise", or "variational_objective_discrete".
 - `dt` _Float, optional_ - The time step increment. Defaults to 0.001.
 
 
