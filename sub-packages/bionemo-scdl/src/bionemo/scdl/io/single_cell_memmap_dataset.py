@@ -77,9 +77,7 @@ def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:
         The full 1d numpy array representation.
     """
     ret = np.zeros(n_cols)
-    for row_ptr in range(0, len(row_values)):
-        col = row_col_ptr[row_ptr]
-        ret[col] = row_values[row_ptr]
+    np.add.at(ret, row_col_ptr, row_values)
     return ret
 
 
@@ -195,6 +193,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
         feature_index_name="feature_id",
+        return_padded: bool = False,
     ) -> None:
         """Instantiate the class.
 
@@ -208,6 +207,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
             load_block_row_size: Number of rows to load into memory with paginated load
             feature_index_name: The name of the features if the features are only stored in features_df.index.values
+            return_padded: If `True` return a dense array from `__getitem__`
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
@@ -219,6 +219,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
+        self.return_padded = return_padded
 
         # Metadata and attributes
         self.metadata: Dict[str, int] = {}
@@ -658,7 +659,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
     def __getitem__(self, idx: int) -> torch.Tensor:
         """Get the row values located and index idx."""
-        return torch.from_numpy(np.stack(self.get_row(idx)[0]))
+        if self.return_padded:
+            return torch.from_numpy(self.get_row_padded(idx)[0])
+        else:
+            return torch.from_numpy(np.stack(self.get_row(idx)[0])), self.number_of_variables()
 
     def number_of_variables(self) -> List[int]:
         """Get the number of features in every entry in the dataset.
