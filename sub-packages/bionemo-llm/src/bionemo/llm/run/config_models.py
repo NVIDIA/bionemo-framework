@@ -279,6 +279,7 @@ class ParallelConfig(BaseModel):
     accumulate_grad_batches: int = 1
     ddp: Literal["megatron"] = "megatron"
     remove_unused_parameters: bool = True
+    use_distributed_optimizer: bool = True
     num_devices: int = 1
     num_nodes: int = 1
 
@@ -314,6 +315,7 @@ class TrainingConfig(BaseModel):
     log_train_ppl: bool = False
     log_val_ppl: bool = True
     enable_checkpointing: bool = True
+    create_tflops_callback: bool = False
 
 
 class OptimizerSchedulerConfig(BaseModel):
@@ -332,6 +334,10 @@ class OptimizerSchedulerConfig(BaseModel):
     """
 
     lr: float = 1e-4
+    sgd_momentum: float = 0.9
+    adam_eps: float = 1e-8
+    weight_decay: float = 0.01
+    use_distributed_optimizer: bool = True
     optimizer: str = "adam"
     interval: str = "step"
     monitor: str = "val_loss"
