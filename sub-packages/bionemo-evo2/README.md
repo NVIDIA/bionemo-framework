@@ -265,6 +265,12 @@ predict_evo2 \
 
 An example of using `predict_evo2` for variant effect prediction can be found in our [Evo 2 Zeroshot BRCA1 Notebook](https://docs.nvidia.com/bionemo-framework/latest/user-guide/examples/bionemo-evo2/evo2_zeroshot_brca). This notebook demonstrates how to use Evo2 to predict whether single nucleotide variants (SNVs) in the BRCA1 gene are likely to be harmful to protein function and potentially increase cancer risk, by comparing the model's log probability scores between the reference and variant sequences.
 
+## Context Extension
+
+Evo2 supports continuing training with longer context lengths beyond those used to train a prior checkpoint. For example, when training the original Evo2 model, the first phase of training was performed at 8192 context length while the next phase continued training at 1m context length, but starting from the prior 8192 context length checkpoint. We call this process context extension.
+
+To change the sequence length used in training in this way, supply the prior checkpoint as the `--ckpt-dir` argument, and set your new desired sequence length with `--seq-length`. Only doing these two things will run, but one issue is that the model's ROPE embeddings may not be scaled properly out of the box for a new context length. The way that Arc institute handled this was by setting the `--seq-len-interpolation-factor` to linearly scale the ROPE embedding for context extension. For example, if the base context length is 8192 and the extended context length is 65536, the factor would be 65536/8192 = 8. There are other ways of accomplishing this as well that may require some minor code changes, such as the approach used in llama-3, which is also available in megatron and could be added into argparse as an alternative.
+
 ## Checkpoint conversion from hugging face to NeMo2
 
 The following conversion script should work on any savanna formatted arc evo2 checkpoint. Make sure you match up the
