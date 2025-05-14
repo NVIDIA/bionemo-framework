@@ -29,6 +29,7 @@
 # @sichu2023 - Simon Chu
 # @skothenhill-nv - Steven Kothen-Hill
 # @trvachov - Timur Rvachov
+# @tshimko - Tyler Shimko
 # @yzhang123 - Yang Zhang
 
 # TODO: make this a team of bionemo-core contributors
@@ -44,8 +45,8 @@ license_header @dorotat-nv @jstjohn @malcolmgreaves @trvachov
 #
 ## DOCUMENTATION
 #
-**.md @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov @jwilber
-docs @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov @jwilber
+**.md @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov @jwilber @tshimko
+docs @dorotat-nv @jstjohn @malcolmgreaves @pstjohn @trvachov @jwilber @tshimko
 
 
 #
