@@ -1,9 +1,9 @@
-# Hardware and Software Prerequisites
+# Hardware and Software Prerequisites for BioNeMo Framework
 
-Before you begin using the BioNeMo framework, please ensure the hardware and software prerequisites outlined below are
+Before you begin using the BioNeMo Framework, ensure the hardware and software prerequisites outlined below are
 met.
 
-## Hardware
+## Hardware Prequisites
 
 The BioNeMo Framework is compatible with environments that have access to NVIDIA GPUs. `bfloat16` precision requires an
 Ampere generation GPU or higher ([Compute Capability ≥8.0](https://developer.nvidia.com/cuda-gpus)). You may be able
@@ -29,11 +29,11 @@ The following datacenter and desktop GPUs have Compute Capability ≥8.0 and are
 | RTX A5000 | 8.6 | Full |
 | RTX A4000 | 8.6 | Full |
 
-## Software
+## Software Prerequisites
 
 The BioNeMo Framework is supported on x86 Linux systems.
 
-Please ensure that the following are installed in your desired execution environment:
+Ensure that the following are installed in your desired execution environment:
 
 * Appropriate GPU drivers (minimum version: 560; lower versions may be compatible, but cannot be guaranteed)
 * Docker (with GPU support, Docker Engine 19.03 or above)
