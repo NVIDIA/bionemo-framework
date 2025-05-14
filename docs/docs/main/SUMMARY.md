@@ -5,4 +5,3 @@
 - [Data Sets](datasets/)
 - [Contributing](contributing/)
 - [References](references/)
-- [Resources](resources/)
