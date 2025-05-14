@@ -121,7 +121,7 @@
 
 /* Images */
 .md-typeset img {
-  border: 1px solid var(--md-default-fg-color--lighter);
+  /* border: 1px solid var(--md-default-fg-color--lighter); */
   border-radius: 4px;
 }
 
