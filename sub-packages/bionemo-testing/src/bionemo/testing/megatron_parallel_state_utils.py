@@ -66,16 +66,20 @@ def _reset_microbatch_calculator():
     megatron.core.num_microbatches_calculator._GLOBAL_NUM_MICROBATCHES_CALCULATOR = None
 
 
-def clean_up_distributed_and_parallel_states(verify_distributed_state=True):
+def clean_up_distributed_and_parallel_states(verify_distributed_state=False):
     """Clean up parallel states, torch.distributed and torch cuda cache."""
     _reset_microbatch_calculator()
-    parallel_state.destroy_model_parallel()  # destroy parallel state before distributed
+    # Destroy Megatron distributed/parallel state environment.
+    parallel_state.destroy_model_parallel()
+    # Destroy the torch default / world process group.
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
+    # Free unused CPU memory.
     gc.collect()
+    # Free reserved / cached GPU memory allocated by Torch / CUDA.
     torch.cuda.empty_cache()
     if verify_distributed_state:
-        # Calculate orphaned process memory.
+        # Utilize to debug OOM or orphaned processes in GPU.
         allocated_vram = torch.cuda.memory_allocated() / 1024**3
         reserved_vram = torch.cuda.memory_reserved() / 1024**3
         print(
@@ -86,11 +90,6 @@ def clean_up_distributed_and_parallel_states(verify_distributed_state=True):
             f"GPU Processes:\n{torch.cuda.list_gpu_processes()}\n"
             "--------------------------------\n"
         )
-        # if allocated_vram + reserved_vram > 1:
-        #     raise RuntimeError(
-        #         "Memory allocated or reserved is greater than 1 GB after cleaning up distributed and parallel states: "
-        #         f"Allocated: {allocated_vram} GB + Reserved: {reserved_vram} GB = {allocated_vram + reserved_vram} GB"
-        #     )
 
 
 @contextmanager
