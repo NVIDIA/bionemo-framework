@@ -50,6 +50,7 @@ script: |-
     --min-seq-length=1024 \
     --max-seq-length=1024 \
     --num-layers=33 \
+    ${'--decoder-first-pipeline-num-layers=17' if pp == 2 else ''} \
     --hidden-size=1280 \
     --num-attention-heads=20 \
     --ffn-hidden-size=5120 \
