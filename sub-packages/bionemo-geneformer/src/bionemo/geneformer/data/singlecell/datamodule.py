@@ -281,3 +281,7 @@ class SingleCellDataModule(MegatronDataModule):
             ),
             **kwargs,
         )
+
+    @property
+    def vocab_size(self):  # noqa: D102
+        return self.tokenizer.vocab_size
