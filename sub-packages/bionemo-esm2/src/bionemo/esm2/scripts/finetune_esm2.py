@@ -342,7 +342,7 @@ def train_model(
     # Update attributes only if they exist in the config
     for attr, value in task_dependent_attr.items():
         if hasattr(config, attr):
-            setattr(config, attr, value)
+            config.set_hparam(attr, value)
 
     optimizer = MegatronOptimizerModule(
         config=OptimizerConfig(
