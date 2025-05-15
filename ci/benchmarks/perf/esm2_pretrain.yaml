@@ -17,23 +17,28 @@ script_args:
   stop_steps: 200
   gpus: 8
   acc_grad: 1
+  decoder_first_pipeline_num_layers: ""
   products:
     - nodes: 1
       batch_size: 16
       pp: 1
       tp: 1
+      decoder_first_pipeline_num_layers: ""
     - nodes: 2
       batch_size: 16
       pp: 2
       tp: 1
+      decoder_first_pipeline_num_layers: "--decoder-first-pipeline-num-layers=17"
     - nodes: 2
       batch_size: 16
       pp: 1
       tp: 2
+      decoder_first_pipeline_num_layers: ""
     - nodes: 2
       batch_size: 16
       pp: 1
       tp: 1
+      decoder_first_pipeline_num_layers: ""
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=${data_path}/train_clusters.parquet \
@@ -50,7 +55,7 @@ script: |-
     --min-seq-length=1024 \
     --max-seq-length=1024 \
     --num-layers=33 \
-    ${'--decoder-first-pipeline-num-layers=17' if pp == 2 else ''} \
+    ${decoder_first_pipeline_num_layers} \
     --hidden-size=1280 \
     --num-attention-heads=20 \
     --ffn-hidden-size=5120 \
