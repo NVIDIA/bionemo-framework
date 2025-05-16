@@ -18,8 +18,10 @@
 import argparse
 import random
 from contextlib import contextmanager
+from pathlib import Path
 
 import cellxgene_census
+import numpy as np
 
 
 @contextmanager
@@ -52,30 +54,33 @@ def parse_args():  # noqa: D103
         help="Dataset ID to download from census. Don't change this unless you have a good reason.",
     )
 
-    parser.add_argument("--micro-batch-size", type=int, default=16, help="Micro batch size for processing")
-
-    parser.add_argument("--num-steps", type=int, default=512, help="Number of steps to process")
-
     parser.add_argument("--random-seed", type=int, default=32, help="Random seed for reproducibility")
-
-    parser.add_argument("--cleanup", action="store_true", help="Clean up existing output directory if it exists")
 
     return parser.parse_args()
 
 
-def main():  # noqa: D103
-    args = parse_args()
+# Replace signature with actual parameters
+def download(census_version: str, dataset_id: str, base_dir: Path):
+    """Download cell type dataset from cellxgene census.
+
+    Args:
+        census_version: Version of the cellxgene census to use
+        dataset_id: ID of the dataset to download
+        base_dir: Base directory for data downloads
+    """
+    # Ensure base_dir exists
+    base_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup paths
-    h5ad_outfile = args.base_dir / "hs-celltype-bench.h5ad"
+    h5ad_outfile = base_dir / "hs-celltype-bench.h5ad"
 
     # Download data from census
-    print(f"Downloading data from census version {args.census_version}")
-    with cellxgene_census.open_soma(census_version=args.census_version) as census:
+    print(f"Downloading data from census version {census_version}")
+    with cellxgene_census.open_soma(census_version=census_version) as census:
         adata = cellxgene_census.get_anndata(
             census,
             "Homo sapiens",
-            obs_value_filter=f'dataset_id=="{args.dataset_id}"',
+            obs_value_filter=f'dataset_id=="{dataset_id}"',
         )
 
     # Print unique cell types
@@ -87,10 +92,15 @@ def main():  # noqa: D103
 
     print(f"Selected {len(selection)} cells")
 
-    # Subset and save data
-    adata = adata[selection].copy()
+    # Subset and save data - Fix: Convert list to numpy array
+    adata = adata[np.array(selection)].copy()
     adata.write_h5ad(h5ad_outfile)
     print(f"Saved data to {h5ad_outfile}")
+
+
+def main():  # noqa: D103
+    args = parse_args()
+    download(args.census_version, args.dataset_id, Path(args.base_dir))
 
 
 if __name__ == "__main__":

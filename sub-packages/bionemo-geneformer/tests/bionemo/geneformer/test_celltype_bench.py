@@ -17,12 +17,17 @@
 # this suite of tests should test the usage of the cell-type-bench script. we will manually invoke the functions within the script using pre-determined files.
 #   logits from our model will be downloaded from s3 via the `load` call as well as the truncated h5ad file.
 
+import tempfile
+from pathlib import Path
+
 import pandas as pd
+import pytest
 import torch
 
 from bionemo.core.data.load import load
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.scripts.celltype_classification_bench.bench import load_data_run_benchmark
+from bionemo.geneformer.scripts.celltype_classification_bench.download import download
 from bionemo.geneformer.scripts.infer_geneformer import infer_model
 from bionemo.testing.utils import (
     assert_matrix_correlation_above_value,
@@ -30,7 +35,7 @@ from bionemo.testing.utils import (
 )
 
 
-def test_do_everything():
+def test_load_data_run_benchmark():
     # Loads embeddings, h5ad file, scdl files, and CV results.
     contents_dir = load("single_cell/celltype-bench-golden-vals", source="pbss") / "hs-celltype-bench-subset7500"
 
@@ -97,3 +102,27 @@ def test_celltype_embeddings_golden_values():
         mask=expected_vals,
         min_correlation=0.9999,
     )
+
+
+@pytest.mark.integration
+def test_download_integration():
+    """Integration test for the download function.
+
+    This test simply calls the download function with a temporary directory
+    and verifies that the output file was created.
+    """
+
+    # Create a temporary directory
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+
+        # Call the download function with default parameters except base_dir
+        download(census_version="2023-12-15", dataset_id="8e47ed12-c658-4252-b126-381df8d52a3d", base_dir=temp_path)
+
+        # Check that the output file was created
+        expected_file = temp_path / "hs-celltype-bench.h5ad"
+        assert expected_file.exists(), f"Expected output file {expected_file} not found"
+
+        # Basic file size check to ensure it's not empty
+        file_size = expected_file.stat().st_size
+        assert file_size > 0, f"Output file exists but is empty ({file_size} bytes)"

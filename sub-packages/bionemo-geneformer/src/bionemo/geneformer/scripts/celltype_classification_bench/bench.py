@@ -105,8 +105,6 @@ def run_benchmark(data, labels, use_pca=True):
         "precision": make_scorer(precision_score, average="macro"),  # 'macro' averages over classes
         "recall": make_scorer(recall_score, average="macro"),
         "f1_score": make_scorer(f1_score, average="macro"),
-        # 'roc_auc' requires probability or decision function; hence use multi_class if applicable
-        # "roc_auc": make_scorer(roc_auc_score, multi_class="ovr"),
     }
 
     # Track convergence warnings
