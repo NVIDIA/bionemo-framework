@@ -103,6 +103,7 @@ def main(
     overlap_param_gather: bool = True,
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
+    decoder_first_pipeline_num_layers: Optional[int] = None,
 ) -> nl.Trainer:
     """Train an ESM2 model on UR data.
 
@@ -166,6 +167,7 @@ def main(
         overlap_param_gather (bool): overlap parameter gather
         average_in_collective (bool): average in collective
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
+        decoder_first_pipeline_num_layers (Optional[int]): number of layers in the decoder first pipeline. Default None is even split of transformer layers across all pipeline stages
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -225,6 +227,7 @@ def main(
         variable_seq_lengths=min_seq_length != max_seq_length,
         train_metric=train_metric,
         valid_metric=valid_metric,
+        num_layers_in_first_pipeline_stage=decoder_first_pipeline_num_layers,
     )
 
     if scheduler_num_steps is None:
@@ -448,6 +451,7 @@ def train_esm2_entrypoint():
         overlap_param_gather=not args.no_overlap_param_gather,
         average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
+        decoder_first_pipeline_num_layers=args.decoder_first_pipeline_num_layers,
     )
 
 
@@ -800,6 +804,13 @@ def get_parser():
         "--grad-reduce-in-fp32",
         action="store_true",
         default=False,
+    )
+    parser.add_argument(
+        "--decoder-first-pipeline-num-layers",
+        type=int,
+        required=False,
+        default=None,
+        help="The number of transformer layers on the first pipeline stage of the decoder. Default None is even split of transformer layers across all pipeline stages",
     )
     return parser
 
