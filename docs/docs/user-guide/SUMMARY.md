@@ -1,7 +1,0 @@
-- [What is BioNeMo?](index.md)
-- [Getting Started](getting-started/)
-- [Background](background/)
-- [Developer Guide](developer-guide/)
-- [Tutorials](examples/)
-- [Contributing](contributing/)
-- [Appendix](appendix/)
