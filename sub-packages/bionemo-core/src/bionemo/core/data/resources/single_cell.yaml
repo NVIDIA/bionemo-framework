@@ -29,3 +29,11 @@
   sha256: d8e3ea569bc43768c24aa651aff77722df202078415528497c22394046b08cc3 # pragma: allowlist secret
   owner:  Savitha Srinivasan <savithas@nvidia.com>
   description: Test data for single cell models in SCDL Memmap format.
+
+- tag: celltype-bench-golden-vals
+  ngc: nvidia/clara/celltype-bench-golden-vals:1.0
+  ngc_registry: resource
+  pbss: "s3://bionemo-ci/test-data/singlecell/20250513-hs-celltype-bench-subset7500.tar.gz"
+  sha256: 8845e5616a44b68681e865a84dc6b92b944a3e66434d648f366960d7a9737ac4 # pragma: allowlist secret
+  owner: Steven Kothen-Hill <skothenhill@nvidia.com>
+  description: Golden values, subsetted h5ad, and scdl converted subset for celltype benchmark
