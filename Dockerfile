@@ -128,6 +128,13 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
     cd bitsandbytes && pip install . && cd .. && rm -rf bitsandbytes; \
 fi
+
+# Fix the version of scikit-misc to 0.3.1 because newer versions of scikit-misc require numpy >= 2.0 to be built.
+# Since there are not pre-built wheels for arm64, we need to install the specific version.
+# Once bionemo is compatible with numpy >= 2.0, we can remove this.
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+    pip install scikit-misc==0.3.1; \
+fi
 ###############################################################################
 # /end ARM
 ###############################################################################
