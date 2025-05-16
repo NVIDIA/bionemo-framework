@@ -40,6 +40,8 @@ from nemo.collections.llm.gpt.model.ssm import (
 )
 from nemo.lightning import get_vocab_size
 
+from bionemo.evo2.utils.loss.embedding_variance import SquaredErrorTargetedVarianceLossFunction
+
 
 def mamba_forward_step(model, batch) -> torch.Tensor:
     """Forward step function for Mamba models, similar to hyena_forward_step.
@@ -127,6 +129,10 @@ class MambaModel(GPTModel):
         return output_tensor
 
 
+import torch
+import torch.distributed
+
+
 # Custom MCoreMambaModel with reweighted loss calculation
 class Evo2StyleMCoreMambaModel(MCoreMambaModel):
     """Custom version of MCoreMambaModel that implements reweighted loss calculation.
@@ -158,6 +164,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         to_upper: str = "normalized_weighted",
         spike_no_more_embedding_init: bool = False,
         layernorm_embeddings: bool = False,
+        use_targeted_variance_loss: bool = False,
     ):
         """Ingest the config and create a CustomMCoreMambaModel instance.
 
@@ -186,6 +193,8 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
                 Defaults to False.
             layernorm_embeddings: Apply layernorm to the embedding output as suggested in the spike no more paper.
                 Defaults to False.
+            use_targeted_variance_loss: Use targeted variance loss which encourages the word embedding weight variances
+                to be close to a target value (1.0). Defaults to False.
         """
         # Save any additional kwargs we might need
         self.lowercase_loss_reweighting = lowercase_loss_reweighting
@@ -210,7 +219,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         self.parallel_output = parallel_output
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.position_embedding_type = position_embedding_type
-
+        self.use_targeted_variance_loss = use_targeted_variance_loss
         # megatron core pipelining currently depends on model type
         # TODO: remove this dependency ?
         self.model_type = ModelType.encoder_or_decoder
@@ -358,6 +367,10 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
             lowercase_weight=self.lowercase_loss_reweighting,
             normalize_per_batch=normalize_per_batch,
         )
+        if self.training and self.use_targeted_variance_loss:
+            # Only use this in training, not validation etc.
+            var_loss = SquaredErrorTargetedVarianceLossFunction.apply(self.embedding.word_embeddings.weight)
+            loss += var_loss
         return loss
 
 
@@ -430,6 +443,9 @@ class HybridMambaConfig8BEvo2Loss(SSMConfig):
     hyena_no_weight_decay_cond_fn: Callable = mamba_no_weight_decay_cond
     spike_no_more_embedding_init: bool = False
     layernorm_embeddings: bool = False
+    # If set to true, use targeted variance loss which encourages the word embedding weight variances
+    # to be close to a target value (1.0).
+    use_targeted_variance_loss: bool = False
 
     def configure_model(self, tokenizer, pre_process=None, post_process=None) -> "Evo2StyleMCoreMambaModel":
         """Override the configure_model method to properly configure a CustomMCoreMambaModel with Evo2 style loss.
@@ -466,6 +482,7 @@ class HybridMambaConfig8BEvo2Loss(SSMConfig):
             lowercase_loss_reweighting=self.lowercase_loss_reweighting,
             spike_no_more_embedding_init=self.spike_no_more_embedding_init,
             layernorm_embeddings=self.layernorm_embeddings,
+            use_targeted_variance_loss=self.use_targeted_variance_loss,
         )
 
 

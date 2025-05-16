@@ -48,6 +48,7 @@ from nemo.utils.exp_manager import TimingCallback
 
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
+from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -438,6 +439,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=0.0,
         help="Dropout probability for the attention layers.",
     )
+    parser.add_argument(
+        "--use-targeted-variance-loss",
+        action="store_true",
+        default=False,
+        help="Use targeted variance loss.",
+    )
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
@@ -520,6 +527,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "cross_entropy_loss_fusion": args.cross_entropy_loss_fusion,
         "fp32_residual_connection": not args.no_fp32_residual_connection,
         "add_bias_output": args.add_bias_output,
+        "use_targeted_variance_loss": args.use_targeted_variance_loss,
         **activation_checkpointing_args,
     }
     if args.hybrid_override_pattern:
@@ -558,6 +566,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         TimingCallback(),
+        TEVCallback(),
     ]
 
     if args.enable_preemption:
@@ -645,6 +654,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-B16MG{args.bf16_main_grads}"
         f"-EWD{args.no_weight_decay_embeddings}-LE{args.layernorm_embeddings}-SNI{args.spike_no_more_embedding_init}"
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
+        f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
     )
 
