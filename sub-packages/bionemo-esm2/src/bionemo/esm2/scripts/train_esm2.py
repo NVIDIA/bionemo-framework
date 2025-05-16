@@ -228,6 +228,7 @@ def main(
         train_metric=train_metric,
         valid_metric=valid_metric,
         num_layers_in_first_pipeline_stage=decoder_first_pipeline_num_layers,
+        pipeline_model_parallel_size=pipeline_model_parallel_size,
     )
 
     if scheduler_num_steps is None:
