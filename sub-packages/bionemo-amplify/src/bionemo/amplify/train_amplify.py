@@ -226,7 +226,6 @@ def main(
         name=experiment_name,
         initialize_tensorboard_logger=create_tensorboard_logger,
         wandb_config=wandb_config,
-        log_global_rank_0_only=True,
     )
 
     # Configure our custom Checkpointer
