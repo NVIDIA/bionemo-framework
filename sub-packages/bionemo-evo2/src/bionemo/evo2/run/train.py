@@ -47,6 +47,7 @@ from nemo.utils.exp_manager import TimingCallback
 
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
+from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -445,6 +446,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Dropout probability for the attention layers.",
     )
     parser.add_argument(
+        "--use-targeted-variance-loss",
+        action="store_true",
+        default=False,
+        help="Use targeted variance loss.",
+    )
+    parser.add_argument(
         "--use-b2b-causal-conv1d",
         action="store_true",
         help="Use back-to-back causal convolution CUDA kernel for hyena short conv layers for improved performance.",
@@ -556,6 +563,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "cross_entropy_loss_fusion": args.cross_entropy_loss_fusion,
         "fp32_residual_connection": not args.no_fp32_residual_connection,
         "add_bias_output": args.add_bias_output,
+        "use_targeted_variance_loss": args.use_targeted_variance_loss,
         "use_b2b_causal_conv1d": args.use_b2b_causal_conv1d,
         **activation_checkpointing_args,
     }
@@ -575,7 +583,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             raise ValueError(f"Invalid model size for Hyena: {args.model_size}")
         model_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer)
-        model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer)
     else:  # mamba
         if args.no_weight_decay_embeddings:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
@@ -590,13 +597,13 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             raise ValueError("Bias output is not supported for Mamba models.")
         model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = MambaModel(model_config, tokenizer=data_module.tokenizer)
-        model = MambaModel(model_config, tokenizer=data_module.tokenizer)
 
     # Setup callbacks.
     callbacks = [
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         TimingCallback(),
+        TEVCallback(),
     ]
 
     if args.enable_preemption:
@@ -685,6 +692,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-B16MG{args.bf16_main_grads}"
         f"-EWD{args.no_weight_decay_embeddings}-LE{args.layernorm_embeddings}-SNI{args.spike_no_more_embedding_init}"
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
+        f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
     )
 
