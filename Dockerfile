@@ -19,7 +19,7 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.04-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
 
 FROM rust:1.86.0 AS rust-env
 
@@ -196,8 +196,6 @@ rm -rf nvidia-resiliency-ext/
 sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
 # Remove llama-index because bionemo doesn't use it and it adds CVEs to container
 sed -i "/llama-index/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt
-# Pin 'nvidia-modelopt' to 0.27.1 due to an API incompatibility of version 0.25.0
-sed -i -E "s|nvidia-modelopt\[torch\]>=[^,]+,<=([^ ;]+)|nvidia-modelopt[torch]==\1|" ./3rdparty/NeMo/requirements/requirements_nlp.txt
 uv pip install --no-build-isolation \
 ./3rdparty/*  \
 ./sub-packages/bionemo-* \
