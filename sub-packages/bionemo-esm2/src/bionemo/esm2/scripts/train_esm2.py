@@ -211,6 +211,7 @@ def main(
             metric_name="val_ppl",
         )
 
+    print(f"TESTING TESTING: {decoder_first_pipeline_num_layers}")
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
         num_layers=num_layers,
