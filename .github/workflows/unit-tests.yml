@@ -200,7 +200,7 @@ jobs:
           # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
           FAST_CI_MODE: true
         run: |
-          pytest -v --nbval-lax -p no:python docs/ sub-packages/
+          pytest -s -v --nbval-lax -p no:python docs/ sub-packages/
 
   verify-tests-status:
     # Base on the status of this job, the unit-tests workflow succeeds or fails
