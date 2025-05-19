@@ -25,6 +25,7 @@ from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.utils.exp_manager import TimingCallback
 
@@ -78,6 +79,7 @@ def main(
     pipeline_model_parallel_size: int = 1,
     tensor_model_parallel_size: int = 1,
     create_tensorboard_logger: bool = False,
+    create_tflops_callback: bool = True,
     create_checkpoint_callback: bool = True,
     nemo1_init_path: Optional[Path] = None,
     restore_from_checkpoint_path: Optional[str] = None,
@@ -134,6 +136,7 @@ def main(
         pipeline_model_parallel_size (int): degree of pipeline model parallelism
         tensor_model_parallel_size (int): degree of tensor model parallelism
         create_tensorboard_logger (bool): create the tensorboard logger
+        create_tflops_callback (bool): create the FLOPsMeasurementCallback and attach it to the pytorch lightning trainer to log TFlops per training step
         create_checkpoint_callback (bool): create a ModelCheckpoint callback and attach it to the pytorch lightning trainer
         nemo1_init_path (Optional[Path]): path to a NeMo v1 checkpoint to initialize from
         restore_from_checkpoint_path (Optional[str]): If set, restores the model from the directory passed in. Expects the
@@ -245,26 +248,6 @@ def main(
     else:
         checkpoint_callback = None
 
-    trainer = nl.Trainer(
-        devices=devices,
-        max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
-        accelerator="gpu",
-        strategy=strategy,
-        limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
-        val_check_interval=val_check_interval,
-        log_every_n_steps=log_every_n_steps,
-        num_nodes=num_nodes,
-        callbacks=callbacks,
-        enable_checkpointing=create_checkpoint_callback,
-        plugins=nl.MegatronMixedPrecision(
-            precision=precision,
-            params_dtype=get_autocast_dtype(precision),
-            pipeline_dtype=get_autocast_dtype(precision),
-            grad_reduce_in_fp32=grad_reduce_in_fp32,
-            autocast_enabled=False,
-        ),
-    )
-
     tokenizer = BioNeMoAMPLIFYTokenizer()
 
     # Initialize the data module. hf_load_dataset loads these datasets from the huggingface hub if they're not available
@@ -312,6 +295,16 @@ def main(
         valid_metric=valid_metric,
     )
 
+    if create_tflops_callback:
+        # Add callback that logs the tera-FLOPS per second per GPU during training.
+        data.global_batch_size = global_batch_size
+        flop_meas_callback = FLOPsMeasurementCallback(
+            amplify_config,
+            data,
+            "bert",
+        )
+        callbacks.append(flop_meas_callback)
+
     model = biobert_lightning_module(
         amplify_config,
         tokenizer=tokenizer,
@@ -331,6 +324,26 @@ def main(
                 warmup_steps=warmup_steps,
                 constant_steps=0,
             ),
+        ),
+    )
+
+    trainer = nl.Trainer(
+        devices=devices,
+        max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
+        accelerator="gpu",
+        strategy=strategy,
+        limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
+        val_check_interval=val_check_interval,
+        log_every_n_steps=log_every_n_steps,
+        num_nodes=num_nodes,
+        callbacks=callbacks,
+        enable_checkpointing=create_checkpoint_callback,
+        plugins=nl.MegatronMixedPrecision(
+            precision=precision,
+            params_dtype=get_autocast_dtype(precision),
+            pipeline_dtype=get_autocast_dtype(precision),
+            grad_reduce_in_fp32=grad_reduce_in_fp32,
+            autocast_enabled=False,
         ),
     )
 
