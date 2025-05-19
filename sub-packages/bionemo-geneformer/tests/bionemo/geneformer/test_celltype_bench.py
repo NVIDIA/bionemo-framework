@@ -37,7 +37,7 @@ from bionemo.testing.utils import (
 
 def test_load_data_run_benchmark():
     # Loads embeddings, h5ad file, scdl files, and CV results.
-    contents_dir = load("single_cell/celltype-bench-golden-vals", source="pbss") / "hs-celltype-bench-subset7500"
+    contents_dir = load("single_cell/celltype-bench-golden-vals") / "hs-celltype-bench-subset7500"
 
     # contents_dir = h5ad_file / "hs-celltype-bench-subset7500"
     h5ad_file = contents_dir / "hs-celltype-bench-subset7500.h5ad"
@@ -62,7 +62,7 @@ def test_celltype_embeddings_golden_values():
     #    When there is a discrepency in results, it can be either from drift during inference or in the zero-shot model.
 
     # Manually invoke infer.
-    contents_dir = load("single_cell/celltype-bench-golden-vals", source="pbss") / "hs-celltype-bench-subset7500"
+    contents_dir = load("single_cell/celltype-bench-golden-vals") / "hs-celltype-bench-subset7500"
     data_dir = contents_dir / "processed_input"
     # Golden values were generated with this checkpoint.
     checkpoint_path = load("geneformer/10M_240530:2.0")
