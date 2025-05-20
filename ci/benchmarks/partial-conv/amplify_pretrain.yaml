@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 1800
+time_limit: 14400
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   num_layers: False
@@ -18,7 +18,7 @@ script_args:
   gpus: 8
   seq_len: 512
   max_steps: 1000000
-  stop_steps: 26500
+  stop_steps: 20000
   pp: 1
   tp: 1
   products:
