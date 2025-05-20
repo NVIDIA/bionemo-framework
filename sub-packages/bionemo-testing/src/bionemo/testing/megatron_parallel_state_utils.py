@@ -30,7 +30,9 @@ def my_test():
 
 """
 
+import gc
 import os
+import socket
 from contextlib import contextmanager
 from typing import Any, Optional, Sequence
 from unittest import mock
@@ -64,13 +66,30 @@ def _reset_microbatch_calculator():
     megatron.core.num_microbatches_calculator._GLOBAL_NUM_MICROBATCHES_CALCULATOR = None
 
 
-def clean_up_distributed_and_parallel_states():
+def clean_up_distributed_and_parallel_states(verify_distributed_state=False):
     """Clean up parallel states, torch.distributed and torch cuda cache."""
     _reset_microbatch_calculator()
-    parallel_state.destroy_model_parallel()  # destroy parallel state before distributed
+    # Destroy Megatron distributed/parallel state environment.
+    parallel_state.destroy_model_parallel()
+    # Destroy the torch default / world process group.
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
+    # Free unused CPU memory.
+    gc.collect()
+    # Free reserved / cached GPU memory allocated by Torch / CUDA.
     torch.cuda.empty_cache()
+    if verify_distributed_state:
+        # Utilize to debug OOM or orphaned processes in GPU.
+        allocated_vram = torch.cuda.memory_allocated() / 1024**3
+        reserved_vram = torch.cuda.memory_reserved() / 1024**3
+        print(
+            "\n--------------------------------\n"
+            f"Memory Profile for Device: {torch.cuda.current_device()}\n"
+            f"Allocated: {allocated_vram} GB\n"
+            f"Reserved: {reserved_vram} GB\n"
+            f"GPU Processes:\n{torch.cuda.list_gpu_processes()}\n"
+            "--------------------------------\n"
+        )
 
 
 @contextmanager
@@ -84,6 +103,18 @@ def clean_parallel_state_context():
         raise Exception from e
     finally:
         clean_up_distributed_and_parallel_states()
+
+
+def find_free_network_port(address: str = "localhost") -> int:
+    """Finds a free port for the specified address. Defaults to localhost."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind((address, 0))
+    addr_port = s.getsockname()
+    s.close()
+    if addr_port is None:
+        # Could not find any free port.
+        return None, None
+    return addr_port
 
 
 @contextmanager
@@ -112,7 +143,10 @@ def distributed_model_parallel_state(
             if not os.environ.get("MASTER_ADDR", None):
                 context.setenv("MASTER_ADDR", DEFAULT_MASTER_ADDR)
             if not os.environ.get("MASTER_PORT", None):
-                context.setenv("MASTER_PORT", DEFAULT_MASTER_PORT)
+                network_address, free_network_port = find_free_network_port(address=DEFAULT_MASTER_ADDR)
+                context.setenv(
+                    "MASTER_PORT", free_network_port if free_network_port is not None else DEFAULT_MASTER_PORT
+                )
             if not os.environ.get("NCCL_TIMEOUT", None):
                 context.setenv("NCCL_TIMEOUT", DEFAULT_NCCL_TIMEOUT)
             context.setenv("RANK", str(rank))
