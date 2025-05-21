@@ -233,6 +233,7 @@ def main(
 
     if scheduler_num_steps is None:
         scheduler_num_steps = num_steps
+
     model = biobert_lightning_module(
         esm2_config,
         tokenizer=tokenizer,
