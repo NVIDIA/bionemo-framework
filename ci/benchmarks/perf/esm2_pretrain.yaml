@@ -19,26 +19,26 @@ script_args:
   acc_grad: 1
   dfpnl: ""
   products:
-    # - nodes: 1
-    #   batch_size: 16
-    #   pp: 1
-    #   tp: 1
-    #   dfpnl: ""
+    - nodes: 1
+      batch_size: 16
+      pp: 1
+      tp: 1
+      dfpnl: ""
     - nodes: 2
       batch_size: 16
       pp: 2
       tp: 1
       dfpnl: "--decoder-first-pipeline-num-layers=17"
-    # - nodes: 2
-    #   batch_size: 16
-    #   pp: 1
-    #   tp: 2
-    #   dfpnl: ""
-    # - nodes: 2
-    #   batch_size: 16
-    #   pp: 1
-    #   tp: 1
-    #   dfpnl: ""
+    - nodes: 2
+      batch_size: 16
+      pp: 1
+      tp: 2
+      dfpnl: ""
+    - nodes: 2
+      batch_size: 16
+      pp: 1
+      tp: 1
+      dfpnl: ""
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=${data_path}/train_clusters.parquet \
