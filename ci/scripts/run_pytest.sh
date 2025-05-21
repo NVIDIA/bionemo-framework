@@ -25,11 +25,13 @@ usage() {
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-    --skip-docs    Skip running tests in the docs directory
-    --no-nbval     Skip jupyter notebook validation tests
-    --skip-slow    Skip tests marked as slow (@pytest.mark.slow)
-    --only-slow    Only run tests marked as slow (@pytest.mark.slow)
+    --skip-docs         Skip running tests in the docs directory
+    --no-nbval          Skip jupyter notebook validation tests
+    --skip-slow         Skip tests marked as slow (@pytest.mark.slow)
+    --only-slow         Only run tests marked as slow (@pytest.mark.slow)
     --allow-no-tests    Allow sub-packages with no found tests (for example no slow tests if --only-slow is set)
+    --ignore-files      Skip files from tests using glob patterns (comma-separated, no spaces).
+                            Example: --ignore-files docs/*.ipynb,src/specific_test.py
 
 Note: Documentation tests (docs/) are only run when notebook validation
       is enabled (--no-nbval not set) and docs are not skipped
@@ -54,6 +56,8 @@ NO_NBVAL=false
 SKIP_SLOW=false
 ONLY_SLOW=false
 ALLOW_NO_TESTS=false
+# TODO(@cspades): Ignore this Evo2 notebook test, which has a tendency to leave a 32GB orphaned process in GPU.
+declare -a IGNORE_FILES=("sub-packages/bionemo-evo2/examples/fine-tuning-tutorial.ipynb")
 error=false
 
 # Parse command line arguments
@@ -64,6 +68,10 @@ while (( $# > 0 )); do
         --skip-slow) SKIP_SLOW=true ;;
         --only-slow) ONLY_SLOW=true ;;
         --allow-no-tests) ALLOW_NO_TESTS=true ;;
+        --ignore-files)
+            shift
+            IFS=',' read -ra IGNORE_FILES <<< "$1"
+            ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1" >&2; usage 1 ;;
     esac
@@ -82,6 +90,10 @@ PYTEST_OPTIONS=(
     --cov-append
     --cov-report=xml:coverage.xml
 )
+# Add multiple file ignores if specified
+for ignore_file in "${IGNORE_FILES[@]}"; do
+    PYTEST_OPTIONS+=(--ignore-glob="$ignore_file")
+done
 [[ "$NO_NBVAL" != true ]] && PYTEST_OPTIONS+=(--nbval-lax)
 [[ "$SKIP_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "not slow")
 [[ "$ONLY_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "slow")

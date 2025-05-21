@@ -17,15 +17,12 @@ dependencies = [
     "numpy",
     "platformdirs",
     "torch>=2.2.1",
-    'boto3',
-    'lightning>=2.2.1',
     'nest_asyncio',
     'ngcsdk',
     'pooch',
     'pydantic[email]>=2.7.0',
     'pyyaml',
     'tqdm',
-    'uv',
 ]
 
 [project.scripts]
