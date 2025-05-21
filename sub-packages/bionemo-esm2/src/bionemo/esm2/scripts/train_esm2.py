@@ -211,7 +211,6 @@ def main(
             metric_name="val_ppl",
         )
 
-    print(f"TESTING TESTING: {decoder_first_pipeline_num_layers}")
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
         num_layers=num_layers,
@@ -234,7 +233,6 @@ def main(
 
     if scheduler_num_steps is None:
         scheduler_num_steps = num_steps
-
     model = biobert_lightning_module(
         esm2_config,
         tokenizer=tokenizer,
@@ -274,6 +272,7 @@ def main(
         ckpt_include_optimizer=True,
         ckpt_async_save=True,
         ckpt_parallel_load=True,
+        num_layers_in_first_pipeline_stage=decoder_first_pipeline_num_layers,
     )
 
     # for wandb integration
