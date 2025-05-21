@@ -29,7 +29,6 @@ from bionemo.geneformer.utils.callbacks import IntervalT, GeneformerPredictionWr
 
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
-#from bionemo.llm.utils.callbacks import IntervalT, PredictionWriter
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 
 
