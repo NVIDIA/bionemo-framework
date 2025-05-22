@@ -17,6 +17,7 @@
 import math
 import pathlib
 from dataclasses import field
+from types import SimpleNamespace
 from typing import Optional
 
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
@@ -26,9 +27,11 @@ from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
+from nemo.utils.exp_manager import TimingCallback
 from pydantic import BaseModel
 
 from bionemo.core.utils.dtypes import get_autocast_dtype
@@ -118,7 +121,7 @@ def setup_trainer(
             overlap_grad_reduce=True,
             overlap_param_gather=False,  # TODO waiting for NeMo fix
             average_in_collective=True,
-            use_distributed_optimizer=True,
+            use_distributed_optimizer=parallel_config.use_distributed_optimizer,
         ),
         find_unused_parameters=True,
         gradient_as_bucket_view=True,
@@ -240,8 +243,11 @@ def train(
     optimizer = MegatronOptimizerModule(
         config=OptimizerConfig(
             lr=optim_config.lr,
+            weight_decay=optim_config.weight_decay,
+            sgd_momentum=optim_config.sgd_momentum,
+            adam_eps=optim_config.adam_eps,
             optimizer=optim_config.optimizer,
-            use_distributed_optimizer=True,
+            use_distributed_optimizer=parallel_config.use_distributed_optimizer,
             fp16=bionemo_model_config.fp16,
             bf16=bionemo_model_config.bf16,
         ),
@@ -253,7 +259,25 @@ def train(
         tokenizer=data.tokenizer,
         optimizer=optimizer,
     )
-    trainer: nl.Trainer = setup_trainer(parallel_config, training_config, nsys_config=nsys_config)
+    # NOTE (SKH): lifted default callbacks out of setup_trainer
+    callbacks = [
+        RichModelSummary(max_depth=4),
+        LearningRateMonitor(),
+        TimingCallback(),  # Required for certain plugins such as FLOPsMeasurement
+    ]
+    if training_config.create_tflops_callback:
+        dummy_data_module = SimpleNamespace()
+        dummy_data_module.global_batch_size = (
+            global_batch_size  # TODO(dorotat): remove this change after FLOPsMeasurementCallback is refactored
+        )
+        dummy_data_module.tokenizer_vocab_size = data.vocab_size
+        flop_meas_callback = FLOPsMeasurementCallback(
+            bionemo_model_config,
+            dummy_data_module,
+            "bert",
+        )
+        callbacks.append(flop_meas_callback)
+    trainer: nl.Trainer = setup_trainer(parallel_config, training_config, nsys_config=nsys_config, callbacks=callbacks)
     nemo_logger: nl.NeMoLogger = nemo_logger_factory(experiment_config, wandb_config=wandb_config)
 
     llm.train(

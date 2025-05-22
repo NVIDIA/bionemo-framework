@@ -34,3 +34,18 @@ def is_only_data_parallel() -> bool:
     world_size: int = torch.distributed.get_world_size()
     dp_world_size: int = parallel_state.get_data_parallel_world_size()
     return world_size == dp_world_size
+
+
+def average_losses_across_data_parallel_group(losses, with_context_parallel: bool = False):
+    """Reduce a tensor of losses across all GPUs."""
+    averaged_losses = torch.cat([loss.clone().detach().view(1) for loss in losses])
+    # Reduce across the DP (or optionally, the flattened DP + CP) group.
+    # Refer to the ring attention algorithm on why we always must reduce across the CP group.
+    torch.distributed.all_reduce(
+        averaged_losses, group=parallel_state.get_data_parallel_group(with_context_parallel=with_context_parallel)
+    )
+    averaged_losses = averaged_losses / torch.distributed.get_world_size(
+        # Only average losses across the data parallel group, not the context parallel group!
+        group=parallel_state.get_data_parallel_group()
+    )
+    return averaged_losses

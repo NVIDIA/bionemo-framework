@@ -146,7 +146,7 @@ def test_train_evo2_stops(tmp_path):
     )
 
     assert "reduced_train_loss" in trainer.logged_metrics  # validation logging on by default
-    assert "tflops_per_sec_per_gpu" in trainer.logged_metrics  # ensuring that tflops logger can be added
+    assert "TFLOPS_per_GPU" in trainer.logged_metrics  # ensuring that tflops logger can be added
     assert "train_step_timing in s" in trainer.logged_metrics
 
 

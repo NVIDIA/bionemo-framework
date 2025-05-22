@@ -14,9 +14,9 @@ These models are ready for commercial use.
 
 ### Third-Party Community Consideration
 
-This model is not owned or developed by NVIDIA. This model has been developed and built to a third-party’s requirements
+This model is not owned or developed by NVIDIA. This model has been developed and built to a third-party's requirements
 for this application and use case [1]; see link to [Non-NVIDIA Model Card for ESM-2 3B model](
-    https://huggingface.co/facebook/esm2_t36_3B_UR50D) and [non-NVIDIA Model Card for ESM-2 650M model](
+    https://huggingface.co/facebook/esm2_t36_3B_UR50D) and [Non-NVIDIA Model Card for ESM-2 650M model](
         https://huggingface.co/facebook/esm2_t33_650M_UR50D)
 
 ### References
@@ -27,7 +27,7 @@ Santos Costa, A., 2023. Evolutionary-scale prediction of atomic-level protein st
 
 [2] "UniProt: the universal protein knowledgebase in 2021." Nucleic acids research 49, no. D1 (2021): D480-D489.
 
-[3] Devlin, J., Chang, M.W., Lee, K. and Toutanova, K., 2018. Bert: Pre-training of deep bidirectional transformers for
+[3] Devlin, J., Chang, M.W., Lee, K. and Toutanova, K., 2018. BERT: Pre-training of deep bidirectional transformers for
 language understanding. arXiv preprint arXiv:1810.04805.
 
 ### Model Architecture
@@ -47,7 +47,7 @@ length 1022. Longer sequences are automatically truncated to this length.
 
 ### Output
 
-**Output Type(s):** Embeddings (Amino-acid and sequence-level)
+**Output Type(s):** Embeddings (Amino acid and sequence-level)
 
 **Output Parameters:** 1D
 
@@ -63,15 +63,15 @@ acid.
 
 **Supported Hardware Microarchitecture Compatibility**
 
-* [Ampere]
-* [Hopper]
-* [Volta]
+* NVIDIA Ampere
+* NVIDIA Hopper
+* NVIDIA Volta
 
 **[Preferred/Supported] Operating System(s)**
 
-* [Linux]
+* Linux
 
-### Model Version(s)
+### Model Versions
 
 * [esm2/650m:2.0](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/models/esm2nv650m)
 * [esm2/3b:2.0](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/models/esm2nv3b)
@@ -81,9 +81,9 @@ acid.
 ### Training Dataset
 
 Original ESM-2 checkpoints from HuggingFace were trained with the UniProt 2021_04 sequence database. For more details on
-the training dataset, see Lin *et al.* 2023. The train / test splits used by the original authors were not distributed.
+the training dataset, see Lin *et al.* 2023. The train/test splits used by the original authors were not distributed.
 A pre-training database compiled by NVIDIA following a similar approach is described in [UniProt
-Dataset](../datasets/uniprot.md).
+Dataset](../../datasets/uniprot.md).
 
 ### Inference
 
@@ -91,20 +91,20 @@ Dataset](../datasets/uniprot.md).
 
 **Test Hardware**
 
-* [Ampere]
-* [Hopper]
-* [Volta]
+* NVIDIA Ampere
+* NVIDIA Hopper
+* NVIDIA Volta
 
 ## License
 
-ESM-2 is as provided under the Apache 2.0 license.
+ESM-2 is provided under the Apache 2.0 license.
 
 ## Competitive Benchmarking
 
 ### Accuracy
 
 A validation set of 328,360 UniRef50 representative sequences were randomly selected from UniRef 2024_03 (see [UniProt
-Dataset](../datasets/uniprot.md)). This validation set was used to ensure that the output of BioNeMo-converted
+Dataset](../../datasets/uniprot.md)). This validation set was used to ensure that the output of BioNeMo-converted
 checkpoints is consistent with their outputs when evaluated with the HuggingFace Transformers library.
 
 | Checkpoint | HuggingFace | BioNeMo2 | Lin *et al.* 2023                    |
@@ -123,8 +123,8 @@ checkpoints is consistent with their outputs when evaluated with the HuggingFace
 
 ![ESM-2 Single-Device Training Performance](../../assets/images/esm2/esm2_single_node_training_perf.png)
 
-The pure-pytorch baseline (compiled with `torch.compile()`) raised an out-of-memory error for batch sizes larger than 16
-at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46, reaching a model flops utilization of
+The pure-PyTorch baseline (compiled with `torch.compile()`) raised an out-of-memory error for batch sizes larger than 16
+at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46, reaching a model FLOPs utilization of
 59.2% on an NVIDIA A100.
 
 #### Model Scaling
@@ -132,12 +132,27 @@ at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46
 ![ESM-2 Model Scaling](../../assets/images/esm2/esm2_model_scaling.png)
 
 Training ESM-2 at the 650M, 3B, and 15B model variants show improved performance with the BioNeMo2 framework over the
-pure-pytorch baseline. These experiments were conducted on 16x NVIDIA A100 or 16x NVIDIA H100 GPUs split across two
+pure-PyTorch baseline. These experiments were conducted on 16x NVIDIA A100 or 16x NVIDIA H100 GPUs split across two
 nodes. <sup>*</sup>*Note:* 15B model variants were trained on 64 GPUs with the BioNeMo2 framework.
 
 #### Device Scaling
 
 ![ESM-2 Device Scaling](../../assets/images/esm2/esm2_device_scaling.png)
 
-Training ESM-3B on 256 NVIDIA A100s on 32 nodes achieved 96.85% of the theoretical linear throughput expected from
-extrapolating single-node (8 GPU) performance, representing a model flops utilization of 60.6% at 256 devices.
+Training ESM-3B on 256 NVIDIA A100s on 32 nodes achieved 96.85% of the theoretical linear throughput expected from extrapolating single-node (8 GPU) performance, representing a model flops utilization of 60.6% at 256 devices.
+
+### LoRA Fine-tuning Performace
+
+Fine-tuning ESM-3B and ESM-650M with LoRA achieves improvements in GPU utilization and training time over fine-tuning a full ESM2 model. In models with LoRA, the encoder and embedding layers are replaced with LoRA modules.
+
+#### LoRA GPU Memory Usage
+
+GPU memory usage decreases by a factor of 2.5 - 4 in a model fine-tuned with LoRA.
+
+![ESM2 Memory Usage](../../assets/images/esm2/esm2_peft_memory_usage.png)
+
+#### LoRA Scaling
+
+The number of tokens processed per second increases by 25-80%.
+
+![ESM2 Memory Usage](../../assets/images/esm2/esm2_peft_time.png)

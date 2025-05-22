@@ -16,7 +16,7 @@ dependencies = [
     # external
     'lightning>=2.2.1',
     'megatron-core',
-    'nemo_toolkit[nlp]>=2.2.1',
+    'nemo_toolkit[nlp,eval]>=2.2.1',
     'nemo-run',
     'hatchling',
 ]

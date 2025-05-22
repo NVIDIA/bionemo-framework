@@ -11,7 +11,7 @@ This model is ready for commercial use.
 ### Third-Party Community Consideration
 
 This model is not owned or developed by NVIDIA. This model has been developed and built to a third-party's requirements
-for this application and use case; see the [Chandar Lab web site](https://chandar-lab.github.io/).
+for this application and use case; see the [Chandar Lab website](https://chandar-lab.github.io/).
 
 ### References
 
@@ -37,7 +37,7 @@ Schulz, Sarath Chandar, Christopher James Langmead bioRxiv 2024.09.23.614603; do
 
 ### Output
 
-**Output Type(s):** Embeddings (Amino-acid and sequence-level)
+**Output Type(s):** Embeddings (Amino acid and sequence-level)
 
 **Output Format:** Numeric vector
 
@@ -60,11 +60,11 @@ Schulz, Sarath Chandar, Christopher James Langmead bioRxiv 2024.09.23.614603; do
 
 - Linux
 
-### Model Version(s)
+### Model Versions
 
-The model is fully compatible with weights distributed via HuggingFace, i.e.
+The model is fully compatible with weights distributed via HuggingFace, i.e.,
 [chandar-lab/AMPLIFY_120M](https://huggingface.co/chandar-lab/AMPLIFY_120M). To initialize a NeMo version of AMPLIFY
-from a huggingface tag, use the provided `HFAMPLIFYImporter`:
+from a HuggingFace tag, use the provided `HFAMPLIFYImporter`:
 
 ```python
 module = biobert_lightning_module(config=AMPLIFYConfig())
@@ -133,21 +133,21 @@ AMPLIFY is provided under the Apache 2.0 license.
 
 ## Model Convergence
 
-Model convergence curves are shown below for the 120M and 350M models, trained on the [chardar-lab/UR100P](https://huggingface.co/datasets/chandar-lab/UR100P/tree/main) dataset for 1M steps.
+Model convergence curves are shown below for the 120M and 350M models, trained on the [chandar-lab/UR100P](https://huggingface.co/datasets/chandar-lab/UR100P/tree/main) dataset for 1M steps.
 
 <div class="grid grid-cols-3" markdown>
 
-![AMPLIFY Pre-training training loss](../assets/images/amplify/training_loss.png){ width="600" }
+![AMPLIFY Pre-training Training Loss](../assets/images/amplify/training_loss.png){ width="600" }
 
-![AMPLIFY Pre-training validation loss](../assets/images/amplify/validation_loss.png){ width="600" }
+![AMPLIFY Pre-training Validation Loss](../assets/images/amplify/validation_loss.png){ width="600" }
 
-![AMPLIFY Pre-training validation perplexity](../assets/images/amplify/validation_ppl.png){ width="600" }
+![AMPLIFY Pre-training Validation Perplexity](../assets/images/amplify/validation_ppl.png){ width="600" }
 
 </div>
 
-## Final perplexities by model size
+## Final Perplexities by Model Size
 
-| Model Size | Perplexity at 1M steps |
+| Model Size | Perplexity at 1M Steps |
 | ---------- | ---------------------- |
 | 120M       | 4.23                   |
 | 350M       | 3.05                   |

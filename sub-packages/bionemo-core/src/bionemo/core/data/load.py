@@ -50,7 +50,10 @@ DEFAULT_SOURCE: SourceOptions = os.environ.get("BIONEMO_DATA_SOURCE", "ngc")  # 
 
 def default_pbss_client():
     """Create a default S3 client for PBSS."""
-    import boto3
+    try:
+        import boto3
+    except ImportError:
+        raise ImportError("boto3 is required to download from PBSS.")
 
     retry_config = Config(retries={"max_attempts": 10, "mode": "standard"})
     return boto3.client("s3", endpoint_url="https://pbss.s8k.io", config=retry_config)

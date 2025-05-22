@@ -27,7 +27,8 @@ import torch
 from lightning.pytorch import LightningDataModule
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
-from nemo.collections.llm.gpt.model.base import get_batch_on_this_context_parallel_rank, get_packed_seq_params
+from megatron.core.utils import get_batch_on_this_cp_rank
+from nemo.collections.llm.gpt.model.base import get_packed_seq_params
 from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS, HyenaModel
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning import NeMoLogger
@@ -157,7 +158,9 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, HyenaModel):
             return forward_out
         # Reminder: the model's predictions for input i land at output i+1. To get everything to align, we prepend the
         # EOS token to the input sequences and take the outputs for all but the first token.
-        forward_out_tp_gathered = _gather_along_last_dim(forward_out)
+        forward_out_tp_gathered = _gather_along_last_dim(
+            forward_out, group=parallel_state.get_tensor_model_parallel_group()
+        )
         # else:
         #     forward_out_tp_gathered = _collect_into_dim(forward_out, dim=-1)
         forward_out_gathered = _gather_along_cp_dim(forward_out_tp_gathered)
@@ -252,7 +255,7 @@ def hyena_predict_data_step(dataloader_iter) -> dict[str, torch.Tensor]:
             _batch_required_keys[key] = None
 
     # slice batch along sequence dimension for context parallelism
-    output = get_batch_on_this_context_parallel_rank(_batch_required_keys)
+    output = get_batch_on_this_cp_rank(_batch_required_keys)
 
     return output
 
