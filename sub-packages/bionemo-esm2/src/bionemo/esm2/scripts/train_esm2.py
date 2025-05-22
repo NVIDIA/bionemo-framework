@@ -211,6 +211,12 @@ def main(
             metric_name="val_ppl",
         )
 
+    # Set decoder_first_pipeline_num_layers if needed and not provided
+    if num_layers % pipeline_model_parallel_size != 0 and decoder_first_pipeline_num_layers is None:
+        decoder_first_pipeline_num_layers = num_layers - int(num_layers / pipeline_model_parallel_size + 0.5) * (
+            pipeline_model_parallel_size - 1
+        )
+
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
         num_layers=num_layers,
