@@ -1,5 +1,3 @@
-* [Home](index.md)
-* [User Guide](user-guide/)
-* [Models](models/)
-* [Datasets](datasets/)
-* [API](API_reference/)
+- [Home](index.md)
+- [BioNeMo Documentation](main/)
+- [Models](models/)
