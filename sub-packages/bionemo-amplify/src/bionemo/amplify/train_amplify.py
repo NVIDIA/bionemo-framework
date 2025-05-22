@@ -223,26 +223,30 @@ def main(
             )
         )
 
-    if create_checkpoint_callback:
-        checkpoint_callback = nl_callbacks.ModelCheckpoint(
-            save_last=save_last_checkpoint,
-            monitor=metric_to_monitor_for_checkpoints,
-            save_top_k=save_top_k,
-            every_n_train_steps=val_check_interval,
-            always_save_context=True,
-            filename="{epoch}-{step}-{consumed_samples}",
-        )
-    else:
-        checkpoint_callback = None
-
     # Setup the logger and train the model
     nemo_logger = setup_nemo_lightning_logger(
         root_dir=result_dir,
         name=experiment_name,
         initialize_tensorboard_logger=create_tensorboard_logger,
         wandb_config=wandb_config,
-        ckpt_callback=checkpoint_callback,
     )
+
+    # Configure our custom Checkpointer
+    if create_checkpoint_callback:
+        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            dirpath=checkpoint_path,
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="{epoch}-{step}-{consumed_samples}",
+            # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        )
+        callbacks.append(checkpoint_callback)
+    else:
+        checkpoint_callback = None
 
     tokenizer = BioNeMoAMPLIFYTokenizer()
 
