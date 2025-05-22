@@ -14,8 +14,9 @@
 # limitations under the License.
 
 import torch
+from typing import List, Dict, Union
 
-
+#NOTE: edit collate to handle neighbor data
 def collate_sparse_matrix_batch(batch: list[torch.Tensor]) -> torch.Tensor:
     """Collate function to create a batch out of sparse tensors.
 
@@ -38,3 +39,38 @@ def collate_sparse_matrix_batch(batch: list[torch.Tensor]) -> torch.Tensor:
         max_pointer = int(batch_cols.max().item() + 1)
     batch_sparse_tensor = torch.sparse_csr_tensor(batch_rows, batch_cols, batch_values, size=(len(batch), max_pointer))
     return batch_sparse_tensor
+
+def collate_neighbor_sparse_matrix_batch(batch: List[Dict]) -> Dict[str, Union[torch.Tensor, List[int]]]:
+    """
+    Collates a batch of samples with neighbor data into a single batch.
+    
+    This collation function handles the output format when SingleCellMemMapDataset
+    is used with load_neighbors=True.
+    
+    Args:
+        batch: List of dictionaries, each containing 'current_cell', 'next_cell',
+               'current_cell_index', and 'next_cell_index'
+               
+    Returns:
+        Dict containing:
+        - 'current_cells': Sparse tensor containing all current cells
+        - 'next_cells': Sparse tensor containing all next cells
+        - 'current_cell_indices': List of original indices for current cells
+        - 'next_cell_indices': List of original indices for next cells
+    """
+    # Extract components
+    current_cells = [item['current_cell'] for item in batch]
+    next_cells = [item['next_cell'] for item in batch]
+    current_indices = [item['current_cell_index'] for item in batch]
+    next_indices = [item['next_cell_index'] for item in batch]
+    
+    # Collate the sparse tensors
+    current_batch = collate_sparse_matrix_batch(current_cells)
+    next_batch = collate_sparse_matrix_batch(next_cells)
+    
+    return {
+        'current_cells': current_batch,
+        'next_cells': next_batch,
+        'current_cell_indices': current_indices,
+        'next_cell_indices': next_indices,
+    }
