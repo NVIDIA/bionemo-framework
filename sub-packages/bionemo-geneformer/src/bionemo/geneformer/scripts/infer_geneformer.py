@@ -133,7 +133,6 @@ def infer_model(
         # handle checkpoint resumption here rather than auto-resume so this supports fine-tuning capabilities
         initial_ckpt_path=str(checkpoint_path) if checkpoint_path is not None else None,
         include_embeddings=include_embeddings,
-        include_gene_embeddings=include_gene_embeddings,
         include_hiddens=include_hiddens,
         include_input_ids=include_input_ids,
         skip_logits=not include_logits,

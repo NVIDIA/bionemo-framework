@@ -46,43 +46,13 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
             write_interval: The interval at which predictions will be written. (batch, epoch)
             batch_dim_key_defaults: The default batch dimension for each key, if different from the standard 0.
             seq_dim_key_defaults: The default sequence dimension for each key, if different from the standard 1.
+            include_gene_embeddings: Whether to include gene embeddings in the output predictions.
         """
         super().__init__(write_interval)
         self.output_dir = str(output_dir)
-        # now save whether the user wants gene embeddings
         self.include_gene_embeddings = include_gene_embeddings         
         self.batch_dim_key_defaults = batch_dim_key_defaults
         self.seq_dim_key_defaults = seq_dim_key_defaults
-
-    def write_on_batch_end(
-        self,
-        trainer: pl.Trainer,
-        pl_module: pl.LightningModule,
-        prediction: Any,
-        batch_indices: Sequence[int],
-        batch: Any,
-        batch_idx: int,
-        dataloader_idx: int,
-    ) -> None:
-        """Writes predictions to disk at the end of each batch.
-
-        Args:
-            trainer: The Trainer instance.
-            pl_module: The LightningModule instance.
-            prediction: The prediction made by the model.
-            batch_indices: The indices of the batch.
-            batch: The batch data.
-            batch_idx: The index of the batch.
-            dataloader_idx: The index of the dataloader.
-        """
-        # this will create N (num processes) files in `output_dir` each containing
-        # the predictions of it's respective rank
-        result_path = os.path.join(self.output_dir, f"predictions__rank_{trainer.global_rank}__batch_{batch_idx}.pt")
-
-        # batch_indices is not captured due to a lightning bug when return_predictions = False
-        # we use input IDs in the prediction to map the result to input
-        torch.save(prediction, result_path)
-        logging.info(f"Inference predictions are stored in {result_path}\n{prediction.keys()}")
 
     def write_on_epoch_end(
         self,
@@ -92,15 +62,24 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
         batch_indices: Sequence[int],
     ) -> None:
         """Writes predictions to disk at the end of each epoch.
+        
+        Writing all predictions on epoch end is memory intensive. It is recommended to use the batch writer instead for
+        large predictions.
 
+        Multi-device predictions will likely yield predictions in an order that is inconsistent with single device predictions and the input data.
+        
         Args:
             trainer: The Trainer instance.
             pl_module: The LightningModule instance, required by PyTorch Lightning.
             predictions: The predictions made by the model.
             batch_indices: The indices of the batch, required by PyTorch Lightning.
+        
+        Raises:
+            Multi-GPU predictions are output in an inconsistent order with multiple devices.
         """
         # this will create N (num processes) files in `output_dir` each containing
         # the predictions of it's respective rank
+        
         result_path = os.path.join(self.output_dir, f"predictions__rank_{trainer.global_rank}.pt")
 
         # collate multiple batches / ignore empty ones
@@ -109,6 +88,7 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
             collate_kwargs["batch_dim_key_defaults"] = self.batch_dim_key_defaults
         if self.seq_dim_key_defaults is not None:
             collate_kwargs["seq_dim_key_defaults"] = self.seq_dim_key_defaults
+        
         prediction = batch_collator([item for item in predictions if item is not None], **collate_kwargs)
 
         # batch_indices is not captured due to a lightning bug when return_predictions = False
