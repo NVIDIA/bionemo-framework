@@ -42,7 +42,7 @@ def generate_api_reference() -> None:
         for path in sorted(src.rglob("*.py")):
             module_path = path.relative_to(src).with_suffix("")
             doc_path = path.relative_to(src).with_suffix(".md")
-            full_doc_path = Path("API_reference") / doc_path
+            full_doc_path = Path("main/references/API_reference") / doc_path
             parts = tuple(module_path.parts)
 
             if parts[-1] == "__init__":
@@ -59,7 +59,7 @@ def generate_api_reference() -> None:
         # Process Markdown files
         for path in sorted(src.rglob("*.md")):
             doc_path = path.relative_to(src)
-            full_doc_path = Path("API_reference") / doc_path
+            full_doc_path = Path("main/references/API_reference") / doc_path
             with mkdocs_gen_files.open(full_doc_path, "w") as fd:
                 fd.write(path.read_text())
             logger.info(f"Added Markdown file: {full_doc_path}")
@@ -80,7 +80,7 @@ def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
     if examples_dir.exists():
         # Copy notebooks
         for notebook in examples_dir.glob("*.ipynb"):
-            dest_dir = Path("user-guide/examples") / sub_package.name
+            dest_dir = Path("main/examples") / sub_package.name
             dest_file = dest_dir / notebook.name
 
             with mkdocs_gen_files.open(dest_file, "wb") as fd:
@@ -89,7 +89,7 @@ def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
             mkdocs_gen_files.set_edit_path(dest_file, notebook.relative_to(root))
         # Copy markdown files
         for markdown in examples_dir.glob("*.md"):
-            dest_dir = Path("user-guide/examples") / sub_package.name
+            dest_dir = Path("main/examples") / sub_package.name
             dest_file = dest_dir / markdown.name
 
             with mkdocs_gen_files.open(dest_file, "wb") as fd:
@@ -110,7 +110,7 @@ def get_subpackage_readmes(sub_package: Path, root: Path) -> None:
     """
     readme_file = sub_package / "README.md"
     if readme_file.exists():
-        dest_dir = Path("user-guide/developer-guide") / sub_package.name
+        dest_dir = Path("main/developer-guide") / sub_package.name
         dest_file = dest_dir / f"{sub_package.name}-Overview.md"
 
         with mkdocs_gen_files.open(dest_file, "w") as fd:
@@ -133,7 +133,7 @@ def get_subpackage_assets(sub_package: Path, root: Path) -> None:
     Returns:
         None
     """
-    dest_dir = Path("user-guide/developer-guide") / sub_package.name
+    dest_dir = Path("main/developer-guide") / sub_package.name
     assets_dir = sub_package / "assets"
     if assets_dir.exists():
         for asset_path in assets_dir.rglob("*"):

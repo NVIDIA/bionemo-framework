@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import torch
-from megatron.core.models.common.embeddings.rope_utils import apply_rotary_pos_emb
+from megatron.core.models.common.embeddings.rope_utils import _apply_rotary_pos_emb_bshd
 from megatron.core.models.common.embeddings.rotary_pos_embedding import RotaryEmbedding
 from transformers import AutoConfig
 
@@ -47,8 +47,20 @@ def test_rope_embeddings():
         seq_len_interpolation_factor=nemo_config.seq_len_interpolation_factor,
     )
     rotary_pos_emb = rotary_pos_layer(q.shape[1])
-    q_post_nemo = apply_rotary_pos_emb(q.transpose(0, 1).cuda(), rotary_pos_emb.cuda(), config=nemo_config).cpu()
-    k_post_nemo = apply_rotary_pos_emb(k.transpose(0, 1).cuda(), rotary_pos_emb.cuda(), config=nemo_config).cpu()
+    # Note: Use the backend implementation of the RoPE to avoid
+    # getting or instantiating a CP process group.
+    q_post_nemo = _apply_rotary_pos_emb_bshd(
+        q.transpose(0, 1).cuda(),
+        rotary_pos_emb.cuda(),
+        rotary_interleaved=nemo_config.rotary_interleaved,
+        multi_latent_attention=nemo_config.multi_latent_attention,
+    ).cpu()
+    k_post_nemo = _apply_rotary_pos_emb_bshd(
+        k.transpose(0, 1).cuda(),
+        rotary_pos_emb.cuda(),
+        rotary_interleaved=nemo_config.rotary_interleaved,
+        multi_latent_attention=nemo_config.multi_latent_attention,
+    ).cpu()
 
     torch.testing.assert_close(q_post, q_post_nemo.transpose(0, 1))
     torch.testing.assert_close(k_post, k_post_nemo.transpose(0, 1))

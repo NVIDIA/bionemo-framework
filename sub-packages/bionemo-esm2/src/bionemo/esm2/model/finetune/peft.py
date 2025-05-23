@@ -28,6 +28,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import List, Optional
+
+import lightning.pytorch as pl
 from nemo.collections.llm import fn
 from nemo.collections.llm.fn.mixin import FNMixin
 from nemo.collections.llm.peft.lora import LoRA
@@ -37,13 +40,66 @@ from torch import nn
 class ESM2LoRA(LoRA):
     """LoRA for the BioNeMo2 ESM Model."""
 
+    def __init__(
+        self,
+        peft_ckpt_path: Optional[str] = None,
+        freeze_modules: List[str] = ["encoder", "embedding"],
+        *args,
+        **kwarg,
+    ):
+        """Initialize the LoRA Adapter.
+
+        Args:
+            peft_ckpt_path: config for peft chekpoint.
+            freeze_modules: modules to freeze.
+            *args: args for the LoRA class.
+            **kwarg: kwargs for the LoRA class.
+        """
+        super().__init__(*args, **kwarg)
+        self.freeze_modules = freeze_modules
+        self.peft_ckpt_path = peft_ckpt_path
+
+    def setup(self, *args, **kwarg):
+        """Initialize the LoRA Adapter. Pass the peft_ckpt_path to the wrapped io.
+
+        Args:
+            *args: args for the LoRA class.
+            **kwarg: kwargs for the LoRA class.
+        """
+        super().setup(*args, **kwarg)
+        self.wrapped_io.adapter_ckpt_path = self.peft_ckpt_path
+
+    def on_predict_epoch_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
+        """Event hook.
+
+        Args:
+            trainer: The trainer object.
+            pl_module: The LightningModule object.
+        """
+        self._maybe_apply_transform(trainer)
+
+    def adapter_key_filter(self, key: str) -> bool:
+        """Given a key in the state dict, return whether the key is an adapter (or base model).
+
+        Args:
+            key: the key to filter
+        """
+        if isinstance(key, tuple):
+            return key[1].requires_grad
+        if "_extra_state" in key:
+            return False
+        return (
+            (not any(substring in key for substring in self.freeze_modules))
+            or ".adapter." in key
+            or key.endswith(".adapters")
+        )
+
     def __call__(self, model: nn.Module) -> nn.Module:
         """This method is called when the object is called as a function.
 
         Args:
             model: The input model.
 
-        Returns:
             The modified model.
         """
         fn.walk(model, self.selective_freeze)
@@ -64,6 +120,6 @@ class ESM2LoRA(LoRA):
         See Also:
             nemo.collections.llm.fn.mixin.FNMixin
         """
-        if name in ["encoder", "embedding"]:
+        if name in self.freeze_modules:
             FNMixin.freeze(m)
         return m
