@@ -105,7 +105,9 @@ def hyena_config() -> HyenaConfig:
 
 
 class B2BConv1d(torch.nn.Module):
-    def __init__(self, hyena_config, hyena_test_config, seq_len, use_b2b_causal_conv1d=False):
+    def __init__(
+        self, hyena_config, hyena_test_config, seq_len, use_b2b_causal_conv1d=False, operator_type="hyena_medium_conv"
+    ):
         super().__init__()
 
         # Create necessary submodules - use the mixer submodules like in the regular mixer fixture
@@ -113,6 +115,8 @@ class B2BConv1d(torch.nn.Module):
 
         # Set the b2b parameter in the config
         hyena_test_config.use_b2b_causal_conv1d = use_b2b_causal_conv1d
+        self.use_b2b_causal_conv1d = use_b2b_causal_conv1d
+        self.operator_type = operator_type
 
         print("Creating HyenaMixer...")
         self.mixer = HyenaMixer(
@@ -121,15 +125,18 @@ class B2BConv1d(torch.nn.Module):
             max_sequence_length=seq_len,
             submodules=submodules,
             layer_number=1,
-            operator_type="hyena_short_conv",
+            operator_type=self.operator_type,
         )
 
-    def forward(self, x, _use_cp=True):
-        features = self.mixer.hyena_proj_conv(x, _use_cp=_use_cp)
-        x1, x2, v = rearrange(
-            features, "b (g dg p) l -> b (g dg) p l", p=3, g=self.mixer.num_groups_per_tp_rank
-        ).unbind(dim=2)
-        z = self.mixer.mixer(x1, x2, v, _hyena_use_cp=_use_cp)
+    def forward(self, x, _use_cp=False):
+        if self.use_b2b_causal_conv1d:
+            z = self.mixer.b2b_kernel(x, _use_cp=_use_cp)
+        else:
+            features = self.mixer.hyena_proj_conv(x, _use_cp=_use_cp)
+            x1, x2, v = rearrange(
+                features, "b (g dg p) l -> b (g dg) p l", p=3, g=self.mixer.num_groups_per_tp_rank
+            ).unbind(dim=2)
+            z = self.mixer.mixer(x1, x2, v, _hyena_use_cp=_use_cp)
         return z
 
 
@@ -174,7 +181,7 @@ def test_b2b_causal_conv1d(mixer: B2BConv1d, mixer_kernel: B2BConv1d, config_typ
         )
 
         # PyTorch Mixer
-        output_features = mixer(input_features, _use_cp=False)
+        output_features = mixer(input_features)
         assert output_features.shape == (batch_size, mixer.mixer.hidden_size, seq_len), (
             f"output_features.shape: {output_features.shape}, batch_size: {batch_size}, mixer.mixer.hidden_size: {mixer.mixer.hidden_size}, seq_len: {seq_len}"
         )
@@ -191,7 +198,7 @@ def test_b2b_causal_conv1d(mixer: B2BConv1d, mixer_kernel: B2BConv1d, config_typ
         mixer.zero_grad()
 
         # CUDA kernel in Mixer
-        output_features_kernel = mixer_kernel(input_features, _use_cp=True)
+        output_features_kernel = mixer_kernel(input_features)
         assert output_features_kernel.shape == (
             batch_size,
             mixer_kernel.mixer.hidden_size,
@@ -212,8 +219,8 @@ def test_b2b_causal_conv1d(mixer: B2BConv1d, mixer_kernel: B2BConv1d, config_typ
         mixer_kernel.zero_grad()
 
         # Compare results between PyTorch and CUDA kernel implementations
-        torch.testing.assert_close(loss, loss_kernel)
         torch.testing.assert_close(output_features, output_features_kernel)
+        torch.testing.assert_close(loss, loss_kernel)
 
         # Compare gradients
         assert len(grads) == len(grads_kernel)
