@@ -16,6 +16,7 @@ BioNeMo Framework and begin exploring its features and capabilities.
 The BioNeMo Framework container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU). It takes about 10 minutes to deploy this notebook as a Launchable. After launching the instance, launch a Terminal session in the Jupyter Lab UI. 
 
 **Notes**:
+
 - This links to the nightly release and may be out of sync with these docs.
 - Access to Brev.Dev requires credit card information.
 
@@ -28,6 +29,7 @@ NGC is a portal of enterprise services, software, and support for artificial int
 this registry, you will need to create a free NGC account and an API Key using the following steps:
 
 1. Create a free account on [NGC](https://ngc.nvidia.com/signin) and log in.
+
 2. At the top right, click on the **User > Setup > Generate API Key**, then click **+ Generate API Key** and
    **Confirm**. Copy and store your API Key in a secure location.
 
