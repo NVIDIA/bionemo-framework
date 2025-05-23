@@ -2,16 +2,16 @@
 
 [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) relies on determinism in the training dataset classes to ensure
 that input tensors are initialized correctly across model-parallel ranks (see [NeMo2 Parallelism](./nemo2.md)). As a
-consequence, new dataset classes must be careful to preserve the required determinism. Common operations such as data
-augmentation, masking, etc. can cause `dataset[i]` to return random results for a given index, breaking this megatron
+consequence, ensure that the new dataset classes preserve the required determinism. Common operations such as data
+augmentation and masking can cause `dataset[i]` to return random results for a given index, breaking this megatron
 contract.
 
 
 ## Multi-Epoch Training
 
-One training regime where this limitation is most apparent is is multi-epoch training, where standard training recipes
+One training regime where this limitation is most apparent is multi-epoch training, where standard training recipes
 would apply different random masks or different data augmentation strategies each time the data is encountered. BioNeMo
-provides a number of utilities that make multi-epoch training easier while still obeying the determinism requirements of
+provides some utilities that make multi-epoch training easier, while obeying the determinism requirements of
 megatron.
 
 The [MultiEpochDatasetResampler][bionemo.core.data.multi_epoch_dataset.MultiEpochDatasetResampler] class simplifies the
@@ -37,7 +37,7 @@ class MyDataset:
 
 For deterministic datasets that still want to train for multiple epochs with epoch-level shuffling, the
 [IdentityMultiEpochDatasetWrapper][bionemo.core.data.multi_epoch_dataset.IdentityMultiEpochDatasetWrapper] class can
-simplify this process by wrapping a dataset that accepts integer indices and passing along the
+simplify this process by wrapping a dataset that accepts integer indices and passes along the
 [EpochIndex][bionemo.core.data.multi_epoch_dataset.EpochIndex] index values from the resampled dataset.
 
 ```python
@@ -91,7 +91,7 @@ class MyDataModule(MegatronDataModule):
 
     WARNING: 'train' is the default value of `mode` in `WrappedDataLoader`. If not set, users might find their validation/test dataloader changes behavior by resuming from a non-zero sample index.
 
-## Testing Datasets For Megatron Compatibility
+## Testing Datasets for Megatron Compatibility
 
 BioNeMo also provides utility functions for test suites to validate that datasets conform to the megatron data model.
 The [assert_dataset_compatible_with_megatron][bionemo.testing.data_utils.assert_dataset_compatible_with_megatron]
