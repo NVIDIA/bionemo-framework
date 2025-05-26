@@ -180,6 +180,7 @@ def infer_esm2_entrypoint():
         pipeline_model_parallel_size=args.pipeline_model_parallel_size,
         devices=args.num_gpus,
         num_nodes=args.num_nodes,
+        prediction_interval=args.prediction_interval,
         config_class=args.config_class,
         lora_checkpoint_path=args.lora_checkpoint_path,
     )
