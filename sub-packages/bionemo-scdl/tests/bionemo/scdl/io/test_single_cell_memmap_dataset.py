@@ -258,3 +258,24 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
         load_block_row_size=3,
     )
     compare_fn(ds_regular, ds_lazy)
+
+# NOTE: add neighbor test dataset
+# Test creating a dataset with neighbor support
+def test_create_dataset_with_neighbor_support(tmp_path):
+    # Create a simple dataset with neighbor support
+    ds = SingleCellMemMapDataset(
+        data_path=tmp_path / "scnn", 
+        num_rows=5, 
+        num_elements=10,
+        load_neighbors=True,
+        neighbor_key='test_neighbors',
+        neighbor_sampling_strategy='random',
+        fallback_to_identity=True
+    )
+    
+    # Verify neighbor configuration
+    assert ds.load_neighbors is True
+    assert ds.neighbor_key == 'test_neighbors'
+    assert ds.neighbor_sampling_strategy == 'random'
+    assert ds.fallback_to_identity is True
+    assert ds._has_neighbors is False  # No neighbors loaded yet

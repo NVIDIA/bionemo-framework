@@ -17,7 +17,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
-from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
+from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch, collate_neighbor_sparse_matrix_batch
 
 
 def test_sparse_collate_function_produces_correct_batch():
@@ -93,3 +93,65 @@ def test_dataloading_batch_size_three_works_with_collate(tmp_path, test_director
 
     batch = next(iter(dataloader))
     assert torch.equal(batch.to_dense(), expected_tensor)
+
+def test_collate_neighbor_sparse_matrix_batch_keys():
+    # Create sample batch with neighbor data
+    batch = [
+        {
+            'current_cell': torch.stack((torch.tensor([1.0, 2.0]), torch.tensor([0, 2]))),
+            'next_cell': torch.stack((torch.tensor([3.0, 4.0]), torch.tensor([1, 3]))), 
+            'current_cell_index': 0,
+            'next_cell_index': 1
+        },
+        {
+            'current_cell': torch.stack((torch.tensor([5.0]), torch.tensor([2]))),
+            'next_cell': torch.stack((torch.tensor([6.0, 7.0]), torch.tensor([0, 2]))),
+            'current_cell_index': 2,
+            'next_cell_index': 3
+        }
+    ]
+    
+    result = collate_neighbor_sparse_matrix_batch(batch)
+    assert set(result.keys()) == {'current_cells', 'next_cells', 'current_cell_indices', 'next_cell_indices'}
+
+def test_collate_neighbor_sparse_matrix_batch_current_cells():
+    batch = [
+        {
+            'current_cell': torch.stack((torch.tensor([1.0, 2.0]), torch.tensor([0, 2]))),
+            'next_cell': torch.stack((torch.tensor([3.0, 4.0]), torch.tensor([1, 3]))), 
+            'current_cell_index': 0,
+            'next_cell_index': 1
+        },
+        {
+            'current_cell': torch.stack((torch.tensor([5.0]), torch.tensor([2]))),
+            'next_cell': torch.stack((torch.tensor([6.0, 7.0]), torch.tensor([0, 2]))),
+            'current_cell_index': 2,
+            'next_cell_index': 3
+        }
+    ]
+    
+    result = collate_neighbor_sparse_matrix_batch(batch)
+    assert torch.equal(result['current_cells'].to_dense(), 
+                      torch.tensor([[1.0, 0.0, 2.0, 0.0], 
+                                    [0.0, 0.0, 5.0, 0.0]]))
+
+def test_collate_neighbor_sparse_matrix_batch_next_cells():
+    batch = [
+        {
+            'current_cell': torch.stack((torch.tensor([1.0, 2.0]), torch.tensor([0, 2]))),
+            'next_cell': torch.stack((torch.tensor([3.0, 4.0]), torch.tensor([1, 3]))), 
+            'current_cell_index': 0,
+            'next_cell_index': 1
+        },
+        {
+            'current_cell': torch.stack((torch.tensor([5.0]), torch.tensor([2]))),
+            'next_cell': torch.stack((torch.tensor([6.0, 7.0]), torch.tensor([0, 2]))),
+            'current_cell_index': 2,
+            'next_cell_index': 3
+        }
+    ]
+    
+    result = collate_neighbor_sparse_matrix_batch(batch)
+    assert torch.equal(result['next_cells'].to_dense(), 
+                      torch.tensor([[0.0, 3.0, 0.0, 4.0], 
+                                    [6.0, 0.0, 7.0, 0.0]]))
