@@ -42,6 +42,38 @@ from bionemo.testing.torch import check_fp8_support
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
 
+import os
+import pickle
+
+SAVE_DIR = "intermediate_outputs_x86_64"
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+def save_output_hook(name):
+    def hook(module, input, output):
+        try:
+            if isinstance(output, torch.Tensor):
+                print(f"[Hook fired] {name}: output shape = {output.shape}")
+                data = output.detach().cpu().float()
+            elif isinstance(output, tuple):
+                print(f"[Hook fired] {name}: tuple with {len(output)} elements")
+                data = tuple(
+                    o.detach().cpu().float() if isinstance(o, torch.Tensor) else None
+                    for o in output
+                )
+            else:
+                print(f"[Hook fired] {name}: unsupported type {type(output)}, skipping save.")
+                return
+
+            # Only pickle valid tensor or tuple data
+            with open(os.path.join(SAVE_DIR, f"{name}.pkl"), "wb") as f:
+                pickle.dump(data, f)
+        except Exception as e:
+            print(f"[Hook error] {name}: {e}")
+    return hook
+
+hooks = []
+
+
 
 def load_weights_sharded_inplace_nemo2_to_mcore(
     model: MegatronModelType,
@@ -169,6 +201,10 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         device = raw_megatron_model.parameters().__next__().device
         load_weights_sharded_inplace_nemo2_to_mcore(raw_megatron_model, evo2_7b_checkpoint_weights, {}, "torch_dist")
         model = Float16Module(hyena_config, raw_megatron_model)
+        for name, module in model.named_modules():
+            if len(list(module.children())) == 0:  # leaf modules only
+                print(f"Registering hook on {name}")
+                hooks.append(module.register_forward_hook(save_output_hook(name)))
         input_seq = "GAAATTAGCGCGTCCGGAATGATACGAGGGGAAACGAAATTTTGAATTAATGGAGAAAAAAGACGAGAAACCTTAAGCAAAAAAATTTTAGCTTCGAATATTTATTAATTTCTGAGATGTTGTTAAACGATTTTCGATTCCAAGTTGTGCGCACGAACGTTATTGCAAATAAATGCTGCTTATTCGGATGTTTCCACGATCTTTGTTGCAATGGTAGTCGAGTACCCGATAACCCAATTTCGTTACATCGGCCTATCTGTAGAATATCCAATCTATGGTTCATAAAAAATCTGATCGTTTGTTTTTAAGAAATTAAACGCGTTAAATTGAACGAATTTCGAATACCGGTCTTAGCGAAGGACCTCCCCTCTTGCTTGCGTATTGCCCCGCGAAATTTCTTTTCGGCGATGAACGATACAAAAAATTCTATCGAATGTTACTTCTATTCTCTGCCTCGTCTATGACTTGGAGATTGGTCTATGTCGTTCGTTTTCTCGCGAGTTTCCAATATGTCCGTAGTATGTGAACGCTGGTATTCGTGAAGATAAATTATTGTTTTTACAATTTCTTTCAAAAATATATAATTTTAATTTATATAAT"
         input_ids = torch.tensor(tokenizer.text_to_ids(input_seq)).int().unsqueeze(0).to(device)
         position_ids = torch.arange(len(input_seq)).unsqueeze(0).to(device)
