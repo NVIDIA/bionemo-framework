@@ -139,6 +139,7 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
             logging.info("Finished calculating gene embeddings.")
 
             prediction['gene_embeddings'] = gene_embedding_accumulator
+            prediction['gene_counts'] = input_id_count
 
         
         torch.save(prediction, result_path)
