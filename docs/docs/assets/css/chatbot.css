@@ -9,3 +9,9 @@ img.open-icon {
   max-width: 22px;
   margin-right: 8px;
 }
+
+/* tempoarily make invisible to test in production.
+  turn on in going md-container > md-main > md-contant > article */
+#chatbot > button {
+  display: none;
+}
