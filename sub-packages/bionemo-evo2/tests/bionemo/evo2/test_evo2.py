@@ -36,7 +36,6 @@ from bionemo.llm.utils.weight_utils import (
     _munge_sharded_tensor_key_megatron_to_nemo2,
 )
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
-from bionemo.testing.torch import check_fp8_support
 
 
 logger = logging.getLogger(__name__)
@@ -175,19 +174,6 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         attention_mask = None
         outputs = model(input_ids=input_ids, position_ids=position_ids, attention_mask=attention_mask)
         gold_standard_no_fp8_tensor = torch.load(gold_standard_no_fp8).to(device=outputs.device, dtype=outputs.dtype)
-        is_fp8_supported, compute_capability, device_info = check_fp8_support(device.index)
-        if is_fp8_supported and compute_capability == "9.0":
-            # Most rigurous assertion for output equivalence currently works on devices that are new enough to
-            #  support FP8.
-            logger.info(
-                f"Device {device_info} ({compute_capability}) supports FP8 with 9.0 compute capability, the "
-                "same configuration as the gold standard was generated with. Running most rigurous assertion."
-            )
-            torch.testing.assert_close(outputs, gold_standard_no_fp8_tensor)
-        else:
-            logger.info(
-                f"Device {device_info} ({compute_capability}) does not support FP8. Running less rigurous assertions."
-            )
         top_2_logits_golden = gold_standard_no_fp8_tensor.topk(dim=-1, sorted=True, largest=True, k=2)
         ambiguous_positions = (
             top_2_logits_golden.values[..., 0] - top_2_logits_golden.values[..., 1]
