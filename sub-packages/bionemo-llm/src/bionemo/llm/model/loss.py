@@ -24,8 +24,6 @@ from nemo.lightning.megatron_parallel import (
 )
 from torch import Tensor
 
-from bionemo.llm.utils.megatron_utils import average_losses_across_data_parallel_group
-
 
 __all__: Sequence[str] = (
     "BERTMLMLossWithReduction",
@@ -219,9 +217,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
                 op=torch.distributed.ReduceOp.SUM,
             )
 
-            return val_loss_for_microbatch , {
-                "loss_sum_and_microbatch_size": loss_sum_and_microbatch_size_all_gpu
-            }
+            return val_loss_for_microbatch, {"loss_sum_and_microbatch_size": loss_sum_and_microbatch_size_all_gpu}
         else:
             group_token_loss_sum_copy = group_token_loss_sum.clone().detach().view(1)
             loss_sum_and_microbatch_size_all_gpu = torch.cat(
