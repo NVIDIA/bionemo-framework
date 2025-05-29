@@ -42,6 +42,7 @@ from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.transformer.transformer_block import TransformerBlock
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import get_linear_layer
+from megatron.core.utils import init_method_normal
 from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
 from nemo.lightning import get_vocab_size
 from torch import Tensor
@@ -172,6 +173,7 @@ class MegatronBioBertModel(LanguageModule):
         include_hiddens: bool = False,
         include_input_ids: bool = False,
         skip_logits: bool = False,  # Useful for inference time.
+        spike_no_more_embedding_init: bool = True,
     ):
         # TODO (@jstjohn) come up with a cleaner way for this model to return a set of things the user wants.
         #  hidden states, embeddings, logits, etc. The defaults should work for training but we need to make it
@@ -214,12 +216,18 @@ class MegatronBioBertModel(LanguageModule):
                 torch.arange(max_sequence_length, dtype=torch.long, requires_grad=False).unsqueeze(0),
                 persistent=False,
             )
+            if spike_no_more_embedding_init:
+                embedding_config = deepcopy(self.config)
+                embedding_config.init_method = init_method_normal(1.0)
+            else:
+                embedding_config = self.config
+
             self.embedding = LanguageModelEmbedding(
-                config=self.config,
-                vocab_size=self.vocab_size,
-                max_sequence_length=self.max_sequence_length,
-                position_embedding_type=position_embedding_type,
-                num_tokentypes=num_tokentypes,
+                    config=embedding_config,
+                    vocab_size=self.vocab_size,
+                    max_sequence_length=self.max_sequence_length,
+                    position_embedding_type=position_embedding_type,
+                    num_tokentypes=num_tokentypes,
             )
 
         if self.position_embedding_type == "rope":
@@ -580,6 +588,8 @@ class BioBertConfig(
             include_hiddens=self.include_hiddens,
             skip_logits=self.skip_logits,
             include_input_ids=self.include_input_ids,
+            # TODO (SKH): make this a parameter.
+            spike_no_more_embedding_init=True,
         )
         # TODO (@skothenhill) this is a hack to load the old checkpoint.
         # This should be removed once we have a proper checkpoint conversion

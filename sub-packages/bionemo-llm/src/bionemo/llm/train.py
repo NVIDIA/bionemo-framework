@@ -58,6 +58,8 @@ class NsysConfig(BaseModel):
     end_step: Optional[int] = None
     ranks: list[int] = field(default_factory=lambda: [0])
 
+def no_embedding_weight_decay_cond(name, param) -> bool:
+    return "embedding" in name
 
 def nemo_logger_factory(experiment_config: ExperimentConfig, wandb_config: Optional[WandbConfig]) -> nl.NeMoLogger:
     """Creates and returns a NeMoLogger instance configured based on the provided experiment and wandb configurations.
@@ -241,6 +243,7 @@ def train(
         raise NotImplementedError(f"Scheduler {optim_config.lr_scheduler} not implemented.")
 
     optimizer = MegatronOptimizerModule(
+        # TODO: parameterize clip grad
         config=OptimizerConfig(
             lr=optim_config.lr,
             weight_decay=optim_config.weight_decay,
@@ -250,9 +253,12 @@ def train(
             use_distributed_optimizer=parallel_config.use_distributed_optimizer,
             fp16=bionemo_model_config.fp16,
             bf16=bionemo_model_config.bf16,
+            clip_grad=10
         ),
         lr_scheduler=lr_scheduler,
+        no_weight_decay_cond=no_embedding_weight_decay_cond, # for now lets ignore making this parameterized.
     )
+
 
     model: BionemoLightningModule = biobert_lightning_module(
         config=bionemo_model_config,
