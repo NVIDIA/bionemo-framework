@@ -223,11 +223,11 @@ class MegatronBioBertModel(LanguageModule):
                 embedding_config = self.config
 
             self.embedding = LanguageModelEmbedding(
-                    config=embedding_config,
-                    vocab_size=self.vocab_size,
-                    max_sequence_length=self.max_sequence_length,
-                    position_embedding_type=position_embedding_type,
-                    num_tokentypes=num_tokentypes,
+                config=embedding_config,
+                vocab_size=self.vocab_size,
+                max_sequence_length=self.max_sequence_length,
+                position_embedding_type=position_embedding_type,
+                num_tokentypes=num_tokentypes,
             )
 
         if self.position_embedding_type == "rope":
