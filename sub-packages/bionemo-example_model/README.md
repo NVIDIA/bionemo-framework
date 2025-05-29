@@ -1,6 +1,4 @@
-## bionemo-example_model
-
-# Introduction
+# bionemo-example_model
 
 This is a minimalist package containing an example model that makes use of bionemo2 and nemo conventions. It contains the necessary models, dataloaders, datasets, and custom loss functions. The referenced classes and functions are in `bionemo.example_model.lightning.lightning_basic`.
 
