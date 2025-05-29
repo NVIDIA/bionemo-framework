@@ -155,6 +155,7 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         super().__init__()
         self.validation_step = validation_step
         self.val_drop_last = val_drop_last
+        self.rank = parallel_state.get_data_parallel_rank()
 
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
@@ -182,9 +183,38 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         # Compute loss over "valid" tokens in the microbatch, i.e. the non-masked tokens.
         # The loss is not normalized, so you need to divide by the number of non-masked
         # tokens (loss_mask.sum()) to compute the mean loss per token.
+        '''
+        Writing to myself about where I want to take this- 
+
+            1) There was a bug, where the divisor was happening after the reduce. This was fixed.
+            2) In the old/reverted/fixed version, the loss is computed locally, on each ddp shard (or cp shard). 
+                then it is averaged. These averages are then averaged again. I believe this is incorrect.
+            3) Instead, we consider all tokens, and all losses, over all DP groups and all CP groups. Because ultimately,
+                the losses are independent, and they just need to be normalized by the total number of tokens.
+
+        Now, we confirmed this, the shitty code below does that and writes to a file, we can see the losses have changed.
+
+        - It would still be good to concisely demonstrate how these are different in the code.
+        - I dont want to keep the hacky shitty code around, so I might just write dummy functions that demonstrate it?
+        - We need a good writeup/visual for what is happening, this should go in the PR for reviewers.
+            would also be good to get Xiaowei's eyes on this.
+
+    
+        
+        '''
+
+        # NOTE(SKH) this is the sum of all losses for all tokens/positions in the minibatch (and token count)
         loss_for_microbatch, num_valid_tokens_in_microbatch = masked_token_loss(
             unreduced_token_loss, batch["loss_mask"]
         )
+        new_loss_for_microbatch = loss_for_microbatch.clone().detach().view(1)
+
+        # NOTE(SKH) this tests the validation side of thing, the division is what caused the problem as it reduces or something.
+        val_loss_for_microbatch = loss_for_microbatch.clone()
+        # NOTE(SKH) this replaces the norm that previously happened in masked token loss.
+        #              - This will probably need a reduction over cp groups to handle the context parallel case.
+        loss_for_microbatch = loss_for_microbatch / num_valid_tokens_in_microbatch
+
 
         # Get the context parallel size for some normalizations and reductions.
         cp_size = parallel_state.get_context_parallel_world_size()
@@ -192,6 +222,8 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
         # If we do not drop the last partial batch of validation, we need to do fancy reduction handling to support
         #  reducing the loss across the data parallel group.
         if self.validation_step and not self.val_drop_last:
+            # NOTE(SKH): little hack toevaluate both routes at once.
+            loss_for_microbatch = val_loss_for_microbatch
             if loss_for_microbatch.isnan():
                 # TODO(@jomitchell): Add a unit test for this. This is the case where there are no valid tokens in the microbatch for the loss
                 #  to be computed over, so we expect a NaN loss (divide by zero for a mean) but we make this an expected and non-breaking case,
@@ -210,7 +242,6 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
                     Tensor([num_valid_tokens_in_microbatch]).cuda().clone().detach(),
                 ]
             )
-
             # Reduce the loss sum across the data parallel group to get the total loss
             # for all data parallel / distributed microbatches.
             torch.distributed.all_reduce(
@@ -219,21 +250,44 @@ class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossRedu
                 op=torch.distributed.ReduceOp.SUM,
             )
 
-            # Return the loss tensor multiplied by the context parallel size,
-            # and the data & context parallel reduced loss sum.
+            # NOTE(SKH)  Do we actually need this? I think the global reduction will handle cp_size.
+            # NOTE(SKH)       same goes for the return below.
+            temp_loss_for_microbatch = loss_for_microbatch.clone() * cp_size
+
             return loss_for_microbatch * cp_size, {
                 "loss_sum_and_microbatch_size": loss_sum_and_microbatch_size_all_gpu
             }
+        else:
+            # NOTE(SKH) we are going to compute the average ourself. - drop into if else so the others hold.
+            loss_sum_and_microbatch_size_all_gpu = torch.cat(
+                [
+                    # loss_for_microbatch.clone().detach().view(1), # now its a new new loss for microbatch lel
+                    new_loss_for_microbatch, # the .view(1) above is what fucks with this.
+                    Tensor([num_valid_tokens_in_microbatch]).cuda().clone().detach(),
+                ]
+            )
+            torch.distributed.all_reduce(
+                loss_sum_and_microbatch_size_all_gpu,
+                group=parallel_state.get_data_parallel_group(with_context_parallel=True),
+                op=torch.distributed.ReduceOp.SUM,
+            )
+            # Reduce over all groups
+            also_reduced_loss= loss_sum_and_microbatch_size_all_gpu[0] / loss_sum_and_microbatch_size_all_gpu[1]
+            # NOTE: end changes here.
 
         # Return the loss tensor multiplied by the context parallel size, as well as
         # the data-parallel averaged loss, i.e. the loss divided by the DP size.
         # Normalize the loss by the number of "valid" tokens, because masked_token_loss
         # no longer does this normalization, and BioNeMo losses expect this normalization.
+
+        # NOTE(SKH) keep this for the condition that works (which excludes that else statment).
         reduced_loss = (
             average_losses_across_data_parallel_group([loss_for_microbatch], with_context_parallel=True)
-            / num_valid_tokens_in_microbatch
+            # / num_valid_tokens_in_microbatch
         )
-        return loss_for_microbatch * cp_size, {"avg": reduced_loss}
+
+        # NOTE(SKH) Unsqueeze 'fixed' the shape issue, whcih means the only thing left is the validation loss when cehckpointing.
+        return loss_for_microbatch * cp_size, {"avg": also_reduced_loss.unsqueeze(0)}
 
 
 def unreduced_token_loss_fn(logits: Tensor, labels: Tensor, cross_entropy_loss_fusion: bool = False) -> Tensor:

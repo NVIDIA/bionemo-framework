@@ -28,7 +28,7 @@ from bionemo.testing.lightning import get_random_microbatch
 
 def test_loss_equivalency_nemo_vs_pytorch():
     # Setup no grad and megatron distributed contexts for the test
-    with torch.no_grad(), megatron_parallel_state_utils.distributed_model_parallel_state():
+    with torch.no_grad(), megatron_parallel_state_utils.distributed_model_parallel_state(world_size=2):
         # Define the batch size, sequence length, and number of tokens
         batch_size = 2
         sequence_length = 5
