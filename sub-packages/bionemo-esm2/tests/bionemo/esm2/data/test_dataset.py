@@ -21,6 +21,7 @@ import torch
 from bionemo.core.data.multi_epoch_dataset import EpochIndex
 from bionemo.esm2.data.dataset import (
     ESMMaskedResidueDataset,
+    ProteinFastaDataset,
     ProteinSQLiteDataset,
     create_train_dataset,
     create_valid_dataset,
@@ -32,6 +33,33 @@ def test_protein_sqlite_dataset(dummy_protein_dataset):
     """Test the ProteinSQLiteDataset class."""
 
     dataset = ProteinSQLiteDataset(dummy_protein_dataset)
+
+    assert len(dataset) == 5
+
+    assert dataset["UniRef90_A"] == "ACDEFGHIKLMNPQRSTVWY"
+    assert dataset["UniRef90_B"] == "DEFGHIKLMNPQRSTVWYAC"
+    assert dataset["UniRef90_C"] == "MGHIKLMNPQRSTVWYACDE"
+    assert dataset["UniRef50_A"] == "MKTVRQERLKSIVRI"
+    assert dataset["UniRef50_B"] == "MRILERSKEPVSGAQLA"
+
+
+def test_protein_fasta_dataset(dummy_protein_fasta):
+    """Test the ProteinFastaDataset class."""
+    dataset = ProteinFastaDataset(dummy_protein_fasta)
+
+    assert len(dataset) == 5
+
+    assert dataset["UniRef90_A"] == "ACDEFGHIKLMNPQRSTVWY"
+    assert dataset["UniRef90_B"] == "DEFGHIKLMNPQRSTVWYAC"
+    assert dataset["UniRef90_C"] == "MGHIKLMNPQRSTVWYACDE"
+    assert dataset["UniRef50_A"] == "MKTVRQERLKSIVRI"
+    assert dataset["UniRef50_B"] == "MRILERSKEPVSGAQLA"
+
+
+def test_protein_fasta_dataset_with_existing_index_file(dummy_protein_fasta):
+    """Test the ProteinFastaDataset class."""
+
+    dataset = ProteinFastaDataset(dummy_protein_fasta)
 
     assert len(dataset) == 5
 
@@ -63,6 +91,18 @@ def test_ESMPreTrainingDataset_getitem_has_expected_structure(dummy_protein_data
 
 def test_ESMPreTrainingDataset_changes_with_epoch(dummy_protein_dataset, tokenizer):
     protein_dataset = ProteinSQLiteDataset(dummy_protein_dataset)
+    clusters = [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]]
+    esm_dataset = ESMMaskedResidueDataset(protein_dataset=protein_dataset, clusters=clusters, seed=123)
+
+    index_0 = EpochIndex(epoch=0, idx=0)
+    index_1 = EpochIndex(epoch=1, idx=0)
+
+    # Tests megatron validity (subsequent calls to the same index produce the same result) and epoch non-determinism
+    assert_dataset_elements_not_equal(esm_dataset, index_0, index_1)
+
+
+def test_ESMPreTrainingDataset_changes_with_epoch_fasta(dummy_protein_fasta, tokenizer):
+    protein_dataset = ProteinFastaDataset(dummy_protein_fasta)
     clusters = [["UniRef90_A"], ["UniRef90_B", "UniRef90_C"]]
     esm_dataset = ESMMaskedResidueDataset(protein_dataset=protein_dataset, clusters=clusters, seed=123)
 
