@@ -75,7 +75,6 @@ class ESM2Model(MegatronBioBertModel):
         use_full_attention_mask: bool = False,
         include_hiddens: bool = False,
         skip_logits: bool = False,
-        spike_no_more_embedding_init: bool = False,
     ) -> None:
         """Initialize the ESM2 model.
 
@@ -103,7 +102,6 @@ class ESM2Model(MegatronBioBertModel):
             use_full_attention_mask (bool): Whether to use full attention mask. Defaults to False.
             include_hiddens (bool): Whether to include hidden states in the output dictionary. Defaults to False.
             skip_logits (bool): Skip writing the token logits in output dict
-            spike_no_more_embedding_init (bool): Has no effect as ESM2 uses a custom embedding class.
         """
         super(MegatronBioBertModel, self).__init__(config=config)
         self.post_process = post_process

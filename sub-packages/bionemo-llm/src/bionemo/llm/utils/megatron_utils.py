@@ -37,10 +37,7 @@ def is_only_data_parallel() -> bool:
 
 
 def average_losses_across_data_parallel_group(losses, with_context_parallel: bool = False):
-    """Reduce a tensor of losses across all GPUs.
-
-    NOTE(SKH) This is a replica of the average_losses_across_data_parallel_group function but it passes in the CP flag.
-    """
+    """Reduce a tensor of losses across all GPUs."""
     averaged_losses = torch.cat([loss.clone().detach().view(1) for loss in losses])
     # Reduce across the DP (or optionally, the flattened DP + CP) group.
     # Refer to the ring attention algorithm on why we always must reduce across the CP group.
