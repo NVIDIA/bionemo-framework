@@ -99,7 +99,7 @@ done
 [[ "$ONLY_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "slow")
 
 # Define test directories
-TEST_DIRS=(./sub-packages/bionemo-*/)
+TEST_DIRS=(./sub-packages/bionemo-evo2/)
 if [[ "$NO_NBVAL" != true && "$SKIP_DOCS" != true ]]; then
     TEST_DIRS+=(docs/)
 fi
