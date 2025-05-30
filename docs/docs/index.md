@@ -20,7 +20,7 @@ learn more about getting an enterprise license for improved expert-level support
 
     Install BioNeMo and set up your environment to start accelerating your bioinformatics workflows.
 
-    [Get Started](user-guide){ .md-button .md-button }
+    [Get Started](main/about/overview/){ .md-button .md-button }
 
 -   :material-code-greater-than:{ .lg } __API Reference__
 
@@ -28,7 +28,7 @@ learn more about getting an enterprise license for improved expert-level support
 
     Access comprehensive documentation on BioNeMo's sub-packages, functions, and classes.
 
-    [API Reference](API_reference/bionemo/core/api/){ .md-button .md-button }
+    [API Reference](main/references/API_reference/bionemo/core/api/){ .md-button .md-button }
 
 -   :material-cube-outline:{ .lg } __Models__
 
@@ -46,7 +46,7 @@ learn more about getting an enterprise license for improved expert-level support
 
     Explore biomolecular datasets that come pre-packaged with the BioNeMo Framework.
 
-    [Explore Datasets](datasets){ .md-button .md-button }
+    [Explore Datasets](main/datasets/){ .md-button .md-button }
 
 
 </div>
