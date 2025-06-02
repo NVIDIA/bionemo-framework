@@ -17,6 +17,7 @@
 from typing import Literal
 
 import lightning.pytorch as pl
+import torch
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections.llm import HyenaModel
@@ -65,7 +66,6 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
 
         # setup data
         cls.tokenizer = get_nmt_tokenizer("byte-level")
-
         # run stop and go
         cls.run_stop_and_go()
 
@@ -80,13 +80,26 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
             tokenizer=cls.tokenizer,
         )
 
+        data.init_global_step = 0
         # config
         config = HyenaNV1bConfig(
             **{
                 "tp_comm_overlap": cls.use_megatron_comm_overlap_llama3_8k,
-                "seq_length": cls.seq_length,
-                "use_te": True,
+                "seq_length": 8,
+                "use_te": False,  # TODO: stop and go harness doesn't work with TE, since somehow query.dtype is torch.float32 instead of bfloat16
+                "params_dtype": torch.bfloat16,
+                "bf16": True,
+                "recompute_granularity": None,
+                "recompute_method": None,
+                "recompute_num_layers": None,
+                "hidden_size": 1920,
+                "num_attention_heads": 15,
+                "num_query_groups": 15,
+                "ffn_hidden_size": 5120,
                 "hidden_dropout": cls.hidden_dropout,
+                "num_groups_hyena": 1920,
+                "num_groups_hyena_medium": 128,
+                "num_groups_hyena_short": 128,
                 "attention_dropout": cls.attention_dropout,
                 "to_upper": "weighted" if cls.no_renormalize_loss else "normalized_weighted",
                 "distribute_saved_activations": False if cls.sequence_parallel else True,
@@ -96,25 +109,27 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
             }
         )
 
+        optimizer_config = OptimizerConfig(
+            optimizer="adam",
+            lr=cls.lr,
+            adam_beta1=0.9,
+            adam_beta2=0.95,
+            weight_decay=cls.wd,
+            clip_grad=cls.clip_grad,
+            params_dtype=torch.bfloat16,
+            use_distributed_optimizer=True,
+            bf16=True,
+        )
         # build optimizer
         optimizer = MegatronOptimizerModule(
-            config=OptimizerConfig(
-                optimizer="adam",
-                lr=cls.lr,
-                adam_beta1=0.9,
-                adam_beta2=0.95,
-                weight_decay=cls.wd,
-                clip_grad=cls.clip_grad,
-                use_distributed_optimizer=True,
-                bf16=True,
-            ),
+            config=optimizer_config,
             lr_scheduler=CosineAnnealingScheduler(warmup_steps=1, max_steps=cls.num_steps, min_lr=3e-5),
             no_weight_decay_cond=config.hyena_no_weight_decay_cond_fn,
         )
 
         # # Build model
         module = HyenaModel(config, tokenizer=data.tokenizer)
-
+        # import pdb; pdb.set_trace()
         return module, data, optimizer
 
 
