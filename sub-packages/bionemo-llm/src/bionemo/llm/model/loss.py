@@ -16,7 +16,7 @@
 from typing import Dict, List, Literal, Sequence, Tuple, TypedDict
 
 import torch
-from megatron.core import parallel_state, tensor_parallel
+from megatron.core import tensor_parallel
 from megatron.core.fusions.fused_cross_entropy import fused_vocab_parallel_cross_entropy
 from nemo.lightning.megatron_parallel import (
     MegatronLossReduction,
@@ -135,111 +135,89 @@ class _Nemo2CompatibleLossReduceMixin:
             raise ValueError(f"Unexpected: key must either be 'avg' or 'loss_sum_and_microbatch_size', not {key=}")
 
 
-# TODO(@sichu) add unittest
-class BERTMLMLossWithReduction(_Nemo2CompatibleLossReduceMixin, MegatronLossReduction):  # noqa: D101
-    def __init__(
-        self,
-        validation_step: bool = False,
-        val_drop_last: bool = True,
-    ) -> None:
-        """Initializes the Model class.
-
-        Args:
-            validation_step (bool, optional): Whether this object is being applied to the validation step. Defaults to False.
-            val_drop_last (bool, optional): Whether the last batch is configured to be dropped during validation. Defaults to True.
-        """
-        # TODO(@jomitchell): Track down how we handle test. This is a common pattern in NeMo2, but these parameters seem likely
-        #  to change in the future.
+class BERTMLMLossWithReduction(MegatronLossReduction):  # noqa: D101
+    def __init__(self, validation_step: bool = False, val_drop_last: bool = True) -> None:  # noqa: D107
         super().__init__()
         self.validation_step = validation_step
         self.val_drop_last = val_drop_last
-        self.rank = parallel_state.get_data_parallel_rank()
+
+        # NOTE: this handles an unknown scenario.
+        self.LEGACY_VALIDATION = False
 
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
-    ) -> Tuple[Tensor, PerTokenLossDict | SameSizeLossDict | DataParallelGroupLossAndIO]:
-        """Computes loss of `labels` in the batch vs `token_logits` in the forward output currently. In the future this will be extended
-            to handle other loss types like sequence loss if it is present in the forward_out and batch.
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
+        """Forward impl.
 
-        Args:
-            batch (Dict[str, Tensor]): The batch of data. Each tensor should be of shape [batch_size, *, *],
-                and match the corresponding dimension for that particular key in the batch output.
-                For example, the "labels" and "token_logits" key should have a tensor of shape [batch_size, sequence_length].
-            forward_out (Dict[str, Tensor]): The forward output from the model. Each tensor should be of shape [batch_size, *, *]
+        https://github.com/NVIDIA/NeMo/blob/main/nemo/lightning/megatron_parallel.py#L1733
 
-        Taken from:
-        https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/nlp/models/language_modeling/megatron_gpt_model.py#L951-L976 .
-        """  # noqa: D205
+        Note that Method signature is slightly different from NeMo as the NeMo signature is incorrect.
+        """
+        # neva returns (logits, loss_mask)
+        if isinstance(forward_out, tuple):
+            # NOTE(SKH): this comes from NeMo- when does this occur? Directly related to the incorrect method signature.
+            forward_out, loss_mask = forward_out
+            batch["loss_mask"] = loss_mask
+
         if "labels" not in batch:
             raise ValueError("Labels not provided in the batch. These are required for this loss computation.")
 
         # NOTE: token_logits is [sequence, batch] but labels and other fields, including the loss are [batch, sequence]
         unreduced_token_loss = unreduced_token_loss_fn(forward_out["token_logits"], batch["labels"])  # [b s]
 
-        # TODO(@jstjohn) also handle different output keys, like the sequence loss.
+        loss_sum, num_valid_tokens = masked_token_loss(unreduced_token_loss, batch["loss_mask"])
 
-        # NOTE(SKH) This now computes the sum of all losses over the group as well as the number of valid tokens in the microbatch.
-        group_token_loss_sum, num_valid_tokens_in_microbatch = masked_token_loss(
-            unreduced_token_loss, batch["loss_mask"]
-        )
+        if self.validation_step and not self.val_drop_last and loss_sum.isnan():
+            assert num_valid_tokens == 0, "Got NaN loss with non-empty input"
+            if batch["loss_mask"].count_nonzero() != 0:
+                raise ValueError("Got NaN loss with non-empty input")
+            loss_sum = torch.zeros_like(num_valid_tokens)
 
-        # We can compute the loss for the group by dividing the summed loss by the number of valid tokens in the group.
-        loss_for_microbatch = group_token_loss_sum / num_valid_tokens_in_microbatch
+            if self.LEGACY_VALIDATION:
+                # NOTE (SKH) we clone and return reduced values in our own code, and i'm not sure why.
+                val_loss_for_microbatch = loss_sum.clone()
 
-        # If we do not drop the last partial batch of validation, we need to do fancy reduction handling to support
-        #  reducing the loss across the data parallel group.
-        if self.validation_step and not self.val_drop_last:
-            # NOTE(SKH): little hack toevaluate both routes at once.
-            val_loss_for_microbatch = group_token_loss_sum.clone()
-            if val_loss_for_microbatch.isnan():
-                # TODO(@jomitchell): Add a unit test for this. This is the case where there are no valid tokens in the microbatch for the loss
-                #  to be computed over, so we expect a NaN loss (divide by zero for a mean) but we make this an expected and non-breaking case,
-                #  re-defining it as a 0 loss. This is standard in NeMo/NeMo2.
-                if batch["loss_mask"].count_nonzero() != 0:
-                    raise ValueError("Got NaN loss with non-empty input")
-                val_loss_sum_for_microbatch = torch.zeros_like(num_valid_tokens_in_microbatch)
-            else:
-                # The loss is already the sum of all losses from masked_token_loss().
-                val_loss_sum_for_microbatch = val_loss_for_microbatch
+                loss_sum_and_microbatch_size_all_gpu = 1 / 0
+                # NOTE(SKH) have not implemented the loss sum and microbatch all gpu, as this is the reduce step.
+                #             unclear how this will impact downstream code.
+                return val_loss_for_microbatch, {"loss_sum_and_microbatch_size": loss_sum_and_microbatch_size_all_gpu}
 
-            # In this case we need to store the loss sum as well as the number of valid tokens in the microbatch.
-            loss_sum_and_microbatch_size_all_gpu = torch.cat(
-                [
-                    val_loss_sum_for_microbatch.clone().detach().view(1),
-                    Tensor([num_valid_tokens_in_microbatch]).cuda().clone().detach(),
-                ]
+        num_valid_tokens = num_valid_tokens.clone().detach().to(torch.int)
+        loss_sum_and_ub_size = torch.cat([loss_sum.clone().detach().view(1), num_valid_tokens.view(1)])
+        return loss_sum, num_valid_tokens, {"loss_sum_and_ub_size": loss_sum_and_ub_size}
+
+    def reduce(self, losses_reduced_per_micro_batch) -> torch.Tensor:
+        """Loss reduction impl.
+
+        Taken from: https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/nlp/models/language_modeling/megatron_gpt_model.py#L534-L552 .
+        """
+        if losses_reduced_per_micro_batch:
+            if "avg" in losses_reduced_per_micro_batch[0]:
+                # legacy behavior, average over the number of microbatches
+                avg = [x["avg"] for x in losses_reduced_per_micro_batch]
+                loss = torch.cat(avg).mean()
+                return loss
+
+            from megatron.core import parallel_state
+
+            loss_sum_and_ub_size = [
+                x["loss_sum_and_ub_size"] for x in losses_reduced_per_micro_batch if x["loss_sum_and_ub_size"][1] > 0
+            ]
+            loss = (
+                torch.vstack(loss_sum_and_ub_size).sum(dim=0)
+                if len(loss_sum_and_ub_size) > 0
+                else torch.tensor([0.0, 0.0], device=torch.cuda.current_device())
             )
-            # Reduce the loss sum across the data parallel group to get the total loss
-            # for all data parallel / distributed microbatches.
             torch.distributed.all_reduce(
-                loss_sum_and_microbatch_size_all_gpu,
+                loss,
                 group=parallel_state.get_data_parallel_group(with_context_parallel=True),
-                op=torch.distributed.ReduceOp.SUM,
             )
+            # average over the total number of tokens across the global batch.
+            loss = loss[0] / loss[1]
 
-            return val_loss_for_microbatch, {"loss_sum_and_microbatch_size": loss_sum_and_microbatch_size_all_gpu}
-        else:
-            group_token_loss_sum_copy = group_token_loss_sum.clone().detach().view(1)
-            loss_sum_and_microbatch_size_all_gpu = torch.cat(
-                [
-                    group_token_loss_sum_copy,
-                    Tensor([num_valid_tokens_in_microbatch]).cuda().clone().detach(),
-                ]
-            )
-            # Reduce over all groups
-            torch.distributed.all_reduce(
-                loss_sum_and_microbatch_size_all_gpu,
-                group=parallel_state.get_data_parallel_group(with_context_parallel=True),
-                op=torch.distributed.ReduceOp.SUM,
-            )
-            # Compute the reduced loss over all groups
-            reduced_loss = loss_sum_and_microbatch_size_all_gpu[0] / loss_sum_and_microbatch_size_all_gpu[1]
+            return loss
 
-        # Return the loss tensor multiplied by the context parallel size, as well as
-        # the data-parallel averaged loss, i.e. the loss divided by the DP size.
-        # Normalize the loss by the number of "valid" tokens, because masked_token_loss
-        # no longer does this normalization, and BioNeMo losses expect this normalization.
-        return loss_for_microbatch, {"avg": reduced_loss.unsqueeze(0)}
+        return torch.tensor(0.0, device=torch.cuda.current_device())
 
 
 def unreduced_token_loss_fn(logits: Tensor, labels: Tensor, cross_entropy_loss_fusion: bool = False) -> Tensor:
