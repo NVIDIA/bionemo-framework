@@ -98,8 +98,8 @@ def infer_model(
     prediction_writer = GeneformerPredictionWriter(
         output_dir=results_path, 
         write_interval=prediction_interval,
-        include_gene_embeddings=include_gene_embeddings,
-        tokenizer=tokenizer
+        tokenizer=tokenizer,
+        include_gene_embeddings=include_gene_embeddings
     )
 
     trainer = nl.Trainer(

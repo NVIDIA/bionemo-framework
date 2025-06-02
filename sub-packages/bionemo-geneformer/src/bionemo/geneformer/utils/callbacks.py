@@ -36,20 +36,20 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
         self,
         output_dir: str | os.PathLike,
         write_interval: IntervalT,
+        tokenizer: GeneTokenizer,
         batch_dim_key_defaults: dict[str, int] | None = None,
         seq_dim_key_defaults: dict[str, int] | None = None,
         include_gene_embeddings: bool = False,
-        tokenizer: GeneTokenizer,
     ):
         """Initializes the callback.
 
         Args:
             output_dir: The directory where predictions will be written.
             write_interval: The interval at which predictions will be written. (batch, epoch)
+            tokenizer: The GeneTokenizer instance for mapping input_ids to gene names, and filtering out special tokens.
             batch_dim_key_defaults: The default batch dimension for each key, if different from the standard 0.
             seq_dim_key_defaults: The default sequence dimension for each key, if different from the standard 1.
             include_gene_embeddings: Whether to include gene embeddings in the output predictions.
-            tokenizer: The GeneTokenizer instance for mapping input_ids to gene names, and filtering out special tokens.
         """
         super().__init__(write_interval)
         self.output_dir = str(output_dir)
