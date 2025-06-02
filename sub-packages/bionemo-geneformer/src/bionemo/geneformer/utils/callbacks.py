@@ -16,13 +16,14 @@
 
 import logging
 import os
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Sequence, Optional
 
 import lightning.pytorch as pl
 import torch
 from lightning.pytorch.callbacks import BasePredictionWriter
 
 from bionemo.llm.lightning import batch_collator
+from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 
 
 IntervalT = Literal["epoch", "batch"]
@@ -37,7 +38,8 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
         write_interval: IntervalT,
         batch_dim_key_defaults: dict[str, int] | None = None,
         seq_dim_key_defaults: dict[str, int] | None = None,
-        include_gene_embeddings:bool = False,
+        include_gene_embeddings: bool = False,
+        tokenizer: Optional[GeneTokenizer] = None,
     ):
         """Initializes the callback.
 
@@ -47,12 +49,14 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
             batch_dim_key_defaults: The default batch dimension for each key, if different from the standard 0.
             seq_dim_key_defaults: The default sequence dimension for each key, if different from the standard 1.
             include_gene_embeddings: Whether to include gene embeddings in the output predictions.
+            tokenizer: The GeneTokenizer instance for mapping input_ids to gene names, and filtering out special tokens.
         """
         super().__init__(write_interval)
         self.output_dir = str(output_dir)
         self.include_gene_embeddings = include_gene_embeddings         
         self.batch_dim_key_defaults = batch_dim_key_defaults
         self.seq_dim_key_defaults = seq_dim_key_defaults
+        self.tokenizer = tokenizer
 
     def write_on_epoch_end(
         self,
@@ -115,7 +119,10 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
 
                 # iterate over each gene in the cell
                 for idx, embedding in zip(cell_input_ids, cell_state):
-
+                    # skip calculation for special tokens like [CLS], [SEP], [PAD], [MASK], [UKW]
+                    if idx in self.tokenizer.all_special_ids:
+                        continue
+                    
                     # accumulate embedding sum and count
                     if idx not in gene_embedding_accumulator:
                         # initialize embedding sum with first found embedding
@@ -132,10 +139,13 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
 
             # divide each embedding sum by the total occurences of each gene to get an average
             for input_id in gene_embedding_accumulator.keys():
-                gene_embedding_accumulator[input_id] /= input_id_count[input_id]
+                if self.tokenizer is not None:
+                    ensembl_ID = self.tokenizer.gene_tok_to_ens(input_id)
+                    gene_embedding_accumulator[ensembl_ID] /= input_id_count[input_id]
+                else:
+                    gene_embedding_accumulator[input_id] /= input_id_count[input_id]
 
-            input_ids_num = len(gene_embedding_accumulator)
-            logging.info(f"Number of unique input_ids in gene embeddings: {input_ids_num}")
+            logging.info(f"Number of unique gene embeddings: {len(gene_embedding_accumulator)}")
             logging.info("Finished calculating gene embeddings.")
 
             prediction['gene_embeddings'] = gene_embedding_accumulator

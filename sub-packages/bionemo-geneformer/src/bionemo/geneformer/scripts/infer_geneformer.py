@@ -95,7 +95,12 @@ def infer_model(
         progress_interval=1,
     )
 
-    prediction_writer = GeneformerPredictionWriter(output_dir=results_path, write_interval=prediction_interval,include_gene_embeddings=include_gene_embeddings)
+    prediction_writer = GeneformerPredictionWriter(
+        output_dir=results_path, 
+        write_interval=prediction_interval,
+        include_gene_embeddings=include_gene_embeddings,
+        tokenizer=tokenizer
+    )
 
     trainer = nl.Trainer(
         devices=devices,
