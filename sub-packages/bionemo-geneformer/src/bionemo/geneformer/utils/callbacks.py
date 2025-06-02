@@ -16,7 +16,7 @@
 
 import logging
 import os
-from typing import Any, Literal, Sequence, Optional
+from typing import Any, Literal, Sequence
 
 import lightning.pytorch as pl
 import torch
@@ -39,7 +39,7 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
         batch_dim_key_defaults: dict[str, int] | None = None,
         seq_dim_key_defaults: dict[str, int] | None = None,
         include_gene_embeddings: bool = False,
-        tokenizer: Optional[GeneTokenizer] = None,
+        tokenizer: GeneTokenizer,
     ):
         """Initializes the callback.
 
@@ -110,6 +110,8 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
             # accumulators for calculating mean embedding for each input_id
             gene_embedding_accumulator = {}
             input_id_count = {}
+            ensembl_IDs = {}
+            gene_symbols = {}
 
             # iterate over all cells
             cell_count = len(input_ids)
@@ -139,18 +141,18 @@ class GeneformerPredictionWriter(BasePredictionWriter, pl.Callback):
 
             # divide each embedding sum by the total occurences of each gene to get an average
             for input_id in gene_embedding_accumulator.keys():
-                if self.tokenizer is not None:
-                    ensembl_ID = self.tokenizer.gene_tok_to_ens(input_id)
-                    gene_embedding_accumulator[ensembl_ID] /= input_id_count[input_id]
-                else:
-                    gene_embedding_accumulator[input_id] /= input_id_count[input_id]
+                gene_embedding_accumulator[input_id] /= input_id_count[input_id]
+                # map input_ids to gene symbols and ensembl IDs
+                ensembl_IDs[input_id] = self.tokenizer.decode_vocab.get(input_id, f"UNKNOWN_{input_id}")   
+                gene_symbols[input_id] = self.tokenizer.ens_to_gene.get(ensembl_IDs[input_id], f"UNKNOWN_{input_id}")
 
             logging.info(f"Number of unique gene embeddings: {len(gene_embedding_accumulator)}")
             logging.info("Finished calculating gene embeddings.")
 
             prediction['gene_embeddings'] = gene_embedding_accumulator
             prediction['gene_counts'] = input_id_count
-
+            prediction['ensembl_IDs'] = ensembl_IDs
+            prediction['gene_symbols'] = gene_symbols
         
         torch.save(prediction, result_path)
         if isinstance(prediction, dict):
