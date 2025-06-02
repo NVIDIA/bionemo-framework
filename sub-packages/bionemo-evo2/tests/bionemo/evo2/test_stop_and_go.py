@@ -18,6 +18,7 @@ from typing import Literal
 
 import lightning.pytorch as pl
 import torch
+from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections.llm import HyenaModel
@@ -25,6 +26,7 @@ from nemo.collections.llm.gpt.data import MockDataModule
 from nemo.collections.llm.gpt.model.hyena import HyenaNV1bConfig
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler, MegatronOptimizerModule
+from nemo.lightning.pytorch.strategies import MegatronStrategy
 from typing_extensions import override
 
 from bionemo.core.utils.dtypes import get_autocast_dtype
@@ -47,8 +49,7 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
 
     precision: Literal["16-mixed", "bf16-mixed", "32"] = get_autocast_dtype(MODEL_PRECISION)
     workers: int = 8
-    seq_length: int = 512
-    num_layers: int = 4
+    seq_length: int = 8
     hybrid_override_pattern: str = "SDH*"
     use_megatron_comm_overlap_llama3_8k: bool = False
     hidden_dropout: float = 0.1
@@ -58,6 +59,48 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
     cross_entropy_loss_fusion: bool = False
     no_fp32_residual_connection: bool = False
     add_bias_output: bool = True
+
+    @classmethod
+    def setup_trainer(
+        cls,
+        mode: Mode,
+    ) -> nl.Trainer:
+        """Setup trainer by passing stop, resume, or continuous callbacks according to mode."""
+        ddp = DistributedDataParallelConfig(
+            check_for_nan_in_grad=True,
+            overlap_grad_reduce=False,
+            overlap_param_gather=False,  # Verify that this works using
+            grad_reduce_in_fp32=True,
+            align_param_gather=False,
+            average_in_collective=True,
+        )
+        strategy = MegatronStrategy(
+            ddp=ddp,
+            tensor_model_parallel_size=1,
+            pipeline_model_parallel_size=1,
+            context_parallel_size=1,
+            pipeline_dtype=torch.float32,
+            sequence_parallel=False,
+            ckpt_load_optimizer=True,
+            ckpt_save_optimizer=True,
+            ckpt_async_save=False,
+            save_ckpt_format="torch_dist",
+            ckpt_load_strictness="log_all",
+        )
+
+        trainer = nl.Trainer(
+            devices=1,
+            max_steps=cls.num_steps,
+            num_nodes=1,
+            accelerator="gpu",
+            strategy=strategy,
+            limit_val_batches=cls.limit_val_batches,
+            val_check_interval=cls.val_check_interval,
+            log_every_n_steps=cls.val_check_interval,
+            callbacks=list(cls.callbacks[mode].values()),
+            plugins=nl.MegatronMixedPrecision(precision=cls.precision),
+        )
+        return trainer
 
     @override
     @classmethod
@@ -85,7 +128,7 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
         config = HyenaNV1bConfig(
             **{
                 "tp_comm_overlap": cls.use_megatron_comm_overlap_llama3_8k,
-                "seq_length": 8,
+                "seq_length": cls.seq_length,
                 "use_te": False,  # TODO: stop and go harness doesn't work with TE, since somehow query.dtype is torch.float32 instead of bfloat16
                 "params_dtype": torch.bfloat16,
                 "bf16": True,
