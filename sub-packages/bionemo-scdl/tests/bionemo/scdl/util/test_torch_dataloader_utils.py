@@ -155,3 +155,69 @@ def test_collate_neighbor_sparse_matrix_batch_next_cells():
     assert torch.equal(result['next_cells'].to_dense(), 
                       torch.tensor([[0.0, 3.0, 0.0, 4.0], 
                                     [6.0, 0.0, 7.0, 0.0]]))
+
+def test_collate_neighbor_sparse_matrix_batch_indices():
+    batch = [
+        {
+            'current_cell': torch.stack((torch.tensor([1.0, 2.0]), torch.tensor([0, 2]))),
+            'next_cell': torch.stack((torch.tensor([3.0, 4.0]), torch.tensor([1, 3]))), 
+            'current_cell_index': 0,
+            'next_cell_index': 1
+        },
+        {
+            'current_cell': torch.stack((torch.tensor([5.0]), torch.tensor([2]))),
+            'next_cell': torch.stack((torch.tensor([6.0, 7.0]), torch.tensor([0, 2]))),
+            'current_cell_index': 2,
+            'next_cell_index': 3
+        }
+    ]
+    
+    result = collate_neighbor_sparse_matrix_batch(batch)
+    assert result['current_cell_indices'] == [0, 2]
+    assert result['next_cell_indices'] == [1, 3]
+
+
+def test_collate_neighbor_sparse_matrix_batch_with_empty_current_cells():
+    batch = [
+        {
+            'current_cell': torch.stack((torch.tensor([]), torch.tensor([]))),
+            'next_cell': torch.stack((torch.tensor([1.0]), torch.tensor([0]))),
+            'current_cell_index': 0,
+            'next_cell_index': 1
+        },
+        {
+            'current_cell': torch.stack((torch.tensor([2.0]), torch.tensor([1]))),
+            'next_cell': torch.stack((torch.tensor([3.0]), torch.tensor([2]))),
+            'current_cell_index': 2,
+            'next_cell_index': 3
+        }
+    ]
+    
+    result = collate_neighbor_sparse_matrix_batch(batch)
+    assert result['current_cells'].to_dense().shape == (2, 2)
+    assert torch.equal(result['current_cells'].to_dense(), 
+                      torch.tensor([[0.0, 0.0], 
+                                    [0.0, 2.0]]))
+
+
+def test_collate_neighbor_sparse_matrix_batch_with_empty_next_cells():
+    batch = [
+        {
+            'current_cell': torch.stack((torch.tensor([1.0]), torch.tensor([0]))),
+            'next_cell': torch.stack((torch.tensor([]), torch.tensor([]))),
+            'current_cell_index': 0,
+            'next_cell_index': 1
+        },
+        {
+            'current_cell': torch.stack((torch.tensor([2.0]), torch.tensor([1]))),
+            'next_cell': torch.stack((torch.tensor([3.0]), torch.tensor([2]))),
+            'current_cell_index': 2,
+            'next_cell_index': 3
+        }
+    ]
+    
+    result = collate_neighbor_sparse_matrix_batch(batch)
+    assert result['next_cells'].to_dense().shape == (2, 3)
+    assert torch.equal(result['next_cells'].to_dense(), 
+                      torch.tensor([[0.0, 0.0, 0.0], 
+                                    [0.0, 0.0, 3.0]]))

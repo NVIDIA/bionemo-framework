@@ -279,3 +279,214 @@ def test_create_dataset_with_neighbor_support(tmp_path):
     assert ds.neighbor_sampling_strategy == 'random'
     assert ds.fallback_to_identity is True
     assert ds._has_neighbors is False  # No neighbors loaded yet
+
+def test_neighbor_matrix_extraction(tmp_path, monkeypatch):
+    # Create test AnnData with neighbor information
+    from scipy.sparse import csr_matrix
+    
+    # Mock the AnnData object with neighbors
+    class MockAnnData:
+        def __init__(self):
+            self.obsp = {
+                'next_cell_ids': csr_matrix(([1.0, 2.0, 3.0], ([0, 1, 2], [1, 2, 0])), shape=(3, 3))
+            }
+            # Mock X as a sparse matrix
+            row_ind = np.array([0, 0, 1, 2, 2])
+            col_ind = np.array([0, 2, 1, 0, 2])
+            data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+            self.X = csr_matrix((data, (row_ind, col_ind)), shape=(3, 3))
+            # Mock var dataframe
+            import pandas as pd
+            self.var = pd.DataFrame(index=pd.Index(['gene1', 'gene2', 'gene3']))
+    
+    # Patch anndata.read_h5ad to return our mock
+    def mock_read_h5ad(*args, **kwargs):
+        return MockAnnData()
+    
+    # Apply the patch
+    monkeypatch.setattr(ad, 'read_h5ad', mock_read_h5ad)
+    
+    # Create dataset with neighbors
+    ds = SingleCellMemMapDataset(
+        data_path=tmp_path / "scy", 
+        h5ad_path="dummy_path.h5ad",  # This will use our mocked function
+        load_neighbors=True
+    )
+    
+    # Test that neighbor data was extracted
+    assert ds._has_neighbors is True
+    assert ds._neighbor_indptr is not None
+    assert ds._neighbor_indices is not None
+    assert ds._neighbor_data is not None
+    
+    # Test neighbor data content
+    assert np.array_equal(ds._neighbor_indptr, np.array([0, 1, 2, 3]))
+    assert np.array_equal(ds._neighbor_indices, np.array([1, 2, 0]))
+    assert np.array_equal(ds._neighbor_data, np.array([1.0, 2.0, 3.0]))
+
+def test_sample_neighbor_index(tmp_path, monkeypatch):
+    # Setup mock dataset with known neighbor structure
+    ds = SingleCellMemMapDataset(
+        data_path=tmp_path / "scn", 
+        num_rows=3, 
+        num_elements=5
+    )
+    
+    # Mock the neighbor data structures
+    ds.load_neighbors = True
+    ds._has_neighbors = True
+    ds._neighbor_indptr = np.array([0, 2, 3, 5])
+    ds._neighbor_indices = np.array([1, 2, 0, 0, 1])
+    ds._neighbor_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    
+    # Mock numpy's random choice to always return the first element
+    def mock_choice(arr):
+        return arr[0]
+    
+    monkeypatch.setattr(np.random, 'choice', mock_choice)
+    
+    # Test sampling for each cell
+    assert ds.sample_neighbor_index(0) == 1  # First cell's first neighbor
+    assert ds.sample_neighbor_index(1) == 0  # Second cell's only neighbor
+    assert ds.sample_neighbor_index(2) == 0  # Third cell's first neighbor
+    
+    # Test fallback behavior when no neighbors
+    ds._neighbor_indptr = np.array([0, 0, 1, 2])  # Cell 0 has no neighbors
+    assert ds.sample_neighbor_index(0) == 0  # Should return itself
+    
+    # Test when fallback_to_identity is False
+    ds.fallback_to_identity = False
+    with pytest.warns():
+        assert ds.sample_neighbor_index(0) == 0  # Should still return itself with warning
+
+def test_get_row_with_neighbor(tmp_path, monkeypatch):
+    # Setup a dataset with mock data
+    ds = SingleCellMemMapDataset(
+        data_path=tmp_path / "scn", 
+        num_rows=3, 
+        num_elements=5
+    )
+    
+    # Mock data structures
+    ds.data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    ds.col_index = np.array([0, 2, 1, 0, 2])
+    ds.row_index = np.array([0, 2, 3, 5])
+    
+    # Mock neighbor functionality
+    ds.load_neighbors = True
+    ds._has_neighbors = True
+    
+    # Mock sample_neighbor_index to always return cell 2
+    def mock_sample_neighbor(idx):
+        return 2
+    
+    ds.sample_neighbor_index = mock_sample_neighbor
+    
+    # Test get_row_with_neighbor with neighbor
+    result = ds.get_row_with_neighbor(0, include_neighbor=True)
+    
+    # Validate structure and content
+    assert isinstance(result, dict)
+    assert set(result.keys()) == {'current_cell', 'next_cell', 'current_cell_index', 'next_cell_index', 'features'}
+    assert result['current_cell_index'] == 0
+    assert result['next_cell_index'] == 2
+    
+    # Test cell data
+    current_values, current_cols = result['current_cell']
+    assert np.array_equal(current_values, np.array([1.0, 2.0]))
+    assert np.array_equal(current_cols, np.array([0, 2]))
+    
+    next_values, next_cols = result['next_cell']
+    assert np.array_equal(next_values, np.array([4.0, 5.0]))
+    assert np.array_equal(next_cols, np.array([0, 2]))
+    
+    # Test get_row_with_neighbor without neighbor
+    result = ds.get_row_with_neighbor(0, include_neighbor=False)
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+    values, cols = result[0]
+    assert np.array_equal(values, np.array([1.0, 2.0]))
+    assert np.array_equal(cols, np.array([0, 2]))
+
+def test_get_row_padded_with_neighbor(tmp_path, monkeypatch):
+    # Setup a dataset with mock data
+    ds = SingleCellMemMapDataset(
+        data_path=tmp_path / "scn", 
+        num_rows=3, 
+        num_elements=5
+    )
+    
+    # Mock data structures
+    ds.data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    ds.col_index = np.array([0, 2, 1, 0, 2])
+    ds.row_index = np.array([0, 2, 3, 5])
+    
+    # Mock feature index
+    class MockFeatureIndex:
+        def number_vars_at_row(self, idx):
+            return 3  # All rows have 3 features
+        
+        def lookup(self, idx, select_features=None):
+            return [[idx, idx+1, idx+2]], None
+    
+    ds._feature_index = MockFeatureIndex()
+    
+    # Mock neighbor functionality
+    ds.load_neighbors = True
+    ds._has_neighbors = True
+    
+    # Mock sample_neighbor_index to always return cell 2
+    def mock_sample_neighbor(idx):
+        return 2
+    
+    ds.sample_neighbor_index = mock_sample_neighbor
+    
+    # Test get_row_padded_with_neighbor with neighbor
+    result = ds.get_row_padded_with_neighbor(0, include_neighbor=True)
+    
+    # Validate structure and content
+    assert isinstance(result, dict)
+    assert set(result.keys()) == {'current_cell', 'next_cell', 'current_cell_index', 'next_cell_index', 'features'}
+    
+    # Verify padded data (dense arrays)
+    assert np.array_equal(result['current_cell'], np.array([1.0, 0.0, 2.0]))
+    assert np.array_equal(result['next_cell'], np.array([4.0, 0.0, 5.0]))
+    
+    # Test without neighbor
+    result = ds.get_row_padded_with_neighbor(0, include_neighbor=False)
+    assert isinstance(result, tuple)
+    assert np.array_equal(result[0], np.array([1.0, 0.0, 2.0]))
+
+def test_get_neighbor_stats(tmp_path):
+    # Setup a dataset with mock data
+    ds = SingleCellMemMapDataset(
+        data_path=tmp_path / "scn", 
+        num_rows=4, 
+        num_elements=5
+    )
+    
+    # Mock neighbor data with a specific pattern:
+    # Cell 0: has 2 neighbors
+    # Cell 1: has 1 neighbor
+    # Cell 2: has 0 neighbors
+    # Cell 3: has 1 neighbor
+    ds.load_neighbors = True
+    ds._has_neighbors = True
+    ds._neighbor_indptr = np.array([0, 2, 3, 3, 4])
+    ds._neighbor_indices = np.array([1, 2, 0, 2])
+    ds._neighbor_data = np.array([1.0, 2.0, 3.0, 4.0])
+    
+    # Get and check stats
+    stats = ds.get_neighbor_stats()
+    
+    assert stats["has_neighbors"] is True
+    assert stats["total_connections"] == 4
+    assert stats["min_neighbors_per_cell"] == 0
+    assert stats["max_neighbors_per_cell"] == 2
+    assert stats["avg_neighbors_per_cell"] == 1.0
+    assert stats["cells_with_no_neighbors"] == 1
+    
+    # Test case with no neighbors
+    ds._has_neighbors = False
+    stats = ds.get_neighbor_stats()
+    assert stats == {"has_neighbors": False}
