@@ -1,5 +1,28 @@
 # Release Notes
 
+## BioNeMo Framework v2.1
+
+### New Features:
+
+* ESM2 Implementation
+  * Updated the ESM-2 Model Card with detailed performance benchmarks comparing BioNeMo2 training against vanilla pytorch.
+  * Added ESM-2 inference endpoint for evaluating pre-trained models
+* Size-Aware Batching
+  * Added SizeAwareBatchSampler, a pytorch data sampler that batches elements of varying sizes while ensuring that the total size of each batch does not exceed a specified maximum.
+  * Added BucketBatchSampler, another pytorch data sampler that groups elements of varying sizes based on predefined bucket ranges, and create batches with elements from each bucket to ensure that each batch has elements with homogeneous sizes.
+* CLI Support
+  * Added pydantic interface for pretraining jobs via parsing JSON configuration files that enables passing customized Model and DataModules classes.
+  * Implemented pydantic configuration for Geneformer and ESM2 pretraining and finetuning.
+  * Added 'recipes' for generating validated JSON files to be used with pydantic interface.
+  * Added installable scripts for 2/3 respectively, bionemo-esm2-recipe, bionemo-esm2-train, bionemo-geneformer-recipe, bionemo-geneformer-train.
+* Geneformer support in BioNeMo2:
+  * Tested pre-training scripts and fine-tuning example scripts that can be used as a starting point for users to create custom derivative models.
+  * Geneformer 10M and 106M checkpoints ported from BioNeMo v1 into BioNeMo v2 available and included in documentation.
+  * Added inference scripts
+* Documentation
+  * Cell type classification example notebook which covers the process of converting anndata into our internal format, and running inference on that data with a geneformer checkpoint, as well as making use of the inference results.
+  * Updated Getting Started guide, ESM-2 tutorials
+  * Added Frequently Asked Questions (FAQ) page
 
 ## BioNeMo Framework v2.0
 
