@@ -26,7 +26,7 @@ from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
-from nemo.utils.exp_manager import TimingCallback
+from nemo.utils.exp_manager import DeltaTimingCallback
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
@@ -304,7 +304,7 @@ def main(
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         nl_callbacks.PreemptionCallback(),
-        TimingCallback(),
+        DeltaTimingCallback(),
     ]
 
     if nsys_profiling:

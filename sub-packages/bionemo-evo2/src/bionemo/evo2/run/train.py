@@ -44,7 +44,7 @@ from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommO
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
-from nemo.utils.exp_manager import TimingCallback
+from nemo.utils.exp_manager import DeltaTimingCallback
 
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
@@ -482,7 +482,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     callbacks = [
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
-        TimingCallback(),
+        DeltaTimingCallback(),
     ]
 
     if args.enable_preemption:

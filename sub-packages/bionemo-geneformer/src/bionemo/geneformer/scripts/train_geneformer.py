@@ -38,7 +38,7 @@ from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCall
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
-from nemo.utils.exp_manager import TimingCallback
+from nemo.utils.exp_manager import DeltaTimingCallback
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.geneformer.api import FineTuneSeqLenBioBertConfig, GeneformerConfig
@@ -260,7 +260,7 @@ def main(
     callbacks = [
         # Skip perplexity and disable forward output in the loss for speed
         RichModelSummary(max_depth=4),
-        TimingCallback(),
+        DeltaTimingCallback(),
         LearningRateMonitor(),
     ]
 

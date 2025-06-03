@@ -31,7 +31,7 @@ from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCall
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils import logging
-from nemo.utils.exp_manager import TimingCallback
+from nemo.utils.exp_manager import DeltaTimingCallback
 from pydantic import BaseModel
 
 from bionemo.core.utils.dtypes import get_autocast_dtype
@@ -263,7 +263,7 @@ def train(
     callbacks = [
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
-        TimingCallback(),  # Required for certain plugins such as FLOPsMeasurement
+        DeltaTimingCallback(),  # Required for certain plugins such as FLOPsMeasurement
     ]
     if training_config.create_tflops_callback:
         dummy_data_module = SimpleNamespace()
