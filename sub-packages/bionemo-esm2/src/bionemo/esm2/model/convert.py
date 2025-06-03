@@ -15,17 +15,25 @@
 
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 from nemo.lightning import io, teardown
 from nemo.lightning.pytorch.utils import dtype_from_hf
 from transformers import AutoConfig as HFAutoConfig
 from transformers import AutoModelForMaskedLM
+from transformers.modeling_utils import no_init_weights
+from transformers.models.esm.configuration_esm import EsmConfig as HFEsmConfig
+from transformers.models.esm.modeling_esm import EsmForMaskedLM
 
 from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.model import ESM2Config
 from bionemo.llm.lightning import BionemoLightningModule
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
+
+
+if TYPE_CHECKING:
+    pass
 
 
 @io.model_importer(BionemoLightningModule, "hf")
@@ -77,7 +85,6 @@ class HFESM2Importer(io.ModelConnector[AutoModelForMaskedLM, BionemoLightningMod
             "lm_head.layer_norm.bias": "lm_head.layer_norm.bias",
         }
 
-        # lm_head.bias
         return io.apply_transforms(
             source,
             target,
@@ -107,6 +114,167 @@ class HFESM2Importer(io.ModelConnector[AutoModelForMaskedLM, BionemoLightningMod
         )
 
         return output
+
+
+@io.model_exporter(BionemoLightningModule, "hf")
+class HFESM2Exporter(io.ModelConnector[BionemoLightningModule, EsmForMaskedLM]):
+    """Exporter Connector for converting NeMo ESM-2 Model to HF."""
+
+    def init(self, dtype: torch.dtype = torch.bfloat16) -> EsmForMaskedLM:
+        """Initialize the target model."""
+        with no_init_weights():
+            return EsmForMaskedLM._from_config(self.config, torch_dtype=dtype)
+
+    def apply(self, output_path: Path) -> Path:
+        """Applies the transformation."""
+        nemo_config = ESM2Config(
+            initial_ckpt_path=str(self),
+            include_embeddings=True,
+            include_hiddens=True,
+            params_dtype=torch.bfloat16,
+            autocast_dtype=torch.bfloat16,
+            bf16=True,
+            fp16=False,
+        )
+
+        source = nemo_config.configure_model(self.tokenizer)
+
+        target = self.init(torch.bfloat16)
+        target = self.convert_state(source, target)
+
+        target = target.cpu()
+        target.save_pretrained(output_path)
+        self.tokenizer.save_pretrained(output_path)
+
+        return output_path
+
+    @property
+    def tokenizer(self):
+        """Retrieve Tokenizer from HF."""
+        return get_tokenizer()
+
+    def convert_state(self, nemo_module, target):
+        """Convert NeMo state dict to HF style."""
+        mapping = {
+            "encoder.final_layernorm.weight": "esm.encoder.emb_layer_norm_after.weight",
+            "encoder.final_layernorm.bias": "esm.encoder.emb_layer_norm_after.bias",
+            "encoder.layers.*.self_attention.linear_proj.weight": "esm.encoder.layer.*.attention.output.dense.weight",
+            "encoder.layers.*.self_attention.linear_proj.bias": "esm.encoder.layer.*.attention.output.dense.bias",
+            "encoder.layers.*.self_attention.linear_qkv.layer_norm_weight": "esm.encoder.layer.*.attention.LayerNorm.weight",
+            "encoder.layers.*.self_attention.linear_qkv.layer_norm_bias": "esm.encoder.layer.*.attention.LayerNorm.bias",
+            "encoder.layers.*.mlp.linear_fc1.weight": "esm.encoder.layer.*.intermediate.dense.weight",
+            "encoder.layers.*.mlp.linear_fc1.bias": "esm.encoder.layer.*.intermediate.dense.bias",
+            "encoder.layers.*.mlp.linear_fc2.weight": "esm.encoder.layer.*.output.dense.weight",
+            "encoder.layers.*.mlp.linear_fc2.bias": "esm.encoder.layer.*.output.dense.bias",
+            "encoder.layers.*.mlp.linear_fc1.layer_norm_weight": "esm.encoder.layer.*.LayerNorm.weight",
+            "encoder.layers.*.mlp.linear_fc1.layer_norm_bias": "esm.encoder.layer.*.LayerNorm.bias",
+            "lm_head.dense.weight": "lm_head.dense.weight",
+            "lm_head.dense.bias": "lm_head.dense.bias",
+            "lm_head.layer_norm.weight": "lm_head.layer_norm.weight",
+            "lm_head.layer_norm.bias": "lm_head.layer_norm.bias",
+        }
+
+        nemo_module.lm_head.to(torch.bfloat16)
+
+        return io.apply_transforms(
+            nemo_module,
+            target,
+            mapping=mapping,
+            transforms=[_export_qkv_weight, _export_qkv_bias, _export_embedding, _export_bias],
+        )
+
+    @property
+    def config(self) -> HFEsmConfig:
+        """Generate HF Config based on NeMo config."""
+        source: ESM2Config = io.load_context(Path(str(self)), subpath="model.config")
+
+        return HFEsmConfig(
+            attention_probs_dropout_prob=float(source.attention_dropout),
+            emb_layer_norm_before=False,
+            hidden_act="gelu",
+            hidden_dropout_prob=float(source.hidden_dropout),
+            hidden_size=int(source.hidden_size),
+            initializer_range=float(source.init_method_std),
+            intermediate_size=int(source.ffn_hidden_size),
+            is_folding_model=False,
+            layer_norm_eps=float(source.layernorm_epsilon),
+            mask_token_id=32,
+            max_position_embeddings=int(source.seq_length),
+            model_type="esm",
+            num_attention_heads=int(source.num_attention_heads),
+            num_hidden_layers=int(source.num_layers),
+            pad_token_id=1,
+            position_embedding_type="rotary",
+            token_dropout=True,
+            torch_dtype=torch.bfloat16,
+            use_cache=True,
+            vocab_size=self.tokenizer.vocab_size,
+        )
+
+
+@io.state_transform(
+    source_key="encoder.layers.*.self_attention.linear_qkv.weight",
+    target_key=(
+        "esm.encoder.layer.*.attention.self.query.weight",
+        "esm.encoder.layer.*.attention.self.key.weight",
+        "esm.encoder.layer.*.attention.self.value.weight",
+    ),
+)
+def _export_qkv_weight(ctx: io.TransformCTX, linear_qkv):
+    """Convert NeMo QKV weights to HF format."""
+    megatron_config = ctx.target.config
+    num_heads = megatron_config.num_attention_heads
+    head_size = megatron_config.hidden_size // num_heads
+
+    reshaped_qkv = linear_qkv.reshape(3 * num_heads, head_size, megatron_config.hidden_size)
+    query = reshaped_qkv[::3, :, :].reshape(-1, megatron_config.hidden_size)
+    key = reshaped_qkv[1::3, :, :].reshape(-1, megatron_config.hidden_size)
+    value = reshaped_qkv[2::3, :, :].reshape(-1, megatron_config.hidden_size)
+
+    return query, key, value
+
+
+@io.state_transform(
+    source_key="encoder.layers.*.self_attention.linear_qkv.bias",
+    target_key=(
+        "esm.encoder.layer.*.attention.self.query.bias",
+        "esm.encoder.layer.*.attention.self.key.bias",
+        "esm.encoder.layer.*.attention.self.value.bias",
+    ),
+)
+def _export_qkv_bias(ctx: io.TransformCTX, qkv_bias):
+    """Export nemo qkv biases to HF format."""
+    megatron_config = ctx.target.config
+    num_heads = megatron_config.num_attention_heads
+    head_size = megatron_config.hidden_size // num_heads
+
+    reshaped_bias = qkv_bias.reshape(-1, head_size)
+
+    q_bias = reshaped_bias[::3].reshape(-1)
+    k_bias = reshaped_bias[1::3].reshape(-1)
+    v_bias = reshaped_bias[2::3].reshape(-1)
+
+    return q_bias, k_bias, v_bias
+
+
+@io.state_transform(
+    source_key="embedding.word_embeddings.weight",
+    target_key="esm.embeddings.word_embeddings.weight",
+)
+def _export_embedding(ctx: io.TransformCTX, embedding):
+    """Convert NeMo embeddings to HF format."""
+    # prune padding
+    return embedding[: ctx.target.config.vocab_size, :]
+
+
+@io.state_transform(
+    source_key="output_layer.bias",
+    target_key="lm_head.bias",
+)
+def _export_bias(ctx: io.TransformCTX, bias):
+    """Convert NeMo embeddings to HF format."""
+    # prune bias
+    return bias[: ctx.target.config.vocab_size]
 
 
 @io.state_transform(
