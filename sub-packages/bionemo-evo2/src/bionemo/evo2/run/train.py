@@ -293,6 +293,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate.")
     parser.add_argument("--min-lr", type=float, default=3e-5, help="Min learning rate in cosine annealing.")
     parser.add_argument("--warmup-steps", type=int, default=2500, help="Number of warmup steps in cosine annealing")
+    parser.add_argument(
+        "--constant-steps",
+        type=int,
+        default=80000,
+        help="Number of constant steps at the end of training in cosine annealing.",
+    )
     # NSYS profiling/tooling arguments
     parser.add_argument(
         "--nsys-profiling",
@@ -563,7 +569,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-GCLP{args.clip_grad}"
         f"-HDO{args.hidden_dropout}"
         f"-ADO{args.attention_dropout}"
-        f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-WD{args.wd}"
+        f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-CONSTSTEPS{args.constant_steps}-WD{args.wd}"
         f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
@@ -691,11 +697,11 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         use_distributed_optimizer=True,
         bf16=True,
     )
-
     sched = CosineAnnealingScheduler(
         max_steps=trainer.max_steps,
         warmup_steps=args.warmup_steps,
         min_lr=args.min_lr,
+        constant_steps=args.constant_steps,
     )
 
     opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=evo2_config.hyena_no_weight_decay_cond_fn)
