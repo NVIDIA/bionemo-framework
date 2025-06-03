@@ -4,13 +4,14 @@
 		"--gpus=all",
 		"--shm-size=4g"
 	],
-	"build": {
-		"context": "${localWorkspaceFolder}",
-		"dockerfile": "${localWorkspaceFolder}/Dockerfile",
-		"cacheFrom": "type=registry,ref=nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-devcontainer-cache",
-		"cacheTo": "type=registry,ref=nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-devcontainer-cache,mode=max",
-		"target": "dev"
-	},
+	"image": "nvcr.io/nvidia/clara/bionemo-framework:2.5",
+	// "build": {
+	// 	"context": "${localWorkspaceFolder}",
+	// 	"dockerfile": "${localWorkspaceFolder}/Dockerfile",
+	// 	"cacheFrom": "type=registry,ref=nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-devcontainer-cache",
+	// 	"cacheTo": "type=registry,ref=nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-devcontainer-cache,mode=max",
+	// 	"target": "dev"
+	// },
 	"mounts": [
 		// Mount the local ~/.aws config to pass along AWS credentials for PBSS.
 		"source=${localEnv:HOME}/.aws,target=/home/ubuntu/.aws,type=bind,consistency=cached",
