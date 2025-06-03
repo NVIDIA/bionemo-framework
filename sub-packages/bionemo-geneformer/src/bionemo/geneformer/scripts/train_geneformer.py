@@ -60,6 +60,7 @@ def main(
     seq_length: int,
     result_dir: Path,
     num_steps: int,
+    early_stop_on_step: int,
     limit_val_batches: int,
     val_check_interval: int,
     num_dataset_workers: int,
@@ -114,6 +115,7 @@ def main(
         seq_length (int): sequence length
         result_dir (Path): directory to store results, logs and checkpoints
         num_steps (int): number of steps to train the model for
+        early_stop_on_step (int): if set, training will stop after this many steps, useful for debugging
         limit_val_batches (int): limit the number of validation global batches to this many
         val_check_interval (int): number of steps to periodically check the validation loss and save
         num_dataset_workers (int): num dataset workers
@@ -293,7 +295,7 @@ def main(
 
     trainer = nl.Trainer(
         devices=devices,
-        max_steps=num_steps,
+        max_steps=early_stop_on_step if early_stop_on_step is not None else num_steps,
         accelerator="gpu",
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
@@ -492,6 +494,14 @@ def get_parser():
         default=10000,
         help="Number of steps to use for training. Default is 10000.",
     )
+
+    parser.add_argument(
+        "--early-stop-on-step",
+        type=int,
+        default=None,
+        help="Stop training on this step, if set. This may be useful for testing or debugging purposes.",
+    )
+
     parser.add_argument(
         "--num-dataset-workers",
         type=int,
@@ -713,6 +723,7 @@ def entrypoint():
         wandb_log_model=args.wandb_log_model,
         wandb_offline=args.wandb_offline,
         num_steps=args.num_steps,
+        early_stop_on_step=args.early_stop_on_step,
         limit_val_batches=args.limit_val_batches,
         val_check_interval=args.val_check_interval,
         num_dataset_workers=args.num_dataset_workers,
