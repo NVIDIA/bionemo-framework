@@ -15,7 +15,6 @@
 
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import torch
 from nemo.lightning import io, teardown
@@ -30,10 +29,6 @@ from bionemo.esm2.data.tokenizer import BioNeMoESMTokenizer, get_tokenizer
 from bionemo.esm2.model.model import ESM2Config
 from bionemo.llm.lightning import BionemoLightningModule
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
-
-
-if TYPE_CHECKING:
-    pass
 
 
 @io.model_importer(BionemoLightningModule, "hf")
