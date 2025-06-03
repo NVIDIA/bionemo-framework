@@ -46,7 +46,7 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
     clip_grad: float = 1.0
     micro_batch_size: int = 1
     global_batch_size: int = 1
-
+    num_layers: int = 4
     precision: Literal["16-mixed", "bf16-mixed", "32"] = get_autocast_dtype(MODEL_PRECISION)
     workers: int = 8
     seq_length: int = 8
@@ -79,11 +79,10 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
             tensor_model_parallel_size=1,
             pipeline_model_parallel_size=1,
             context_parallel_size=1,
-            pipeline_dtype=torch.float32,
             sequence_parallel=False,
+            ckpt_async_save=False,
             ckpt_load_optimizer=True,
             ckpt_save_optimizer=True,
-            ckpt_async_save=False,
             save_ckpt_format="torch_dist",
             ckpt_load_strictness="log_all",
         )
@@ -129,13 +128,15 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
             **{
                 "tp_comm_overlap": cls.use_megatron_comm_overlap_llama3_8k,
                 "seq_length": cls.seq_length,
-                "use_te": False,  # TODO: stop and go harness doesn't work with TE, since somehow query.dtype is torch.float32 instead of bfloat16
+                "use_te": False,
                 "params_dtype": torch.bfloat16,
                 "bf16": True,
                 "recompute_granularity": None,
                 "recompute_method": None,
                 "recompute_num_layers": None,
+                "num_layers": cls.num_layers,
                 "hidden_size": 1920,
+                "hybrid_override_pattern": cls.hybrid_override_pattern,
                 "num_attention_heads": 15,
                 "num_query_groups": 15,
                 "ffn_hidden_size": 5120,
@@ -172,7 +173,7 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
 
         # # Build model
         module = HyenaModel(config, tokenizer=data.tokenizer)
-        # import pdb; pdb.set_trace()
+        optimizer.connect(module)
         return module, data, optimizer
 
 
