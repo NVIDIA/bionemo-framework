@@ -99,6 +99,7 @@ def main(
     overlap_param_gather: bool = False,
     no_average_in_collective: bool = False,
     grad_reduce_in_fp32: bool = False,
+    use_sanity_dataset: bool = False,
 ) -> nl.Trainer:
     """Train an AMPLIFY model on UR100P data.
 
@@ -157,6 +158,7 @@ def main(
         overlap_param_gather (bool): overlap parameter gather
         no_average_in_collective (bool): disable average in collective
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
+        use_sanity_dataset (bool): use a smaller, streaming version of the AMPLIFY dataset for profiling / testing.
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -252,9 +254,25 @@ def main(
 
     # Initialize the data module. hf_load_dataset loads these datasets from the huggingface hub if they're not available
     # locally, but the download and pre-processing can take a while.
+    if use_sanity_dataset:
+        train_hf_dataset = hf_load_dataset(
+            "chandar-lab/UR100P",
+            split="train",
+            revision="refs/convert/parquet",
+            data_files="default/partial-train/0001.parquet",
+        )
+        valid_hf_dataset = hf_load_dataset(
+            "chandar-lab/UR100P",
+            split="test",
+            revision="refs/convert/parquet",
+        )
+    else:
+        train_hf_dataset = hf_load_dataset("chandar-lab/UR100P", split="train")
+        valid_hf_dataset = hf_load_dataset("chandar-lab/UR100P", data_dir="UniProt", split="test")
+
     data = AMPLIFYDataModule(
-        train_hf_dataset=hf_load_dataset("chandar-lab/UR100P", split="train"),  # type: ignore
-        valid_hf_dataset=hf_load_dataset("chandar-lab/UR100P", data_dir="UniProt", split="test"),  # type: ignore
+        train_hf_dataset=train_hf_dataset,  # type: ignore
+        valid_hf_dataset=valid_hf_dataset,  # type: ignore
         global_batch_size=global_batch_size,
         micro_batch_size=micro_batch_size,
         min_seq_length=min_seq_length,
