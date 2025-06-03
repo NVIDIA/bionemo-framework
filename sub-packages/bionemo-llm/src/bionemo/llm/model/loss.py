@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, List, Literal, Sequence, Tuple, TypedDict
+from typing import Dict, Sequence, Tuple, TypedDict
 
 import torch
 from megatron.core import tensor_parallel
@@ -60,91 +60,11 @@ class DataParallelGroupLossAndIO(TypedDict):
     forward_out: dict[str, Tensor]
 
 
-class _Nemo2CompatibleLossReduceMixin:
-    """This is a mixin class that provides a general purpose reduce function that is compatible with NeMo2.0 and Megatron-LM.
-    Mix this into your loss class to satisfy the abstract `reduce` method, unless you need more
-    customization. Before you import this to another file, please refactor to remove the private `_` prefix.
-    For now we assume that this is local to this file and not something a user would want to import elsewhere.
-    If you do need it, then this assumption was incorrect so please refactor accordingly.
-
-    Since this overrides an abstract parent class, this needs to be put first in the inheritance list to ensure that the correct method is called.
-
-    NOTE (SKH) - This is now dead code.
-    """  # noqa: D205
-
-    def old_reduce(self, losses_reduced_per_micro_batch: List[PerTokenLossDict | SameSizeLossDict]) -> Tensor:
-        if losses_reduced_per_micro_batch:
-            if "avg" in losses_reduced_per_micro_batch[0]:
-                loss_tensors_list: list[Tensor] = [
-                    loss_reduced["avg"] for loss_reduced in losses_reduced_per_micro_batch
-                ]
-                loss_tensor = torch.concat(loss_tensors_list)
-
-                return loss_tensor.mean()
-
-            loss_sum_tensors_list: List[Tensor] = [
-                loss_sum["loss_sum_and_microbatch_size"]
-                for loss_sum in losses_reduced_per_micro_batch
-                if loss_sum["loss_sum_and_microbatch_size"][1] > 0
-            ]
-            dummy_tensor = Tensor([0.0, 0.0]).cuda()
-            loss_sum = (
-                torch.vstack(loss_sum_tensors_list).sum(dim=0) if len(loss_sum_tensors_list) > 0 else dummy_tensor
-            )
-            return loss_sum
-
-        # If losses_reduced_per_micro_batch is empty, return a dummy tensor.
-        dummy_tensor = Tensor(0.0).cuda()
-        return dummy_tensor
-
-    # NOTE: this method reduces across microbatches and cross-device reduction is handled in forward method
-    def reduce(self, losses_reduced_per_micro_batch: List[PerTokenLossDict | SameSizeLossDict]) -> Tensor:
-        # NOTE(SKH) This requires two passes over the data instead of one in the `loss_sum_and_microbatch_size` case.
-
-        # Expect two elements: losses, num_tokens. We only care about the num_tokens index.
-        NUM_TOKENS_IDX = 1
-
-        if not losses_reduced_per_micro_batch:  # model returns zero by default in NeMo2.0
-            dummy_tensor = Tensor(0.0).cuda()
-            return dummy_tensor
-
-        # do the gather
-        keys = list(losses_reduced_per_micro_batch[0].keys())
-        assert sum(("avg" in keys, "loss_sum_and_microbatch_size" in keys)) == 1, (
-            "Expected only either 'avg' or 'loss_sum_and_microbatch_size' in keys but got both"
-        )
-        key: Literal["avg", "loss_sum_and_microbatch_size"] = (
-            "avg" if "avg" in keys else "loss_sum_and_microbatch_size"
-        )
-
-        loss_tensors_list: list[Tensor] = [loss_reduced[key] for loss_reduced in losses_reduced_per_micro_batch]
-        # switch on the keys and allow other keys to pass through
-        if key == "avg":
-            return torch.concat(loss_tensors_list).mean()
-        elif key == "loss_sum_and_microbatch_size":
-            loss_sum_tensors_list = [
-                loss_sum for loss_sum in losses_reduced_per_micro_batch if loss_tensors_list[NUM_TOKENS_IDX] > 0
-            ]
-            if len(loss_sum_tensors_list) == 0:
-                # If we get no result, return zero.
-                dummy_tensor = Tensor([0.0, 0.0]).cuda()
-                return dummy_tensor
-            else:
-                # otherwise do a sum reduction.
-                loss_sum = torch.vstack(loss_sum_tensors_list).sum(dim=0)
-                return loss_sum
-        else:
-            raise ValueError(f"Unexpected: key must either be 'avg' or 'loss_sum_and_microbatch_size', not {key=}")
-
-
 class BERTMLMLossWithReduction(MegatronLossReduction):  # noqa: D101
     def __init__(self, validation_step: bool = False, val_drop_last: bool = True) -> None:  # noqa: D107
         super().__init__()
         self.validation_step = validation_step
         self.val_drop_last = val_drop_last
-
-        # NOTE: this handles an unknown scenario.
-        self.LEGACY_VALIDATION = False
 
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
@@ -174,16 +94,6 @@ class BERTMLMLossWithReduction(MegatronLossReduction):  # noqa: D101
             if batch["loss_mask"].count_nonzero() != 0:
                 raise ValueError("Got NaN loss with non-empty input")
             loss_sum = torch.zeros_like(num_valid_tokens)
-
-            if self.LEGACY_VALIDATION:
-                # In previous implementations we had a custom return for this branch of the conditional, however the use
-                #   for this is unclear.
-                val_loss_for_microbatch = loss_sum.clone()
-                # NOTE(SKH) - Requires a reduce to calculate, but now we do this exclusively in the reduce step. what triggers this?
-                loss_sum_and_microbatch_size_all_gpu = 1 / 0
-                # NOTE(SKH) have not implemented the loss sum and microbatch all gpu, as this is the reduce step.
-                #             unclear how this will impact downstream code.
-                return val_loss_for_microbatch, {"loss_sum_and_microbatch_size": loss_sum_and_microbatch_size_all_gpu}
 
         num_valid_tokens = num_valid_tokens.clone().detach().to(torch.int)
         loss_sum_and_ub_size = torch.cat([loss_sum.clone().detach().view(1), num_valid_tokens.view(1)])
