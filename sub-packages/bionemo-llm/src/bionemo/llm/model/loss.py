@@ -68,6 +68,8 @@ class _Nemo2CompatibleLossReduceMixin:
     If you do need it, then this assumption was incorrect so please refactor accordingly.
 
     Since this overrides an abstract parent class, this needs to be put first in the inheritance list to ensure that the correct method is called.
+
+    NOTE (SKH) - This is now dead code.
     """  # noqa: D205
 
     def old_reduce(self, losses_reduced_per_micro_batch: List[PerTokenLossDict | SameSizeLossDict]) -> Tensor:
@@ -174,9 +176,10 @@ class BERTMLMLossWithReduction(MegatronLossReduction):  # noqa: D101
             loss_sum = torch.zeros_like(num_valid_tokens)
 
             if self.LEGACY_VALIDATION:
-                # NOTE (SKH) we clone and return reduced values in our own code, and i'm not sure why.
+                # In previous implementations we had a custom return for this branch of the conditional, however the use
+                #   for this is unclear.
                 val_loss_for_microbatch = loss_sum.clone()
-
+                # NOTE(SKH) - Requires a reduce to calculate, but now we do this exclusively in the reduce step. what triggers this?
                 loss_sum_and_microbatch_size_all_gpu = 1 / 0
                 # NOTE(SKH) have not implemented the loss sum and microbatch all gpu, as this is the reduce step.
                 #             unclear how this will impact downstream code.
