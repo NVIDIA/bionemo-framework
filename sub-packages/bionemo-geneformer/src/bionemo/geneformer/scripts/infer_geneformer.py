@@ -25,8 +25,7 @@ from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.geneformer.api import FineTuneSeqLenBioBertConfig, GeneformerConfig
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
-from bionemo.geneformer.utils.callbacks import IntervalT, GeneformerPredictionWriter
-
+from bionemo.geneformer.utils.callbacks import GeneformerPredictionWriter, IntervalT
 from bionemo.llm.model.biobert.lightning import biobert_lightning_module
 from bionemo.llm.model.biobert.model import BioBertConfig
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
@@ -38,7 +37,7 @@ def infer_model(
     results_path: Path,
     include_hiddens: bool = False,
     include_embeddings: bool = False,
-    include_gene_embeddings: bool = False,    
+    include_gene_embeddings: bool = False,
     include_logits: bool = False,
     include_input_ids: bool = False,
     seq_length: int = 2048,
@@ -96,10 +95,10 @@ def infer_model(
     )
 
     prediction_writer = GeneformerPredictionWriter(
-        output_dir=results_path, 
+        output_dir=results_path,
         write_interval=prediction_interval,
         tokenizer=tokenizer,
-        include_gene_embeddings=include_gene_embeddings
+        include_gene_embeddings=include_gene_embeddings,
     )
 
     trainer = nl.Trainer(
@@ -143,7 +142,7 @@ def infer_model(
         skip_logits=not include_logits,
         initial_ckpt_skip_keys_with_these_prefixes=[],  # load everything from the checkpoint.
     )
-    
+
     # The lightning class owns a copy of the actual model, and a loss function, both of which are configured
     #  and lazily returned by the `config` object defined above.
     module = biobert_lightning_module(config=config, tokenizer=tokenizer)
@@ -164,7 +163,7 @@ def geneformer_infer_entrypoint():
         include_hiddens=args.include_hiddens,
         micro_batch_size=args.micro_batch_size,
         include_embeddings=not args.no_embeddings,
-        include_gene_embeddings=args.include_gene_embeddings,        
+        include_gene_embeddings=args.include_gene_embeddings,
         include_logits=args.include_logits,
         include_input_ids=args.include_input_ids,
         seq_length=args.seq_length,
@@ -215,7 +214,9 @@ def get_parser():
         default=False,
         help="Include input_ids in output of inference",
     )
-    parser.add_argument("--include-gene-embeddings", action="store_true", default=False, help="Include gene embeddings in output.")    
+    parser.add_argument(
+        "--include-gene-embeddings", action="store_true", default=False, help="Include gene embeddings in output."
+    )
     parser.add_argument("--results-path", type=Path, required=True, help="Path to the results directory.")
     parser.add_argument(
         "--num-gpus",
