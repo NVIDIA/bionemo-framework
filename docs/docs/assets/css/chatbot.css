@@ -13,5 +13,5 @@ img.open-icon {
 /* tempoarily make invisible to test in production.
   turn on in going md-container > md-main > md-contant > article */
 #chatbot > button {
-  display: none;
+  display: block;
 }
