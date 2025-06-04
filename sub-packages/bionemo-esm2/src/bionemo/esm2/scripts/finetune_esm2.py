@@ -474,6 +474,7 @@ def finetune_esm2_entrypoint():
         label_column=args.label_column,
         lora_checkpoint_path=args.lora_checkpoint_path,
         lora_finetune=args.lora_finetune,
+        create_tensorboard_logger=args.create_tensorboard_logger,
     )
 
 
