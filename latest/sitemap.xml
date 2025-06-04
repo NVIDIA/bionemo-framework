@@ -177,6 +177,18 @@
          <lastmod>2025-06-04</lastmod>
     </url>
     <url>
+         <loc>https://nvidia.github.io/bionemo-framework/latest/main/examples/bionemo-geneformer/geneformer-celltype-classification/</loc>
+         <lastmod>2025-06-04</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia.github.io/bionemo-framework/latest/main/examples/bionemo-geneformer/geneformer-gene-embedding-GRN/</loc>
+         <lastmod>2025-06-04</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia.github.io/bionemo-framework/latest/main/examples/bionemo-geneformer/geneformer_cellxgene_tutorial/</loc>
+         <lastmod>2025-06-04</lastmod>
+    </url>
+    <url>
          <loc>https://nvidia.github.io/bionemo-framework/latest/main/examples/bionemo-moco/continuous_data_interpolant_tutorial_cfm/</loc>
          <lastmod>2025-06-04</lastmod>
     </url>
