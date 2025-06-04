@@ -207,6 +207,7 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
             testing_callbacks.OptimizerStateCallback,
         ]:
             pytest.xfail(reason="Tensors not close")
+        super().test_stop_and_go_consistency(callback_type)
 
     @pytest.mark.skip(reason="TODO: assert train_consumed_go > 0 fails.")
     def test_train_val_init_consumed_samples(self):
