@@ -17,6 +17,7 @@
 from pathlib import Path
 
 import torch
+import typer
 from nemo.lightning import io, teardown
 from nemo.lightning.pytorch.utils import dtype_from_hf
 from transformers import AutoConfig as HFAutoConfig
@@ -122,19 +123,20 @@ class HFESM2Exporter(io.ModelConnector[BionemoLightningModule, EsmForMaskedLM]):
 
     def apply(self, output_path: Path) -> Path:
         """Applies the transformation."""
-        nemo_config = ESM2Config(
-            initial_ckpt_path=str(self),
-            include_embeddings=True,
-            include_hiddens=True,
-            params_dtype=torch.bfloat16,
-            autocast_dtype=torch.bfloat16,
-            bf16=True,
-            fp16=False,
+        from megatron.core.dist_checkpointing.validation import StrictHandling
+        from nemo.lightning import MegatronStrategy, Trainer
+
+        cpu = not torch.distributed.is_initialized()
+        trainer = Trainer(
+            devices=1,
+            accelerator="cpu" if cpu else "gpu",
+            strategy=MegatronStrategy(
+                ddp="pytorch", setup_optimizers=False, ckpt_load_strictness=StrictHandling.LOG_UNEXPECTED
+            ),
         )
+        source, _ = self.nemo_load(self, trainer=trainer, cpu=cpu)
 
-        source = nemo_config.configure_model(self.tokenizer)
-
-        target = self.init(torch.bfloat16)
+        target = self.init(source.dtype)
         target = self.convert_state(source, target)
 
         target = target.cpu()
@@ -168,8 +170,6 @@ class HFESM2Exporter(io.ModelConnector[BionemoLightningModule, EsmForMaskedLM]):
             "lm_head.layer_norm.weight": "lm_head.layer_norm.weight",
             "lm_head.layer_norm.bias": "lm_head.layer_norm.bias",
         }
-
-        nemo_module.lm_head.to(torch.bfloat16)
 
         return io.apply_transforms(
             nemo_module,
@@ -340,3 +340,33 @@ def _import_qkv_bias(ctx: io.TransformCTX, query, key, value):
     concat_biases = concat_biases.transpose(0, 1).contiguous()
     concat_biases = concat_biases.view(*input_shape)
     return concat_biases
+
+
+app = typer.Typer()
+
+
+@app.command()
+def convert_nemo_to_hf(nemo_path: str, output_path: str):
+    """Convert a NeMo ESM-2 checkpoint to a HuggingFace checkpoint.
+
+    Args:
+        nemo_path: Path to the NeMo checkpoint.
+        output_path: Path to the output HuggingFace checkpoint.
+    """
+    io.export_ckpt(Path(nemo_path), "hf", Path(output_path))
+
+
+@app.command()
+def convert_hf_to_nemo(hf_tag_or_path: str, output_path: str):
+    """Convert a HuggingFace ESM-2 checkpoint to a NeMo ESM-2 checkpoint.
+
+    Args:
+        hf_tag_or_path: Tag or path to the HuggingFace checkpoint.
+        output_path: Path to the output NeMo checkpoint.
+    """
+    module = biobert_lightning_module(config=ESM2Config(), post_process=True)
+    io.import_ckpt(module, f"hf://{hf_tag_or_path}", Path(output_path))
+
+
+if __name__ == "__main__":
+    app()
