@@ -10,16 +10,16 @@ So in other words, NeMo2 adds the Megatron strategy in addition to the standard 
 
 Many downstream constraints and conventions are driven by the underlying constraints of megatron.
 
-## Deeper background on megatron
+## Deeper Background on Megatron
 
-### Other options for parallelizing smaller models
+### Other Options for Parallelizing Smaller Models
 
 Megatron is a system for supporting advanced varieties of model parallelism. While vanilla models can be executed
-in parallel with systems such as distributed data parallel (DDP) or moderately large models can be trained with Meta's
-Fully Sharded Data Parallel (FSDP/FSDP2), when you get to very large models and you want to train them with maximal
-efficiency, you want some variant of megatron.
+in parallel with systems, such as distributed data parallel (DDP), or moderately large models can be trained with Meta's
+Fully Sharded Data Parallel (FSDP/FSDP2), when you work with larger models and want to train them with maximal
+efficiency, it is ideal to use some variant of megatron.
 
-### DDP background
+### DDP Background
 
 DDP is the best option **when you can fit the entire model on every GPU** in your cluster. With DDP, you can
 parallelize your `global batch` across multiple GPUs by splitting it into smaller `mini-batches`, one for each GPU.
@@ -30,7 +30,7 @@ on your cluster with a small model:
 
 ![Data Parallelism Diagram](../../../assets/images/megatron_background/data_parallelism.png)
 
-### FSDP background
+### FSDP Background
 
 FSDP extends DDP by sharding (splitting) model weights across GPUs in your cluster to optimize memory usage.
 While data is still split across GPUs in the same way as DDP, FSDP strategically synchronizes and broadcasts
@@ -41,7 +41,7 @@ which then perform the forward computation on that layer. After the computation 
 that layer on all GPUs except the one that owns the shard. This process continues iteratively for each layer until the
 entire model has been executed on the data.
 
-Note that this process parallelizes the storage in a way that enables too large models to be executed (assuming a single
+**Note:** This process parallelizes the storage in a way that enables too large models to be executed (assuming a single
 layer is not too large to fit on a GPU). Megatron (next) co-locates both storage and compute.
 
 The following two figures show two steps through the forward pass of a model that has been sharded with FSDP.
@@ -60,16 +60,18 @@ caused by naive scheduler implementations are also addressed (discussed in the s
 
 Pipeline parallelism is similar to FSDP, but the model blocks that are sharded are also computed in parallel on the
 nodes that own the model weight in question. You can think of this as a larger simulated GPU that happens to be spread
-across several child GPUs. Examples of this include `parallel_state.is_pipeline_last_stage()` which is commonly
-used to tell if a particular node is on last pipeline stage, where you compute the final head outputs, loss, etc.
-![Pipeline Parallelism](../../../assets/images/megatron_background/pipeline_parallelism.png). Similarly there are convenience
+across several child GPUs. Examples of this include `parallel_state.is_pipeline_last_stage()`, which is commonly
+used to tell if a particular node is on last pipeline stage, where you compute the final head outputs or loss.
+![Pipeline Parallelism](../../../assets/images/megatron_background/pipeline_parallelism.png)
+
+Similarly, there are convenience
 environmental lookups for the first pipeline stage (where you compute the embedding for example)
 `parallel_state.is_pipeline_first_stage()`.
 
 #### Tensor Parallelism
 
 Tensor parallelism represents splitting single layers across GPUs. This can also solve the problem where some individual
-layers could in theory be too large to fit on a single GPU, which would make FSDP not possible. This would still work
+layers could in theory be too large to fit on a single GPU, where FSDP would not be possible. This would still work
 since individual layer weights (and computations) are distributed. Examples of this in megatron include `RowParallelLinear` and
 `ColumnParallelLinear` layers.
 ![Tensor Parallelism](../../../assets/images/megatron_background/tensor_parallelism.png)
@@ -102,24 +104,24 @@ kinds of parallelism if a micro-batch fits on a single device still holds. Split
 represent the fewest necessary communications between GPUs on your cluster, so standard DDP should run the fastest if
 you can get your training loop for a micro batch to fit on one GPU.
 
-#### Mixing parallelism strategies
+#### Mixing Parallelism Strategies
 
-You can mix multiple kinds of parallelism together to achieve a more performant result. In general experimentation
+You can mix different kinds of parallelism together to achieve a better result. In general, experimentation
 should be done to identify the optimal mix of parallelism. See this
 [YouTube tutorial from Jared Casper](https://youtu.be/gHaNUcS1_O4) for more background on megatron parallelism
 strategies.
 
-Below is a figure demonstrating how mixing strategies results in larger "virtual GPUs", which similarly means you have
-fewer distinct micro-batches in flight across your cluster. Also note that the number of virtual GPUs is multiplicative
-so if you have `TP=2` and `PP=2` then you are creating a larger virtual GPU out of `2*2=4` GPUs, so your cluster size
+The figure below demonstrates how mixing strategies results in larger "virtual GPUs", which similarly means you have
+fewer distinct micro-batches in flight across your cluster. Note that the number of virtual GPUs is multiplicative
+so if you have `TP=2` and `PP=2`, then you are creating a larger virtual GPU out of `2*2=4` GPUs, so your cluster size
 needs to be a multiple of 4 in this case.
 ![Mixing Tensor and Pipeline Parallelism](../../../assets/images/megatron_background/tensor_and_pipeline_parallelism.png)
 
-#### Scheduling model parallelism
+#### Scheduling Model Parallelism
 
-You can improve on naive schedules by splitting up micro-batches into smaller pieces, executing multiple stages of the
+You can improve on naive schedules by splitting up micro-batches into smaller pieces, executing many stages of the
 model on single GPUs, and starting computing the backwards pass of one micro-batch while another is going through forward.
-These optimizations allow for better cluster GPU utilization to be achieved. For example the following figure shows
-how more advanced splitting techniques in megatron (eg the interleaved scheduler) provide better utilization when model
-parallelism is used. Again when you can get away without using model parallelism (DDP), that is generally the best approach.
+These optimizations allow for better cluster GPU utilization to be achieved. For example, the following figure shows
+how more advanced splitting techniques in megatron (for example, the interleaved scheduler) offer better utilization when model
+parallelism is used. As best possible, we don't recommend using model parallelism (DDP).
 ![Execution Schedulers](../../../assets/images/megatron_background/execution_schedulers.png)
