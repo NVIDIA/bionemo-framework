@@ -18,7 +18,8 @@ from pathlib import Path
 
 import torch
 import typer
-from nemo.lightning import io, teardown
+from megatron.core.dist_checkpointing.validation import StrictHandling
+from nemo.lightning import MegatronStrategy, Trainer, io, teardown
 from nemo.lightning.pytorch.utils import dtype_from_hf
 from transformers import AutoConfig as HFAutoConfig
 from transformers import AutoModelForMaskedLM
@@ -123,9 +124,6 @@ class HFESM2Exporter(io.ModelConnector[BionemoLightningModule, EsmForMaskedLM]):
 
     def apply(self, output_path: Path) -> Path:
         """Applies the transformation."""
-        from megatron.core.dist_checkpointing.validation import StrictHandling
-        from nemo.lightning import MegatronStrategy, Trainer
-
         cpu = not torch.distributed.is_initialized()
         trainer = Trainer(
             devices=1,
@@ -136,7 +134,12 @@ class HFESM2Exporter(io.ModelConnector[BionemoLightningModule, EsmForMaskedLM]):
         )
         source, _ = self.nemo_load(self, trainer=trainer, cpu=cpu)
 
-        target = self.init(source.dtype)
+        dtype = torch.bfloat16 if source.config.bf16 else torch.float32
+
+        # Not sure why we need to do this, for some reason lm_head stays as fp32
+        source.module.lm_head.to(dtype)
+
+        target = self.init(dtype)
         target = self.convert_state(source, target)
 
         target = target.cpu()
@@ -342,30 +345,38 @@ def _import_qkv_bias(ctx: io.TransformCTX, query, key, value):
     return concat_biases
 
 
-app = typer.Typer()
+app = typer.Typer(pretty_exceptions_enable=False)
 
 
 @app.command()
-def convert_nemo_to_hf(nemo_path: str, output_path: str):
+def convert_nemo_to_hf(nemo_path: str, output_path: str, overwrite: bool = True):
     """Convert a NeMo ESM-2 checkpoint to a HuggingFace checkpoint.
 
     Args:
         nemo_path: Path to the NeMo checkpoint.
         output_path: Path to the output HuggingFace checkpoint.
+        overwrite: Whether to overwrite the output path if it already exists.
     """
-    io.export_ckpt(Path(nemo_path), "hf", Path(output_path))
+    io.export_ckpt(
+        Path(nemo_path),
+        "hf",
+        Path(output_path),
+        overwrite=overwrite,
+        load_connector=lambda path, ext: BionemoLightningModule.exporter(ext, path),
+    )
 
 
 @app.command()
-def convert_hf_to_nemo(hf_tag_or_path: str, output_path: str):
+def convert_hf_to_nemo(hf_tag_or_path: str, output_path: str, overwrite: bool = True):
     """Convert a HuggingFace ESM-2 checkpoint to a NeMo ESM-2 checkpoint.
 
     Args:
         hf_tag_or_path: Tag or path to the HuggingFace checkpoint.
         output_path: Path to the output NeMo checkpoint.
+        overwrite: Whether to overwrite the output path if it already exists.
     """
     module = biobert_lightning_module(config=ESM2Config(), post_process=True)
-    io.import_ckpt(module, f"hf://{hf_tag_or_path}", Path(output_path))
+    io.import_ckpt(module, f"hf://{hf_tag_or_path}", Path(output_path), overwrite=overwrite)
 
 
 if __name__ == "__main__":
