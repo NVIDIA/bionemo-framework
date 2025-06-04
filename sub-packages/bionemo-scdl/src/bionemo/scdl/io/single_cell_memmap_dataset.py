@@ -607,10 +607,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 - 'current_cell_index': int - Index of current cell
                 - 'next_cell_index': int - Index of neighbor cell
                 - 'features': List[np.ndarray] - Features if return_features is True, else None
+            
+        Raises:
+            ValueError: If include_neighbor=True but neighbor data is not available
         """
         # Determine whether to include neighbor
         if include_neighbor is None:
             include_neighbor = self.load_neighbors and self._has_neighbors
+        
+        # Validate neighbor availability
+        if include_neighbor and not (self.load_neighbors and self._has_neighbors):
+            raise ValueError("Cannot include neighbor data: neighbor functionality is disabled or no neighbor data available")
         
         # Get current cell data using the existing get_row function
         current_cell_data, features = self.get_row(index, return_features, feature_vars)
@@ -698,10 +705,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 - 'current_cell_index': int - Index of current cell
                 - 'next_cell_index': int - Index of neighbor cell
                 - 'features': List[np.ndarray] - Features if return_features is True, else None
+            
+        Raises:
+            ValueError: If include_neighbor=True but neighbor data is not available
         """
         # Determine whether to include neighbor
         if include_neighbor is None:
             include_neighbor = self.load_neighbors and self._has_neighbors
+        
+        # Validate neighbor availability
+        if include_neighbor and not (self.load_neighbors and self._has_neighbors):
+            raise ValueError("Cannot include neighbor data: neighbor functionality is disabled or no neighbor data available")
         
         # If no neighbor requested, use existing get_row_padded function
         if not include_neighbor:
