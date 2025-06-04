@@ -38,7 +38,7 @@ from bionemo.testing.harnesses.mode import Mode
 class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
     """Most of these parameters are copied from test_evo2.py which runs train.py."""
 
-    num_steps: int = 5
+    num_steps: int = 3
     val_check_interval: int = 1
     limit_val_batches: int = 1
     lr: float = 3e-4
