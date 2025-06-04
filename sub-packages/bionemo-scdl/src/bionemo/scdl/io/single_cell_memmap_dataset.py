@@ -65,6 +65,12 @@ class METADATA(str, Enum):
     NUM_ROWS = "num_rows"
 
 
+class NeighborSamplingStrategy(str, Enum):
+    """Valid sampling strategies for neighbor selection."""
+    
+    RANDOM = "random"
+
+
 def _swap_mmap_array(
     src_array: np.memmap,
     src_path: str,
@@ -254,7 +260,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # --- Neighbor Args ---
         load_neighbors: bool = False,
         neighbor_key: str = 'next_cell_ids',
-        neighbor_sampling_strategy: str = 'random',
+        neighbor_sampling_strategy: str = NeighborSamplingStrategy.RANDOM,
         fallback_to_identity: bool = True,
     ) -> None:
         """Instantiate the class.
@@ -342,8 +348,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self._has_neighbors = False # Track if neighbor data was successfully loaded/found
 
         self.neighbor_key = neighbor_key
-        if neighbor_sampling_strategy not in ['random']:
+        try:
+            # Convert string to enum if a string was passed
+            if isinstance(neighbor_sampling_strategy, str):
+                neighbor_sampling_strategy = NeighborSamplingStrategy(neighbor_sampling_strategy)
+            # Validate that it's a valid enum value
+            if not isinstance(neighbor_sampling_strategy, NeighborSamplingStrategy):
+                raise ValueError(f"Unsupported neighbor_sampling_strategy: {neighbor_sampling_strategy}")
+        except ValueError:
             raise ValueError(f"Unsupported neighbor_sampling_strategy: {neighbor_sampling_strategy}")
+        
         self.neighbor_sampling_strategy = neighbor_sampling_strategy
         self.fallback_to_identity = fallback_to_identity
 
@@ -1140,11 +1154,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 return cell_index  # Currently always return self if no neighbors
                 
         # Sample neighbor based on strategy
-        if self.neighbor_sampling_strategy == 'random':
+        if self.neighbor_sampling_strategy == NeighborSamplingStrategy.RANDOM:
             # Simple random sampling with equal probability
             chosen_index = np.random.choice(neighbor_indices)
             return chosen_index
-         # NOTE: Future - Add weighted sampling strategy
+        # NOTE: Future - Add weighted sampling strategy
         else:
             raise ValueError(f"Unsupported neighbor sampling strategy: {self.neighbor_sampling_strategy}")
         
