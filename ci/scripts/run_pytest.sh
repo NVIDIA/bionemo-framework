@@ -85,10 +85,11 @@ uname -a
 
 # Set up pytest options
 PYTEST_OPTIONS=(
-    -v
+    -vv
     --cov=bionemo
     --cov-append
     --cov-report=xml:coverage.xml
+    --durations=0
 )
 # Add multiple file ignores if specified
 for ignore_file in "${IGNORE_FILES[@]}"; do
