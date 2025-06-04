@@ -23,11 +23,11 @@ script_args:
   gpus: 8
   val_check_interval: 500
   acc_grad: 1
+  max_steps: 400000
   products:
     - config_name: 10M
       nodes: 2
       batch_size: 32
-      max_steps: 400000
       stop_steps: 30000
       lr: 0.001
       cosine_rampup_frac: 0.004331629559040111
@@ -39,7 +39,6 @@ script_args:
     - config_name: 1B
       nodes: 4
       batch_size: 32
-      max_steps: 123125
       stop_steps: 30000
       lr: 0.0004
       cosine_hold_frac: 0.05
