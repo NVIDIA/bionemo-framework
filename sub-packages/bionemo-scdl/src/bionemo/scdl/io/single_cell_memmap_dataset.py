@@ -576,17 +576,15 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         else:
             return ret, None
     
-    # FOR POLINA: this can be separate function or integrated into get_row
-    # FOR POLINA: how might your rowfeatureindex approach be relavant here? 
     def get_row_with_neighbor(
         self,
         index: int,
         return_features: bool = False,
         feature_vars: Optional[List[str]] = None,
         include_neighbor: Optional[bool] = None,
-        ) -> Union[
-            Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]],
-            Dict[str, Union[Tuple[np.ndarray, np.ndarray], int, Optional[List[np.ndarray]]]]
+    ) -> Union[
+        Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]],
+        Dict[str, Union[Tuple[np.ndarray, np.ndarray], int, Optional[List[np.ndarray]]]]
     ]:
         """Returns a given row in the dataset along with optional features and neighbor data.
         
@@ -614,21 +612,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         if include_neighbor is None:
             include_neighbor = self.load_neighbors and self._has_neighbors
         
-        # Validate index
-        if not (0 <= index < self.number_of_rows()):
-            raise IndexError(f"Index {index} out of bounds for dataset with size {self.number_of_rows()}")
-        
-        # Get current cell data
-        start = self.row_index[index]
-        end = self.row_index[index + 1]
-        values = self.data[start:end]
-        columns = self.col_index[start:end]
-        current_cell_data = (values, columns)
-        
-        # Get features if requested
-        features = None
-        if return_features:
-            features = self._feature_index.lookup(index, select_features=feature_vars)[0]
+        # Get current cell data using the existing get_row function
+        current_cell_data, features = self.get_row(index, return_features, feature_vars)
         
         # If no neighbor requested, return in original format
         if not include_neighbor:
@@ -641,12 +626,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         if neighbor_index == index:
             next_cell_data = current_cell_data
         else:
-            # Get neighbor cell data
-            n_start = self.row_index[neighbor_index]
-            n_end = self.row_index[neighbor_index + 1]
-            n_values = self.data[n_start:n_end]
-            n_columns = self.col_index[n_start:n_end]
-            next_cell_data = (n_values, n_columns)
+            # Get neighbor cell data using the get_row function
+            next_cell_data, _ = self.get_row(neighbor_index, False, None)
         
         # Return all data in a dictionary format
         return {
@@ -683,7 +664,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             features,
         )
     
-    # FOR POLINA: this can be separate function or integrated into get_row_padded
     def get_row_padded_with_neighbor(
         self,
         index: int,
@@ -723,30 +703,27 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         if include_neighbor is None:
             include_neighbor = self.load_neighbors and self._has_neighbors
         
-        # If no neighbor requested, use original implementation
+        # If no neighbor requested, use existing get_row_padded function
         if not include_neighbor:
-            result, features = self.get_row(index, return_features, feature_vars)
-            row_values, row_column_pointer = result
-            return (
-                _pad_sparse_array(row_values, row_column_pointer, self._feature_index.number_vars_at_row(index)),
-                features,
-            )
+            return self.get_row_padded(index, return_features, feature_vars)
         
         # Get both current cell and neighbor data
         result = self.get_row_with_neighbor(index, return_features, feature_vars, include_neighbor=True)
         
-        # Get the padded arrays for both cells
-        curr_values, curr_cols = result['current_cell']
-        next_values, next_cols = result['next_cell']
+        # Get current cell padded array using get_row_padded
+        curr_padded, _ = self.get_row_padded(index, False, None)
         
-        curr_padded = _pad_sparse_array(curr_values, curr_cols, self._feature_index.number_vars_at_row(index))
-        
-        # For neighbor, we need to get the correct feature count for its row
+        # For neighbor, get the padded array
         next_idx = result['next_cell_index']
-        next_padded = _pad_sparse_array(next_values, next_cols, self._feature_index.number_vars_at_row(next_idx))
+        if next_idx == index:
+            # If neighbor is the same as current cell, reuse the current padded array
+            next_padded = curr_padded
+        else:
+            # Otherwise get the neighbor's padded array
+            next_padded, _ = self.get_row_padded(next_idx, False, None)
         
-        # Return in dictionary format similar to get_row
-        return { #type: ignore
+        # Return in dictionary format
+        return {  # type: ignore
             'current_cell': curr_padded,
             'next_cell': next_padded,
             'current_cell_index': result['current_cell_index'],
