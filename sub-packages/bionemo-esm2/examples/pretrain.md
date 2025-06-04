@@ -305,7 +305,7 @@ train_esm2 \
     --ffn-hidden-size 5120 \
     --tensor-model-parallel-size 1 \
     --create-tensorboard-logger \
-    --wandb_project=__your_wandb_project__ \
+    --wandb-project=__your_wandb_project__ \
     --experiment-name=__your_wandb_experiment_name
 ```
 
