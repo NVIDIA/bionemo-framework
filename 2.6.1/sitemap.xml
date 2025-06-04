@@ -153,6 +153,22 @@
          <lastmod>2025-06-04</lastmod>
     </url>
     <url>
+         <loc>https://nvidia.github.io/bionemo-framework/latest/main/examples/bionemo-esm2/finetune/</loc>
+         <lastmod>2025-06-04</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia.github.io/bionemo-framework/latest/main/examples/bionemo-esm2/inference/</loc>
+         <lastmod>2025-06-04</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia.github.io/bionemo-framework/latest/main/examples/bionemo-esm2/mutant-design/</loc>
+         <lastmod>2025-06-04</lastmod>
+    </url>
+    <url>
+         <loc>https://nvidia.github.io/bionemo-framework/latest/main/examples/bionemo-esm2/pretrain/</loc>
+         <lastmod>2025-06-04</lastmod>
+    </url>
+    <url>
          <loc>https://nvidia.github.io/bionemo-framework/latest/main/examples/bionemo-evo2/fine-tuning-tutorial/</loc>
          <lastmod>2025-06-04</lastmod>
     </url>
