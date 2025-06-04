@@ -126,7 +126,7 @@ extra:
     default: latest
     alias: true
   docker_url: nvcr.io/nvidia/clara/bionemo-framework
-  docker_tag: 2.6
+  docker_tag: 2.6.1
   github_url: https://github.com/NVIDIA/bionemo-framework
 
 copyright: |
