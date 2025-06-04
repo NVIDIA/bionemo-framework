@@ -30,7 +30,7 @@ from bionemo.esm2.model.model import ESM2Config
 
 def assert_esm2_equivalence(
     ckpt_path: Path | str,
-    model_tag: str,
+    model_tag: str | Path,
     precision: PrecisionTypes = "fp32",
     rtol: float | None = None,
     atol: float | None = None,
@@ -136,7 +136,7 @@ def load_and_evaluate_nemo_esm2(
 
 
 def load_and_evaluate_hf_model(
-    model_tag: str, precision: PrecisionTypes, input_ids: torch.Tensor, attention_mask: torch.Tensor
+    model_tag: str | Path, precision: PrecisionTypes, input_ids: torch.Tensor, attention_mask: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Load a HuggingFace model and evaluate it on the given inputs.
 

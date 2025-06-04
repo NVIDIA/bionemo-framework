@@ -315,11 +315,15 @@ class BionemoLightningModule(
         if self.configure_init_model_parallel:
             self.trainer.strategy._init_model_parallel = True
         if self.module is None:
-            model: MegatronModelType = (
-                self.config.configure_model(**self.module_construct_args)
-                if self.module_construct_args is not None
-                else self.config.configure_model()
-            )
+            if self.module_construct_args is None:
+                module_construct_args = {}
+            elif "model_construct_args" in self.module_construct_args:
+                # Not sure why this is needed, but it seems "model_construct_args" ends up as a key inside this dict.
+                module_construct_args = self.module_construct_args["model_construct_args"]
+            else:
+                module_construct_args = self.module_construct_args
+
+            model: MegatronModelType = self.config.configure_model(**module_construct_args)
             self.module = model
         if self.module is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
