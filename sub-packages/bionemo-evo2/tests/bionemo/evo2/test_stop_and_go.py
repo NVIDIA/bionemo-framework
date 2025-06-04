@@ -24,7 +24,7 @@ from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections.llm import HyenaModel
 from nemo.collections.llm.gpt.data import MockDataModule
-from nemo.collections.llm.gpt.model.hyena import HyenaNV1bConfig
+from nemo.collections.llm.gpt.model.hyena import HyenaNVTestConfig
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler, MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies import MegatronStrategy
@@ -130,11 +130,11 @@ class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
 
         data.init_global_step = 0
         # config
-        config = HyenaNV1bConfig(
+        config = HyenaNVTestConfig(
             **{
                 "tp_comm_overlap": cls.use_megatron_comm_overlap_llama3_8k,
                 "seq_length": cls.seq_length,
-                "use_te": False,
+                "use_te": True,
                 "params_dtype": torch.bfloat16,
                 "bf16": True,
                 "recompute_granularity": None,
