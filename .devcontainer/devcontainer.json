@@ -7,8 +7,6 @@
 	"build": {
 		"context": "${localWorkspaceFolder}",
 		"dockerfile": "${localWorkspaceFolder}/Dockerfile",
-		"cacheFrom": "type=registry,ref=nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-devcontainer-cache",
-		"cacheTo": "type=registry,ref=nvcr.io/nvidian/cvai_bnmo_trng/bionemo:bionemo2-devcontainer-cache,mode=max",
 		"target": "dev"
 	},
 	"mounts": [
