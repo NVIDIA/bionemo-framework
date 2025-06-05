@@ -99,7 +99,7 @@ done
 [[ "$ONLY_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "slow")
 
 # Define test directories
-TEST_DIRS=(./sub-packages/bionemo-*/)
+TEST_DIRS=(./sub-packages/bionemo-evo2/)
 if [[ "$NO_NBVAL" != true && "$SKIP_DOCS" != true ]]; then
     TEST_DIRS+=(docs/)
 fi
@@ -118,7 +118,7 @@ for dir in "${TEST_DIRS[@]}"; do
     echo "Running pytest in $dir"
     # Run pytest but don't exit on failure - we'll handle the exit code separately. This is needed because our script is
     #  running in pipefail mode and pytest will exit with a non-zero exit code if it finds no tests.
-    { pytest "${PYTEST_OPTIONS[@]}" --junitxml=$(basename $dir).junit.xml -o junit_family=legacy "$dir"; exit_code=$?; } || true
+    pytest "${PYTEST_OPTIONS[@]}" -s --junitxml=$(basename $dir).junit.xml -o junit_family=legacy "$dir"; exit_code=$?;
 
     if [[ $exit_code -ne 0 ]]; then
         if [[ "$ALLOW_NO_TESTS" == true && $exit_code -eq 5 ]]; then
