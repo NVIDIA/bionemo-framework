@@ -263,25 +263,6 @@ def train_model(
     if peft is not None:
         callbacks.append(peft)
 
-    trainer = nl.Trainer(
-        devices=devices,
-        max_steps=num_steps,
-        accelerator="gpu",
-        strategy=strategy,
-        limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
-        val_check_interval=val_check_interval,
-        log_every_n_steps=log_every_n_steps,
-        num_nodes=num_nodes,
-        callbacks=callbacks,
-        plugins=nl.MegatronMixedPrecision(
-            precision=precision,
-            params_dtype=get_autocast_dtype(precision),
-            pipeline_dtype=get_autocast_dtype(precision),
-            grad_reduce_in_fp32=grad_reduce_in_fp32,
-            autocast_enabled=False,
-        ),
-    )
-
     tokenizer = get_tokenizer()
 
     # Initialize the data module.
@@ -366,9 +347,17 @@ def train_model(
         )
     else:
         module = biobert_lightning_module(config=config, tokenizer=tokenizer, optimizer=optimizer)
-
+    # Setup the logger and train the model
+    nemo_logger = setup_nemo_lightning_logger(
+        root_dir=result_dir,
+        name=experiment_name,
+        initialize_tensorboard_logger=create_tensorboard_logger,
+        wandb_config=wandb_config,
+    )
     # Configure our custom Checkpointer
+    checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
     checkpoint_callback = nl_callbacks.ModelCheckpoint(
+        dirpath=checkpoint_path,
         save_last=save_last_checkpoint,
         monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
         save_top_k=save_top_k,
@@ -378,14 +367,26 @@ def train_model(
         save_weights_only=False,
         save_optim_on_train_end=True,
     )
+    callbacks.append(checkpoint_callback)
 
-    # Setup the logger and train the model
-    nemo_logger = setup_nemo_lightning_logger(
-        root_dir=result_dir,
-        name=experiment_name,
-        initialize_tensorboard_logger=create_tensorboard_logger,
-        wandb_config=wandb_config,
-        ckpt_callback=checkpoint_callback,
+    trainer = nl.Trainer(
+        devices=devices,
+        max_steps=num_steps,
+        accelerator="gpu",
+        strategy=strategy,
+        limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
+        val_check_interval=val_check_interval,
+        log_every_n_steps=log_every_n_steps,
+        num_nodes=num_nodes,
+        callbacks=callbacks,
+        plugins=nl.MegatronMixedPrecision(
+            precision=precision,
+            params_dtype=get_autocast_dtype(precision),
+            pipeline_dtype=get_autocast_dtype(precision),
+            grad_reduce_in_fp32=grad_reduce_in_fp32,
+            autocast_enabled=False,
+        ),
+        enable_checkpointing=True,
     )
     llm.train(
         model=module,
@@ -393,6 +394,7 @@ def train_model(
         trainer=trainer,
         log=nemo_logger,
         resume=resume.AutoResume(
+            resume_from_directory=checkpoint_path,
             resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
             resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
         ),
@@ -474,6 +476,7 @@ def finetune_esm2_entrypoint():
         label_column=args.label_column,
         lora_checkpoint_path=args.lora_checkpoint_path,
         lora_finetune=args.lora_finetune,
+        create_tensorboard_logger=args.create_tensorboard_logger,
     )
 
 
