@@ -126,7 +126,7 @@ fi
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
     cd / && pip uninstall bitsandbytes && \
     git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
-    cd bitsandbytes && pip install . && cd .. && rm -rf bitsandbytes; \
+    cd bitsandbytes && cmake -DCOMPUTE_BACKEND=cuda -S . && make && pip install . && cd .. && rm -rf bitsandbytes; \
 fi
 ###############################################################################
 # /end ARM
