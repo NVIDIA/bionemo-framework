@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 14400
+time_limit: 3600
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   data_path: False
@@ -13,11 +13,11 @@ script_args:
   variant: train
   config_name: 650M
   precision: [bf16-mixed]
-  nodes: [4]
-  gpus: 8
+  nodes: [1]
+  gpus: 1
   batch_size: 16
   max_steps: 500000
-  stop_steps: 26000
+  stop_steps: 2000
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=${data_path}/train_clusters.parquet \
