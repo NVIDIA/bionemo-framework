@@ -5,6 +5,7 @@ key_segments:
   data_path: False
   val_check_interval: False
   lr: False
+  num_workers: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -22,6 +23,7 @@ script_args:
   lr: 0.001
   val_check_interval: 500
   acc_grad: 1
+  num_workers: 4
 script: |-
    WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --data-dir ${data_path} \
@@ -30,7 +32,7 @@ script: |-
     --save-last-checkpoint \
     --num-nodes ${nodes} \
     --val-check-interval ${val_check_interval} \
-    --num-dataset-workers 8 \
+    --num-dataset-workers ${num_workers} \
     --num-steps ${max_steps} \
     --seq-length 2048 \
     --limit-val-batches 8 \
