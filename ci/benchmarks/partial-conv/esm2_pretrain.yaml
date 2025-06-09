@@ -15,7 +15,7 @@ script_args:
   config_name: 650M
   precision: [bf16-mixed]
   nodes: [1]
-  gpus: 2
+  gpus: 8
   batch_size: 16
   max_steps: 500000
   stop_steps: 2000
