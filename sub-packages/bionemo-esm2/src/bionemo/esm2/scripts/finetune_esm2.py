@@ -119,7 +119,7 @@ def train_model(
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
     ckpt_async_save: bool = True,
-    label_column: str = "labels",
+    label_column: str = "3state",
     lora_checkpoint_path: Optional[str] = None,
     lora_finetune: bool = False,
 ) -> Tuple[Path, Callback | None, nl.Trainer]:
@@ -537,6 +537,27 @@ def get_parser():
         required=False,
         default=None,
         help="Layer name for which we scale the lr by lr-multiplier",
+    )
+    parser.add_argument(
+        "--limit_val_batches",
+        type=int,
+        required=False,
+        default=1000,
+        help="Number of validation batches to use for validation. Default is 1000.",
+    )
+    parser.add_argument(
+        "--limit_test_batches",
+        type=int,
+        required=False,
+        default=1000,
+        help="Number of test batches to use for testing. Default is 1000.",
+    )
+    parser.add_argument(
+        "--log_every_n_steps",
+        type=int,
+        required=False,
+        default=1,
+        help="Number of steps between logging. Default is 1.",
     )
     parser.add_argument(
         "--lr-multiplier",
