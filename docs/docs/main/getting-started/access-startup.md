@@ -13,9 +13,12 @@ BioNeMo Framework and begin exploring its features and capabilities.
 
 ### Brev.Dev Access
 
-The BioNeMo Framework container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier so a credit card may be required. You can reach out to your NVIDIA rep for credit. After launching the instance, launch a Terminal session in the Jupyter Lab UI.
+The BioNeMo Framework container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU). It takes about 10 minutes to deploy this notebook as a Launchable. After launching the instance, launch a Terminal session in the Jupyter Lab UI.
 
-**Note**: This links to the nightly release and may be out of sync with these docs.
+**Notes**:
+
+- This links to the nightly release and may be out of sync with these docs.
+- Access to Brev.Dev requires credit card information.
 
 ### NGC Account and API Key Configuration
 
@@ -26,6 +29,7 @@ NGC is a portal of enterprise services, software, and support for artificial int
 this registry, you will need to create a free NGC account and an API Key using the following steps:
 
 1. Create a free account on [NGC](https://ngc.nvidia.com/signin) and log in.
+
 2. At the top right, click on the **User > Setup > Generate API Key**, then click **+ Generate API Key** and
    **Confirm**. Copy and store your API Key in a secure location.
 
@@ -59,38 +63,15 @@ Infrastructure, and NVIDIA’s own DGX Cloud.
 
 ### Running the Container on a Local Machine
 
-This section will provide the following instructions for running the BioNeMo Framework container on a local workstation.
+To run the BioNeMo Framework container on a local workstation:
 
-1. Login to the NGC Container Registry (`nvcr.io`)
-2. Pull the container from the registry
-3. Run a Jupyter Lab instance inside the container for local development
-
-#### Pull Docker Container from NGC
-
-Open a command prompt on your machine and enter the following:
-
-```bash
-docker login nvcr.io
-```
-
-This command will prompt you to enter your API key. Fill in the details as shown below. Note that you should enter the
-string `$oauthtoken` as your username. Replace the password (`<YOUR_API_KEY>`) with the API key that you generated in
-the NGC Account and API Key Configuration section above:
-
-```bash
-Username: $oauthtoken
-Password: <YOUR_API_KEY>
-```
-
-You can now pull the BioNeMo Framework container using the following command:
+1. Pull the BioNeMo Framework container using the following command:
 
 ```bash
 docker pull {{ docker_url }}:{{ docker_tag }}
 ```
 
-#### Run the BioNeMo Framework Container
-
-Now that you have pulled the BioNeMo Framework container, you can run it as you would a normal Docker container. For
+2. Run it as you would a normal Docker container. For
 example, to get basic shell access you can run the following command:
 
 ```bash
@@ -103,7 +84,7 @@ Because BioNeMo is distributed as a Docker container, standard arguments can be 
 alter the behavior of the container and its interactions with the host system. For more information on these arguments,
 refer to the [Docker documentation](https://docs.docker.com/reference/cli/docker/container/run/).
 
-In the next section, [Initialization Guide](./initialization-guide.md), we will present some useful `docker run` command
+Refer to the next section, [Initialization Guide](./initialization-guide.md), for useful `docker run` command
 variants for common workflows.
 
 ## Running on Any Major CSP with the NVIDIA GPU-Optimized VMI
