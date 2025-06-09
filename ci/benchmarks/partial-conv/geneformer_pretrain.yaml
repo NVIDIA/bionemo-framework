@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 14400
+time_limit: 3600
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   data_path: False
@@ -15,10 +15,10 @@ script_args:
   variant: train
   config_name: 10M
   precision: [bf16-mixed]
-  nodes: [2]
-  gpus: 8
+  nodes: [1]
+  gpus: 1
   batch_size: 32
-  max_steps: 30000
+  max_steps: 1000
   lr: 0.001
   val_check_interval: 500
   acc_grad: 1
