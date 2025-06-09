@@ -382,6 +382,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=0.0,
         help="Dropout probability for the attention layers.",
     )
+    parser.add_argument(
+        "--save-top-k",
+        type=int,
+        default=5,
+        help="Number of best checkpoints to keep. Set to -1 to save all checkpoints.",
+    )
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
@@ -597,7 +603,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         checkpoint_callback = ModelCheckpoint(
             every_n_train_steps=args.val_check_interval,
             dirpath=checkpoint_path,
-            save_top_k=5,
+            save_top_k=args.save_top_k,
             always_save_context=True,
             save_optim_on_train_end=True,
             save_context_on_train_end=True,
