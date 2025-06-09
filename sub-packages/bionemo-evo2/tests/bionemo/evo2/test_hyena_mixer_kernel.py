@@ -104,6 +104,12 @@ def hyena_config() -> HyenaConfig:
     return config
 
 
+@pytest.fixture(params=[pytest.param("hyena_short_conv", id="short"), pytest.param("hyena_medium_conv", id="medium")])
+def operator_type(request):
+    """Parametrized operator type fixture"""
+    return request.param
+
+
 class B2BConv1d(torch.nn.Module):
     def __init__(
         self, hyena_config, hyena_test_config, seq_len, use_b2b_causal_conv1d=False, operator_type="hyena_medium_conv"
@@ -141,35 +147,37 @@ class B2BConv1d(torch.nn.Module):
 
 
 @pytest.fixture
-def mixer(test_config: HyenaTestConfig, hyena_config: HyenaConfig):
+def mixer(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operator_type: str):
     """Create a HyenaMixer instance for testing with PyTorch implementation"""
     with init_distributed_parallel_state(world_size=1):
         # Create the mixer
-        mixer = B2BConv1d(hyena_config, test_config, seq_len=512, use_b2b_causal_conv1d=False)
+        mixer = B2BConv1d(
+            hyena_config, test_config, seq_len=512, use_b2b_causal_conv1d=False, operator_type=operator_type
+        )
         yield mixer
 
 
 @pytest.fixture
-def mixer_kernel(test_config: HyenaTestConfig, hyena_config: HyenaConfig):
+def mixer_kernel(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operator_type: str):
     """Create a HyenaMixer instance for testing with CUDA kernel implementation"""
     with init_distributed_parallel_state(world_size=1):
         # Create the mixer
-        mixer_kernel = B2BConv1d(hyena_config, test_config, seq_len=512, use_b2b_causal_conv1d=True)
+        mixer_kernel = B2BConv1d(
+            hyena_config, test_config, seq_len=512, use_b2b_causal_conv1d=True, operator_type=operator_type
+        )
         yield mixer_kernel
 
 
-def test_b2b_causal_conv1d(mixer: B2BConv1d, mixer_kernel: B2BConv1d, config_type):
+def test_b2b_causal_conv1d(mixer: B2BConv1d, mixer_kernel: B2BConv1d, config_type, operator_type):
     # Skip if b2b_causal_conv1d is not installed
     import importlib.util
 
     if importlib.util.find_spec("cuhyena.b2b_causal_conv1d") is None:
         pytest.skip("b2b_causal_conv1d CUDA kernel is not installed")
 
-    # Skip NV config with CUDA kernel as it's not supported yet
-    if config_type == "nv":
-        # NV config may have conv bias which is not supported by CUDA kernel
-        if isinstance(mixer_kernel.mixer.transformer_config, HyenaNVTestConfig):
-            pytest.skip("NV config is not fully supported by b2b CUDA kernel yet")
+    # Skip bf16 with short convolution due to numerical instability
+    if mixer.mixer.transformer_config.params_dtype == torch.bfloat16 and operator_type == "hyena_short_conv":
+        pytest.skip("bf16 with short convolution is skipped due to numerical instability")
 
     with init_distributed_parallel_state(world_size=1):
         batch_size = 2
@@ -219,21 +227,21 @@ def test_b2b_causal_conv1d(mixer: B2BConv1d, mixer_kernel: B2BConv1d, config_typ
         mixer_kernel.zero_grad()
 
         # Compare results between PyTorch and CUDA kernel implementations
-        torch.testing.assert_close(output_features, output_features_kernel)
-        torch.testing.assert_close(loss, loss_kernel)
+        torch.testing.assert_close(output_features, output_features_kernel, msg=f"Output mismatch for {operator_type}")
+        torch.testing.assert_close(loss, loss_kernel, msg=f"Loss mismatch for {operator_type}")
 
         # Compare gradients
-        assert len(grads) == len(grads_kernel)
+        assert len(grads) == len(grads_kernel), f"Gradient count mismatch for {operator_type}"
 
         gradient_mismatch = False
         for (n, g), (n_kernel, g_kernel) in zip(grads, grads_kernel):
             try:
-                torch.testing.assert_close(g, g_kernel)
+                torch.testing.assert_close(g, g_kernel, msg=f"Gradient mismatch for {operator_type} - {n}")
             except AssertionError as e:
                 gradient_mismatch = True
-                print(f"Gradient mismatch for {n}: {e}")
+                print(f"Gradient mismatch for {operator_type} - {n}: {e}")
 
         if gradient_mismatch:
-            print("There were gradient mismatches!")
+            print(f"There were gradient mismatches for {operator_type}!")
         else:
-            print("All gradients matched successfully!")
+            print(f"All gradients matched successfully for {operator_type}!")
