@@ -49,7 +49,7 @@ usage: train_evo2 [-h] (-d DATASET_CONFIG | --mock-data) [--dataset-dir DATASET_
                   [--debug-ddp-parity-freq DEBUG_DDP_PARITY_FREQ] [--hybrid-override-pattern HYBRID_OVERRIDE_PATTERN] [--num-layers NUM_LAYERS] [--create-tflops-callback] [--log-parameters-and-shapes] [--lr LR] [--min-lr MIN_LR]
                   [--warmup-steps WARMUP_STEPS] [--nsys-profiling] [--nsys-start-step NSYS_START_STEP] [--nsys-end-step NSYS_END_STEP] [--no-renormalize-loss] [--nsys-ranks NSYS_RANKS [NSYS_RANKS ...]]
                   [--activation-checkpoint-recompute-num-layers ACTIVATION_CHECKPOINT_RECOMPUTE_NUM_LAYERS] [--disable-checkpointing] [--clip-grad CLIP_GRAD] [--seq-len-interpolation-factor SEQ_LEN_INTERPOLATION_FACTOR]
-                  [--overlap-param-gather] [--overlap-grad-reduce] [--hidden-dropout HIDDEN_DROPOUT] [--attention-dropout ATTENTION_DROPOUT] [--no-activation-checkpointing | --selective-activation-checkpointing]
+                  [--overlap-param-gather] [--overlap-grad-reduce] [--hidden-dropout HIDDEN_DROPOUT] [--attention-dropout ATTENTION_DROPOUT] [--save-top-k SAVE_TOP_K] [--no-activation-checkpointing | --selective-activation-checkpointing]
 
 Train a Hyena model using NeMo 2.0.
 
@@ -179,6 +179,8 @@ options:
                         Dropout probability for the hyena layers (default: 0.0)
   --attention-dropout ATTENTION_DROPOUT
                         Dropout probability for the attention layers. (default: 0.0)
+  --save-top-k SAVE_TOP_K
+                        Number of best checkpoints to keep. Set to -1 to save all checkpoints. (default: 5)
   --no-activation-checkpointing
   --selective-activation-checkpointing
 ```
