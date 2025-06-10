@@ -16,7 +16,7 @@ script_args:
   variant: train
   config_name: 10M
   precision: [bf16-mixed]
-  nodes: [2]
+  nodes: [1]
   gpus: 8
   batch_size: 32
   max_steps: 200
