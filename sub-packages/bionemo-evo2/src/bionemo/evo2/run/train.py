@@ -729,15 +729,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=evo2_config.hyena_no_weight_decay_cond_fn)
     opt.connect(model)
 
-    print("=== CHECKPOINT CALLBACKS DEBUG ===")
-    for i, callback in enumerate(callbacks):
-        print(f"Callback {i}: {type(callback).__name__}")
-        if hasattr(callback, "dirpath"):
-            print(f"  - dirpath: {callback.dirpath}")
-        if hasattr(callback, "every_n_train_steps"):
-            print(f"  - every_n_train_steps: {callback.every_n_train_steps}")
-    print("===================================")
-
     # Start training
     trainer.fit(model, data_module)
     return trainer
