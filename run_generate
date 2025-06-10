@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -x -e -o pipefail
+
+cd "$(dirname "$0")"
+
+. set_env
+pkill -9 python || true
+python3 sub-packages/bionemo-evo2/src/bionemo/evo2/run/infer.py \
+    --max-new-tokens 100 \
+    --top-k 1 \
+    --flash-decode 0 \
+    --vortex-style-fp8 1 \
+    --prompt ACTGACTGACTGACTGACTGACTGACTGACTGACTGACTGACTGACTGACTGACTGACTGACTG \
+    --ckpt-dir ckpt/7b

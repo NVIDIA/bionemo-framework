@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -e -o pipefail
+
+cd "$(dirname "$0")"
+
+git submodule update --init --recursive
+
+default_cmd="bash"
+
+run_args=(-it --rm
+    $DOCKER_RUN_ARGS
+    --entrypoint "" # skip image banners
+    --gpus=all
+    --ipc=host --ulimit memlock=-1 --ulimit stack=67108864
+    --net=host
+
+    # Make docker's user id same as host machine user id
+    -u $(id -u):$(id -g) -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro
+
+    -v $PWD:$PWD
+    # Below volume-mount is useful for developing in docker env, but may harm
+    # reproducibility. Therefore, commented-out by default.
+    -v $PWD/.home:$HOME # so that ~/.local and ~/.cache are project-specific
+    -v /tmp:$HOME/.triton # triton library needs this to be writable for caches
+    -w $PWD
+
+    -e sz -e cfg -e ckpt
+
+    -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    #-u 0:0
+    -v /tmp:$HOME/.triton # triton library needs this to be writable for caches
+    #-v $PWD/usr:/usr
+
+    fw-next
+    ${@:-$default_cmd}
+)
+
+mkdir -p .home
+
+docker buildx build . -t fw-next
+docker run "${run_args[@]}"

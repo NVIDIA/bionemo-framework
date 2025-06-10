@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -x -e -o pipefail
+docker buildx build . -t fw
+docker run -v $PWD/evo2-checkpoints/7b:/ckpt --gpus=all -it fw evo2_convert_to_nemo2   --model-path hf://arcinstitute/savanna_evo2_1b_base   --model-size 1b --output-dir /ckpt/

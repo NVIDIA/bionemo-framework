@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -x -e -o pipefail
+
+cd "$(dirname "$0")"
+
+. set_env
+pkill -9 python || true
+#python3 -m pytest --log-cli-level=INFO -s sub-packages/bionemo-evo2/tests/bionemo/evo2/test_evo2.py -k 'forward or generate'
+python3 -m pytest --log-cli-level=INFO -s sub-packages/bionemo-evo2/tests/bionemo/evo2/test_evo2.py -k 'forward and not manual'
+python3 -m pytest --log-cli-level=INFO -s sub-packages/bionemo-evo2/tests/bionemo/evo2/test_evo2.py -k generate
