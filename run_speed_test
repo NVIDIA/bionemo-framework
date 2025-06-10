@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -x -e -o pipefail
+
+cd "$(dirname "$0")"
+
+. set_env
+pkill -9 python || true
+python3 speed_test.py
