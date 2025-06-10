@@ -36,6 +36,7 @@ from bionemo.llm.utils.weight_utils import (
     _munge_sharded_tensor_key_megatron_to_nemo2,
 )
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
+from bionemo.testing.torch import check_fp8_support
 
 
 logger = logging.getLogger(__name__)
@@ -174,6 +175,19 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         attention_mask = None
         outputs = model(input_ids=input_ids, position_ids=position_ids, attention_mask=attention_mask)
         gold_standard_no_fp8_tensor = torch.load(gold_standard_no_fp8).to(device=outputs.device, dtype=outputs.dtype)
+        is_fp8_supported, compute_capability, device_info = check_fp8_support(device.index)
+        if is_fp8_supported and compute_capability == "9.0":
+            # Most rigurous assertion for output equivalence currently works on devices that are new enough to
+            #  support FP8.
+            logger.info(
+                f"Device {device_info} ({compute_capability}) supports FP8 with 9.0 compute capability, the "
+                "same configuration as the gold standard was generated with. Running most rigurous assertion."
+            )
+            torch.testing.assert_close(outputs, gold_standard_no_fp8_tensor)
+        else:
+            logger.info(
+                f"Device {device_info} ({compute_capability}) does not support FP8. Running less rigurous assertions."
+            )
         top_2_logits_golden = gold_standard_no_fp8_tensor.topk(dim=-1, sorted=True, largest=True, k=2)
         ambiguous_positions = (
             top_2_logits_golden.values[..., 0] - top_2_logits_golden.values[..., 1]
@@ -215,3 +229,188 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         # Run cosine similarity between the two vectors.
         logit_similarity = torch.nn.functional.cosine_similarity(output_vector, gold_standard_no_fp8_vector, dim=-1)
         assert torch.mean(torch.abs(logit_similarity - torch.ones_like(logit_similarity))) < 9.9e-3
+
+
+@pytest.fixture
+def sequences():
+    with (Path(__file__).parent / "data" / "prompts.csv").open(newline="") as f:
+        from csv import DictReader
+
+        reader = DictReader(f)
+        return [row["Sequence"] for row in reader]
+
+
+def get_trainer(pipeline_parallel=1):
+    import nemo.lightning as nl
+
+    fp8 = True
+    full_fp8 = False
+    return nl.Trainer(
+        accelerator="gpu",
+        devices=pipeline_parallel,
+        strategy=nl.MegatronStrategy(
+            tensor_model_parallel_size=1,
+            pipeline_model_parallel_size=pipeline_parallel,
+            context_parallel_size=1,
+            pipeline_dtype=torch.bfloat16,
+            ckpt_load_optimizer=False,
+            ckpt_save_optimizer=False,
+            ckpt_async_save=False,
+            save_ckpt_format="torch_dist",
+            ckpt_load_strictness="log_all",
+        ),
+        log_every_n_steps=1,
+        limit_val_batches=10,
+        num_sanity_val_steps=0,
+        plugins=nl.MegatronMixedPrecision(
+            precision="bf16-mixed",
+            params_dtype=torch.bfloat16,
+            # Only use FP8 in this plugin when using full FP8 precision and FP8.
+            #   Otherwise use vortex_style_fp8 in the model config.
+            fp8="hybrid" if fp8 and full_fp8 else None,
+            fp8_amax_history_len=16 if fp8 and full_fp8 else 1,
+            fp8_amax_compute_algo="max" if fp8 and full_fp8 else "most_recent",
+        ),
+    )
+
+
+def get_model_and_tokenizer(ckpt_name):
+    trainer = get_trainer()
+    from bionemo.core.data.load import load
+
+    ckpt_dir: Path = load(ckpt_name)
+    from nemo.collections.llm import inference
+
+    inference_wrapped_model, mcore_tokenizer = inference.setup_model_and_tokenizer(
+        path=ckpt_dir,
+        trainer=trainer,
+        params_dtype=torch.bfloat16,
+        inference_batch_times_seqlen_threshold=8192,  # TODO
+        inference_max_seq_length=8192,  # TODO
+    )
+    return inference_wrapped_model, mcore_tokenizer
+
+
+def calc_matchrate(*, tokenizer, in_seq, logits):
+    softmax_logprobs = torch.log_softmax(logits, dim=-1)
+    softmax_logprobs = softmax_logprobs[:, :-1]
+    o = softmax_logprobs.argmax(dim=-1)[0]
+    i = torch.tensor(tokenizer.tokenize(in_seq[1:]), device=o.device)
+    return (i == o).sum().item() / (i.size()[0] - 1)
+
+
+def check_matchrate(*, ckpt_name, matchrate):
+    logger.info(f"{ckpt_name} {matchrate = }")
+    if "1b-" in ckpt_name:
+        assert matchrate > 0.70, (ckpt_name, matchrate)
+    elif "7b-" in ckpt_name:
+        assert matchrate > 0.79, (ckpt_name, matchrate)
+    else:
+        raise NotImplementedError
+
+
+@pytest.mark.parametrize(
+    "ckpt_name",
+    [
+        "evo2/1b-8k:1.0",
+        "evo2/7b-8k:1.0",
+        "evo2/7b-1m:1.0",
+    ],
+)
+def test_forward(sequences, ckpt_name):
+    assert len(sequences) > 0
+
+    inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_name)
+
+    matchrates = []
+    for seq in sequences:
+        seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
+        with torch.no_grad():
+            device = torch.cuda.current_device()
+            tokens = torch.tensor([mcore_tokenizer.tokenize(seq)], device=device)
+            forward_args = {
+                "tokens": tokens,
+                "position_ids": None,
+                "attention_mask": None,
+            }
+
+            inference_wrapped_model.prep_model_for_inference(prompts_tokens=None)
+            logits = inference_wrapped_model.run_one_forward_step(forward_args)
+
+            from megatron.core.inference.communication_utils import broadcast_from_last_pipeline_stage
+
+            batch_size, context_length, vocab_size = 1, len(seq), 512
+            logits = broadcast_from_last_pipeline_stage(
+                [batch_size, context_length, vocab_size],
+                dtype=inference_wrapped_model.inference_wrapper_config.params_dtype,
+                tensor=logits,
+            )
+
+            matchrate = calc_matchrate(tokenizer=mcore_tokenizer, in_seq=seq, logits=logits)
+            matchrates.append(matchrate)
+            check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate)
+    logger.info(f"{matchrates=}")
+
+
+def mid_point_split(*, seq, num_tokens):
+    mid_point = 2 * (len(seq) // 4)
+    prompt = seq[:mid_point]
+    target = seq[mid_point : mid_point + num_tokens]  # Only compare to the section of sequence directly
+    return prompt, target
+
+
+def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
+    """Calculate sequence identity between two sequences through direct comparison."""
+    if not seq1 or not seq2:
+        return None
+
+    # Direct comparison of sequences
+    min_length = min(len(seq1), len(seq2))
+    matches = sum(a == b for a, b in zip(seq1[:min_length], seq2[:min_length]))
+
+    return (matches / min_length) * 100
+
+
+@pytest.mark.parametrize(
+    "ckpt_name",
+    [
+        "evo2/1b-8k:1.0",
+        # "evo2/7b-8k:1.0",
+        # "evo2/7b-1m:1.0"
+    ],
+)
+@torch.no_grad()
+def test_generate(sequences, ckpt_name):
+    assert len(sequences) > 0
+
+    inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_name)
+
+    match_percents = []
+    for seq in sequences:
+        num_tokens = 500
+        prompt, target = mid_point_split(seq=seq, num_tokens=num_tokens)
+        from megatron.core.inference.common_inference_params import CommonInferenceParams
+        from nemo.collections.llm.inference import generate
+
+        inference_wrapped_model.prep_model_for_inference(prompts_tokens=None)
+        results = generate(
+            model=inference_wrapped_model,
+            tokenizer=mcore_tokenizer,
+            prompts=[prompt],
+            random_seed=42,
+            inference_params=CommonInferenceParams(
+                temperature=1.0,
+                top_k=1,
+                top_p=0,
+                return_log_probs=False,
+                num_tokens_to_generate=num_tokens,
+            ),
+        )
+
+        gen_seq = results[0].generated_text
+        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {gen_seq=}")
+        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {target =}")
+        match_percent = calculate_sequence_identity(target, gen_seq)
+        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=}")
+        match_percents.append(match_percent)
+    logging.info(f"{ckpt_name} {match_percents=}")
