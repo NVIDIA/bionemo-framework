@@ -203,15 +203,25 @@ def load(
         downloader=download_fn,
         processor=processor,
     )
+    return Path(download)
 
-    # Pooch by default returns a list of unpacked files if they unpack a zipped or tarred directory. Instead of that, we
-    # just want the unpacked, parent folder.
-    if isinstance(download, list):
-        return Path(processor.extract_dir)  # type: ignore
 
-    else:
-        return Path(download)
+class CachedProcessor:
+    def __call__(self, fname, action, pooch):
+        if self.extract_dir is None:
+            self.extract_dir = fname + self.suffix
+        else:
+            archive_dir = fname.rsplit(os.path.sep, maxsplit=1)[0]
+            self.extract_dir = os.path.join(archive_dir, self.extract_dir)
 
+        from pathlib import Path
+        if not Path(self.extract_dir).exists():
+            super().__call__(fname, action, pooch)
+        return self.extract_dir
+
+class CachedDecompress(CachedProcessor, pooch.Untar): pass
+class CachedUntar(CachedProcessor, pooch.Untar): pass
+class CachedUnzip(CachedProcessor, pooch.Untar): pass
 
 def _get_processor(extension: str, unpack: bool | None, decompress: bool | None):
     """Get the processor for a given file extension.
@@ -227,13 +237,13 @@ def _get_processor(extension: str, unpack: bool | None, decompress: bool | None)
         A Pooch processor object.
     """
     if extension in {".gz", ".bz2", ".xz"} and decompress is None:
-        return pooch.Decompress()
+        return CachedDecompress()
 
     elif extension in {".tar", ".tar.gz"} and unpack is None:
-        return pooch.Untar()
+        return CachedUntar()
 
     elif extension == ".zip" and unpack is None:
-        return pooch.Unzip()
+        return CachedUnzip()
 
     else:
         return None
