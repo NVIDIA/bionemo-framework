@@ -23,7 +23,7 @@ script_args:
   lr: 0.001
   val_check_interval: 500
   acc_grad: 1
-  num_workers: 4
+  num_workers: 0
 script: |-
    WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --data-dir ${data_path} \
