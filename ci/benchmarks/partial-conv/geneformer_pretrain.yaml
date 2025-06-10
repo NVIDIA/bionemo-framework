@@ -25,7 +25,7 @@ script_args:
   acc_grad: 1
   num_workers: 0
 script: |-
-   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python -m cProfile -o ${tensorboard_dir}/profile_output.prof -c cumulative ${workspace}/sub-packages/bionemo-geneformer/src/bionemo/geneformer/run/main.py \
+   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python -m cProfile -o ${tensorboard_dir}/profile_output.prof ${workspace}/sub-packages/bionemo-geneformer/src/bionemo/geneformer/run/main.py \
     --data-dir ${data_path} \
     --experiment-name ${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
     --num-gpus ${gpus} \
