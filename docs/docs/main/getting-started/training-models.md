@@ -138,7 +138,7 @@ train_geneformer     \
     --micro-batch-size 2
 ```
 
-To fine-tune, you to specify a different combination of model and loss. Pass the path to the outputted config file from the previous step as the `--restore-from-checkpoint-path`, and also change
+To fine-tune, you need to specify a different combination of model and loss. Pass the path to the outputted config file from the previous step as the `--restore-from-checkpoint-path`, and also change
 `--training-model-config-class` to the newly created model-config-class.
 
 While no CLI option currently exists to hot swap in different data modules and processing functions _now_, you could
@@ -213,3 +213,9 @@ DataConfigCls and ModelConfigCls can also refer to locally defined types by the 
 the specified path, they may be configured. For example, you may have a custom Dataset/DataModule that you would like to
 mix with an existing recipe. In this case, you define a DataConfig object with the generic specified as your DataModule
 type, and then pass in the config type to the training recipe.
+
+#### Weights and Biases Tricks and Tips
+##### Trainer/Global Step
+At some point you may encounter some funny plots inside the Weights and Biases charts having to do with `trainer/global_steps`. An oscillation pattern like this might be present.
+![Trainer Global Step Oscillation](../assets/images/wandb_tips_tricks/trainer_global_step.png). This is actually due to an interaction between Pytorch Lightning and Weights and Biases.
+The issue is that during validation, the `validation_step` will be used as `trainer.global_step`. It will not impact model performance, accuracy, or the learning rate scheduler. Moreover, there is also another column called `global_step` that will reflect the accurate step counts over time.
