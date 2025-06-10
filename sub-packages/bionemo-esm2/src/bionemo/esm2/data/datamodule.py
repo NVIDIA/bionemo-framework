@@ -71,7 +71,7 @@ class ESMDataModule(MegatronDataModule):
             micro_batch_size: Passed to MegatronDataSampler. Defaults to 4.
             global_batch_size: Passed to MegatronDataSampler.. Defaults to 8.
             num_workers: The number of workers for the pytorch Dataloaders. Defaults to 10.
-            persistent_workers: Whether to keep the workers alive between epochs. Defaults to True.
+            persistent_workers: Whether to keep the workers alive between epochs. Defaults to True. If num_workers is 0, this is ignored and set to False for debugging purposes.
             pin_memory: Whether to pin GPU memory in the pytorch Dataloaders. Defaults to True.
             rampup_batch_size: Passed to MegatronDataSampler. Defaults to None.
             mask_prob: The overall chance of masking a token and having it appear in the loss fn. Defaults to 0.15.
@@ -97,7 +97,12 @@ class ESMDataModule(MegatronDataModule):
 
         self._micro_batch_size = micro_batch_size
         self._num_workers = num_workers
-        self._persistent_workers = persistent_workers
+        # persistent_workers can only be True when num_workers > 0
+        self.persistent_workers = self._persistent_workers if self._num_workers > 0 else False
+        if self._num_workers == 0 and persistent_workers:
+            logging.warning(
+                "persistent_workers is set to True, but num_workers is 0. Setting persistent_workers to False."
+            )
         self._pin_memory = pin_memory
 
         self.data_sampler = MegatronDataSampler(
@@ -198,7 +203,7 @@ class ESMDataModule(MegatronDataModule):
             dataset=dataset,
             num_workers=self._num_workers,
             pin_memory=self._pin_memory,
-            persistent_workers=self._persistent_workers,
+            persistent_workers=self.persistent_workers,
             collate_fn=functools.partial(
                 collate.bert_padding_collate_fn,
                 padding_value=self._tokenizer.pad_token_id,
