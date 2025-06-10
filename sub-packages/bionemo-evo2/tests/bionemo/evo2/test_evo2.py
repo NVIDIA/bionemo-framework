@@ -295,7 +295,10 @@ def calc_matchrate(*, tokenizer, in_seq, logits):
     softmax_logprobs = torch.log_softmax(logits, dim=-1)
     softmax_logprobs = softmax_logprobs[:, :-1]
     o = softmax_logprobs.argmax(dim=-1)[0]
-    i = torch.tensor(tokenizer.tokenize(in_seq[1:]), device=o.device)
+    if hasattr(tokenizer, "tokenize"):
+        i = torch.tensor(tokenizer.tokenize(in_seq[1:]), device=o.device)
+    else:
+        i = torch.tensor(tokenizer.text_to_ids(in_seq[1:]), device=o.device)
     return (i == o).sum().item() / (i.size()[0] - 1)
 
 
@@ -312,6 +315,7 @@ def check_matchrate(*, ckpt_name, matchrate):
 @pytest.mark.parametrize(
     "ckpt_name",
     [
+        "evo2/1b-8k-bf16:1.0",
         "evo2/1b-8k:1.0",
         "evo2/7b-8k:1.0",
         "evo2/7b-1m:1.0",
@@ -350,6 +354,49 @@ def test_forward(sequences, ckpt_name):
             matchrates.append(matchrate)
             check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate)
     logger.info(f"{matchrates=}")
+
+
+@pytest.mark.parametrize(
+    "ckpt_name",
+    [
+        "evo2/1b-8k-bf16:1.0",
+        "evo2/1b-8k:1.0",
+        "evo2/7b-8k:1.0",
+        "evo2/7b-1m:1.0",
+    ],
+)
+def test_forward_manual(sequences, ckpt_name):
+    assert len(sequences) > 0
+    with distributed_model_parallel_state(), torch.no_grad():
+        tokenizer = get_nmt_tokenizer(
+            "byte-level",
+        )
+        if "1b-" in ckpt_name:
+            model_config = llm.Hyena1bConfig(use_te=True, seq_length=8192)
+        elif "7b-" in ckpt_name:
+            model_config = llm.Hyena7bConfig(use_te=True, seq_length=8192)
+        else:
+            raise NotImplementedError
+        ckpt_weights: Path = load(ckpt_name) / "weights"
+        raw_megatron_model = model_config.configure_model(tokenizer).eval().cuda()
+        device = raw_megatron_model.parameters().__next__().device
+        load_weights_sharded_inplace_nemo2_to_mcore(raw_megatron_model, ckpt_weights, {}, "torch_dist")
+        model = Float16Module(model_config, raw_megatron_model)
+        matchrates = []
+        for seq in sequences:
+            seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
+            with torch.no_grad():
+                device = torch.cuda.current_device()
+                # tokens = torch.tensor([tokenizer.tokenize(seq)], device=device)
+                input_ids = torch.tensor(tokenizer.text_to_ids(seq)).int().unsqueeze(0).to(device)
+                attention_mask = None
+                # when labels is None, the model returns logits
+                logits = model(input_ids=input_ids, position_ids=None, attention_mask=attention_mask, labels=None)
+
+                matchrate = calc_matchrate(tokenizer=tokenizer, in_seq=seq, logits=logits)
+                matchrates.append(matchrate)
+                check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate)
+        logger.info(f"{matchrates=}")
 
 
 def mid_point_split(*, seq, num_tokens):
