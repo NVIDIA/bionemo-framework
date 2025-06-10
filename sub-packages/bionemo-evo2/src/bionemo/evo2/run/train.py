@@ -38,7 +38,6 @@ from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
 )
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.pytorch import callbacks as nl_callbacks
-from nemo.lightning.pytorch.callbacks import ModelCheckpoint
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
@@ -388,6 +387,25 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=5,
         help="Number of best checkpoints to keep. Set to -1 to save all checkpoints.",
     )
+    parser.add_argument(
+        "--metric-to-monitor-for-checkpoints",
+        type=str,
+        default="val_loss",
+        help="Metric to monitor for checkpoints.",
+    )
+    parser.add_argument(
+        "--save-last-checkpoint",
+        action="store_true",
+        default=True,
+        help="Save the last checkpoint.",
+    )
+    parser.add_argument(
+        "--no-save-last-checkpoint",
+        action="store_false",
+        dest="save_last_checkpoint",
+        default=True,
+        help="Disable saving the last checkpoint.",
+    )
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
@@ -600,11 +618,15 @@ def train(args: argparse.Namespace) -> nl.Trainer:
 
     if args.create_checkpoint_callback:
         checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
-        checkpoint_callback = ModelCheckpoint(
-            every_n_train_steps=args.val_check_interval,
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
             dirpath=checkpoint_path,
+            save_last=args.save_last_checkpoint,
+            monitor=args.metric_to_monitor_for_checkpoints,
             save_top_k=args.save_top_k,
+            every_n_train_steps=args.val_check_interval,
             always_save_context=True,
+            filename="{epoch}-{step}-{consumed_samples}",
+            save_weights_only=False,
             save_optim_on_train_end=True,
             save_context_on_train_end=True,
         )
@@ -706,6 +728,15 @@ def train(args: argparse.Namespace) -> nl.Trainer:
 
     opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=evo2_config.hyena_no_weight_decay_cond_fn)
     opt.connect(model)
+
+    print("=== CHECKPOINT CALLBACKS DEBUG ===")
+    for i, callback in enumerate(callbacks):
+        print(f"Callback {i}: {type(callback).__name__}")
+        if hasattr(callback, "dirpath"):
+            print(f"  - dirpath: {callback.dirpath}")
+        if hasattr(callback, "every_n_train_steps"):
+            print(f"  - every_n_train_steps: {callback.every_n_train_steps}")
+    print("===================================")
 
     # Start training
     trainer.fit(model, data_module)
