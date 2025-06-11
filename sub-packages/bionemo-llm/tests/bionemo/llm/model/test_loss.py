@@ -75,7 +75,7 @@ def test_loss_equivalency_nemo_vs_pytorch():
             batch=batch_megatron,
             forward_out=unreduced_megatron_loss,  # wants the loss directly
         )
-        final_nemo_loss = nemo_default_loss_fn.reduce([forward_nemo_loss[1]])
+        final_nemo_loss = nemo_default_loss_fn.reduce([forward_nemo_loss[2]])
 
         # First check, nemo+megatron loss
         torch.testing.assert_close(expected_loss, final_nemo_loss)
@@ -123,7 +123,7 @@ def test_loss_equivalency_bionemo_vs_pytorch():
             batch=bionemo_batch,
             forward_out=bionemo_model_output,
         )
-        final_bionemo_loss = bionemo_loss_fn.reduce([forward_bionemo_loss[1]])
+        final_bionemo_loss = bionemo_loss_fn.reduce([forward_bionemo_loss[2]])
         torch.testing.assert_close(expected_loss, final_bionemo_loss)
 
 

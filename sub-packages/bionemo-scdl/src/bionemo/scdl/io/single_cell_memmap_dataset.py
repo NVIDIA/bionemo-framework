@@ -31,6 +31,7 @@ import torch
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
+from bionemo.scdl.util.filecopyutil import extend_files
 
 
 class FileNames(str, Enum):
@@ -890,13 +891,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Store the row idx array
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
-        
-        # NOTE: Maybe there is no need to store this metadata
-        # self.metadata["has_neighbors"] = self._has_neighbors
-        #FIXME: metadata expect integer
-        #self.metadata["neighbor_key"] = self.neighbor_key if self._has_neighbors else None
 
-        return adata.var, num_rows
+        vars = adata.var
+        adata.file.close()
+
+        return vars, num_rows
 
     def paginated_load_h5ad(
         self,
@@ -963,7 +962,27 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             mode=mode,
             shape=(n_elements,),
         )
-        return adata.var, num_rows
+        vars = adata.var
+        adata.file.c    lose()
+
+        return vars, num_rows
+
+    def _load_neighbor_memmaps(self):
+        if not self._has_neighbors:
+            return
+
+        # mmap the existing arrays
+        self._neighbor_indices = self._load_mmap_file_if_exists(
+            # self._neighbor_indices_path, dtype='int32'
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}", self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"]
+        )
+        self._neighbor_indptr = self._load_mmap_file_if_exists(
+            # self._neighbor_indptr_path, dtype='int32'
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}", self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"]
+        )
+        self._neighbor_data = self._load_mmap_file_if_exists(
+            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}", self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"]
+        )
 
     def _load_neighbor_memmaps(self):
         if not self._has_neighbors:
@@ -1247,15 +1266,22 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
     def concat(
         self,
         other_dataset: Union[list["SingleCellMemMapDataset"], "SingleCellMemMapDataset"],
+        extend_copy_size: int = 10 * 1_024 * 1_024,
+        output_path: str | None = None,
+        destroy_on_copy: bool = False,
     ) -> None:
-        """Concatenates another SingleCellMemMapDataset to the existing one.
+        """Concatenates one or a list of SingleCellMemMapDatasest to the existing one.
 
-        The data is stored in the same place as for the original data set. This
-        necessitates using _swap_memmap_array.
+        The data is stored in the same place as for the original data set or at output_path
+        if it is set. Then, at output_path or at self.data_path, there would be a saved
+        SingleCellMemmpDataset, which can be read in with SingleCellMemmpDataset(output_path).
 
         Args:
             other_dataset: A SingleCellMemMapDataset or a list of
             SingleCellMemMapDatasets
+            extend_copy_size: how much to copy in memory at once
+            output_path: location to store new dataset
+            destroy_on_copy: Whether to remove the current data_path
 
         Raises:
            ValueError if the other dataset(s) are not of the same version or
@@ -1281,88 +1307,76 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Set our mode:
         self.mode: Mode = Mode.READ_APPEND
+        if output_path is not None:
+            if destroy_on_copy:
+                shutil.move(self.data_path, output_path)
+            else:
+                shutil.copytree(self.data_path, output_path)
+            self.data_path = output_path
 
         mmaps = []
         mmaps.extend(other_dataset)
-        # Calculate the size of our new dataset arrays
-        total_num_elements = (self.number_nonzero_values() if self.number_of_rows() > 0 else 0) + sum(
-            [m.number_nonzero_values() for m in mmaps]
-        )
-        total_num_rows = self.number_of_rows() + sum([m.number_of_rows() for m in mmaps])
 
-        # Create new arrays to store the data, colptr, and rowptr.
-        with tempfile.TemporaryDirectory(prefix="_tmp", dir=self.data_path) as tmp:
-            data_arr, col_arr, row_arr = _create_compressed_sparse_row_memmaps(
-                num_elements=total_num_elements,
-                num_rows=total_num_rows,
-                memmap_dir_path=Path(tmp),
-                mode=Mode.CREATE_APPEND,
-                dtypes=self.dtypes,
-            )
-            # Copy the data from self and other into the new arrays.
-            cumulative_elements = 0
-            cumulative_rows = 0
-            if self.number_of_rows() > 0:
-                data_arr[cumulative_elements : cumulative_elements + self.number_nonzero_values()] = self.data.data
-                col_arr[cumulative_elements : cumulative_elements + self.number_nonzero_values()] = self.col_index.data
-                row_arr[cumulative_rows : cumulative_rows + self.number_of_rows() + 1] = self.row_index.data
-                cumulative_elements += self.number_nonzero_values()
-                cumulative_rows += self.number_of_rows()
-            for mmap in mmaps:
-                # Fill the data array for the span of this scmmap
-                data_arr[cumulative_elements : cumulative_elements + mmap.number_nonzero_values()] = mmap.data.data
-                # fill the col array for the span of this scmmap
-                col_arr[cumulative_elements : cumulative_elements + mmap.number_nonzero_values()] = mmap.col_index.data
-                # Fill the row array for the span of this scmmap
-                row_arr[cumulative_rows : cumulative_rows + mmap.number_of_rows() + 1] = (
-                    mmap.row_index + int(cumulative_elements)
-                ).data
-
-                self._feature_index.concat(mmap._feature_index)
-                # Update counters
-                cumulative_elements += mmap.number_nonzero_values()
-                cumulative_rows += mmap.number_of_rows()
-            # The arrays are swapped to ensure that the data remains stored at self.data_path and
-            # not at a temporary filepath.
-            _swap_mmap_array(
-                data_arr,
-                f"{tmp}/{FileNames.DATA.value}",
-                self.data,
-                f"{self.data_path}/{FileNames.DATA.value}",
-                destroy_src=True,
-            )
-            _swap_mmap_array(
-                col_arr,
-                f"{tmp}/{FileNames.COLPTR.value}",
-                self.col_index,
-                f"{self.data_path}/{FileNames.COLPTR.value}",
-                destroy_src=True,
-            )
-            _swap_mmap_array(
-                row_arr,
-                f"{tmp}/{FileNames.ROWPTR.value}",
-                self.row_index,
-                f"{self.data_path}/{FileNames.ROWPTR.value}",
-                destroy_src=True,
-            )
-            # Reopen the data, colptr, and rowptr arrays
-            self.data = np.memmap(
-                f"{self.data_path}/{FileNames.DATA.value}",
-                dtype=self.dtypes[f"{FileNames.DATA.value}"],
-                shape=(cumulative_elements,),
-                mode=Mode.READ_APPEND.value,
-            )
-            self.row_index = np.memmap(
-                f"{self.data_path}/{FileNames.ROWPTR.value}",
+        # Copy the data from self and other into the new arrays.
+        cumulative_elements = self.number_nonzero_values()
+        cumulative_rows = self.number_of_rows()
+        for mmap in mmaps:
+            destination_memmap = np.memmap(
+                f"{mmap.data_path}/{FileNames.ROWPTR.value}_copy",
                 dtype=self.dtypes[f"{FileNames.ROWPTR.value}"],
-                shape=(cumulative_rows + 1,),
-                mode=Mode.READ_APPEND.value,
+                mode="w+",
+                shape=mmap.row_index.shape,
             )
-            self.col_index = np.memmap(
-                f"{self.data_path}/{FileNames.COLPTR.value}",
-                dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
-                shape=(cumulative_elements,),
-                mode=Mode.READ_APPEND.value,
+            destination_memmap[:] = mmap.row_index[:]
+
+            destination_memmap += int(cumulative_elements)
+
+            destination_memmap.flush()
+            if destroy_on_copy:
+                os.remove(f"{mmap.data_path}/{FileNames.ROWPTR.value}")
+
+            extend_files(
+                f"{self.data_path}/{FileNames.ROWPTR.value}",
+                f"{mmap.data_path}/{FileNames.ROWPTR.value}_copy",
+                buffer_size_b=extend_copy_size,
+                delete_file2_on_complete=True,
+                offset=np.dtype(self.dtypes[f"{FileNames.ROWPTR.value}"]).itemsize,
             )
 
+            extend_files(
+                f"{self.data_path}/{FileNames.DATA.value}",
+                f"{mmap.data_path}/{FileNames.DATA.value}",
+                buffer_size_b=extend_copy_size,
+                delete_file2_on_complete=destroy_on_copy,
+            )
+            extend_files(
+                f"{self.data_path}/{FileNames.COLPTR.value}",
+                f"{mmap.data_path}/{FileNames.COLPTR.value}",
+                buffer_size_b=extend_copy_size,
+                delete_file2_on_complete=destroy_on_copy,
+            )
+            self._feature_index.concat(mmap._feature_index)
+            # Update counters
+            cumulative_elements += mmap.number_nonzero_values()
+            cumulative_rows += mmap.number_of_rows()
+
+        # Reopen the data, colptr, and rowptr arrays
+        self.data = np.memmap(
+            f"{self.data_path}/{FileNames.DATA.value}",
+            dtype=self.dtypes[f"{FileNames.DATA.value}"],
+            shape=(cumulative_elements,),
+            mode=Mode.READ_APPEND.value,
+        )
+        self.row_index = np.memmap(
+            f"{self.data_path}/{FileNames.ROWPTR.value}",
+            dtype=self.dtypes[f"{FileNames.ROWPTR.value}"],
+            shape=(cumulative_rows + 1,),
+            mode=Mode.READ_APPEND.value,
+        )
+        self.col_index = np.memmap(
+            f"{self.data_path}/{FileNames.COLPTR.value}",
+            dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
+            shape=(cumulative_elements,),
+            mode=Mode.READ_APPEND.value,
+        )
         self.save()

@@ -139,6 +139,7 @@ class MDLM(Interpolant):
         time: Tensor,
         mask: Optional[Tensor] = None,
         use_weight=True,
+        global_mean: bool = False,
     ):
         """Calculate the cross-entropy loss between the model prediction and the target output.
 
@@ -157,6 +158,7 @@ class MDLM(Interpolant):
             time (Tensor): The time at which the loss is calculated.
             mask (Optional[Tensor], optional): The mask for the data point. Defaults to None.
             use_weight (bool, optional): Whether to use the MDLM time weight for the loss. Defaults to True.
+            global_mean (bool, optional): All token losses are summed and divided by total token count. Examples with more tokens (longer sequences) implicitly contribute more to the loss. Defaults to False.
 
         Returns:
             Tensor: The calculated loss batch tensor.
@@ -170,12 +172,19 @@ class MDLM(Interpolant):
         if use_weight:
             loss = loss * (dsigma / torch.expm1(sigma))[:, None]
 
-        if mask is not None:
-            loss = loss * mask
-            num_non_masked_elements = torch.sum(mask, dim=-1)
-            loss = torch.sum(loss, dim=(-1)) / num_non_masked_elements
+        if global_mean:
+            if mask is not None:
+                loss = loss * mask
+                loss = loss.sum() / mask.sum()
+            else:
+                loss = loss.sum() / logits.size(1)
         else:
-            loss = torch.sum(loss, dim=(-1)) / logits.size(1)
+            if mask is not None:
+                loss = loss * mask
+                num_non_masked_elements = torch.sum(mask, dim=-1)
+                loss = torch.sum(loss, dim=(-1)) / num_non_masked_elements
+            else:
+                loss = torch.sum(loss, dim=(-1)) / logits.size(1)
         return loss
 
     def _subs_parameterization(self, logits: Tensor, xt: Tensor) -> Tensor:

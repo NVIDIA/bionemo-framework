@@ -49,7 +49,7 @@ usage: train_evo2 [-h] (-d DATASET_CONFIG | --mock-data) [--dataset-dir DATASET_
                   [--debug-ddp-parity-freq DEBUG_DDP_PARITY_FREQ] [--hybrid-override-pattern HYBRID_OVERRIDE_PATTERN] [--num-layers NUM_LAYERS] [--create-tflops-callback] [--log-parameters-and-shapes] [--lr LR] [--min-lr MIN_LR]
                   [--warmup-steps WARMUP_STEPS] [--nsys-profiling] [--nsys-start-step NSYS_START_STEP] [--nsys-end-step NSYS_END_STEP] [--no-renormalize-loss] [--nsys-ranks NSYS_RANKS [NSYS_RANKS ...]]
                   [--activation-checkpoint-recompute-num-layers ACTIVATION_CHECKPOINT_RECOMPUTE_NUM_LAYERS] [--disable-checkpointing] [--clip-grad CLIP_GRAD] [--seq-len-interpolation-factor SEQ_LEN_INTERPOLATION_FACTOR]
-                  [--overlap-param-gather] [--overlap-grad-reduce] [--hidden-dropout HIDDEN_DROPOUT] [--attention-dropout ATTENTION_DROPOUT] [--no-activation-checkpointing | --selective-activation-checkpointing]
+                  [--overlap-param-gather] [--overlap-grad-reduce] [--hidden-dropout HIDDEN_DROPOUT] [--attention-dropout ATTENTION_DROPOUT] [--save-top-k SAVE_TOP_K] [--metric-to-monitor-for-checkpoints METRIC_TO_MONITOR_FOR_CHECKPOINTS] [--save-last-checkpoint] [--no-save-last-checkpoint] [--no-activation-checkpointing | --selective-activation-checkpointing]
 
 Train a Hyena model using NeMo 2.0.
 
@@ -179,6 +179,14 @@ options:
                         Dropout probability for the hyena layers (default: 0.0)
   --attention-dropout ATTENTION_DROPOUT
                         Dropout probability for the attention layers. (default: 0.0)
+  --save-top-k SAVE_TOP_K
+                        Number of best checkpoints to keep. Set to -1 to save all checkpoints. (default: 5)
+  --metric-to-monitor-for-checkpoints METRIC_TO_MONITOR_FOR_CHECKPOINTS
+                        Metric to monitor for checkpoints. (default: val_loss)
+  --save-last-checkpoint
+                        Save the last checkpoint. (default: True)
+  --no-save-last-checkpoint
+                        Disable saving the last checkpoint. (default: True)
   --no-activation-checkpointing
   --selective-activation-checkpointing
 ```
@@ -264,6 +272,12 @@ predict_evo2 \
 ```
 
 An example of using `predict_evo2` for variant effect prediction can be found in our [Evo 2 Zeroshot BRCA1 Notebook](https://docs.nvidia.com/bionemo-framework/latest/user-guide/examples/bionemo-evo2/evo2_zeroshot_brca). This notebook demonstrates how to use Evo2 to predict whether single nucleotide variants (SNVs) in the BRCA1 gene are likely to be harmful to protein function and potentially increase cancer risk, by comparing the model's log probability scores between the reference and variant sequences.
+
+## Context Extension
+
+Evo2 supports continuing training with longer context lengths beyond those used to train a prior checkpoint. For example, when training the original Evo2 model, the first phase of training was performed at 8192 context length while the next phase continued training at 1m context length, but starting from the prior 8192 context length checkpoint. We call this process context extension.
+
+To change the sequence length used in training in this way, supply the prior checkpoint as the `--ckpt-dir` argument, and set your new desired sequence length with `--seq-length`. Only doing these two things will run, but one issue is that the model's ROPE embeddings may not be scaled properly out of the box for a new context length. The way that Arc institute handled this was by setting the `--seq-len-interpolation-factor` to linearly scale the ROPE embedding for context extension. For example, if the base context length is 8192 and the extended context length is 65536, the factor would be 65536/8192 = 8. There are other ways of accomplishing this as well that may require some minor code changes, such as the approach used in llama-3, which is also available in megatron and could be added into argparse as an alternative.
 
 ## Checkpoint conversion from hugging face to NeMo2
 

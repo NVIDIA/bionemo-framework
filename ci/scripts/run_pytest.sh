@@ -25,15 +25,19 @@ usage() {
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-    --skip-docs    Skip running tests in the docs directory
-    --no-nbval     Skip jupyter notebook validation tests
-    --skip-slow    Skip tests marked as slow (@pytest.mark.slow)
-    --only-slow    Only run tests marked as slow (@pytest.mark.slow)
+    --skip-docs         Skip running tests in the docs directory
+    --no-nbval          Skip jupyter notebook validation tests
+    --skip-slow         Skip tests marked as slow (@pytest.mark.slow)
+    --only-slow         Only run tests marked as slow (@pytest.mark.slow)
     --allow-no-tests    Allow sub-packages with no found tests (for example no slow tests if --only-slow is set)
 
 Note: Documentation tests (docs/) are only run when notebook validation
       is enabled (--no-nbval not set) and docs are not skipped
       (--skip-docs not set)
+
+To ignore specific tests or files:
+    - Use @pytest.mark.skip or @pytest.mark.skipif decorators in your test code
+    - Add file paths to the --ignore-glob option in pyproject.toml under [tool.pytest.ini_options] addopts
     -h, --help     Display this help message
 EOF
     exit "${1:-0}"
@@ -82,6 +86,7 @@ PYTEST_OPTIONS=(
     --cov-append
     --cov-report=xml:coverage.xml
 )
+
 [[ "$NO_NBVAL" != true ]] && PYTEST_OPTIONS+=(--nbval-lax)
 [[ "$SKIP_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "not slow")
 [[ "$ONLY_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "slow")

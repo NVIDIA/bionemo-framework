@@ -85,6 +85,7 @@ def batch_collator(
     seq_dim: int = 1,
     batch_dim_key_defaults: dict[str, int] = {"token_logits": 1},
     seq_dim_key_defaults: dict[str, int] = {"token_logits": 0},
+    preferred_gpu: int = 0,
 ) -> Optional[ReductionT]:
     """Takes a sequence of batches and collates them into a single batch.
 
@@ -116,6 +117,7 @@ def batch_collator(
         seq_dim_key_defaults (dictionary of keys to integers): If your batch is a dictionary and you know that some
             keys have non-standard (1) sequence dimensions, supply those here. By default "token_logits" has seq dim 0
             and otherwise all keys are assumed to have seq dim 1.
+        preferred_gpu: If any of the tensors are on any GPU, all of them will be moved to this GPU. 0 by default.
 
     Returns:
         A single batch of the same type as the elements of your input sequence.
@@ -125,6 +127,10 @@ def batch_collator(
         case [None, *_]:
             return None
         case [Tensor(), *_]:
+            # If any tensor is on a GPU, move all to preferred GPU
+            if any(t.is_cuda for t in batches):
+                device = torch.device(f"cuda:{preferred_gpu}")
+                batches = [t.to(device) for t in batches]
             # First shortcut if all tensors are 1D (they have at least one batch dim, and it must be at 0)
             if len(batches) > 0 and isinstance(batches[0], Tensor) and batches[0].ndim == 1:
                 return torch.cat(batches, dim=0)
@@ -155,6 +161,7 @@ def batch_collator(
                     seq_dim=seq_dim_key_defaults.get(key, seq_dim),
                     batch_dim_key_defaults=batch_dim_key_defaults,
                     seq_dim_key_defaults=seq_dim_key_defaults,
+                    preferred_gpu=preferred_gpu,
                 )
                 for key in batches[0]
             }
@@ -166,6 +173,7 @@ def batch_collator(
                     seq_dim=seq_dim,
                     batch_dim_key_defaults=batch_dim_key_defaults,
                     seq_dim_key_defaults=seq_dim_key_defaults,
+                    preferred_gpu=preferred_gpu,
                 )
                 for i in range(len(batches[0]))
             )
@@ -177,6 +185,7 @@ def batch_collator(
                     seq_dim=seq_dim,
                     batch_dim_key_defaults=batch_dim_key_defaults,
                     seq_dim_key_defaults=seq_dim_key_defaults,
+                    preferred_gpu=preferred_gpu,
                 )
                 for i in range(len(batches[0]))
             ]
@@ -258,6 +267,7 @@ class BionemoLightningModule(
         data_step: DataStep,
         optimizer: MegatronOptimizerModule,
         model_transform: Optional[Callable[[MegatronModelType], MegatronModelType]] = None,
+        configure_init_model_parallel: bool = False,
         **model_construct_args,
     ) -> None:
         """Constructor.
@@ -273,6 +283,7 @@ class BionemoLightningModule(
             model_construct_args: Optional. Any arguments necessary to construct the model in the `config`'s
                 `configure_model` method.
             model_transform: Optional. The model transform function.
+            configure_init_model_parallel: Optional. Whether to initialize the model parallel at configuration time.
             **model_construct_args: Optional. Arguments necessary for the supplied model configuration's
                 `configure_model` method, which will make an instance of the model.
         """
@@ -288,7 +299,7 @@ class BionemoLightningModule(
         self._data_step = data_step
         self._forward_step = forward_step
         self.model_transform = model_transform
-
+        self.configure_init_model_parallel = configure_init_model_parallel
         # configure metrics
         self.train_metric = self.config.train_metric.get_instance() if self.config.train_metric else None
         self.valid_metric = self.config.valid_metric.get_instance() if self.config.valid_metric else None
@@ -301,14 +312,19 @@ class BionemoLightningModule(
         Raises:
             ValueError iff the internal config's configure_model method returns None.
         """
+        if self.configure_init_model_parallel:
+            self.trainer.strategy._init_model_parallel = True
         if self.module is None:
-            model: MegatronModelType = (
-                self.config.configure_model(**self.module_construct_args)
-                if self.module_construct_args is not None
-                else self.config.configure_model()
-            )
-            self.module = model
+            if self.module_construct_args is None:
+                module_construct_args = {}
+            elif "model_construct_args" in self.module_construct_args:
+                # Not sure why this is needed, but it seems "model_construct_args" ends up as a key inside this dict.
+                module_construct_args = self.module_construct_args["model_construct_args"]
+            else:
+                module_construct_args = self.module_construct_args
 
+            model: MegatronModelType = self.config.configure_model(**module_construct_args)
+            self.module = model
         if self.module is None:
             raise ValueError("Invalid semantics: configure_model method **MUST** initialize the model.")
 
