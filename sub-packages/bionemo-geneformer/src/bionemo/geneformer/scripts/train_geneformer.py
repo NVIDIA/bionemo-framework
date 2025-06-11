@@ -290,6 +290,9 @@ def main(
                 geneformer_config, SimpleDataModule(tokenizer.vocab_size, global_batch_size), "bert"
             )
         )
+    from lightning.pytorch.profilers import PyTorchProfiler
+
+    profiler = PyTorchProfiler(dirpath=result_dir, filename="profiler")
 
     trainer = nl.Trainer(
         devices=devices,
@@ -302,6 +305,7 @@ def main(
         num_nodes=num_nodes,
         callbacks=callbacks,
         use_distributed_sampler=False,
+        profiler=profiler,
         plugins=nl.MegatronMixedPrecision(precision=precision),
         enable_checkpointing=create_checkpoint_callback,
     )
@@ -697,6 +701,7 @@ def entrypoint():
     # Parse the arguments and pull them out into local variables for ease of future refactor to a
     #   config management system.
     args = parser.parse_args()
+
     main(
         data_dir=args.data_dir,
         num_nodes=args.num_nodes,
