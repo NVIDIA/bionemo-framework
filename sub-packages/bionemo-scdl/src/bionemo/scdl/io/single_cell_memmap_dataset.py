@@ -312,6 +312,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Neighbor configuration
         self.load_neighbors = load_neighbors
+        self._has_neighbors = False 
         if load_neighbors:
             self.init_neighbor_args(neighbor_key, neighbor_sampling_strategy, fallback_to_identity)
 
