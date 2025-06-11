@@ -371,10 +371,12 @@ def test_forward_manual(sequences, ckpt_name):
         tokenizer = get_nmt_tokenizer(
             "byte-level",
         )
-        if "1b-" in ckpt_name:
-            model_config = llm.Hyena1bConfig(use_te=True, seq_length=8192)
-        elif "7b-" in ckpt_name:
-            model_config = llm.Hyena7bConfig(use_te=True, seq_length=8192)
+        if "1b-8k" in ckpt_name:
+            model_config = llm.Hyena1bConfig(use_te=True, seq_length=8192, seq_len_interpolation_factor=1)
+        elif "7b-8k" in ckpt_name:
+            model_config = llm.Hyena7bConfig(use_te=True, seq_length=8192, seq_len_interpolation_factor=1)
+        elif "7b-1m" in ckpt_name:
+            model_config = llm.Hyena7bARCLongContextConfig(use_te=True, seq_length=8192, seq_len_interpolation_factor=128)
         else:
             raise NotImplementedError
         ckpt_weights: Path = load(ckpt_name) / "weights"
@@ -396,7 +398,8 @@ def test_forward_manual(sequences, ckpt_name):
                 matchrate = calc_matchrate(tokenizer=tokenizer, in_seq=seq, logits=logits)
                 matchrates.append(matchrate)
                 check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate)
-        logger.info(f"{matchrates=}")
+        print(f"{matchrates=}")
+        assert False
 
 
 def mid_point_split(*, seq, num_tokens):
