@@ -963,7 +963,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             shape=(n_elements,),
         )
         vars = adata.var
-        adata.file.c    lose()
+        adata.file.close()
 
         return vars, num_rows
 
