@@ -363,16 +363,21 @@ def test_forward(sequences, ckpt_name):
 
 
 @pytest.mark.parametrize(
-    "ckpt_name",
+    "ckpt_name,expected_matchpercents",
     [
-        "evo2/1b-8k-bf16:1.0",
-        "evo2/1b-8k:1.0",
-        "evo2/7b-8k:1.0",
-        "evo2/7b-1m:1.0",
+        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
+        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
+        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
 )
-def test_forward_manual(sequences, ckpt_name):
+def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
     assert len(sequences) > 0
+    is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
+    if skip:
+        # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
+        pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
     with distributed_model_parallel_state(), torch.no_grad():
         tokenizer = get_nmt_tokenizer(
             "byte-level",
@@ -406,8 +411,12 @@ def test_forward_manual(sequences, ckpt_name):
                 matchrate = calc_matchrate(tokenizer=tokenizer, in_seq=seq, logits=logits)
                 matchrates.append(matchrate)
                 check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate, assert_matchrate=False)
-        print(f"{matchrates=}")
-        assert False
+        assert len(matchrates) == len(expected_matchpercents)
+        matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
+        matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+        assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
+            f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
+        )
 
 
 def mid_point_split(*, seq, num_tokens):
