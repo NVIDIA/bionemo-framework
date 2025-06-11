@@ -471,6 +471,7 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
+        # TODO replace these expected values with whatever they should be (from vortex)
         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
