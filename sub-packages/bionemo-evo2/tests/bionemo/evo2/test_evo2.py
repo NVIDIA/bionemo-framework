@@ -302,12 +302,18 @@ def calc_matchrate(*, tokenizer, in_seq, logits):
     return (i == o).sum().item() / (i.size()[0] - 1)
 
 
-def check_matchrate(*, ckpt_name, matchrate):
+def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
     logger.info(f"{ckpt_name} {matchrate = }")
     if "1b-" in ckpt_name:
-        assert matchrate > 0.70, (ckpt_name, matchrate)
+        if assert_matchrate:
+            assert matchrate > 0.70, (ckpt_name, matchrate)
+        else:
+            print(f"{ckpt_name} {matchrate = }")
     elif "7b-" in ckpt_name:
-        assert matchrate > 0.79, (ckpt_name, matchrate)
+        if assert_matchrate:
+            assert matchrate > 0.79, (ckpt_name, matchrate)
+        else:
+            print(f"{ckpt_name} {matchrate = }")
     else:
         raise NotImplementedError
 
@@ -376,7 +382,9 @@ def test_forward_manual(sequences, ckpt_name):
         elif "7b-8k" in ckpt_name:
             model_config = llm.Hyena7bConfig(use_te=True, seq_length=8192, seq_len_interpolation_factor=1)
         elif "7b-1m" in ckpt_name:
-            model_config = llm.Hyena7bARCLongContextConfig(use_te=True, seq_length=8192, seq_len_interpolation_factor=128)
+            model_config = llm.Hyena7bARCLongContextConfig(
+                use_te=True, seq_length=8192, seq_len_interpolation_factor=128
+            )
         else:
             raise NotImplementedError
         ckpt_weights: Path = load(ckpt_name) / "weights"
@@ -397,7 +405,7 @@ def test_forward_manual(sequences, ckpt_name):
 
                 matchrate = calc_matchrate(tokenizer=tokenizer, in_seq=seq, logits=logits)
                 matchrates.append(matchrate)
-                check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate)
+                check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate, assert_matchrate=False)
         print(f"{matchrates=}")
         assert False
 
