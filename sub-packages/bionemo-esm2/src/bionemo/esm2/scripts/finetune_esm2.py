@@ -78,6 +78,8 @@ def finetune_esm2_entrypoint(
     val_check_interval: int = 20,
     log_every_n_steps: int = 1,
     num_dataset_workers: int = 8,
+    persistent_workers: bool = True,
+    pin_memory: bool = True,
     lr: float = 4e-4,
     micro_batch_size: int = 64,
     accumulate_grad_batches: int = 1,
@@ -102,7 +104,7 @@ def finetune_esm2_entrypoint(
     wandb_tags: Optional[List[str]] = None,
     wandb_group: Optional[str] = None,
     wandb_id: Optional[str] = None,
-    wandb_anonymous: Optional[bool] = False,
+    wandb_anonymous: bool = False,
     wandb_log_model: bool = False,
     pipeline_model_parallel_size: int = 1,
     tensor_model_parallel_size: int = 1,
@@ -124,6 +126,7 @@ def finetune_esm2_entrypoint(
     grad_reduce_in_fp32: bool = False,
     ckpt_async_save: bool = True,
     label_column: str = "labels",
+    labels_mask_column: Optional[str] = None,
     lora_checkpoint_path: Optional[Path] = None,
     lora_finetune: bool = False,
 ) -> Tuple[Path, Callback | None, nl.Trainer]:
@@ -143,7 +146,9 @@ def finetune_esm2_entrypoint(
         limit_test_batches (int): limit the number of test global batches to this many
         val_check_interval (int): number of steps to periodically check the validation loss
         log_every_n_steps (Optional[int]): log every n steps
-        num_dataset_workers (int): number of dataset workers
+        num_dataset_workers (int): number of dataset workers. Set to 0 and disable persistent_workers and pin_memory to debug dataloader/dataset.
+        persistent_workers (bool): whether to use persistent workers. Can mess with debugging.
+        pin_memory (bool): whether to use pin memory. Can mess with debugging.
         lr (float): learning rate for the optimizer
         micro_batch_size (int): micro batch size, from this and parallelism settings we infer the global batch size
         accumulate_grad_batches (int): number of batches to accumulate gradients for
@@ -191,6 +196,7 @@ def finetune_esm2_entrypoint(
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
         ckpt_async_save (bool): whether to save ckpt async. Set to False for federated learning
         label_column (str): name of label column in CSV data file. Defaults to `labels`.
+        labels_mask_column (Optional[str]): name of labels loss mask column in CSV data file. Defaults to None. content can be 0 or 1.
         lora_checkpoint_path (Optional[str]): path to the lora checkpoint file.
         lora_finetune (bool): whether to use lora fine-tuning.
     """
@@ -314,8 +320,12 @@ def finetune_esm2_entrypoint(
     tokenizer = get_tokenizer()
 
     # Initialize the data module.
-    train_dataset = dataset_class.from_csv(train_data_path, task_type=task_type, label_column=label_column)
-    valid_dataset = dataset_class.from_csv(valid_data_path, task_type=task_type, label_column=label_column)
+    train_dataset = dataset_class.from_csv(
+        train_data_path, task_type=task_type, label_column=label_column, labels_mask_column=labels_mask_column
+    )
+    valid_dataset = dataset_class.from_csv(
+        valid_data_path, task_type=task_type, label_column=label_column, labels_mask_column=labels_mask_column
+    )
 
     data_module = ESM2FineTuneDataModule(
         train_dataset=train_dataset,
@@ -325,6 +335,8 @@ def finetune_esm2_entrypoint(
         min_seq_length=min_seq_length,
         max_seq_length=max_seq_length,
         num_workers=num_dataset_workers,
+        persistent_workers=persistent_workers,
+        pin_memory=pin_memory,
         tokenizer=tokenizer,
     )
     # Configure the model
