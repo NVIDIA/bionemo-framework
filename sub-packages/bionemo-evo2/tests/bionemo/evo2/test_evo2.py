@@ -287,7 +287,7 @@ def get_model_and_tokenizer(ckpt_name):
         params_dtype=torch.bfloat16,
         inference_batch_times_seqlen_threshold=8192,  # TODO
         inference_max_seq_length=8192,  # TODO
-        enable_flash_decode=False,  # this breaks evo2 performance.
+        enable_flash_decode=False,  # this breaks evo2 performance if set to True.
     )
     return inference_wrapped_model, mcore_tokenizer
 
