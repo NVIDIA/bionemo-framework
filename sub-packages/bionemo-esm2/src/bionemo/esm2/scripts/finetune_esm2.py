@@ -68,7 +68,7 @@ def finetune_esm2_entrypoint(
     valid_data_path: Path = typer.Option(..., help="Path to validation data CSV"),
     num_nodes: int = 1,
     num_gpus: int = 1,
-    min_seq_length: int = 1024,
+    min_seq_length: Optional[int] = 1024,
     max_seq_length: int = 512,
     result_dir: Path = Path("./results"),
     num_steps: int = 500_000,
@@ -194,8 +194,6 @@ def finetune_esm2_entrypoint(
         lora_checkpoint_path (Optional[str]): path to the lora checkpoint file.
         lora_finetune (bool): whether to use lora fine-tuning.
     """
-    if min_seq_length is not None and dataset_class is InMemorySingleValueDataset:
-        raise ValueError("Arguments --min-seq-length cannot be set when using InMemorySingleValueDataset.")
     if lora_checkpoint_path and not lora_finetune:
         raise ValueError("Arguments --lora=checkpoint-path cannot be set when not using lora-finetune.")
     if precision not in get_args(PrecisionTypes):
@@ -214,6 +212,8 @@ def finetune_esm2_entrypoint(
     config_class = SUPPORTED_CONFIGS[config_class]
     dataset_class = SUPPORTED_DATASETS[dataset_class]
 
+    if min_seq_length is not None and dataset_class is InMemorySingleValueDataset:
+        raise ValueError("Arguments --min-seq-length cannot be set when using InMemorySingleValueDataset.")
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
 
