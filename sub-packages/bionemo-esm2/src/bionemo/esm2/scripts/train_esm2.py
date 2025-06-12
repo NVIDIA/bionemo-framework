@@ -365,10 +365,6 @@ def main(
     else:
         auto_resume = None
 
-    from lightning.pytorch.profilers import PyTorchProfiler
-
-    profiler = PyTorchProfiler(dirpath=result_dir, filename="profiler")
-
     trainer = nl.Trainer(
         devices=devices,
         max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
@@ -379,7 +375,6 @@ def main(
         log_every_n_steps=log_every_n_steps,
         num_nodes=num_nodes,
         callbacks=callbacks,
-        profiler=profiler,
         plugins=nl.MegatronMixedPrecision(
             precision=precision,
             params_dtype=get_autocast_dtype(precision),
