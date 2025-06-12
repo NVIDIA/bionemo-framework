@@ -7,7 +7,7 @@ key_segments:
   lr: False
   min_lr: False
   wu_steps: False
-  arefacts_url: False
+  artefacts_url: False
   file_name_wheel: False
 script_args:
   # All arguments referenced in the script string must be specified here.
