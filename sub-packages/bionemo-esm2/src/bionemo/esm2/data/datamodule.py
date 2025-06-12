@@ -98,7 +98,7 @@ class ESMDataModule(MegatronDataModule):
         self._micro_batch_size = micro_batch_size
         self._num_workers = num_workers
         # persistent_workers can only be True when num_workers > 0
-        self.persistent_workers = self._persistent_workers if self._num_workers > 0 else False
+        self.persistent_workers = persistent_workers if self._num_workers > 0 else False
         if self._num_workers == 0 and persistent_workers:
             logging.warning(
                 "persistent_workers is set to True, but num_workers is 0. Setting persistent_workers to False."
