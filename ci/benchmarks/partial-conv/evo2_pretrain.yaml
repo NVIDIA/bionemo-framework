@@ -7,7 +7,6 @@ key_segments:
   lr: False
   min_lr: False
   wu_steps: False
-  artefacts_url: False
   file_name_wheel: False
 script_args:
   # All arguments referenced in the script string must be specified here.
@@ -15,7 +14,6 @@ script_args:
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
   data_path: /data/evo2
-  artefacts_url: https://gitlab-master.nvidia.com/api/v4/projects/clara-discovery%2Fcuhyena/jobs/172596829/artifacts/dist/
   file_name_wheel: cuhyena-0.1-cp312-cp312-linux_x86_64.whl
   model: evo2
   variant: train
@@ -38,7 +36,7 @@ script_args:
   wu_steps: 5000
   wd: 0.1
 script: |-
-  curl --location --header "PRIVATE-TOKEN:$JET_GITLAB_TOKEN" "${artefacts_url}/${file_name_wheel}" --output ${file_name_wheel};
+  curl --location --header "PRIVATE-TOKEN:$JET_GITLAB_TOKEN" "https://gitlab-master.nvidia.com/api/v4/projects/clara-discovery%2Fcuhyena/jobs/172596829/artifacts/dist/${file_name_wheel}" --output ${file_name_wheel};
   pip install ${file_name_wheel};
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
   -d /workspace/bionemo2/sub-packages/bionemo-evo2/examples/configs/full_pretrain_shortphase_config.yaml \
