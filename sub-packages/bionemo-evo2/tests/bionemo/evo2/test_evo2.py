@@ -499,7 +499,7 @@ def test_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: 
         from megatron.core.inference.common_inference_params import CommonInferenceParams
         from nemo.collections.llm.inference import generate
 
-        inference_wrapped_model.prep_model_for_inference(prompts_tokens=None)
+        # inference_wrapped_model.prep_model_for_inference(prompts_tokens=prompt)
         # NOTE: this generate path doesn't need the enable_flash_decode=False option, because that's already handled in
         #  creating the inference_wrapped_model. Only the generate path that accepts a checkpoint path needs this set
         #  here.
