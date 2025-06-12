@@ -4,6 +4,7 @@ key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   data_path: False
   num_workers: False
+  val-check-interval: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -14,12 +15,13 @@ script_args:
   variant: train
   config_name: 650M
   precision: [bf16-mixed]
-  nodes: [1]
+  nodes: [2]
   gpus: 8
   batch_size: 16
   max_steps: 500000
-  stop_steps: 2000
-  num_workers: 0
+  stop_steps: 200
+  val-check-interval: 100
+  num_workers: 4
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=${data_path}/train_clusters.parquet \
@@ -30,7 +32,7 @@ script: |-
     --num-nodes=${nodes} \
     --num-gpus=${gpus} \
     --num-dataset-workers=${num_workers} \
-    --val-check-interval=1000 \
+    --val-check-interval=${val_check_interval} \
     --limit-val-batches=1 \
     --num-steps=${max_steps} \
     --early-stop-on-step ${stop_steps} \
@@ -48,7 +50,8 @@ script: |-
     --wandb-group=${model}_${variant}_${config_name}__${target} \
     --wandb-job-type=${pipeline_label} \
     --log-every-n-steps=50 \
-    --disable-checkpointing;
+    --disable-checkpointing \
+    --pytorch-profiler;
 tests:
   - logic_type: static
     logic_spec:
