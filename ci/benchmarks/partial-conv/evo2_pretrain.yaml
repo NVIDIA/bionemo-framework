@@ -38,8 +38,8 @@ script_args:
   wu_steps: 5000
   wd: 0.1
 script: |-
-  curl --location --header "PRIVATE-TOKEN:$JET_GITLAB_TOKEN" "${artefacts_url}/${file_name_wheel}" --output ${file_name_wheel};
-  pip install ${file_name_wheel};
+  if [ "$SLURM_LOCALID" = "0" ]; then curl --location --header "PRIVATE-TOKEN:$JET_GITLAB_TOKEN" "${artefacts_url}/${file_name_wheel}" --output ${file_name_wheel}; fi;
+  if [ "$SLURM_LOCALID" = "0" ]; then pip install ${file_name_wheel}; fi;
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
   -d /workspace/bionemo2/sub-packages/bionemo-evo2/examples/configs/full_pretrain_shortphase_config.yaml \
   --dataset-dir ${data_path} \
