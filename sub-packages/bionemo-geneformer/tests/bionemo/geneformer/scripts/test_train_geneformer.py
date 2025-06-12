@@ -44,6 +44,42 @@ def test_bionemo2_rootdir(data_path):
     assert data_path.is_dir(), "Test data directory is supposed to be a directory."
 
 
+def verify_tensorboard_logs(tb_log_dir: Path, expected_metrics: list[str], min_steps: int = 1) -> None:
+    """Verify that TensorBoard logs exist and contain expected metrics.
+
+    Args:
+        tb_log_dir: Path to the TensorBoard log directory
+        expected_metrics: List of metric names expected in the logs
+        min_steps: Minimum number of steps expected in the logs
+    """
+    if not TENSORBOARD_AVAILABLE:
+        pytest.skip("TensorBoard not available for detailed log verification")
+
+    # Find event files in the log directory
+    event_files = list(tb_log_dir.glob("events.out.tfevents.*"))
+    assert len(event_files) > 0, f"No TensorBoard event files found in {tb_log_dir}"
+
+    # Load the event file
+    event_acc = EventAccumulator(str(tb_log_dir))
+    event_acc.Reload()
+
+    # Get available scalar tags
+    scalar_tags = event_acc.Tags()["scalars"]
+
+    # Check that expected metrics are present
+    for metric in expected_metrics:
+        # Check if metric exists in any form (might have prefixes like "train/" or suffixes)
+        metric_found = any(metric in tag for tag in scalar_tags)
+        assert metric_found, f"Expected metric '{metric}' not found in TensorBoard logs. Available tags: {scalar_tags}"
+
+    # Verify we have logged data for at least min_steps
+    if scalar_tags:
+        # Get the first available metric to check step count
+        first_metric = scalar_tags[0]
+        events = event_acc.Scalars(first_metric)
+        assert len(events) >= min_steps, f"Expected at least {min_steps} steps logged, but found {len(events)}"
+
+
 @pytest.mark.parametrize("create_checkpoint_callback", [True, False])
 def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
     """Test that verifies the training script runs correctly with checkpoints and TensorBoard logs.
@@ -149,6 +185,49 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
             continue  # Skip step/epoch counters themselves
         events = event_acc.Scalars(tag)
         assert len(events) >= 2, f"Expected at least 2 logged values for {tag}, but found {len(events)}"
+
+    # Check TensorBoard logs
+    tb_log_dir = result_dir / "test_experiment" / uq_rundir / "tb_logs"
+    if create_tensorboard_logger:
+        assert tb_log_dir.exists(), f"TensorBoard log directory not found at {tb_log_dir}"
+        assert tb_log_dir.is_dir(), "TensorBoard log directory should be a directory"
+
+        # Define expected metrics based on callbacks
+        expected_metrics = [
+            "lr",  # Learning rate from LearningRateMonitor
+            "consumed_samples",  # Training progress metrics
+            "epoch",
+            "step",
+            "train_step_timing",  # From TimingCallback
+        ]
+
+        if create_tflops_callback:
+            expected_metrics.extend(
+                [
+                    "train_tflops_per_sec_per_gpu",  # From FLOPsMeasurementCallback
+                ]
+            )
+
+        # Verify TensorBoard logs contain expected metrics
+        verify_tensorboard_logs(tb_log_dir, expected_metrics, min_steps=1)
+    else:
+        # When TensorBoard logger is not created, the directory might still exist but should be empty
+        # or not exist at all
+        if tb_log_dir.exists():
+            event_files = list(tb_log_dir.glob("events.out.tfevents.*"))
+            assert len(event_files) == 0, "TensorBoard event files should not exist when logger is disabled"
+
+
+@pytest.mark.parametrize("create_checkpoint_callback", [True, False])
+def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
+    """Original test refactored to use the new comprehensive test."""
+    test_main_runs_with_tensorboard(
+        tmpdir=tmpdir,
+        create_checkpoint_callback=create_checkpoint_callback,
+        create_tensorboard_logger=False,
+        create_tflops_callback=False,
+        data_path=data_path,
+    )
 
 
 @pytest.mark.parametrize("limit_val_batches", [0.0, 1])
@@ -373,3 +452,162 @@ def test_limit_val_batches_is_int(required_args_reference, limit_val_batches):
     arglist = parse_kwargs_to_arglist(required_args_reference)
     parser = get_parser()
     parser.parse_args(arglist)
+
+
+@pytest.mark.skipif(not TENSORBOARD_AVAILABLE, reason="TensorBoard not available")
+def test_tensorboard_metrics_and_directory_structure(tmpdir, data_path: Path):
+    """Test that verifies TensorBoard logs are saved in correct directories with proper metrics."""
+    result_dir = Path(tmpdir.mkdir("results"))
+
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        main(
+            data_dir=data_path,
+            num_nodes=1,
+            devices=1,
+            seq_length=128,
+            result_dir=result_dir,
+            wandb_project=None,
+            wandb_offline=True,
+            num_steps=10,  # Run for more steps to ensure metrics are logged
+            limit_val_batches=2,
+            val_check_interval=5,
+            num_dataset_workers=0,
+            biobert_spec_option=BiobertSpecOption.bert_layer_local_spec,
+            lr=1e-4,
+            micro_batch_size=2,
+            accumulate_grad_batches=1,
+            cosine_rampup_frac=0.1,
+            cosine_hold_frac=0.1,
+            precision="bf16-mixed",
+            experiment_name="tb_test_experiment",
+            resume_if_exists=False,
+            create_tensorboard_logger=True,
+            create_tflops_callback=True,
+            num_layers=2,
+            num_attention_heads=2,
+            hidden_size=4,
+            ffn_hidden_size=4 * 2,
+            create_checkpoint_callback=True,
+            log_every_n_steps=1,
+        )
+
+    # Verify directory structure
+    experiment_dir = result_dir / "tb_test_experiment"
+    assert experiment_dir.exists(), "Experiment directory not found"
+
+    # Get the unique run directory (date-based)
+    run_dirs = list(experiment_dir.iterdir())
+    assert len(run_dirs) == 1, f"Expected exactly one run directory, found {len(run_dirs)}"
+    run_dir = run_dirs[0]
+
+    # Check all expected directories
+    expected_dirs = {
+        "checkpoints": run_dir / "checkpoints",
+        "tb_logs": run_dir / "tb_logs",
+    }
+
+    for dir_name, dir_path in expected_dirs.items():
+        assert dir_path.exists(), f"{dir_name} directory not found at {dir_path}"
+        assert dir_path.is_dir(), f"{dir_name} should be a directory"
+
+    # Verify checkpoint files exist
+    checkpoint_files = list(expected_dirs["checkpoints"].glob("*.ckpt"))
+    assert len(checkpoint_files) > 0, "No checkpoint files found"
+
+    # Verify TensorBoard event files exist
+    tb_event_files = list(expected_dirs["tb_logs"].glob("events.out.tfevents.*"))
+    assert len(tb_event_files) > 0, "No TensorBoard event files found"
+
+    # Load and verify TensorBoard metrics
+    event_acc = EventAccumulator(str(expected_dirs["tb_logs"]))
+    event_acc.Reload()
+
+    scalar_tags = event_acc.Tags()["scalars"]
+
+    # Check for specific metrics that should be present
+    required_metrics = {
+        "lr": "Learning rate",
+        "train_tflops_per_sec_per_gpu": "TFLOPS per GPU",
+        "train_step_timing": "Training step timing",
+        "consumed_samples": "Consumed samples",
+        "epoch": "Epoch",
+        "step": "Step",
+    }
+
+    missing_metrics = []
+    for metric_key, metric_name in required_metrics.items():
+        if not any(metric_key in tag for tag in scalar_tags):
+            missing_metrics.append(f"{metric_name} ({metric_key})")
+
+    assert len(missing_metrics) == 0, (
+        f"Missing required metrics: {', '.join(missing_metrics)}. Available tags: {scalar_tags}"
+    )
+
+    # Verify that metrics have been logged for multiple steps
+    for tag in scalar_tags:
+        if "step" in tag or "epoch" in tag:
+            continue  # Skip step/epoch counters themselves
+        events = event_acc.Scalars(tag)
+        assert len(events) >= 2, f"Expected at least 2 logged values for {tag}, but found {len(events)}"
+
+
+@pytest.mark.slow
+def test_pretrain_cli_with_tensorboard(tmpdir, data_path):
+    """Test the CLI with TensorBoard logging enabled."""
+    result_dir = Path(tmpdir.mkdir("results"))
+    open_port = find_free_network_port()
+
+    cmd_str = f"""train_geneformer     \
+    --data-dir {data_path}     \
+    --result-dir {result_dir}     \
+    --experiment-name test_cli_tb_experiment     \
+    --num-gpus 1  \
+    --num-nodes 1 \
+    --val-check-interval 2 \
+    --num-dataset-workers 0 \
+    --num-steps 5 \
+    --seq-length 128 \
+    --limit-val-batches 2 \
+    --micro-batch-size 2 \
+    --accumulate-grad-batches 2 \
+    --num-layers 2 \
+    --num-attention-heads 2 \
+    --hidden-size 4 \
+    --ffn-hidden-size 8 \
+    --create-tensorboard-logger \
+    --create-tflops-callback \
+    --log-every-n-steps 1
+    """.strip()
+
+    env = dict(**os.environ)
+    env["MASTER_PORT"] = str(open_port)
+    cmd = shlex.split(cmd_str)
+    result = subprocess.run(
+        cmd,
+        cwd=tmpdir,
+        env=env,
+        capture_output=True,
+    )
+
+    # Check command executed successfully
+    assert result.returncode == 0, (
+        f"Pretrain script failed: {cmd_str}\nstdout: {result.stdout.decode()}\nstderr: {result.stderr.decode()}"
+    )
+
+    # Verify experiment directory exists
+    experiment_dir = result_dir / "test_cli_tb_experiment"
+    assert experiment_dir.exists(), "Could not find test experiment directory."
+
+    # Get the run directory
+    run_dirs = list(experiment_dir.iterdir())
+    assert len(run_dirs) == 1, f"Expected exactly one run directory, found {len(run_dirs)}"
+    run_dir = run_dirs[0]
+
+    # Verify TensorBoard logs were created
+    tb_log_dir = run_dir / "tb_logs"
+    assert tb_log_dir.exists(), f"TensorBoard log directory not found at {tb_log_dir}"
+    assert tb_log_dir.is_dir(), "TensorBoard log directory should be a directory"
+
+    # Verify event files exist
+    tb_event_files = list(tb_log_dir.glob("events.out.tfevents.*"))
+    assert len(tb_event_files) > 0, "No TensorBoard event files found"
