@@ -98,6 +98,7 @@ def test_infer_model_generates_expected_single_token_output():
             ),
             random_seed=RANDOM_SEED,
             text_only=True,
+            enable_flash_decode=False,  # this breaks evo2 performance.
         )
 
         assert isinstance(results, list)
