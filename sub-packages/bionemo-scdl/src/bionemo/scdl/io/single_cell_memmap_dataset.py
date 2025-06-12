@@ -240,6 +240,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
         feature_index_name="feature_id",
+        load_into_memory: bool = False,
     ) -> None:
         """Instantiate the class.
 
@@ -253,6 +254,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
             load_block_row_size: Number of rows to load into memory with paginated load
             feature_index_name: The name of the features if the features are only stored in features_df.index.values
+            load_into_memory: Whether to load the data into memory.
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
@@ -263,8 +265,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Backing arrays
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
-        self.row_index: Optional[np.ndarray] = None
-
+        self.load_into_memory: bool = load_into_memory
+        self.shuffle: bool = False
         # Metadata and attributes
         self.metadata: Dict[str, int] = {}
 
@@ -466,6 +468,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.col_index = self._load_mmap_file_if_exists(
             f"{self.data_path}/{FileNames.COLPTR.value}", dtype=self.dtypes[f"{FileNames.COLPTR.value}"]
         )
+        if self.load_into_memory:
+            self.data = np.ascontiguousarray(self.data.copy())
+            self.row_index = np.ascontiguousarray(self.row_index.copy())
+            self.col_index = np.ascontiguousarray(self.col_index.copy())
 
     def _write_metadata(self) -> None:
         with open(f"{self.data_path}/{FileNames.METADATA.value}", f"{Mode.CREATE.value}") as mfi:
@@ -695,9 +701,43 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """Return the number of rows."""
         return self.number_of_rows()
 
-    def __getitem__(self, idx: int) -> torch.Tensor:
+    def __getitem__(self, batch_idx) -> torch.Tensor:
         """Get the row values located and index idx."""
-        return torch.from_numpy(np.stack(self.get_row(idx)[0]))
+        # This will be batch_idx if it's one valie
+        # return torch.from_numpy(np.stack(self.get_row(idx)[0]))
+        if not isinstance(batch_idx, (list, np.ndarray, torch.Tensor)):
+            return torch.from_numpy(np.stack(self.get_row(batch_idx)[0]))
+        else:
+            if len(batch_idx) != 2:
+                breakpoint()
+            start_idx = batch_idx[0]
+            end_idx = min(len(self), 1 + batch_idx[-1])
+            assert start_idx < end_idx
+            assert len(batch_idx) == 2
+        # Get row indices and shuffle them if needed
+        row_indices = np.arange(start_idx, end_idx)
+        if self.shuffle:
+            np.random.shuffle(row_indices)
+
+        # Get data for shuffled rows
+        starts = self.row_index[row_indices]
+        ends = self.row_index[row_indices + 1]
+
+        # Concatenate data from each row
+        values = np.concatenate([self.data[s:e] for s, e in zip(starts, ends)])
+        columns = np.concatenate([self.col_index[s:e] for s, e in zip(starts, ends)])
+        # max_pointer = int(columns.max().item() + 1)
+        """
+        ret = torch.sparse_csr_tensor(self.row_index[batch_idx[0]:batch_idx[-1]+ 1] - self.row_index[batch_idx[0]],
+                                      columns,
+                                      values,
+                                      size=(batch_idx[-1] - batch_idx[0] + 1, max_pointer))
+
+        """
+        # ret = torch.from_numpy(np.stack((values, columns)))
+        # breakpoint()
+        # return ret
+        return self.row_index[batch_idx[0] : batch_idx[-1] + 1] - self.row_index[batch_idx[0]], columns, values
 
     def number_of_variables(self) -> List[int]:
         """Get the number of features in every entry in the dataset.

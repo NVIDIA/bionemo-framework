@@ -124,8 +124,10 @@ class SingleCellDataset(Dataset):
         assert (
             len(feature_ids) == 1
         )  # we expect feature_ids to be a list containing one np.array with the row's feature ids
+
         gene_data, col_idxs = np.array(values[0]), np.array(values[1])
         if len(gene_data) == 0:
+            print("INDEX", index.idx)
             raise ValueError(
                 "SingleCellMemap data provided is invalid; the gene expression data parsed for the specified index is empty."
             )
