@@ -38,7 +38,7 @@ script_args:
   wu_steps: 5000
   wd: 0.1
 script: |-
-  curl --location --header "PRIVATE-TOKEN:${{JET_GITLAB_TOKEN}}" "${artefacts_url}/${file_name_wheel}" --output ${file_name_wheel};
+  curl --location --header "PRIVATE-TOKEN:$JET_GITLAB_TOKEN" "${artefacts_url}/${file_name_wheel}" --output ${file_name_wheel};
   pip install ${file_name_wheel};
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
   -d /workspace/bionemo2/sub-packages/bionemo-evo2/examples/configs/full_pretrain_shortphase_config.yaml \
