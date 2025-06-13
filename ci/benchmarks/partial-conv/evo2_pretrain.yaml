@@ -38,7 +38,7 @@ script_args:
   wu_steps: 5000
   wd: 0.1
 script: |-
-  INSTALL_FLAG="/tmp/install_done_${SLURMD_NODENAME}";
+  INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
       curl --location --header "PRIVATE-TOKEN:$JET_GITLAB_TOKEN" "${artefacts_url}/${file_name_wheel}" --output ${file_name_wheel}
       pip install ${file_name_wheel}
