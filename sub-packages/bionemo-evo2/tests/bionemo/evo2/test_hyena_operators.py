@@ -177,7 +177,7 @@ class TestParallelCausalDepthwiseConv1d:
     def test_initialization(self, operator: ParallelCausalDepthwiseConv1d):
         assert operator.d_model == 864
         assert operator.kernel_size == 3
-        assert operator.use_bias
+        assert operator.use_conv_bias
         num_weights = sum([p.numel() for p in operator.parameters()])
         assert num_weights == 2592
 
