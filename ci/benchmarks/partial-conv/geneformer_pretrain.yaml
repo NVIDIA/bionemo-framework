@@ -23,7 +23,7 @@ script_args:
   lr: 0.001
   val_check_interval: 500
   acc_grad: 1
-  num_workers: 4
+  num_workers: 8
 script: |-
   COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
   NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
