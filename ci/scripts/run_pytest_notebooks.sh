@@ -19,4 +19,4 @@
 # Enable strict mode with better error handling
 set -euox pipefail
 
-pytest -v --nbval-lax -p no:python docs/ sub-packages/
+pytest -v --nbval-lax -x -p no:python docs/ sub-packages/
