@@ -104,6 +104,7 @@ def main(
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
     decoder_first_pipeline_num_layers: Optional[int] = None,
+    pytorch_profiler: bool = False,
 ) -> nl.Trainer:
     """Train an ESM2 model on UR data.
 
@@ -168,6 +169,7 @@ def main(
         average_in_collective (bool): average in collective
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
         decoder_first_pipeline_num_layers (Optional[int]): number of layers in the decoder first pipeline. Default None is even split of transformer layers across all pipeline stages
+        pytorch_profiler (bool): Enable pytorch profiler.
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -365,11 +367,19 @@ def main(
     else:
         auto_resume = None
 
+    if pytorch_profiler:
+        from lightning.pytorch.profilers import PyTorchProfiler
+
+        profiler = PyTorchProfiler(dirpath=result_dir, filename="profiler")
+    else:
+        profiler = None
+
     trainer = nl.Trainer(
         devices=devices,
         max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
         accelerator="gpu",
         strategy=strategy,
+        profiler=profiler,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
         val_check_interval=val_check_interval,
         log_every_n_steps=log_every_n_steps,
@@ -460,6 +470,7 @@ def train_esm2_entrypoint():
         average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
         decoder_first_pipeline_num_layers=args.decoder_first_pipeline_num_layers,
+        pytorch_profiler=args.pytorch_profiler,
     )
 
 
@@ -820,6 +831,14 @@ def get_parser():
         default=None,
         help="The number of transformer layers on the first pipeline stage of the decoder. Default None is even split of transformer layers across all pipeline stages",
     )
+
+    parser.add_argument(
+        "--pytorch-profiler",
+        action="store_true",
+        default=False,
+        help="Enable pytorch profiler.",
+    )
+
     return parser
 
 

@@ -103,6 +103,7 @@ def main(
     aligned_megatron_ddp: bool = False,
     recompilation_check: bool = False,
     include_unrecognized_vocab_in_dataset: bool = False,
+    pytorch_profiler: bool = False,
     # TODO add datamodule class, and ability to change data step to get full support for pretraining workflows
 ) -> None:
     """Train a Geneformer model on single cell data.
@@ -164,7 +165,8 @@ def main(
             good for clusters. This will likely slow down single node runs though.
         recompilation_check (bool): enable a recompilation check (only do on a small run) to verify that fused gpu
             kernels are not being regularly recompiled, which is very expensive, with a particular model/settings.
-        include_unrecognized_vocab_in_dataset (bool): If set to True, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded..
+        include_unrecognized_vocab_in_dataset (bool): If set to True, a hard-check is performed to verify all gene identifers are in the user supplied tokenizer vocab. Defaults to False which means any gene identifier not in the user supplied tokenizer vocab will be excluded.
+        pytorch_profiler (bool): Enable pytorch profiler.
     """
     # Create the result directory if it does not exist.
     if wandb_tags is None:
@@ -290,6 +292,12 @@ def main(
                 geneformer_config, SimpleDataModule(tokenizer.vocab_size, global_batch_size), "bert"
             )
         )
+    if pytorch_profiler:
+        from lightning.pytorch.profilers import PyTorchProfiler
+
+        profiler = PyTorchProfiler(dirpath=result_dir, filename="profiler")
+    else:
+        profiler = None
 
     trainer = nl.Trainer(
         devices=devices,
@@ -302,6 +310,7 @@ def main(
         num_nodes=num_nodes,
         callbacks=callbacks,
         use_distributed_sampler=False,
+        profiler=profiler,
         plugins=nl.MegatronMixedPrecision(precision=precision),
         enable_checkpointing=create_checkpoint_callback,
     )
@@ -689,6 +698,13 @@ def get_parser():
         help="Enable tflops calculation callback for Geneformer. Defaults to False.",
     )
 
+    parser.add_argument(
+        "--pytorch-profiler",
+        action="store_true",
+        default=False,
+        help="Enable pytorch profiler.",
+    )
+
     return parser
 
 
@@ -697,6 +713,7 @@ def entrypoint():
     # Parse the arguments and pull them out into local variables for ease of future refactor to a
     #   config management system.
     args = parser.parse_args()
+
     main(
         data_dir=args.data_dir,
         num_nodes=args.num_nodes,
@@ -743,6 +760,7 @@ def entrypoint():
         recompilation_check=args.recompilation_check,
         include_unrecognized_vocab_in_dataset=args.include_unrecognized_vocab_in_dataset,
         create_tensorboard_logger=args.create_tensorboard_logger,
+        pytorch_profiler=args.pytorch_profiler,
     )
 
 
