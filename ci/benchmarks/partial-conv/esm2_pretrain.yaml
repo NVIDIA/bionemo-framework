@@ -19,9 +19,9 @@ script_args:
   gpus: 8
   batch_size: 16
   max_steps: 500000
-  stop_steps: 200
-  val_check_interval: 100
-  num_workers: 4
+  stop_steps: 2000
+  val_check_interval: 1000
+  num_workers: 8
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=${data_path}/train_clusters.parquet \
@@ -50,8 +50,7 @@ script: |-
     --wandb-group=${model}_${variant}_${config_name}__${target} \
     --wandb-job-type=${pipeline_label} \
     --log-every-n-steps=50 \
-    --disable-checkpointing \
-    --pytorch-profiler;
+    --disable-checkpointing;
 tests:
   - logic_type: static
     logic_spec:
