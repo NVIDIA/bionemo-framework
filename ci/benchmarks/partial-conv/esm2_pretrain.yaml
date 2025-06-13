@@ -4,7 +4,7 @@ key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   data_path: False
   num_workers: False
-  val-check-interval: False
+  val_check_interval: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -20,7 +20,7 @@ script_args:
   batch_size: 16
   max_steps: 500000
   stop_steps: 200
-  val-check-interval: 100
+  val_check_interval: 100
   num_workers: 4
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
