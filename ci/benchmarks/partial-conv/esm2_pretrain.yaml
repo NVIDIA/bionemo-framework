@@ -15,19 +15,31 @@ script_args:
   variant: train
   config_name: 650M
   precision: [bf16-mixed]
-  nodes: [1]
-  gpus: 1
+  nodes: [2]
+  gpus: 8
   batch_size: 16
   max_steps: 500000
   stop_steps: 2000
   val_check_interval: 1000
-  num_workers: 1
+  num_workers: 4
 script: |-
+  COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
+  NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
+  if [ "$SLURM_LOCALID" = "0" ]; then
+      df -h;
+      echo $NEW_DATA_PATH;
+      time cp -r ${data_path}/ $NEW_DATA_PATH;
+      touch $COPY_FLAG
+  fi
+  # All ranks wait until install flag file appears
+  while [ ! -f $COPY_FLAG ]; do
+      sleep 1
+  done
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
-    --train-cluster-path=${data_path}/train_clusters.parquet \
-    --train-database-path=${data_path}/train.db \
-    --valid-cluster-path=${data_path}/valid_clusters.parquet \
-    --valid-database-path=${data_path}/validation.db \
+    --train-cluster-path=$NEW_DATA_PATH/train_clusters.parquet \
+    --train-database-path=$NEW_DATA_PATH/train.db \
+    --valid-cluster-path=$NEW_DATA_PATH/valid_clusters.parquet \
+    --valid-database-path=$NEW_DATA_PATH/validation.db \
     --micro-batch-size=${batch_size} \
     --num-nodes=${nodes} \
     --num-gpus=${gpus} \
