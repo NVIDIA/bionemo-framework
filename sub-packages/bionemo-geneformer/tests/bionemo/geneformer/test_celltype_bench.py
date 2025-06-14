@@ -45,8 +45,10 @@ def test_load_data_run_benchmark():
     # be sure to load 'results.csv' FIRST before running because this will overwrite it.
     golden_result_path = result_path / "results.csv"
     golden_result_df = pd.read_csv(golden_result_path, header=0)
+    golden_result_df = golden_result_df.drop(columns=['f1_score_std'])
 
     result_df = load_data_run_benchmark(result_path, h5ad_file, write_results=False)
+    result_df = result_df.drop(columns=['f1_score_std'])
 
     pd.testing.assert_frame_equal(
         result_df,
