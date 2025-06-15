@@ -106,6 +106,11 @@ clean_pycache() {
     find "$base_dir" -regex '^.*\(__pycache__\|\.py[co]\)$' -delete
 }
 touch /root/output.txt
+# user info
+echo "user info"
+whoami
+id -u
+
 # Run tests with coverage
 for dir in "${TEST_DIRS[@]}"; do
     echo "Running pytest in $dir"
