@@ -89,7 +89,7 @@ def _swap_mmap_array(
         src_path: location of the first memmap array
         dest_array: the second memmap array
         dest_path: location of the first second array
-        destroy_src: set to True if the source array is destroyed
+        destroy_src: set to True if the source array is deleted from disk
 
     Raises:
         FileNotFoundError if the source or destination path are not found.
@@ -315,7 +315,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.load_neighbors = load_neighbors
         self._has_neighbors = False 
         if load_neighbors:
-            self.init_neighbor_args(neighbor_key, neighbor_sampling_strategy, fallback_to_identity)
+            self._init_neighbor_args(neighbor_key, neighbor_sampling_strategy, fallback_to_identity)
 
             
         if mode == Mode.CREATE_APPEND and os.path.exists(data_path):
@@ -344,8 +344,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 case _:
                     raise ValueError("An np.memmap path, an h5ad path, or the number of elements and rows is required")
 
-    # NOTE: initialize neighbor args
-    def init_neighbor_args(self, neighbor_key, neighbor_sampling_strategy, fallback_to_identity):
+    def _init_neighbor_args(self, neighbor_key, neighbor_sampling_strategy, fallback_to_identity):
         # Neighbor tracking
         self._has_neighbors = False # Track if neighbor data was successfully loaded/found
 
@@ -363,17 +362,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.neighbor_sampling_strategy = neighbor_sampling_strategy
         self.fallback_to_identity = fallback_to_identity
 
-        # Set paths for neighbor data files
-        #NOTE: no longer needed
-        self._neighbor_indices_path = os.path.join(self.data_path, FileNames.NEIGHBOR_INDICES.value)
-        self._neighbor_indptr_path = os.path.join(self.data_path, FileNames.NEIGHBOR_INDICES_PTR.value)
-        self._neighbor_data_path = os.path.join(self.data_path, FileNames.NEIGHBOR_VALUES.value)
-
-        # Placeholders for neighbor Memory-mapped arrays
-        self._neighbor_indices = None
-        self._neighbor_indptr = None
-        self._neighbor_data = None
-    
     def __init__obj(self):
         """Initializes the datapath and writes the version."""
         os.makedirs(self.data_path, exist_ok=True)
@@ -436,15 +424,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         indptr_len = len(neighbor_matrix.indptr)
         nnz = len(neighbor_matrix.indices)  # number of non-zero elements
         # No need to calculate data_len separately since it equals nnz
-
-        # self.mode = Mode.CREATE_APPEND
-        # self._neighbor_data , self._neighbor_indices, self._neighbor_indptr= _create_compressed_sparse_row_memmaps(
-        #     num_elements=indices_len,
-        #     num_rows=indptr_len,
-        #     memmap_dir_path=Path(self.data_path), #need to figure out the filenaming
-        #     mode=self.mode,
-        #     dtypes=self.dtypes,
-        # )
         
         # Create memory-mapped arrays for neighbor data
         self._neighbor_indptr = np.memmap(
@@ -1158,6 +1137,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             if self.fallback_to_identity:
                 return cell_index  # Return the cell itself
             else:
+                #NOTE: implement fallback policy here if needed
                 warnings.warn(
                     f"Cell {cell_index} has no neighbors and fallback_to_identity=False. "
                     f"Returning cell index itself anyway."
