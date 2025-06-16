@@ -65,6 +65,7 @@ script: |-
     --wandb-group=${model}_${variant}_${config_name}__${target} \
     --wandb-job-type=${pipeline_label} \
     --log-every-n-steps=50 \
+    --pytorch-profiler \
     --disable-checkpointing;
 tests:
   - logic_type: static
