@@ -325,7 +325,7 @@ def finetune_esm2_entrypoint(
         valid_metric = None  # metric logging under model parallelism is not supported yet
     elif task_type == "regression":
         valid_metric = TorchmetricsConfig(class_path="MeanSquaredError", task="regression", metric_name="val_mse")
-    else:
+    elif task_type == "classification":
         valid_metric = TorchmetricsConfig(
             class_path="Accuracy",
             task="classification",
@@ -336,7 +336,8 @@ def finetune_esm2_entrypoint(
             },
             metric_name="val_acc",
         )
-
+    else:
+        raise ValueError(f"Task type {task_type} not supported. Supported task types are: classification, regression")
     config = config_class(
         task_type=task_type,
         encoder_frozen=encoder_frozen,
