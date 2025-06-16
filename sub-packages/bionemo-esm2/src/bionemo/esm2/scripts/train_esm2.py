@@ -440,6 +440,7 @@ def train_esm2_entrypoint():
         val_check_interval=args.val_check_interval,
         log_every_n_steps=args.log_every_n_steps,
         num_dataset_workers=args.num_dataset_workers,
+        prefetch_factor=args.prefetch_factor,
         biobert_spec_option=args.biobert_spec_option,
         lr=args.lr,
         scheduler_num_steps=args.scheduler_num_steps,
