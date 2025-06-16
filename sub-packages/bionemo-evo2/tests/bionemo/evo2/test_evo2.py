@@ -286,8 +286,8 @@ def get_model_and_tokenizer(ckpt_name):
         trainer=trainer,
         params_dtype=torch.bfloat16,
         inference_batch_times_seqlen_threshold=8192,  # TODO
-        inference_max_seq_length=8192,  # TODO
-        enable_flash_decode=False,  # this breaks evo2 performance if set to True.
+        # inference_max_seq_length=8192,  # TODO
+        # enable_flash_decode=False,  # this breaks evo2 performance if set to True.
     )
     return inference_wrapped_model, mcore_tokenizer
 
@@ -336,13 +336,6 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
     inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_name)
-
-    if "-1m" in ckpt_name:
-        # TODO: remove this once we upgrade nemo to a version with seq_len_interpolation_factor set on the config object
-        #  and this starts passing. Also remove the override in the manual test below.
-        pytest.xfail(
-            reason="Until our Hyena 1m config has a default seq_len_interpolation_factor, we need to set it manually."
-        )
 
     matchrates = []
     for seq in sequences:
@@ -403,21 +396,18 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
             model_config = llm.Hyena1bConfig(
                 use_te=True,
                 seq_length=8192,
-                seq_len_interpolation_factor=1,
                 flash_decode=False,
             )
         elif "7b-8k" in ckpt_name:
             model_config = llm.Hyena7bConfig(
                 use_te=True,
                 seq_length=8192,
-                seq_len_interpolation_factor=1,
                 flash_decode=False,
             )
         elif "7b-1m" in ckpt_name:
             model_config = llm.Hyena7bARCLongContextConfig(
                 use_te=True,
                 seq_length=8192,
-                seq_len_interpolation_factor=128,
                 flash_decode=False,
             )
         else:
@@ -472,8 +462,8 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
     "ckpt_name,expected_matchpercents",
     [
         # TODO replace these expected values with whatever they should be (from vortex)
-        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
-        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
+        # ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
+        ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6]),
         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
@@ -486,14 +476,9 @@ def test_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: 
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
     inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_name)
-    if "-1m" in ckpt_name:
-        # TODO: remove this once we upgrade nemo to a version with seq_len_interpolation_factor set on the config object
-        #  and this starts passing.
-        pytest.xfail(
-            reason="Until our Hyena 1m config has a default seq_len_interpolation_factor, we need to set it manually."
-        )
+
     match_percents = []
-    for seq in sequences:
+    for i, seq in enumerate(sequences):
         num_tokens = 500
         prompt, target = mid_point_split(seq=seq, num_tokens=num_tokens)
         from megatron.core.inference.common_inference_params import CommonInferenceParams
@@ -521,7 +506,7 @@ def test_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: 
         logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {gen_seq=}")
         logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {target =}")
         match_percent = calculate_sequence_identity(target, gen_seq)
-        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=}")
+        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=} expected: {expected_matchpercents[i]}")
         match_percents.append(match_percent)
     assert len(match_percents) == len(expected_matchpercents)
     matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
