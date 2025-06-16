@@ -134,6 +134,24 @@ done
 echo "=================="
 cat /root/output.txt
 echo "=================="
+echo "train_evo2.out"
+cat /root/train_evo2.out
+echo "=================="
+echo "train_evo2.err"
+cat /root/train_evo2.err
+echo "=================="
+echo "predict_ref_command.out"
+cat /root/predict_ref_command.out
+echo "=================="
+echo "predict_ref_command.err"
+cat /root/predict_ref_command.err
+echo "=================="
+echo "predict_var_command.out"
+cat /root/predict_var_command.out
+echo "=================="
+echo "predict_var_command.err"
+cat /root/predict_var_command.err
+echo "=================="
 
 # Exit with appropriate status
 $error && exit 1
