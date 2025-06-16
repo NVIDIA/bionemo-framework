@@ -231,6 +231,7 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         assert torch.mean(torch.abs(logit_similarity - torch.ones_like(logit_similarity))) < 9.9e-3
 
 
+
 @pytest.fixture
 def sequences():
     with (Path(__file__).parent / "data" / "prompts.csv").open(newline="") as f:
