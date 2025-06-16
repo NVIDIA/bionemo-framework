@@ -363,7 +363,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.fallback_to_identity = fallback_to_identity
 
     def __init__obj(self):
-        """Initializes the datapath and writes the version."""
+        """Initializes the data path and writes the version."""
         os.makedirs(self.data_path, exist_ok=True)
 
         # Write the version
@@ -399,10 +399,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Returns:
             bool: True if neighbor data was successfully loaded/found, False otherwise.
         """
-        # NOTE: this is no longer needed as we have a check in load_h5ad before we call this function
-        # Skip if neighbor loading is not enabled
-        # if not self.load_neighbors:
-        #     return False
 
         # Check if neighbor key exists in AnnData.obsp
         if self.neighbor_key not in adata.obsp:
