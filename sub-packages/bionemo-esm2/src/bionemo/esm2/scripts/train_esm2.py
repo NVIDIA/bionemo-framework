@@ -373,7 +373,7 @@ def main(
     if pytorch_profiler:
         from lightning.pytorch.profilers import PyTorchProfiler
 
-        profiler = PyTorchProfiler(dirpath=result_dir, filename="profiler")
+        profiler = PyTorchProfiler(dirpath=result_dir, filename="profiler", export_to_chrome=True, use_cuda=True)
     else:
         profiler = None
 

@@ -20,10 +20,10 @@ script_args:
   gpus: 8
   batch_size: 16
   max_steps: 500000
-  stop_steps: 2000
-  val_check_interval: 1000
+  stop_steps: 200
+  val_check_interval: 100
   num_workers: 4
-  prefetch_factor: 4
+  prefetch_factor: 2
 script: |-
   COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
   NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
