@@ -28,6 +28,12 @@ from bionemo.geneformer.scripts.train_geneformer import get_parser, main
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
+from bionemo.testing.tensorboard import TENSORBOARD_AVAILABLE, verify_tensorboard_logs
+
+try:
+    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+except ImportError:
+    pass
 
 
 @pytest.fixture(scope="module")
@@ -42,42 +48,6 @@ def data_path() -> Path:
 def test_bionemo2_rootdir(data_path):
     assert data_path.exists(), "Could not find test data directory."
     assert data_path.is_dir(), "Test data directory is supposed to be a directory."
-
-
-def verify_tensorboard_logs(tb_log_dir: Path, expected_metrics: list[str], min_steps: int = 1) -> None:
-    """Verify that TensorBoard logs exist and contain expected metrics.
-
-    Args:
-        tb_log_dir: Path to the TensorBoard log directory
-        expected_metrics: List of metric names expected in the logs
-        min_steps: Minimum number of steps expected in the logs
-    """
-    if not TENSORBOARD_AVAILABLE:
-        pytest.skip("TensorBoard not available for detailed log verification")
-
-    # Find event files in the log directory
-    event_files = list(tb_log_dir.glob("events.out.tfevents.*"))
-    assert len(event_files) > 0, f"No TensorBoard event files found in {tb_log_dir}"
-
-    # Load the event file
-    event_acc = EventAccumulator(str(tb_log_dir))
-    event_acc.Reload()
-
-    # Get available scalar tags
-    scalar_tags = event_acc.Tags()["scalars"]
-
-    # Check that expected metrics are present
-    for metric in expected_metrics:
-        # Check if metric exists in any form (might have prefixes like "train/" or suffixes)
-        metric_found = any(metric in tag for tag in scalar_tags)
-        assert metric_found, f"Expected metric '{metric}' not found in TensorBoard logs. Available tags: {scalar_tags}"
-
-    # Verify we have logged data for at least min_steps
-    if scalar_tags:
-        # Get the first available metric to check step count
-        first_metric = scalar_tags[0]
-        events = event_acc.Scalars(first_metric)
-        assert len(events) >= min_steps, f"Expected at least {min_steps} steps logged, but found {len(events)}"
 
 
 @pytest.mark.parametrize("create_checkpoint_callback", [True, False])
@@ -204,7 +174,7 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
         if create_tflops_callback:
             expected_metrics.extend(
                 [
-                    "train_tflops_per_sec_per_gpu",  # From FLOPsMeasurementCallback
+                    "TFLOPS_perGPU",  # From FLOPsMeasurementCallback
                 ]
             )
 
@@ -224,8 +194,8 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
     test_main_runs_with_tensorboard(
         tmpdir=tmpdir,
         create_checkpoint_callback=create_checkpoint_callback,
-        create_tensorboard_logger=False,
-        create_tflops_callback=False,
+        create_tensorboard_logger=True,
+        create_tflops_callback=True,
         data_path=data_path,
     )
 
@@ -527,7 +497,7 @@ def test_tensorboard_metrics_and_directory_structure(tmpdir, data_path: Path):
     # Check for specific metrics that should be present
     required_metrics = {
         "lr": "Learning rate",
-        "train_tflops_per_sec_per_gpu": "TFLOPS per GPU",
+        "TFLOPS_perGPU": "TFLOPS per GPU",
         "train_step_timing": "Training step timing",
         "consumed_samples": "Consumed samples",
         "epoch": "Epoch",
