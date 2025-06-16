@@ -62,6 +62,7 @@ def main(
     val_check_interval: int,
     log_every_n_steps: Optional[int],
     num_dataset_workers: int,
+    prefetch_factor: int,
     biobert_spec_option: BiobertSpecOption,
     lr: float,
     micro_batch_size: int,
@@ -125,6 +126,7 @@ def main(
         val_check_interval (int): number of steps to periodically check the validation loss
         log_every_n_steps (Optional[int]): log every n steps
         num_dataset_workers (int): number of dataset workers
+        prefetch_factor (int): prefetch factor for the dataloader
         biobert_spec_option (BiobertSpecOption): the biobert spec option (architecture) to use for this run
         lr (float): learning rate
         scheduler_num_steps (Optional[int]): Number of steps in learning rate scheduler. Use num_steps if not provided.
@@ -197,6 +199,7 @@ def main(
         min_seq_length=min_seq_length,
         max_seq_length=max_seq_length,
         num_workers=num_dataset_workers,
+        prefetch_factor=prefetch_factor,
         random_mask_strategy=random_mask_strategy,
         tokenizer=tokenizer,
     )
@@ -605,6 +608,13 @@ def get_parser():
         required=False,
         default=1,
         help="Number of workers to use for training. Default is 1.",
+    )
+    parser.add_argument(
+        "--prefetch-factor",
+        type=int,
+        required=False,
+        default=2,
+        help="Prefetch factor for the dataloader. Default is 2.",
     )
     parser.add_argument(
         "--val-check-interval",

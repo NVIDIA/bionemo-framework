@@ -48,6 +48,7 @@ class ESMDataModule(MegatronDataModule):
         global_batch_size: int = 8,
         num_workers: int = 10,  # TODO(@jomitchell) can this be automatically set?
         persistent_workers: bool = True,
+        prefetch_factor: int = 2,
         pin_memory: bool = True,
         rampup_batch_size: list[int] | None = None,
         mask_prob: float = 0.15,
@@ -72,6 +73,7 @@ class ESMDataModule(MegatronDataModule):
             global_batch_size: Passed to MegatronDataSampler.. Defaults to 8.
             num_workers: The number of workers for the pytorch Dataloaders. Defaults to 10.
             persistent_workers: Whether to keep the workers alive between epochs. Defaults to True. If num_workers is 0, this is ignored and set to False for debugging purposes.
+            prefetch_factor: The prefetch factor for the pytorch Dataloaders. Defaults to 2.
             pin_memory: Whether to pin GPU memory in the pytorch Dataloaders. Defaults to True.
             rampup_batch_size: Passed to MegatronDataSampler. Defaults to None.
             mask_prob: The overall chance of masking a token and having it appear in the loss fn. Defaults to 0.15.
@@ -104,6 +106,12 @@ class ESMDataModule(MegatronDataModule):
                 "persistent_workers is set to True, but num_workers is 0. Setting persistent_workers to False."
             )
         self._pin_memory = pin_memory
+        self._prefetch_factor = prefetch_factor if self._num_workers > 0 else None
+        if self._num_workers == 0 and prefetch_factor:
+            logging.warning(
+                "num_workers is 0. Setting prefetch_factor to None."
+                "This will disable prefetching and may cause performance degradation."
+            )
 
         self.data_sampler = MegatronDataSampler(
             seq_len=max_seq_length,
@@ -204,6 +212,7 @@ class ESMDataModule(MegatronDataModule):
             num_workers=self._num_workers,
             pin_memory=self._pin_memory,
             persistent_workers=self.persistent_workers,
+            prefetch_factor=self._prefetch_factor,
             collate_fn=functools.partial(
                 collate.bert_padding_collate_fn,
                 padding_value=self._tokenizer.pad_token_id,

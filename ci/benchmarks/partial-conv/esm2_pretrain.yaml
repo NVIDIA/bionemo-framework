@@ -5,6 +5,7 @@ key_segments:
   data_path: False
   num_workers: False
   val_check_interval: False
+  prefetch_factor: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -22,6 +23,7 @@ script_args:
   stop_steps: 2000
   val_check_interval: 1000
   num_workers: 4
+  prefetch_factor: 1
 script: |-
   COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
   NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
@@ -44,6 +46,7 @@ script: |-
     --num-nodes=${nodes} \
     --num-gpus=${gpus} \
     --num-dataset-workers=${num_workers} \
+    --prefetch-factor=${prefetch_factor} \
     --val-check-interval=${val_check_interval} \
     --limit-val-batches=1 \
     --num-steps=${max_steps} \
