@@ -107,7 +107,10 @@ class InMemoryProteinDataset(Dataset):
         if labels_mask_column is not None:
             labels_mask = df[labels_mask_column]
 
-        return cls(sequences, labels=labels, labels_mask=labels_mask, task_type=task_type, tokenizer=tokenizer)
+        if labels_mask_column is None:
+            return cls(sequences, labels=labels, task_type=task_type, tokenizer=tokenizer)
+        else:
+            return cls(sequences, labels=labels, labels_mask=labels_mask, task_type=task_type, tokenizer=tokenizer)
 
     def __len__(self) -> int:
         """The size of the dataset."""

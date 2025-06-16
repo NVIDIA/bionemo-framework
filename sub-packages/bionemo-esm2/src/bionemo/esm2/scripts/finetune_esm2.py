@@ -59,7 +59,7 @@ SUPPORTED_DATASETS = {
     "InMemoryPerTokenValueDataset": InMemoryPerTokenValueDataset,
 }
 
-app = typer.Typer()
+app = typer.Typer(pretty_exceptions_enable=False)
 
 
 @app.command()
@@ -68,7 +68,7 @@ def finetune_esm2_entrypoint(
     valid_data_path: Path = typer.Option(..., help="Path to validation data CSV"),
     num_nodes: int = 1,
     num_gpus: int = 1,
-    min_seq_length: Optional[int] = 1024,
+    min_seq_length: Optional[int] = None,
     max_seq_length: int = 512,
     result_dir: Path = Path("./results"),
     num_steps: int = 500_000,
