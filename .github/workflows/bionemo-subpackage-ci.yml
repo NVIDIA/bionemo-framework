@@ -193,7 +193,7 @@ jobs:
     name: Publish ${{ matrix.package }} to PyPI.
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.event.inputs.pypi && 'pypi' || 'testpypi' }}
+      name: ${{ github.event.inputs.pypi == 'true' && 'pypi' || 'testpypi' }}
       url: ${{ github.event.inputs.pypi && format('https://pypi.org/p/{0}', matrix.package) || format('https://test.pypi.org/p/{0}', matrix.package) }}
     permissions:
       id-token: write
