@@ -24,11 +24,12 @@ from typing import List
 logger = logging.getLogger(__name__)
 
 
-def run_subprocess_safely(command: List[str], capture_output: bool = True) -> CompletedProcess:
+def run_subprocess_safely(command: List[str], std_name: str, capture_output: bool = True) -> CompletedProcess:
     """Run a subprocess and raise an error if it fails.
 
     Args:
         command: The command to run.
+        std_name: The name of the standard output and error files.
         capture_output: Whether to capture the output of the command.
 
     Returns:
@@ -40,23 +41,41 @@ def run_subprocess_safely(command: List[str], capture_output: bool = True) -> Co
         f.write(nvidia_smi_output.stdout.decode())
         f.write("--------------------------------\n\n")
 
-    result = subprocess.run(command, capture_output=capture_output)
+    result = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=True,
+    )
+
+    try:
+        stdout, stderr = result.communicate(timeout=1500)
+    except subprocess.TimeoutExpired as e:
+        with open("/root/output.txt", "a") as f:
+            f.write("Command timeout\n")
+            f.write("stdout:\n")
+            f.write(e.stdout.decode())
+            f.write("\nstderr:\n")
+            f.write(e.stderr.decode())
+            sys.exit(1)
 
     if result.returncode != 0:
         logger.error(
             "Command failed with exit code",
             result.returncode,
             "\nstdout:\n",
-            result.stdout.decode(),
+            stdout.decode(),
             "\nstderr:\n",
-            result.stderr.decode(),
+            stderr.decode(),
         )
         with open("/root/output.txt", "a") as f:
             f.write(f"Command failed with exit code {result.returncode}\n")
             f.write("stdout:\n")
-            f.write(result.stdout.decode())
+            f.write(stdout.decode())
             f.write("\nstderr:\n")
-            f.write(result.stderr.decode())
+            f.write(stderr.decode())
 
         with open("/root/output.txt", "a") as f:
             f.write("--------------------------------\n")
