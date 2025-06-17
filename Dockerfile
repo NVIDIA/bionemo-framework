@@ -126,11 +126,17 @@ fi
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
     cd / && pip uninstall bitsandbytes && \
     git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
-    cd bitsandbytes && pip install . && cd .. && rm -rf bitsandbytes; \
+    cd bitsandbytes && cmake -DCOMPUTE_BACKEND=cuda -S . && make && pip install . && cd .. && rm -rf bitsandbytes; \
 fi
 ###############################################################################
 # /end ARM
 ###############################################################################
+# Fix the version of scikit-misc to 0.3.1 because newer versions of scikit-misc require numpy >= 2.0 to be built.
+# Since there are not pre-built wheels for arm64, we need to install this specific version.
+# Once bionemo is compatible with numpy >= 2.0, we can remove this.
+# Technically, this is only needed for the ARM build, but we apply to all architectures to avoid library version
+# divergence.
+RUN pip install scikit-misc==0.3.1
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \

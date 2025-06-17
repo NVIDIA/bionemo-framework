@@ -742,6 +742,7 @@ def entrypoint():
         aligned_megatron_ddp=args.aligned_megatron_ddp,
         recompilation_check=args.recompilation_check,
         include_unrecognized_vocab_in_dataset=args.include_unrecognized_vocab_in_dataset,
+        create_tensorboard_logger=args.create_tensorboard_logger,
     )
 
 

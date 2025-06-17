@@ -38,7 +38,6 @@ from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
 )
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.pytorch import callbacks as nl_callbacks
-from nemo.lightning.pytorch.callbacks import ModelCheckpoint
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
@@ -141,6 +140,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Number of training optimizer update steps. This controls the total number of steps as well as the "
         "shape of the learning rate curve.",
         default=500000,
+    )
+    parser.add_argument(
+        "--constant-steps",
+        type=int,
+        help="Number of steps to keep the learning rate constant before annealing. This controls the "
+        "shape of the learning rate curve.",
+        default=80000,
     )
     parser.add_argument(
         "--early-stop-on-step",
@@ -382,6 +388,31 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=0.0,
         help="Dropout probability for the attention layers.",
     )
+    parser.add_argument(
+        "--save-top-k",
+        type=int,
+        default=5,
+        help="Number of best checkpoints to keep. Set to -1 to save all checkpoints.",
+    )
+    parser.add_argument(
+        "--metric-to-monitor-for-checkpoints",
+        type=str,
+        default="val_loss",
+        help="Metric to monitor for checkpoints.",
+    )
+    parser.add_argument(
+        "--save-last-checkpoint",
+        action="store_true",
+        default=True,
+        help="Save the last checkpoint.",
+    )
+    parser.add_argument(
+        "--no-save-last-checkpoint",
+        action="store_false",
+        dest="save_last_checkpoint",
+        default=True,
+        help="Disable saving the last checkpoint.",
+    )
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
@@ -563,7 +594,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-GCLP{args.clip_grad}"
         f"-HDO{args.hidden_dropout}"
         f"-ADO{args.attention_dropout}"
-        f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-WD{args.wd}"
+        f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-CONSTSTEPS{args.constant_steps}-WD{args.wd}"
         f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
@@ -594,11 +625,15 @@ def train(args: argparse.Namespace) -> nl.Trainer:
 
     if args.create_checkpoint_callback:
         checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
-        checkpoint_callback = ModelCheckpoint(
-            every_n_train_steps=args.val_check_interval,
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
             dirpath=checkpoint_path,
-            save_top_k=5,
+            save_last=args.save_last_checkpoint,
+            monitor=args.metric_to_monitor_for_checkpoints,
+            save_top_k=args.save_top_k,
+            every_n_train_steps=args.val_check_interval,
             always_save_context=True,
+            filename="{epoch}-{step}-{consumed_samples}",
+            save_weights_only=False,
             save_optim_on_train_end=True,
             save_context_on_train_end=True,
         )
@@ -696,6 +731,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         max_steps=trainer.max_steps,
         warmup_steps=args.warmup_steps,
         min_lr=args.min_lr,
+        constant_steps=args.constant_steps,
     )
 
     opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=evo2_config.hyena_no_weight_decay_cond_fn)

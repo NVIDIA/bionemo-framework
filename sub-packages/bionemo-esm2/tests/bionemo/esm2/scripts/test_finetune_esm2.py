@@ -71,12 +71,17 @@ def test_esm2_finetune_token_classifier(
             config_class=ESM2FineTuneTokenConfig,
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             lora_finetune=with_peft,
+            create_tensorboard_logger=True,
         )
-
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
+        devdir = simple_ft_checkpoint.parent.parent / "dev"
+        tfevents = list(devdir.glob("events.out.tfevents.*"))
+        assert len(tfevents) >= 1
+        assert tfevents[0].exists()
+        assert tfevents[0].is_file()
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
         assert "val_acc" in trainer.logged_metrics
         # assert trainer.logged_metrics["val_acc"].item() <= 0.5  # TODO @farhad for a reasonable value
