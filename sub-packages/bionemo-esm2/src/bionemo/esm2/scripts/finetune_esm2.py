@@ -60,7 +60,7 @@ SUPPORTED_DATASETS = {
 }
 
 
-def parse_args():
+def get_parser():
     parser = argparse.ArgumentParser(description="Train an ESM2 model on UR data.")
 
     # Required arguments
@@ -166,7 +166,7 @@ def parse_args():
     parser.add_argument("--lora-checkpoint-path", type=Path, default=None, help="LoRA checkpoint path")
     parser.add_argument("--lora-finetune", action="store_true", help="Use LoRA fine-tuning")
 
-    return parser.parse_args()
+    return parser
 
 
 def train_model(
@@ -465,7 +465,8 @@ def train_model(
 
 def finetune_esm2_entrypoint() -> Tuple[Path, Callback | None, nl.Trainer]:
     """Train an ESM2 model on UR data."""
-    args = parse_args()
+    parser = get_parser()
+    args = parser.parse_args()
 
     # Validate arguments
     if args.lora_checkpoint_path and not args.lora_finetune:
