@@ -13,7 +13,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-class TrainingLauncher:
+class DistributedTrainingLauncherServer:
     def __init__(self, host='localhost', port=6789, log_dir='/tmp/launcher_logs'):
         self.host = host
         self.port = port
@@ -329,7 +329,7 @@ def main():
     
     args = parser.parse_args()
     
-    launcher = TrainingLauncher(args.host, args.port, args.log_dir)
+    launcher = DistributedTrainingLauncherServer(args.host, args.port, args.log_dir)
     
     def signal_handler(signum, frame):
         print("\nShutting down launcher server...")
