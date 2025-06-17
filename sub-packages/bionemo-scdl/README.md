@@ -93,6 +93,28 @@ reloaded_data = SingleCellMemMapDataset("97e_scmm")
 ### Using SCDL datasets in model training
 
 SCDL implements the required functions of the PyTorch Dataset abstract class.
+
+#### Tokenization
+
+A common use case for the single-cell dataloader is tokenizing data using a predefined vocabulary with a defined tokenizer function.
+
+``` python
+ds = SingleCellMemMapDataset("97e_scmm")
+index = 0
+values, feature_ids = self.scdl.get_row(index, return_features=True, feature_vars=["feature_id"])
+assert (
+            len(feature_ids) == 1
+        )  # we expect feature_ids to be a list containing one np.array with the row's feature ids
+gene_data, col_idxs = np.array(values[0]), np.array(values[1])
+tokenizer_function(
+            gene_data,
+            col_idxs,
+            feature_ids[0],
+        )
+        ```
+
+#### Loading directly with Pytorch-compatible Dataloaders
+
 You can use PyTorch-compatible DataLoaders to load batches of data from a SCDL class.
 With a batch size of 1 this can be run without a collating function. With a batch size
 greater than 1, there is a collation function (`collate_sparse_matrix_batch`), that will

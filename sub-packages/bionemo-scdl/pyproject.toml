@@ -11,13 +11,13 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
-    # bionemo sub-packages
-    'bionemo-core>=2.2.1',
     # external
     'anndata>=0.11.0',
+    'numpy>=1.24.4,<2',
     'pandas>=2.2.1',
     'pyarrow>=16.0.0',
     'scipy>=1.11.1',
+    'torch>=2.2.1',
     'pydantic[email]',
 ]
 
@@ -35,3 +35,9 @@ version = { file = "VERSION" }
 
 [tool.uv]
 cache-keys = [{ git = true }]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+  "bionemo-core>=2.2.1"
+]
