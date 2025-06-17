@@ -146,6 +146,7 @@ class ESMMaskedResidueDataset(Dataset):
         self.seed = seed
         self.max_seq_length = max_seq_length
         self.random_mask_strategy = random_mask_strategy
+        self.sequence = None
 
         if tokenizer.mask_token_id is None:
             raise ValueError("Tokenizer does not have a mask token.")
@@ -179,16 +180,17 @@ class ESMMaskedResidueDataset(Dataset):
             A (possibly-truncated), masked protein sequence with CLS and EOS tokens and associated mask fields.
         """
         # Initialize a random number generator with a seed that is a combination of the dataset seed, epoch, and index.
-        rng = np.random.default_rng([self.seed, index.epoch, index.idx])
-        if not len(self.clusters[index.idx]):
-            raise ValueError(f"Cluster {index.idx} is empty.")
+        if self.sequence is None:
+            rng = np.random.default_rng([self.seed, index.epoch, index.idx])
+            if not len(self.clusters[index.idx]):
+                raise ValueError(f"Cluster {index.idx} is empty.")
 
-        # sequence_id = rng.choice(self.clusters[index.idx])
-        sequence_id = self.clusters[0][0]
-        sequence = self.protein_dataset[sequence_id]
+            # sequence_id = rng.choice(self.clusters[index.idx])
+            sequence_id = self.clusters[0][0]
+            self.sequence = self.protein_dataset[sequence_id]
 
         # We don't want special tokens before we pass the input to the masking function; we add these in the collate_fn.
-        tokenized_sequence = self._tokenize(sequence)
+        tokenized_sequence = self._tokenize(self.sequence)
         cropped_sequence = _random_crop(tokenized_sequence, self.max_seq_length, rng)
 
         # Get a single integer seed for torch from our rng, since the index tuple is hard to pass directly to torch.
