@@ -70,7 +70,7 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
             result_dir=result_dir,
             wandb_project=None,
             wandb_offline=True,
-            num_steps=10,  # Run for more steps to ensure metrics are logged
+            num_steps=20,  # Run for more steps to ensure metrics are logged
             limit_val_batches=2,
             val_check_interval=5,
             num_dataset_workers=0,
@@ -112,23 +112,19 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
         assert checkpoint_dir.exists(), "Checkpoints directory not found"
         assert checkpoint_dir.is_dir(), "Checkpoints directory should be a directory"
         
-        # Verify checkpoint files exist
-        checkpoint_files = list(checkpoint_dir.glob("*.ckpt"))
-        assert len(checkpoint_files) > 0, "No checkpoint files found"
+        # Verify checkpoint directories exist (distributed checkpoints are saved as directories)
+        checkpoint_items = list(checkpoint_dir.iterdir())
+        assert len(checkpoint_items) > 0, "No checkpoint directories found"
     else:
         assert not checkpoint_dir.exists(), "Checkpoints directory should not exist when callback is disabled"
 
-    # Check TensorBoard logs
-    tb_log_dir = run_dir / "tb_logs"
-    assert tb_log_dir.exists(), f"TensorBoard log directory not found at {tb_log_dir}"
-    assert tb_log_dir.is_dir(), "TensorBoard log directory should be a directory"
-
+    # Check TensorBoard logs - they are saved directly in the run directory
     # Verify TensorBoard event files exist
-    tb_event_files = list(tb_log_dir.glob("events.out.tfevents.*"))
+    tb_event_files = list(run_dir.glob("events.out.tfevents.*"))
     assert len(tb_event_files) > 0, "No TensorBoard event files found"
 
     # Load and verify TensorBoard metrics
-    event_acc = EventAccumulator(str(tb_log_dir))
+    event_acc = EventAccumulator(str(run_dir))
     event_acc.Reload()
 
     scalar_tags = event_acc.Tags()["scalars"]
@@ -136,7 +132,7 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
     # Check for specific metrics that should be present
     required_metrics = {
         "lr": "Learning rate",
-        "TFLOPS_perGPU": "TFLOPS per GPU",  # From FLOPsMeasurementCallback
+        "TFLOPS_per_GPU": "TFLOPS per GPU",  # From FLOPsMeasurementCallback
         "train_step_timing": "Training step timing",
         "consumed_samples": "Consumed samples",
         "epoch": "Epoch",
@@ -422,11 +418,7 @@ def test_pretrain_cli_with_tensorboard(tmpdir, data_path):
     assert len(run_dirs) == 1, f"Expected exactly one run directory, found {len(run_dirs)}"
     run_dir = run_dirs[0]
 
-    # Verify TensorBoard logs were created
-    tb_log_dir = run_dir / "tb_logs"
-    assert tb_log_dir.exists(), f"TensorBoard log directory not found at {tb_log_dir}"
-    assert tb_log_dir.is_dir(), "TensorBoard log directory should be a directory"
-
+    # Verify TensorBoard logs were created - they are saved directly in the run directory
     # Verify event files exist
-    tb_event_files = list(tb_log_dir.glob("events.out.tfevents.*"))
+    tb_event_files = list(run_dir.glob("events.out.tfevents.*"))
     assert len(tb_event_files) > 0, "No TensorBoard event files found"
