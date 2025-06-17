@@ -15,15 +15,7 @@
 
 from pathlib import Path
 
-import pytest
-
-
-try:
-    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-
-    TENSORBOARD_AVAILABLE = True
-except ImportError:
-    TENSORBOARD_AVAILABLE = False
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 
 def verify_tensorboard_logs(tb_log_dir: Path, expected_metrics: list[str], min_steps: int = 1) -> None:
@@ -34,9 +26,6 @@ def verify_tensorboard_logs(tb_log_dir: Path, expected_metrics: list[str], min_s
         expected_metrics: List of metric names expected in the logs
         min_steps: Minimum number of steps expected in the logs
     """
-    if not TENSORBOARD_AVAILABLE:
-        pytest.skip("TensorBoard not available for detailed log verification")
-
     # Find event files in the log directory
     event_files = list(tb_log_dir.glob("events.out.tfevents.*"))
     assert len(event_files) > 0, f"No TensorBoard event files found in {tb_log_dir}"
