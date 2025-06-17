@@ -6,8 +6,8 @@ import json
 import time
 from typing import Dict, List, Optional, Any
 
-class LauncherClient:
-    def __init__(self, host='localhost', port=9999):
+class DistributedTrainingLauncherClient:
+    def __init__(self, host='localhost', port=6789):
         self.host = host
         self.port = port
     

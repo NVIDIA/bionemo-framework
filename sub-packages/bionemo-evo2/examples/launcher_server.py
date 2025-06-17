@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 class TrainingLauncher:
-    def __init__(self, host='localhost', port=9999, log_dir='/tmp/launcher_logs'):
+    def __init__(self, host='localhost', port=6789, log_dir='/tmp/launcher_logs'):
         self.host = host
         self.port = port
         self.log_dir = Path(log_dir)
