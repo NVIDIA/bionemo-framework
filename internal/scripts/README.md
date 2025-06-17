@@ -39,5 +39,5 @@ After building the development image, you can start a container from it and open
 ## Testing Locally
 
 Inside the development container, run `./ci/scripts/static_checks.sh` to validate that code changes will pass the code
-formatting and license checks run during CI. In addition, run the longer `./ci/scripts/run_pytest.sh` script to run unit
-tests for all sub-packages.
+formatting and license checks run during CI. In addition, run the longer `./ci/scripts/run_pytest_unitests.sh` script to run unit
+tests for all sub-packages, slower tests by `./ci/scripts/run_pytest_slow.sh` or tests notebooks execution by `./ci/scripts/run_pytest_notebooks.sh`
