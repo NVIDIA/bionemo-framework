@@ -97,7 +97,7 @@ class DistributedTrainingLauncherClient:
         }
         return self._send_request(request)
     
-    def wait_for_completion(self, process_id: int, check_interval: int = 30) -> Dict[str, Any]:
+    def wait_for_completion(self, process_id: int, timeout: int = 1500, check_interval: int = 30) -> Dict[str, Any]:
         """
         Wait for a process to complete, with periodic status updates
         
@@ -106,22 +106,27 @@ class DistributedTrainingLauncherClient:
             check_interval: How often to check status (seconds)
         """
         print(f"Waiting for process {process_id} to complete...")
-        
+
+        start_time = time.time()
         while True:
             status = self.get_status(process_id)
-            
+
             if status['status'] != 'success':
                 return status
-            
+
             process_info = status['process_info']
-            
+
             if not process_info['is_running']:
                 print(f"Process {process_id} completed!")
                 return status
             
             print(f"Process {process_id} still running... (checked at {time.strftime('%H:%M:%S')})")
             time.sleep(check_interval)
-    
+
+            if time.time() - start_time > timeout:
+                print(f"Process {process_id} timed out after {timeout} seconds")
+                return {"status": "timeout", "message": f"Process {process_id} timed out after {timeout} seconds"}
+
     def monitor_logs(self, process_id: int, follow: bool = True, refresh_interval: int = 10):
         """
         Monitor logs in real-time (Jupyter-friendly)
