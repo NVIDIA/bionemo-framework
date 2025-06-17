@@ -15,6 +15,8 @@
 
 
 import logging
+import os
+import signal
 import subprocess
 import sys
 from subprocess import CompletedProcess
@@ -41,6 +43,35 @@ def run_subprocess_safely(command: List[str], std_name: str, capture_output: boo
         f.write(nvidia_smi_output.stdout.decode())
         f.write("--------------------------------\n\n")
 
+    def preexec():
+        # Completely detach from Jupyter's process tree
+        try:
+            os.setsid()  # New session
+            os.setpgrp()  # New process group
+            # Reset signal handlers to default
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+        except Exception as e:
+            with open("/root/output.txt", "a") as f:
+                f.write(f"Error in preexec: {e}\n")
+                f.write("--------------------------------\n\n")
+                # print environment variables
+                f.write("--------------------------------\n")
+                f.write("Environment variables of child process:\n")
+                for key, value in os.environ.items():
+                    f.write(f"{key}={value}\n")
+                f.write("--------------------------------\n\n")
+
+        with open("/root/output.txt", "a") as f:
+            # print environment variables
+            f.write("--------------------------------\n")
+            f.write("Environment variables of child process:\n")
+            for key, value in os.environ.items():
+                f.write(f"{key}={value}\n")
+            f.write("--------------------------------\n\n")
+
+    command = ["setsid"] + command
     result = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -48,6 +79,7 @@ def run_subprocess_safely(command: List[str], std_name: str, capture_output: boo
         stdin=subprocess.DEVNULL,
         close_fds=True,
         start_new_session=True,
+        preexec_fn=preexec,
     )
 
     try:
