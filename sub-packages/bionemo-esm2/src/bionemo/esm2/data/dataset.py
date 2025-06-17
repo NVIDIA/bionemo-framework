@@ -185,6 +185,7 @@ class ESMMaskedResidueDataset(Dataset):
 
         sequence_id = rng.choice(self.clusters[index.idx])
         sequence = self.protein_dataset[sequence_id]
+        sequence = self.protein_dataset[0]
 
         # We don't want special tokens before we pass the input to the masking function; we add these in the collate_fn.
         tokenized_sequence = self._tokenize(sequence)
