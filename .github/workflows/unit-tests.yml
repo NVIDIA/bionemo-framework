@@ -134,7 +134,9 @@ jobs:
         # Coverage data is uploaded to Codecov in subsequent stages
         env:
           BIONEMO_DATA_SOURCE: ngc
-        run: ./ci/scripts/run_pytest_unittests.sh
+        run: |
+          chmod +x ./ci/scripts/run_pytest_unittests.sh
+          ./ci/scripts/run_pytest_unittests.sh
 
       - name: Upload coverage to Codecov
         # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
@@ -174,7 +176,9 @@ jobs:
           BIONEMO_DATA_SOURCE: ngc
         # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
         #  to run package by package like we do with the fast tests.
-        run: ./ci/scripts/run_pytest_slow.sh
+        run: |
+          chmod +x ./ci/scripts/run_pytest_slow.sh
+          ./ci/scripts/run_pytest_slow.sh
 
 
   run-notebooks-docs:
@@ -200,6 +204,7 @@ jobs:
           # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
           FAST_CI_MODE: true
         run: |
+          chmod +x ./ci/scripts/run_pytest_notebooks.sh
           ./ci/scripts/run_pytest_notebooks.sh
 
   verify-tests-status:
