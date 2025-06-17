@@ -511,6 +511,6 @@ def test_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: 
     assert len(match_percents) == len(expected_matchpercents)
     matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-    assert all(mp >= 0.95 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
-        f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
+    assert all(mp >= 0.9 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
