@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 class TrainingLauncher:
-    def __init__(self, host='localhost', port=6789, log_dir='/tmp/launcher_logs'):
+    def __init__(self, host='localhost', port=9999, log_dir='/tmp/launcher_logs'):
         self.host = host
         self.port = port
         self.log_dir = Path(log_dir)
@@ -130,27 +130,36 @@ class TrainingLauncher:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             log_file = self.log_dir / f"{job_name}_{timestamp}.log"
             
-            # Store process info (before starting)
+            # Start process
+            process = subprocess.Popen(
+                cmd,
+                cwd=working_dir,
+                env=env,
+                stdout=open(log_file, 'w'),
+                stderr=subprocess.STDOUT,
+                preexec_fn=os.setsid  # Create new process group
+            )
+            
+            # Store process info
             process_id = self.process_counter
             self.active_processes[process_id] = {
+                'process': process,
                 'cmd': cmd,
                 'job_name': job_name,
                 'log_file': str(log_file),
                 'start_time': datetime.now().isoformat(),
-                'working_dir': working_dir,
-                'status': 'starting',
-                'return_code': None
+                'working_dir': working_dir
             }
             
             self.process_counter += 1
             
-            # Start execution in separate thread
-            execution_thread = threading.Thread(
-                target=self.execute_process,
-                args=(process_id, cmd, working_dir, env, log_file)
+            # Start monitoring thread
+            monitor_thread = threading.Thread(
+                target=self.monitor_process,
+                args=(process_id,)
             )
-            execution_thread.daemon = True
-            execution_thread.start()
+            monitor_thread.daemon = True
+            monitor_thread.start()
             
             self.logger.info(f"Launched process {process_id}: {' '.join(cmd)}")
             
@@ -158,52 +167,39 @@ class TrainingLauncher:
                 "status": "success",
                 "process_id": process_id,
                 "job_name": job_name,
-                "log_file": str(log_file)
+                "log_file": str(log_file),
+                "pid": process.pid
             }
             
         except Exception as e:
             self.logger.error(f"Error launching process: {e}")
             return {"status": "error", "message": str(e)}
     
-    def execute_process(self, process_id, cmd, working_dir, env, log_file):
-        """Execute a process using subprocess.run() in a separate thread"""
+    def monitor_process(self, process_id):
+        """Monitor a process and clean up when it finishes"""
+        if process_id not in self.active_processes:
+            return
+            
+        process_info = self.active_processes[process_id]
+        process = process_info['process']
+        
         try:
-            # Update status to running
-            self.active_processes[process_id]['status'] = 'running'
+            # Wait for process to complete
+            return_code = process.wait()
             
-            # Execute the command
-            with open(log_file, 'w') as log_handle:
-                result = subprocess.run(
-                    cmd,
-                    cwd=working_dir,
-                    env=env,
-                    stdout=log_handle,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
+            # Update process info
+            process_info['return_code'] = return_code
+            process_info['end_time'] = datetime.now().isoformat()
             
-            # Update process info with results
-            self.active_processes[process_id].update({
-                'status': 'completed',
-                'return_code': result.returncode,
-                'end_time': datetime.now().isoformat()
-            })
-            
-            status_msg = "successfully" if result.returncode == 0 else f"with return code {result.returncode}"
-            self.logger.info(f"Process {process_id} finished {status_msg}")
+            # Close log file
+            if process.stdout:
+                process.stdout.close()
+                
+            self.logger.info(f"Process {process_id} finished with return code {return_code}")
             
         except Exception as e:
-            # Update process info with error
-            self.active_processes[process_id].update({
-                'status': 'error',
-                'error': str(e),
-                'end_time': datetime.now().isoformat()
-            })
-            self.logger.error(f"Error executing process {process_id}: {e}")
-    
-    def monitor_process(self, process_id):
-        """This method is no longer needed with subprocess.run() approach"""
-        pass
+            self.logger.error(f"Error monitoring process {process_id}: {e}")
+            process_info['error'] = str(e)
     
     def get_status(self, request):
         """Get status of a specific process or all processes"""
@@ -214,14 +210,16 @@ class TrainingLauncher:
                 return {"status": "error", "message": f"Process {process_id} not found"}
             
             info = self.active_processes[process_id].copy()
-            info['is_running'] = info.get('status') == 'running'
+            process = info.pop('process')
+            info['is_running'] = process.poll() is None
             return {"status": "success", "process_info": info}
         else:
             # Return all processes
             all_processes = {}
             for pid, info in self.active_processes.items():
                 proc_info = info.copy()
-                proc_info['is_running'] = proc_info.get('status') == 'running'
+                process = proc_info.pop('process')
+                proc_info['is_running'] = process.poll() is None
                 all_processes[pid] = proc_info
             
             return {"status": "success", "processes": all_processes}
@@ -234,22 +232,21 @@ class TrainingLauncher:
             return {"status": "error", "message": f"Process {process_id} not found"}
         
         try:
-            process_info = self.active_processes[process_id]
+            process = self.active_processes[process_id]['process']
             
-            if process_info.get('status') != 'running':
+            if process.poll() is not None:
                 return {"status": "success", "message": "Process already terminated"}
             
-            # Since we're using subprocess.run() in threads, we need to track PIDs differently
-            # For now, we'll mark it as killed and let the thread handle cleanup
-            process_info['status'] = 'killed'
-            process_info['end_time'] = datetime.now().isoformat()
+            # Kill process group to ensure all children are terminated
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
             
-            # Note: With subprocess.run(), the process runs to completion in the thread
-            # True process killing would require storing the Popen object or PID
-            # For most use cases, this status update is sufficient
+            # Wait a bit, then force kill if necessary
+            time.sleep(2)
+            if process.poll() is None:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
             
-            self.logger.info(f"Marked process {process_id} as killed")
-            return {"status": "success", "message": f"Process {process_id} marked as killed"}
+            self.logger.info(f"Killed process {process_id}")
+            return {"status": "success", "message": f"Process {process_id} killed"}
             
         except Exception as e:
             self.logger.error(f"Error killing process {process_id}: {e}")
@@ -264,16 +261,13 @@ class TrainingLauncher:
                 'job_name': info['job_name'],
                 'cmd': info['cmd'],
                 'start_time': info['start_time'],
-                'status': info.get('status', 'unknown'),
-                'is_running': info.get('status') == 'running',
+                'is_running': info['process'].poll() is None,
                 'log_file': info['log_file']
             }
             if 'return_code' in info:
                 proc_info['return_code'] = info['return_code']
             if 'end_time' in info:
                 proc_info['end_time'] = info['end_time']
-            if 'error' in info:
-                proc_info['error'] = info['error']
             processes.append(proc_info)
         
         return {"status": "success", "processes": processes}
@@ -305,11 +299,14 @@ class TrainingLauncher:
         """Clean up resources"""
         self.logger.info("Cleaning up launcher server...")
         
-        # Mark all running processes as interrupted
+        # Kill all active processes
         for process_id, info in self.active_processes.items():
-            if info.get('status') == 'running':
-                info['status'] = 'interrupted'
-                info['end_time'] = datetime.now().isoformat()
+            try:
+                process = info['process']
+                if process.poll() is None:
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            except Exception as e:
+                self.logger.error(f"Error cleaning up process {process_id}: {e}")
         
         # Close socket
         if hasattr(self, 'socket'):
