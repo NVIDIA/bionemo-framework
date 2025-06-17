@@ -181,22 +181,9 @@ class InMemoryProteinDataset(Dataset):
             tokens_with_special = torch.tensor(tokens_with_special)
         tokens_with_special = tokens_with_special.flatten()
 
+        mask = torch.isin(tokens_with_special, torch.tensor(self.tokenizer.all_special_ids))
         # Find positions where special tokens were inserted
-        special_positions = []
-
-        # Compare token by token to find insertions
-        original_idx = 0
-        for tokenized_idx, token_id in enumerate(tokens_with_special):
-            if token_id.item() in self.tokenizer.all_special_ids:
-                # This is a special token that was inserted
-                special_positions.append(tokenized_idx)
-            else:
-                # This should match the original sequence
-                if original_idx < len(tokens_no_special):
-                    # Verify it matches (for debugging)
-                    if token_id != tokens_no_special[original_idx]:
-                        print(f"Warning: Token mismatch at position {original_idx}")
-                    original_idx += 1
+        special_positions = mask.nonzero(as_tuple=False).squeeze(1).tolist()
 
         return tokens_with_special, special_positions
 
