@@ -23,7 +23,7 @@ script_args:
   stop_steps: 2000
   val_check_interval: 1000
   num_workers: 4
-  prefetch_factor: 4
+  prefetch_factor: 2
 script: |-
   COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
   NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
