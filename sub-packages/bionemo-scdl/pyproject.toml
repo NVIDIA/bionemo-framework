@@ -35,9 +35,3 @@ version = { file = "VERSION" }
 
 [tool.uv]
 cache-keys = [{ git = true }]
-
-[project.optional-dependencies]
-test = [
-  "pytest",
-  "bionemo-core>=2.2.1"
-]
