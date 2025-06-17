@@ -180,8 +180,8 @@ class ESMMaskedResidueDataset(Dataset):
             A (possibly-truncated), masked protein sequence with CLS and EOS tokens and associated mask fields.
         """
         # Initialize a random number generator with a seed that is a combination of the dataset seed, epoch, and index.
+        rng = np.random.default_rng([self.seed, index.epoch, index.idx])
         if self.sequence is None:
-            rng = np.random.default_rng([self.seed, index.epoch, index.idx])
             if not len(self.clusters[index.idx]):
                 raise ValueError(f"Cluster {index.idx} is empty.")
 
