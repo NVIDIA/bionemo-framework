@@ -273,6 +273,46 @@ def get_trainer(pipeline_parallel=1):
         ),
     )
 
+def detect_pst(ckpt_name):
+    mem_gb = torch.cuda.get_device_properties(0).total_memory // 1024 // 1024 // 1024
+    gpus = torch.cuda.device_count()
+    ret = None
+    if "40b" in ckpt_name:
+        if gpus >= 2 and mem_gb > 120: # e.g. h200-x2
+            ret = 8192
+        elif mem_gb > 120: # e.g. h200-x1
+            ret = 4096
+        elif gpus >= 3 and mem_gb > 60: # e.g. h100-x3
+            ret = 512
+        elif gpus >= 2 and mem_gb > 60: # e.g. h100-x2
+            ret = 256
+        elif gpus >= 3: # e.g. l40-x3
+            ret = 128
+        else: # e.g. l40-x2
+            ret = 64
+    elif "7b" in ckpt_name:
+        if gpus < 2 and mem_gb < 60:
+            ret = 4096
+    logger.info(f"Will use prompt_segmentation_threshold={ret}, {gpus=} {mem_gb=}")
+    return ret
+
+def get_inference_params(ckpt_name):
+    # Below are parameters that need to be tuned based on GPU memory size.
+    return {
+        # This mostly determines size of KV cache.
+        "inference_max_seq_length": 8192,
+
+        # Affects KV cache size, can cause OOM easily, set to 1 to save memory (i.e. running 40b model)
+        "inference_max_requests": 1,
+
+        # This is used to split batch into mini-batches.
+        # If use batch size = 1, set same as inference_max_seq_length to avoid
+        # more complex code path.
+        "inference_batch_times_seqlen_threshold": 8192,
+
+        # Affects max memory usage during parallel hyena filters pass.
+        "prompt_segmentation_threshold": detect_pst(ckpt_name),
+    }
 
 def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
     trainer = get_trainer()
@@ -291,8 +331,6 @@ def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
         path=ckpt_dir,
         trainer=trainer,
         params_dtype=torch.bfloat16,
-        inference_batch_times_seqlen_threshold=8192,  # TODO
-        inference_max_seq_length=8192,  # TODO
         vortex_style_fp8=vortex_style_fp8,
         # use_te_rng_tracker=True,
         # te_rng_tracker=True,
@@ -303,6 +341,7 @@ def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
         recompute_granularity=None,
         recompute_num_layers=None,
         recompute_method=None,
+        **get_inference_params(ckpt_name),
     )
     return inference_wrapped_model, mcore_tokenizer
 
