@@ -141,10 +141,10 @@ def infer_model(
         module = biobert_lightning_module(config=config, tokenizer=tokenizer, model_transform=peft)
         module.configure_init_model_parallel = True
     else:
-        module = biobert_lightning_module(config=config, tokenizer=tokenizer)
         # In this case, the weights of the heads will be in the fine-tuned files and should be read
         # from there as opposed to the base model checkpoint.
-        config_class.initial_ckpt_skip_keys_with_these_prefixes = []
+        config.initial_ckpt_skip_keys_with_these_prefixes = []
+        module = biobert_lightning_module(config=config, tokenizer=tokenizer)
 
     trainer = nl.Trainer(
         accelerator="gpu",
