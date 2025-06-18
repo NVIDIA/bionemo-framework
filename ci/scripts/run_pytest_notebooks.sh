@@ -19,4 +19,10 @@
 # Enable strict mode with better error handling
 set -euox pipefail
 
+# Start Distributed Training Launcher Server
+nohup python sub-packages/bionemo-core/src/bionemo/core/utils/distributed_training_launcher_server.py \
+    --host 0.0.0.0 \
+    --port 6789 \
+    --log-dir /tmp/training_logs > launcher.log 2>&1 &
+
 pytest -v --nbval-lax -p no:python docs/ sub-packages/
