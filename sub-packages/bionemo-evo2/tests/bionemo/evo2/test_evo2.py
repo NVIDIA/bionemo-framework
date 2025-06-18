@@ -230,7 +230,6 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         logit_similarity = torch.nn.functional.cosine_similarity(output_vector, gold_standard_no_fp8_vector, dim=-1)
         assert torch.mean(torch.abs(logit_similarity - torch.ones_like(logit_similarity))) < 9.9e-3
 
-
 @pytest.fixture
 def sequences():
     with (Path(__file__).parent / "data" / "prompts.csv").open(newline="") as f:
@@ -286,7 +285,7 @@ def get_model_and_tokenizer(ckpt_name):
         trainer=trainer,
         params_dtype=torch.bfloat16,
         inference_batch_times_seqlen_threshold=8192,  # TODO
-        # inference_max_seq_length=8192,  # TODO
+        inference_max_seq_length=8192,  # TODO
         enable_flash_decode=False,  # this breaks evo2 performance if set to True.
     )
     return inference_wrapped_model, mcore_tokenizer
