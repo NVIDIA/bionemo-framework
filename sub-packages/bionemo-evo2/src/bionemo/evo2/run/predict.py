@@ -111,6 +111,13 @@ def parse_args():
     ap.add_argument(
         "--num-layers", type=int, help="If set, override the number of layers specified in the requested config."
     )
+    ap.add_argument(
+        "--seq-len-interpolation-factor",
+        type=int,
+        help="If set, override the sequence length interpolation factor specified in the requested config. If you "
+        "know a model was trained with a specific interpolation factor for ROPE, provide it here, it can make a big "
+        "difference in accuracy.",
+    )
     return ap.parse_args()
 
 
@@ -305,6 +312,7 @@ def predict(
     no_sequence_parallel: bool = False,
     hybrid_override_pattern: str | None = None,
     num_layers: int | None = None,
+    seq_len_interpolation_factor: int | None = None,
 ):
     """Inference workflow for Evo2.
 
@@ -372,6 +380,11 @@ def predict(
         config_modifiers_init["hybrid_override_pattern"] = hybrid_override_pattern
     if num_layers is not None:
         config_modifiers_init["num_layers"] = num_layers
+    if "-1m" in model_size and "nv" not in model_size and seq_len_interpolation_factor is None:
+        # TODO remove this override once we add this as a default upstream in NeMo.
+        #  if you see this, just check the pointed to model option for the 1m model in nemo and see if it already
+        #  has this option set.
+        config_modifiers_init["seq_len_interpolation_factor"] = 128
     config = HYENA_MODEL_OPTIONS[model_size](
         forward_step_fn=hyena_predict_forward_step,
         data_step_fn=hyena_predict_data_step,  # , attention_backend=AttnBackend.fused,
@@ -433,6 +446,7 @@ def main():
         prepend_bos=args.prepend_bos,
         no_sequence_parallel=args.no_sequence_parallel,
         hybrid_override_pattern=args.hybrid_override_pattern,
+        seq_len_interpolation_factor=args.seq_len_interpolation_factor,
         num_layers=args.num_layers,
     )
 
