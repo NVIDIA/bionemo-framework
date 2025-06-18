@@ -193,7 +193,7 @@ jobs:
     name: Publish ${{ matrix.package }} to PyPI.
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.event.inputs.pypi && 'pypi' || 'testpypi' }}
+      name: ${{ github.event.inputs.pypi == 'true' && 'pypi' || 'testpypi' }}
       url: ${{ github.event.inputs.pypi && format('https://pypi.org/p/{0}', matrix.package) || format('https://test.pypi.org/p/{0}', matrix.package) }}
     permissions:
       id-token: write
@@ -205,7 +205,7 @@ jobs:
           name: ${{ matrix.package }}-build-artifacts
           path: sub-packages/${{ matrix.package }}/dist
       - id: publish-to-testpypi
-        name: Publish distribution 📦 to Test PyPI for PR.
+        name: Publish distribution 📦 to Test PyPI.
         if: ${{ github.event.inputs.pypi == 'false' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -214,7 +214,7 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
           skip-existing: ${{ github.event.inputs.version_overwrite }}
       - id: publish-to-pypi
-        name: Publish distribution 📦 to PyPI for Workflow Dispatch.
+        name: Publish distribution 📦 to PyPI.
         # To require testing before publishing to PyPI, add: ... && needs.install-and-test.result == 'success'
         # If testing is run but fails, the workflow will fail and not publish to PyPI (or Test PyPI).
         # We strongly recommend testing when publishing to production PyPI.
