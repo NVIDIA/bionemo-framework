@@ -145,6 +145,42 @@ Additionally, the peak memory usage when iterating over the datasets with the SC
 
 ![Memory Image](assets/disk_space.png)
 
+### Using Neighbor Information in Single Cell Datasets
+
+SCDL now supports loading and utilizing neighbor information from AnnData objects. This is particularly useful for tasks that require knowledge of cell neighborhoods, trajectory analysis, or spatial relationships.
+
+#### Loading a Dataset with Neighbor Support
+
+```python
+from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset, NeighborSamplingStrategy
+
+# Load dataset with neighbor support
+data = SingleCellMemMapDataset(
+    "dataset_path", 
+    "path/to/anndata.h5ad",
+    load_neighbors=True,                               # Enable neighbor functionality
+    neighbor_key='next_cell_ids',                      # Key in AnnData.obsp containing neighbor information
+    neighbor_sampling_strategy=NeighborSamplingStrategy.RANDOM,  # Strategy for sampling neighbors
+    fallback_to_identity=True                          # Use cell itself as neighbor when no neighbors exist
+)
+```
+
+#### Accessing Neighbor Data
+
+SCDL provides several methods to access and utilize neighbor information:
+
+```python
+# Get neighbor indices for a specific cell
+neighbor_indices = data.get_neighbor_indices_for_cell(cell_index)
+
+# Get neighbor weights (if available)
+neighbor_weights = data.get_neighbor_weights_for_cell(cell_index)
+
+# Sample a neighbor according to the configured strategy
+neighbor_index = data.sample_neighbor_index(cell_index)
+
+```
+
 ## Future Work and Roadmap
 
 SCDL is currently in public beta. In the future, expect improvements in data compression
