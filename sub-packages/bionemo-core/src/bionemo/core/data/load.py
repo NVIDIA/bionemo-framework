@@ -171,6 +171,10 @@ def load(
     if cache_dir is None:
         cache_dir = BIONEMO_CACHE_DIR
 
+    override = (cache_dir / "overrides" / model_or_data_tag)
+    if override.exists():
+        return override
+
     if model_or_data_tag not in resources:
         raise ValueError(f"Resource '{model_or_data_tag}' not found.")
 
