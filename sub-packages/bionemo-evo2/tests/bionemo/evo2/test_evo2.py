@@ -278,7 +278,13 @@ def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
     trainer = get_trainer()
     from bionemo.core.data.load import load
 
-    ckpt_dir: Path = load(ckpt_name)
+    try:
+        ckpt_dir: Path = load(ckpt_name)
+    except ValueError as e:
+        if "40b" in ckpt_name: # NeMo 40b is not yet published
+            raise ValueError(f"Place 40b checkpoint to ~/.cache/bionemo/overrides/{ckpt_name}") from e
+        raise
+
     from nemo.collections.llm import inference
 
     inference_wrapped_model, mcore_tokenizer = inference.setup_model_and_tokenizer(
@@ -480,6 +486,7 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
     [
         ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6]),
         ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6]),
+        # ("evo2/40b-1m:1.0", [0, 0, 0, 0]),
         # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
         # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
