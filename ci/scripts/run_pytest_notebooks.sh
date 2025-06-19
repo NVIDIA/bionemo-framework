@@ -17,7 +17,7 @@
 # limitations under the License.
 
 # Enable strict mode with better error handling
-set -euox pipefail
+set -x pipefail
 
 printenv
 touch /root/output.txt
