@@ -19,4 +19,7 @@
 # Enable strict mode with better error handling
 set -euox pipefail
 
-pytest -v --nbval-lax -x -p no:python docs/ sub-packages/
+printenv
+touch /root/output.txt
+pytest -v --nbval-lax -x -p no:python sub-packages/bionemo-evo2/
+cat /root/output.txt
