@@ -194,3 +194,12 @@ coverage.xml
 Thumbs.db
 
 .python_history
+
+sub-packages/bionemo-evo2/examples/nemo2_evo2*/
+ft-attack/*.zip
+ft-attack/ncbi_downloads_*
+
+checkpoints/
+ft-attack/preprocessed_train_data/
+ft-attack/*.csv
+ft-attack/*.yaml
