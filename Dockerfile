@@ -175,7 +175,7 @@ ENV UV_LINK_MODE=copy \
 # installation. These involve building some torch extensions, so they can take a while to install.
 RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
   --mount=type=cache,target=/root/.cache \
-  uv pip install --no-build-isolation -r /requirements-pyg.txt
+  sh -c "ulimit -n 65536 && uv pip install --no-build-isolation -r /requirements-pyg.txt"
 
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
@@ -194,6 +194,7 @@ RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.t
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   --mount=type=cache,target=/root/.cache <<EOF
 set -eo pipefail
+ulimit -n 65536
 uv pip install maturin --no-build-isolation
 # install nvidia-resiliency-ext separately because it doesn't yet have ARM wheels
 git clone https://github.com/NVIDIA/nvidia-resiliency-ext
@@ -277,6 +278,7 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 RUN --mount=type=bind,source=./requirements-dev.txt,target=/workspace/bionemo2/requirements-dev.txt \
   --mount=type=cache,target=/root/.cache <<EOF
   set -eo pipefail
+  ulimit -n 65536
   uv pip install -r /workspace/bionemo2/requirements-dev.txt
   rm -rf /tmp/*
 EOF
@@ -309,6 +311,7 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 
 RUN <<EOF
 set -eo pipefail
+ulimit -n 65536
 find . -name __pycache__ -type d -print | xargs rm -rf
 uv pip install --no-build-isolation --editable ./internal/infra-bionemo
 for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
@@ -340,7 +343,7 @@ COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
 # Fix a CRIT vuln: https://github.com/advisories/GHSA-vqfr-h8mv-ghfj
-RUN uv pip install h11==0.16.0
+RUN sh -c "ulimit -n 65536 && uv pip install h11==0.16.0"
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
 RUN chmod 777 -R /workspace/bionemo2/
