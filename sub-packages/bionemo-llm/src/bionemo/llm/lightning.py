@@ -369,9 +369,17 @@ class BionemoLightningModule(
             case "classification":
                 classification_output = outputs["classification_output"]
                 num_classes = classification_output.shape[-1]
+                labels = batch["labels"]
+                if classification_output.ndim == 3:  # token-level classification
+                    classification_output = classification_output.reshape(-1, num_classes)[
+                        batch["loss_mask"].view(-1)
+                    ]  # shape [-1, num_classes]
+                    assert classification_output.ndim == 2
+
+                    labels = batch["labels"].reshape(-1)[batch["loss_mask"].view(-1)]
                 metric(
                     classification_output.reshape(-1, num_classes),
-                    batch["labels"].reshape(-1),
+                    labels.reshape(-1),
                 )
             case "regression":
                 regression_output = outputs["regression_output"]
