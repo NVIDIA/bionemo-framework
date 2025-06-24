@@ -50,7 +50,8 @@ apt-get install -qyy \
   pre-commit \
   sudo \
   gnupg \
-  unzip
+  unzip \
+  libsqlite3-dev
 apt-get upgrade -qyy \
   rsync
 rm -rf /tmp/* /var/tmp/*
