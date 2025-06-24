@@ -64,12 +64,12 @@ def main(
     num_dataset_workers: int,
     biobert_spec_option: BiobertSpecOption,
     lr: float,
-    weight_decay: float,
     micro_batch_size: int,
     accumulate_grad_batches: int,
     experiment_name: str,
     resume_if_exists: bool,
     precision: PrecisionTypes,
+    weight_decay: float = 0.01,
     early_stop_on_step: Optional[int] = None,
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
@@ -127,7 +127,6 @@ def main(
         num_dataset_workers (int): number of dataset workers
         biobert_spec_option (BiobertSpecOption): the biobert spec option (architecture) to use for this run
         lr (float): learning rate
-        weight_decay (float): weight decay
         scheduler_num_steps (Optional[int]): Number of steps in learning rate scheduler. Use num_steps if not provided.
         micro_batch_size (int): micro batch size, from this and parallelism settings we infer the global batch size
         accumulate_grad_batches (int): number of batches to accumulate gradients for
@@ -135,6 +134,7 @@ def main(
             result_dir that stores the logs and checkpoints.
         resume_if_exists (bool): attempt to resume if the checkpoint exists [FIXME @skothenhill this doesn't work yet]
         precision (PrecisionTypes): Precision type for training (e.g., float16, float32)
+        weight_decay (float): weight decay
         wandb_entity (Optional[str]): The team posting this run (default: your username or your default team)
         wandb_project (Optional[str]): The name of the project to which this run will belong
         wandb_offline (bool): Run offline (data can be streamed later to wandb servers).
