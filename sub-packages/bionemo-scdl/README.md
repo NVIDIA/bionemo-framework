@@ -99,6 +99,7 @@ SCDL implements the required functions of the PyTorch Dataset abstract class.
 A common use case for the single-cell dataloader is tokenizing data using a predefined vocabulary with a defined tokenizer function.
 
 ``` python
+import numpy as np
 ds = SingleCellMemMapDataset("97e_scmm")
 index = 0
 values, feature_ids = ds.get_row(index, return_features=True, feature_vars=["feature_id"])
@@ -106,12 +107,13 @@ assert (
             len(feature_ids) == 1
         )  # we expect feature_ids to be a list containing one np.array with the row's feature ids
 gene_data, col_idxs = np.array(values[0]), np.array(values[1])
+tokenizer_function = lambda x,y,z : x
 tokenizer_function(
             gene_data,
             col_idxs,
             feature_ids[0],
         )
-        ```
+```
 
 #### Loading directly with Pytorch-compatible Dataloaders
 
