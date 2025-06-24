@@ -23,29 +23,15 @@ import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-from bionemo.core.data.load import load
 from bionemo.geneformer.scripts.train_geneformer import get_parser, main
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
-from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-
-
-@pytest.fixture(scope="module")
-def data_path() -> Path:
-    """Gets the path to the directory with cellx small dataset in Single Cell Memmap format.
-    Returns:
-        A Path object that is the directory with the specified test data.
-    """
-    return load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
 
 
 def test_bionemo2_rootdir(data_path):
     assert data_path.exists(), "Could not find test data directory."
     assert data_path.is_dir(), "Test data directory is supposed to be a directory."
-
-
-
 
 
 @pytest.mark.parametrize("create_checkpoint_callback", [True, False])
@@ -418,9 +404,6 @@ def test_limit_val_batches_is_int(required_args_reference, limit_val_batches):
     arglist = parse_kwargs_to_arglist(required_args_reference)
     parser = get_parser()
     parser.parse_args(arglist)
-
-
-
 
 
 @pytest.mark.slow
