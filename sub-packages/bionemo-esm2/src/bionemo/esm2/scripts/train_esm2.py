@@ -64,6 +64,7 @@ def main(
     num_dataset_workers: int,
     biobert_spec_option: BiobertSpecOption,
     lr: float,
+    weight_decay: float,
     micro_batch_size: int,
     accumulate_grad_batches: int,
     experiment_name: str,
@@ -126,6 +127,7 @@ def main(
         num_dataset_workers (int): number of dataset workers
         biobert_spec_option (BiobertSpecOption): the biobert spec option (architecture) to use for this run
         lr (float): learning rate
+        weight_decay (float): weight decay
         scheduler_num_steps (Optional[int]): Number of steps in learning rate scheduler. Use num_steps if not provided.
         micro_batch_size (int): micro batch size, from this and parallelism settings we infer the global batch size
         accumulate_grad_batches (int): number of batches to accumulate gradients for
@@ -248,7 +250,7 @@ def main(
                 lr=lr,
                 optimizer="adam",
                 use_distributed_optimizer=True,
-                weight_decay=0.01,
+                weight_decay=weight_decay,
                 adam_beta1=0.9,
                 adam_beta2=0.98,
             ),
@@ -507,6 +509,13 @@ def get_parser():
         required=False,
         default=4e-4,
         help="Learning rate for training. Default is 4e-4",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        required=False,
+        default=0.01,
+        help="Weight decay for training. Default is 0.01",
     )
     parser.add_argument(
         "--scheduler-num-steps",
