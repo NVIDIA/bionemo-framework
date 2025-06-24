@@ -21,9 +21,6 @@ import pytest
 from nemo.lightning import io
 
 from bionemo.core.data.load import load
-from bionemo.esm2.model.finetune.dataset import InMemoryPerTokenValueDataset, InMemorySingleValueDataset
-from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
-from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.esm2.scripts.finetune_esm2 import finetune_esm2_entrypoint, get_parser, train_model
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
@@ -47,10 +44,10 @@ def test_esm2_finetune_token_classifier(
             train_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
             valid_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
             experiment_name="finetune_new_head_token_classification",
-            restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
+            restore_from_checkpoint_path=Path(load("esm2/8m:2.0")),
             num_steps=n_steps_train,
             num_nodes=1,
-            devices=1,
+            num_gpus=1,
             min_seq_length=None,
             max_seq_length=1024,
             result_dir=tmp_path / "finetune",
@@ -67,8 +64,8 @@ def test_esm2_finetune_token_classifier(
             precision="bf16-mixed",
             task_type="classification",
             encoder_frozen=encoder_frozen,
-            dataset_class=InMemoryPerTokenValueDataset,
-            config_class=ESM2FineTuneTokenConfig,
+            dataset_class="InMemoryPerTokenValueDataset",
+            config_class="ESM2FineTuneTokenConfig",
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             lora_finetune=with_peft,
             create_tensorboard_logger=True,
@@ -126,7 +123,7 @@ def test_esm2_finetune_regressor(
             restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
             num_steps=n_steps_train,
             num_nodes=1,
-            devices=1,
+            num_gpus=1,
             min_seq_length=None,
             max_seq_length=1024,
             result_dir=tmp_path / "finetune",
@@ -143,8 +140,8 @@ def test_esm2_finetune_regressor(
             precision="bf16-mixed",
             task_type="regression",
             encoder_frozen=encoder_frozen,
-            dataset_class=InMemorySingleValueDataset,
-            config_class=ESM2FineTuneSeqConfig,
+            dataset_class="InMemorySingleValueDataset",
+            config_class="ESM2FineTuneSeqConfig",
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             lora_finetune=with_peft,
         )
@@ -196,10 +193,10 @@ def test_esm2_finetune_classifier(
             train_data_path=data_to_csv(dummy_data_single_value_classification_ft, tmp_path),
             valid_data_path=data_to_csv(dummy_data_single_value_classification_ft, tmp_path),
             experiment_name="finetune_new_head_classification",
-            restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
+            restore_from_checkpoint_path=Path(load("esm2/8m:2.0")),
             num_steps=n_steps_train,
             num_nodes=1,
-            devices=1,
+            num_gpus=1,
             min_seq_length=None,
             max_seq_length=1024,
             result_dir=tmp_path / "finetune",
@@ -217,8 +214,8 @@ def test_esm2_finetune_classifier(
             task_type="classification",
             mlp_target_size=3,
             encoder_frozen=encoder_frozen,
-            dataset_class=InMemorySingleValueDataset,
-            config_class=ESM2FineTuneSeqConfig,
+            dataset_class="InMemorySingleValueDataset",
+            config_class="ESM2FineTuneSeqConfig",
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             lora_finetune=with_peft,
         )
@@ -294,7 +291,7 @@ def test_finetune_esm2_entrypoint(mock_train_model, mock_parser_args):
         called_kwargs = mock_train_model.call_args.kwargs
         assert called_kwargs["train_data_path"] == Path("train.csv")
         assert called_kwargs["valid_data_path"] == Path("valid.csv")
-        assert called_kwargs["devices"] == 1
+        assert called_kwargs["num_gpus"] == 1
         assert called_kwargs["num_nodes"] == 1
         assert called_kwargs["max_seq_length"] == 1024
         assert called_kwargs["lr"] == 0.001
@@ -436,8 +433,8 @@ def test_get_parser():
     assert args.no_overlap_param_gather is True
     assert args.no_average_in_collective is True
     assert args.grad_reduce_in_fp32 is True
-    assert args.dataset_class == InMemoryPerTokenValueDataset
-    assert args.config_class == ESM2FineTuneTokenConfig
+    assert args.dataset_class == "InMemoryPerTokenValueDataset"
+    assert args.config_class == "ESM2FineTuneTokenConfig"
     assert args.encoder_frozen is True
     assert args.lr_multiplier == 100
     assert args.scale_lr_layer == "dummy_layer"

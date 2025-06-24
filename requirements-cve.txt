@@ -8,3 +8,4 @@ nltk>=3.9.1
 pillow>=10.3.0
 tornado>=6.5.0 # Addresses CVE https://github.com/advisories/GHSA-7cx3-6m66-7c5m
 wandb>=0.19.1 # Addresses CVE GHSA-v778-237x-gjrc
+pyfastx==1.1.0

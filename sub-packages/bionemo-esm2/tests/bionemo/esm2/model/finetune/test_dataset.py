@@ -168,6 +168,34 @@ def test_in_memory_protein_dataset_non_existent_file():
         InMemoryProteinDataset.from_csv("non_existent_file.csv")
 
 
+def test_in_memory_protein_dataset_tokenize_with_special_tracking(dataset_no_labels):
+    """Test the _tokenize_with_special_tracking method."""
+    # Get a sample sequence
+    sequence = dataset_no_labels.sequences.iloc[0]
+
+    # Call the method
+    tokenized_sequence, special_positions = dataset_no_labels._tokenize_with_special_tracking(sequence)
+
+    # Verify return types
+    assert isinstance(tokenized_sequence, Tensor)
+    assert isinstance(special_positions, list)
+
+    # Verify tokenized sequence contains special tokens
+    assert len(tokenized_sequence) > len(sequence)
+
+    # Verify special positions are valid indices
+    assert all(0 <= pos < len(tokenized_sequence) for pos in special_positions)
+
+    # Verify special positions contain special tokens
+    special_tokens = tokenized_sequence[special_positions]
+    assert all(token in dataset_no_labels.tokenizer.all_special_ids for token in special_tokens)
+
+    # Verify non-special positions don't contain special tokens
+    non_special_positions = [i for i in range(len(tokenized_sequence)) if i not in special_positions]
+    non_special_tokens = tokenized_sequence[non_special_positions]
+    assert all(token not in dataset_no_labels.tokenizer.all_special_ids for token in non_special_tokens)
+
+
 def test_load_w_missing_labels(dummy_protein_sequences, tmp_path):
     csv_path = data_to_csv(dummy_protein_sequences, tmp_path, with_label=False)
     with pytest.raises(KeyError):
