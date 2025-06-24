@@ -127,6 +127,9 @@ markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 [tool.pyright]
 include = ["./internal/", "./scripts/", "./sub-packages/"]
 exclude = ["*/tests/"]
+reportUnknownMemberType = "none"
+typeCheckingMode = "basic"
+
 executionEnvironments = [
     { "root" = ".", pythonVersion = "3.10", extraPaths = [
         # 3rd party, git submodules
