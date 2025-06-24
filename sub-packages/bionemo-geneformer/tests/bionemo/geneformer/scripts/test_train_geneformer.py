@@ -21,23 +21,12 @@ from typing import Dict
 
 import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-
-from bionemo.core.data.load import load
 from bionemo.geneformer.scripts.train_geneformer import get_parser, main
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
-from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-
-
-@pytest.fixture(scope="module")
-def data_path() -> Path:
-    """Gets the path to the directory with cellx small dataset in Single Cell Memmap format.
-    Returns:
-        A Path object that is the directory with the specified test data.
-    """
-    return load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
 
 
 def test_bionemo2_rootdir(data_path):
@@ -45,13 +34,10 @@ def test_bionemo2_rootdir(data_path):
     assert data_path.is_dir(), "Test data directory is supposed to be a directory."
 
 
-
-
-
 @pytest.mark.parametrize("create_checkpoint_callback", [True, False])
 def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
     """Test that verifies the training script runs correctly with checkpoints and TensorBoard logs.
-    
+
     This test ensures:
     - The training script runs correctly and outputs checkpoints (when enabled)
     - TensorBoard logs are generated and include specific metrics such as TFLOPS per GPU and train step
@@ -96,7 +82,7 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
     experiment_dir = result_dir / "test_experiment"
     assert experiment_dir.exists(), "Experiment directory not found"
     assert experiment_dir.is_dir(), "Experiment directory should be a directory"
-    
+
     # Get the unique run directory (date-based)
     run_dirs = list(experiment_dir.iterdir())
     assert len(run_dirs) == 1, f"Expected exactly one run directory, found {len(run_dirs)}"
@@ -110,7 +96,7 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
     if create_checkpoint_callback:
         assert checkpoint_dir.exists(), "Checkpoints directory not found"
         assert checkpoint_dir.is_dir(), "Checkpoints directory should be a directory"
-        
+
         # Verify checkpoint directories exist (distributed checkpoints are saved as directories)
         checkpoint_items = list(checkpoint_dir.iterdir())
         assert len(checkpoint_items) > 0, "No checkpoint directories found"
@@ -360,9 +346,6 @@ def test_limit_val_batches_is_int(required_args_reference, limit_val_batches):
     arglist = parse_kwargs_to_arglist(required_args_reference)
     parser = get_parser()
     parser.parse_args(arglist)
-
-
-
 
 
 @pytest.mark.slow
