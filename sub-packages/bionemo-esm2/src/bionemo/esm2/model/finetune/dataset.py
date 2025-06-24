@@ -91,10 +91,10 @@ class InMemoryProteinDataset(Dataset):
         df = pd.read_csv(csv_path)
 
         # Validate presence of required columns
-        if "sequences" not in df.columns:
-            raise KeyError("The CSV must contain a 'sequences' column.")
+        if "sequences" not in df.columns and "sequence" not in df.columns:
+            raise KeyError("The CSV must contain a 'sequences' or 'sequence' column.")
 
-        sequences = df["sequences"]
+        sequences = df["sequences"] if "sequences" in df.columns else df["sequence"]
         labels = None
         if not ignore_labels:
             labels = df[label_column]
