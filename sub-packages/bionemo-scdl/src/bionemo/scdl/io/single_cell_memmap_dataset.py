@@ -15,6 +15,7 @@
 
 import importlib.metadata
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -33,6 +34,9 @@ from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
 from bionemo.scdl.util.filecopyutil import extend_files
 
+# Set up logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class FileNames(str, Enum):
     """Names of files that are generated in SingleCellCollection."""
@@ -407,7 +411,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
             return False
 
-        print(f"Extracting neighbor data from {self.neighbor_key} in AnnData.obsp")
+        logger.info(f"Extracting neighbor data from {self.neighbor_key} in AnnData.obsp")
 
         # Get the neighbor matrix from obsp
         neighbor_matrix = adata.obsp[self.neighbor_key]
@@ -448,7 +452,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self._neighbor_indices[:] = neighbor_matrix.indices
         self._neighbor_data[:] = neighbor_matrix.data
         
-        print(f"Neighbor data extracted to memory-mapped arrays")
+        logger.info(f"Neighbor data extracted to memory-mapped arrays")
         return True
     
     def _extract_neighbor_data_paginated(self, adata) -> bool:
@@ -469,7 +473,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
             return False
 
-        print(f"Extracting neighbor data from {self.neighbor_key} in AnnData.obsp using chunked approach")
+        logger.info(f"Extracting neighbor data from {self.neighbor_key} in AnnData.obsp using chunked approach")
 
         # Get the neighbor matrix from obsp
         neighbor_matrix = adata.obsp[self.neighbor_key]
@@ -500,7 +504,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 indices_file.write(chunk.indices.tobytes())
                 data_file.write(chunk.data.tobytes())
                 
-                print(f"Processed neighbor data rows {row_start} to {row_end-1}")
+                logger.info(f"Processed neighbor data rows {row_start} to {row_end-1}")
         
         # Then re-open as memory-mapped arrays with the final shapes
         self._neighbor_indptr = np.memmap(
@@ -524,7 +528,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             shape=(len(neighbor_matrix.data),)
         )
         
-        print(f"Neighbor data extracted to memory-mapped arrays using chunked approach")
+        logger.info(f"Neighbor data extracted to memory-mapped arrays using chunked approach")
         return True
        
     def get_row(
@@ -941,23 +945,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         adata.file.close()
 
         return vars, num_rows
-
-    def _load_neighbor_memmaps(self):
-        if not self._has_neighbors:
-            return
-
-        # mmap the existing arrays
-        self._neighbor_indices = self._load_mmap_file_if_exists(
-            # self._neighbor_indices_path, dtype='int32'
-            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}", self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"]
-        )
-        self._neighbor_indptr = self._load_mmap_file_if_exists(
-            # self._neighbor_indptr_path, dtype='int32'
-            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}", self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"]
-        )
-        self._neighbor_data = self._load_mmap_file_if_exists(
-            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}", self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"]
-        )
 
     def _load_neighbor_memmaps(self):
         if not self._has_neighbors:

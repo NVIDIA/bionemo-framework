@@ -16,7 +16,7 @@
 import torch
 from typing import List, Dict, Union
 
-#NOTE: edit collate to handle neighbor data
+
 def collate_sparse_matrix_batch(batch: list[torch.Tensor]) -> torch.Tensor:
     """Collate function to create a batch out of sparse tensors.
 
