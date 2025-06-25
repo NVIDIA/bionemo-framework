@@ -207,6 +207,22 @@ neighbor_index = data.sample_neighbor_index(cell_index)
 
 ```
 
+**Example Usage in Contrastive Learning:**
+
+```python
+# Contrastive Learning - Compare cells with their neighbors
+for cell_index in range(len(data)):
+    # Get current cell and its neighbor
+    current_cell_data, _ = data.get_row(cell_index)
+    neighbor_index = data.sample_neighbor_index(cell_index)
+    neighbor_cell_data, _ = data.get_row(neighbor_index)
+    
+    # Use in contrastive loss
+    current_embedding = model.encode(current_cell_data)
+    neighbor_embedding = model.encode(neighbor_cell_data)
+    contrastive_loss = compute_contrastive_loss(current_embedding, neighbor_embedding)
+```
+
 ## Future Work and Roadmap
 
 SCDL is currently in public beta. In the future, expect improvements in data compression
