@@ -18,9 +18,15 @@ from typing import Dict, Sequence, Tuple
 
 import torch
 from megatron.core import parallel_state
+from nemo.lightning.megatron_parallel import masked_token_loss
 from torch import Tensor
 
-from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
+from bionemo.llm.model.loss import (
+    BERTMLMLossWithReduction,
+    PerTokenLossDict,
+    SameSizeLossDict,
+    unreduced_token_loss_fn,
+)
 
 
 __all__: Sequence[str] = (
@@ -83,7 +89,7 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
 
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
-    ) -> Tuple[Tensor, PerTokenLossDict | SameSizeLossDict]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
         """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
 
         Args:
@@ -97,36 +103,18 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
         targets = batch["labels"].squeeze()  # [b] or [b, s] for sequence-level or token-level classification
 
         classification_output = forward_out["classification_output"]  # [b, num_class] or [b, s, num_class]
-        # [b, s, num_class] -> [b, num_class, s] to satisfy toke-level input dims for cross_entropy loss
-        if classification_output.dim() == 3:
-            classification_output = classification_output.permute(0, 2, 1)
+        classification_output = classification_output.permute(1, 0, 2).contiguous()  # [s, b, num_class]
 
-        loss_mask = batch["loss_mask"]  # [b, s]
+        # NOTE: token_logits is [sequence, batch] but labels and other fields, including the loss are [batch, sequence]
+        unreduced_token_loss = unreduced_token_loss_fn(classification_output, targets)  # [b s]
+        loss_sum, num_valid_tokens = masked_token_loss(unreduced_token_loss, batch["loss_mask"])
 
-        cp_size = parallel_state.get_context_parallel_world_size()
-        if cp_size == 1:
-            losses = torch.nn.functional.cross_entropy(classification_output, targets, reduction="none")
-            # token-level losses may contain NaNs at masked locations. We use masked_select to filter out these NaNs
-            if classification_output.dim() == 3:
-                masked_loss = torch.masked_select(losses, loss_mask)
-                loss = masked_loss.sum() / loss_mask.sum()
-            else:
-                loss = losses.mean()  # sequence-level single value classification
-        else:
-            raise NotImplementedError("Context Parallel support is not implemented for this loss")
+        if self.validation_step and not self.val_drop_last and loss_sum.isnan():
+            assert num_valid_tokens == 0, "Got NaN loss with non-empty input"
+            if batch["loss_mask"].count_nonzero() != 0:
+                raise ValueError("Got NaN loss with non-empty input")
+            loss_sum = torch.zeros_like(num_valid_tokens)
 
-        return loss, {"avg": loss}
-
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
-        """Works across micro-batches. (data on single gpu).
-
-        Note: This currently only works for logging and this loss will not be used for backpropagation.
-
-        Args:
-            losses_reduced_per_micro_batch: a list of the outputs of forward
-
-        Returns:
-            A tensor that is the mean of the losses. (used for logging).
-        """
-        losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
-        return losses.mean()
+        num_valid_tokens = num_valid_tokens.clone().detach().to(torch.int)
+        loss_sum_and_ub_size = torch.cat([loss_sum.clone().detach().view(1), num_valid_tokens.view(1)])
+        return loss_sum, num_valid_tokens, {"loss_sum_and_ub_size": loss_sum_and_ub_size}
