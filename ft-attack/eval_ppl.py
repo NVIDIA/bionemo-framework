@@ -465,77 +465,81 @@ def main():
     results = trainer.predict(model, datamodule=datamodule)
 
     # --- Process results and plot ---
-    if results:
-        # The trainer returns a flat list of dictionaries, one for each sample.
-        log_probs = torch.cat([r["log_probs_seqs"] for r in results])  # type: ignore
-        seq_indices = torch.cat([r["seq_idx"] for r in results])  # type: ignore
+    if trainer.is_global_zero:
+        if results:
+            # The trainer returns a flat list of dictionaries, one for each sample.
+            log_probs = torch.cat([r["log_probs_seqs"] for r in results])  # type: ignore
+            seq_indices = torch.cat([r["seq_idx"] for r in results])  # type: ignore
 
-        perplexities = torch.exp(-log_probs)
+            perplexities = torch.exp(-log_probs)
 
-        # Sort by original sequence index
-        sorted_indices = torch.argsort(seq_indices)
-        sorted_perplexities = perplexities[sorted_indices].cpu().numpy()
-        sorted_headers = [full_dataset.seqids[int(i.item())] for i in seq_indices[sorted_indices]]
+            # Sort by original sequence index
+            sorted_indices = torch.argsort(seq_indices)
+            sorted_perplexities = perplexities[sorted_indices].cpu().numpy()
+            sorted_headers = [full_dataset.seqids[int(i.item())] for i in seq_indices[sorted_indices]]
 
-        perplexity_results = [
-            {"file": header, "perplexity": ppl} for header, ppl in zip(sorted_headers, sorted_perplexities)
-        ]
+            perplexity_results = [
+                {"file": header, "perplexity": ppl} for header, ppl in zip(sorted_headers, sorted_perplexities)
+            ]
 
-        values = [item["perplexity"] for item in perplexity_results]
-        print("\nPerplexity results:")
-        for item in perplexity_results:
-            print(f"{item['file']}: {item['perplexity']:.4f}")
+            values = [item["perplexity"] for item in perplexity_results]
+            print("\nPerplexity results:")
+            for item in perplexity_results:
+                print(f"{item['file']}: {item['perplexity']:.4f}")
 
-        # Create violin plot
-        if args.gb_file_list:
-            list_file_name = Path(args.gb_file_list).stem
-        else:
-            list_file_name = Path(args.fasta).stem + "_" + args.ckpt_dir.stem
-        try:
-            import matplotlib.pyplot as plt
-
-            # Create figure
-            fig, ax = plt.subplots(figsize=(8, 6))
-            
             # Create violin plot
-            parts = ax.violinplot([values], positions=[1], showmeans=True, showextrema=True)
-            
-            # Customize violin appearance
-            if 'bodies' in parts:
-                for pc in parts['bodies']:
-                    pc.set_facecolor('lightblue')
-                    pc.set_alpha(0.7)
-            
-            # Add individual points (using np which is already imported at the top)
-            x_jitter = np.random.normal(1, 0.04, size=len(values))
-            ax.scatter(x_jitter, values, alpha=0.6, s=20, color='darkblue')
-            
-            # Set labels and title
-            ax.set_ylabel('Perplexity', fontsize=12)
-            ax.set_title(f'Perplexity Distribution (Gene Focus: {args.gene_focus} File: {list_file_name})', 
-                        fontsize=14, pad=20)
-            
-            # Set y-axis limits
-            # y_min, y_max = 1.5, 4.0
-            # ax.set_ylim(y_min, y_max)
-            
-            # Remove x-axis ticks
-            ax.set_xticks([])
-            
-            # Add grid for better readability
-            ax.grid(axis='y', alpha=0.3)
-            
-            # Save the plot
-            file_name = f"ppl_violin_plot_{list_file_name}.pdf"
-            plt.tight_layout()
-            plt.savefig(file_name, dpi=300, bbox_inches='tight')
-            plt.close()
-            print(f"Violin plot saved to {file_name}")
-        except ImportError:
-            print("\nMatplotlib is not installed. Skipping plot generation. `pip install matplotlib`")
+            if args.gb_file_list:
+                list_file_name = Path(args.gb_file_list).stem
+            else:
+                list_file_name = Path(args.fasta).stem + "_" + args.ckpt_dir.stem
+            try:
+                import matplotlib.pyplot as plt
 
-    else:
-        print("No valid perplexity values were computed. No plot generated.")
+                # Create figure
+                fig, ax = plt.subplots(figsize=(8, 6))
+
+                # Create violin plot
+                parts = ax.violinplot([values], positions=[1], showmeans=True, showextrema=True)
+
+                # Customize violin appearance
+                if 'bodies' in parts:
+                    for pc in parts['bodies']:
+                        pc.set_facecolor('lightblue')
+                        pc.set_alpha(0.7)
+
+                # Add individual points (using np which is already imported at the top)
+                x_jitter = np.random.normal(1, 0.04, size=len(values))
+                ax.scatter(x_jitter, values, alpha=0.6, s=20, color='darkblue')
+
+                # Set labels and title
+                ax.set_ylabel('Perplexity', fontsize=12)
+                ax.set_title(
+                    f'Perplexity Distribution (Gene Focus: {args.gene_focus} File: {list_file_name})',
+                    fontsize=14,
+                    pad=20,
+                )
+
+                # Set y-axis limits
+                # y_min, y_max = 1.5, 4.0
+                # ax.set_ylim(y_min, y_max)
+
+                # Remove x-axis ticks
+                ax.set_xticks([])
+
+                # Add grid for better readability
+                ax.grid(axis='y', alpha=0.3)
+
+                # Save the plot
+                file_name = f"ppl_violin_plot_{list_file_name}.pdf"
+                plt.tight_layout()
+                plt.savefig(file_name, dpi=300, bbox_inches='tight')
+                plt.close()
+                print(f"Violin plot saved to {file_name}")
+            except ImportError:
+                print("\nMatplotlib is not installed. Skipping plot generation. `pip install matplotlib`")
+
+        else:
+            print("No valid perplexity values were computed. No plot generated.")
 
     tmp_dir.cleanup()
 
