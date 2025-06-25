@@ -76,51 +76,6 @@ class NeighborSamplingStrategy(str, Enum):
     RANDOM = "random"
 
 
-def _swap_mmap_array(
-    src_array: np.memmap,
-    src_path: str,
-    dest_array: np.memmap,
-    dest_path: str,
-    destroy_src: bool = False,
-) -> None:
-    """Function that swaps the location of two mmap arrays.
-
-    This is used when concatanating SingleCellMemMapDataset. This emables the
-    newly merged arrays to be stored in the same place as the original dataset.
-
-    Args:
-        src_array: the first memmap array
-        src_path: location of the first memmap array
-        dest_array: the second memmap array
-        dest_path: location of the first second array
-        destroy_src: set to True if the source array is deleted from disk
-
-    Raises:
-        FileNotFoundError if the source or destination path are not found.
-    """
-    if not os.path.isfile(src_path):
-        raise FileNotFoundError(f"The source file {src_path} does not exist")
-    if not os.path.isfile(dest_path):
-        raise FileNotFoundError(f"The destination file {dest_path} does not exist")
-
-    # Flush and close arrays
-    src_array.flush()
-    dest_array.flush()
-
-    del src_array
-    del dest_array
-
-    # Swap the file locations on disk using a tmp file.
-    with tempfile.TemporaryDirectory() as tempdir:
-        temp_file_name = f"{tempdir}/arr_temp"
-        shutil.move(src_path, temp_file_name)
-        shutil.move(dest_path, src_path)
-        shutil.move(temp_file_name, dest_path)
-
-    if destroy_src:
-        os.remove(src_path)
-
-
 def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:
     """Creates a conventional array from a sparse one.
 
