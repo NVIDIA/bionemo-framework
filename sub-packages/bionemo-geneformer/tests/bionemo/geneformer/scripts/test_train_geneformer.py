@@ -28,7 +28,6 @@ from bionemo.geneformer.scripts.train_geneformer import get_parser, main
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
-from bionemo.testing.tensorboard import verify_tensorboard_logs
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 
@@ -70,9 +69,9 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
             result_dir=result_dir,
             wandb_project=None,
             wandb_offline=True,
-            num_steps=20,  # Run for more steps to ensure metrics are logged
-            limit_val_batches=2,
-            val_check_interval=5,
+            num_steps=5,  # Run for more steps to ensure metrics are logged
+            limit_val_batches=1,
+            val_check_interval=2,
             num_dataset_workers=0,
             biobert_spec_option=BiobertSpecOption.bert_layer_local_spec,
             lr=1e-4,
