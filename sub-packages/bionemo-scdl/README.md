@@ -149,6 +149,32 @@ Additionally, the peak memory usage when iterating over the datasets with the SC
 
 SCDL now supports loading and utilizing neighbor information from AnnData objects. This is particularly useful for tasks that require knowledge of cell neighborhoods, trajectory analysis, or spatial relationships.
 
+#### Neighbor Data Structure in AnnData
+
+The neighbor functionality expects neighbor information to be stored in the **`.obsp` (observations pairwise) attribute** of the AnnData object as a **sparse matrix**:
+
+- **Location**: `adata.obsp[neighbor_key]` (default key is `'next_cell_ids'`)
+- **Format**: Sparse matrix (scipy.sparse format, typically CSR - Compressed Sparse Row)
+- **Dimensions**: `[n_cells × n_cells]` adjacency matrix
+- **Values**: Weights/distances (e.g., pseudotime values, spatial distances, similarity scores)
+- **Non-zero entries**: Indicate neighbor relationships
+
+**Example - Generating Neighbor Data from Trajectory Analysis:**
+
+```python
+import scanpy as sc
+import numpy as np
+from scipy.sparse import csr_matrix
+
+# After computing pseudotime with your preferred method (e.g., DPT, Monocle, etc.)
+# adata.obs['pseudotime'] contains pseudotime values for each cell
+# Assuming you define a function create_pseudotime_neighbors() to find k nearest neighbors in pseudotime space and store as sparse matrix
+
+# Create and store neighbor matrix
+neighbor_matrix = create_pseudotime_neighbors(adata.obs['pseudotime'])
+adata.obsp['next_cell_ids'] = neighbor_matrix
+```
+
 #### Loading a Dataset with Neighbor Support
 
 ```python

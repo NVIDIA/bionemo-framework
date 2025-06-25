@@ -1062,16 +1062,22 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             cell_index: Index of the cell to get neighbors for
             
         Returns:
-            np.ndarray: Array of neighbor indices, empty if no neighbors
+            np.ndarray: Array of neighbor indices, empty if no neighbors or neighbor data unavailable
             
         Raises:
             IndexError: If cell_index is out of bounds
+            ValueError: If neighbor functionality was explicitly enabled but data is unavailable
         """
-        if not self.load_neighbors or not self._has_neighbors or self._neighbor_indptr is None:
-            return np.array([], dtype=int)  # Return empty array if neighbor data not available
-            
+
         if not (0 <= cell_index < self.number_of_rows()):
             raise IndexError(f"Cell index {cell_index} out of bounds for dataset with {self.number_of_rows()} cells")
+        
+        # Check if neighbor functionality was requested but is unavailable
+        if self.load_neighbors and not self._has_neighbors:
+            raise ValueError("Neighbor functionality was enabled but no neighbor data is available")
+        
+        if not self.load_neighbors or not self._has_neighbors or self._neighbor_indptr is None:
+            return np.array([], dtype=int)  # Return empty array if neighbor data not available
             
         # Get neighbor indices using CSR format indptr and indices
         start = self._neighbor_indptr[cell_index]
@@ -1091,12 +1097,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Raises:
             IndexError: If cell_index is out of bounds
         """
+
+        # Check if neighbor functionality was requested but is unavailable
+        if self.load_neighbors and not self._has_neighbors:
+            raise ValueError("Neighbor functionality was enabled but no neighbor data is available")
+
         if not self.load_neighbors or not self._has_neighbors or self._neighbor_indptr is None or self._neighbor_data is None:
             return np.array([], dtype=float)
-            
+
         if not (0 <= cell_index < self.number_of_rows()):
             raise IndexError(f"Cell index {cell_index} out of bounds for dataset with {self.number_of_rows()} cells")
-            
+
         # Get neighbor weights using CSR format indptr and data
         start = self._neighbor_indptr[cell_index]
         end = self._neighbor_indptr[cell_index + 1]
@@ -1120,9 +1131,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Basic validation
         if not (0 <= cell_index < self.number_of_rows()):
             raise IndexError(f"Cell index {cell_index} out of bounds for dataset with {self.number_of_rows()} cells")
-            
+
+        # Check if neighbor functionality was requested but is unavailable
+        if self.load_neighbors and not self._has_neighbors:
+            raise ValueError("Neighbor functionality was enabled but no neighbor data is available")
+    
         # Skip sampling if neighbor functionality is disabled
-        if not self.load_neighbors or not self._has_neighbors:
+        if not self.load_neighbors:
             return cell_index  # Always return self as neighbor when neighbors disabled
             
         # Get the neighbor indices for this cell
