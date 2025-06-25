@@ -203,5 +203,5 @@ checkpoints/
 ft-attack/preprocessed_train_data/
 ft-attack/*.csv
 ft-attack/*.yaml
-ft-attack/pretraining_demo/
+ft-attack/pretraining_demo*
 *.pdf

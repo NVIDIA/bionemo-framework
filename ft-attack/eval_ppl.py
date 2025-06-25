@@ -1,5 +1,3 @@
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 import argparse
 from typing import Literal, Optional
 import numpy as np
@@ -14,6 +12,7 @@ from pathlib import Path
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
 from megatron.core.utils import get_batch_on_this_cp_rank
+
 from nemo.collections.llm.gpt.model.base import get_packed_seq_params
 from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS, HyenaModel
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
@@ -409,7 +408,7 @@ def main():
             ckpt_async_save=False,
             sequence_parallel=sequence_parallel,
             save_ckpt_format=args.ckpt_format,
-            ckpt_load_strictness="log_all",
+            ckpt_load_strictness=None,
             data_sampler=nl.MegatronDataSampler(
                 micro_batch_size=args.batch_size,
                 global_batch_size=args.batch_size,
@@ -440,7 +439,7 @@ def main():
             path=str(args.ckpt_dir),
             load_model_state=True,
             load_optim_state=False,
-            load_artifacts=False,
+            load_artifacts=True,
         ),
     )
     tokenizer = get_nmt_tokenizer("byte-level")
@@ -491,7 +490,7 @@ def main():
         if args.gb_file_list:
             list_file_name = Path(args.gb_file_list).stem
         else:
-            list_file_name = Path(args.fasta).stem
+            list_file_name = Path(args.fasta).stem + "_" + args.ckpt_dir.stem
         try:
             import matplotlib.pyplot as plt
 
