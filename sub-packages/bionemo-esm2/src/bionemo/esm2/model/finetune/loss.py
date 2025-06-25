@@ -101,17 +101,26 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
             the reduce method, which currently only works for logging.
         """
         targets = batch["labels"].squeeze()  # [b] or [b, s] for sequence-level or token-level classification
+        loss_mask = batch["loss_mask"]
 
         classification_output = forward_out["classification_output"]  # [b, num_class] or [b, s, num_class]
-        classification_output = classification_output.permute(1, 0, 2).contiguous()  # [s, b, num_class]
+        if classification_output.dim() == 3:
+            classification_output = classification_output.permute(1, 0, 2).contiguous()  # change to [s, b, num_class]
+        elif classification_output.dim() == 2:
+            # NOTE: this is for sequence-level classification, we artificially create a sequence dimension to use the same code path as token-level classification
+            classification_output = classification_output.unsqueeze(0)  # change to [1, b, num_class]
+            targets = targets.unsqueeze(1)  # change to [b, 1]
+            loss_mask = torch.ones((targets.shape[0], 1), dtype=loss_mask.dtype, device=loss_mask.device)
+        else:
+            raise ValueError(f"Unexpected classification output dimension: {classification_output.dim()}")
 
         # NOTE: token_logits is [sequence, batch] but labels and other fields, including the loss are [batch, sequence]
         unreduced_token_loss = unreduced_token_loss_fn(classification_output, targets)  # [b s]
-        loss_sum, num_valid_tokens = masked_token_loss(unreduced_token_loss, batch["loss_mask"])
+        loss_sum, num_valid_tokens = masked_token_loss(unreduced_token_loss, loss_mask)
 
         if self.validation_step and not self.val_drop_last and loss_sum.isnan():
             assert num_valid_tokens == 0, "Got NaN loss with non-empty input"
-            if batch["loss_mask"].count_nonzero() != 0:
+            if loss_mask.count_nonzero() != 0:
                 raise ValueError("Got NaN loss with non-empty input")
             loss_sum = torch.zeros_like(num_valid_tokens)
 
