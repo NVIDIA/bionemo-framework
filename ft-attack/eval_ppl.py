@@ -33,6 +33,34 @@ from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 CheckpointFormats = Literal["torch_dist", "zarr"]
 
 
+def pad_collate_fn(batch, tokenizer, tensor_parallel_size=1):
+    """A custom collate function that pads sequences to the maximum length in a batch.
+    
+    Also ensures the final length is divisible by tensor_parallel_size for sequence parallelism.
+    """
+    # Find the maximum sequence length in the batch
+    max_len = max(len(item["tokens"]) for item in batch)
+    
+    # Round up to the nearest multiple of tensor_parallel_size
+    if tensor_parallel_size > 1:
+        remainder = max_len % tensor_parallel_size
+        if remainder != 0:
+            max_len = max_len + (tensor_parallel_size - remainder)
+
+    # Pad each sequence to the max_len
+    for item in batch:
+        num_padding = max_len - len(item["tokens"])
+        if num_padding > 0:
+            padding = torch.full((num_padding,), tokenizer.pad_id, dtype=item["tokens"].dtype)
+            item["tokens"] = torch.cat([item["tokens"], padding])
+            item["position_ids"] = torch.arange(max_len, dtype=item["position_ids"].dtype)
+            mask_padding = torch.zeros(num_padding, dtype=item["loss_mask"].dtype)
+            item["loss_mask"] = torch.cat([item["loss_mask"], mask_padding])
+
+    # Default collate can now handle the batch because all items have the same length
+    return torch.utils.data.default_collate(batch)
+
+
 def _gather_along_cp_dim(input_, seq_dim: int = 1):
     """Gather tensors and concatenate along the last dimension."""
     world_size = parallel_state.get_context_parallel_world_size()
@@ -182,15 +210,16 @@ def hyena_predict_data_step(dataloader_iter) -> dict[str, torch.Tensor]:
 class PredictDataModule(LightningDataModule):
     """Create a dataloader for prediction."""
 
-    def __init__(self, dataset: torch.utils.data.Dataset, batch_size: int = 1):
+    def __init__(self, dataset: torch.utils.data.Dataset, batch_size: int = 1, tensor_parallel_size: int = 1):
         """Create a dataloader for prediction."""
         super().__init__()
         self.dataset = dataset
         self.batch_size = batch_size
+        self.tensor_parallel_size = tensor_parallel_size
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Set up the dataloader."""
-        pass
+        self.tokenizer = get_nmt_tokenizer("byte-level")
 
     def predict_dataloader(self):
         """Create a dataloader for prediction."""
@@ -202,6 +231,7 @@ class PredictDataModule(LightningDataModule):
             num_workers=8,
             shuffle=False,
             drop_last=False,
+            collate_fn=lambda batch: pad_collate_fn(batch, self.tokenizer, self.tensor_parallel_size),
         )
 
 
@@ -336,6 +366,7 @@ def main():
                        Options include: env, gag, pol, or 'full' for the entire genome.""",
     )
     parser.add_argument("--num_seqs_fna", type=int, default=100, help="Number of sequences to evaluate from FASTA.")
+    parser.add_argument("--output-dir", type=Path, default=Path("."), help="Directory to save the output.")
 
     args = parser.parse_args()
 
@@ -459,7 +490,7 @@ def main():
         dataset_to_use = full_dataset
 
     print(f"Using {len(dataset_to_use)} sequences from {fasta_path_for_predict}")
-    datamodule = PredictDataModule(dataset_to_use, batch_size=args.batch_size)
+    datamodule = PredictDataModule(dataset_to_use, batch_size=args.batch_size, tensor_parallel_size=args.tensor_parallel_size)
 
     print(f"\nComputing perplexity for {len(dataset_to_use)} sequences...")
     results = trainer.predict(model, datamodule=datamodule)
@@ -476,7 +507,16 @@ def main():
             # Sort by original sequence index
             sorted_indices = torch.argsort(seq_indices)
             sorted_perplexities = perplexities[sorted_indices].cpu().numpy()
-            sorted_headers = [full_dataset.seqids[int(i.item())] for i in seq_indices[sorted_indices]]
+
+            # Access the underlying dataset, whether it's the full one or a subset
+            source_dataset = dataset_to_use.dataset if isinstance(dataset_to_use, Subset) else dataset_to_use
+            assert isinstance(source_dataset, SimpleFastaDataset)
+            original_indices = dataset_to_use.indices if isinstance(dataset_to_use, Subset) else list(range(len(dataset_to_use)))
+            
+            # Map the indices from the results back to the original fasta file indices
+            result_original_indices = [original_indices[int(i.item())] for i in seq_indices[sorted_indices]]
+            
+            sorted_headers = [source_dataset.seqids[i] for i in result_original_indices]
 
             perplexity_results = [
                 {"file": header, "perplexity": ppl} for header, ppl in zip(sorted_headers, sorted_perplexities)
@@ -530,7 +570,7 @@ def main():
                 ax.grid(axis='y', alpha=0.3)
 
                 # Save the plot
-                file_name = f"ppl_violin_plot_{list_file_name}.pdf"
+                file_name = f"{args.output_dir}/ppl_violin_plot_{list_file_name}.pdf"
                 plt.tight_layout()
                 plt.savefig(file_name, dpi=300, bbox_inches='tight')
                 plt.close()
