@@ -93,6 +93,30 @@ reloaded_data = SingleCellMemMapDataset("97e_scmm")
 ### Using SCDL datasets in model training
 
 SCDL implements the required functions of the PyTorch Dataset abstract class.
+
+#### Tokenization
+
+A common use case for the single-cell dataloader is tokenizing data using a predefined vocabulary with a defined tokenizer function.
+
+``` python
+import numpy as np
+ds = SingleCellMemMapDataset("97e_scmm")
+index = 0
+values, feature_ids = ds.get_row(index, return_features=True, feature_vars=["feature_id"])
+assert (
+            len(feature_ids) == 1
+        )  # we expect feature_ids to be a list containing one np.array with the row's feature ids
+gene_data, col_idxs = np.array(values[0]), np.array(values[1])
+tokenizer_function = lambda x,y,z : x
+tokenizer_function(
+            gene_data,
+            col_idxs,
+            feature_ids[0],
+        )
+```
+
+#### Loading directly with Pytorch-compatible Dataloaders
+
 You can use PyTorch-compatible DataLoaders to load batches of data from a SCDL class.
 With a batch size of 1 this can be run without a collating function. With a batch size
 greater than 1, there is a collation function (`collate_sparse_matrix_batch`), that will
@@ -139,11 +163,11 @@ convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
 
 The runtime and memory usage are examined on a CellXGene Dataset with ~1.5 million rows and a size of 24 GB. On this dataset, there is a 4.9x memory speed up.
 
-![Throughput Image](assets/throughput.png)
+![Throughput Image](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/sub-packages/bionemo-scdl/assets/throughput.png)
 
 Additionally, the peak memory usage when iterating over the datasets with the SCDL dataloader is only 36.5 MB, since the whole dataset is never loaded into memory due to the numpy memomory-mapped backing.
 
-![Memory Image](assets/disk_space.png)
+![Memory Image](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/sub-packages/bionemo-scdl/assets/disk_space.png)
 
 ### Using Neighbor Information in Single Cell Datasets
 
