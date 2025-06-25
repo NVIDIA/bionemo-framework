@@ -18,8 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from bionemo.core.data.load import load as core_load
-from bionemo.testing.data.load import load
+from bionemo.core.data.load import load
 
 
 @pytest.fixture
@@ -62,7 +61,7 @@ def data_path() -> Path:
     Returns:
         A Path object that is the directory with the specified test data.
     """
-    return core_load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
+    return load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
 
 
 @pytest.fixture(scope="session")
@@ -74,7 +73,7 @@ def geneformer_10m_checkpoint() -> Path:
     Returns:
         A Path object that is the checkpoint path.
     """
-    return core_load("geneformer/10M_240530:2.0")
+    return load("geneformer/10M_240530:2.0")
 
 
 @pytest.fixture(scope="session")
@@ -86,7 +85,7 @@ def geneformer_nemo1_checkpoint() -> Path:
     Returns:
         A Path object that is the checkpoint path.
     """
-    return core_load("geneformer/qa")
+    return load("geneformer/qa")
 
 
 @pytest.fixture(scope="session")
@@ -98,7 +97,7 @@ def geneformer_nemo1_release_checkpoint() -> Path:
     Returns:
         A Path object that is the checkpoint path.
     """
-    return core_load("geneformer/10M_240530:1.0")
+    return load("geneformer/10M_240530:1.0")
 
 
 @pytest.fixture(scope="session")
@@ -110,7 +109,7 @@ def celltype_bench_data() -> Path:
     Returns:
         A Path object that is the directory with celltype benchmark data.
     """
-    return core_load("single_cell/celltype-bench-golden-vals") / "hs-celltype-bench-subset7500"
+    return load("single_cell/celltype-bench-golden-vals") / "hs-celltype-bench-subset7500"
 
 
 @pytest.fixture(scope="session")
@@ -122,7 +121,7 @@ def nemo1_per_layer_outputs() -> Path:
     Returns:
         A Path object that is the directory with per-layer outputs.
     """
-    return core_load("single_cell/nemo1-geneformer-per-layer-outputs")
+    return load("single_cell/nemo1-geneformer-per-layer-outputs")
 
 
 @pytest.fixture(scope="session")
@@ -134,4 +133,4 @@ def nemo1_expected_values() -> Path:
     Returns:
         A Path object that is the directory with expected values.
     """
-    return core_load("single_cell/nemo1-geneformer-golden-vals")
+    return load("single_cell/nemo1-geneformer-golden-vals")
