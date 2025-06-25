@@ -6,6 +6,7 @@ from Bio.Seq import Seq
 import torch.nn.functional as F
 import csv
 from Bio import SeqIO
+import os
 import nemo.lightning as nl
 import tempfile
 from pathlib import Path
@@ -524,7 +525,8 @@ def main():
 
             values = [item["perplexity"] for item in perplexity_results]
             print("\nPerplexity results:")
-            for item in perplexity_results:
+            #only print the first 10 results
+            for item in perplexity_results[:10]:
                 print(f"{item['file']}: {item['perplexity']:.4f}")
 
             # Create violin plot
@@ -570,6 +572,8 @@ def main():
                 ax.grid(axis='y', alpha=0.3)
 
                 # Save the plot
+                if not os.path.exists(args.output_dir):
+                    os.makedirs(args.output_dir)
                 file_name = f"{args.output_dir}/ppl_violin_plot_{list_file_name}.pdf"
                 plt.tight_layout()
                 plt.savefig(file_name, dpi=300, bbox_inches='tight')
@@ -577,6 +581,13 @@ def main():
                 print(f"Violin plot saved to {file_name}")
             except ImportError:
                 print("\nMatplotlib is not installed. Skipping plot generation. `pip install matplotlib`")
+            #save the perplexity results to a csv file
+            with open(f"{args.output_dir}/ppl_results_{list_file_name}.csv", "w") as f:
+                writer = csv.writer(f)
+                writer.writerow(["file", "perplexity"])
+                for item in perplexity_results:
+                    writer.writerow([item["file"], item["perplexity"]])
+            print(f"Perplexity results saved to {args.output_dir}/ppl_results_{list_file_name}.csv")
 
         else:
             print("No valid perplexity values were computed. No plot generated.")

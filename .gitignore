@@ -205,3 +205,4 @@ ft-attack/*.csv
 ft-attack/*.yaml
 ft-attack/pretraining_demo*
 *.pdf
+ft-attack/figures/
