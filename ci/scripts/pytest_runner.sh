@@ -57,7 +57,7 @@ SKIP_SLOW=false
 ONLY_SLOW=false
 ALLOW_NO_TESTS=false
 # TODO(@cspades): Ignore this Evo2 notebook test, which has a tendency to leave a 32GB orphaned process in GPU.
-declare -a IGNORE_FILES=("sub-packages/bionemo-evo2/examples/fine-tuning-tutorial.ipynb")
+declare -a IGNORE_FILES=()
 error=false
 
 # Parse command line arguments
