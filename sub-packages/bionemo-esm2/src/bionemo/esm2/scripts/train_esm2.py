@@ -69,6 +69,7 @@ def main(
     experiment_name: str,
     resume_if_exists: bool,
     precision: PrecisionTypes,
+    weight_decay: float = 0.01,
     early_stop_on_step: Optional[int] = None,
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
@@ -133,6 +134,7 @@ def main(
             result_dir that stores the logs and checkpoints.
         resume_if_exists (bool): attempt to resume if the checkpoint exists [FIXME @skothenhill this doesn't work yet]
         precision (PrecisionTypes): Precision type for training (e.g., float16, float32)
+        weight_decay (float): weight decay
         wandb_entity (Optional[str]): The team posting this run (default: your username or your default team)
         wandb_project (Optional[str]): The name of the project to which this run will belong
         wandb_offline (bool): Run offline (data can be streamed later to wandb servers).
@@ -248,7 +250,7 @@ def main(
                 lr=lr,
                 optimizer="adam",
                 use_distributed_optimizer=True,
-                weight_decay=0.01,
+                weight_decay=weight_decay,
                 adam_beta1=0.9,
                 adam_beta2=0.98,
             ),
@@ -507,6 +509,13 @@ def get_parser():
         required=False,
         default=4e-4,
         help="Learning rate for training. Default is 4e-4",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        required=False,
+        default=0.01,
+        help="Weight decay for training. Default is 0.01",
     )
     parser.add_argument(
         "--scheduler-num-steps",
