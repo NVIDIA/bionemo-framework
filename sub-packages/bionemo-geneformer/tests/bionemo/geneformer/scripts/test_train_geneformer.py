@@ -69,7 +69,7 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
             result_dir=result_dir,
             wandb_project=None,
             wandb_offline=True,
-            num_steps=5,  # Run for more steps to ensure metrics are logged
+            num_steps=5,
             limit_val_batches=1,
             val_check_interval=2,
             num_dataset_workers=0,
