@@ -29,7 +29,14 @@ def data_to_csv():
     def _data_to_csv(data, path):
         csv_file = path / "protein_dataset.csv"
         # Create a DataFrame
-        df = pd.DataFrame(data, columns=["sequences", "labels"])
+        df = pd.DataFrame(data)
+        # if df has 2 columns add column names sequences and labels else resolved
+        if df.shape[1] == 2:
+            df.columns = ["sequences", "labels"]
+        elif df.shape[1] == 3:
+            df.columns = ["sequences", "labels", "resolved"]
+        else:
+            raise ValueError(f"Data has {df.shape[1]} columns, expected 2 or 3")
 
         # Save the DataFrame to a CSV file
         df.to_csv(csv_file, index=False)
@@ -67,30 +74,44 @@ def dummy_data_per_token_classification_ft():
         (
             "TLILGWSDKLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
             "EEEECCCCCHHHHHHHHHHHHHHHCCCEEEEEECCCHHHHHHHHHCCCCCCCCCEEE",
+            "101010101010101010101010101010101010101010101010101010101",
         ),
-        ("LYSGDHSTQGARFLRDLAENTGRAEYELLSLF", "CCCCCHHHHHHHHHHHHHHCCCCCHHHHHHCC"),
-        ("GRFNVWLGGNESKIRQVLKAVKEIGVSPTLFAVYEKN", "HHHHHCCCCCHHHHHHHHHHHHHHCCCHHHHHHHHHH"),
+        ("LYSGDHSTQGARFLRDLAENTGRAEYELLSLF", "CCCCCHHHHHHHHHHHHHHCCCCCHHHHHHCC", "10101010101010101010101010101010"),
+        (
+            "GRFNVWLGGNESKIRQVLKAVKEIGVSPTLFAVYEKN",
+            "HHHHHCCCCCHHHHHHHHHHHHHHCCCHHHHHHHHHH",
+            "1010101010101010101010101010101010101",
+        ),
         (
             "DELTALGGLLHDIGKPVQRAGLYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
             "HHHHHHHHHHCCCHHHHHCCCCCCCCHHHHHHHHHHHHHHCCCCCHHHHHHCC",
+            "10101010101010101010101010101010101010101010101010101",
         ),
         (
             "KLGSLLNQLAIANESLGGGTIAVMAERDKEDMELDIGKMEFDFKGTSVI",
             "CHHHHHHHHHHHHHHHCCCEEEEEECCCHHHHHHHHHCCCCCCCCCEEE",
+            "1010101010101010101010101010101010101010101010101",
         ),
         (
             "LFGAIGNAISAIHGQSAVEELVDAFVGGARISSAFPYSGDTYYLPKP",
             "HHHHHHHHHHHHHCHHHHHHHHHHHHCCCEECCCEEEECCEEEEECC",
+            "10101010101010101010101010101010101010101010101",
         ),
         (
             "LGGLLHDIGKPVQRAGLYSGDHSTQGARFLRDLAENTGRAEYELLSLF",
             "HHHHHCCCHHHHHCCCCCCCCHHHHHHHHHHHHHHCCCCCHHHHHHCC",
+            "101010101010101010101010101010101010101010101010",
         ),
-        ("LYSGDHSTQGARFLRDLAENTGRAEYELLSLF", "CCCCCHHHHHHHHHHHHHHCCCCCHHHHHHCC"),
-        ("ISAIHGQSAVEELVDAFVGGARISSAFPYSGDTYYLPKP", "HHHHHCHHHHHHHHHHHHCCCEECCCEEEECCEEEEECC"),
+        ("LYSGDHSTQGARFLRDLAENTGRAEYELLSLF", "CCCCCHHHHHHHHHHHHHHCCCCCHHHHHHCC", "10101010101010101010101010101010"),
+        (
+            "ISAIHGQSAVEELVDAFVGGARISSAFPYSGDTYYLPKP",
+            "HHHHHCHHHHHHHHHHHHCCCEECCCEEEECCEEEEECC",
+            "101010101010101010101010101010101010101",
+        ),
         (
             "SGSKASSDSQDANQCCTSCEDNAPATSYCVECSEPLCETCVEAHQRVKYTKDHTVRSTGPAKT",
             "CCCCCCCCCCCCCCCCCCCCCCCCCCEEECCCCEEECHHHHHHHHHCCCCCCCCEEECCCCCC",
+            "101010101010101010101010101010101010101010101010101010101010101",
         ),
     ]
     return data
@@ -114,7 +135,7 @@ def dummy_data_single_value_classification_ft(dummy_data_per_token_classificatio
     Returns:
         list: A list of dummy data for per-token classification fine-tuning.
     """
-    data = [(seq, f"Class_{label[0]}") for seq, label in dummy_data_per_token_classification_ft]
+    data = [(seq, f"Class_{label[0]}") for seq, label, _ in dummy_data_per_token_classification_ft]
     return data
 
 
