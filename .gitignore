@@ -205,4 +205,7 @@ ft-attack/*.csv
 ft-attack/*.yaml
 ft-attack/pretraining_demo*
 *.pdf
+!ft-attack/figures/plot.ipynb
 ft-attack/figures/
+ft-attack/data/ncbi_downloads_*
+ft-attack/data/sequences.csv

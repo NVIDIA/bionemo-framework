@@ -236,11 +236,6 @@ class PredictDataModule(LightningDataModule):
         )
 
 
-def compute_perplexity(model, record, gene_focus="env"):
-    """This function will be replaced by the new workflow but is kept for reference during refactoring."""
-    raise NotImplementedError("This function is replaced by the new bionemo-framework-based workflow.")
-
-
 def extract_gene_from_record(record, gene_name="env"):
     """
     Extract the specified gene/CDS from a GenBank record.
@@ -311,21 +306,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="""Evaluate the perplexity of a sequence from a local GenBank file."""
     )
-    # --- Old args ---
-    # parser.add_argument("--ckpt_dir", default='/workspaces/bionemo-framework/checkpoints/nemo2_evo2_7b_8k',
-    #                     help="Model to use for perplexity calculation.")
-    # parser.add_argument("--gb_file_list", type=str, default=None,
-    #                    help="Path to a text file containing a list of GenBank file paths (one per line).")
-    # parser.add_argument("--fna_file", type=str, default=None,
-    #                    help="Path to a (possibly gz-compressed) FASTA/FA/FNA file. If provided, the first 100 sequences in this file will be evaluated.")
-    # parser.add_argument("--gene_focus", type=str, default="env",
-    #                    help="""Specify which gene to extract from the sequence (default: env).
-    #                    Options include: env, gag, pol, or 'full' for the entire genome.""")
-    # parser.add_argument("--num_seqs_fna", type=int, default=100,
-    #                    help="Number of sequences to evaluate from the FASTA file.")
-    # --- New args (from predict.py) ---
     parser.add_argument("--fasta", type=Path, help="Fasta path from which to generate logit predictions.")
-    parser.add_argument("--gb_file_list", type=str, help="Path to a text file with a list of GenBank file paths.")
     parser.add_argument("--ckpt-dir", type=Path, default="/workspaces/bionemo-framework/checkpoints/nemo2_evo2_7b_8k", help="NeMo2 checkpoint directory for inference.")
     parser.add_argument("--prepend-bos", action="store_true", help="Prepend BOS token to sequences. Defaults to False.")
     parser.add_argument(
@@ -371,9 +352,6 @@ def main():
 
     args = parser.parse_args()
 
-    if not args.fasta and not args.gb_file_list:
-        raise ValueError("Either --fasta or --gb_file_list must be provided.")
-
     # Set random seeds
     torch.manual_seed(0)
     np.random.seed(0)
@@ -381,39 +359,6 @@ def main():
     tmp_dir = tempfile.TemporaryDirectory()
     fasta_path_for_predict = args.fasta
 
-    if args.gb_file_list:
-        raise NotImplementedError("This part is work in progress.")
-        print(f"Processing GenBank files from {args.gb_file_list}...")
-        fasta_path_for_predict = Path(tmp_dir.name) / "sequences.fasta"
-        accessions = []
-        with open(args.gb_file_list, "r", newline="") as csvfile:
-                reader = csv.reader(csvfile)
-                header = next(reader)
-                # Try to locate the column automatically
-                try:
-                    idx = header.index("accession_id")
-                except ValueError:
-                    # Default to the last column if header not found / no header
-                    idx = -1
-                    # If the first row actually contained data rather than header, include it
-                    if header and header[0].strip():
-                        accessions.append(header[idx].strip())
-
-                for row in reader:
-                    if len(row) > abs(idx) and row[idx].strip():
-                        accessions.append(row[idx].strip())
-        with open(fasta_path_for_predict, "w") as fasta_handle:
-            for acc in accessions:
-                print(f"\nFetching record for: {acc}")
-                try:
-                    handle = Entrez.efetch(db="nucleotide", id=acc, rettype="gb", retmode="text")
-                    record = SeqIO.read(handle, "genbank")
-                    handle.close()
-                    fasta_handle.write(f">{record.id}__{args.gene_focus}\n{record.seq}\n")
-                except Exception as e:
-                    print(f"Error fetching {acc}: {e}")
-                    continue
-        
 
     # --- Setup Trainer and Model from predict.py ---
     sequence_parallel = args.tensor_parallel_size > 1 and not args.no_sequence_parallel
@@ -530,10 +475,7 @@ def main():
                 print(f"{item['file']}: {item['perplexity']:.4f}")
 
             # Create violin plot
-            if args.gb_file_list:
-                list_file_name = Path(args.gb_file_list).stem
-            else:
-                list_file_name = Path(args.fasta).stem + "_" + args.ckpt_dir.stem
+            list_file_name = Path(args.fasta).stem + "_" + args.ckpt_dir.stem
             try:
                 import matplotlib.pyplot as plt
 
@@ -556,7 +498,7 @@ def main():
                 # Set labels and title
                 ax.set_ylabel('Perplexity', fontsize=12)
                 ax.set_title(
-                    f'Perplexity Distribution (Gene Focus: {args.gene_focus} File: {list_file_name})',
+                    f'Perplexity Distribution (File: {list_file_name})',
                     fontsize=14,
                     pad=20,
                 )

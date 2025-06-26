@@ -22,7 +22,7 @@ warmup_steps=$((max_steps/2))
 # rm -rf pretraining_demo
 CUDA_VISIBLE_DEVICES=0,1,2,3 train_evo2 \
     -d training_data_config.yaml \
-    --dataset-dir ./preprocessed_train_data \
+    --dataset-dir ./data/preprocessed_train_data \
     --result-dir checkpoints/evo2_${model_size}_${max_steps} \
     --experiment-name evo2 \
     --model-size $model_size   \
@@ -45,8 +45,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 train_evo2 \
     --activation-checkpoint-recompute-num-layers 4 \
     --wandb-project "BioNemo-Evo" \
     --wandb-run-name "evo2-ft-run-${max_steps}-${model_size}-${micro_batch_size}-${tensor_parallel_size}-${date_time}" \
-    --ckpt-async-save \
-    --create-tensorboard-logger
+    --ckpt-async-save 
 
 consumed_samples=$((max_steps * micro_batch_size * tensor_parallel_size))
 
