@@ -99,7 +99,7 @@ class BERTMLMLossWithReduction(MegatronLossReduction):  # noqa: D101
         loss_sum_and_ub_size = torch.cat([loss_sum.clone().detach().view(1), num_valid_tokens.view(1)])
 
         if num_valid_tokens.item() == 0:
-            num_valid_tokens = torch.tensor(1, device=num_valid_tokens.device, dtype=num_valid_tokens.dtype)
+            num_valid_tokens = torch.ones_like(num_valid_tokens)
 
         return loss_sum, num_valid_tokens, {"loss_sum_and_ub_size": loss_sum_and_ub_size}
 
