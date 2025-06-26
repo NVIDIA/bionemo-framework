@@ -17,6 +17,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 from nemo.lightning import io
 
@@ -454,3 +455,8 @@ def r_data_to_csv(data, path):
     # Save the DataFrame to a CSV file
     df.to_csv(csv_file, index=False)
     return csv_file
+
+
+def mse(y_true, y_pred):
+    # Handle broadcasting if arrays have different shapes
+    return np.mean((y_true - y_pred) ** 2)

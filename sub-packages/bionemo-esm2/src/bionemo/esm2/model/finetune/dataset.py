@@ -100,6 +100,9 @@ class InMemoryProteinDataset(Dataset):
             raise KeyError("The CSV must contain a 'sequences' or 'sequence' column.")
 
         sequences = df["sequences"] if "sequences" in df.columns else df["sequence"]
+
+        if labels_mask_column is not None and cls is not InMemoryPerTokenValueDataset:
+            raise ValueError("labels_mask_column is only supported for InMemoryPerTokenValueDataset")
         labels = None
         if not ignore_labels:
             labels = df[label_column]
