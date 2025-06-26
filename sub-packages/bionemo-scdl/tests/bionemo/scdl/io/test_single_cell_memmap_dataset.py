@@ -302,11 +302,11 @@ def test_empty_dataset_save_and_reload_with_neighbors(tmp_path):
     assert reloaded.fallback_to_identity is True
     assert reloaded._has_neighbors is False  # No neighbors loaded for empty dataset
 
-def test_neighbor_matrix_extraction(tmp_path):
-    # Use the real sample neighbor dataset
-    sample_h5ad_path = "/workspaces/bionemo-framework/scdl_data_local/adata_sample0_neighbors.h5ad"
+def test_neighbor_matrix_extraction(tmp_path, test_neighbor_directory):
+    # Use the NGC sample neighbor dataset
+    sample_h5ad_path = test_neighbor_directory / "adata_sample0_neighbors.h5ad"
 
-    # Create dataset with neighbors using the real sample file
+    # Create dataset with neighbors using the NGC sample file
     ds = SingleCellMemMapDataset(
         data_path=tmp_path / "scnn",
         h5ad_path=sample_h5ad_path,
@@ -338,15 +338,11 @@ def test_neighbor_matrix_extraction(tmp_path):
     # All data values should be positive (pseudotime values)
     assert all(val > 0 for val in ds._neighbor_data)
 
-def test_sample_neighbor_index(tmp_path, monkeypatch):
+def test_sample_neighbor_index(tmp_path, monkeypatch, test_neighbor_directory):
     """Test neighbor index sampling using real sample data."""
 
-    # Path to the real sample neighbor data
-    sample_neighbor_file = "/workspaces/bionemo-framework/scdl_data_local/adata_sample0_neighbors.h5ad"
-
-    # Skip test if sample file doesn't exist
-    if not os.path.exists(sample_neighbor_file):
-        pytest.skip(f"Sample neighbor file not found: {sample_neighbor_file}")
+    # Path to the NGC sample neighbor data
+    sample_neighbor_file = test_neighbor_directory / "adata_sample0_neighbors.h5ad"
 
     # Create dataset with real neighbor data
     ds = SingleCellMemMapDataset(
@@ -406,11 +402,11 @@ def test_sample_neighbor_index(tmp_path, monkeypatch):
             valid_neighbors = ds._neighbor_indices[start_idx:end_idx]
             assert neighbor in valid_neighbors, f"Sampled neighbor {neighbor} not in valid neighbors {valid_neighbors}"
 
-def test_get_row_with_neighbor(tmp_path, monkeypatch):
+def test_get_row_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
     """Test get_row_with_neighbor using real sample data."""
 
-    # Path to the real sample neighbor data
-    sample_neighbor_file = "/workspaces/bionemo-framework/scdl_data_local/adata_sample0_neighbors.h5ad"
+    # Path to the NGC sample neighbor data
+    sample_neighbor_file = test_neighbor_directory / "adata_sample0_neighbors.h5ad"
 
     # Create dataset with real neighbor data
     ds = SingleCellMemMapDataset(
@@ -484,11 +480,11 @@ def test_get_row_with_neighbor(tmp_path, monkeypatch):
     assert result_empty['current_cell_index'] == 1
     assert result_empty['next_cell_index'] == 1  # Should fallback to itself
 
-def test_get_row_padded_with_neighbor(tmp_path, monkeypatch):
+def test_get_row_padded_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
     """Test get_row_padded_with_neighbor using real sample data."""
 
-    # Path to the real sample neighbor data
-    sample_neighbor_file = "/workspaces/bionemo-framework/scdl_data_local/adata_sample0_neighbors.h5ad"
+    # Path to the NGC sample neighbor data
+    sample_neighbor_file = test_neighbor_directory / "adata_sample0_neighbors.h5ad"
 
     # Create dataset with real neighbor data
     ds = SingleCellMemMapDataset(
@@ -557,10 +553,10 @@ def test_get_row_padded_with_neighbor(tmp_path, monkeypatch):
     padded_only, features_only = result_no_neighbor
     assert np.array_equal(padded_only, current_padded)
 
-def test_get_neighbor_stats(tmp_path):
+def test_get_neighbor_stats(tmp_path, test_neighbor_directory):
 
-    # Path to the real sample neighbor data
-    sample_neighbor_file = "/workspaces/bionemo-framework/scdl_data_local/adata_sample0_neighbors.h5ad"
+    # Path to the NGC sample neighbor data
+    sample_neighbor_file = test_neighbor_directory / "adata_sample0_neighbors.h5ad"
 
     # Create dataset with real neighbor data
     ds = SingleCellMemMapDataset(

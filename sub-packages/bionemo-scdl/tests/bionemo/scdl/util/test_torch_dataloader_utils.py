@@ -201,16 +201,13 @@ def test_neighbor_collate_function_all_empty():
     assert result['next_cells'].to_dense().shape == torch.Size([2, 0])
 
 
-def test_dataloading_neighbor_batch_with_real_data(tmp_path):
+def test_dataloading_neighbor_batch_with_real_data(tmp_path, test_neighbor_directory):
     """Test neighbor collate function with real sample data."""
     import os
     from pathlib import Path
     
-    # Check if sample neighbor data exists
-    sample_path = Path("/workspaces/bionemo-framework/scdl_data_local/adata_sample0_neighbors.h5ad")
-    if not sample_path.exists():
-        import pytest
-        pytest.skip(f"Sample neighbor data not found at {sample_path}")
+    # Use NGC sample neighbor data
+    sample_path = test_neighbor_directory / "adata_sample0_neighbors.h5ad"
     
     # Create dataset with neighbors
     ds = SingleCellMemMapDataset(
@@ -272,12 +269,12 @@ def test_dataloading_neighbor_batch_with_real_data(tmp_path):
         assert next_dense.shape[0] == 2     # batch size
 
 
-def test_dataloading_neighbor_batch_works_with_expected_output(tmp_path, monkeypatch):
+def test_dataloading_neighbor_batch_works_with_expected_output(tmp_path, monkeypatch, test_neighbor_directory):
     """Test neighbor collate function with expected output patterns using real sample data."""
     from pathlib import Path
     
-    # Will update path once data is in ngc registry
-    sample_path = Path("/workspaces/bionemo-framework/scdl_data_local/adata_sample0_neighbors.h5ad")
+    # Use NGC sample neighbor data
+    sample_path = test_neighbor_directory / "adata_sample0_neighbors.h5ad"
     
     # Create dataset with neighbors
     ds = SingleCellMemMapDataset(
