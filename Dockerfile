@@ -201,6 +201,8 @@ uv pip install nvidia-resiliency-ext/
 rm -rf nvidia-resiliency-ext/
 # ngcsdk causes strange dependency conflicts (ngcsdk requires protobuf<4, but nemo_toolkit requires protobuf==4.24.4, deleting it from the uv pip install prevents installation conflicts)
 sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
+# Override protobuf version to 4.25.9 to avoid version conflict and fix CVE
+sed -i 's/^protobuf==4\.24\.4$/protobuf==5.29.5/' 3rdparty/NeMo/requirements/requirements.txt
 # Remove llama-index because bionemo doesn't use it and it adds CVEs to container
 sed -i "/llama-index/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt
 # Pin 'nvidia-modelopt' to 0.27.1 due to an API incompatibility of version 0.25.0
