@@ -438,12 +438,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             raise ValueError(f"Neighbor matrix for key '{self.neighbor_key}' is not a sparse matrix.")
         
         # First write indptr which gives us the structure - this is usually small enough to handle in one go
-        with open(self._neighbor_indptr_path, "wb") as indptr_file:
+        memmap_dir_path = Path(self.data_path)
+        with open(f"{memmap_dir_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}", "wb") as indptr_file:
             indptr_file.write(neighbor_matrix.indptr.tobytes())
         
         # Get dimensions from indptr
         num_rows = len(neighbor_matrix.indptr) - 1
-        memmap_dir_path = Path(self.data_path)
         # Process indices and data in chunks based on rows
         with (
             open(f"{memmap_dir_path}/{FileNames.NEIGHBOR_INDICES.value}", "wb") as indices_file,
