@@ -21,14 +21,13 @@ from typing import Dict
 
 import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
-
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 from bionemo.core.data.load import load
 from bionemo.geneformer.scripts.train_geneformer import get_parser, main
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
-from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 
 @pytest.fixture(scope="module")
@@ -45,13 +44,10 @@ def test_bionemo2_rootdir(data_path):
     assert data_path.is_dir(), "Test data directory is supposed to be a directory."
 
 
-
-
-
 @pytest.mark.parametrize("create_checkpoint_callback", [True, False])
 def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
     """Test that verifies the training script runs correctly with checkpoints and TensorBoard logs.
-    
+
     This test ensures:
     - The training script runs correctly and outputs checkpoints (when enabled)
     - TensorBoard logs are generated and include specific metrics such as TFLOPS per GPU and train step
@@ -96,7 +92,7 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
     experiment_dir = result_dir / "test_experiment"
     assert experiment_dir.exists(), "Experiment directory not found"
     assert experiment_dir.is_dir(), "Experiment directory should be a directory"
-    
+
     # Get the unique run directory (date-based)
     run_dirs = list(experiment_dir.iterdir())
     assert len(run_dirs) == 1, f"Expected exactly one run directory, found {len(run_dirs)}"
@@ -110,7 +106,7 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
     if create_checkpoint_callback:
         assert checkpoint_dir.exists(), "Checkpoints directory not found"
         assert checkpoint_dir.is_dir(), "Checkpoints directory should be a directory"
-        
+
         # Verify checkpoint directories exist (distributed checkpoints are saved as directories)
         checkpoint_items = list(checkpoint_dir.iterdir())
         assert len(checkpoint_items) > 0, "No checkpoint directories found"
@@ -256,7 +252,10 @@ def test_pretrain_cli(tmpdir, data_path):
     --num-layers 2 \
     --num-attention-heads 2 \
     --hidden-size 4 \
-    --ffn-hidden-size 8
+    --ffn-hidden-size 8 \
+    --create-tensorboard-logger \
+    --create-tflops-callback \
+    --log-every-n-steps 1
     """.strip()
     env = dict(**os.environ)  # a local copy of the environment
     env["MASTER_PORT"] = str(open_port)
@@ -267,8 +266,22 @@ def test_pretrain_cli(tmpdir, data_path):
         env=env,
         capture_output=True,
     )
-    assert result.returncode == 0, f"Pretrain script failed: {cmd_str}"
-    assert (result_dir / "test_experiment").exists(), "Could not find test experiment directory."
+    assert result.returncode == 0, (
+        f"Pretrain script failed: {cmd_str}\nstdout: {result.stdout.decode()}\nstderr: {result.stderr.decode()}"
+    )
+
+    # Verify experiment directory exists
+    experiment_dir = result_dir / "test_experiment"
+    assert experiment_dir.exists(), "Could not find test experiment directory."
+
+    # Get the run directory
+    run_dirs = list(experiment_dir.iterdir())
+    assert len(run_dirs) == 1, f"Expected exactly one run directory, found {len(run_dirs)}"
+    run_dir = run_dirs[0]
+
+    # Verify TensorBoard logs were created - they are saved directly in the run directory
+    tb_event_files = list(run_dir.glob("events.out.tfevents.*"))
+    assert len(tb_event_files) > 0, "No TensorBoard event files found"
 
 
 @pytest.fixture(scope="function")
@@ -360,64 +373,3 @@ def test_limit_val_batches_is_int(required_args_reference, limit_val_batches):
     arglist = parse_kwargs_to_arglist(required_args_reference)
     parser = get_parser()
     parser.parse_args(arglist)
-
-
-
-
-
-@pytest.mark.slow
-def test_pretrain_cli_with_tensorboard(tmpdir, data_path):
-    """Test the CLI with TensorBoard logging enabled."""
-    result_dir = Path(tmpdir.mkdir("results"))
-    open_port = find_free_network_port()
-
-    cmd_str = f"""train_geneformer     \
-    --data-dir {data_path}     \
-    --result-dir {result_dir}     \
-    --experiment-name test_cli_tb_experiment     \
-    --num-gpus 1  \
-    --num-nodes 1 \
-    --val-check-interval 2 \
-    --num-dataset-workers 0 \
-    --num-steps 5 \
-    --seq-length 128 \
-    --limit-val-batches 2 \
-    --micro-batch-size 2 \
-    --accumulate-grad-batches 2 \
-    --num-layers 2 \
-    --num-attention-heads 2 \
-    --hidden-size 4 \
-    --ffn-hidden-size 8 \
-    --create-tensorboard-logger \
-    --create-tflops-callback \
-    --log-every-n-steps 1
-    """.strip()
-
-    env = dict(**os.environ)
-    env["MASTER_PORT"] = str(open_port)
-    cmd = shlex.split(cmd_str)
-    result = subprocess.run(
-        cmd,
-        cwd=tmpdir,
-        env=env,
-        capture_output=True,
-    )
-
-    # Check command executed successfully
-    assert result.returncode == 0, (
-        f"Pretrain script failed: {cmd_str}\nstdout: {result.stdout.decode()}\nstderr: {result.stderr.decode()}"
-    )
-
-    # Verify experiment directory exists
-    experiment_dir = result_dir / "test_cli_tb_experiment"
-    assert experiment_dir.exists(), "Could not find test experiment directory."
-
-    # Get the run directory
-    run_dirs = list(experiment_dir.iterdir())
-    assert len(run_dirs) == 1, f"Expected exactly one run directory, found {len(run_dirs)}"
-    run_dir = run_dirs[0]
-
-    # Verify TensorBoard logs were created - they are saved directly in the run directory
-    # Verify event files exist
-    tb_event_files = list(run_dir.glob("events.out.tfevents.*"))
-    assert len(tb_event_files) > 0, "No TensorBoard event files found"
