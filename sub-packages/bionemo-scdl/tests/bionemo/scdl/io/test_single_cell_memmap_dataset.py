@@ -16,7 +16,6 @@
 from typing import Tuple
 
 import numpy as np
-import os
 import pytest
 
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
@@ -259,17 +258,18 @@ def test_create_dataset_with_neighbor_support(tmp_path):
         num_rows=5,
         num_elements=10,
         load_neighbors=True,
-        neighbor_key='next_cell_ids',
-        neighbor_sampling_strategy='random',
-        fallback_to_identity=True
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
     )
 
     # Verify neighbor configuration
     assert ds.load_neighbors is True
-    assert ds.neighbor_key == 'next_cell_ids'
-    assert ds.neighbor_sampling_strategy == 'random'
+    assert ds.neighbor_key == "next_cell_ids"
+    assert ds.neighbor_sampling_strategy == "random"
     assert ds.fallback_to_identity is True
     assert ds._has_neighbors is False  # No neighbors loaded yet
+
 
 def test_empty_dataset_save_and_reload_with_neighbors(tmp_path):
     ds = SingleCellMemMapDataset(
@@ -277,18 +277,18 @@ def test_empty_dataset_save_and_reload_with_neighbors(tmp_path):
         num_rows=2,
         num_elements=10,
         load_neighbors=True,
-        neighbor_key='next_cell_ids',
-        neighbor_sampling_strategy='random',
-        fallback_to_identity=True
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
     )
     ds.save()
     del ds
     reloaded = SingleCellMemMapDataset(
         tmp_path / "scnn",
         load_neighbors=True,
-        neighbor_key='next_cell_ids',
-        neighbor_sampling_strategy='random',
-        fallback_to_identity=True
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
     )
     assert reloaded.number_of_rows() == 0
     assert reloaded.number_of_variables() == [0]
@@ -297,10 +297,11 @@ def test_empty_dataset_save_and_reload_with_neighbors(tmp_path):
     assert len(reloaded[1][0]) == 0
     # Test neighbor configuration is preserved
     assert reloaded.load_neighbors is True
-    assert reloaded.neighbor_key == 'next_cell_ids'
-    assert reloaded.neighbor_sampling_strategy == 'random'
+    assert reloaded.neighbor_key == "next_cell_ids"
+    assert reloaded.neighbor_sampling_strategy == "random"
     assert reloaded.fallback_to_identity is True
     assert reloaded._has_neighbors is False  # No neighbors loaded for empty dataset
+
 
 def test_neighbor_matrix_extraction(tmp_path, test_neighbor_directory):
     # Use the NGC sample neighbor dataset
@@ -311,9 +312,9 @@ def test_neighbor_matrix_extraction(tmp_path, test_neighbor_directory):
         data_path=tmp_path / "scnn",
         h5ad_path=sample_h5ad_path,
         load_neighbors=True,
-        neighbor_key='next_cell_ids',
-        neighbor_sampling_strategy='random',
-        fallback_to_identity=True
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
     )
 
     # Test that neighbor data was extracted
@@ -325,18 +326,19 @@ def test_neighbor_matrix_extraction(tmp_path, test_neighbor_directory):
     # Test basic properties of the neighbor data
     assert ds.number_of_rows() == 8
     assert len(ds._neighbor_indices) == 29  # 29 nonzero entries
-    assert len(ds._neighbor_indptr) == 9    # 8 cells + 1 (CSR format)
-    assert len(ds._neighbor_data) == 29     # 29 nonzero values
+    assert len(ds._neighbor_indptr) == 9  # 8 cells + 1 (CSR format)
+    assert len(ds._neighbor_data) == 29  # 29 nonzero values
 
     # Test that the neighbor matrix structure is valid (CSR format)
     # indptr should be monotonically increasing
-    assert all(ds._neighbor_indptr[i] <= ds._neighbor_indptr[i+1] for i in range(len(ds._neighbor_indptr)-1))
+    assert all(ds._neighbor_indptr[i] <= ds._neighbor_indptr[i + 1] for i in range(len(ds._neighbor_indptr) - 1))
 
     # All indices should be valid cell indices (0 to 7)
     assert all(0 <= idx < 8 for idx in ds._neighbor_indices)
 
     # All data values should be positive (pseudotime values)
     assert all(val > 0 for val in ds._neighbor_data)
+
 
 def test_sample_neighbor_index(tmp_path, monkeypatch, test_neighbor_directory):
     """Test neighbor index sampling using real sample data."""
@@ -349,9 +351,9 @@ def test_sample_neighbor_index(tmp_path, monkeypatch, test_neighbor_directory):
         data_path=tmp_path / "scn",
         h5ad_path=sample_neighbor_file,
         load_neighbors=True,
-        neighbor_key='next_cell_ids',
-        neighbor_sampling_strategy='random',
-        fallback_to_identity=True
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
     )
 
     # Mock numpy's random choice to make sampling deterministic
@@ -359,7 +361,7 @@ def test_sample_neighbor_index(tmp_path, monkeypatch, test_neighbor_directory):
         # Always return the first element for predictable testing
         return arr[0]
 
-    monkeypatch.setattr(np.random, 'choice', mock_choice)
+    monkeypatch.setattr(np.random, "choice", mock_choice)
 
     # Test sampling for cells that have neighbors
     for cell_idx in range(ds.number_of_rows()):
@@ -370,12 +372,16 @@ def test_sample_neighbor_index(tmp_path, monkeypatch, test_neighbor_directory):
             # Get the expected neighbor (first one due to our mock)
             expected_neighbor = ds._neighbor_indices[start_idx]
             sampled_neighbor = ds.sample_neighbor_index(cell_idx)
-            assert sampled_neighbor == expected_neighbor, f"Cell {cell_idx} should sample neighbor {expected_neighbor}, got {sampled_neighbor}"
+            assert sampled_neighbor == expected_neighbor, (
+                f"Cell {cell_idx} should sample neighbor {expected_neighbor}, got {sampled_neighbor}"
+            )
 
     # Test fallback behavior for cell 0 which has no neighbors
     cell_idx = 0
     sampled_neighbor = ds.sample_neighbor_index(cell_idx)
-    assert sampled_neighbor == cell_idx, f"Cell {cell_idx} with no neighbors should return itself, got {sampled_neighbor}"
+    assert sampled_neighbor == cell_idx, (
+        f"Cell {cell_idx} with no neighbors should return itself, got {sampled_neighbor}"
+    )
 
     # Test that sampling respects the probability distribution when using weighted sampling
     # Reset to use actual random sampling (remove mock)
@@ -402,6 +408,7 @@ def test_sample_neighbor_index(tmp_path, monkeypatch, test_neighbor_directory):
             valid_neighbors = ds._neighbor_indices[start_idx:end_idx]
             assert neighbor in valid_neighbors, f"Sampled neighbor {neighbor} not in valid neighbors {valid_neighbors}"
 
+
 def test_get_row_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
     """Test get_row_with_neighbor using real sample data."""
 
@@ -413,9 +420,9 @@ def test_get_row_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
         data_path=tmp_path / "scnn",
         h5ad_path=sample_neighbor_file,
         load_neighbors=True,
-        neighbor_key='next_cell_ids',
-        neighbor_sampling_strategy='random',
-        fallback_to_identity=True
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
     )
 
     # Verify neighbors are loaded
@@ -429,22 +436,22 @@ def test_get_row_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
             return 0  # Cell 2's neighbor is cell 0 (both have data)
         else:
             return idx  # Fallback to self for other cells
-        
+
     # Use monkeypatch to mock the method properly
-    monkeypatch.setattr(ds, 'sample_neighbor_index', mock_sample_neighbor)
+    monkeypatch.setattr(ds, "sample_neighbor_index", mock_sample_neighbor)
 
     # Test get_row_with_neighbor with neighbor (cell 0 -> cell 2)
     result = ds.get_row_with_neighbor(0, include_neighbor=True)
 
     # Validate structure and content
     assert isinstance(result, dict)
-    assert set(result.keys()) == {'current_cell', 'next_cell', 'current_cell_index', 'next_cell_index', 'features'}
-    assert result['current_cell_index'] == 0
-    assert result['next_cell_index'] == 2
+    assert set(result.keys()) == {"current_cell", "next_cell", "current_cell_index", "next_cell_index", "features"}
+    assert result["current_cell_index"] == 0
+    assert result["next_cell_index"] == 2
 
     # Test cell data structure (should be tuples of (values, indices))
-    current_values, current_cols = result['current_cell']
-    next_values, next_cols = result['next_cell']
+    current_values, current_cols = result["current_cell"]
+    next_values, next_cols = result["next_cell"]
 
     # Verify that we get actual data from the real dataset
     assert isinstance(current_values, np.ndarray)
@@ -477,8 +484,9 @@ def test_get_row_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
 
     # Test with cell 1 which has no gene expression data (should handle gracefully)
     result_empty = ds.get_row_with_neighbor(1, include_neighbor=True)
-    assert result_empty['current_cell_index'] == 1
-    assert result_empty['next_cell_index'] == 1  # Should fallback to itself
+    assert result_empty["current_cell_index"] == 1
+    assert result_empty["next_cell_index"] == 1  # Should fallback to itself
+
 
 def test_get_row_padded_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
     """Test get_row_padded_with_neighbor using real sample data."""
@@ -491,9 +499,9 @@ def test_get_row_padded_with_neighbor(tmp_path, monkeypatch, test_neighbor_direc
         data_path=tmp_path / "scnn",
         h5ad_path=sample_neighbor_file,
         load_neighbors=True,
-        neighbor_key='next_cell_ids',
-        neighbor_sampling_strategy='random',
-        fallback_to_identity=True
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
     )
 
     # Verify neighbors are loaded
@@ -509,20 +517,20 @@ def test_get_row_padded_with_neighbor(tmp_path, monkeypatch, test_neighbor_direc
             return cell_index  # Fallback to self for other cells
 
     # Use monkeypatch to mock the method properly
-    monkeypatch.setattr(ds, 'sample_neighbor_index', mock_sample_neighbor)
+    monkeypatch.setattr(ds, "sample_neighbor_index", mock_sample_neighbor)
 
     # Test get_row_padded_with_neighbor with neighbor (cell 0 -> cell 2)
     result = ds.get_row_padded_with_neighbor(0, include_neighbor=True)
 
     # Validate structure and content
     assert isinstance(result, dict)
-    assert set(result.keys()) == {'current_cell', 'next_cell', 'current_cell_index', 'next_cell_index', 'features'}
-    assert result['current_cell_index'] == 0
-    assert result['next_cell_index'] == 2
+    assert set(result.keys()) == {"current_cell", "next_cell", "current_cell_index", "next_cell_index", "features"}
+    assert result["current_cell_index"] == 0
+    assert result["next_cell_index"] == 2
 
     # Test padded data (should be dense arrays with zeros for missing values)
-    current_padded = result['current_cell']
-    next_padded = result['next_cell']
+    current_padded = result["current_cell"]
+    next_padded = result["next_cell"]
 
     # Verify that we get dense numpy arrays
     assert isinstance(current_padded, np.ndarray)
@@ -553,8 +561,8 @@ def test_get_row_padded_with_neighbor(tmp_path, monkeypatch, test_neighbor_direc
     padded_only, features_only = result_no_neighbor
     assert np.array_equal(padded_only, current_padded)
 
-def test_get_neighbor_stats(tmp_path, test_neighbor_directory):
 
+def test_get_neighbor_stats(tmp_path, test_neighbor_directory):
     # Path to the NGC sample neighbor data
     sample_neighbor_file = test_neighbor_directory / "adata_sample0_neighbors.h5ad"
 
@@ -563,9 +571,9 @@ def test_get_neighbor_stats(tmp_path, test_neighbor_directory):
         data_path=tmp_path / "scn",
         h5ad_path=sample_neighbor_file,
         load_neighbors=True,
-        neighbor_key='next_cell_ids',
-        neighbor_sampling_strategy='random',
-        fallback_to_identity=True
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
     )
 
     # Verify neighbors are loaded
@@ -576,12 +584,12 @@ def test_get_neighbor_stats(tmp_path, test_neighbor_directory):
 
     # Validate the structure of the stats dictionary
     expected_keys = {
-        "has_neighbors", 
-        "total_connections", 
-        "min_neighbors_per_cell", 
-        "max_neighbors_per_cell", 
-        "avg_neighbors_per_cell", 
-        "cells_with_no_neighbors"
+        "has_neighbors",
+        "total_connections",
+        "min_neighbors_per_cell",
+        "max_neighbors_per_cell",
+        "avg_neighbors_per_cell",
+        "cells_with_no_neighbors",
     }
     assert set(stats.keys()) == expected_keys
 
@@ -634,9 +642,9 @@ def test_get_neighbor_stats(tmp_path, test_neighbor_directory):
         data_path=tmp_path / "scn_no_neighbors",
         h5ad_path=sample_neighbor_file,
         load_neighbors=False,  # Disable neighbor loading
-        neighbor_key='next_cell_ids',
-        neighbor_sampling_strategy='random',
-        fallback_to_identity=True
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
     )
 
     # Verify no neighbors were loaded

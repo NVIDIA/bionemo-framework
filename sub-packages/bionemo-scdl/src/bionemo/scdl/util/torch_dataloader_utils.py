@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Dict, List, Union
+
 import torch
-from typing import List, Dict, Union
 
 
 def collate_sparse_matrix_batch(batch: list[torch.Tensor]) -> torch.Tensor:
@@ -40,6 +41,7 @@ def collate_sparse_matrix_batch(batch: list[torch.Tensor]) -> torch.Tensor:
     batch_sparse_tensor = torch.sparse_csr_tensor(batch_rows, batch_cols, batch_values, size=(len(batch), max_pointer))
     return batch_sparse_tensor
 
+
 def collate_neighbor_sparse_matrix_batch(batch: List[Dict]) -> Dict[str, Union[torch.Tensor, List[int], int]]:
     """Collates a batch of samples with neighbor data into a single batch.
 
@@ -48,7 +50,7 @@ def collate_neighbor_sparse_matrix_batch(batch: List[Dict]) -> Dict[str, Union[t
 
     Args:
         batch: List of dictionaries, each containing:
-               - 'current_cell': Tuple[np.ndarray, np.ndarray] (values, columns) 
+               - 'current_cell': Tuple[np.ndarray, np.ndarray] (values, columns)
                - 'next_cell': Tuple[np.ndarray, np.ndarray] (values, columns)
                - 'current_cell_index': int
                - 'next_cell_index': int
@@ -56,31 +58,36 @@ def collate_neighbor_sparse_matrix_batch(batch: List[Dict]) -> Dict[str, Union[t
     Returns:
         Dict containing:
         - 'current_cells': Sparse tensor containing all current cells
-        - 'next_cells': Sparse tensor containing all next cells  
+        - 'next_cells': Sparse tensor containing all next cells
         - 'current_cell_indices': List of original indices for current cells
         - 'next_cell_indices': List of original indices for next cells
         - 'batch_size': Number of samples in the batch
     """
     # Extract components
-    current_cells = [item['current_cell'] for item in batch]
-    next_cells = [item['next_cell'] for item in batch]
-    current_indices = [item['current_cell_index'] for item in batch]
-    next_indices = [item['next_cell_index'] for item in batch]
-    
+    current_cells = [item["current_cell"] for item in batch]
+    next_cells = [item["next_cell"] for item in batch]
+    current_indices = [item["current_cell_index"] for item in batch]
+    next_indices = [item["next_cell_index"] for item in batch]
+
     # Convert tuple format (values, columns) to tensors for collation
     # Each tensor should be stacked as [values, columns] to match collate_sparse_matrix_batch format
-    current_tensors = [torch.stack([torch.tensor(values, dtype=torch.float32), torch.tensor(columns, dtype=torch.float32)]) for values, columns in current_cells]
-    next_tensors = [torch.stack([torch.tensor(values, dtype=torch.float32), torch.tensor(columns, dtype=torch.float32)]) for values, columns in next_cells]
-    
+    current_tensors = [
+        torch.stack([torch.tensor(values, dtype=torch.float32), torch.tensor(columns, dtype=torch.float32)])
+        for values, columns in current_cells
+    ]
+    next_tensors = [
+        torch.stack([torch.tensor(values, dtype=torch.float32), torch.tensor(columns, dtype=torch.float32)])
+        for values, columns in next_cells
+    ]
+
     # Collate the sparse tensors
     current_batch = collate_sparse_matrix_batch(current_tensors)
     next_batch = collate_sparse_matrix_batch(next_tensors)
-    
-    return {
-        'current_cells': current_batch,
-        'next_cells': next_batch,
-        'current_cell_indices': current_indices,
-        'next_cell_indices': next_indices,
-        'batch_size': len(batch)
-    }
 
+    return {
+        "current_cells": current_batch,
+        "next_cells": next_batch,
+        "current_cell_indices": current_indices,
+        "next_cell_indices": next_indices,
+        "batch_size": len(batch),
+    }

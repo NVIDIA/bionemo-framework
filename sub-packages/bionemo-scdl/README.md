@@ -206,7 +206,7 @@ from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset, 
 
 # Load dataset with neighbor support
 data = SingleCellMemMapDataset(
-    "dataset_path", 
+    "dataset_path",
     "path/to/anndata.h5ad",
     load_neighbors=True,                               # Enable neighbor functionality
     neighbor_key='next_cell_ids',                      # Key in AnnData.obsp containing neighbor information
@@ -240,7 +240,7 @@ for cell_index in range(len(data)):
     current_cell_data, _ = data.get_row(cell_index)
     neighbor_index = data.sample_neighbor_index(cell_index)
     neighbor_cell_data, _ = data.get_row(neighbor_index)
-    
+
     # Use in contrastive loss
     current_embedding = model.encode(current_cell_data)
     neighbor_embedding = model.encode(neighbor_cell_data)
