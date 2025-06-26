@@ -126,8 +126,7 @@ class InMemoryProteinDataset(Dataset):
         # Handle labels_mask if it exists
         if self.labels_mask is not None:
             # Get the original labels_mask for this sequence
-            labels_mask = self.labels_mask.iloc[index]
-            labels_mask = list(labels_mask)
+            labels_mask = list(self.labels_mask.iloc[index])
 
             # Insert 0 tokens at special token positions to pad to tokenized_sequence length
             idx = 0
@@ -148,8 +147,8 @@ class InMemoryProteinDataset(Dataset):
         # Combine with labels_mask if it exists
         if labels_mask is not None:
             # Convert string labels_mask to boolean tensor
-            labels_mask_tensor = torch.tensor([bool(int(char)) for char in labels_mask], dtype=torch.bool)
-            loss_mask = loss_mask & labels_mask_tensor
+            labels_mask_tensor = torch.from_numpy(np.fromiter(labels_mask, dtype="U1") == "1")
+            loss_mask &= labels_mask_tensor
 
         return {
             "text": tokenized_sequence,
