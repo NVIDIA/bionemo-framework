@@ -902,21 +902,30 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         return vars, num_rows
 
     def _load_neighbor_memmaps(self):
-        if not self._has_neighbors:
-            return
+        
+        try:
+            # mmap the existing arrays
+            self._neighbor_indices = self._load_mmap_file_if_exists(
+                f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}", 
+                self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"]
+            )
+            self._neighbor_indptr = self._load_mmap_file_if_exists(
+                f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}", 
+                self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"]
+            )
+            self._neighbor_data = self._load_mmap_file_if_exists(
+                f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}", 
+                self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"]
+            )
 
-        # mmap the existing arrays
-        self._neighbor_indices = self._load_mmap_file_if_exists(
-            # self._neighbor_indices_path, dtype='int32'
-            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}", self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"]
-        )
-        self._neighbor_indptr = self._load_mmap_file_if_exists(
-            # self._neighbor_indptr_path, dtype='int32'
-            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}", self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"]
-        )
-        self._neighbor_data = self._load_mmap_file_if_exists(
-            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}", self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"]
-        )
+            self._has_neighbors = True
+            
+        except FileNotFoundError:
+            # Neighbor files don't exist - this is OK if load_neighbors=False
+            # or if dataset was created without neighbors
+            self._has_neighbors = False
+            if self.load_neighbors:
+                warnings.warn("Neighbor loading was requested but neighbor files are missing")
 
     def load_h5ad(
         self,
