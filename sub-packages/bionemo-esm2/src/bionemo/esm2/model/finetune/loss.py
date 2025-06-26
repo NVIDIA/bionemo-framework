@@ -23,8 +23,6 @@ from torch import Tensor
 
 from bionemo.llm.model.loss import (
     BERTMLMLossWithReduction,
-    PerTokenLossDict,
-    SameSizeLossDict,
     unreduced_token_loss_fn,
 )
 
@@ -43,42 +41,26 @@ class RegressorLossReduction(BERTMLMLossWithReduction):
 
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
-    ) -> Tuple[Tensor, PerTokenLossDict | SameSizeLossDict]:
-        """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
+        """Calculates the sum of squared errors within a micro-batch. A micro-batch is a batch of data on a single GPU. The averaging of the loss is done in super().reduce().
 
         Args:
             batch: A batch of data that gets passed to the original forward inside LitAutoEncoder.
             forward_out: the output of the forward method inside classification head.
-
-        Returns:
-            A tuple containing [<loss_tensor>, ReductionT] where the loss tensor will be used for
-                backpropagation and the ReductionT will be passed to the reduce method
-                (which currently only works for logging.).
         """
         regression_output = forward_out["regression_output"]
         targets = batch["labels"].to(dtype=regression_output.dtype)  # [b, 1]
 
+        num_valid_tokens = torch.tensor(targets.numel(), dtype=torch.int, device=targets.device)
+
         cp_size = parallel_state.get_context_parallel_world_size()
         if cp_size == 1:
-            loss = torch.nn.functional.mse_loss(regression_output, targets)
+            loss_sum = ((regression_output - targets) ** 2).sum()  # [b, 1]
         else:
             raise NotImplementedError("Context Parallel support is not implemented for this loss")
 
-        return loss, {"avg": loss}
-
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
-        """Works across micro-batches. (data on single gpu).
-
-        Note: This currently only works for logging and this loss will not be used for backpropagation.
-
-        Args:
-            losses_reduced_per_micro_batch: a list of the outputs of forward
-
-        Returns:
-            A tensor that is the mean of the losses. (used for logging).
-        """
-        losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
-        return losses.mean()
+        loss_sum_and_ub_size = torch.cat([loss_sum.clone().detach().view(1), num_valid_tokens.view(1)])
+        return loss_sum, num_valid_tokens, {"loss_sum_and_ub_size": loss_sum_and_ub_size}
 
 
 class ClassifierLossReduction(BERTMLMLossWithReduction):
@@ -90,15 +72,11 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
-        """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
+        """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU. The averaging of the loss is done in super().reduce().
 
         Args:
             batch: A batch of data that gets passed to the original forward inside LitAutoEncoder.
             forward_out: the output of the forward method inside classification head.
-
-        Returns:
-            A tuple where the loss tensor will be used for backpropagation and the dict will be passed to
-            the reduce method, which currently only works for logging.
         """
         targets = batch["labels"].squeeze()  # [b] or [b, s] for sequence-level or token-level classification
         loss_mask = batch["loss_mask"]
