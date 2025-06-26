@@ -97,8 +97,8 @@ class BERTMLMLossWithReduction(MegatronLossReduction):  # noqa: D101
 
         num_valid_tokens = num_valid_tokens.clone().detach().to(torch.int)
         loss_sum_and_ub_size = torch.cat([loss_sum.clone().detach().view(1), num_valid_tokens.view(1)])
-# Set to 1 to avoid divide by zero in the megatron scheduler:
-#  https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/pipeline_parallel/schedules.py#L303-L308
+        # Set to 1 to avoid divide by zero in the megatron scheduler:
+        #  https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/pipeline_parallel/schedules.py#L303-L308
         if num_valid_tokens.item() == 0:
             num_valid_tokens = torch.ones_like(num_valid_tokens)
 
