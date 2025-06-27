@@ -77,6 +77,16 @@ def test_infer_runs(
         lora_checkpoint_path = load("esm2/esm2_lora_weights:1.1") / "weights"
     else:
         lora_checkpoint_path = None
+
+    if config_class == ESM2FineTuneTokenConfig:
+        initial_ckpt_skip_keys_with_these_prefixes = ["classification_head"]
+    elif config_class == ESM2Config:
+        initial_ckpt_skip_keys_with_these_prefixes = []
+    else:
+        raise ValueError(
+            f"initial_ckpt_skip_keys_with_these_prefixes need to be specified for config class {config_class}"
+        )
+
     infer_model(
         data_path=data_path,
         checkpoint_path=checkpoint_path,
@@ -91,6 +101,7 @@ def test_infer_runs(
         micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
         config_class=config_class,
         lora_checkpoint_path=lora_checkpoint_path,
+        initial_ckpt_skip_keys_with_these_prefixes=initial_ckpt_skip_keys_with_these_prefixes,
     )
     assert result_dir.exists(), "Could not find test results directory."
 
