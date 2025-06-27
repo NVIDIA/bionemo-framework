@@ -55,7 +55,7 @@ class RegressorLossReduction(BERTMLMLossWithReduction):
 
         cp_size = parallel_state.get_context_parallel_world_size()
         if cp_size == 1:
-            loss_sum = ((regression_output - targets) ** 2).sum()  # [b, 1]
+            loss_sum = ((regression_output - targets) ** 2).sum()  # torch.float
         else:
             raise NotImplementedError("Context Parallel support is not implemented for this loss")
 
@@ -94,7 +94,7 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
 
         # NOTE: token_logits is [sequence, batch] but labels and other fields, including the loss are [batch, sequence]
         unreduced_token_loss = unreduced_token_loss_fn(classification_output, targets)  # [b s]
-        loss_sum, num_valid_tokens = masked_token_loss(unreduced_token_loss, loss_mask)
+        loss_sum, num_valid_tokens = masked_token_loss(unreduced_token_loss, loss_mask)  # torch.float, torch.int
 
         if self.validation_step and not self.val_drop_last and loss_sum.isnan():
             assert num_valid_tokens == 0, "Got NaN loss with non-empty input"
