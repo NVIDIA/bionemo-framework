@@ -136,6 +136,11 @@ fi
 RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
 
+# Copy and install cuhyena wheel
+COPY ./cuhyena-0.2-cp312-cp312-linux_x86_64.whl /tmp/cuhyena-0.2-cp312-cp312-linux_x86_64.whl
+RUN pip --disable-pip-version-check --no-cache-dir install /tmp/cuhyena-0.2-cp312-cp312-linux_x86_64.whl && \
+    rm /tmp/cuhyena-0.2-cp312-cp312-linux_x86_64.whl
+
 # Nemo Run installation
 # Some things are pip installed in advance to avoid dependency issues during nemo_run installation
 RUN pip install hatchling urllib3  # needed to install nemo-run
