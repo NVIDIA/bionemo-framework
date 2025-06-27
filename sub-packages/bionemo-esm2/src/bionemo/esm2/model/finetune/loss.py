@@ -42,7 +42,7 @@ class RegressorLossReduction(BERTMLMLossWithReduction):
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
-        """Calculates the sum of squared errors within a micro-batch. A micro-batch is a batch of data on a single GPU. The averaging of the loss is done in super().reduce().
+        """Calculates the sum of squared errors within a micro-batch. A micro-batch is a batch of data on a single GPU. The averaging of the loss, i.e. MSE loss, is done in https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/pipeline_parallel/schedules.py#L304-L314.
 
         Args:
             batch: A batch of data that gets passed to the original forward inside LitAutoEncoder.
@@ -72,7 +72,7 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
-        """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU. The averaging of the loss is done in super().reduce().
+        """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU. The averaging of the loss is done in https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/pipeline_parallel/schedules.py#L304-L314.
 
         Args:
             batch: A batch of data that gets passed to the original forward inside LitAutoEncoder.
