@@ -11,8 +11,6 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
-    # internal
-    "bionemo-noodles",
     "bionemo-core",
     "bionemo-llm",
     # external
