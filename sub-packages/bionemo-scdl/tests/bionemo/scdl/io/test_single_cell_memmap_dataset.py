@@ -429,19 +429,19 @@ def test_get_row_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
     assert ds._has_neighbors is True
 
     # Mock sample_neighbor_index to return predictable neighbors for testing
-    def mock_sample_neighbor(idx):
-        if idx == 0:
+    def mock_sample_neighbor(cell_index):
+        if cell_index == 0:
             return 2  # Cell 0's neighbor is cell 2 (both have data)
-        elif idx == 2:
+        elif cell_index == 2:
             return 0  # Cell 2's neighbor is cell 0 (both have data)
         else:
-            return idx  # Fallback to self for other cells
+            return cell_index  # Fallback to self for other cells
 
     # Use monkeypatch to mock the method properly
     monkeypatch.setattr(ds, "sample_neighbor_index", mock_sample_neighbor)
 
-    # Test get_row_with_neighbor with neighbor (cell 0 -> cell 2)
-    result = ds.get_row_with_neighbor(0, include_neighbor=True)
+    # Test get_row_with_neighbor
+    result = ds.get_row_with_neighbor(0)
 
     # Validate structure and content
     assert isinstance(result, dict)
@@ -471,19 +471,25 @@ def test_get_row_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
     assert next_values[0] == 19.0, f"Expected cell 2 to have value 19.0, got {next_values[0]}"
     assert next_cols[0] == 2, f"Expected cell 2 to have column 2, got {next_cols[0]}"
 
-    # Test get_row_with_neighbor without neighbor (should return just the current cell)
-    result_no_neighbor = ds.get_row_with_neighbor(0, include_neighbor=False)
-    assert isinstance(result_no_neighbor, tuple)
-    assert len(result_no_neighbor) == 2
+    # Test that calling the function on a dataset without neighbors raises ValueError
+    ds_no_neighbors = SingleCellMemMapDataset(
+        data_path=tmp_path / "scnn_no_neighbors",
+        h5ad_path=sample_neighbor_file,
+        load_neighbors=False,  # No neighbors
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
+    )
 
-    # The result should be the same as the current_cell from the with-neighbor case
-    values_only, features_only = result_no_neighbor
-    current_values_only, current_cols_only = values_only
-    assert np.array_equal(current_values_only, current_values)
-    assert np.array_equal(current_cols_only, current_cols)
+    # Should raise ValueError when trying to use neighbor functions without neighbors
+    try:
+        ds_no_neighbors.get_row_with_neighbor(0)
+        assert False, "Should have raised ValueError for dataset without neighbors"
+    except ValueError as e:
+        assert "Cannot include neighbor data" in str(e)
 
     # Test with cell 1 which has no gene expression data (should handle gracefully)
-    result_empty = ds.get_row_with_neighbor(1, include_neighbor=True)
+    result_empty = ds.get_row_with_neighbor(1)
     assert result_empty["current_cell_index"] == 1
     assert result_empty["next_cell_index"] == 1  # Should fallback to itself
 
@@ -519,8 +525,8 @@ def test_get_row_padded_with_neighbor(tmp_path, monkeypatch, test_neighbor_direc
     # Use monkeypatch to mock the method properly
     monkeypatch.setattr(ds, "sample_neighbor_index", mock_sample_neighbor)
 
-    # Test get_row_padded_with_neighbor with neighbor (cell 0 -> cell 2)
-    result = ds.get_row_padded_with_neighbor(0, include_neighbor=True)
+    # Test get_row_padded_with_neighbor (always returns neighbor data in simplified API)
+    result = ds.get_row_padded_with_neighbor(0)
 
     # Validate structure and content
     assert isinstance(result, dict)
@@ -552,14 +558,22 @@ def test_get_row_padded_with_neighbor(tmp_path, monkeypatch, test_neighbor_direc
             assert current_padded[i] == 0.0, f"Expected cell 0 to have 0.0 at index {i}, got {current_padded[i]}"
             assert next_padded[i] == 0.0, f"Expected cell 2 to have 0.0 at index {i}, got {next_padded[i]}"
 
-    # Test get_row_padded_with_neighbor without neighbor (should return just the current cell)
-    result_no_neighbor = ds.get_row_padded_with_neighbor(0, include_neighbor=False)
-    assert isinstance(result_no_neighbor, tuple)
-    assert len(result_no_neighbor) == 2
+    # Test that calling the function on a dataset without neighbors raises ValueError
+    ds_no_neighbors = SingleCellMemMapDataset(
+        data_path=tmp_path / "scnn_no_neighbors",
+        h5ad_path=sample_neighbor_file,
+        load_neighbors=False,  # No neighbors
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
+    )
 
-    # The result should be the same as the current_cell from the with-neighbor case
-    padded_only, features_only = result_no_neighbor
-    assert np.array_equal(padded_only, current_padded)
+    # Should raise ValueError when trying to use neighbor functions without neighbors
+    try:
+        ds_no_neighbors.get_row_padded_with_neighbor(0)
+        assert False, "Should have raised ValueError for dataset without neighbors"
+    except ValueError as e:
+        assert "Cannot include neighbor data" in str(e)
 
 
 def test_get_neighbor_stats(tmp_path, test_neighbor_directory):

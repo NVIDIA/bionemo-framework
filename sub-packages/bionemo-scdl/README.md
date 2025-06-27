@@ -175,10 +175,11 @@ SCDL now supports loading and utilizing neighbor information from AnnData object
 
 #### Neighbor Data Structure in AnnData
 
-The neighbor functionality expects neighbor information to be stored in the **`.obsp` (observations pairwise) attribute** of the AnnData object as a **sparse matrix**:
+The neighbor functionality reads neighbor information from the **`.obsp` (observations pairwise) attribute** of the AnnData object and **converts it from sparse matrix format into SCDL's memory-mapped format** for efficient access:
 
-- **Location**: `adata.obsp[neighbor_key]` (default key is `'next_cell_ids'`)
-- **Format**: Sparse matrix (scipy.sparse format, typically CSR - Compressed Sparse Row)
+- **Input Location**: `adata.obsp[neighbor_key]` (default key is `'next_cell_ids'`)
+- **Input Format**: Sparse matrix (scipy.sparse format, typically CSR - Compressed Sparse Row)
+- **SCDL Processing**: Converts sparse neighbor data into memory-mapped arrays during dataset creation
 - **Dimensions**: `[n_cells × n_cells]` adjacency matrix
 - **Values**: Weights/distances (e.g., pseudotime values, spatial distances, similarity scores)
 - **Non-zero entries**: Indicate neighbor relationships

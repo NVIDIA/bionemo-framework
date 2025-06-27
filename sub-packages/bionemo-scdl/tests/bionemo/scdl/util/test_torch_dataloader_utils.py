@@ -219,7 +219,7 @@ def test_dataloading_neighbor_batch_with_real_data(tmp_path, test_neighbor_direc
                 return len(self.base_dataset)
 
             def __getitem__(self, idx):
-                return self.base_dataset.get_row_with_neighbor(idx, include_neighbor=True)
+                return self.base_dataset.get_row_with_neighbor(idx)
 
         neighbor_ds = NeighborDataset(ds)
 
@@ -291,7 +291,7 @@ def test_dataloading_neighbor_batch_works_with_expected_output(tmp_path, monkeyp
             return len(self.base_dataset)
 
         def __getitem__(self, idx):
-            return self.base_dataset.get_row_with_neighbor(idx, include_neighbor=True)
+            return self.base_dataset.get_row_with_neighbor(idx)
 
     neighbor_ds = NeighborDataset(ds)
     dataloader = DataLoader(neighbor_ds, batch_size=1, shuffle=False, collate_fn=collate_neighbor_sparse_matrix_batch)

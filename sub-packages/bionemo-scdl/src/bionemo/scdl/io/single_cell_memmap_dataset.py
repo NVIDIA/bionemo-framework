@@ -76,6 +76,7 @@ class NeighborSamplingStrategy(str, Enum):
     """Valid sampling strategies for neighbor selection."""
 
     RANDOM = "random"
+    FIRST = "first"
 
 
 def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:
@@ -513,52 +514,33 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         index: int,
         return_features: bool = False,
         feature_vars: Optional[List[str]] = None,
-        include_neighbor: Optional[bool] = None,
-    ) -> Union[
-        Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]],
-        Dict[str, Union[Tuple[np.ndarray, np.ndarray], int, Optional[List[np.ndarray]]]],
-    ]:
+    ) -> Dict[str, Union[Tuple[np.ndarray, np.ndarray], int, Optional[List[np.ndarray]]]]:
         """Returns a given row in the dataset along with optional features and neighbor data.
 
         Args:
             index: The row to be returned. This is in the range of [0, num_rows)
             return_features: Boolean that indicates whether to return features
             feature_vars: Optional, feature variables to extract
-            include_neighbor: Whether to include neighbor data in the result.
-                              If None, defaults to self.load_neighbors
 
         Returns:
-            If include_neighbor is False or neighbor functionality is disabled:
-                Original return type: Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]]
-                (values, columns), features
-
-            If include_neighbor is True and neighbor functionality is enabled:
-                Dict with keys:
-                - 'current_cell': Tuple[np.ndarray, np.ndarray] - (values, columns) for current cell
-                - 'next_cell': Tuple[np.ndarray, np.ndarray] - (values, columns) for neighbor cell
-                - 'current_cell_index': int - Index of current cell
-                - 'next_cell_index': int - Index of neighbor cell
-                - 'features': List[np.ndarray] - Features if return_features is True, else None
+            Dict with keys:
+            - 'current_cell': Tuple[np.ndarray, np.ndarray] - (values, columns) for current cell
+            - 'next_cell': Tuple[np.ndarray, np.ndarray] - (values, columns) for neighbor cell
+            - 'current_cell_index': int - Index of current cell
+            - 'next_cell_index': int - Index of neighbor cell
+            - 'features': List[np.ndarray] - Features if return_features is True, else None
 
         Raises:
-            ValueError: If include_neighbor=True but neighbor data is not available
+            ValueError: If neighbor functionality is disabled or no neighbor data is available
         """
-        # Determine whether to include neighbor
-        if include_neighbor is None:
-            include_neighbor = self.load_neighbors and self._has_neighbors
-
-        # Validate neighbor availability
-        if include_neighbor and not (self.load_neighbors and self._has_neighbors):
+        # Validate neighbor availability since this function requires neighbors
+        if not (self.load_neighbors and self._has_neighbors):
             raise ValueError(
                 "Cannot include neighbor data: neighbor functionality is disabled or no neighbor data available"
             )
 
         # Get current cell data using the existing get_row function
         current_cell_data, features = self.get_row(index, return_features, feature_vars)
-
-        # If no neighbor requested, return in original format
-        if not include_neighbor:
-            return current_cell_data, features
 
         # Sample neighbor and get its data
         neighbor_index = self.sample_neighbor_index(index)
@@ -610,11 +592,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         index: int,
         return_features: bool = False,
         feature_vars: Optional[List[str]] = None,
-        include_neighbor: Optional[bool] = None,
-    ) -> Union[
-        Tuple[np.ndarray, List[np.ndarray]],  # Original return type
-        Dict[str, Union[np.ndarray, int, List[np.ndarray]]],  # With neighbor
-    ]:
+    ) -> Dict[str, Union[np.ndarray, int, List[np.ndarray]]]:
         """Returns a padded version of a row with optional neighbor data.
 
         A padded version converts sparse representation to a dense array where
@@ -624,41 +602,26 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             index: The row to be returned
             return_features: Boolean that indicates whether to return features
             feature_vars: Optional, feature variables to extract
-            include_neighbor: Whether to include neighbor data in the result.
-                              If None, defaults to self.load_neighbors
 
         Returns:
-            If include_neighbor is False or neighbor functionality is disabled:
-                Original return type: Tuple[np.ndarray, List[np.ndarray]]
-                padded_row, features
-
-            If include_neighbor is True and neighbor functionality is enabled:
-                Dict with keys:
-                - 'current_cell': np.ndarray - Padded array for current cell
-                - 'next_cell': np.ndarray - Padded array for neighbor cell
-                - 'current_cell_index': int - Index of current cell
-                - 'next_cell_index': int - Index of neighbor cell
-                - 'features': List[np.ndarray] - Features if return_features is True, else None
+            Dict with keys:
+            - 'current_cell': np.ndarray - Padded array for current cell
+            - 'next_cell': np.ndarray - Padded array for neighbor cell
+            - 'current_cell_index': int - Index of current cell
+            - 'next_cell_index': int - Index of neighbor cell
+            - 'features': List[np.ndarray] - Features if return_features is True, else None
 
         Raises:
-            ValueError: If include_neighbor=True but neighbor data is not available
+            ValueError: If neighbor functionality is disabled or no neighbor data is available
         """
-        # Determine whether to include neighbor
-        if include_neighbor is None:
-            include_neighbor = self.load_neighbors and self._has_neighbors
-
-        # Validate neighbor availability
-        if include_neighbor and not (self.load_neighbors and self._has_neighbors):
+        # Validate neighbor availability since this function requires neighbors
+        if not (self.load_neighbors and self._has_neighbors):
             raise ValueError(
                 "Cannot include neighbor data: neighbor functionality is disabled or no neighbor data available"
             )
 
-        # If no neighbor requested, use existing get_row_padded function
-        if not include_neighbor:
-            return self.get_row_padded(index, return_features, feature_vars)
-
         # Get both current cell and neighbor data
-        result = self.get_row_with_neighbor(index, return_features, feature_vars, include_neighbor=True)
+        result = self.get_row_with_neighbor(index, return_features, feature_vars)
 
         # Get current cell padded array using get_row_padded
         curr_padded, _ = self.get_row_padded(index, False, None)
@@ -673,7 +636,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             next_padded, _ = self.get_row_padded(next_idx, False, None)
 
         # Return in dictionary format
-        return {  # type: ignore
+        return {
             "current_cell": curr_padded,
             "next_cell": next_padded,
             "current_cell_index": result["current_cell_index"],
@@ -1110,6 +1073,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             # Simple random sampling with equal probability
             chosen_index = np.random.choice(neighbor_indices)
             return chosen_index
+        elif self.neighbor_sampling_strategy == NeighborSamplingStrategy.FIRST:
+            # First neighbor sampling
+            return neighbor_indices[0]
         # NOTE: Future - Add weighted sampling strategy
         else:
             raise ValueError(f"Unsupported neighbor sampling strategy: {self.neighbor_sampling_strategy}")
