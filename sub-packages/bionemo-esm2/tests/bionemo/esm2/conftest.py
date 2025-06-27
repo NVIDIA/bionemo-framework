@@ -124,7 +124,7 @@ def dummy_data_single_value_regression_ft(dummy_data_per_token_classification_ft
     Returns:
         list: A list of dummy data for per-token classification fine-tuning.
     """
-    data = [(seq, len(seq) / 100.0) for seq, _ in dummy_data_per_token_classification_ft]
+    data = [(seq, len(seq) / 100.0) for seq, _, _ in dummy_data_per_token_classification_ft]
     return data
 
 
@@ -146,7 +146,7 @@ def dummy_protein_sequences(dummy_data_per_token_classification_ft):
     Returns:
         list: A list of dummy data for per-token classification fine-tuning.
     """
-    data = [seq for seq, _ in dummy_data_per_token_classification_ft]
+    data = [seq for seq, _, _ in dummy_data_per_token_classification_ft]
     return data
 
 
