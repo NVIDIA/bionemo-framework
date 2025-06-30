@@ -382,29 +382,31 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Create memory-mapped arrays for neighbor data
         self._neighbor_indptr = np.memmap(
             f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}",
-            dtype=neighbor_matrix.indptr.dtype,
+            dtype=self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"],
             mode=Mode.CREATE_APPEND.value,
             shape=(indptr_len,),
         )
 
         self._neighbor_indices = np.memmap(
             f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}",
-            dtype=neighbor_matrix.indices.dtype,
+            dtype=self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"],
             mode=Mode.CREATE_APPEND.value,
             shape=(nnz,),
         )
 
         self._neighbor_data = np.memmap(
             f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}",
-            dtype=neighbor_matrix.data.dtype,
+            dtype=self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"],
             mode=Mode.CREATE_APPEND.value,
             shape=(nnz,),
         )
 
-        # Copy data into memory-mapped arrays
-        self._neighbor_indptr[:] = neighbor_matrix.indptr
-        self._neighbor_indices[:] = neighbor_matrix.indices
-        self._neighbor_data[:] = neighbor_matrix.data
+        # Copy data into memory-mapped arrays (with dtype conversion)
+        self._neighbor_indptr[:] = neighbor_matrix.indptr.astype(
+            self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"]
+        )
+        self._neighbor_indices[:] = neighbor_matrix.indices.astype(self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"])
+        self._neighbor_data[:] = neighbor_matrix.data.astype(self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"])
 
         logger.info("Neighbor data extracted to memory-mapped arrays")
         return True
@@ -437,7 +439,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # First write indptr which gives us the structure - this is usually small enough to handle in one go
         memmap_dir_path = Path(self.data_path)
         with open(f"{memmap_dir_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}", "wb") as indptr_file:
-            indptr_file.write(neighbor_matrix.indptr.tobytes())
+            # Convert to hardcoded dtype before writing
+            indptr_converted = neighbor_matrix.indptr.astype(self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"])
+            indptr_file.write(indptr_converted.tobytes())
 
         # Get dimensions from indptr
         num_rows = len(neighbor_matrix.indptr) - 1
@@ -452,9 +456,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 # Get slice of the matrix for this chunk of rows
                 chunk = neighbor_matrix[row_start:row_end]
 
+                # Convert to hardcoded dtypes before writing
+                indices_converted = chunk.indices.astype(self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"])
+                data_converted = chunk.data.astype(self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"])
+
                 # Write chunk data to files
-                indices_file.write(chunk.indices.tobytes())
-                data_file.write(chunk.data.tobytes())
+                indices_file.write(indices_converted.tobytes())
+                data_file.write(data_converted.tobytes())
 
                 logger.info(f"Processed neighbor data rows {row_start} to {row_end - 1}")
 

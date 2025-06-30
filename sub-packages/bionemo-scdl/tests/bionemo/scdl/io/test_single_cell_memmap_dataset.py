@@ -667,3 +667,130 @@ def test_get_neighbor_stats(tmp_path, test_neighbor_directory):
     # Get stats for dataset without neighbors
     stats_no_neighbors = ds_no_neighbors.get_neighbor_stats()
     assert stats_no_neighbors == {"has_neighbors": False}
+
+
+def test_paginated_neighbor_data_extraction(tmp_path, test_neighbor_directory):
+    """Test paginated neighbor data extraction using forced paginated loading."""
+
+    # Path to the NGC sample neighbor data
+    sample_neighbor_file = test_neighbor_directory / "adata_sample0_neighbors.h5ad"
+
+    # Create dataset with paginated loading forced (by setting cutoff to 0)
+    ds_paginated = SingleCellMemMapDataset(
+        data_path=tmp_path / "scn_paginated",
+        h5ad_path=sample_neighbor_file,
+        load_neighbors=True,
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
+        paginated_load_cutoff=0,  # Force paginated loading for any file size
+        load_block_row_size=3,  # Use small block size to test chunking
+    )
+
+    # Create dataset with regular loading for comparison
+    ds_regular = SingleCellMemMapDataset(
+        data_path=tmp_path / "scn_regular",
+        h5ad_path=sample_neighbor_file,
+        load_neighbors=True,
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
+        paginated_load_cutoff=999999,  # Ensure regular loading
+    )
+
+    # Verify both datasets loaded neighbors successfully
+    assert ds_paginated._has_neighbors is True
+    assert ds_regular._has_neighbors is True
+
+    # Verify that neighbor data structures are identical between paginated and regular loading
+    assert ds_paginated.number_of_rows() == ds_regular.number_of_rows()
+    assert len(ds_paginated._neighbor_indptr) == len(ds_regular._neighbor_indptr)
+    assert len(ds_paginated._neighbor_indices) == len(ds_regular._neighbor_indices)
+    assert len(ds_paginated._neighbor_data) == len(ds_regular._neighbor_data)
+
+    # Verify that the actual neighbor data is identical
+    assert np.array_equal(ds_paginated._neighbor_indptr, ds_regular._neighbor_indptr)
+    assert np.array_equal(ds_paginated._neighbor_indices, ds_regular._neighbor_indices)
+    assert np.array_equal(ds_paginated._neighbor_data, ds_regular._neighbor_data)
+
+    # Test that neighbor functionality works identically
+    for cell_idx in range(ds_paginated.number_of_rows()):
+        paginated_neighbors = ds_paginated.get_neighbor_indices_for_cell(cell_idx)
+        regular_neighbors = ds_regular.get_neighbor_indices_for_cell(cell_idx)
+        assert np.array_equal(paginated_neighbors, regular_neighbors)
+
+        paginated_weights = ds_paginated.get_neighbor_weights_for_cell(cell_idx)
+        regular_weights = ds_regular.get_neighbor_weights_for_cell(cell_idx)
+        assert np.array_equal(paginated_weights, regular_weights)
+
+    # Test that neighbor stats are identical
+    paginated_stats = ds_paginated.get_neighbor_stats()
+    regular_stats = ds_regular.get_neighbor_stats()
+    assert paginated_stats == regular_stats
+
+    # Verify the expected structure from our known test data
+    assert ds_paginated.number_of_rows() == 8
+    assert paginated_stats["total_connections"] == 29
+    assert paginated_stats["has_neighbors"] is True
+
+
+def test_get_neighbor_weights_for_cell(tmp_path, test_neighbor_directory):
+    """Test get_neighbor_weights_for_cell method for coverage."""
+
+    # Path to the NGC sample neighbor data
+    sample_neighbor_file = test_neighbor_directory / "adata_sample0_neighbors.h5ad"
+
+    # Create dataset with neighbors
+    ds_with_neighbors = SingleCellMemMapDataset(
+        data_path=tmp_path / "scn_with_neighbors",
+        h5ad_path=sample_neighbor_file,
+        load_neighbors=True,
+        neighbor_key="next_cell_ids",
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
+    )
+
+    # Test normal operation - get weights for a cell that has neighbors
+    weights = ds_with_neighbors.get_neighbor_weights_for_cell(2)  # Cell 2 has neighbors
+    assert isinstance(weights, np.ndarray)
+    assert len(weights) > 0  # Should have neighbor weights
+
+    # Test cell with no neighbors (cell 0 and 1 have no neighbors based on indptr)
+    weights_empty = ds_with_neighbors.get_neighbor_weights_for_cell(0)
+    assert isinstance(weights_empty, np.ndarray)
+    assert len(weights_empty) == 0  # Should be empty
+
+    # Test IndexError for out of bounds cell index
+    with pytest.raises(IndexError, match="Cell index .* out of bounds"):
+        ds_with_neighbors.get_neighbor_weights_for_cell(999)
+
+    with pytest.raises(IndexError, match="Cell index .* out of bounds"):
+        ds_with_neighbors.get_neighbor_weights_for_cell(-1)
+
+    # Create dataset without neighbors to test error conditions
+    ds_without_neighbors = SingleCellMemMapDataset(
+        data_path=tmp_path / "scn_without_neighbors",
+        h5ad_path=sample_neighbor_file,
+        load_neighbors=False,  # No neighbors requested
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
+    )
+
+    # Test with load_neighbors=False - should return empty array
+    weights_no_neighbors = ds_without_neighbors.get_neighbor_weights_for_cell(0)
+    assert isinstance(weights_no_neighbors, np.ndarray)
+    assert len(weights_no_neighbors) == 0
+
+    # Create dataset that requests neighbors but has no neighbor data to test ValueError
+    ds_neighbors_requested = SingleCellMemMapDataset(
+        data_path=tmp_path / "scn_neighbors_requested",
+        h5ad_path=sample_neighbor_file,
+        load_neighbors=True,
+        neighbor_key="nonexistent_key",  # This key doesn't exist, so no neighbors will be loaded
+        neighbor_sampling_strategy="random",
+        fallback_to_identity=True,
+    )
+
+    # Test ValueError when neighbors were requested but not available
+    with pytest.raises(ValueError, match="Neighbor functionality was enabled but no neighbor data is available"):
+        ds_neighbors_requested.get_neighbor_weights_for_cell(0)
