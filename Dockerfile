@@ -19,9 +19,9 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.01-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.04-py3
 
-FROM rust:1.82.0 AS rust-env
+FROM rust:1.86.0 AS rust-env
 
 RUN rustup set profile minimal && \
   rustup install 1.82.0 && \
@@ -50,11 +50,19 @@ apt-get install -qyy \
   pre-commit \
   sudo \
   gnupg \
-  unzip
+  unzip \
+  libsqlite3-dev
 apt-get upgrade -qyy \
   rsync
 rm -rf /tmp/* /var/tmp/*
 EOF
+
+
+## BUMP TE as a solution to the issue https://github.com/NVIDIA/bionemo-framework/issues/422. Drop this when pytorch images ship the fixed commit.
+ ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
+ RUN PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
+    pip --disable-pip-version-check --no-cache-dir install \
+    git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
 
 # Install AWS CLI based on architecture
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
@@ -67,6 +75,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     unzip awscliv2.zip && \
     ./aws/install && \
     rm -rf aws awscliv2.zip
+
 
 # Use a branch of causal_conv1d while the repository works on Blackwell support.
 ARG CAUSAL_CONV_TAG=52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
@@ -118,6 +127,18 @@ fi
 # /end ARM
 ###############################################################################
 
+# Bits and bytes needs to be built from scratch
+RUN cd / && pip uninstall bitsandbytes && \
+    git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
+    cd bitsandbytes && cmake -DCOMPUTE_BACKEND=cuda -S . && make && pip install . && cd .. && rm -rf bitsandbytes
+
+# Fix the version of scikit-misc to 0.3.1 because newer versions of scikit-misc require numpy >= 2.0 to be built.
+# Since there are not pre-built wheels for arm64, we need to install this specific version.
+# Once bionemo is compatible with numpy >= 2.0, we can remove this.
+# Technically, this is only needed for the ARM build, but we apply to all architectures to avoid library version
+# divergence.
+RUN pip install scikit-misc==0.3.1
+
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
   git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
@@ -127,6 +148,9 @@ RUN pip --disable-pip-version-check --no-cache-dir install \
 RUN pip install hatchling urllib3  # needed to install nemo-run
 ARG NEMU_RUN_TAG=v0.3.0
 RUN pip install nemo_run@git+https://github.com/NVIDIA/NeMo-Run.git@${NEMU_RUN_TAG} --use-deprecated=legacy-resolver
+
+# Rapids SingleCell Installation
+RUN pip install 'rapids-singlecell' --extra-index-url=https://pypi.nvidia.com
 
 RUN mkdir -p /workspace/bionemo2/
 
@@ -179,6 +203,8 @@ rm -rf nvidia-resiliency-ext/
 sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
 # Remove llama-index because bionemo doesn't use it and it adds CVEs to container
 sed -i "/llama-index/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt
+# Pin 'nvidia-modelopt' to 0.27.1 due to an API incompatibility of version 0.25.0
+sed -i -E "s|nvidia-modelopt\[torch\]>=[^,]+,<=([^ ;]+)|nvidia-modelopt[torch]==\1|" ./3rdparty/NeMo/requirements/requirements_nlp.txt
 uv pip install --no-build-isolation \
 ./3rdparty/*  \
 ./sub-packages/bionemo-* \
@@ -186,7 +212,7 @@ uv pip install --no-build-isolation \
 -r /requirements-test.txt
 
 # Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
-uv pip install ngcsdk
+uv pip install ngcsdk==3.64.3  # Temporary fix for changed filename, see https://nvidia.slack.com/archives/C074Z808N05/p1746231345981209
 
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
 # dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
@@ -313,6 +339,8 @@ COPY ./docs ./docs
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
+# Fix a CRIT vuln: https://github.com/advisories/GHSA-vqfr-h8mv-ghfj
+RUN uv pip install h11==0.16.0
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
 RUN chmod 777 -R /workspace/bionemo2/

@@ -38,7 +38,8 @@ def mock_hf_dataset():
     return Dataset.from_dict({"sequence": sequences})
 
 
-def test_train_amplify_runs_small_model(tmpdir, monkeypatch, mock_hf_dataset):
+@pytest.mark.parametrize("create_checkpoint_callback", [True, False])
+def test_train_amplify_runs_small_model(tmpdir, monkeypatch, mock_hf_dataset, create_checkpoint_callback):
     """Test that train_amplify can run a small model for a few steps."""
     # Set up the test directory
     result_dir = Path(tmpdir) / "results"
@@ -73,6 +74,7 @@ def test_train_amplify_runs_small_model(tmpdir, monkeypatch, mock_hf_dataset):
             wandb_offline=True,
             wandb_project=None,
             create_tensorboard_logger=False,
+            create_checkpoint_callback=create_checkpoint_callback,  # Use the parameter
             # Small model configuration
             num_layers=2,
             hidden_size=8,
@@ -82,21 +84,35 @@ def test_train_amplify_runs_small_model(tmpdir, monkeypatch, mock_hf_dataset):
         )
 
     # Verify the training completed successfully
-    assert (result_dir / "test_amplify").exists(), "Could not find test experiment directory"
-    assert (result_dir / "test_amplify").is_dir(), "Test experiment directory is supposed to be a directory"
+    experiment_dir = result_dir / "test_amplify"
+    assert experiment_dir.exists(), "Could not find test experiment directory"
+    assert experiment_dir.is_dir(), "Test experiment directory is supposed to be a directory"
 
-    # Check for the experiment run directory (will be named with timestamp)
-    children = list((result_dir / "test_amplify").iterdir())
-    assert len(children) == 1, f"Expected 1 child in test experiment directory, found {children}"
-    run_dir = children[0]
+    # Check for the run directory
+    log_dir = experiment_dir / "dev"
+    assert log_dir.exists(), "Directory with logs does not exist"
 
-    # Check for logs and checkpoints
-    assert (result_dir / "test_amplify" / run_dir / "nemo_log_globalrank-0_localrank-0.txt").is_file(), (
-        "Could not find experiment log"
+    # Check expected number of children based on checkpoint creation
+    children = list(experiment_dir.iterdir())
+    expected_children = 2 if create_checkpoint_callback else 1
+    assert len(children) == expected_children, (
+        f"Expected {expected_children} children in experiment directory, found {children}"
     )
-    assert (result_dir / "test_amplify" / run_dir / "checkpoints").exists(), (
-        "Could not find experiment checkpoints directory"
-    )
+
+    # Check for checkpoints if they should exist
+    if create_checkpoint_callback:
+        checkpoints_dir = experiment_dir / "checkpoints"
+        assert checkpoints_dir.exists(), "Checkpoints directory does not exist"
+
+        # Check if correct checkpoint was saved
+        expected_checkpoint_suffix = "step=2"  # Since you run 3 steps (0,1,2)
+        matching_checkpoints = [p for p in checkpoints_dir.iterdir() if expected_checkpoint_suffix in p.name]
+        assert matching_checkpoints, (
+            f"No checkpoint file with '{expected_checkpoint_suffix}' found in {checkpoints_dir}"
+        )
+
+    # Check for logs
+    assert (log_dir / "nemo_log_globalrank-0_localrank-0.txt").is_file(), "Could not find experiment log"
 
     # Verify trainer completed steps
     assert trainer.global_step == 3, f"Expected 3 training steps, got {trainer.global_step}"

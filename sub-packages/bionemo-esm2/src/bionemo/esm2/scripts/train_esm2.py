@@ -69,6 +69,8 @@ def main(
     experiment_name: str,
     resume_if_exists: bool,
     precision: PrecisionTypes,
+    weight_decay: float = 0.01,
+    early_stop_on_step: Optional[int] = None,
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
     wandb_offline: bool = False,
@@ -102,6 +104,7 @@ def main(
     overlap_param_gather: bool = True,
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
+    decoder_first_pipeline_num_layers: Optional[int] = None,
 ) -> nl.Trainer:
     """Train an ESM2 model on UR data.
 
@@ -116,6 +119,7 @@ def main(
         max_seq_length (int): maximum sequence length
         result_dir (Path): directory to store results, logs and checkpoints
         num_steps (int): number of steps to train the model for
+        early_stop_on_step (Optional[int]): Stop training on this step, if set. This may be useful for testing or debugging purposes.
         warmup_steps (int): number of steps for warmup phase
         limit_val_batches (int): limit the number of validation global batches to this many
         val_check_interval (int): number of steps to periodically check the validation loss
@@ -130,6 +134,7 @@ def main(
             result_dir that stores the logs and checkpoints.
         resume_if_exists (bool): attempt to resume if the checkpoint exists [FIXME @skothenhill this doesn't work yet]
         precision (PrecisionTypes): Precision type for training (e.g., float16, float32)
+        weight_decay (float): weight decay
         wandb_entity (Optional[str]): The team posting this run (default: your username or your default team)
         wandb_project (Optional[str]): The name of the project to which this run will belong
         wandb_offline (bool): Run offline (data can be streamed later to wandb servers).
@@ -164,6 +169,7 @@ def main(
         overlap_param_gather (bool): overlap parameter gather
         average_in_collective (bool): average in collective
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
+        decoder_first_pipeline_num_layers (Optional[int]): number of layers in the decoder first pipeline. Default None is even split of transformer layers across all pipeline stages
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -207,6 +213,12 @@ def main(
             metric_name="val_ppl",
         )
 
+    # Set decoder_first_pipeline_num_layers if needed and not provided
+    if num_layers % pipeline_model_parallel_size != 0 and decoder_first_pipeline_num_layers is None:
+        decoder_first_pipeline_num_layers = num_layers - int(num_layers / pipeline_model_parallel_size + 0.5) * (
+            pipeline_model_parallel_size - 1
+        )
+
     esm2_config = ESM2Config(
         seq_length=max_seq_length,
         num_layers=num_layers,
@@ -223,6 +235,8 @@ def main(
         variable_seq_lengths=min_seq_length != max_seq_length,
         train_metric=train_metric,
         valid_metric=valid_metric,
+        num_layers_in_first_pipeline_stage=decoder_first_pipeline_num_layers,
+        pipeline_model_parallel_size=pipeline_model_parallel_size,
     )
 
     if scheduler_num_steps is None:
@@ -236,7 +250,7 @@ def main(
                 lr=lr,
                 optimizer="adam",
                 use_distributed_optimizer=True,
-                weight_decay=0.01,
+                weight_decay=weight_decay,
                 adam_beta1=0.9,
                 adam_beta2=0.98,
             ),
@@ -267,6 +281,7 @@ def main(
         ckpt_include_optimizer=True,
         ckpt_async_save=True,
         ckpt_parallel_load=True,
+        num_layers_in_first_pipeline_stage=decoder_first_pipeline_num_layers,
     )
 
     # for wandb integration
@@ -293,6 +308,7 @@ def main(
         nl_callbacks.PreemptionCallback(),
         TimingCallback(),
     ]
+
     if nsys_profiling:
         if nsys_end_step is None:
             nsys_end_step = num_steps
@@ -335,7 +351,11 @@ def main(
             # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
             filename="{epoch}-{step}-{consumed_samples}",
             # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+            # Save both the weights and the optimizer state.
+            save_weights_only=False,
+            save_optim_on_train_end=True,
         )
+
         callbacks.append(checkpoint_callback)
 
         auto_resume = resume.AutoResume(
@@ -349,7 +369,7 @@ def main(
 
     trainer = nl.Trainer(
         devices=devices,
-        max_steps=num_steps,
+        max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
         accelerator="gpu",
         strategy=strategy,
         limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
@@ -403,6 +423,7 @@ def train_esm2_entrypoint():
         wandb_log_model=args.wandb_log_model,
         wandb_offline=args.wandb_offline,
         num_steps=args.num_steps,
+        early_stop_on_step=args.early_stop_on_step,
         warmup_steps=args.warmup_steps,
         limit_val_batches=args.limit_val_batches,
         val_check_interval=args.val_check_interval,
@@ -440,6 +461,7 @@ def train_esm2_entrypoint():
         overlap_param_gather=not args.no_overlap_param_gather,
         average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
+        decoder_first_pipeline_num_layers=args.decoder_first_pipeline_num_layers,
     )
 
 
@@ -487,6 +509,13 @@ def get_parser():
         required=False,
         default=4e-4,
         help="Learning rate for training. Default is 4e-4",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        required=False,
+        default=0.01,
+        help="Weight decay for training. Default is 0.01",
     )
     parser.add_argument(
         "--scheduler-num-steps",
@@ -554,6 +583,12 @@ def get_parser():
         required=False,
         default=500000,
         help="Number of steps to use for training. Default is 500000.",
+    )
+    parser.add_argument(
+        "--early-stop-on-step",
+        type=int,
+        default=None,
+        help="Stop training on this step, if set. This may be useful for testing or debugging purposes.",
     )
     parser.add_argument(
         "--warmup-steps",
@@ -786,6 +821,13 @@ def get_parser():
         "--grad-reduce-in-fp32",
         action="store_true",
         default=False,
+    )
+    parser.add_argument(
+        "--decoder-first-pipeline-num-layers",
+        type=int,
+        required=False,
+        default=None,
+        help="The number of transformer layers on the first pipeline stage of the decoder. Default None is even split of transformer layers across all pipeline stages",
     )
     return parser
 

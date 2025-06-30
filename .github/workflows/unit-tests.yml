@@ -134,7 +134,9 @@ jobs:
         # Coverage data is uploaded to Codecov in subsequent stages
         env:
           BIONEMO_DATA_SOURCE: ngc
-        run: ./ci/scripts/run_pytest.sh --no-nbval --skip-slow
+        run: |
+          chmod +x ./ci/scripts/run_pytest_unittests.sh
+          ./ci/scripts/run_pytest_unittests.sh
 
       - name: Upload coverage to Codecov
         # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
@@ -177,7 +179,9 @@ jobs:
           BIONEMO_DATA_SOURCE: ngc
         # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
         #  to run package by package like we do with the fast tests.
-        run: ./ci/scripts/run_pytest.sh --no-nbval --only-slow --allow-no-tests
+        run: |
+          chmod +x ./ci/scripts/run_pytest_slow.sh
+          ./ci/scripts/run_pytest_slow.sh
 
 
   run-tests-notebooks:
@@ -207,13 +211,17 @@ jobs:
           # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
           FAST_CI_MODE: true
         run: |
-          pytest -v --nbval-lax -p no:python docs/ sub-packages/
+          chmod +x ./ci/scripts/run_pytest_notebooks.sh
+          ./ci/scripts/run_pytest_notebooks.sh
 
   verify-tests-status:
     # Base on the status of this job, the unit-tests workflow succeeds or fails
     # This steps checks the status of all test jobs and fails if any of them failed or were cancelled.
     # It is a workaround for the lack of a built-in feature to finalize a pipeline by checking the status of multiple jobs
     needs: # List all your run-*-test jobs
+      - pre-commit
+      - get-pr-labels
+      - build-bionemo-image
       - run-tests
       - run-slow-tests
       - run-notebooks-docs

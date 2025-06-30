@@ -10,3 +10,13 @@ updates:
     reviewers:
       - "pstjohn"
       - "jstjohn"
+  - package-ecosystem: "docker"
+    directory: "/"
+    target-branch: "main"
+    open-pull-requests-limit: 1
+    schedule:
+      interval: "weekly"
+    reviewers:
+      - "pstjohn"
+      - "dorotat-nv"
+      - "trvachov"

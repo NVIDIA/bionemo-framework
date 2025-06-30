@@ -75,6 +75,20 @@ def test_batch_collate_list():
     assert torch.equal(result[1], torch.tensor([i + 1 for i in range(10)]))
 
 
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires at least 2 GPUs")
+def test_batch_collate_multi_gpu():
+    # Create tensors on different GPUs
+    tensor1 = torch.tensor([1, 2, 3], device="cuda:0")
+    tensor2 = torch.tensor([4, 5, 6], device="cuda:1")
+
+    result = batch_collator([tensor1, tensor2])
+
+    # Result should be on the first GPU and contain all values
+    expected = torch.tensor([1, 2, 3, 4, 5, 6], device="cuda:0")
+    assert result.device == torch.device("cuda:0")
+    assert torch.equal(result, expected)
+
+
 def test_batch_collate_none():
     assert batch_collator([None, None]) is None
 

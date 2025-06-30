@@ -17,35 +17,25 @@
 from pathlib import Path
 from unittest.mock import patch
 
-import pandas as pd
 import pytest
 from nemo.lightning import io
 
 from bionemo.core.data.load import load
-from bionemo.esm2.model.finetune.dataset import InMemoryPerTokenValueDataset, InMemorySingleValueDataset
-from bionemo.esm2.model.finetune.sequence_model import ESM2FineTuneSeqConfig
-from bionemo.esm2.model.finetune.token_model import ESM2FineTuneTokenConfig
 from bionemo.esm2.scripts.finetune_esm2 import finetune_esm2_entrypoint, get_parser, train_model
 from bionemo.testing import megatron_parallel_state_utils
 from bionemo.testing.callbacks import MetricTracker
 
 
-def data_to_csv(data, tmp_path):
-    """Create a mock protein dataset."""
-    csv_file = tmp_path / "protein_dataset.csv"
-    # Create a DataFrame
-    df = pd.DataFrame(data, columns=["sequences", "labels"])
-
-    # Save the DataFrame to a CSV file
-    df.to_csv(csv_file, index=False)
-    return csv_file
-
-
+@pytest.mark.needs_gpu
 @pytest.mark.parametrize("encoder_frozen", [True, False])
+@pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_token_classifier(
     tmp_path,
     dummy_data_per_token_classification_ft,
     encoder_frozen,
+    with_peft,
+    load_dcp,
+    data_to_csv,
     n_steps_train: int = 50,
     seed: int = 42,
 ):
@@ -54,10 +44,10 @@ def test_esm2_finetune_token_classifier(
             train_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
             valid_data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
             experiment_name="finetune_new_head_token_classification",
-            restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
+            restore_from_checkpoint_path=Path(load("esm2/8m:2.0")),
             num_steps=n_steps_train,
             num_nodes=1,
-            devices=1,
+            num_gpus=1,
             min_seq_length=None,
             max_seq_length=1024,
             result_dir=tmp_path / "finetune",
@@ -74,32 +64,54 @@ def test_esm2_finetune_token_classifier(
             precision="bf16-mixed",
             task_type="classification",
             encoder_frozen=encoder_frozen,
-            dataset_class=InMemoryPerTokenValueDataset,
-            config_class=ESM2FineTuneTokenConfig,
+            dataset_class="InMemoryPerTokenValueDataset",
+            config_class="ESM2FineTuneTokenConfig",
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
+            lora_finetune=with_peft,
+            create_tensorboard_logger=True,
         )
-
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
+        devdir = simple_ft_checkpoint.parent.parent / "dev"
+        tfevents = list(devdir.glob("events.out.tfevents.*"))
+        assert len(tfevents) >= 1
+        assert tfevents[0].exists()
+        assert tfevents[0].is_file()
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
         assert "val_acc" in trainer.logged_metrics
         # assert trainer.logged_metrics["val_acc"].item() <= 0.5  # TODO @farhad for a reasonable value
-
         encoder_requires_grad = [
             p.requires_grad for name, p in trainer.model.named_parameters() if "classification_head" not in name
         ]
-        assert not all(encoder_requires_grad) == encoder_frozen, (
-            f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
-        )
+        if with_peft:
+            assert trainer.model.model_transform is not None
+            model = trainer.model[0].module.module.module
+            assert all(not p.requires_grad for p in model.embedding.parameters())
+            assert all(not p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" not in name)
+            assert all(p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" in name)
+            assert all(p.requires_grad for p in model.classification_head.parameters())
+
+            weight_param_dict = load_dcp(weights_ckpt)
+            for param in weight_param_dict.keys():
+                assert any(keyword in param for keyword in {"head", "adapter", "optimizer", "output"})
+        else:
+            assert not all(encoder_requires_grad) == encoder_frozen, (
+                f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
+            )
 
 
+@pytest.mark.needs_gpu
 @pytest.mark.parametrize("encoder_frozen", [True, False])
+@pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_regressor(
     tmp_path,
     dummy_data_single_value_regression_ft,
     encoder_frozen,
+    with_peft,
+    load_dcp,
+    data_to_csv,
     n_steps_train: int = 50,
     seed: int = 42,
 ):
@@ -111,7 +123,7 @@ def test_esm2_finetune_regressor(
             restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
             num_steps=n_steps_train,
             num_nodes=1,
-            devices=1,
+            num_gpus=1,
             min_seq_length=None,
             max_seq_length=1024,
             result_dir=tmp_path / "finetune",
@@ -128,9 +140,10 @@ def test_esm2_finetune_regressor(
             precision="bf16-mixed",
             task_type="regression",
             encoder_frozen=encoder_frozen,
-            dataset_class=InMemorySingleValueDataset,
-            config_class=ESM2FineTuneSeqConfig,
+            dataset_class="InMemorySingleValueDataset",
+            config_class="ESM2FineTuneSeqConfig",
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
+            lora_finetune=with_peft,
         )
 
         weights_ckpt = simple_ft_checkpoint / "weights"
@@ -141,19 +154,37 @@ def test_esm2_finetune_regressor(
         assert "val_mse" in trainer.logged_metrics
         # assert trainer.logged_metrics["val_mse"].item() <= 0.5  # TODO @farhadrgh for a reasonable value
 
-        encoder_requires_grad = [
-            p.requires_grad for name, p in trainer.model.named_parameters() if "regression_head" not in name
-        ]
-        assert not all(encoder_requires_grad) == encoder_frozen, (
-            f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
-        )
+        if with_peft:
+            assert trainer.model.model_transform is not None
+            model = trainer.model[0].module.module.module
+            assert all(not p.requires_grad for p in model.embedding.parameters())
+            assert all(not p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" not in name)
+            assert all(p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" in name)
+            assert all(p.requires_grad for p in model.regression_head.parameters())
+
+            weight_param_dict = load_dcp(weights_ckpt)
+            for param in weight_param_dict.keys():
+                assert any(keyword in param for keyword in {"head", "adapter", "optimizer", "output"})
+
+        else:
+            encoder_requires_grad = [
+                p.requires_grad for name, p in trainer.model.named_parameters() if "regression_head" not in name
+            ]
+            assert not all(encoder_requires_grad) == encoder_frozen, (
+                f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
+            )
 
 
+@pytest.mark.needs_gpu
 @pytest.mark.parametrize("encoder_frozen", [True, False])
+@pytest.mark.parametrize("with_peft", [True, False])
 def test_esm2_finetune_classifier(
     tmp_path,
     dummy_data_single_value_classification_ft,
     encoder_frozen,
+    with_peft,
+    load_dcp,
+    data_to_csv,
     n_steps_train: int = 50,
     seed: int = 42,
 ):
@@ -162,10 +193,10 @@ def test_esm2_finetune_classifier(
             train_data_path=data_to_csv(dummy_data_single_value_classification_ft, tmp_path),
             valid_data_path=data_to_csv(dummy_data_single_value_classification_ft, tmp_path),
             experiment_name="finetune_new_head_classification",
-            restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
+            restore_from_checkpoint_path=Path(load("esm2/8m:2.0")),
             num_steps=n_steps_train,
             num_nodes=1,
-            devices=1,
+            num_gpus=1,
             min_seq_length=None,
             max_seq_length=1024,
             result_dir=tmp_path / "finetune",
@@ -183,9 +214,10 @@ def test_esm2_finetune_classifier(
             task_type="classification",
             mlp_target_size=3,
             encoder_frozen=encoder_frozen,
-            dataset_class=InMemorySingleValueDataset,
-            config_class=ESM2FineTuneSeqConfig,
+            dataset_class="InMemorySingleValueDataset",
+            config_class="ESM2FineTuneSeqConfig",
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
+            lora_finetune=with_peft,
         )
 
         weights_ckpt = simple_ft_checkpoint / "weights"
@@ -196,12 +228,26 @@ def test_esm2_finetune_classifier(
         assert "val_acc" in trainer.logged_metrics
         # assert trainer.logged_metrics["val_acc"].item() <= 0.5  # TODO @farhadrgh for a reasonable value
 
-        encoder_requires_grad = [
-            p.requires_grad for name, p in trainer.model.named_parameters() if "classification_head" not in name
-        ]
-        assert not all(encoder_requires_grad) == encoder_frozen, (
-            f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
-        )
+        if with_peft:
+            assert trainer.model.model_transform is not None
+            model = trainer.model[0].module.module.module
+            assert all(not p.requires_grad for p in model.embedding.parameters())
+            assert all(not p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" not in name)
+            assert all(p.requires_grad for name, p in model.encoder.named_parameters() if "adapter" in name)
+            assert all(p.requires_grad for p in model.classification_head.parameters())
+
+            weight_param_dict = load_dcp(weights_ckpt)
+            for param in weight_param_dict.keys():
+                assert any(keyword in param for keyword in {"head", "adapter", "optimizer", "output"})
+
+        else:
+            encoder_requires_grad = [
+                p.requires_grad for name, p in trainer.model.named_parameters() if "classification_head" not in name
+            ]
+
+            assert not all(encoder_requires_grad) == encoder_frozen, (
+                f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
+            )
 
 
 @pytest.fixture
@@ -245,7 +291,7 @@ def test_finetune_esm2_entrypoint(mock_train_model, mock_parser_args):
         called_kwargs = mock_train_model.call_args.kwargs
         assert called_kwargs["train_data_path"] == Path("train.csv")
         assert called_kwargs["valid_data_path"] == Path("valid.csv")
-        assert called_kwargs["devices"] == 1
+        assert called_kwargs["num_gpus"] == 1
         assert called_kwargs["num_nodes"] == 1
         assert called_kwargs["max_seq_length"] == 1024
         assert called_kwargs["lr"] == 0.001
@@ -387,8 +433,20 @@ def test_get_parser():
     assert args.no_overlap_param_gather is True
     assert args.no_average_in_collective is True
     assert args.grad_reduce_in_fp32 is True
-    assert args.dataset_class == InMemoryPerTokenValueDataset
-    assert args.config_class == ESM2FineTuneTokenConfig
+    assert args.dataset_class == "InMemoryPerTokenValueDataset"
+    assert args.config_class == "ESM2FineTuneTokenConfig"
     assert args.encoder_frozen is True
     assert args.lr_multiplier == 100
     assert args.scale_lr_layer == "dummy_layer"
+
+
+def r_data_to_csv(data, path):
+    import pandas as pd
+
+    csv_file = path / "protein_dataset.csv"
+    # Create a DataFrame
+    df = pd.DataFrame(data, columns=["sequences", "labels"])
+
+    # Save the DataFrame to a CSV file
+    df.to_csv(csv_file, index=False)
+    return csv_file

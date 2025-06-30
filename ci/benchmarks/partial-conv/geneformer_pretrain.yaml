@@ -1,0 +1,65 @@
+scope: partial-conv
+time_limit: 14400
+key_segments:
+  # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
+  data_path: False
+  val_check_interval: False
+  lr: False
+  num_workers: False
+script_args:
+  # All arguments referenced in the script string must be specified here.
+  # Arguments not referenced in the script string must have the 'arg' field specified.
+  # See jet/core/configs.py for the specification of the configuration class
+  workspace: /workspace/bionemo2
+  data_path: /data/cellxgene_scdl
+  model: geneformer
+  variant: train
+  config_name: 10M
+  precision: [bf16-mixed]
+  nodes: [2]
+  gpus: 8
+  batch_size: 32
+  max_steps: 30000
+  lr: 0.001
+  val_check_interval: 500
+  acc_grad: 1
+  num_workers: 4
+script: |-
+  COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
+  NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
+  if [ "$SLURM_LOCALID" = "0" ]; then
+      df -h;
+      echo $NEW_DATA_PATH;
+      time cp -r ${data_path}/ $NEW_DATA_PATH;
+      touch $COPY_FLAG
+  fi
+  # All ranks wait until install flag file appears
+  while [ ! -f $COPY_FLAG ]; do
+      sleep 1
+  done
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
+    --data-dir ${data_path} \
+    --experiment-name ${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+    --num-gpus ${gpus} \
+    --save-last-checkpoint \
+    --num-nodes ${nodes} \
+    --val-check-interval ${val_check_interval} \
+    --num-dataset-workers ${num_workers} \
+    --num-steps ${max_steps} \
+    --seq-length 2048 \
+    --limit-val-batches 8 \
+    --micro-batch-size ${batch_size} \
+    --resume-if-exists \
+    --log-every-n-steps 50 \
+    --lr ${lr} \
+    --create-tflops-callback \
+    --create-tensorboard-logger \
+    --result-dir=${tensorboard_dir} \
+    --wandb-project ${wandb_project_name} \
+    --wandb-job-type=${pipeline_label} \
+    --wandb-group=${model}_${variant}_${config_name}__${target} \
+    --cosine-rampup-frac 0.004331629559040111 \
+    --cosine-hold-frac 0.021658147795200554 \
+    --accumulate-grad-batches ${acc_grad} \
+    --precision ${precision} \
+    --disable-checkpointing;

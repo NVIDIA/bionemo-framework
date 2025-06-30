@@ -25,6 +25,7 @@ from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.utils.exp_manager import TimingCallback
 
@@ -52,6 +53,7 @@ def main(
     max_seq_length: int = 512,
     result_dir: Path = Path("./results"),
     num_steps: int = 1_000_000,
+    early_stop_on_step: Optional[int] = None,
     warmup_steps: int = 1000,
     decay_steps: int = 900_000,
     limit_val_batches: float = 1.0,
@@ -71,11 +73,14 @@ def main(
     wandb_tags: Optional[List[str]] = None,
     wandb_group: Optional[str] = None,
     wandb_id: Optional[str] = None,
+    wandb_job_type: Optional[str] = None,
     wandb_anonymous: bool = False,
     wandb_log_model: bool = False,
     pipeline_model_parallel_size: int = 1,
     tensor_model_parallel_size: int = 1,
     create_tensorboard_logger: bool = False,
+    create_tflops_callback: bool = True,
+    create_checkpoint_callback: bool = True,
     nemo1_init_path: Optional[Path] = None,
     restore_from_checkpoint_path: Optional[str] = None,
     save_last_checkpoint: bool = True,
@@ -94,6 +99,7 @@ def main(
     overlap_param_gather: bool = False,
     no_average_in_collective: bool = False,
     grad_reduce_in_fp32: bool = False,
+    use_sanity_dataset: bool = False,
 ) -> nl.Trainer:
     """Train an AMPLIFY model on UR100P data.
 
@@ -104,6 +110,7 @@ def main(
         max_seq_length (int): The maximum sequence length for the AMPLIFY transformer
         result_dir (Path): directory to store results, logs and checkpoints
         num_steps (int): number of steps to train the model for
+        early_stop_on_step (Optional[int]): Stop training on this step, if set. This may be useful for testing or debugging purposes.
         warmup_steps (int): number of steps for the learning rate warmup phase
         decay_steps (int): number of steps for the learning rate decay phase
         limit_val_batches (int): limit the number of validation global batches to this many
@@ -124,11 +131,14 @@ def main(
         wandb_group (str): A unique string shared by all runs in a given group
         wandb_offline (bool): Run offline (data can be streamed later to wandb servers).
         wandb_id (str): Sets the version, mainly used to resume a previous run.
+        wandb_job_type (str): A unique string representing a type of run, which is useful when you're grouping runs together into larger experiments using group.
         wandb_anonymous (bool): Enables or explicitly disables anonymous logging.
         wandb_log_model (bool): Save checkpoints in wandb dir to upload on W&B servers.
         pipeline_model_parallel_size (int): degree of pipeline model parallelism
         tensor_model_parallel_size (int): degree of tensor model parallelism
         create_tensorboard_logger (bool): create the tensorboard logger
+        create_tflops_callback (bool): create the FLOPsMeasurementCallback and attach it to the pytorch lightning trainer to log TFlops per training step
+        create_checkpoint_callback (bool): create a ModelCheckpoint callback and attach it to the pytorch lightning trainer
         nemo1_init_path (Optional[Path]): path to a NeMo v1 checkpoint to initialize from
         restore_from_checkpoint_path (Optional[str]): If set, restores the model from the directory passed in. Expects the
             checkpoint to be created by using the ModelCheckpoint class and always_save_context=True.
@@ -148,6 +158,7 @@ def main(
         overlap_param_gather (bool): overlap parameter gather
         no_average_in_collective (bool): disable average in collective
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
+        use_sanity_dataset (bool): use a smaller, streaming version of the AMPLIFY dataset for profiling / testing.
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -193,6 +204,7 @@ def main(
             tags=wandb_tags,
             group=wandb_group,
             id=wandb_id,
+            job_type=wandb_job_type,
             anonymous=wandb_anonymous,
             log_model=wandb_log_model,
         )
@@ -213,31 +225,54 @@ def main(
             )
         )
 
-    trainer = nl.Trainer(
-        devices=devices,
-        max_steps=num_steps,
-        accelerator="gpu",
-        strategy=strategy,
-        limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
-        val_check_interval=val_check_interval,
-        log_every_n_steps=log_every_n_steps,
-        num_nodes=num_nodes,
-        callbacks=callbacks,
-        plugins=nl.MegatronMixedPrecision(
-            precision=precision,
-            params_dtype=get_autocast_dtype(precision),
-            pipeline_dtype=get_autocast_dtype(precision),
-            grad_reduce_in_fp32=grad_reduce_in_fp32,
-            autocast_enabled=False,
-        ),
+    # Setup the logger and train the model
+    nemo_logger = setup_nemo_lightning_logger(
+        root_dir=result_dir,
+        name=experiment_name,
+        initialize_tensorboard_logger=create_tensorboard_logger,
+        wandb_config=wandb_config,
     )
+
+    # Configure our custom Checkpointer
+    if create_checkpoint_callback:
+        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            dirpath=checkpoint_path,
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="{epoch}-{step}-{consumed_samples}",
+            # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+        )
+        callbacks.append(checkpoint_callback)
+    else:
+        checkpoint_callback = None
 
     tokenizer = BioNeMoAMPLIFYTokenizer()
 
-    # Initialize the data module.
+    # Initialize the data module. hf_load_dataset loads these datasets from the huggingface hub if they're not available
+    # locally, but the download and pre-processing can take a while.
+    if use_sanity_dataset:
+        train_hf_dataset = hf_load_dataset(
+            "chandar-lab/UR100P",
+            split="train",
+            revision="refs/convert/parquet",
+            data_files="default/partial-train/0001.parquet",
+        )
+        valid_hf_dataset = hf_load_dataset(
+            "chandar-lab/UR100P",
+            split="test",
+            revision="refs/convert/parquet",
+        )
+    else:
+        train_hf_dataset = hf_load_dataset("chandar-lab/UR100P", split="train")
+        valid_hf_dataset = hf_load_dataset("chandar-lab/UR100P", data_dir="UniProt", split="test")
+
     data = AMPLIFYDataModule(
-        train_hf_dataset=hf_load_dataset("chandar-lab/UR100P", data_dir="UniProt", split="train"),  # type: ignore
-        valid_hf_dataset=hf_load_dataset("chandar-lab/UR100P", data_dir="UniProt", split="test"),  # type: ignore
+        train_hf_dataset=train_hf_dataset,  # type: ignore
+        valid_hf_dataset=valid_hf_dataset,  # type: ignore
         global_batch_size=global_batch_size,
         micro_batch_size=micro_batch_size,
         min_seq_length=min_seq_length,
@@ -278,6 +313,16 @@ def main(
         valid_metric=valid_metric,
     )
 
+    if create_tflops_callback:
+        # Add callback that logs the tera-FLOPS per second per GPU during training.
+        data.global_batch_size = global_batch_size
+        flop_meas_callback = FLOPsMeasurementCallback(
+            amplify_config,
+            data,
+            "bert",
+        )
+        callbacks.append(flop_meas_callback)
+
     model = biobert_lightning_module(
         amplify_config,
         tokenizer=tokenizer,
@@ -300,23 +345,24 @@ def main(
         ),
     )
 
-    # Configure our custom Checkpointer
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        save_last=save_last_checkpoint,
-        monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
-        save_top_k=save_top_k,
-        every_n_train_steps=val_check_interval,
-        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-        filename="{epoch}-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-    )
-
-    # Setup the logger and train the model
-    nemo_logger = setup_nemo_lightning_logger(
-        root_dir=result_dir,
-        name=experiment_name,
-        initialize_tensorboard_logger=create_tensorboard_logger,
-        wandb_config=wandb_config,
-        ckpt_callback=checkpoint_callback,
+    trainer = nl.Trainer(
+        devices=devices,
+        max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
+        accelerator="gpu",
+        strategy=strategy,
+        limit_val_batches=limit_val_batches,  # This controls upsampling and downsampling
+        val_check_interval=val_check_interval,
+        log_every_n_steps=log_every_n_steps,
+        num_nodes=num_nodes,
+        callbacks=callbacks,
+        enable_checkpointing=create_checkpoint_callback,
+        plugins=nl.MegatronMixedPrecision(
+            precision=precision,
+            params_dtype=get_autocast_dtype(precision),
+            pipeline_dtype=get_autocast_dtype(precision),
+            grad_reduce_in_fp32=grad_reduce_in_fp32,
+            autocast_enabled=False,
+        ),
     )
 
     llm.train(
