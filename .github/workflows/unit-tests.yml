@@ -223,8 +223,8 @@ jobs:
       - get-pr-labels
       - build-bionemo-image
       - run-tests
-      - run-slow-tests
-      - run-notebooks-docs
+      - run-tests-slow
+      - run-tests-notebooks
       # Add all other run-*-test jobs
     runs-on: ubuntu-latest
     if: always() # This ensures the job runs even if previous jobs fail
