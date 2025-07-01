@@ -343,6 +343,17 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 
 # Fix a CRIT vuln: https://github.com/advisories/GHSA-vqfr-h8mv-ghfj
 RUN uv pip install h11==0.16.0
+# Fix a CRIT vuln in sudo: https://ubuntu.com/security/CVE-2025-32463
+# Enable Debian experimental repository and install patched sudo
+# Download and install the correct sudo .deb based on architecture
+RUN set -eux; \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        wget -O sudo.deb https://github.com/sudo-project/sudo/releases/download/v1.9.17p1/sudo_1.9.17-2_ubu2404_arm64.deb; \
+    else \
+        wget -O sudo.deb https://github.com/sudo-project/sudo/releases/download/v1.9.17p1/sudo_1.9.17-2_ubu2404_amd64.deb; \
+    fi && \
+    dpkg -i sudo.deb || apt-get install -f -y && \
+    rm sudo.deb
 
 # RUN rm -rf /usr/local/cargo /usr/local/rustup
 RUN chmod 777 -R /workspace/bionemo2/
