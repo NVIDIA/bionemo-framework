@@ -17,8 +17,6 @@
 # limitations under the License.
 
 
-import pytest
-
 from bionemo.core.data.load import load
 from bionemo.evo2.run.infer import infer
 from bionemo.testing.megatron_parallel_state_utils import clean_parallel_state_context
@@ -27,7 +25,6 @@ from bionemo.testing.megatron_parallel_state_utils import clean_parallel_state_c
 RANDOM_SEED = 42
 
 
-@pytest.mark.skip(reason="This test is not working because of the missing enable_flash_decode=False option in nemo.")
 def test_run_infer():
     # Create PTL trainer.
     tensor_parallel_size = 1
@@ -60,7 +57,6 @@ def test_run_infer():
             raise e
 
     with clean_parallel_state_context():
-        # TODO: add option for enable_flash_decode=False to def infer, since evo2 does not work with flash_decode
         infer(
             prompt=default_prompt,
             ckpt_dir=checkpoint_path,
@@ -71,5 +67,4 @@ def test_run_infer():
             tensor_parallel_size=tensor_parallel_size,
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             context_parallel_size=context_parallel_size,
-            enable_flash_decode=False,  # TODO add this into NeMo and then enable this test once support is added.
         )
