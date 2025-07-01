@@ -22,35 +22,12 @@ and measurement utilities used throughout the benchmarking framework.
 """
 
 import json
-import os
-from dataclasses import dataclass
+import subprocess
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import psutil
-
-
-@dataclass
-class InstantiationMetrics:
-    """Metrics for dataloader instantiation.
-
-    This dataclass stores timing and memory information collected during
-    the instantiation of a dataloader. It provides insights into the
-    overhead of creating dataloaders.
-
-    Attributes:
-        instantiation_time_seconds: Time taken to instantiate the dataloader
-        memory_before_mb: Memory usage before instantiation
-        memory_after_mb: Memory usage after instantiation
-        memory_delta_mb: Change in memory usage during instantiation
-        peak_memory_during_mb: Peak memory usage during instantiation
-    """
-
-    instantiation_time_seconds: float
-    memory_before_mb: float
-    memory_after_mb: float
-    memory_delta_mb: float
-    peak_memory_during_mb: float
 
 
 @dataclass
@@ -61,10 +38,15 @@ class BenchmarkResult:
     a benchmark run. It provides comprehensive information about timing,
     throughput, memory usage, and any errors that occurred.
 
+    The class contains both raw data (for detailed analysis) and calculated
+    metrics (for easy consumption). Raw data includes individual batch times
+    and memory samples, while calculated metrics include averages and totals.
+
     Attributes:
         name: Name of the benchmarked dataloader
         disk_size_mb: Size of data files on disk
         setup_time_seconds: Time taken for setup phase
+        warmup_time_seconds: Time taken for warmup phase
         total_iteration_time_seconds: Total time spent iterating
         average_batch_time_seconds: Average time per batch
         total_batches: Total number of batches processed
@@ -75,12 +57,23 @@ class BenchmarkResult:
         average_memory_mb: Average memory usage during benchmark
         gpu_memory_mb: GPU memory usage (if available)
         errors: List of error messages encountered
-        instantiation_metrics: Metrics from dataloader instantiation
+
+        # Instantiation metrics
+        instantiation_time_seconds: Time taken to instantiate the dataloader
+        memory_before_instantiation_mb: Memory usage before instantiation
+        memory_after_instantiation_mb: Memory usage after instantiation
+        memory_delta_instantiation_mb: Change in memory usage during instantiation
+        peak_memory_during_instantiation_mb: Peak memory usage during instantiation
+
+        # Raw data for detailed analysis
+        batch_times: List of individual batch processing times
+        memory_samples: List of memory usage samples during benchmark
     """
 
     name: str
     disk_size_mb: float
     setup_time_seconds: float
+    warmup_time_seconds: float
     total_iteration_time_seconds: float
     average_batch_time_seconds: float
     total_batches: int
@@ -91,45 +84,95 @@ class BenchmarkResult:
     average_memory_mb: float
     gpu_memory_mb: float = 0.0
     errors: List[str] = None
-    instantiation_metrics: Optional[InstantiationMetrics] = None
+
+    # Instantiation metrics (None if not measured)
+    instantiation_time_seconds: Optional[float] = None
+    memory_before_instantiation_mb: Optional[float] = None
+    memory_after_instantiation_mb: Optional[float] = None
+    memory_delta_instantiation_mb: Optional[float] = None
+    peak_memory_during_instantiation_mb: Optional[float] = None
+
+    # Raw data for detailed analysis
+    batch_times: List[float] = None
+    memory_samples: List[float] = None
 
     def __post_init__(self):
-        """Initialize errors list if not provided."""
+        """Initialize lists if not provided."""
         if self.errors is None:
             self.errors = []
+        if self.batch_times is None:
+            self.batch_times = []
+        if self.memory_samples is None:
+            self.memory_samples = []
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization.
+    @classmethod
+    def from_raw_metrics(
+        cls,
+        name: str,
+        batch_times: List[float],
+        memory_samples: List[float],
+        total_samples: int,
+        total_batches: int,
+        setup_time: float,
+        warmup_time: float,
+        iteration_time: float,
+        disk_size_mb: float = 0.0,
+        gpu_memory_mb: float = 0.0,
+        instantiation_metrics: Optional[Dict[str, float]] = None,
+    ) -> "BenchmarkResult":
+        """Create BenchmarkResult from raw metrics.
+
+        This factory method calculates all the derived metrics from raw data
+        and creates a complete BenchmarkResult object.
+
+        Args:
+            name: Name of the benchmark
+            batch_times: List of individual batch processing times
+            memory_samples: List of memory usage samples
+            total_samples: Total number of samples processed
+            total_batches: Total number of batches processed
+            setup_time: Time taken for setup phase
+            warmup_time: Time taken for warmup phase
+            iteration_time: Total time spent iterating
+            disk_size_mb: Size of data files on disk
+            gpu_memory_mb: GPU memory usage
+            instantiation_metrics: Instantiation metrics dictionary if available
 
         Returns:
-            Dictionary representation of the benchmark result
+            BenchmarkResult with all calculated metrics
         """
-        result = {
-            "name": self.name,
-            "disk_size_mb": self.disk_size_mb,
-            "setup_time_seconds": self.setup_time_seconds,
-            "total_iteration_time_seconds": self.total_iteration_time_seconds,
-            "average_batch_time_seconds": self.average_batch_time_seconds,
-            "total_batches": self.total_batches,
-            "total_samples": self.total_samples,
-            "samples_per_second": self.samples_per_second,
-            "batches_per_second": self.batches_per_second,
-            "peak_memory_mb": self.peak_memory_mb,
-            "average_memory_mb": self.average_memory_mb,
-            "gpu_memory_mb": self.gpu_memory_mb,
-            "errors": self.errors,
-        }
+        # Calculate timing metrics
+        avg_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
+        samples_per_sec = total_samples / iteration_time if iteration_time > 0 else 0
+        batches_per_sec = len(batch_times) / iteration_time if iteration_time > 0 else 0
 
-        if self.instantiation_metrics:
-            result["instantiation_metrics"] = {
-                "instantiation_time_seconds": self.instantiation_metrics.instantiation_time_seconds,
-                "memory_before_mb": self.instantiation_metrics.memory_before_mb,
-                "memory_after_mb": self.instantiation_metrics.memory_after_mb,
-                "memory_delta_mb": self.instantiation_metrics.memory_delta_mb,
-                "peak_memory_during_mb": self.instantiation_metrics.peak_memory_during_mb,
-            }
+        # Calculate memory metrics
+        peak_memory = max(memory_samples) if memory_samples else 0
+        avg_memory = sum(memory_samples) / len(memory_samples) if memory_samples else 0
 
-        return result
+        # Extract instantiation metrics if provided
+        instantiation_kwargs = {}
+        if instantiation_metrics:
+            instantiation_kwargs = instantiation_metrics
+
+        return cls(
+            name=name,
+            disk_size_mb=disk_size_mb,
+            setup_time_seconds=setup_time,
+            warmup_time_seconds=warmup_time,
+            total_iteration_time_seconds=iteration_time,
+            average_batch_time_seconds=avg_batch_time,
+            total_batches=total_batches,
+            total_samples=total_samples,
+            samples_per_second=samples_per_sec,
+            batches_per_second=batches_per_sec,
+            peak_memory_mb=peak_memory,
+            average_memory_mb=avg_memory,
+            gpu_memory_mb=gpu_memory_mb,
+            batch_times=batch_times,
+            memory_samples=memory_samples,
+            **instantiation_kwargs,
+        )
 
     def save_to_file(self, filepath: str) -> None:
         """Save results to JSON file.
@@ -138,7 +181,7 @@ class BenchmarkResult:
             filepath: Path to the output JSON file
         """
         with open(filepath, "w") as f:
-            json.dump(self.to_dict(), f, indent=2)
+            json.dump(asdict(self), f, indent=2)
 
     @classmethod
     def load_from_file(cls, filepath: str) -> "BenchmarkResult":
@@ -152,11 +195,6 @@ class BenchmarkResult:
         """
         with open(filepath, "r") as f:
             data = json.load(f)
-
-        # Handle instantiation_metrics if present
-        if "instantiation_metrics" in data:
-            metrics_data = data.pop("instantiation_metrics")
-            data["instantiation_metrics"] = InstantiationMetrics(**metrics_data)
 
         return cls(**data)
 
@@ -174,21 +212,9 @@ def get_disk_size(path: Union[str, Path]) -> float:
     Returns:
         Size in megabytes (0.0 if path doesn't exist or error occurs)
     """
-    try:
-        if os.path.isfile(path):
-            return os.path.getsize(path) / (1024 * 1024)
-        elif os.path.isdir(path):
-            total_size = 0
-            for dirpath, dirnames, filenames in os.walk(path):
-                for filename in filenames:
-                    filepath = os.path.join(dirpath, filename)
-                    if os.path.isfile(filepath):
-                        total_size += os.path.getsize(filepath)
-            return total_size / (1024 * 1024)
-        else:
-            return 0.0
-    except Exception:
-        return 0.0
+    result = subprocess.run(["du", "-sb", path], stdout=subprocess.PIPE, text=True)
+    size_in_bytes = int(result.stdout.split()[0])
+    return size_in_bytes / (1024 * 1024)
 
 
 def get_batch_size(batch: Any) -> int:
@@ -222,7 +248,7 @@ def get_batch_size(batch: Any) -> int:
     return 1
 
 
-def measure_instantiation(dataloader_factory: callable, name: str = "Unknown") -> InstantiationMetrics:
+def measure_instantiation(dataloader_factory: callable, name: str = "Unknown") -> Dict[str, float]:
     """Measure the time and memory usage of instantiating a dataloader.
 
     This function measures the overhead of creating a dataloader by
@@ -234,7 +260,7 @@ def measure_instantiation(dataloader_factory: callable, name: str = "Unknown") -
         name: Name for logging and error reporting
 
     Returns:
-        InstantiationMetrics with timing and memory information
+        Dictionary with instantiation metrics (time and memory information)
 
     Note:
         - Memory is measured using psutil for cross-platform compatibility
@@ -266,25 +292,27 @@ def measure_instantiation(dataloader_factory: callable, name: str = "Unknown") -
         memory_after = process.memory_info().rss / (1024 * 1024)
         memory_delta = memory_after - memory_before
 
-        return InstantiationMetrics(
-            instantiation_time_seconds=instantiation_time,
-            memory_before_mb=memory_before,
-            memory_after_mb=memory_after,
-            memory_delta_mb=memory_delta,
-            peak_memory_during_mb=peak_memory_during,
-        )
+        return {
+            "instantiation_time_seconds": instantiation_time,
+            "memory_before_instantiation_mb": memory_before,
+            "memory_after_instantiation_mb": memory_after,
+            "memory_delta_instantiation_mb": memory_delta,
+            "peak_memory_during_instantiation_mb": peak_memory_during,
+        }
 
     except Exception as e:
         instantiation_time = time.perf_counter() - start_time
         memory_after = process.memory_info().rss / (1024 * 1024)
         memory_delta = memory_after - memory_before
 
+        # Note: This is a utility function that may be called outside of benchmark context
+        # so we use a simple print here rather than requiring a logging function parameter
         print(f"⚠️  Instantiation failed for {name}: {str(e)}")
 
-        return InstantiationMetrics(
-            instantiation_time_seconds=instantiation_time,
-            memory_before_mb=memory_before,
-            memory_after_mb=memory_after,
-            memory_delta_mb=memory_delta,
-            peak_memory_during_mb=peak_memory_during,
-        )
+        return {
+            "instantiation_time_seconds": instantiation_time,
+            "memory_before_instantiation_mb": memory_before,
+            "memory_after_instantiation_mb": memory_after,
+            "memory_delta_instantiation_mb": memory_delta,
+            "peak_memory_during_instantiation_mb": peak_memory_during,
+        }

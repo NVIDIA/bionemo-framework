@@ -97,22 +97,21 @@ result = benchmark_my_dataloader(my_dl)
 The framework is built with a modular design for extensibility:
 
 ```python
-from bionemo.scbenchmark import BenchmarkConfig, run_benchmark_with_config
+from bionemo.scbenchmark import BenchmarkConfig, benchmark_dataloader
 
-# Create custom configuration
-config = BenchmarkConfig(
+# Create custom configuration using factory pattern
+def create_dataloader():
+    return MyDataLoader()
+
+# Run with custom parameters
+result = benchmark_dataloader(
     name="Custom Benchmark",
+    dataloader_factory=create_dataloader,
     num_epochs=2,
     max_time_seconds=45.0,
     warmup_time_seconds=3.0,
     print_progress=True
 )
-
-# Run with custom config
-def create_dataloader():
-    return MyDataLoader()
-
-result = run_benchmark_with_config(create_dataloader(), config)
 ```
 
 ## Examples

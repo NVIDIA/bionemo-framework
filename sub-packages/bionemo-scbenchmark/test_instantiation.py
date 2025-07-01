@@ -75,9 +75,9 @@ def test_instantiation_metrics():
     )
 
     print(f"   ✅ Benchmark completed: {result.samples_per_second:.2f} samples/sec")
-    if result.instantiation_metrics:
-        print(f"   ✅ Instantiation time: {result.instantiation_metrics.instantiation_time_seconds:.4f}s")
-        print(f"   ✅ Memory delta: {result.instantiation_metrics.memory_delta_mb:.2f} MB")
+    if result.instantiation_time_seconds is not None:
+        print(f"   ✅ Instantiation time: {result.instantiation_time_seconds:.4f}s")
+        print(f"   ✅ Memory delta: {result.memory_delta_instantiation_mb:.2f} MB")
 
     return result
 

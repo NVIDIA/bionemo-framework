@@ -19,25 +19,26 @@
 A simple, flexible framework for benchmarking any dataloader.
 """
 
-from .benchmark import benchmark_dataloader, benchmark_multiple_dataloaders
-from .common import BenchmarkResult, InstantiationMetrics, measure_instantiation
-from .core import BenchmarkConfig, BenchmarkMetrics, BenchmarkRunner, run_benchmark_with_config
+from .benchmark import (
+    BenchmarkConfig,
+    BenchmarkRunner,
+    benchmark_dataloader,
+    benchmark_multiple_dataloaders,
+)
+from .common import BenchmarkResult, measure_instantiation
 from .protocols import DataloaderProtocol, DataloaderType, DatasetProtocol, DatasetType
 
 
 __version__ = "0.1.0"
 __all__ = [
     "BenchmarkConfig",
-    "BenchmarkMetrics",
     "BenchmarkResult",
     "BenchmarkRunner",
     "DataloaderProtocol",
     "DataloaderType",
     "DatasetProtocol",
     "DatasetType",
-    "InstantiationMetrics",
     "benchmark_dataloader",
     "benchmark_multiple_dataloaders",
     "measure_instantiation",
-    "run_benchmark_with_config",
 ]
