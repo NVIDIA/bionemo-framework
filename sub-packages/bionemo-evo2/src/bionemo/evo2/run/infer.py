@@ -81,7 +81,18 @@ def parse_args():
         default="torch_dist",
         help="Specify checkpoint format to use. Defaults to 'torch_dist', as 'zarr' is deprecated.",
     )
-
+    ap.add_argument(
+        "--vortex-style-fp8",
+        type=bool,
+        default=False,
+        help="Whether to use vortex style FP8. Defaults to False.",
+    )
+    ap.add_argument(
+        "--flash-decode",
+        type=bool,
+        default=True,
+        help="Whether to use flash decode. Defaults to True.",
+    )
     return ap.parse_args()
 
 
@@ -98,6 +109,8 @@ def infer(
     output_file: Optional[str] = None,
     ckpt_format: CheckpointFormats = "torch_dist",
     seed: Optional[int] = None,
+    vortex_style_fp8: bool = False,
+    flash_decode: bool = True,
 ):
     """Inference workflow for Evo2.
 
@@ -114,7 +127,8 @@ def infer(
         output_file (str): Output file containing the generated text produced by the Evo2 model.
         ckpt_format (CheckpointFormats): Checkpoint format to use.
         seed (int): Random seed for generation.
-
+        vortex_style_fp8 (bool): Whether to use vortex style FP8.
+        flash_decode (bool): Whether to use flash decode.
     Returns:
         None
     """
@@ -162,6 +176,8 @@ def infer(
         ),
         text_only=True,
         random_seed=seed if seed is not None else None,
+        vortex_style_fp8=vortex_style_fp8,
+        flash_decode=flash_decode,
     )
 
     if torch.distributed.get_rank() == 0:
@@ -191,6 +207,8 @@ def main():
         output_file=args.output_file,
         ckpt_format=args.ckpt_format,
         seed=args.seed,
+        vortex_style_fp8=args.vortex_style_fp8,
+        flash_decode=args.flash_decode,
     )
 
 

@@ -25,16 +25,16 @@ from bionemo.evo2.run.infer import infer
 from bionemo.testing.megatron_parallel_state_utils import clean_parallel_state_context
 
 RANDOM_SEED = 42
-MAX_NEW_TOKENS = 100
+MAX_NEW_TOKENS = 500
 TEMPERATURE = 1.0
 TOP_K = 0
 TOP_P = 0.0
 
 # todo: figure out 1M checkpoints (or add to NGC)
 CHECKPOINT_NAMES = [
-    "evo2/1b-8k:1.0", 
-    # "evo2/7b-8k:1.0",
-    # "evo2/7b-1m:1.0",
+    # "evo2/1b-8k:1.0", 
+    "evo2/7b-8k:1.0",
+    "evo2/7b-1m:1.0",
 ]
 
 
@@ -58,7 +58,7 @@ class InferCofig:
     max_new_tokens: int = MAX_NEW_TOKENS
     ckpt_format: str = "torch_dist"
     seed: int = RANDOM_SEED
-    # enable_flash_decode: bool = False
+    flash_decode: bool = False
 
 
 _checkpoint_cache = {}
@@ -103,7 +103,7 @@ def run_inference(prompt: str, checkpoint_path: str, config: InferCofig) -> List
         output_file=None,
         ckpt_format=config.ckpt_format,
         seed=config.seed,
-        # enable_flash_decode=False,
+        flash_decode=config.flash_decode,
     )
 
 
@@ -135,6 +135,4 @@ def test_different_prompts_too_similar(load_checkpoint, ckpt_name):
     response_prompt1 = run_inference(PROMPT_1, checkpoint_path, InferCofig())
     response_prompt2 = run_inference(PROMPT_2, checkpoint_path, InferCofig())
     sequence_similarity = percent_equal_tokens(response_prompt1, response_prompt2)  
-    print(f"sequence similarity {ckpt_name} different prompts: {sequence_similarity}")
-    #
     assert sequence_similarity <= similarity_threshold
