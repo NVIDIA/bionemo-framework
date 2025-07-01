@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 7200
+time_limit: 14400
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   train_data_path: False
@@ -36,7 +36,8 @@ script_args:
       mlp_ft_dropout: 0.25
       mlp_hidden_size: 256
       mlp_target_size: 10
-      num_steps: 1485
+      # num_steps: 1485
+      num_steps: 100
       experiment_name: seq-level-classification
       lr: 0.0005
       batch_size: 64
@@ -54,7 +55,8 @@ script_args:
       cnn_dropout: 0.25
       cnn_hidden_size: 32
       cnn_num_classes: 3
-      num_steps: 1500
+      # num_steps: 1500
+      num_steps: 100
       experiment_name: token-level-classification
       lr: 0.0005
       batch_size: 64
@@ -72,7 +74,8 @@ script_args:
       mlp_ft_dropout: 0.1
       mlp_hidden_size: 128
       mlp_target_size: 1
-      num_steps: 6980
+      # num_steps: 6980
+      num_steps: 100
       experiment_name: seq-level-regression
       lr: 0.0005
       batch_size: 32
