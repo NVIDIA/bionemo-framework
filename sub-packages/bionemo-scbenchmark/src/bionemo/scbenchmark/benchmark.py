@@ -14,23 +14,214 @@
 # limitations under the License.
 
 
-"""Simple benchmarking for any dataloader.
+"""Benchmarking framework for any dataloader.
 
-This module provides functions to benchmark any dataloader implementation
-by measuring disk space, iteration time, memory usage, and throughput.
-The module uses factory functions to create dataloaders, allowing for
-flexible benchmarking without requiring inheritance or modifications
-to existing dataloader code.
+This module provides a comprehensive framework for benchmarking any dataloader
+implementation. It supports both simple direct benchmarking and factory-based
+benchmarking, with features like time-based limits, warmup phases, instantiation
+measurement, and comprehensive performance metrics.
 """
 
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from .common import BenchmarkResult, measure_instantiation
-from .core import BenchmarkConfig, run_benchmark_with_config
+import psutil
+
+from .common import BenchmarkResult, get_batch_size, get_disk_size, measure_instantiation
 from .protocols import DataloaderProtocol
+
+
+@dataclass
+class BenchmarkConfig:
+    """Configuration for benchmarking.
+
+    This dataclass contains all the configuration parameters needed
+    to run a benchmark. It supports both time-based and batch-based
+    limits, as well as warmup phases.
+
+    Attributes:
+        name: Name of the benchmark
+        num_epochs: Number of epochs to run
+        max_batches: Maximum number of batches to process (None for all)
+        max_time_seconds: Maximum time to run benchmark (None for no limit)
+        warmup_batches: Number of warmup batches
+        warmup_time_seconds: Time to warmup in seconds (overrides warmup_batches if set)
+        print_progress: Whether to print progress during benchmarking
+        data_path: Path to data files (for disk size measurement)
+    """
+
+    name: str
+    num_epochs: int = 1
+    max_batches: Optional[int] = None
+    max_time_seconds: Optional[float] = None
+    warmup_batches: int = 5
+    warmup_time_seconds: Optional[float] = None
+    print_progress: bool = True
+    data_path: Optional[Union[str, Path]] = None
+
+
+class BenchmarkRunner:
+    """Modular benchmark runner with time-based and batch-based limits.
+
+    This class provides the core benchmarking functionality that can be
+    used by both simple and factory-based interfaces. It handles the
+    complete benchmark lifecycle including warmup, execution, and
+    result calculation.
+
+    The runner supports both time-based and batch-based limits, allowing
+    for flexible benchmark configurations. It also provides progress
+    reporting and comprehensive error handling.
+
+    Attributes:
+        config: Configuration for the benchmark run
+        process: Process object for memory monitoring
+    """
+
+    def __init__(self, config: BenchmarkConfig):
+        """Initialize the benchmark runner.
+
+        Args:
+            config: Configuration for the benchmark run
+        """
+        self.config = config
+        self.process = psutil.Process()
+
+    def run_benchmark(self, dataloader: DataloaderProtocol) -> BenchmarkResult:
+        """Run the actual benchmark and collect metrics.
+
+        This method executes the main benchmark loop, collecting timing
+        and memory metrics for each batch. It respects both time-based
+        and batch-based limits, and provides progress reporting.
+
+        Args:
+            dataloader: The dataloader to benchmark
+
+        Returns:
+            BenchmarkResult containing all collected data and calculated metrics
+        """
+        batch_times = []
+        memory_samples = []
+        total_samples = 0
+        total_batches = 0
+
+        iteration_start = time.perf_counter()
+
+        # Determine warmup strategy
+        if self.config.warmup_time_seconds:
+            warmup_end_time = iteration_start + self.config.warmup_time_seconds
+            is_warming_up = True
+        else:
+            warmup_batches_remaining = self.config.warmup_batches
+            is_warming_up = True
+
+        def log(message):
+            if self.config.print_progress:
+                print(message)
+
+        try:
+            for epoch in range(self.config.num_epochs):
+                log(f"  Epoch {epoch + 1}/{self.config.num_epochs}")
+
+                for batch in dataloader:
+                    current_time = time.perf_counter()
+
+                    # Handle warmup phase
+                    if is_warming_up:
+                        if self.config.warmup_time_seconds:
+                            if current_time >= warmup_end_time:
+                                is_warming_up = False
+                                log("✅ Warmup complete, starting measurement...")
+                                # Reset counters for measurement phase
+                                total_samples = 0
+                                total_batches = 0
+                                batch_times = []
+                                memory_samples = []
+                                iteration_start = current_time
+                            else:
+                                if int(current_time - iteration_start) % 5 == 0:
+                                    elapsed = current_time - iteration_start
+                                    log(f"    Warming up: {elapsed:.1f}s")
+                                continue
+                        else:
+                            # Batch-based warmup
+                            warmup_batches_remaining -= 1
+                            if warmup_batches_remaining <= 0:
+                                is_warming_up = False
+                                log("✅ Warmup complete, starting measurement...")
+                                # Reset counters for measurement phase
+                                total_samples = 0
+                                total_batches = 0
+                                batch_times = []
+                                memory_samples = []
+                                iteration_start = current_time
+                            else:
+                                if warmup_batches_remaining % 2 == 0:
+                                    log(
+                                        f"    Warming up: {self.config.warmup_batches - warmup_batches_remaining} batches"
+                                    )
+                                continue
+
+                    # Measurement phase
+                    batch_start = time.perf_counter()
+
+                    # Sample memory
+                    memory_mb = self.process.memory_info().rss / (1024 * 1024)
+                    memory_samples.append(memory_mb)
+
+                    # Determine batch size
+                    batch_size = get_batch_size(batch)
+                    total_samples += batch_size
+
+                    # End timing
+                    batch_time = time.perf_counter() - batch_start
+                    batch_times.append(batch_time)
+
+                    total_batches += 1
+
+                    # Check max batches limit
+                    if self.config.max_batches and total_batches >= self.config.max_batches:
+                        break
+
+                    # Check max time limit
+                    if self.config.max_time_seconds:
+                        elapsed_time = current_time - iteration_start
+                        if elapsed_time >= self.config.max_time_seconds:
+                            log(f"    Time limit reached ({elapsed_time:.2f}s)")
+                            break
+
+                    # Print progress
+                    if total_batches % 10 == 0:
+                        elapsed = current_time - iteration_start
+                        log(f"    Processed {total_batches} batches ({elapsed:.2f}s)")
+
+                # Check limits after epoch
+                if self.config.max_batches and total_batches >= self.config.max_batches:
+                    break
+                if self.config.max_time_seconds:
+                    elapsed_time = time.perf_counter() - iteration_start
+                    if elapsed_time >= self.config.max_time_seconds:
+                        break
+
+            iteration_time = time.perf_counter() - iteration_start
+
+        except Exception as e:
+            log(f"❌ Iteration failed: {str(e)}")
+            iteration_time = time.perf_counter() - iteration_start
+
+        # Create BenchmarkResult directly from raw metrics
+        return BenchmarkResult.from_raw_metrics(
+            name=self.config.name,
+            batch_times=batch_times,
+            memory_samples=memory_samples,
+            total_samples=total_samples,
+            total_batches=total_batches,
+            setup_time=0.0,  # Will be set by caller
+            warmup_time=0.0,  # Will be set by caller
+            iteration_time=iteration_time,
+        )
 
 
 def benchmark_dataloader(
@@ -72,35 +263,42 @@ def benchmark_dataloader(
         - If both warmup_batches and warmup_time_seconds are set, warmup_time_seconds takes precedence
         - Instantiation is measured by default to give complete performance picture
         - The factory function is called once for instantiation measurement and once for setup
+        - For existing dataloaders, simply wrap them in a factory function: lambda: your_dataloader
     """
-    print(f"\n{'=' * 60}")
-    print(f"Benchmarking: {name}")
-    print(f"{'=' * 60}")
+
+    def log(message):
+        if print_progress:
+            print(message)
+
+    log(f"\n{'=' * 60}")
+    log(f"Benchmarking: {name}")
+    log(f"{'=' * 60}")
 
     # Measure instantiation metrics if requested
     instantiation_metrics = None
     if measure_instantiation_metrics:
-        print("🔧 Measuring dataloader instantiation...")
+        log("🔧 Measuring dataloader instantiation...")
         instantiation_metrics = measure_instantiation(dataloader_factory, name)
 
-        print(f"   Instantiation time: {instantiation_metrics.instantiation_time_seconds:.4f}s")
-        print(f"   Memory delta: {instantiation_metrics.memory_delta_mb:.2f} MB")
-        print(f"   Peak memory during: {instantiation_metrics.peak_memory_during_mb:.2f} MB")
+        log(f"   Instantiation time: {instantiation_metrics['instantiation_time_seconds']:.4f}s")
+        log(f"   Memory delta: {instantiation_metrics['memory_delta_instantiation_mb']:.2f} MB")
+        log(f"   Peak memory during: {instantiation_metrics['peak_memory_during_instantiation_mb']:.2f} MB")
 
     # Setup phase (includes factory execution)
-    print("🔧 Setting up dataloader...")
+    log("🔧 Setting up dataloader...")
     setup_start = time.perf_counter()
     try:
         dataloader = dataloader_factory()
         setup_time = time.perf_counter() - setup_start
-        print(f"✅ Setup completed in {setup_time:.4f}s")
+        log(f"✅ Setup completed in {setup_time:.4f}s")
     except Exception as e:
         error_msg = f"Setup failed: {str(e)}"
-        print(f"❌ {error_msg}")
+        log(f"❌ {error_msg}")
         return BenchmarkResult(
             name=name,
             disk_size_mb=0.0,
             setup_time_seconds=0.0,
+            warmup_time_seconds=0.0,
             total_iteration_time_seconds=0.0,
             average_batch_time_seconds=0.0,
             total_batches=0,
@@ -110,10 +308,16 @@ def benchmark_dataloader(
             peak_memory_mb=0.0,
             average_memory_mb=0.0,
             errors=[error_msg],
-            instantiation_metrics=instantiation_metrics,
+            **instantiation_metrics if instantiation_metrics else {},
         )
 
-    # Create config for core benchmarking
+    # Measure disk size
+    disk_size_mb = 0.0
+    if data_path:
+        disk_size_mb = get_disk_size(data_path)
+        log(f"📁 Disk size: {disk_size_mb:.2f} MB")
+
+    # Create config and run benchmark
     config = BenchmarkConfig(
         name=name,
         num_epochs=num_epochs,
@@ -125,14 +329,22 @@ def benchmark_dataloader(
         data_path=data_path,
     )
 
-    # Run the benchmark using core module
-    result = run_benchmark_with_config(dataloader, config)
+    # Run the benchmark directly
+    log("🏃 Running benchmark...")
+    runner = BenchmarkRunner(config)
+    result = runner.run_benchmark(dataloader)
 
     # Add instantiation metrics
-    result.instantiation_metrics = instantiation_metrics
+    if instantiation_metrics:
+        for key, value in instantiation_metrics.items():
+            setattr(result, key, value)
 
-    # Adjust setup time to include factory execution
+    # Update timing and disk info
     result.setup_time_seconds += setup_time
+    result.disk_size_mb = disk_size_mb
+
+    # Print results
+    _print_results(result)
 
     return result
 
@@ -189,6 +401,56 @@ def benchmark_multiple_dataloaders(
     return results
 
 
+def _print_results(result: BenchmarkResult) -> None:
+    """Print benchmark results in a formatted way.
+
+    This function displays the benchmark results in a human-readable
+    format, including performance metrics, memory usage, and any
+    instantiation information if available.
+
+    Args:
+        result: BenchmarkResult to display
+    """
+    print(f"\n{'=' * 40}")
+    print(f"RESULTS: {result.name}")
+    print(f"{'=' * 40}")
+
+    if result.errors:
+        print(f"❌ ERRORS: {result.errors}")
+        return
+
+    print("📊 Performance:")
+    print(f"   Setup time: {result.setup_time_seconds:.4f}s")
+    print(f"   Warmup time: {result.warmup_time_seconds:.4f}s")
+    print(f"   Total time: {result.total_iteration_time_seconds:.4f}s")
+    print(f"   Avg batch time: {result.average_batch_time_seconds:.4f}s")
+
+    # Print instantiation metrics if available
+    if result.instantiation_time_seconds is not None:
+        print("\n🔧 Instantiation:")
+        print(f"   Instantiation time: {result.instantiation_time_seconds:.4f}s")
+        print(f"   Memory before: {result.memory_before_instantiation_mb:.2f} MB")
+        print(f"   Memory after: {result.memory_after_instantiation_mb:.2f} MB")
+        print(f"   Memory delta: {result.memory_delta_instantiation_mb:.2f} MB")
+        print(f"   Peak memory during: {result.peak_memory_during_instantiation_mb:.2f} MB")
+
+    print("\n🚀 Throughput:")
+    print(f"   Total batches: {result.total_batches}")
+    print(f"   Total samples: {result.total_samples}")
+    print(f"   Samples/second: {result.samples_per_second:.2f}")
+    print(f"   Batches/second: {result.batches_per_second:.2f}")
+
+    print("\n💾 Memory:")
+    print(f"   Peak memory: {result.peak_memory_mb:.2f} MB")
+    print(f"   Average memory: {result.average_memory_mb:.2f} MB")
+    if result.gpu_memory_mb > 0:
+        print(f"   GPU memory: {result.gpu_memory_mb:.2f} MB")
+
+    if result.disk_size_mb > 0:
+        print("\n💿 Storage:")
+        print(f"   Disk size: {result.disk_size_mb:.2f} MB")
+
+
 def _print_comparison(results: List[BenchmarkResult]) -> None:
     """Print comparison of multiple benchmark results.
 
@@ -217,59 +479,37 @@ def _print_comparison(results: List[BenchmarkResult]) -> None:
     print(f"🏆 Lowest memory: {lowest_memory.name} ({lowest_memory.peak_memory_mb:.2f} MB)")
 
     # Check if we have instantiation metrics
-    has_instantiation = any(r.instantiation_metrics for r in valid_results)
+    has_instantiation = any(r.instantiation_time_seconds is not None for r in valid_results)
 
     if has_instantiation:
         fastest_instantiation = min(
-            [r for r in valid_results if r.instantiation_metrics],
-            key=lambda x: x.instantiation_metrics.instantiation_time_seconds,
+            [r for r in valid_results if r.instantiation_time_seconds is not None],
+            key=lambda x: x.instantiation_time_seconds,
         )
         lowest_instantiation_memory = min(
-            [r for r in valid_results if r.instantiation_metrics],
-            key=lambda x: x.instantiation_metrics.memory_delta_mb,
-        )
-        print(
-            f"🏆 Fastest instantiation: {fastest_instantiation.name} ({fastest_instantiation.instantiation_metrics.instantiation_time_seconds:.4f}s)"
-        )
-        print(
-            f"🏆 Lowest instantiation memory: {lowest_instantiation_memory.name} ({lowest_instantiation_memory.instantiation_metrics.memory_delta_mb:.2f} MB)"
+            [r for r in valid_results if r.instantiation_time_seconds is not None],
+            key=lambda x: x.memory_delta_instantiation_mb,
         )
 
-    # Comparison table
-    if has_instantiation:
         print(
-            f"\n{'Name':<20} {'Samples/s':<12} {'Batches/s':<12} {'Memory (MB)':<12} {'Inst. Time (s)':<15} {'Inst. Mem (MB)':<15}"
+            f"🏆 Fastest instantiation: {fastest_instantiation.name} ({fastest_instantiation.instantiation_time_seconds:.4f}s)"
         )
-        print("-" * 100)
+        print(
+            f"🏆 Lowest instantiation memory: {lowest_instantiation_memory.name} ({lowest_instantiation_memory.memory_delta_instantiation_mb:.2f} MB)"
+        )
 
-        for result in results:
-            if not result.errors:
-                inst_time = (
-                    result.instantiation_metrics.instantiation_time_seconds if result.instantiation_metrics else 0.0
-                )
-                inst_mem = result.instantiation_metrics.memory_delta_mb if result.instantiation_metrics else 0.0
-                print(
-                    f"{result.name:<20} "
-                    f"{result.samples_per_second:<12.2f} "
-                    f"{result.batches_per_second:<12.2f} "
-                    f"{result.peak_memory_mb:<12.2f} "
-                    f"{inst_time:<15.4f} "
-                    f"{inst_mem:<15.2f}"
-                )
-            else:
-                print(f"{result.name:<20} {'ERROR':<12} {'ERROR':<12} {'ERROR':<12} {'ERROR':<15} {'ERROR':<15}")
-    else:
-        print(f"\n{'Name':<20} {'Samples/s':<12} {'Batches/s':<12} {'Memory (MB)':<12} {'Disk (MB)':<12}")
-        print("-" * 80)
+    # Print detailed comparison table
+    print(f"\n{'=' * 80}")
+    print("DETAILED COMPARISON")
+    print(f"{'=' * 80}")
+    print(f"{'Name':<30} {'Samples/sec':<12} {'Batches/sec':<12} {'Peak Mem':<10} {'Inst Time':<10} {'Inst Mem':<10}")
+    print("-" * 80)
 
-        for result in results:
-            if not result.errors:
-                print(
-                    f"{result.name:<20} "
-                    f"{result.samples_per_second:<12.2f} "
-                    f"{result.batches_per_second:<12.2f} "
-                    f"{result.peak_memory_mb:<12.2f} "
-                    f"{result.disk_size_mb:<12.2f}"
-                )
-            else:
-                print(f"{result.name:<20} {'ERROR':<12} {'ERROR':<12} {'ERROR':<12} {'ERROR':<12}")
+    for result in valid_results:
+        inst_time = result.instantiation_time_seconds if result.instantiation_time_seconds is not None else 0.0
+        inst_mem = result.memory_delta_instantiation_mb if result.memory_delta_instantiation_mb is not None else 0.0
+
+        print(
+            f"{result.name:<30} {result.samples_per_second:<12.2f} {result.batches_per_second:<12.2f} "
+            f"{result.peak_memory_mb:<10.2f} {inst_time:<10.4f} {inst_mem:<10.2f}"
+        )

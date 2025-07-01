@@ -30,10 +30,8 @@ from torch.utils.data import DataLoader, Dataset
 
 # Import the benchmarking framework
 from bionemo.scbenchmark import (
-    BenchmarkConfig,
     benchmark_any_dataloader,
     benchmark_multiple_dataloaders_simple,
-    run_benchmark_with_config,
 )
 
 
@@ -234,15 +232,22 @@ def example_custom_config():
     print("=" * 60)
 
     dataset = FastDataset(size=800)
-    dataloader = DataLoader(dataset, batch_size=24, shuffle=True)
 
-    # Create custom configuration
-    config = BenchmarkConfig(
-        name="Custom Config Example", num_epochs=2, max_time_seconds=4.0, warmup_time_seconds=1.5, print_progress=True
+    # Create factory function for the dataloader
+    def create_dataloader():
+        return DataLoader(dataset, batch_size=24, shuffle=True)
+
+    # Run benchmark with custom parameters (equivalent to using BenchmarkConfig)
+    from bionemo.scbenchmark import benchmark_dataloader
+
+    benchmark_dataloader(
+        name="Custom Config Example",
+        dataloader_factory=create_dataloader,
+        num_epochs=2,
+        max_time_seconds=4.0,
+        warmup_time_seconds=1.5,
+        print_progress=True,
     )
-
-    # Run benchmark with custom config
-    run_benchmark_with_config(dataloader, config)
 
     print("✅ Custom config benchmark completed!")
 
