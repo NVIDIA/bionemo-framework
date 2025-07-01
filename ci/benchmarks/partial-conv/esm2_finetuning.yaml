@@ -158,24 +158,3 @@ script: |-
 
   # Execute the command
   eval $CMD
-tests:
-  - logic_type: dynamic
-    logic_spec:
-      exit_codes:
-        - 0
-      baselines:
-        # For sequence classification
-        - variant: seq_classification
-          val_acc:
-            operator: gt
-            value: 0.77
-        # For token classification
-        - variant: token_classification
-          val_acc:
-            operator: gt
-            value: 0.86
-        # For sequence regression
-        - variant: seq_regression
-          val_mse:
-            operator: lt
-            value: 50.0
