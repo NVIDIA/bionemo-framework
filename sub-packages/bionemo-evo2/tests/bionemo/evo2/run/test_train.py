@@ -98,10 +98,6 @@ def test_train_evo2_runs(tmp_path):
 
 @pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
-@pytest.mark.skip(
-    reason="This test fails due to error when the checkpoints are saved on L40. "
-    "Issue: https://github.com/NVIDIA/bionemo-framework/issues/760"
-)
 def test_train_evo2_stops(tmp_path):
     """
     This test runs the `train_evo2` command with mock data in a temporary directory.
@@ -124,7 +120,7 @@ def test_train_evo2_stops(tmp_path):
     args = parse_args(args=command_parts_no_program)
     train_stdout, trainer = run_train_with_std_redirect(args)
 
-    assert f"Training epoch 0, iteration 0/{max_steps - 1}" in train_stdout
+    assert f"Training epoch 0, iteration 0/{early_stop_steps - 1}" in train_stdout
     # Extract and validate global steps
     global_steps = extract_global_steps_from_log(train_stdout)
     assert global_steps[0] == 0
