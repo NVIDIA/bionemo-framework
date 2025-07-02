@@ -1,5 +1,22 @@
 # Release Notes
 
+## BioNeMo Framework v2.6.2
+
+### Updates & Improvements
+
+* Fixes numerous ESM2 model issues:
+    1. Finetuning metric for token classification is fixed. https://github.com/NVIDIA/bionemo-framework/pull/946
+    2. Losses for finetuning were fixed for data and model parallelism. https://github.com/NVIDIA/bionemo-framework/pull/959
+    3. Bug in inference script that concerns checkpoint loading is fixed. https://github.com/NVIDIA/bionemo-framework/pull/950
+* Updated base Docker image to [nvidia-pytorch 25.04-py3](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags)
+
+### Known Issues
+* Evo2 generation is broken (i.e. `bionemo-evo2/src/bionemo/evo2/run/infer.py`). See issue https://github.com/NVIDIA/bionemo-framework/issues/890. A workaround exists on branch https://github.com/NVIDIA/bionemo-framework/pull/949 and we are working to fix this issue for the July release.
+* There is a NCCL communication issue on certain A100 multi-node environments. In our internal testing, we were not able to reproduce the issue reliably across environments. If end users see the following error, please report in issue https://github.com/NVIDIA/bionemo-framework/issues/970 :
+```
+[rank9]: torch.distributed.DistBackendError: NCCL error in: /opt/pytorch/pytorch/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:3356, internal error - please report this issue to the NCCL developers, NCCL version 2.26.3
+```
+
 ## BioNeMo Framework v2.6.1
 
 ### Updates & Improvements
