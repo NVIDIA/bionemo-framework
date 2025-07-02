@@ -18,15 +18,15 @@
       
       
       <link rel="icon" href="../../../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.12">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.41">
     
     
       
         <title>ESM-2 Fine-tuning - BioNeMo Framework</title>
       
     
-    
-      <link rel="stylesheet" href="../../../../assets/stylesheets/main.2afb09e1.min.css">
+     
+      <link rel="stylesheet" href="../../../../assets/stylesheets/main.0253249f.min.css">
       
         
         <link rel="stylesheet" href="../../../../assets/stylesheets/palette.06af60db.min.css">
@@ -35,6 +35,8 @@
 
 
     
+<link rel="stylesheet" href="../../../../assets/css/chatbot.css" />
+
     
       
     
@@ -94,6 +96,17 @@
     </div>
     
       <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+               You are viewing an outdated version of the BioNeMo Documentation.
+<a href="../../../../..">
+  <strong>Click here to go to the latest stable version.</strong>
+</a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),outdated=__md_get("__outdated",sessionStorage);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
         
       </div>
     
@@ -168,13 +181,11 @@
     
     
     
-      
-      
-        <label class="md-header__button md-icon" for="__search">
-          
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
-        </label>
-        <div class="md-search" data-md-component="search" role="dialog">
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
   <label class="md-search__overlay" for="__search"></label>
   <div class="md-search__inner" role="search">
     <form class="md-search__form" name="search">
@@ -208,14 +219,13 @@
     </div>
   </div>
 </div>
-      
     
     
       <div class="md-header__source">
         <a href="https://github.com/NVIDIA/bionemo-framework" title="Go to repository" class="md-source" data-md-component="source">
   <div class="md-source__icon md-icon">
     
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
   </div>
   <div class="md-source__repository">
     NVIDIA/bionemo-framework
@@ -241,11 +251,9 @@
   
   
   
-  
     <li class="md-tabs__item">
       <a href="../../../.." class="md-tabs__link">
         
-  
   
     
   
@@ -259,7 +267,6 @@
         
   
   
-  
     
   
   
@@ -268,7 +275,6 @@
       <li class="md-tabs__item md-tabs__item--active">
         <a href="../../../" class="md-tabs__link">
           
-  
   
     
   
@@ -284,13 +290,11 @@
   
   
   
-  
     
     
       <li class="md-tabs__item">
         <a href="../../../../models/" class="md-tabs__link">
           
-  
   
     
   
@@ -306,13 +310,11 @@
   
   
   
-  
     
     
       <li class="md-tabs__item">
         <a href="../../../../datasets/" class="md-tabs__link">
           
-  
   
     
   
@@ -328,13 +330,11 @@
   
   
   
-  
     
     
       <li class="md-tabs__item">
         <a href="../../../../API_reference/" class="md-tabs__link">
           
-  
   
     
   
@@ -389,7 +389,7 @@
       <a href="https://github.com/NVIDIA/bionemo-framework" title="Go to repository" class="md-source" data-md-component="source">
   <div class="md-source__icon md-icon">
     
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
   </div>
   <div class="md-source__repository">
     NVIDIA/bionemo-framework
@@ -409,10 +409,8 @@
       <a href="../../../.." class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Home
-    
   </span>
   
 
@@ -450,7 +448,6 @@
       
     
     
-    
       
         
         
@@ -465,14 +462,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     User Guide
-    
   </span>
   
 
@@ -515,7 +511,6 @@
       
     
     
-    
       
       
     
@@ -530,10 +525,8 @@
           <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Getting Started
-    
   </span>
   
 
@@ -557,10 +550,8 @@
       <a href="../../../getting-started/pre-reqs/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Hardware and Software Prerequisites
-    
   </span>
   
 
@@ -580,10 +571,8 @@
       <a href="../../../getting-started/access-startup/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Access and Startup
-    
   </span>
   
 
@@ -603,10 +592,8 @@
       <a href="../../../getting-started/initialization-guide/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Initialization Guide
-    
   </span>
   
 
@@ -626,10 +613,8 @@
       <a href="../../../getting-started/development/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Development
-    
   </span>
   
 
@@ -649,10 +634,8 @@
       <a href="../../../getting-started/training-models/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Training Models
-    
   </span>
   
 
@@ -685,7 +668,6 @@
       
     
     
-    
       
       
     
@@ -700,10 +682,8 @@
           <label class="md-nav__link" for="__nav_2_3" id="__nav_2_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Background
-    
   </span>
   
 
@@ -727,10 +707,8 @@
       <a href="../../../background/nemo2/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     NeMo2 Parallelism
-    
   </span>
   
 
@@ -750,10 +728,8 @@
       <a href="../../../background/megatron_datasets/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Megatron Dataset Considerations
-    
   </span>
   
 
@@ -812,7 +788,6 @@
       
     
     
-    
       
       
     
@@ -827,10 +802,8 @@
           <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Developer Guide
-    
   </span>
   
 
@@ -857,7 +830,6 @@
       
     
     
-    
       
       
     
@@ -872,10 +844,8 @@
           <label class="md-nav__link" for="__nav_2_4_1" id="__nav_2_4_1_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo amplify
-    
   </span>
   
 
@@ -899,10 +869,8 @@
       <a href="../../../developer-guide/bionemo-amplify/bionemo-amplify-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-amplify
-    
   </span>
   
 
@@ -933,7 +901,6 @@
       
     
     
-    
       
       
     
@@ -948,10 +915,8 @@
           <label class="md-nav__link" for="__nav_2_4_2" id="__nav_2_4_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo core
-    
   </span>
   
 
@@ -975,10 +940,8 @@
       <a href="../../../developer-guide/bionemo-core/bionemo-core-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-core
-    
   </span>
   
 
@@ -1009,7 +972,6 @@
       
     
     
-    
       
       
     
@@ -1024,10 +986,8 @@
           <label class="md-nav__link" for="__nav_2_4_3" id="__nav_2_4_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo esm2
-    
   </span>
   
 
@@ -1051,10 +1011,8 @@
       <a href="../../../developer-guide/bionemo-esm2/bionemo-esm2-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-esm2
-    
   </span>
   
 
@@ -1085,7 +1043,6 @@
       
     
     
-    
       
       
     
@@ -1100,10 +1057,8 @@
           <label class="md-nav__link" for="__nav_2_4_4" id="__nav_2_4_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo evo2
-    
   </span>
   
 
@@ -1127,10 +1082,8 @@
       <a href="../../../developer-guide/bionemo-evo2/bionemo-evo2-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-evo2
-    
   </span>
   
 
@@ -1161,7 +1114,6 @@
       
     
     
-    
       
       
     
@@ -1176,10 +1128,8 @@
           <label class="md-nav__link" for="__nav_2_4_5" id="__nav_2_4_5_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo example model
-    
   </span>
   
 
@@ -1203,10 +1153,8 @@
       <a href="../../../developer-guide/bionemo-example_model/bionemo-example_model-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo example model Overview
-    
   </span>
   
 
@@ -1237,7 +1185,6 @@
       
     
     
-    
       
       
     
@@ -1252,10 +1199,8 @@
           <label class="md-nav__link" for="__nav_2_4_6" id="__nav_2_4_6_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo fw
-    
   </span>
   
 
@@ -1279,10 +1224,8 @@
       <a href="../../../developer-guide/bionemo-fw/bionemo-fw-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-fw
-    
   </span>
   
 
@@ -1313,7 +1256,6 @@
       
     
     
-    
       
       
     
@@ -1328,10 +1270,8 @@
           <label class="md-nav__link" for="__nav_2_4_7" id="__nav_2_4_7_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo geneformer
-    
   </span>
   
 
@@ -1355,10 +1295,8 @@
       <a href="../../../developer-guide/bionemo-geneformer/bionemo-geneformer-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-geneformer
-    
   </span>
   
 
@@ -1389,7 +1327,6 @@
       
     
     
-    
       
       
     
@@ -1404,10 +1341,8 @@
           <label class="md-nav__link" for="__nav_2_4_8" id="__nav_2_4_8_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo geometric
-    
   </span>
   
 
@@ -1431,10 +1366,8 @@
       <a href="../../../developer-guide/bionemo-geometric/bionemo-geometric-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-geometric
-    
   </span>
   
 
@@ -1465,7 +1398,6 @@
       
     
     
-    
       
       
     
@@ -1480,10 +1412,8 @@
           <label class="md-nav__link" for="__nav_2_4_9" id="__nav_2_4_9_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo llm
-    
   </span>
   
 
@@ -1507,10 +1437,8 @@
       <a href="../../../developer-guide/bionemo-llm/bionemo-llm-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-llm
-    
   </span>
   
 
@@ -1541,7 +1469,6 @@
       
     
     
-    
       
       
     
@@ -1556,10 +1483,8 @@
           <label class="md-nav__link" for="__nav_2_4_10" id="__nav_2_4_10_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo moco
-    
   </span>
   
 
@@ -1583,10 +1508,8 @@
       <a href="../../../developer-guide/bionemo-moco/bionemo-moco-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Modular Co-Design (MoCo) Interpolants
-    
   </span>
   
 
@@ -1617,7 +1540,6 @@
       
     
     
-    
       
       
     
@@ -1632,10 +1554,8 @@
           <label class="md-nav__link" for="__nav_2_4_11" id="__nav_2_4_11_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo noodles
-    
   </span>
   
 
@@ -1659,10 +1579,8 @@
       <a href="../../../developer-guide/bionemo-noodles/bionemo-noodles-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-noodles
-    
   </span>
   
 
@@ -1693,7 +1611,6 @@
       
     
     
-    
       
       
     
@@ -1708,10 +1625,8 @@
           <label class="md-nav__link" for="__nav_2_4_12" id="__nav_2_4_12_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo scdl
-    
   </span>
   
 
@@ -1735,10 +1650,8 @@
       <a href="../../../developer-guide/bionemo-scdl/bionemo-scdl-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     BioNeMo-SCDL: Single Cell Data Loading for Scalable Training of Single Cell Foundation Models.
-    
   </span>
   
 
@@ -1769,7 +1682,6 @@
       
     
     
-    
       
       
     
@@ -1784,10 +1696,8 @@
           <label class="md-nav__link" for="__nav_2_4_13" id="__nav_2_4_13_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo size aware batching
-    
   </span>
   
 
@@ -1811,10 +1721,8 @@
       <a href="../../../developer-guide/bionemo-size-aware-batching/bionemo-size-aware-batching-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-size-aware-batching
-    
   </span>
   
 
@@ -1845,7 +1753,6 @@
       
     
     
-    
       
       
     
@@ -1860,10 +1767,8 @@
           <label class="md-nav__link" for="__nav_2_4_14" id="__nav_2_4_14_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo testing
-    
   </span>
   
 
@@ -1887,10 +1792,8 @@
       <a href="../../../developer-guide/bionemo-testing/bionemo-testing-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-testing
-    
   </span>
   
 
@@ -1921,7 +1824,6 @@
       
     
     
-    
       
       
     
@@ -1936,10 +1838,8 @@
           <label class="md-nav__link" for="__nav_2_4_15" id="__nav_2_4_15_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo webdatamodule
-    
   </span>
   
 
@@ -1963,10 +1863,8 @@
       <a href="../../../developer-guide/bionemo-webdatamodule/bionemo-webdatamodule-Overview/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     bionemo-webdatamodule
-    
   </span>
   
 
@@ -2017,7 +1915,6 @@
       
     
     
-    
       
       
     
@@ -2032,10 +1929,8 @@
           <label class="md-nav__link" for="__nav_2_5" id="__nav_2_5_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Tutorials
-    
   </span>
   
 
@@ -2059,10 +1954,8 @@
       <a href="../../conftest/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Conftest
-    
   </span>
   
 
@@ -2093,7 +1986,6 @@
       
     
     
-    
       
       
     
@@ -2108,10 +2000,8 @@
           <label class="md-nav__link" for="__nav_2_5_2" id="__nav_2_5_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo esm2
-    
   </span>
   
 
@@ -2144,10 +2034,8 @@
         <label class="md-nav__link md-nav__link--active" for="__toc">
           
   
-  
   <span class="md-ellipsis">
     ESM-2 Fine-tuning
-    
   </span>
   
 
@@ -2157,10 +2045,8 @@
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
-  
   <span class="md-ellipsis">
     ESM-2 Fine-tuning
-    
   </span>
   
 
@@ -2377,10 +2263,8 @@
       <a href="../inference/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     ESM-2 Inference
-    
   </span>
   
 
@@ -2400,10 +2284,8 @@
       <a href="../mutant-design/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Zero-Shot Protein Design Using ESM-2
-    
   </span>
   
 
@@ -2423,10 +2305,8 @@
       <a href="../pretrain/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     ESM-2 Pretraining
-    
   </span>
   
 
@@ -2459,7 +2339,6 @@
       
     
     
-    
       
       
     
@@ -2474,10 +2353,8 @@
           <label class="md-nav__link" for="__nav_2_5_3" id="__nav_2_5_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo evo2
-    
   </span>
   
 
@@ -2501,10 +2378,8 @@
       <a href="../../bionemo-evo2/fine-tuning-tutorial/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Fine tuning tutorial
-    
   </span>
   
 
@@ -2524,10 +2399,8 @@
       <a href="../../bionemo-evo2/zeroshot_brca1/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Zero-shot prediction of BRCA1 variant effects with Evo 2
-    
   </span>
   
 
@@ -2560,7 +2433,6 @@
       
     
     
-    
       
       
     
@@ -2575,10 +2447,8 @@
           <label class="md-nav__link" for="__nav_2_5_4" id="__nav_2_5_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo geneformer
-    
   </span>
   
 
@@ -2602,10 +2472,8 @@
       <a href="../../bionemo-geneformer/geneformer-celltype-classification/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Geneformer Cell Type Classification Benchmark
-    
   </span>
   
 
@@ -2625,10 +2493,8 @@
       <a href="../../bionemo-geneformer/geneformer_cellxgene_tutorial/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     BioNeMo - Geneformer inferencing for single cell downstream tasks
-    
   </span>
   
 
@@ -2667,7 +2533,6 @@
       
     
     
-    
       
       
     
@@ -2682,10 +2547,8 @@
           <label class="md-nav__link" for="__nav_2_5_5" id="__nav_2_5_5_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo moco
-    
   </span>
   
 
@@ -2709,10 +2572,8 @@
       <a href="../../bionemo-moco/continuous_data_interpolant_tutorial_cfm/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Building Generative Models for Continuous Data via Continuous Interpolants
-    
   </span>
   
 
@@ -2732,10 +2593,8 @@
       <a href="../../bionemo-moco/continuous_data_interpolant_tutorial_ddpm/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Building Generative Models for Continuous Data via Continuous Interpolants
-    
   </span>
   
 
@@ -2755,10 +2614,8 @@
       <a href="../../bionemo-moco/continuous_data_interpolant_tutorial_vdm/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Building Generative Models for Continuous Data via Continuous Interpolants
-    
   </span>
   
 
@@ -2778,10 +2635,8 @@
       <a href="../../bionemo-moco/discrete_data_interpolant_tutorial/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Building Generative Models for Discrete Data via Discrete Interpolants
-    
   </span>
   
 
@@ -2801,10 +2656,8 @@
       <a href="../../bionemo-moco/ot_sampler_tutorial/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Optimal Transport Samplers Tutorial
-    
   </span>
   
 
@@ -2835,7 +2688,6 @@
       
     
     
-    
       
       
     
@@ -2850,10 +2702,8 @@
           <label class="md-nav__link" for="__nav_2_5_6" id="__nav_2_5_6_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo scdl
-    
   </span>
   
 
@@ -2877,10 +2727,8 @@
       <a href="../../bionemo-scdl/example_notebook/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Example notebook
-    
   </span>
   
 
@@ -2925,7 +2773,6 @@
       
     
     
-    
       
       
     
@@ -2940,10 +2787,8 @@
           <label class="md-nav__link" for="__nav_2_6" id="__nav_2_6_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Contributing
-    
   </span>
   
 
@@ -2967,10 +2812,8 @@
       <a href="../../../contributing/code-review/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Code Review
-    
   </span>
   
 
@@ -2990,10 +2833,8 @@
       <a href="../../../contributing/contributing/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Contributing Guidelines
-    
   </span>
   
 
@@ -3013,10 +2854,8 @@
       <a href="../../../contributing/sub-package_dependency_graph/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Sub package dependency graph
-    
   </span>
   
 
@@ -3045,7 +2884,6 @@
       
     
     
-    
       
       
     
@@ -3057,14 +2895,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_6_4" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../contributing/Writing%20Documentation/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     Writing Documentation
-    
   </span>
   
 
@@ -3096,10 +2933,8 @@
       <a href="../../../contributing/Writing%20Documentation/jupyter-notebooks/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Jupyter Notebook Support
-    
   </span>
   
 
@@ -3119,10 +2954,8 @@
       <a href="../../../contributing/Writing%20Documentation/mkdocs/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     MkDocs
-    
   </span>
   
 
@@ -3163,7 +2996,6 @@
       
     
     
-    
       
       
     
@@ -3178,10 +3010,8 @@
           <label class="md-nav__link" for="__nav_2_7" id="__nav_2_7_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Appendix
-    
   </span>
   
 
@@ -3205,10 +3035,8 @@
       <a href="../../../appendix/FAQ/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Frequently Asked Questions
-    
   </span>
   
 
@@ -3228,10 +3056,8 @@
       <a href="../../../appendix/releasenotes-fw/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Release Notes
-    
   </span>
   
 
@@ -3279,7 +3105,6 @@
       
     
     
-    
       
       
     
@@ -3291,14 +3116,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../../models/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     Models
-    
   </span>
   
 
@@ -3330,10 +3154,8 @@
       <a href="../../../../models/amplify/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Amplify
-    
   </span>
   
 
@@ -3353,10 +3175,8 @@
       <a href="../../../../models/evo2/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Evo2
-    
   </span>
   
 
@@ -3376,10 +3196,8 @@
       <a href="../../../../models/geneformer/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Geneformer
-    
   </span>
   
 
@@ -3406,7 +3224,6 @@
       
     
     
-    
       
       
     
@@ -3418,14 +3235,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../../models/ESM-2/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     ESM 2
-    
   </span>
   
 
@@ -3457,10 +3273,8 @@
       <a href="../../../../models/ESM-2/pre-training/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Pre-trained Checkpoints
-    
   </span>
   
 
@@ -3504,7 +3318,6 @@
       
     
     
-    
       
       
     
@@ -3516,14 +3329,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../../datasets/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     Datasets
-    
   </span>
   
 
@@ -3555,10 +3367,8 @@
       <a href="../../../../datasets/CELLxGENE/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     CELLxGENE
-    
   </span>
   
 
@@ -3578,10 +3388,8 @@
       <a href="../../../../datasets/uniprot/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     UniProt Dataset
-    
   </span>
   
 
@@ -3615,7 +3423,6 @@
       
     
     
-    
       
       
     
@@ -3627,14 +3434,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../../API_reference/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     API
-    
   </span>
   
 
@@ -3697,7 +3503,6 @@
       
     
     
-    
       
       
     
@@ -3712,10 +3517,8 @@
           <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Bionemo
-    
   </span>
   
 
@@ -3756,7 +3559,6 @@
       
     
     
-    
       
       
     
@@ -3771,10 +3573,8 @@
           <label class="md-nav__link" for="__nav_5_2_1" id="__nav_5_2_1_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Amplify
-    
   </span>
   
 
@@ -3798,10 +3598,8 @@
       <a href="../../../../API_reference/bionemo/amplify/convert/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Convert
-    
   </span>
   
 
@@ -3821,10 +3619,8 @@
       <a href="../../../../API_reference/bionemo/amplify/datamodule/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Datamodule
-    
   </span>
   
 
@@ -3844,10 +3640,8 @@
       <a href="../../../../API_reference/bionemo/amplify/dataset/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Dataset
-    
   </span>
   
 
@@ -3867,10 +3661,8 @@
       <a href="../../../../API_reference/bionemo/amplify/hf_rotary/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Hf rotary
-    
   </span>
   
 
@@ -3890,10 +3682,8 @@
       <a href="../../../../API_reference/bionemo/amplify/infer_amplify/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Infer amplify
-    
   </span>
   
 
@@ -3913,10 +3703,8 @@
       <a href="../../../../API_reference/bionemo/amplify/model/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Model
-    
   </span>
   
 
@@ -3936,10 +3724,8 @@
       <a href="../../../../API_reference/bionemo/amplify/tokenizer/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Tokenizer
-    
   </span>
   
 
@@ -3959,10 +3745,8 @@
       <a href="../../../../API_reference/bionemo/amplify/train_amplify/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Train amplify
-    
   </span>
   
 
@@ -3999,7 +3783,6 @@
       
     
     
-    
       
       
     
@@ -4014,10 +3797,8 @@
           <label class="md-nav__link" for="__nav_5_2_2" id="__nav_5_2_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Core
-    
   </span>
   
 
@@ -4041,10 +3822,8 @@
       <a href="../../../../API_reference/bionemo/core/api/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Api
-    
   </span>
   
 
@@ -4081,7 +3860,6 @@
       
     
     
-    
       
       
     
@@ -4093,14 +3871,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2_2_2" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../../API_reference/bionemo/core/data/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     Data
-    
   </span>
   
 
@@ -4132,10 +3909,8 @@
       <a href="../../../../API_reference/bionemo/core/data/api/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Api
-    
   </span>
   
 
@@ -4155,10 +3930,8 @@
       <a href="../../../../API_reference/bionemo/core/data/load/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Load
-    
   </span>
   
 
@@ -4178,10 +3951,8 @@
       <a href="../../../../API_reference/bionemo/core/data/multi_epoch_dataset/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Multi epoch dataset
-    
   </span>
   
 
@@ -4201,10 +3972,8 @@
       <a href="../../../../API_reference/bionemo/core/data/permute/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Permute
-    
   </span>
   
 
@@ -4224,10 +3993,8 @@
       <a href="../../../../API_reference/bionemo/core/data/resamplers/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Resamplers
-    
   </span>
   
 
@@ -4247,10 +4014,8 @@
       <a href="../../../../API_reference/bionemo/core/data/resource/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Resource
-    
   </span>
   
 
@@ -4281,7 +4046,6 @@
       
     
     
-    
       
       
     
@@ -4296,10 +4060,8 @@
           <label class="md-nav__link" for="__nav_5_2_2_3" id="__nav_5_2_2_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Model
-    
   </span>
   
 
@@ -4323,10 +4085,8 @@
       <a href="../../../../API_reference/bionemo/core/model/config/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Config
-    
   </span>
   
 
@@ -4361,7 +4121,6 @@
       
     
     
-    
       
       
     
@@ -4376,10 +4135,8 @@
           <label class="md-nav__link" for="__nav_5_2_2_4" id="__nav_5_2_2_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -4403,10 +4160,8 @@
       <a href="../../../../API_reference/bionemo/core/utils/batching_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Batching utils
-    
   </span>
   
 
@@ -4426,10 +4181,8 @@
       <a href="../../../../API_reference/bionemo/core/utils/dtypes/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Dtypes
-    
   </span>
   
 
@@ -4449,10 +4202,8 @@
       <a href="../../../../API_reference/bionemo/core/utils/random_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Random utils
-    
   </span>
   
 
@@ -4501,7 +4252,6 @@
       
     
     
-    
       
       
     
@@ -4516,10 +4266,8 @@
           <label class="md-nav__link" for="__nav_5_2_3" id="__nav_5_2_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Esm2
-    
   </span>
   
 
@@ -4543,10 +4291,8 @@
       <a href="../../../../API_reference/bionemo/esm2/api/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Api
-    
   </span>
   
 
@@ -4573,7 +4319,6 @@
       
     
     
-    
       
       
     
@@ -4588,10 +4333,8 @@
           <label class="md-nav__link" for="__nav_5_2_3_2" id="__nav_5_2_3_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Data
-    
   </span>
   
 
@@ -4615,10 +4358,8 @@
       <a href="../../../../API_reference/bionemo/esm2/data/datamodule/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Datamodule
-    
   </span>
   
 
@@ -4638,10 +4379,8 @@
       <a href="../../../../API_reference/bionemo/esm2/data/dataset/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Dataset
-    
   </span>
   
 
@@ -4666,7 +4405,6 @@
       
     
     
-    
       
       
     
@@ -4678,14 +4416,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2_3_2_3" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../../API_reference/bionemo/esm2/data/tokenizer/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     Tokenizer
-    
   </span>
   
 
@@ -4737,7 +4474,6 @@
       
     
     
-    
       
       
     
@@ -4752,10 +4488,8 @@
           <label class="md-nav__link" for="__nav_5_2_3_3" id="__nav_5_2_3_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Model
-    
   </span>
   
 
@@ -4779,10 +4513,8 @@
       <a href="../../../../API_reference/bionemo/esm2/model/convert/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Convert
-    
   </span>
   
 
@@ -4802,10 +4534,8 @@
       <a href="../../../../API_reference/bionemo/esm2/model/embedding/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Embedding
-    
   </span>
   
 
@@ -4825,10 +4555,8 @@
       <a href="../../../../API_reference/bionemo/esm2/model/model/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Model
-    
   </span>
   
 
@@ -4861,7 +4589,6 @@
       
     
     
-    
       
       
     
@@ -4876,10 +4603,8 @@
           <label class="md-nav__link" for="__nav_5_2_3_3_4" id="__nav_5_2_3_3_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Finetune
-    
   </span>
   
 
@@ -4903,10 +4628,8 @@
       <a href="../../../../API_reference/bionemo/esm2/model/finetune/datamodule/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Datamodule
-    
   </span>
   
 
@@ -4926,10 +4649,8 @@
       <a href="../../../../API_reference/bionemo/esm2/model/finetune/dataset/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Dataset
-    
   </span>
   
 
@@ -4949,10 +4670,8 @@
       <a href="../../../../API_reference/bionemo/esm2/model/finetune/loss/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Loss
-    
   </span>
   
 
@@ -4972,10 +4691,8 @@
       <a href="../../../../API_reference/bionemo/esm2/model/finetune/peft/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Peft
-    
   </span>
   
 
@@ -4995,10 +4712,8 @@
       <a href="../../../../API_reference/bionemo/esm2/model/finetune/sequence_model/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Sequence model
-    
   </span>
   
 
@@ -5018,10 +4733,8 @@
       <a href="../../../../API_reference/bionemo/esm2/model/finetune/token_model/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Token model
-    
   </span>
   
 
@@ -5064,7 +4777,6 @@
       
     
     
-    
       
       
     
@@ -5079,10 +4791,8 @@
           <label class="md-nav__link" for="__nav_5_2_3_4" id="__nav_5_2_3_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Run
-    
   </span>
   
 
@@ -5106,10 +4816,8 @@
       <a href="../../../../API_reference/bionemo/esm2/run/config_models/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Config models
-    
   </span>
   
 
@@ -5129,10 +4837,8 @@
       <a href="../../../../API_reference/bionemo/esm2/run/main/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Main
-    
   </span>
   
 
@@ -5152,10 +4858,8 @@
       <a href="../../../../API_reference/bionemo/esm2/run/recipes/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Recipes
-    
   </span>
   
 
@@ -5194,7 +4898,6 @@
       
     
     
-    
       
       
     
@@ -5206,14 +4909,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2_3_5" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../../API_reference/bionemo/esm2/scripts/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     Scripts
-    
   </span>
   
 
@@ -5245,10 +4947,8 @@
       <a href="../../../../API_reference/bionemo/esm2/scripts/finetune_esm2/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Finetune esm2
-    
   </span>
   
 
@@ -5268,10 +4968,8 @@
       <a href="../../../../API_reference/bionemo/esm2/scripts/infer_esm2/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Infer esm2
-    
   </span>
   
 
@@ -5291,10 +4989,8 @@
       <a href="../../../../API_reference/bionemo/esm2/scripts/train_esm2/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Train esm2
-    
   </span>
   
 
@@ -5325,7 +5021,6 @@
       
     
     
-    
       
       
     
@@ -5340,10 +5035,8 @@
           <label class="md-nav__link" for="__nav_5_2_3_6" id="__nav_5_2_3_6_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Testing
-    
   </span>
   
 
@@ -5367,10 +5060,8 @@
       <a href="../../../../API_reference/bionemo/esm2/testing/compare/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Compare
-    
   </span>
   
 
@@ -5413,7 +5104,6 @@
       
     
     
-    
       
       
     
@@ -5428,10 +5118,8 @@
           <label class="md-nav__link" for="__nav_5_2_4" id="__nav_5_2_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Evo2
-    
   </span>
   
 
@@ -5468,7 +5156,6 @@
       
     
     
-    
       
       
     
@@ -5480,14 +5167,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2_4_1" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../../API_reference/bionemo/evo2/data/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     Data
-    
   </span>
   
 
@@ -5519,10 +5205,8 @@
       <a href="../../../../API_reference/bionemo/evo2/data/fasta_dataset/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Fasta dataset
-    
   </span>
   
 
@@ -5542,10 +5226,8 @@
       <a href="../../../../API_reference/bionemo/evo2/data/preprocess/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Preprocess
-    
   </span>
   
 
@@ -5565,10 +5247,8 @@
       <a href="../../../../API_reference/bionemo/evo2/data/tokenizer/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Tokenizer
-    
   </span>
   
 
@@ -5588,10 +5268,8 @@
       <a href="../../../../API_reference/bionemo/evo2/data/transcript_extraction/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Transcript extraction
-    
   </span>
   
 
@@ -5626,7 +5304,6 @@
       
     
     
-    
       
       
     
@@ -5641,10 +5318,8 @@
           <label class="md-nav__link" for="__nav_5_2_4_2" id="__nav_5_2_4_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Run
-    
   </span>
   
 
@@ -5668,10 +5343,8 @@
       <a href="../../../../API_reference/bionemo/evo2/run/infer/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Infer
-    
   </span>
   
 
@@ -5691,10 +5364,8 @@
       <a href="../../../../API_reference/bionemo/evo2/run/predict/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Predict
-    
   </span>
   
 
@@ -5714,10 +5385,8 @@
       <a href="../../../../API_reference/bionemo/evo2/run/train/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Train
-    
   </span>
   
 
@@ -5750,7 +5419,6 @@
       
     
     
-    
       
       
     
@@ -5765,10 +5433,8 @@
           <label class="md-nav__link" for="__nav_5_2_4_3" id="__nav_5_2_4_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -5792,10 +5458,8 @@
       <a href="../../../../API_reference/bionemo/evo2/utils/config/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Config
-    
   </span>
   
 
@@ -5830,7 +5494,6 @@
       
     
     
-    
       
       
     
@@ -5842,14 +5505,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2_4_3_2" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../../API_reference/bionemo/evo2/utils/checkpoint/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     Checkpoint
-    
   </span>
   
 
@@ -5881,10 +5543,8 @@
       <a href="../../../../API_reference/bionemo/evo2/utils/checkpoint/convert_checkpoint_model_parallel_evo2/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Convert checkpoint model parallel evo2
-    
   </span>
   
 
@@ -5904,10 +5564,8 @@
       <a href="../../../../API_reference/bionemo/evo2/utils/checkpoint/convert_to_nemo/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Convert to nemo
-    
   </span>
   
 
@@ -5927,10 +5585,8 @@
       <a href="../../../../API_reference/bionemo/evo2/utils/checkpoint/convert_zero3_to_zero1/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Convert zero3 to zero1
-    
   </span>
   
 
@@ -5950,10 +5606,8 @@
       <a href="../../../../API_reference/bionemo/evo2/utils/checkpoint/params/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Params
-    
   </span>
   
 
@@ -5973,10 +5627,8 @@
       <a href="../../../../API_reference/bionemo/evo2/utils/checkpoint/zero3_conversion_lib/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Zero3 conversion lib
-    
   </span>
   
 
@@ -6025,7 +5677,6 @@
       
     
     
-    
       
       
     
@@ -6040,10 +5691,8 @@
           <label class="md-nav__link" for="__nav_5_2_5" id="__nav_5_2_5_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Example model
-    
   </span>
   
 
@@ -6070,7 +5719,6 @@
       
     
     
-    
       
       
     
@@ -6085,10 +5733,8 @@
           <label class="md-nav__link" for="__nav_5_2_5_1" id="__nav_5_2_5_1_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Lightning
-    
   </span>
   
 
@@ -6112,10 +5758,8 @@
       <a href="../../../../API_reference/bionemo/example_model/lightning/lightning_basic/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Lightning basic
-    
   </span>
   
 
@@ -6150,7 +5794,6 @@
       
     
     
-    
       
       
     
@@ -6165,10 +5808,8 @@
           <label class="md-nav__link" for="__nav_5_2_5_2" id="__nav_5_2_5_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Training scripts
-    
   </span>
   
 
@@ -6192,10 +5833,8 @@
       <a href="../../../../API_reference/bionemo/example_model/training_scripts/finetune_mnist/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Finetune mnist
-    
   </span>
   
 
@@ -6215,10 +5854,8 @@
       <a href="../../../../API_reference/bionemo/example_model/training_scripts/predict_mnist/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Predict mnist
-    
   </span>
   
 
@@ -6238,10 +5875,8 @@
       <a href="../../../../API_reference/bionemo/example_model/training_scripts/pretrain_mnist/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Pretrain mnist
-    
   </span>
   
 
@@ -6280,7 +5915,6 @@
       
     
     
-    
       
       
     
@@ -6295,10 +5929,8 @@
           <label class="md-nav__link" for="__nav_5_2_6" id="__nav_5_2_6_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Fw
-    
   </span>
   
 
@@ -6322,10 +5954,8 @@
       <a href="../../../../API_reference/bionemo/fw/dependency_graph/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Dependency graph
-    
   </span>
   
 
@@ -6366,7 +5996,6 @@
       
     
     
-    
       
       
     
@@ -6381,10 +6010,8 @@
           <label class="md-nav__link" for="__nav_5_2_7" id="__nav_5_2_7_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Geneformer
-    
   </span>
   
 
@@ -6408,10 +6035,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/api/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Api
-    
   </span>
   
 
@@ -6436,7 +6061,6 @@
       
     
     
-    
       
       
     
@@ -6451,10 +6075,8 @@
           <label class="md-nav__link" for="__nav_5_2_7_2" id="__nav_5_2_7_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Data
-    
   </span>
   
 
@@ -6478,10 +6100,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/data/preprocess/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Preprocess
-    
   </span>
   
 
@@ -6510,7 +6130,6 @@
       
     
     
-    
       
       
     
@@ -6525,10 +6144,8 @@
           <label class="md-nav__link" for="__nav_5_2_7_2_2" id="__nav_5_2_7_2_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Singlecell
-    
   </span>
   
 
@@ -6552,10 +6169,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/data/singlecell/datamodule/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Datamodule
-    
   </span>
   
 
@@ -6575,10 +6190,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/data/singlecell/dataset/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Dataset
-    
   </span>
   
 
@@ -6598,10 +6211,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/data/singlecell/preprocess/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Preprocess
-    
   </span>
   
 
@@ -6621,10 +6232,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/data/singlecell/utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -6663,7 +6272,6 @@
       
     
     
-    
       
       
     
@@ -6678,10 +6286,8 @@
           <label class="md-nav__link" for="__nav_5_2_7_3" id="__nav_5_2_7_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Model
-    
   </span>
   
 
@@ -6705,10 +6311,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/model/finetune_token_regressor/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Finetune token regressor
-    
   </span>
   
 
@@ -6743,7 +6347,6 @@
       
     
     
-    
       
       
     
@@ -6758,10 +6361,8 @@
           <label class="md-nav__link" for="__nav_5_2_7_4" id="__nav_5_2_7_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Run
-    
   </span>
   
 
@@ -6785,10 +6386,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/run/config_models/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Config models
-    
   </span>
   
 
@@ -6808,10 +6407,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/run/main/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Main
-    
   </span>
   
 
@@ -6831,10 +6428,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/run/recipes/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Recipes
-    
   </span>
   
 
@@ -6871,7 +6466,6 @@
       
     
     
-    
       
       
     
@@ -6883,14 +6477,13 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2_7_5" >
         
           
+          
           <div class="md-nav__link md-nav__container">
             <a href="../../../../API_reference/bionemo/geneformer/scripts/" class="md-nav__link ">
               
   
-  
   <span class="md-ellipsis">
     Scripts
-    
   </span>
   
 
@@ -6922,10 +6515,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/scripts/infer_geneformer/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Infer geneformer
-    
   </span>
   
 
@@ -6945,10 +6536,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/scripts/train_geneformer/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Train geneformer
-    
   </span>
   
 
@@ -6979,7 +6568,6 @@
       
     
     
-    
       
       
     
@@ -6994,10 +6582,8 @@
           <label class="md-nav__link" for="__nav_5_2_7_6" id="__nav_5_2_7_6_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Tokenizer
-    
   </span>
   
 
@@ -7021,10 +6607,8 @@
       <a href="../../../../API_reference/bionemo/geneformer/tokenizer/gene_tokenizer/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Gene tokenizer
-    
   </span>
   
 
@@ -7069,7 +6653,6 @@
       
     
     
-    
       
       
     
@@ -7084,10 +6667,8 @@
           <label class="md-nav__link" for="__nav_5_2_8" id="__nav_5_2_8_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Geometric
-    
   </span>
   
 
@@ -7111,10 +6692,8 @@
       <a href="../../../../API_reference/bionemo/geometric/atom_featurizers/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Atom featurizers
-    
   </span>
   
 
@@ -7134,10 +6713,8 @@
       <a href="../../../../API_reference/bionemo/geometric/base_featurizer/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Base featurizer
-    
   </span>
   
 
@@ -7157,10 +6734,8 @@
       <a href="../../../../API_reference/bionemo/geometric/bond_featurizers/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Bond featurizers
-    
   </span>
   
 
@@ -7180,10 +6755,8 @@
       <a href="../../../../API_reference/bionemo/geometric/molecule_featurizers/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Molecule featurizers
-    
   </span>
   
 
@@ -7226,7 +6799,6 @@
       
     
     
-    
       
       
     
@@ -7241,10 +6813,8 @@
           <label class="md-nav__link" for="__nav_5_2_9" id="__nav_5_2_9_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Llm
-    
   </span>
   
 
@@ -7268,10 +6838,8 @@
       <a href="../../../../API_reference/bionemo/llm/api/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Api
-    
   </span>
   
 
@@ -7291,10 +6859,8 @@
       <a href="../../../../API_reference/bionemo/llm/lightning/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Lightning
-    
   </span>
   
 
@@ -7314,10 +6880,8 @@
       <a href="../../../../API_reference/bionemo/llm/train/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Train
-    
   </span>
   
 
@@ -7348,7 +6912,6 @@
       
     
     
-    
       
       
     
@@ -7363,10 +6926,8 @@
           <label class="md-nav__link" for="__nav_5_2_9_4" id="__nav_5_2_9_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Data
-    
   </span>
   
 
@@ -7390,10 +6951,8 @@
       <a href="../../../../API_reference/bionemo/llm/data/collate/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Collate
-    
   </span>
   
 
@@ -7413,10 +6972,8 @@
       <a href="../../../../API_reference/bionemo/llm/data/datamodule/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Datamodule
-    
   </span>
   
 
@@ -7436,10 +6993,8 @@
       <a href="../../../../API_reference/bionemo/llm/data/label2id_tokenizer/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Label2id tokenizer
-    
   </span>
   
 
@@ -7459,10 +7014,8 @@
       <a href="../../../../API_reference/bionemo/llm/data/masking/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Masking
-    
   </span>
   
 
@@ -7482,10 +7035,8 @@
       <a href="../../../../API_reference/bionemo/llm/data/types/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Types
-    
   </span>
   
 
@@ -7524,7 +7075,6 @@
       
     
     
-    
       
       
     
@@ -7539,10 +7089,8 @@
           <label class="md-nav__link" for="__nav_5_2_9_5" id="__nav_5_2_9_5_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Model
-    
   </span>
   
 
@@ -7566,10 +7114,8 @@
       <a href="../../../../API_reference/bionemo/llm/model/config/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Config
-    
   </span>
   
 
@@ -7589,10 +7135,8 @@
       <a href="../../../../API_reference/bionemo/llm/model/layers/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Layers
-    
   </span>
   
 
@@ -7612,10 +7156,8 @@
       <a href="../../../../API_reference/bionemo/llm/model/loss/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Loss
-    
   </span>
   
 
@@ -7635,10 +7177,8 @@
       <a href="../../../../API_reference/bionemo/llm/model/lr_scheduler/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Lr scheduler
-    
   </span>
   
 
@@ -7667,7 +7207,6 @@
       
     
     
-    
       
       
     
@@ -7682,10 +7221,8 @@
           <label class="md-nav__link" for="__nav_5_2_9_5_5" id="__nav_5_2_9_5_5_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Biobert
-    
   </span>
   
 
@@ -7709,10 +7246,8 @@
       <a href="../../../../API_reference/bionemo/llm/model/biobert/lightning/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Lightning
-    
   </span>
   
 
@@ -7732,10 +7267,8 @@
       <a href="../../../../API_reference/bionemo/llm/model/biobert/model/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Model
-    
   </span>
   
 
@@ -7755,10 +7288,8 @@
       <a href="../../../../API_reference/bionemo/llm/model/biobert/testing_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Testing utils
-    
   </span>
   
 
@@ -7778,10 +7309,8 @@
       <a href="../../../../API_reference/bionemo/llm/model/biobert/transformer_specs/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Transformer specs
-    
   </span>
   
 
@@ -7820,7 +7349,6 @@
       
     
     
-    
       
       
     
@@ -7835,10 +7363,8 @@
           <label class="md-nav__link" for="__nav_5_2_9_6" id="__nav_5_2_9_6_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Run
-    
   </span>
   
 
@@ -7862,10 +7388,8 @@
       <a href="../../../../API_reference/bionemo/llm/run/config_models/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Config models
-    
   </span>
   
 
@@ -7908,7 +7432,6 @@
       
     
     
-    
       
       
     
@@ -7923,10 +7446,8 @@
           <label class="md-nav__link" for="__nav_5_2_9_7" id="__nav_5_2_9_7_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -7950,10 +7471,8 @@
       <a href="../../../../API_reference/bionemo/llm/utils/callbacks/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Callbacks
-    
   </span>
   
 
@@ -7973,10 +7492,8 @@
       <a href="../../../../API_reference/bionemo/llm/utils/datamodule_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Datamodule utils
-    
   </span>
   
 
@@ -7996,10 +7513,8 @@
       <a href="../../../../API_reference/bionemo/llm/utils/iomixin_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Iomixin utils
-    
   </span>
   
 
@@ -8019,10 +7534,8 @@
       <a href="../../../../API_reference/bionemo/llm/utils/logger_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Logger utils
-    
   </span>
   
 
@@ -8042,10 +7555,8 @@
       <a href="../../../../API_reference/bionemo/llm/utils/megatron_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Megatron utils
-    
   </span>
   
 
@@ -8065,10 +7576,8 @@
       <a href="../../../../API_reference/bionemo/llm/utils/remote/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Remote
-    
   </span>
   
 
@@ -8088,10 +7597,8 @@
       <a href="../../../../API_reference/bionemo/llm/utils/weight_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Weight utils
-    
   </span>
   
 
@@ -8136,7 +7643,6 @@
       
     
     
-    
       
       
     
@@ -8151,10 +7657,8 @@
           <label class="md-nav__link" for="__nav_5_2_10" id="__nav_5_2_10_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Moco
-    
   </span>
   
 
@@ -8183,7 +7687,6 @@
       
     
     
-    
       
       
     
@@ -8198,10 +7701,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_1" id="__nav_5_2_10_1_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Distributions
-    
   </span>
   
 
@@ -8232,7 +7733,6 @@
       
     
     
-    
       
       
     
@@ -8247,10 +7747,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_1_1" id="__nav_5_2_10_1_1_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Prior
-    
   </span>
   
 
@@ -8274,10 +7772,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/prior/distribution/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Distribution
-    
   </span>
   
 
@@ -8304,7 +7800,6 @@
       
     
     
-    
       
       
     
@@ -8319,10 +7814,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_1_1_2" id="__nav_5_2_10_1_1_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Continuous
-    
   </span>
   
 
@@ -8346,10 +7839,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/prior/continuous/gaussian/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Gaussian
-    
   </span>
   
 
@@ -8369,10 +7860,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/prior/continuous/harmonic/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Harmonic
-    
   </span>
   
 
@@ -8392,10 +7881,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/prior/continuous/utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -8430,7 +7917,6 @@
       
     
     
-    
       
       
     
@@ -8445,10 +7931,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_1_1_3" id="__nav_5_2_10_1_1_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Discrete
-    
   </span>
   
 
@@ -8472,10 +7956,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/prior/discrete/custom/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Custom
-    
   </span>
   
 
@@ -8495,10 +7977,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/prior/discrete/mask/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Mask
-    
   </span>
   
 
@@ -8518,10 +7998,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/prior/discrete/uniform/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Uniform
-    
   </span>
   
 
@@ -8568,7 +8046,6 @@
       
     
     
-    
       
       
     
@@ -8583,10 +8060,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_1_2" id="__nav_5_2_10_1_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Time
-    
   </span>
   
 
@@ -8610,10 +8085,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/time/beta/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Beta
-    
   </span>
   
 
@@ -8633,10 +8106,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/time/distribution/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Distribution
-    
   </span>
   
 
@@ -8656,10 +8127,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/time/logit_normal/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Logit normal
-    
   </span>
   
 
@@ -8679,10 +8148,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/time/uniform/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Uniform
-    
   </span>
   
 
@@ -8702,10 +8169,8 @@
       <a href="../../../../API_reference/bionemo/moco/distributions/time/utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -8750,7 +8215,6 @@
       
     
     
-    
       
       
     
@@ -8765,10 +8229,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_2" id="__nav_5_2_10_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Interpolants
-    
   </span>
   
 
@@ -8792,10 +8254,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/base_interpolant/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Base interpolant
-    
   </span>
   
 
@@ -8815,10 +8275,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/batch_augmentation/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Batch augmentation
-    
   </span>
   
 
@@ -8843,7 +8301,6 @@
       
     
     
-    
       
       
     
@@ -8858,10 +8315,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_2_3" id="__nav_5_2_10_2_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Continuous time
-    
   </span>
   
 
@@ -8892,7 +8347,6 @@
       
     
     
-    
       
       
     
@@ -8907,10 +8361,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_2_3_1" id="__nav_5_2_10_2_3_1_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Continuous
-    
   </span>
   
 
@@ -8934,10 +8386,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/continuous_time/continuous/continuous_flow_matching/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Continuous flow matching
-    
   </span>
   
 
@@ -8957,10 +8407,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/continuous_time/continuous/vdm/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Vdm
-    
   </span>
   
 
@@ -8989,7 +8437,6 @@
       
     
     
-    
       
       
     
@@ -9004,10 +8451,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_2_3_1_3" id="__nav_5_2_10_2_3_1_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Data augmentation
-    
   </span>
   
 
@@ -9031,10 +8476,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/continuous_time/continuous/data_augmentation/augmentation_types/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Augmentation types
-    
   </span>
   
 
@@ -9054,10 +8497,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/continuous_time/continuous/data_augmentation/equivariant_ot_sampler/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Equivariant ot sampler
-    
   </span>
   
 
@@ -9077,10 +8518,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/continuous_time/continuous/data_augmentation/kabsch_augmentation/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Kabsch augmentation
-    
   </span>
   
 
@@ -9100,10 +8539,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/continuous_time/continuous/data_augmentation/ot_sampler/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Ot sampler
-    
   </span>
   
 
@@ -9144,7 +8581,6 @@
       
     
     
-    
       
       
     
@@ -9159,10 +8595,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_2_3_2" id="__nav_5_2_10_2_3_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Discrete
-    
   </span>
   
 
@@ -9186,10 +8620,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/continuous_time/discrete/discrete_flow_matching/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Discrete flow matching
-    
   </span>
   
 
@@ -9209,10 +8641,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/continuous_time/discrete/mdlm/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Mdlm
-    
   </span>
   
 
@@ -9255,7 +8685,6 @@
       
     
     
-    
       
       
     
@@ -9270,10 +8699,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_2_4" id="__nav_5_2_10_2_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Discrete time
-    
   </span>
   
 
@@ -9297,10 +8724,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/discrete_time/utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -9323,7 +8748,6 @@
       
     
     
-    
       
       
     
@@ -9338,10 +8762,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_2_4_2" id="__nav_5_2_10_2_4_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Continuous
-    
   </span>
   
 
@@ -9365,10 +8787,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/discrete_time/continuous/ddpm/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Ddpm
-    
   </span>
   
 
@@ -9399,7 +8819,6 @@
       
     
     
-    
       
       
     
@@ -9414,10 +8833,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_2_4_3" id="__nav_5_2_10_2_4_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Discrete
-    
   </span>
   
 
@@ -9441,10 +8858,8 @@
       <a href="../../../../API_reference/bionemo/moco/interpolants/discrete_time/discrete/d3pm/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     D3pm
-    
   </span>
   
 
@@ -9495,7 +8910,6 @@
       
     
     
-    
       
       
     
@@ -9510,10 +8924,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_3" id="__nav_5_2_10_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Schedules
-    
   </span>
   
 
@@ -9537,10 +8949,8 @@
       <a href="../../../../API_reference/bionemo/moco/schedules/inference_time_schedules/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Inference time schedules
-    
   </span>
   
 
@@ -9560,10 +8970,8 @@
       <a href="../../../../API_reference/bionemo/moco/schedules/utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -9590,7 +8998,6 @@
       
     
     
-    
       
       
     
@@ -9605,10 +9012,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_3_3" id="__nav_5_2_10_3_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Noise
-    
   </span>
   
 
@@ -9632,10 +9037,8 @@
       <a href="../../../../API_reference/bionemo/moco/schedules/noise/continuous_noise_transforms/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Continuous noise transforms
-    
   </span>
   
 
@@ -9655,10 +9058,8 @@
       <a href="../../../../API_reference/bionemo/moco/schedules/noise/continuous_snr_transforms/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Continuous snr transforms
-    
   </span>
   
 
@@ -9678,10 +9079,8 @@
       <a href="../../../../API_reference/bionemo/moco/schedules/noise/discrete_noise_schedules/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Discrete noise schedules
-    
   </span>
   
 
@@ -9720,7 +9119,6 @@
       
     
     
-    
       
       
     
@@ -9735,10 +9133,8 @@
           <label class="md-nav__link" for="__nav_5_2_10_4" id="__nav_5_2_10_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Testing
-    
   </span>
   
 
@@ -9762,10 +9158,8 @@
       <a href="../../../../API_reference/bionemo/moco/testing/parallel_test_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Parallel test utils
-    
   </span>
   
 
@@ -9804,7 +9198,6 @@
       
     
     
-    
       
       
     
@@ -9819,10 +9212,8 @@
           <label class="md-nav__link" for="__nav_5_2_11" id="__nav_5_2_11_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Noodles
-    
   </span>
   
 
@@ -9846,10 +9237,8 @@
       <a href="../../../../API_reference/bionemo/noodles/nvfaidx/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Nvfaidx
-    
   </span>
   
 
@@ -9888,7 +9277,6 @@
       
     
     
-    
       
       
     
@@ -9903,10 +9291,8 @@
           <label class="md-nav__link" for="__nav_5_2_12" id="__nav_5_2_12_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Scdl
-    
   </span>
   
 
@@ -9933,7 +9319,6 @@
       
     
     
-    
       
       
     
@@ -9948,10 +9333,8 @@
           <label class="md-nav__link" for="__nav_5_2_12_1" id="__nav_5_2_12_1_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Api
-    
   </span>
   
 
@@ -9975,10 +9358,8 @@
       <a href="../../../../API_reference/bionemo/scdl/api/single_cell_row_dataset/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Single cell row dataset
-    
   </span>
   
 
@@ -10009,7 +9390,6 @@
       
     
     
-    
       
       
     
@@ -10024,10 +9404,8 @@
           <label class="md-nav__link" for="__nav_5_2_12_2" id="__nav_5_2_12_2_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Index
-    
   </span>
   
 
@@ -10051,10 +9429,8 @@
       <a href="../../../../API_reference/bionemo/scdl/index/row_feature_index/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Row feature index
-    
   </span>
   
 
@@ -10087,7 +9463,6 @@
       
     
     
-    
       
       
     
@@ -10102,10 +9477,8 @@
           <label class="md-nav__link" for="__nav_5_2_12_3" id="__nav_5_2_12_3_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Io
-    
   </span>
   
 
@@ -10129,10 +9502,8 @@
       <a href="../../../../API_reference/bionemo/scdl/io/single_cell_collection/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Single cell collection
-    
   </span>
   
 
@@ -10152,10 +9523,8 @@
       <a href="../../../../API_reference/bionemo/scdl/io/single_cell_memmap_dataset/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Single cell memmap dataset
-    
   </span>
   
 
@@ -10186,7 +9555,6 @@
       
     
     
-    
       
       
     
@@ -10201,10 +9569,8 @@
           <label class="md-nav__link" for="__nav_5_2_12_4" id="__nav_5_2_12_4_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Scripts
-    
   </span>
   
 
@@ -10228,10 +9594,8 @@
       <a href="../../../../API_reference/bionemo/scdl/scripts/convert_h5ad_to_scdl/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Convert h5ad to scdl
-    
   </span>
   
 
@@ -10264,7 +9628,6 @@
       
     
     
-    
       
       
     
@@ -10279,10 +9642,8 @@
           <label class="md-nav__link" for="__nav_5_2_12_5" id="__nav_5_2_12_5_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Util
-    
   </span>
   
 
@@ -10306,10 +9667,8 @@
       <a href="../../../../API_reference/bionemo/scdl/util/async_worker_queue/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Async worker queue
-    
   </span>
   
 
@@ -10329,10 +9688,8 @@
       <a href="../../../../API_reference/bionemo/scdl/util/torch_dataloader_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Torch dataloader utils
-    
   </span>
   
 
@@ -10373,7 +9730,6 @@
       
     
     
-    
       
       
     
@@ -10388,10 +9744,8 @@
           <label class="md-nav__link" for="__nav_5_2_13" id="__nav_5_2_13_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Size aware batching
-    
   </span>
   
 
@@ -10415,10 +9769,8 @@
       <a href="../../../../API_reference/bionemo/size_aware_batching/sampler/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Sampler
-    
   </span>
   
 
@@ -10438,10 +9790,8 @@
       <a href="../../../../API_reference/bionemo/size_aware_batching/utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -10490,7 +9840,6 @@
       
     
     
-    
       
       
     
@@ -10505,10 +9854,8 @@
           <label class="md-nav__link" for="__nav_5_2_14" id="__nav_5_2_14_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Testing
-    
   </span>
   
 
@@ -10532,10 +9879,8 @@
       <a href="../../../../API_reference/bionemo/testing/callbacks/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Callbacks
-    
   </span>
   
 
@@ -10555,10 +9900,8 @@
       <a href="../../../../API_reference/bionemo/testing/lightning/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Lightning
-    
   </span>
   
 
@@ -10578,10 +9921,8 @@
       <a href="../../../../API_reference/bionemo/testing/megatron_dataset_compatibility/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Megatron dataset compatibility
-    
   </span>
   
 
@@ -10601,10 +9942,8 @@
       <a href="../../../../API_reference/bionemo/testing/megatron_parallel_state_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Megatron parallel state utils
-    
   </span>
   
 
@@ -10624,10 +9963,8 @@
       <a href="../../../../API_reference/bionemo/testing/subprocess_utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Subprocess utils
-    
   </span>
   
 
@@ -10647,10 +9984,8 @@
       <a href="../../../../API_reference/bionemo/testing/testing_callbacks/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Testing callbacks
-    
   </span>
   
 
@@ -10670,10 +10005,8 @@
       <a href="../../../../API_reference/bionemo/testing/torch/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Torch
-    
   </span>
   
 
@@ -10693,10 +10026,8 @@
       <a href="../../../../API_reference/bionemo/testing/utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -10725,7 +10056,6 @@
       
     
     
-    
       
       
     
@@ -10740,10 +10070,8 @@
           <label class="md-nav__link" for="__nav_5_2_14_9" id="__nav_5_2_14_9_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Data
-    
   </span>
   
 
@@ -10767,10 +10095,8 @@
       <a href="../../../../API_reference/bionemo/testing/data/esm2/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Esm2
-    
   </span>
   
 
@@ -10790,10 +10116,8 @@
       <a href="../../../../API_reference/bionemo/testing/data/fasta/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Fasta
-    
   </span>
   
 
@@ -10813,10 +10137,8 @@
       <a href="../../../../API_reference/bionemo/testing/data/load/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Load
-    
   </span>
   
 
@@ -10836,10 +10158,8 @@
       <a href="../../../../API_reference/bionemo/testing/data/resource/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Resource
-    
   </span>
   
 
@@ -10872,7 +10192,6 @@
       
     
     
-    
       
       
     
@@ -10887,10 +10206,8 @@
           <label class="md-nav__link" for="__nav_5_2_14_10" id="__nav_5_2_14_10_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Harnesses
-    
   </span>
   
 
@@ -10914,10 +10231,8 @@
       <a href="../../../../API_reference/bionemo/testing/harnesses/mode/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Mode
-    
   </span>
   
 
@@ -10937,10 +10252,8 @@
       <a href="../../../../API_reference/bionemo/testing/harnesses/stop_and_go/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Stop and go
-    
   </span>
   
 
@@ -10981,7 +10294,6 @@
       
     
     
-    
       
       
     
@@ -10996,10 +10308,8 @@
           <label class="md-nav__link" for="__nav_5_2_15" id="__nav_5_2_15_label" tabindex="0">
             
   
-  
   <span class="md-ellipsis">
     Webdatamodule
-    
   </span>
   
 
@@ -11023,10 +10333,8 @@
       <a href="../../../../API_reference/bionemo/webdatamodule/datamodule/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Datamodule
-    
   </span>
   
 
@@ -11046,10 +10354,8 @@
       <a href="../../../../API_reference/bionemo/webdatamodule/utils/" class="md-nav__link">
         
   
-  
   <span class="md-ellipsis">
     Utils
-    
   </span>
   
 
@@ -11296,9 +10602,8 @@
           
             <div class="md-content" data-md-component="content">
               <article class="md-content__inner md-typeset">
-                
+                 
                   
-
 
   
   
@@ -11542,7 +10847,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
                     processEnvironments: true
                 },
                 displayAlign: 'center',
-                messageStyle: 'none',
                 CommonHTML: {
                     linebreaks: {
                     automatic: true
@@ -11836,8 +11140,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p>A class for calculating the supervised loss of the fine-tune model from targets. We inherit from Megatron Bert Masked Language Model Loss (<code>BERTMLMLossWithReduction</code>) and override the <code>forward()</code> pass to compute MSE loss of the regression head within a micro-batch. The <code>reduce()</code> method is used for computing the average over the micro-batches and is only used for logging.</p>
-<div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">RegressorLossReduction</span><span class="p">(</span><span class="n">BERTMLMLossWithReduction</span><span class="p">):</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
+<div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">RegressorLossReduction</span><span class="p">(</span><span class="n">BERTMLMLossWithReduction</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">forward_out</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Union</span><span class="p">[</span><span class="n">PerTokenLossDict</span><span class="p">,</span> <span class="n">SameSizeLossDict</span><span class="p">]]:</span>
 
@@ -11847,7 +11151,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="n">loss</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">mse_loss</span><span class="p">(</span><span class="n">regression_output</span><span class="p">,</span> <span class="n">targets</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">loss</span><span class="p">,</span> <span class="p">{</span><span class="s2">"avg"</span><span class="p">:</span> <span class="n">loss</span><span class="p">}</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">reduce</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">losses_reduced_per_micro_batch</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ReductionT</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">reduce</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">losses_reduced_per_micro_batch</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ReductionT</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
         <span class="n">losses</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">loss</span><span class="p">[</span><span class="s2">"avg"</span><span class="p">]</span> <span class="k">for</span> <span class="n">loss</span> <span class="ow">in</span> <span class="n">losses_reduced_per_micro_batch</span><span class="p">])</span>
         <span class="k">return</span> <span class="n">losses</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
 </pre></div>
@@ -11873,8 +11177,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p>An MLP class for sequence-level regression. This class inherits <code>MegatronModule</code> and uses the fine-tune config (<code>TransformerConfig</code>) to configure the regression head for the fine-tuned ESM-2 model.</p>
-<div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">MegatronMLPHead</span><span class="p">(</span><span class="n">MegatronModule</span><span class="p">):</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">TransformerConfig</span><span class="p">):</span>
+<div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">MegatronMLPHead</span><span class="p">(</span><span class="n">MegatronModule</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">TransformerConfig</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
         <span class="n">layer_sizes</span> <span class="o">=</span> <span class="p">[</span><span class="n">config</span><span class="o">.</span><span class="n">hidden_size</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">linear_layers</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">ModuleList</span><span class="p">(</span>
@@ -11883,7 +11187,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="bp">self</span><span class="o">.</span><span class="n">act</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Dropout</span><span class="p">(</span><span class="n">p</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">ft_dropout</span><span class="p">)</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">hidden_states</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">hidden_states</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
         <span class="o">...</span>
 </pre></div>
 </div>
@@ -11908,8 +11212,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p>A fine-tuned ESM-2 model class for token classification tasks. This class inherits from the <code>ESM2Model</code> class and adds the custom regression head <code>MegatronMLPHead</code> the we created in the previous step. Optionally one can freeze all or parts of the encoder by parsing through the model parameters in the model constructor.</p>
-<div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">ESM2FineTuneSeqModel</span><span class="p">(</span><span class="n">ESM2Model</span><span class="p">):</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">post_process</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">include_embeddings</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">ESM2FineTuneSeqModel</span><span class="p">(</span><span class="n">ESM2Model</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">post_process</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">include_embeddings</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">post_process</span><span class="o">=</span><span class="n">post_process</span><span class="p">,</span> <span class="n">include_embeddings</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
         <span class="c1"># freeze encoder parameters</span>
@@ -11920,7 +11224,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="k">if</span> <span class="n">post_process</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">regression_head</span> <span class="o">=</span> <span class="n">MegatronMLPHead</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">,):</span>
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">,):</span>
         <span class="n">output</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">forward</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="o">...</span>
         <span class="n">output</span><span class="p">[</span><span class="s2">"regression_output"</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">regression_head</span><span class="p">(</span><span class="n">embeddings</span><span class="p">)</span>
@@ -11956,7 +11260,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><code>get_loss_reduction_class()</code>: Implements selection of the appropriate <code>MegatronLossReduction</code> class that we defined in the first step of this tutorial.</li>
 </ul>
 <div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">ESM2FineTuneSeqConfig</span><span class="p">(</span>
+<span class="k">class</span> <span class="nc">ESM2FineTuneSeqConfig</span><span class="p">(</span>
     <span class="n">ESM2GenericConfig</span><span class="p">[</span><span class="n">ESM2FineTuneSeqModel</span><span class="p">,</span> <span class="n">RegressorLossReduction</span><span class="p">],</span> <span class="n">iom</span><span class="o">.</span><span class="n">IOMixinWithGettersSetters</span>
 <span class="p">):</span>
     <span class="n">model_cls</span><span class="p">:</span> <span class="n">Type</span><span class="p">[</span><span class="n">ESM2FineTuneSeqModel</span><span class="p">]</span> <span class="o">=</span> <span class="n">ESM2FineTuneSeqModel</span>
@@ -11970,7 +11274,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="n">encoder_frozen</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># freeze encoder parameters</span>
     <span class="n">ft_dropout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.25</span>  <span class="c1"># MLP layer dropout</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">get_loss_reduction_class</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Type</span><span class="p">[</span><span class="n">MegatronLossReduction</span><span class="p">]:</span>
+    <span class="k">def</span> <span class="nf">get_loss_reduction_class</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Type</span><span class="p">[</span><span class="n">MegatronLossReduction</span><span class="p">]:</span>
         <span class="k">return</span> <span class="n">RegressorLossReduction</span>
 </pre></div>
 </div>
@@ -12006,8 +11310,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p>The custom dataset class will be appropriate (found in <code>bionemo.esm2.model.finetune.dataset.InMemorySingleValueDataset</code>) as it facilitates predicting on a single value. An excerpt from the class is shown below. This example dataset has a class method <code>from_csv()</code> that expects a <code>data_path</code> to a CSV file that has <code>sequences</code>, and <code>labels</code> columns.</p>
-<div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">InMemorySingleValueDataset</span><span class="p">(</span><span class="n">InMemoryProteinDataset</span><span class="p">):</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">InMemorySingleValueDataset</span><span class="p">(</span><span class="n">InMemoryProteinDataset</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">labels</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span>
         <span class="n">task_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"regression"</span><span class="p">,</span>
@@ -12016,7 +11320,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">sequences</span><span class="p">,</span> <span class="n">labels</span><span class="p">,</span> <span class="n">task_type</span><span class="p">,</span> <span class="n">tokenizer</span><span class="p">,</span> <span class="n">seed</span><span class="p">)</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">transform_label</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">transform_label</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="n">label</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float</span><span class="p">)</span>
 </pre></div>
 <p>The <code>transform_label</code> method allows for custom transformation of raw labels by casting or tokenization and need to be adjusted based on the data. Here we use this method to create a <code>float</code> tensor of the regression value.</p>
@@ -12129,11 +11433,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="o">%%</span><span class="n">capture</span> <span class="o">--</span><span class="n">no</span><span class="o">-</span><span class="n">display</span> <span class="o">--</span><span class="n">no</span><span class="o">-</span><span class="n">stderr</span> <span class="n">cell_output</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
 
 
 <span class="n">warnings</span><span class="o">.</span><span class="n">filterwarnings</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">)</span>
@@ -12304,7 +11608,7 @@ else:
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">bionemo.core.data.load</span><span class="w"> </span><span class="kn">import</span> <span class="n">load</span>
+<div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="kn">from</span> <span class="nn">bionemo.core.data.load</span> <span class="kn">import</span> <span class="n">load</span>
 
 
 <span class="n">pretrain_checkpoint_path</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">"esm2/8m:2.0"</span><span class="p">)</span>
@@ -12373,7 +11677,7 @@ print(pretrain_checkpoint_path)</div>
 <li>Dataset class name</li>
 </ul>
 <p>To get the full list of arguments to tune a finetuning run use:</p>
-<div class="highlight"><pre><span></span>finetune_esm2<span class="w"> </span>--help<span class="w"> </span>
+<div class="highlight"><pre><span></span>finetune_esm2<span class="w"> </span>--help
 </pre></div>
 <p>For a detailed description of training loop and the arguments please refer to the <a href="./pretrain.md">ESM-2 Pretraining</a> tutorial.</p>
 <h4 id="scaled-lr-for-fine-tune-head-parameters">Scaled LR for fine-tune head parameters<a class="anchor-link" href="#scaled-lr-for-fine-tune-head-parameters">¶</a></h4><p>We can assign a different LR for specific layers (e.g. task head) during fine-tuning by making it possible to specify the name of the target layer as well as the LR multiplier.</p>
@@ -12528,8 +11832,8 @@ df.to_csv(data_path, index=False)</div>
     <span class="o">--</span><span class="n">restore</span><span class="o">-</span><span class="n">from</span><span class="o">-</span><span class="n">checkpoint</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">pretrain_checkpoint_path</span><span class="p">}</span> \
     <span class="o">--</span><span class="n">train</span><span class="o">-</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
     <span class="o">--</span><span class="n">valid</span><span class="o">-</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
-    <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">ESM2FineTuneSeqConfig</span> \
-    <span class="o">--</span><span class="n">dataset</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">InMemorySingleValueDataset</span> \
+    <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span> <span class="nc">ESM2FineTuneSeqConfig</span> \
+    <span class="o">--</span><span class="n">dataset</span><span class="o">-</span><span class="k">class</span> <span class="nc">InMemorySingleValueDataset</span> \
     <span class="o">--</span><span class="n">task</span><span class="o">-</span><span class="nb">type</span> <span class="s2">"regression"</span> \
     <span class="o">--</span><span class="n">mlp</span><span class="o">-</span><span class="n">ft</span><span class="o">-</span><span class="n">dropout</span> <span class="mf">0.25</span> \
     <span class="o">--</span><span class="n">mlp</span><span class="o">-</span><span class="n">hidden</span><span class="o">-</span><span class="n">size</span> <span class="mi">256</span> \
@@ -12700,7 +12004,7 @@ results_path = f"{work_dir}/sequence-level-regression/infer/"</div>
 <div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="o">%%</span><span class="n">capture</span> <span class="o">--</span><span class="n">no</span><span class="o">-</span><span class="n">display</span> <span class="o">--</span><span class="n">no</span><span class="o">-</span><span class="n">stderr</span> <span class="n">cell_output</span>
 
 <span class="err">!</span> <span class="n">infer_esm2</span> <span class="o">--</span><span class="n">checkpoint</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">checkpoint_path</span><span class="p">}</span> \
-             <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">ESM2FineTuneSeqConfig</span> \
+             <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span> <span class="nc">ESM2FineTuneSeqConfig</span> \
              <span class="o">--</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
              <span class="o">--</span><span class="n">results</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">results_path</span><span class="p">}</span> \
              <span class="o">--</span><span class="n">micro</span><span class="o">-</span><span class="n">batch</span><span class="o">-</span><span class="n">size</span> <span class="mi">3</span> \
@@ -12755,7 +12059,7 @@ results_path = f"{work_dir}/sequence-level-regression/infer/"</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="kn">import</span> <span class="nn">torch</span>
 
 
 <span class="n">results</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">results_path</span><span class="si">}</span><span class="s2">/predictions__rank_0.pt"</span><span class="p">)</span>
@@ -12917,8 +12221,8 @@ df.to_csv(data_path, index=False)</div>
     <span class="o">--</span><span class="n">restore</span><span class="o">-</span><span class="n">from</span><span class="o">-</span><span class="n">checkpoint</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">pretrain_checkpoint_path</span><span class="p">}</span> \
     <span class="o">--</span><span class="n">train</span><span class="o">-</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
     <span class="o">--</span><span class="n">valid</span><span class="o">-</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
-    <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">ESM2FineTuneSeqConfig</span> \
-    <span class="o">--</span><span class="n">dataset</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">InMemorySingleValueDataset</span> \
+    <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span> <span class="nc">ESM2FineTuneSeqConfig</span> \
+    <span class="o">--</span><span class="n">dataset</span><span class="o">-</span><span class="k">class</span> <span class="nc">InMemorySingleValueDataset</span> \
     <span class="o">--</span><span class="n">task</span><span class="o">-</span><span class="nb">type</span> <span class="s2">"classification"</span> \
     <span class="o">--</span><span class="n">mlp</span><span class="o">-</span><span class="n">ft</span><span class="o">-</span><span class="n">dropout</span> <span class="mf">0.25</span> \
     <span class="o">--</span><span class="n">mlp</span><span class="o">-</span><span class="n">hidden</span><span class="o">-</span><span class="n">size</span> <span class="mi">256</span> \
@@ -13081,8 +12385,8 @@ df.to_csv(data_path, index=False)</div>
     <span class="o">--</span><span class="n">restore</span><span class="o">-</span><span class="n">from</span><span class="o">-</span><span class="n">checkpoint</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">pretrain_checkpoint_path</span><span class="p">}</span> \
     <span class="o">--</span><span class="n">train</span><span class="o">-</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
     <span class="o">--</span><span class="n">valid</span><span class="o">-</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
-    <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">ESM2FineTuneTokenConfig</span> \
-    <span class="o">--</span><span class="n">dataset</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">InMemoryPerTokenValueDataset</span> \
+    <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span> <span class="nc">ESM2FineTuneTokenConfig</span> \
+    <span class="o">--</span><span class="n">dataset</span><span class="o">-</span><span class="k">class</span> <span class="nc">InMemoryPerTokenValueDataset</span> \
     <span class="o">--</span><span class="n">task</span><span class="o">-</span><span class="nb">type</span> <span class="s2">"classification"</span> \
     <span class="o">--</span><span class="n">cnn</span><span class="o">-</span><span class="n">dropout</span> <span class="mf">0.25</span> \
     <span class="o">--</span><span class="n">cnn</span><span class="o">-</span><span class="n">hidden</span><span class="o">-</span><span class="n">size</span> <span class="mi">32</span> \
@@ -13252,7 +12556,7 @@ results_path = f"{work_dir}/token-level-classification/infer/"</div>
 </div>
 <div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="o">%%</span><span class="n">capture</span> <span class="o">--</span><span class="n">no</span><span class="o">-</span><span class="n">display</span> <span class="o">--</span><span class="n">no</span><span class="o">-</span><span class="n">stderr</span> <span class="n">cell_output</span>
 <span class="err">!</span> <span class="n">infer_esm2</span> <span class="o">--</span><span class="n">checkpoint</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">checkpoint_path</span><span class="p">}</span> \
-             <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">ESM2FineTuneTokenConfig</span> \
+             <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span> <span class="nc">ESM2FineTuneTokenConfig</span> \
              <span class="o">--</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
              <span class="o">--</span><span class="n">results</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">results_path</span><span class="p">}</span> \
              <span class="o">--</span><span class="n">micro</span><span class="o">-</span><span class="n">batch</span><span class="o">-</span><span class="n">size</span> <span class="mi">3</span> \
@@ -13335,7 +12639,7 @@ results_path = f"{work_dir}/token-level-classification/infer/"</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="kn">import</span> <span class="nn">torch</span>
 
 
 <span class="n">results</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">results_path</span><span class="si">}</span><span class="s2">/predictions__rank_0.pt"</span><span class="p">)</span>
@@ -13403,7 +12707,7 @@ classification_output	torch.Size([10, 1024, 3])
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">bionemo.esm2.data.tokenizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_tokenizer</span>
+<div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="kn">from</span> <span class="nn">bionemo.esm2.data.tokenizer</span> <span class="kn">import</span> <span class="n">get_tokenizer</span>
 
 
 <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">get_tokenizer</span><span class="p">()</span>
@@ -13452,7 +12756,7 @@ mask = ~torch.isin(input_ids, torch.tensor(extra_indices))</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">bionemo.llm.data.label2id_tokenizer</span><span class="w"> </span><span class="kn">import</span> <span class="n">Label2IDTokenizer</span>
+<div class="highlight-ipynb hl-python jupyter-notebook"><pre><span></span><span class="kn">from</span> <span class="nn">bionemo.llm.data.label2id_tokenizer</span> <span class="kn">import</span> <span class="n">Label2IDTokenizer</span>
 
 
 <span class="n">label_tokenizer</span> <span class="o">=</span> <span class="n">Label2IDTokenizer</span><span class="p">()</span>
@@ -13576,8 +12880,8 @@ EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
     <span class="o">--</span><span class="n">restore</span><span class="o">-</span><span class="n">from</span><span class="o">-</span><span class="n">checkpoint</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">pretrain_checkpoint_path</span><span class="p">}</span> \
     <span class="o">--</span><span class="n">train</span><span class="o">-</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
     <span class="o">--</span><span class="n">valid</span><span class="o">-</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
-    <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">ESM2FineTuneTokenConfig</span> \
-    <span class="o">--</span><span class="n">dataset</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">InMemoryPerTokenValueDataset</span> \
+    <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span> <span class="nc">ESM2FineTuneTokenConfig</span> \
+    <span class="o">--</span><span class="n">dataset</span><span class="o">-</span><span class="k">class</span> <span class="nc">InMemoryPerTokenValueDataset</span> \
     <span class="o">--</span><span class="n">task</span><span class="o">-</span><span class="nb">type</span> <span class="s2">"classification"</span> \
     <span class="o">--</span><span class="n">cnn</span><span class="o">-</span><span class="n">dropout</span> <span class="mf">0.25</span> \
     <span class="o">--</span><span class="n">cnn</span><span class="o">-</span><span class="n">hidden</span><span class="o">-</span><span class="n">size</span> <span class="mi">32</span> \
@@ -14039,7 +13343,7 @@ results_path = f"{work_dir}/lora-token-level-classification/infer/"</div>
 <span class="n">data_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">work_dir</span><span class="p">,</span> <span class="s2">"sequences.csv"</span><span class="p">)</span>
 
 <span class="err">!</span> <span class="n">infer_esm2</span> <span class="o">--</span><span class="n">checkpoint</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">pretrain_checkpoint_path</span><span class="p">}</span> \
-             <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span><span class="w"> </span><span class="nc">ESM2FineTuneTokenConfig</span> \
+             <span class="o">--</span><span class="n">config</span><span class="o">-</span><span class="k">class</span> <span class="nc">ESM2FineTuneTokenConfig</span> \
              <span class="o">--</span><span class="n">data</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">data_path</span><span class="p">}</span> \
              <span class="o">--</span><span class="n">results</span><span class="o">-</span><span class="n">path</span> <span class="p">{</span><span class="n">results_path</span><span class="p">}</span> \
              <span class="o">--</span><span class="n">micro</span><span class="o">-</span><span class="n">batch</span><span class="o">-</span><span class="n">size</span> <span class="mi">3</span> \
@@ -14090,6 +13394,8 @@ data_path = os.path.join(work_dir, "sequences.csv")
 
 
                 
+<div id="chatbot"></div>
+
               </article>
             </div>
           
@@ -14174,7 +13480,7 @@ data_path = os.path.join(work_dir, "sequences.csv")
       
     
     <a href="https://github.com/NVIDIA/bionemo-framework" target="_blank" rel="noopener" title="github.com" class="md-social__link">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
     </a>
   
 </div>
@@ -14189,13 +13495,13 @@ data_path = os.path.join(work_dir, "sequences.csv")
     </div>
     
     
+    <script id="__config" type="application/json">{"base": "../../../..", "features": ["content.code.annotate", "navigation.tabs", "navigation.indexes", "navigation.instant", "navigation.path", "navigation.instant.prefetch", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
     
-      
-      <script id="__config" type="application/json">{"base": "../../../..", "features": ["content.code.annotate", "navigation.tabs", "navigation.indexes", "navigation.instant", "navigation.path", "navigation.instant.prefetch", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../../../assets/javascripts/workers/search.f8cc74c7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
-    
-    
-      <script src="../../../../assets/javascripts/bundle.c8b220af.min.js"></script>
+     
+      <script src="../../../../assets/javascripts/bundle.83f73b43.min.js"></script>
       
     
+<script src="../../../../assets/javascripts/chatbot.js"></script>
+
   </body>
 </html>
