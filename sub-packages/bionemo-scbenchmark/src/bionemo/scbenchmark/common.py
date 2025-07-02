@@ -21,8 +21,12 @@ circular imports between modules. It provides the core data structures
 and measurement utilities used throughout the benchmarking framework.
 """
 
+import gc
 import json
+import os
 import subprocess
+import threading
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -60,9 +64,6 @@ class BenchmarkResult:
 
         # Instantiation metrics
         instantiation_time_seconds: Time taken to instantiate the dataloader
-        memory_before_instantiation_mb: Memory usage before instantiation
-        memory_after_instantiation_mb: Memory usage after instantiation
-        memory_delta_instantiation_mb: Change in memory usage during instantiation
         peak_memory_during_instantiation_mb: Peak memory usage during instantiation
 
         # Raw data for detailed analysis
@@ -87,9 +88,6 @@ class BenchmarkResult:
 
     # Instantiation metrics (None if not measured)
     instantiation_time_seconds: Optional[float] = None
-    memory_before_instantiation_mb: Optional[float] = None
-    memory_after_instantiation_mb: Optional[float] = None
-    memory_delta_instantiation_mb: Optional[float] = None
     peak_memory_during_instantiation_mb: Optional[float] = None
 
     # Raw data for detailed analysis
@@ -170,7 +168,6 @@ class BenchmarkResult:
             average_memory_mb=avg_memory,
             gpu_memory_mb=gpu_memory_mb,
             batch_times=batch_times,
-            memory_samples=memory_samples,
             **instantiation_kwargs,
         )
 
@@ -228,24 +225,72 @@ def get_batch_size(batch: Any) -> int:
         batch: The batch object to measure
 
     Returns:
-        Number of samples in the batch (defaults to 1 if unknown)
+        Number of samples in the batch
     """
-    # Try common batch size attributes
-    if hasattr(batch, "__len__"):
-        return len(batch)
+    if hasattr(batch, "X"):
+        # AnnCollection batch
+        batch_size = batch.X.shape[0]
+    else:
+        batch_size = batch.shape[0] if hasattr(batch, "shape") else len(batch)
+    return batch_size
 
-    # For PyTorch tensors
-    if hasattr(batch, "shape") and len(batch.shape) > 0:
-        return batch.shape[0]
 
-    # For dictionaries with common keys
-    if isinstance(batch, dict):
-        for key in ["input_ids", "labels", "data", "features", "x", "y"]:
-            if key in batch and hasattr(batch[key], "__len__"):
-                return len(batch[key])
+def measure_peak_memory_full(func, *args, **kwargs):
+    """Measure peak memory usage and timing of a function execution.
 
-    # Default to 1 if we can't determine
-    return 1
+    This function runs the provided function in a separate thread while monitoring
+    memory usage in the background. It tracks the peak memory usage during
+    execution and provides comprehensive memory and timing metrics.
+
+    Args:
+        func: Function to measure
+        *args: Arguments to pass to the function
+        **kwargs: Keyword arguments to pass to the function
+
+    Returns:
+        Tuple containing:
+        - result: The return value of the function
+        - baseline_mib: Memory usage before function execution (MB)
+        - peak_mib: Peak memory usage during execution (MB)
+        - delta_mib: Memory increase during execution (MB)
+        - final_mib: Memory usage after function execution (MB)
+        - duration: Total execution time in seconds
+    """
+    peak = [0]
+    stop_event = threading.Event()
+    proc = psutil.Process(os.getpid())
+
+    def get_total_mem():
+        return proc.memory_info().rss  # no need to check children
+
+    def track():
+        while not stop_event.is_set():
+            mem = get_total_mem()
+            peak[0] = max(peak[0], mem)
+            time.sleep(0.05)  # or 0.005 if you want slightly tighter sampling
+
+    gc.collect()
+    baseline = get_total_mem()
+    tracker = threading.Thread(target=track)
+
+    tracker.start()
+    start = time.perf_counter()
+    try:
+        result = func(*args, **kwargs)
+    finally:
+        stop_event.set()
+        tracker.join()
+    duration = time.perf_counter() - start
+
+    gc.collect()
+    final = get_total_mem()
+
+    baseline_mib = baseline / 1024 / 1024
+    peak_mib = peak[0] / 1024 / 1024
+    delta_mib = peak_mib - baseline_mib
+    final_mib = final / 1024 / 1024
+
+    return result, baseline_mib, peak_mib, delta_mib, final_mib, duration
 
 
 def measure_instantiation(dataloader_factory: callable, name: str = "Unknown") -> Dict[str, float]:
@@ -267,52 +312,13 @@ def measure_instantiation(dataloader_factory: callable, name: str = "Unknown") -
         - If instantiation fails, metrics are still returned with error information
         - Peak memory during instantiation is tracked
     """
-    import time
+    # Create the dataloader
+    dataloader, baseline, peak, delta, final, duration = measure_peak_memory_full(dataloader_factory)
 
-    process = psutil.Process()
+    # Measure memory after
 
-    # Measure memory before
-    memory_before = process.memory_info().rss / (1024 * 1024)
-    peak_memory_during = memory_before
-
-    # Start timing
-    start_time = time.perf_counter()
-
-    try:
-        # Create the dataloader
-        dataloader_factory()
-
-        # Measure peak memory during instantiation
-        peak_memory = process.memory_info().rss / (1024 * 1024)
-        peak_memory_during = max(peak_memory_during, peak_memory)
-
-        instantiation_time = time.perf_counter() - start_time
-
-        # Measure memory after
-        memory_after = process.memory_info().rss / (1024 * 1024)
-        memory_delta = memory_after - memory_before
-
-        return {
-            "instantiation_time_seconds": instantiation_time,
-            "memory_before_instantiation_mb": memory_before,
-            "memory_after_instantiation_mb": memory_after,
-            "memory_delta_instantiation_mb": memory_delta,
-            "peak_memory_during_instantiation_mb": peak_memory_during,
-        }
-
-    except Exception as e:
-        instantiation_time = time.perf_counter() - start_time
-        memory_after = process.memory_info().rss / (1024 * 1024)
-        memory_delta = memory_after - memory_before
-
-        # Note: This is a utility function that may be called outside of benchmark context
-        # so we use a simple print here rather than requiring a logging function parameter
-        print(f"⚠️  Instantiation failed for {name}: {str(e)}")
-
-        return {
-            "instantiation_time_seconds": instantiation_time,
-            "memory_before_instantiation_mb": memory_before,
-            "memory_after_instantiation_mb": memory_after,
-            "memory_delta_instantiation_mb": memory_delta,
-            "peak_memory_during_instantiation_mb": peak_memory_during,
-        }
+    return dataloader, {
+        "instantiation_time_seconds": duration,
+        "peak_memory_during_instantiation_mb": peak,
+        "memory_before_instantiation_mb": baseline,
+    }

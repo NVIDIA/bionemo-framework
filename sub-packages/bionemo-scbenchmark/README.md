@@ -116,145 +116,34 @@ result = benchmark_dataloader(
 
 ## Examples
 
-### SCDL with Different Configurations
-```python
-from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
-from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
-
-# Factory function for SCDL dataloader
-def create_scdl_dataloader(batch_size=8):
-    data = SingleCellMemMapDataset("my_dataset", "path/to/data.h5ad")
-    return DataLoader(data, batch_size=batch_size, collate_fn=collate_sparse_matrix_batch)
-
-# Benchmark different configurations
-result1 = benchmark_dataloader(
-    name="SCDL batch=8",
-    dataloader_factory=lambda: create_scdl_dataloader(8),
-    max_time_seconds=30.0
-)
-
-result2 = benchmark_dataloader(
-    name="SCDL batch=16",
-    dataloader_factory=lambda: create_scdl_dataloader(16),
-    max_time_seconds=30.0
-)
-
-# Compare instantiation times
-print(f"SCDL batch=8 instantiation: {result1.instantiation_metrics.instantiation_time_seconds:.4f}s")
-print(f"SCDL batch=16 instantiation: {result2.instantiation_metrics.instantiation_time_seconds:.4f}s")
-```
-
-### AnnData Loading
-```python
-import scanpy as sc
-from torch.utils.data import DataLoader, TensorDataset
-
-def create_anndata_dataloader():
-    # Load with AnnData
-    adata = sc.read_h5ad("path/to/data.h5ad")
-    X = torch.tensor(adata.X.toarray(), dtype=torch.float32)
-    dataset = TensorDataset(X)
-    return DataLoader(dataset, batch_size=32)
-
-# Benchmark AnnData loading with time-based warmup
-result = benchmark_dataloader(
-    name="AnnData Loading",
-    dataloader_factory=create_anndata_dataloader,
-    data_path="path/to/data.h5ad",
-    max_time_seconds=60.0,
-    warmup_time_seconds=5.0
-)
-
-print(f"Instantiation time: {result.instantiation_metrics.instantiation_time_seconds:.4f}s")
-print(f"Instantiation memory: {result.instantiation_metrics.memory_delta_mb:.2f} MB")
-```
-
-### Custom Batched Sampling
-```python
-class CustomBatchedSampler:
-    def __iter__(self):
-        # Your custom sampling logic
-        for i in range(100):
-            yield torch.randn(16, 50)  # Variable batch sizes
-
-def create_custom_sampler():
-    return CustomBatchedSampler()
-
-# Benchmark custom sampling with time limit
-result = benchmark_dataloader(
-    name="Custom Sampling",
-    dataloader_factory=create_custom_sampler,
-    max_time_seconds=45.0,
-    warmup_batches=10
-)
-```
-
-## Multiple Dataloader Comparison
-
-```python
-from bionemo.scbenchmark import benchmark_multiple_dataloaders
-
-# Create factory functions for your dataloaders
-def create_dataloader_a():
-    dataset = DatasetA()
-    return DataLoader(dataset, batch_size=16)
-
-def create_dataloader_b():
-    dataset = DatasetB()
-    return DataLoader(dataset, batch_size=32)
-
-def create_custom_iterator():
-    return MyCustomIterator()
-
-# Compare them with time-based limits
-dataloaders = [
-    {
-        "name": "Dataloader A",
-        "factory": create_dataloader_a,
-        "data_path": "path/to/data_a",
-        "max_time_seconds": 30.0,
-        "warmup_time_seconds": 2.0
-    },
-    {
-        "name": "Dataloader B",
-        "factory": create_dataloader_b,
-        "data_path": "path/to/data_b",
-        "max_time_seconds": 30.0,
-        "warmup_time_seconds": 2.0
-    },
-    {
-        "name": "Custom Iterator",
-        "factory": create_custom_iterator,
-        "max_time_seconds": 30.0,
-        "warmup_batches": 5
-    }
-]
-
-results = benchmark_multiple_dataloaders(
-    dataloaders=dataloaders,
-    output_dir="benchmark_results"
-)
-```
-
-## What Gets Measured
-
-- **Instantiation Time**: Time to create the dataloader (measured automatically)
-- **Instantiation Memory**: Memory usage during dataloader creation
-- **Disk Space**: Size of data files/directories
-- **Setup Time**: Time to create the dataloader
-- **Warmup Time**: Time spent in warmup phase
-- **Iteration Time**: Time to iterate through batches
-- **Throughput**: Samples/second and batches/second
-- **Memory Usage**: Peak and average memory consumption
-- **GPU Memory**: If CUDA is available
-
-## Examples
-
 See the examples directory for comprehensive examples:
 
-- `examples/simple_benchmark_examples.py` - Basic usage examples
-- `examples/time_based_benchmarking.py` - Time-based benchmarking examples
-- `examples/instantiation_benchmarking.py` - Instantiation measurement examples
+- `examples/comprehensive_benchmarking.py` - **Complete reference** showing ALL features with one dataloader, including SCDL dataloaders with sequential, block, and weighted sampling
+- `examples/benchmark_scdataset_paper.py` - **Paper replication** demonstrating benchmarking SCDL with SCDataset as used in the paper "scDataset: Scalable Data Loading for Deep Learning on Large-Scale Single-Cell Omics"
+
+### Quick Comprehensive Example
+
+```python
+# Run the comprehensive example to see ALL features in action
+python examples/comprehensive_benchmarking.py
+```
+
+### SCDataset Paper Example
+
+```python
+# Run the SCDataset paper benchmarking example
+python examples/benchmark_scdataset_paper.py
+```
+
+This replicates the benchmarking approach from the scDataset paper, including:
+- ✅ SCDataset with BioNeMo data (as used in the paper)
+- ✅ PyTorch DataLoader with BioNeMo data
+- ✅ SCDataset with HuggingFace datasets
+- ✅ PyTorch DataLoader with HuggingFace datasets
+- ✅ Different sampling strategies (sequential, block, weighted)
+- ✅ Different modes (train/random vs eval/stream)
+- ✅ Parameter sweep experiments
+- ✅ Performance comparison and analysis
 
 ## Adding Your Own Dataloader
 
@@ -297,6 +186,45 @@ def process_dataloader(dl: DataloaderProtocol):
         return dl
     return benchmark_dataloader("Typed Dataloader", create_dataloader)
 ```
+
+## SCDL Dataloader Support
+
+The framework includes built-in support for SCDL dataloaders with different sampling strategies:
+
+```python
+from bionemo.scbenchmark import benchmark_dataloader
+from bionemo.scbenchmark.scdl_samplers import SequentialSampler, BlockSampler, WeightedSampler
+
+# Sequential sampling
+def create_sequential_dataloader():
+    dataset = SingleCellMemMapDataset("dataset_name", "data.h5ad")
+    sampler = SequentialSampler(dataset)
+    return DataLoader(dataset, batch_size=32, sampler=sampler,
+                     collate_fn=collate_sparse_matrix_batch)
+
+result = benchmark_dataloader(
+    name="SCDL Sequential",
+    dataloader_factory=create_sequential_dataloader,
+    max_time_seconds=30.0
+)
+
+# Block sampling
+def create_block_dataloader():
+    dataset = SingleCellMemMapDataset("dataset_name", "data.h5ad")
+    sampler = BlockSampler(dataset, block_size=100)
+    return DataLoader(dataset, batch_size=32, sampler=sampler,
+                     collate_fn=collate_sparse_matrix_batch)
+
+# Weighted sampling
+def create_weighted_dataloader():
+    dataset = SingleCellMemMapDataset("dataset_name", "data.h5ad")
+    weights = torch.ones(len(dataset))  # Your custom weights
+    sampler = WeightedSampler(dataset, weights)
+    return DataLoader(dataset, batch_size=32, sampler=sampler,
+                     collate_fn=collate_sparse_matrix_batch)
+```
+
+The comprehensive example shows all three sampling strategies in action!
 
 ## Installation
 
