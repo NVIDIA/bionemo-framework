@@ -32,7 +32,7 @@ TOP_P = 0.0
 
 # todo: figure out 1M checkpoints (or add to NGC)
 CHECKPOINT_NAMES = [
-    # "evo2/1b-8k:1.0", 
+    # "evo2/1b-8k:1.0",
     "evo2/7b-8k:1.0",
     "evo2/7b-1m:1.0",
 ]
