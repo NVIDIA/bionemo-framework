@@ -204,6 +204,26 @@ def load(
 
 
 class CachedProcessor:
+    """A base class for cached file processors that avoid re-processing if the target directory already exists.
+
+    This processor checks if the extraction directory already exists before performing
+    the actual processing operation. If the directory exists, it skips processing and
+    returns the existing directory path.
+
+    Examples:
+        # For a tar.gz file that gets extracted to a directory
+        processor = CachedUntar()
+        result = processor("/path/to/archive.tar.gz", "download", pooch_instance)
+        # If /path/to/archive.tar.gz_extracted/ already exists, skips extraction
+        # If not, extracts and returns the directory path
+
+        # For a compressed file that gets decompressed
+        processor = CachedDecompress()
+        result = processor("/path/to/file.gz", "download", pooch_instance)
+        # If /path/to/file.gz_decompressed already exists, skips decompression
+        # If not, decompresses and returns the file path
+    """
+
     def __call__(self, fname, action, pooch):
         if self.extract_dir is None:
             self.extract_dir = fname + self.suffix
@@ -212,9 +232,14 @@ class CachedProcessor:
             self.extract_dir = os.path.join(archive_dir, self.extract_dir)
 
         from pathlib import Path
+        # create lock file here to make sure we don't reuse cahce if thing went wrong
+        lock_file = Path(str(self.extract_dir) + ".lock")
 
-        if not Path(self.extract_dir).exists():
+        # if dir exists and lock_file exists, then something went wrong on previous run, so redo
+        if not Path(self.extract_dir).exists() or lock_file.exists():
+            lock_file.touch()
             super().__call__(fname, action, pooch)
+            lock_file.unlink()
         return self.extract_dir
 
 
