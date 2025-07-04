@@ -330,7 +330,7 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
-        # ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
+        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
@@ -385,7 +385,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
-        # ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
+        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
@@ -471,85 +471,18 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
 
     return (matches / min_length) * 100
 
-# todo: delete once batch mode works successfully
+
+
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
-        # TODO uncomment once working
-        # ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
+        ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6]),
         ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6]),
         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
 )
-def test_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
-    assert len(sequences) > 0
-    is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
-    skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
-    if skip:
-        # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
-        pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
-    vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-
-
-    match_percents = []
-    for i, seq in enumerate(sequences):
-        # need to reinit model for every sequence
-        inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_name, vortex_style_fp8=vortex_style_fp8)
-
-        num_tokens = 500
-        prompt, target = mid_point_split(seq=seq, num_tokens=num_tokens)
-        from megatron.core.inference.common_inference_params import CommonInferenceParams
-        from nemo.collections.llm.inference import generate
-
-        results = generate(
-            model=inference_wrapped_model,
-            tokenizer=mcore_tokenizer,
-            prompts=[prompt],
-            random_seed=42,
-            inference_params=CommonInferenceParams(
-                temperature=1.0,
-                top_k=1,
-                top_p=0.0,
-                return_log_probs=False,
-                num_tokens_to_generate=num_tokens,
-            ),
-        )
-
-        gen_seq = results[0].generated_text
-        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {gen_seq=}")
-        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {target =}")
-        match_percent = calculate_sequence_identity(target, gen_seq)
-        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=} expected: {expected_matchpercents[i]}")
-        match_percents.append(match_percent)
-    assert len(match_percents) == len(expected_matchpercents)
-    matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
-    matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
-        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
-    )
-
-
-
-@pytest.mark.xfail(reason="This test is failing because state is not properly reset in batch generate")
-@pytest.mark.parametrize(
-    "ckpt_name,expected_matchpercents",
-    [
-        # TODO uncomment once working
-        ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6]),
-        # ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6]),
-        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
-    ],
-)
 def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
-    # Note - this is using genreate the 'correct' batch style, but we fail if we remove
-    # these lines from abstract_model_inference_wrapper.py: 119
-    #        self.inference_context.reset()
-    #        max_batch_size = self.inference_wrapper_config.inference_max_requests # 1024
-    #         max_sequence_length = self.inference_wrapper_config.inference_max_seq_length # 2048
-    #         from megatron.core.inference.contexts import StaticInferenceContext
-    #         self.inference_context = StaticInferenceContext(max_batch_size, max_sequence_length)
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
