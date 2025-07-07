@@ -35,7 +35,7 @@ script: |-
   done
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=$NEW_DATA_PATH/train_clusters_bionemo_recipes.parquet \
-    --train-database-path=$NEW_DATA_PATH/train_bionemo_recipes.parquet \
+    --train-database-path=$NEW_DATA_PATH/train.db \
     --valid-cluster-path=$NEW_DATA_PATH/valid_clusters.parquet \
     --valid-database-path=$NEW_DATA_PATH/validation.db \
     --micro-batch-size=${batch_size} \
