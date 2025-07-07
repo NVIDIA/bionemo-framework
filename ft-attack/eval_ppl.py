@@ -340,13 +340,6 @@ def main():
         default="torch_dist",
         help="Specify checkpoint format to use. Defaults to 'torch_dist', as 'zarr' is deprecated.",
     )
-    parser.add_argument(
-        "--gene_focus",
-        type=str,
-        default="full",
-        help="""Specify which gene to extract from the sequence (default: full). Used only with --gb_file_list.
-                       Options include: env, gag, pol, or 'full' for the entire genome.""",
-    )
     parser.add_argument("--num_seqs_fna", type=int, default=100, help="Number of sequences to evaluate from FASTA.")
     parser.add_argument("--output-dir", type=Path, default=Path("."), help="Directory to save the output.")
 

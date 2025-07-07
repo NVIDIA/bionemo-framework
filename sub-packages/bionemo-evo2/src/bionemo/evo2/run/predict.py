@@ -350,7 +350,7 @@ def predict(
         callbacks=[
             PredictionWriter(
                 output_dir=output_dir,
-                write_interval="epoch",
+                write_interval="batch",
                 batch_dim_key_defaults={"token_logits": 0},
                 seq_dim_key_defaults={"token_logits": 1},
             )
