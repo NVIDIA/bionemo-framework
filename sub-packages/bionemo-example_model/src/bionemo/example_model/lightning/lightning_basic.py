@@ -343,6 +343,7 @@ class ExampleModelTrunk(MegatronModule):
         # FIXME add an assertion that the user is not trying to do tensor parallelism since this doesn't use
         #  parallelizable megatron linear layers.
         self.model_type: ModelType = ModelType.encoder_or_decoder
+        self.vp_stage = None  # Add vp_stage attribute for compatibility with virtual pipeline
         self.linear1 = nn.Linear(28 * 28, 64)
         self.relu = nn.ReLU()
         self.linear2 = nn.Linear(64, 3)
@@ -528,6 +529,7 @@ class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroug
         """
         super().__init__()
         self.config = config
+        self.vp_stage = None  # Add vp_stage attribute for compatibility with virtual pipeline
         self.optim = MegatronOptimizerModule(
             config=OptimizerConfig(
                 lr=1e-4,
@@ -639,6 +641,9 @@ class BionemoLightningModule(pl.LightningModule, io.IOMixin, LightningPassthroug
     def configure_model(self) -> None:
         """This configures the model. It is called lazily by the megatron strategy."""
         self.module = self.config.configure_model()
+        # Ensure vp_stage attribute is set for compatibility with virtual pipeline
+        if not hasattr(self.module, "vp_stage"):
+            self.module.vp_stage = None
 
     def loss_reduction_class(self) -> Type[MegatronLossReduction]:
         """Get the loss reduction class the user has specified in their config."""
