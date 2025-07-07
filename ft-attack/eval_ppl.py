@@ -358,6 +358,8 @@ def main():
 
     tmp_dir = tempfile.TemporaryDirectory()
     fasta_path_for_predict = args.fasta
+    seq_len = 8192 if "arc_longcontext" not in args.model_size else 1000000
+    print(f"Using sequence length: {seq_len}")
 
 
     # --- Setup Trainer and Model from predict.py ---
@@ -389,7 +391,7 @@ def main():
             data_sampler=nl.MegatronDataSampler(
                 micro_batch_size=args.batch_size,
                 global_batch_size=args.batch_size,
-                seq_len=8192,
+                seq_len=seq_len,
                 output_log=False,
             ),
         ),

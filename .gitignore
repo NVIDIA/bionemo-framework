@@ -211,3 +211,8 @@ ft-attack/data/ncbi_downloads_*
 ft-attack/data/sequences.csv
 ft-attack/data/prokaryotic_host_sequences.fna
 ft-attack/data/prokaryotic_host_sequences.fna.gz
+
+
+debug/
+
+setup.sh

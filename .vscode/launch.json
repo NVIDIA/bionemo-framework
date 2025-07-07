@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Eval PPL",
+            "name": "Eval PPL 7b 8k",
             "type": "debugpy",
             "request": "launch",
             "program": "ft-attack/eval_ppl.py",
@@ -21,6 +21,23 @@
                 "1",
                 "--model-size",
                 "7b",
+            ]
+        },
+        {
+            "name": "Eval PPL 7b 1M",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "ft-attack/eval_ppl.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--fasta",
+                "/workspaces/bionemo-framework/ft-attack/ncbi_downloads_sequences_test_60/merged.fna",
+                "--ckpt-dir",
+                "/workspaces/bionemo-framework/checkpoints/nemo2_evo2_7b_1M",
+                "--batch-size",
+                "1",
+                "--model-size",
+                "7b-arc-longcontext",
             ]
         }
     ]
