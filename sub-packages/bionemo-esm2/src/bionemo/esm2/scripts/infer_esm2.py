@@ -15,8 +15,9 @@
 
 import argparse
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, Optional, Sequence, Type, get_args
+from typing import Dict, List, Optional, Type, get_args
 
 from nemo import lightning as nl
 
@@ -62,6 +63,7 @@ def infer_model(
     prediction_interval: IntervalT = "epoch",
     config_class: Type[BioBertConfig] = ESM2Config,
     lora_checkpoint_path: Optional[str] = None,
+    initial_ckpt_skip_keys_with_these_prefixes: List[str] = [],
 ) -> None:
     """Runs inference on a BioNeMo ESM2 model using PyTorch Lightning.
 
@@ -83,6 +85,7 @@ def infer_model(
         prediction_interval (IntervalT, optional): Intervals to write predict method output into disck for DDP inference. Defaults to epoch.
         config_class (Type[BioBertConfig]): The config class for configuring the model using checkpoint provided
         lora_checkpoint_path (Optional[str]): path to the lora checkpoint file.
+        initial_ckpt_skip_keys_with_these_prefixes (Optional[List[str]]): List of keys to skip when loading the initial checkpoint. Needed for loading the initial checkpoint from a different model.
     """
     # create the directory to save the inference results
     os.makedirs(results_path, exist_ok=True)
@@ -141,10 +144,10 @@ def infer_model(
         module = biobert_lightning_module(config=config, tokenizer=tokenizer, model_transform=peft)
         module.configure_init_model_parallel = True
     else:
-        module = biobert_lightning_module(config=config, tokenizer=tokenizer)
         # In this case, the weights of the heads will be in the fine-tuned files and should be read
         # from there as opposed to the base model checkpoint.
-        config_class.initial_ckpt_skip_keys_with_these_prefixes = []
+        config.initial_ckpt_skip_keys_with_these_prefixes = initial_ckpt_skip_keys_with_these_prefixes
+        module = biobert_lightning_module(config=config, tokenizer=tokenizer)
 
     trainer = nl.Trainer(
         accelerator="gpu",
@@ -183,6 +186,7 @@ def infer_esm2_entrypoint():
         prediction_interval=args.prediction_interval,
         config_class=args.config_class,
         lora_checkpoint_path=args.lora_checkpoint_path,
+        initial_ckpt_skip_keys_with_these_prefixes=args.initial_ckpt_skip_keys_with_these_prefixes,
     )
 
 
@@ -301,6 +305,13 @@ def get_parser():
         required=False,
         default=None,
         help="Path to the lora states to restore from.",
+    )
+    parser.add_argument(
+        "--initial-ckpt-skip-keys-with-these-prefixes",
+        type=List[str],
+        required=False,
+        default=[],
+        help="List of keys to skip when loading the initial checkpoint. Needed for loading the model weights from a different checkpoint.",
     )
 
     return parser

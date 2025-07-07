@@ -32,7 +32,16 @@ def data_to_csv(data, tmp_path, with_label=True):
     """Create a mock protein dataset."""
     csv_file = tmp_path / "protein_dataset.csv"
     # Create a DataFrame
-    df = pd.DataFrame(data, columns=["sequences", "labels"] if with_label else ["sequences"])
+    if not with_label:
+        df = pd.DataFrame(data, columns=["sequences"])
+    else:
+        df = pd.DataFrame(data)
+        if df.shape[1] == 2:
+            df.columns = ["sequences", "labels"]
+        elif df.shape[1] == 3:
+            df.columns = ["sequences", "labels", "resolved"]
+        else:
+            raise ValueError(f"Data has {df.shape[1]} columns, expected 2 or 3")
 
     # Save the DataFrame to a CSV file
     df.to_csv(csv_file, index=False)
@@ -166,6 +175,34 @@ def test_in_memory_protein_dataset_non_existent_file():
     """Ensure proper error handling for missing files."""
     with pytest.raises(FileNotFoundError):
         InMemoryProteinDataset.from_csv("non_existent_file.csv")
+
+
+def test_in_memory_protein_dataset_tokenize_with_special_tracking(dataset_no_labels):
+    """Test the _tokenize_with_special_tracking method."""
+    # Get a sample sequence
+    sequence = dataset_no_labels.sequences.iloc[0]
+
+    # Call the method
+    tokenized_sequence, special_positions = dataset_no_labels._tokenize_with_special_tracking(sequence)
+
+    # Verify return types
+    assert isinstance(tokenized_sequence, Tensor)
+    assert isinstance(special_positions, list)
+
+    # Verify tokenized sequence contains special tokens
+    assert len(tokenized_sequence) > len(sequence)
+
+    # Verify special positions are valid indices
+    assert all(0 <= pos < len(tokenized_sequence) for pos in special_positions)
+
+    # Verify special positions contain special tokens
+    special_tokens = tokenized_sequence[special_positions]
+    assert all(token in dataset_no_labels.tokenizer.all_special_ids for token in special_tokens)
+
+    # Verify non-special positions don't contain special tokens
+    non_special_positions = [i for i in range(len(tokenized_sequence)) if i not in special_positions]
+    non_special_tokens = tokenized_sequence[non_special_positions]
+    assert all(token not in dataset_no_labels.tokenizer.all_special_ids for token in non_special_tokens)
 
 
 def test_load_w_missing_labels(dummy_protein_sequences, tmp_path):

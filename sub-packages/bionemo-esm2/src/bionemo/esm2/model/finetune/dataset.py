@@ -15,7 +15,7 @@
 
 
 import os
-from typing import Literal, Sequence
+from typing import Literal, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -44,6 +44,7 @@ class InMemoryProteinDataset(Dataset):
         self,
         sequences: pd.Series,
         labels: pd.Series | None = None,
+        labels_mask: pd.Series | None = None,
         task_type: Literal["classification", "regression", None] = None,
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
@@ -56,6 +57,7 @@ class InMemoryProteinDataset(Dataset):
         Args:
             sequences (pd.Series): A pandas Series containing protein sequences.
             labels (pd.Series, optional): A pandas Series containing labels. Defaults to None.
+            labels_mask (pd.Series, optional): A pandas Series containing loss mask, i.e. which tokens to keep for loss calculation. Defaults to None. can be 0 or 1.
             task_type (str, optional): Fine-tuning task type. Defaults to None.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
@@ -64,6 +66,7 @@ class InMemoryProteinDataset(Dataset):
         """
         self.sequences = sequences
         self.labels = labels
+        self.labels_mask = labels_mask
         self.task_type = task_type
 
         self.seed = seed
@@ -78,6 +81,7 @@ class InMemoryProteinDataset(Dataset):
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         ignore_labels: bool = False,
         label_column: str = "labels",
+        labels_mask_column: Optional[str] = None,
     ):
         """Class method to create a ProteinDataset instance from a CSV file.
 
@@ -87,19 +91,29 @@ class InMemoryProteinDataset(Dataset):
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             ignore_labels (bool): ignore labels column if exist (to avoid reading labels during inference)
             label_column (str): label column name in CSV file. Defaults to `labels`.
+            labels_mask_column (str, optional): labels mask column name in CSV file. Defaults to None.
         """
         df = pd.read_csv(csv_path)
 
         # Validate presence of required columns
-        if "sequences" not in df.columns:
-            raise KeyError("The CSV must contain a 'sequences' column.")
+        if "sequences" not in df.columns and "sequence" not in df.columns:
+            raise KeyError("The CSV must contain a 'sequences' or 'sequence' column.")
 
-        sequences = df["sequences"]
+        sequences = df["sequences"] if "sequences" in df.columns else df["sequence"]
+
+        if labels_mask_column is not None and cls is not InMemoryPerTokenValueDataset:
+            raise ValueError("labels_mask_column is only supported for InMemoryPerTokenValueDataset")
         labels = None
         if not ignore_labels:
             labels = df[label_column]
+        labels_mask = None
+        if labels_mask_column is not None:
+            labels_mask = df[labels_mask_column]
 
-        return cls(sequences, labels=labels, task_type=task_type, tokenizer=tokenizer)
+        if labels_mask_column is None:
+            return cls(sequences, labels=labels, task_type=task_type, tokenizer=tokenizer)
+        else:
+            return cls(sequences, labels=labels, labels_mask=labels_mask, task_type=task_type, tokenizer=tokenizer)
 
     def __len__(self) -> int:
         """The size of the dataset."""
@@ -108,11 +122,36 @@ class InMemoryProteinDataset(Dataset):
     def __getitem__(self, index: int) -> BertSample:
         """Obtains the BertSample at the given index."""
         sequence = self.sequences[index]
-        tokenized_sequence = self._tokenize(sequence)
+
+        # Tokenize sequence and track special token positions
+        tokenized_sequence, special_positions = self._tokenize_with_special_tracking(sequence)
+
+        # Handle labels_mask if it exists
+        if self.labels_mask is not None:
+            # Get the original labels_mask for this sequence
+            labels_mask = list(self.labels_mask.iloc[index])
+
+            # Insert 0 tokens at special token positions to pad to tokenized_sequence length
+            idx = 0
+            while idx < len(special_positions):
+                labels_mask.insert(special_positions[idx], "0")
+                idx += 1
+            labels_mask = "".join(labels_mask)
+            assert len(labels_mask) == len(tokenized_sequence), (
+                f"labels_mask length {len(labels_mask)} != tokenized_sequence length {len(tokenized_sequence)}"
+            )
+        else:
+            labels_mask = None
 
         label = tokenized_sequence if self.labels is None else self.transform_label(self.labels.iloc[index])
         # Overall mask for a token being masked in some capacity - either mask token, random token, or left as-is
         loss_mask = ~torch.isin(tokenized_sequence, Tensor(self.tokenizer.all_special_ids))
+
+        # Combine with labels_mask if it exists
+        if labels_mask is not None:
+            # Convert string labels_mask to boolean tensor
+            labels_mask_tensor = torch.from_numpy(np.fromiter(labels_mask, dtype="U1") == "1")
+            loss_mask &= labels_mask_tensor
 
         return {
             "text": tokenized_sequence,
@@ -122,6 +161,33 @@ class InMemoryProteinDataset(Dataset):
             "loss_mask": loss_mask,
             "is_random": torch.zeros_like(tokenized_sequence, dtype=torch.int64),
         }
+
+    def _tokenize_with_special_tracking(self, sequence: str) -> tuple[Tensor, list[int]]:
+        """Tokenize sequence and return positions where special tokens were added.
+
+        Args:
+            sequence: The protein sequence to tokenize
+
+        Returns:
+            Tuple of (tokenized_sequence, special_token_positions)
+        """
+        # Tokenize without special tokens to get original length
+        tokens_no_special = self.tokenizer.encode(sequence, add_special_tokens=False, return_tensors="pt")
+        if isinstance(tokens_no_special, list):
+            tokens_no_special = torch.tensor(tokens_no_special)
+        tokens_no_special = tokens_no_special.flatten()
+
+        # Tokenize with special tokens
+        tokens_with_special = self.tokenizer.encode(sequence, add_special_tokens=True, return_tensors="pt")
+        if isinstance(tokens_with_special, list):
+            tokens_with_special = torch.tensor(tokens_with_special)
+        tokens_with_special = tokens_with_special.flatten()
+
+        mask = torch.isin(tokens_with_special, torch.tensor(self.tokenizer.all_special_ids))
+        # Find positions where special tokens were inserted
+        special_positions = mask.nonzero(as_tuple=False).squeeze(1).tolist()
+
+        return tokens_with_special, special_positions
 
     def _tokenize(self, sequence: str) -> Tensor:
         """Tokenize a protein sequence.
@@ -133,6 +199,8 @@ class InMemoryProteinDataset(Dataset):
             The tokenized sequence.
         """
         tensor = self.tokenizer.encode(sequence, add_special_tokens=True, return_tensors="pt")
+        if isinstance(tensor, list):
+            tensor = torch.tensor(tensor)
         return tensor.flatten()  # type: ignore
 
     def transform_label(self, label):
@@ -167,14 +235,14 @@ class InMemorySingleValueDataset(InMemoryProteinDataset):
 
         Args:
             sequences (pd.Series): A pandas Series containing protein sequences.
-            labels (pd.Series, optional): A pandas Series containing labels. Defaults to None.
+            labels (pd.Series, optional): A pandas Series containing labels.
             task_type (str): Fine-tuning task type. Defaults to regression.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
                 that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
                 generated.
         """
-        super().__init__(sequences, labels, task_type, tokenizer, seed)
+        super().__init__(sequences=sequences, labels=labels, task_type=task_type, tokenizer=tokenizer, seed=seed)
 
         self.task_type = task_type
         if self.task_type == "classification":
@@ -208,6 +276,7 @@ class InMemoryPerTokenValueDataset(InMemoryProteinDataset):
         self,
         sequences: pd.Series,
         labels: pd.Series,
+        labels_mask: Optional[pd.Series] = None,
         task_type: Literal["classification", "regression"] = "classification",
         tokenizer: tokenizer.BioNeMoESMTokenizer = tokenizer.get_tokenizer(),
         seed: int = np.random.SeedSequence().entropy,  # type: ignore
@@ -220,13 +289,21 @@ class InMemoryPerTokenValueDataset(InMemoryProteinDataset):
         Args:
             sequences (pd.Series): A pandas Series containing protein sequences.
             labels (pd.Series, optional): A pandas Series containing labels. Defaults to None.
+            labels_mask (pd.Series, optional): A pandas Series containing loss mask, i.e. which tokens to keep for loss calculation. Defaults to None. can be 0 or 1.
             task_type (str): Fine-tuning task type. Defaults to classification. Regression per-token values are not supported.
             tokenizer (tokenizer.BioNeMoESMTokenizer, optional): The tokenizer to use. Defaults to tokenizer.get_tokenizer().
             seed: Random seed for reproducibility. This seed is mixed with the index of the sample to retrieve to ensure
                 that __getitem__ is deterministic, but can be random across different runs. If None, a random seed is
                 generated.
         """
-        super().__init__(sequences, labels, task_type, tokenizer, seed)
+        super().__init__(
+            sequences=sequences,
+            labels=labels,
+            labels_mask=labels_mask,
+            task_type=task_type,
+            tokenizer=tokenizer,
+            seed=seed,
+        )
 
         self.task_type = task_type
         if not task_type == "classification":

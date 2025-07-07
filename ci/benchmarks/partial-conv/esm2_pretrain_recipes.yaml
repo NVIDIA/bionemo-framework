@@ -12,7 +12,7 @@ script_args:
   data_path: /data/20240809_uniref_2024_03/data
   model: esm2
   variant: train
-  config_name: 650M
+  config_name: 650M-recipes
   precision: [bf16-mixed]
   nodes: [4]
   gpus: 8
@@ -34,7 +34,7 @@ script: |-
       sleep 1
   done
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
-    --train-cluster-path=$NEW_DATA_PATH/train_clusters.parquet \
+    --train-cluster-path=$NEW_DATA_PATH/train_clusters_bionemo_recipes.parquet \
     --train-database-path=$NEW_DATA_PATH/train.db \
     --valid-cluster-path=$NEW_DATA_PATH/valid_clusters.parquet \
     --valid-database-path=$NEW_DATA_PATH/validation.db \
