@@ -137,7 +137,7 @@ RUN cd / && pip uninstall bitsandbytes && \
 # Once bionemo is compatible with numpy >= 2.0, we can remove this.
 # Technically, this is only needed for the ARM build, but we apply to all architectures to avoid library version
 # divergence.
-RUN pip install scikit-misc==0.3.1
+RUN apt-get update -qy && apt-get install -y libopenblas-dev && pip install scikit-misc==0.3.1
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
