@@ -65,32 +65,7 @@ result = benchmark_dataloader(
 )
 ```
 
-## Type Safety with Protocols
 
-The framework uses Python Protocols for type safety without requiring inheritance:
-
-```python
-from bionemo.scbenchmark import DataloaderProtocol, DatasetProtocol
-
-# Your dataloader just needs to be iterable
-class MyCustomDataloader:
-    def __iter__(self):
-        # Return an iterator
-        return iter([...])
-
-    def __len__(self):  # Optional
-        return 100
-
-# Type checking works!
-def benchmark_my_dataloader(dl: DataloaderProtocol):
-    def create_dataloader():
-        return dl
-    return benchmark_dataloader("My Dataloader", create_dataloader)
-
-# This works with any iterable
-my_dl = MyCustomDataloader()
-result = benchmark_my_dataloader(my_dl)
-```
 
 ## Modular Architecture
 

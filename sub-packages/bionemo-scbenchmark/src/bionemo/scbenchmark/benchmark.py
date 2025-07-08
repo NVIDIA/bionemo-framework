@@ -156,7 +156,6 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
     )
 
     # Update with memory information from measure_peak_memory_full
-    result.memory_before_instantiation_mb = baseline
     result.peak_memory_mb = peak
 
     return result
@@ -246,8 +245,6 @@ def benchmark_dataloader(
     # Run the benchmark directly
     log("🏃 Running benchmark...")
     result = run_benchmark(dataloader, config)
-    print("RESULT")
-    print(result)
     del dataloader
     # Add instantiation metrics
     if instantiation_metrics:
