@@ -31,8 +31,6 @@ from torch.utils.data import DataLoader, Dataset
 
 from bionemo.scbenchmark import (
     BenchmarkResult,
-    DataloaderProtocol,
-    DatasetProtocol,
     benchmark_any_dataloader,
     benchmark_dataloader,
     benchmark_multiple_dataloaders,
@@ -74,11 +72,10 @@ class TestDataset(Dataset):
 
 
 class CustomDataloader:
-    """Custom dataloader that implements DataloaderProtocol.
+    """Custom dataloader for testing purposes.
 
     This class demonstrates how to create a custom dataloader that
-    implements the DataloaderProtocol without inheritance. It provides
-    an iterator over random tensors.
+    provides an iterator over random tensors.
     """
 
     def __init__(self, size=20):
@@ -366,12 +363,11 @@ def test_benchmark_any_dataloader():
 
 
 def test_benchmark_custom_dataloader():
-    """Test benchmarking a custom dataloader that implements DataloaderProtocol.
+    """Test benchmarking a custom dataloader.
 
     This test verifies that the simple interface works with custom
-    dataloaders that implement the DataloaderProtocol. It demonstrates
-    the flexibility of the framework in handling different dataloader
-    implementations.
+    dataloaders. It demonstrates the flexibility of the framework
+    in handling different dataloader implementations.
     """
     custom_dl = CustomDataloader(size=15)
 
@@ -495,52 +491,6 @@ def test_benchmark_multiple_dataloaders_simple():
         assert os.path.exists(os.path.join(temp_dir, "PyTorch DataLoader_results.json"))
         assert os.path.exists(os.path.join(temp_dir, "Custom Dataloader_results.json"))
         assert os.path.exists(os.path.join(temp_dir, "List Dataloader_results.json"))
-
-
-# ============================================================================
-# Tests for Protocols
-# ============================================================================
-
-
-def test_dataloader_protocol():
-    """Test that our custom dataloader implements DataloaderProtocol.
-
-    This test verifies that our CustomDataloader class properly
-    implements the DataloaderProtocol. It demonstrates how the
-    protocol provides type safety without requiring inheritance.
-    """
-    custom_dl = CustomDataloader(size=10)
-
-    # This should work without type errors
-    def benchmark_protocol_dataloader(dl: DataloaderProtocol):
-        """Function that accepts any DataloaderProtocol implementation."""
-        return benchmark_any_dataloader(
-            dataloader=dl, name="Protocol Test", num_epochs=1, max_batches=5, print_progress=False
-        )
-
-    result = benchmark_protocol_dataloader(custom_dl)
-    assert isinstance(result, BenchmarkResult)
-    assert result.name == "Protocol Test"
-    assert len(result.errors) == 0
-
-
-def test_dataset_protocol():
-    """Test that our test dataset implements DatasetProtocol.
-
-    This test verifies that our TestDataset class properly
-    implements the DatasetProtocol. It demonstrates how the
-    protocol can be used to ensure compatibility with
-    standard dataset interfaces.
-    """
-    dataset = TestDataset(size=20)
-
-    # This should work without type errors
-    def wrap_dataset_protocol(ds: DatasetProtocol):
-        """Function that accepts any DatasetProtocol implementation."""
-        return DataLoader(ds, batch_size=8)
-
-    dataloader = wrap_dataset_protocol(dataset)
-    assert isinstance(dataloader, DataLoader)
 
 
 if __name__ == "__main__":

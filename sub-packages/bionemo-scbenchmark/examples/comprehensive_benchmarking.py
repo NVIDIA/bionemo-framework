@@ -19,7 +19,7 @@
 
 # Import AnnData support
 import anndata as ad
-from anndata.experimental import AnnCollection, AnnDataLoader
+from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
 
 # Import the benchmarking framework
@@ -43,7 +43,7 @@ def create_annloader_factory(batch_size=32, backed="r", shuffle=True, data_path=
 
     def factory():
         datasets = AnnCollection([ad.read_h5ad(data_path, backed=backed)])
-        return AnnDataLoader(datasets, batch_size=batch_size, shuffle=shuffle)
+        return AnnLoader(datasets, batch_size=batch_size, shuffle=shuffle)
 
     return factory
 
