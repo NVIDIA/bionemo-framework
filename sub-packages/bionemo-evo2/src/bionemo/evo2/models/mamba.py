@@ -69,7 +69,7 @@ class MambaModel(GPTModel):
     Note that the loss calculation is handled by CustomMCoreMambaModel instead.
     """
 
-    def get_inference_wrapper(self, params_dtype, inference_batch_times_seqlen_threshold) -> torch.Tensor:
+    def get_inference_wrapper(self, params_dtype, inference_batch_times_seqlen_threshold, inference_max_seq_length=8192) -> torch.Tensor:
         """Gets the inference wrapper for the Mamba model."""
         from megatron.core.models.mamba import MambaModel as MCoreMambaModel
 
@@ -95,6 +95,7 @@ class MambaModel(GPTModel):
             params_dtype=params_dtype,
             inference_batch_times_seqlen_threshold=inference_batch_times_seqlen_threshold,
             padded_vocab_size=vocab_size,
+            inference_max_seq_length=inference_max_seq_length,
         )
 
         model_inference_wrapper = GPTInferenceWrapper(mcore_model, inference_wrapper_config)
