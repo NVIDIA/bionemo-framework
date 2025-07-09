@@ -107,6 +107,7 @@ class BenchmarkResult:
     def from_raw_metrics(
         cls,
         name: str,
+        madvise_interval: int,
         batch_times: List[float],
         memory_samples: List[float],
         total_samples: int,
@@ -154,7 +155,7 @@ class BenchmarkResult:
             instantiation_kwargs = instantiation_metrics
 
         return cls(
-            name=name,
+            name=f"{name}_{madvise_interval}",
             disk_size_mb=disk_size_mb,
             setup_time_seconds=setup_time,
             warmup_time_seconds=warmup_time,
@@ -236,21 +237,12 @@ def get_batch_size(batch: Any) -> int:
 
 
 def monitor_memory_dynamic_pss(parent_pid, stop_event, result_queue):
-    """Monitor memory usage dynamically for a parent process and all its children.
-
-    This function runs in a separate process and continuously monitors the PSS
-    memory usage of a parent process and all its dynamically spawned child processes.
-
-    Args:
-        parent_pid: Process ID of the parent process to monitor
-        stop_event: Event object to signal when monitoring should stop
-        result_queue: Queue to put the peak memory usage result
-    """
     peak = 0
+    samples = []
     try:
         parent = psutil.Process(parent_pid)
     except psutil.NoSuchProcess:
-        result_queue.put(0)
+        result_queue.put((0, 0.0))
         return
 
     while not stop_event.is_set():
@@ -261,17 +253,16 @@ def monitor_memory_dynamic_pss(parent_pid, stop_event, result_queue):
             all_pids = [parent_pid]
 
         mem = sum(psutil.Process(pid).memory_full_info().pss for pid in all_pids if psutil.pid_exists(pid))
+
+        samples.append(mem)
         peak = max(peak, mem)
         time.sleep(0.05)
 
-    result_queue.put(peak)
+    avg = sum(samples) / len(samples) if samples else 0
+    result_queue.put((peak, avg))
 
 
 def measure_peak_memory_full(func, *args, **kwargs):
-    """Measure peak **PSS** memory usage and timing of a function execution using a process-based memory monitor.
-
-    Tracks parent and dynamically spawned child processes (e.g., DataLoader workers).
-    """
     parent_pid = os.getpid()
     stop_event = mp.Event()
     result_queue = mp.Queue()
@@ -292,16 +283,18 @@ def measure_peak_memory_full(func, *args, **kwargs):
     duration = time.perf_counter() - start
 
     try:
-        peak = result_queue.get(timeout=2)
+        peak, avg = result_queue.get(timeout=2)
     except Exception:
         peak = psutil.Process(parent_pid).memory_full_info().pss
+        avg = peak
 
     gc.collect()
     final = psutil.Process(parent_pid).memory_full_info().pss
 
     baseline_mib = baseline / 1024 / 1024
     peak_mib = peak / 1024 / 1024
+    avg_mib = avg / 1024 / 1024
     delta_mib = peak_mib - baseline_mib
     final_mib = final / 1024 / 1024
 
-    return result, baseline_mib, peak_mib, delta_mib, final_mib, duration
+    return result, baseline_mib, peak_mib, avg_mib, delta_mib, final_mib, duration
