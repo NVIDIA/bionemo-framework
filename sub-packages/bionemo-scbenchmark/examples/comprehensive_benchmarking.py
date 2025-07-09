@@ -18,6 +18,9 @@
 
 
 # Import AnnData support
+import random
+import string
+
 import anndata as ad
 from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
@@ -28,7 +31,7 @@ from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 
 
-def create_annloader_factory(batch_size=32, backed="r", shuffle=True, data_path=None):
+def create_annloader_factory(batch_size=32, backed="r", shuffle=True, data_path=None, num_workers=0):
     """Create a factory function for AnnData dataloaders with different configurations.
 
     Args:
@@ -36,6 +39,7 @@ def create_annloader_factory(batch_size=32, backed="r", shuffle=True, data_path=
         backed: AnnData backed mode ('r' for read-only, 'r+' for read-write)
         shuffle: Whether to shuffle the data
         data_path: Path to the data files
+        num_workers: Number of worker processes for data loading
 
     Returns:
         Factory function that creates an AnnData dataloader
@@ -43,12 +47,12 @@ def create_annloader_factory(batch_size=32, backed="r", shuffle=True, data_path=
 
     def factory():
         datasets = AnnCollection([ad.read_h5ad(data_path, backed=backed)])
-        return AnnLoader(datasets, batch_size=batch_size, shuffle=shuffle)
+        return AnnLoader(datasets, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
     return factory
 
 
-def create_scdl_factory(batch_size=32, shuffle=True, adata_path=None, data_path=None):
+def create_scdl_factory(batch_size=32, shuffle=True, adata_path=None, data_path=None, num_workers=0):
     """Create a factory function for AnnData dataloaders with different configurations.
 
     Args:
@@ -56,6 +60,7 @@ def create_scdl_factory(batch_size=32, shuffle=True, adata_path=None, data_path=
         shuffle: Whether to shuffle the data
         adata_path: Path to the AnnData file
         data_path: Path to the data files (for disk size measurement)
+        num_workers: Number of worker processes for data loading
 
     Returns:
         Factory function that creates an SCDL dataloader
@@ -67,7 +72,12 @@ def create_scdl_factory(batch_size=32, shuffle=True, adata_path=None, data_path=
         del dataset
         dataset = SingleCellMemMapDataset(data_path)
         return DataLoader(
-            dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False, collate_fn=collate_sparse_matrix_batch
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=False,
+            collate_fn=collate_sparse_matrix_batch,
+            num_workers=num_workers,
         )
 
     return factory
@@ -90,20 +100,39 @@ def comprehensive_benchmarking_example():
     memmap_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/s_memmap"
 
     # Create different configurations of the same dataloader
+    random_prefix1 = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    random_prefix2 = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
     configurations = [
         {
             "name": "SCDL Simple (64)",
             "dataloader_factory": create_scdl_factory(
-                batch_size=64, shuffle=True, adata_path=adata_path, data_path=memmap_path
+                batch_size=64,
+                shuffle=True,
+                adata_path=adata_path,
+                data_path=f"{memmap_path}_{random_prefix1}",
+                num_workers=0,
             ),
-            "max_time_seconds": 4.0,
+            "max_time_seconds": 100.0,
             "warmup_seconds": 0.5,
-            "data_path": memmap_path,
+            "data_path": f"{memmap_path}_{random_prefix1}",
+        },
+        {
+            "name": "SCDL Simple (64) 8 workers",
+            "dataloader_factory": create_scdl_factory(
+                batch_size=64,
+                shuffle=True,
+                adata_path=adata_path,
+                data_path=f"{memmap_path}_{random_prefix2}",
+                num_workers=8,
+            ),
+            "max_time_seconds": 100.0,
+            "warmup_seconds": 0.5,
+            "data_path": f"{memmap_path}_{random_prefix2}",
         },
         {
             "name": "Anndata backed (64)",
             "dataloader_factory": create_annloader_factory(
-                batch_size=64, shuffle=True, backed="r", data_path=adata_path
+                batch_size=64, shuffle=True, backed="r", data_path=adata_path, num_workers=0
             ),
             "max_time_seconds": 4.0,
             "warmup_seconds": 0.1,
@@ -112,7 +141,7 @@ def comprehensive_benchmarking_example():
         {
             "name": "Anndata (64)",
             "dataloader_factory": create_annloader_factory(
-                batch_size=64, shuffle=True, backed=False, data_path=adata_path
+                batch_size=64, shuffle=True, backed=False, data_path=adata_path, num_workers=0
             ),
             "max_time_seconds": 4.0,
             "warmup_seconds": 0.1,
