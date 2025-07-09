@@ -23,9 +23,9 @@ and measurement utilities used throughout the benchmarking framework.
 
 import gc
 import json
+import multiprocessing as mp
 import os
 import subprocess
-import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -235,90 +235,73 @@ def get_batch_size(batch: Any) -> int:
     return batch_size
 
 
-def measure_peak_memory_full(func, *args, **kwargs):
-    """Measure peak memory usage and timing of a function execution.
+def monitor_memory_dynamic_pss(parent_pid, stop_event, result_queue):
+    """Monitor memory usage dynamically for a parent process and all its children.
 
-    This function runs the provided function in a separate thread while monitoring
-    memory usage in the background. It tracks the peak memory usage during
-    execution and provides comprehensive memory and timing metrics.
+    This function runs in a separate process and continuously monitors the PSS
+    memory usage of a parent process and all its dynamically spawned child processes.
 
     Args:
-        func: Function to measure
-        *args: Arguments to pass to the function
-        **kwargs: Keyword arguments to pass to the function
-
-    Returns:
-        Tuple containing:
-        - result: The return value of the function
-        - baseline_mib: Memory usage before function execution (MB)
-        - peak_mib: Peak memory usage during execution (MB)
-        - delta_mib: Memory increase during execution (MB)
-        - final_mib: Memory usage after function execution (MB)
-        - duration: Total execution time in seconds
+        parent_pid: Process ID of the parent process to monitor
+        stop_event: Event object to signal when monitoring should stop
+        result_queue: Queue to put the peak memory usage result
     """
-    peak = [0]
-    stop_event = threading.Event()
-    proc = psutil.Process(os.getpid())
+    peak = 0
+    try:
+        parent = psutil.Process(parent_pid)
+    except psutil.NoSuchProcess:
+        result_queue.put(0)
+        return
 
-    def get_total_mem():
-        return proc.memory_info().rss  # no need to check children
+    while not stop_event.is_set():
+        try:
+            children = parent.children(recursive=True)
+            all_pids = [parent_pid] + [c.pid for c in children if c.is_running()]
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            all_pids = [parent_pid]
 
-    def track():
-        while not stop_event.is_set():
-            mem = get_total_mem()
-            peak[0] = max(peak[0], mem)
-            time.sleep(0.05)  # or 0.005 if you want slightly tighter sampling
+        mem = sum(psutil.Process(pid).memory_full_info().pss for pid in all_pids if psutil.pid_exists(pid))
+        peak = max(peak, mem)
+        time.sleep(0.05)
+
+    result_queue.put(peak)
+
+
+def measure_peak_memory_full(func, *args, **kwargs):
+    """Measure peak **PSS** memory usage and timing of a function execution using a process-based memory monitor.
+
+    Tracks parent and dynamically spawned child processes (e.g., DataLoader workers).
+    """
+    parent_pid = os.getpid()
+    stop_event = mp.Event()
+    result_queue = mp.Queue()
+    monitor = mp.Process(target=monitor_memory_dynamic_pss, args=(parent_pid, stop_event, result_queue))
 
     gc.collect()
-    baseline = get_total_mem()
-    tracker = threading.Thread(target=track)
+    baseline = psutil.Process(parent_pid).memory_full_info().pss
 
-    tracker.start()
+    monitor.start()
     start = time.perf_counter()
+
     try:
         result = func(*args, **kwargs)
     finally:
         stop_event.set()
-        tracker.join()
+        monitor.join()
+
     duration = time.perf_counter() - start
 
+    try:
+        peak = result_queue.get(timeout=2)
+    except Exception:
+        peak = psutil.Process(parent_pid).memory_full_info().pss
+
     gc.collect()
-    final = get_total_mem()
+    final = psutil.Process(parent_pid).memory_full_info().pss
 
     baseline_mib = baseline / 1024 / 1024
-    peak_mib = peak[0] / 1024 / 1024
+    peak_mib = peak / 1024 / 1024
     delta_mib = peak_mib - baseline_mib
     final_mib = final / 1024 / 1024
 
     return result, baseline_mib, peak_mib, delta_mib, final_mib, duration
-
-
-def measgiture_instantiation(dataloader_factory: callable, name: str = "Unknown") -> Dict[str, float]:
-    """Measure the time and memory usage of instantiating a dataloader.
-
-    This function measures the overhead of creating a dataloader by
-    calling the factory function and monitoring timing and memory
-    usage before, during, and after instantiation.
-
-    Args:
-        dataloader_factory: Function that creates the dataloader
-        name: Name for logging and error reporting
-
-    Returns:
-        Dictionary with instantiation metrics (time and memory information)
-
-    Note:
-        - Memory is measured using psutil for cross-platform compatibility
-        - If instantiation fails, metrics are still returned with error information
-        - Peak memory during instantiation is tracked
-    """
-    # Create the dataloader
-    dataloader, baseline, peak, delta, final, duration = measure_peak_memory_full(dataloader_factory)
-
-    # Measure memory after
-
-    return dataloader, {
-        "instantiation_time_seconds": duration,
-        "peak_memory_during_instantiation_mb": peak,
-        "memory_before_instantiation_mb": baseline,
-    }

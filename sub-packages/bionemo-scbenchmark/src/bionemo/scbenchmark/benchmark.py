@@ -81,8 +81,7 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
     gc.collect()
 
     def benchmark_iteration():
-        gc.collect()
-
+        update_interval = 10
         total_samples = 0
         total_batches = 0
         pbar = tqdm(desc=f"{config.name} (for {config.max_time_seconds})")
@@ -119,9 +118,10 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
                         f"{config.name} (warming up complete, testing for {config.max_time_seconds}s)"
                     )
                 else:
-                    pbar.set_description(
-                        f"{config.name} (warming up: {current_time - warm_up_start:.1f}/{config.warmup_time_seconds}s)"
-                    )
+                    if total_batches % update_interval == 0:
+                        pbar.set_description(
+                            f"{config.name} (warming up: {current_time - warm_up_start:.1f}/{config.warmup_time_seconds}s)"
+                        )
                     pbar.update(1)
                     continue
 
@@ -129,21 +129,23 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
             total_samples += batch_size
             total_batches += 1
             elapsed = current_time - start_time
-            pbar.set_postfix(samples=total_samples, elapsed=f"{elapsed:.2f}s")
-            pbar.update(1)
+            if total_batches % update_interval == 0:
+                pbar.set_postfix(samples=total_samples, elapsed=f"{elapsed:.2f}s")
+                pbar.update(update_interval)
             del batch
             gc.collect()
 
             if current_time >= end_time:
                 break
         pbar.close()
-        print("TIME", current_time - start_time)
+        print("TOTAL SAMPLES!!!", total_samples)
 
         return total_samples, total_batches
 
     (total_samples, total_batches), baseline, peak, _, _, iteration_time = measure_peak_memory_full(
         benchmark_iteration
     )
+
     result = BenchmarkResult.from_raw_metrics(
         name=config.name,
         batch_times=[],  # Not collecting individual batch times
