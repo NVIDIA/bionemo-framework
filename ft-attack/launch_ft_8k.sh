@@ -8,7 +8,7 @@ tensor_parallel_size=4
 model_size=7b
 #get the current date and time
 date_time=$(date +%Y%m%d_%H%M%S)
-for max_steps in 50 100 200
+for max_steps in 500 1000
 do
 
 
@@ -23,7 +23,7 @@ warmup_steps=$((max_steps/2))
 CUDA_VISIBLE_DEVICES=0,1,2,3 train_evo2 \
     -d training_data_config.yaml \
     --dataset-dir ./data/preprocessed_train_data \
-    --result-dir checkpoints/evo2_${model_size}_${max_steps} \
+    --result-dir checkpoints/evo2_${model_size}_8k_${max_steps} \
     --experiment-name evo2 \
     --model-size $model_size   \
     --devices 4 \

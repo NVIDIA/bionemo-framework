@@ -31,13 +31,12 @@
             "console": "integratedTerminal",
             "args": [
                 "--fasta",
-                "/workspaces/bionemo-framework/ft-attack/ncbi_downloads_sequences_test_60/merged.fna",
+                "/workspaces/bionemo-framework/ft-attack/data/ncbi_downloads_sequences_test_60/merged.fna",
                 "--ckpt-dir",
-                "/workspaces/bionemo-framework/checkpoints/nemo2_evo2_7b_1M",
+                "/workspaces/bionemo-framework/checkpoints/nemo2_evo2_7b_1m",
                 "--batch-size",
                 "1",
-                "--model-size",
-                "7b-arc-longcontext",
+                "--model-size","7b_arc_longcontext",
             ]
         }
     ]

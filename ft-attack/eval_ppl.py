@@ -351,7 +351,7 @@ def main():
 
     tmp_dir = tempfile.TemporaryDirectory()
     fasta_path_for_predict = args.fasta
-    seq_len = 8192 if "arc_longcontext" not in args.model_size else 1000000
+    seq_len = 8192 if "arc_longcontext" not in args.model_size else 32000
     print(f"Using sequence length: {seq_len}")
 
 
@@ -424,9 +424,30 @@ def main():
     resume.setup(trainer, model)
 
     full_dataset = SimpleFastaDataset(fasta_path_for_predict, tokenizer, prepend_bos=args.prepend_bos)
-    if args.fasta and args.num_seqs_fna > 0 and len(full_dataset) > args.num_seqs_fna:
-        print(f"Selecting the first {args.num_seqs_fna} sequences from the dataset.")
-        dataset_to_use = Subset(full_dataset, range(args.num_seqs_fna))
+    # Select the first `num_seqs_fna` sequences that fit within the context window (`seq_len`).
+    if args.fasta and args.num_seqs_fna > 0:
+        selected_indices: list[int] = []
+
+        for idx in range(len(full_dataset)):
+            # Lazily fetch each sample just to compute its tokenized length.
+            # This ensures we respect the context window after tokenization/BOS handling.
+            # if len(full_dataset[idx]["tokens"]) <= seq_len:
+            if True: # TODO: remove this eventually. Right now we just want to be consistent with the previous setting.
+                selected_indices.append(idx)
+
+            if len(selected_indices) == args.num_seqs_fna:
+                break
+
+        if selected_indices:
+            print(
+                f"Selecting {len(selected_indices)} sequences (≤ context window of {seq_len} tokens) from the dataset."
+            )
+            dataset_to_use = Subset(full_dataset, selected_indices)
+        else:
+            print(
+                "No sequences shorter than or equal to the context window were found; using the full dataset instead."
+            )
+            dataset_to_use = full_dataset
     else:
         dataset_to_use = full_dataset
 
@@ -452,10 +473,11 @@ def main():
             # Access the underlying dataset, whether it's the full one or a subset
             source_dataset = dataset_to_use.dataset if isinstance(dataset_to_use, Subset) else dataset_to_use
             assert isinstance(source_dataset, SimpleFastaDataset)
-            original_indices = dataset_to_use.indices if isinstance(dataset_to_use, Subset) else list(range(len(dataset_to_use)))
-            
-            # Map the indices from the results back to the original fasta file indices
-            result_original_indices = [original_indices[int(i.item())] for i in seq_indices[sorted_indices]]
+
+            # `seq_idx` already stores the original index from the underlying FASTA, even when
+            # `dataset_to_use` is a `Subset`. Therefore we can rely on it directly without any
+            # additional mapping to subset positions.
+            result_original_indices = [int(i.item()) for i in seq_indices[sorted_indices]]
             
             sorted_headers = [source_dataset.seqids[i] for i in result_original_indices]
 

@@ -209,6 +209,7 @@ ft-attack/pretraining_demo*
 ft-attack/figures/
 ft-attack/data/ncbi_downloads_*
 ft-attack/data/sequences.csv
+ft-attack/data/preprocessed_train_data/
 ft-attack/data/prokaryotic_host_sequences.fna
 ft-attack/data/prokaryotic_host_sequences.fna.gz
 
