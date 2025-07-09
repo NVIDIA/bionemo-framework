@@ -67,9 +67,6 @@ def create_scdl_factory(batch_size=32, shuffle=True, adata_path=None, data_path=
     """
 
     def factory():
-        dataset = SingleCellMemMapDataset(data_path, adata_path)
-        dataset.save()
-        del dataset
         dataset = SingleCellMemMapDataset(data_path)
         return DataLoader(
             dataset,
@@ -97,26 +94,73 @@ def comprehensive_benchmarking_example():
 
     # Try to use real AnnData if available
     adata_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/sample_50000_19836_0.85.h5ad"
-    memmap_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/s_memmap"
+    memmap_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/s_memmap_zmdy090y"
 
     # Create different configurations of the same dataloader
-    random_prefix1 = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
-    random_prefix2 = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+
     configurations = [
-        {
+                {
             "name": "SCDL Simple (64)",
             "dataloader_factory": create_scdl_factory(
                 batch_size=64,
                 shuffle=True,
                 adata_path=adata_path,
-                data_path=f"{memmap_path}_{random_prefix1}",
+                data_path=memmap_path,
                 num_workers=0,
             ),
-            "max_time_seconds": 100.0,
-            "warmup_seconds": 0.5,
-            "data_path": f"{memmap_path}_{random_prefix1}",
+            "max_time_seconds": 1000.0,
+            "warmup_seconds": 5.0,
+            "data_path": memmap_path,
+            "madvise_interval": 1
         },
+
         {
+            "name": "SCDL Simple (64) ",
+            "dataloader_factory": create_scdl_factory(
+                batch_size=64,
+                shuffle=True,
+                adata_path=adata_path,
+                data_path= memmap_path,
+                num_workers=0,
+            ),
+            "max_time_seconds": 1000.0,
+            "warmup_seconds": 5.0,
+            "data_path": memmap_path,
+            "madvise_interval": 10
+        },
+                {
+            "name": "SCDL Simple (64)",
+            "dataloader_factory": create_scdl_factory(
+                batch_size=64,
+                shuffle=True,
+                adata_path=adata_path,
+                data_path=memmap_path,
+                num_workers=0,
+            ),
+            "max_time_seconds": 1000.0,
+            "warmup_seconds": 5.0,
+            "data_path": memmap_path,
+            "madvise_interval": None
+        },
+              {
+            "name": "SCDL Simple (64) ",
+            "dataloader_factory": create_scdl_factory(
+                batch_size=64,
+                shuffle=True,
+                adata_path=adata_path,
+                data_path=memmap_path,
+                num_workers=0,
+            ),
+            "max_time_seconds": 1000.0,
+            "warmup_seconds": 5.0,
+            "data_path": memmap_path,
+            "madvise_interval": 100
+        },
+
+
+    ]
+    """
+            {
             "name": "SCDL Simple (64) 8 workers",
             "dataloader_factory": create_scdl_factory(
                 batch_size=64,
@@ -140,15 +184,15 @@ def comprehensive_benchmarking_example():
         },
         {
             "name": "Anndata (64)",
-            "dataloader_factory": create_annloader_factory(
-                batch_size=64, shuffle=True, backed=False, data_path=adata_path, num_workers=0
+            "dataloader_factory": (
+                batch_size=64, shuffle=Tcreate_annloader_factoryrue, backed=False, data_path=adata_path, num_workers=0
             ),
             "max_time_seconds": 4.0,
             "warmup_seconds": 0.1,
             "data_path": adata_path,
         },
-    ]
 
+    """
     results = benchmark_multiple_dataloaders(dataloaders=configurations, output_dir="comprehensive_anndata_results")
 
     print("✅ Multiple configuration comparison completed!")
@@ -175,12 +219,28 @@ def comprehensive_benchmarking_example():
         print()
 
         print("📊 PERFORMANCE COMPARISON:")
-        print(f"{'Name':<25} {'Samples/sec':<12} {'Inst Time':<10} {'Peak Mem':<10}")
-        print("-" * 60)
+        # Prepare the summary table as a string
+        summary_lines = []
+        header = f"{'Name':<25} {'Samples/sec':<12} {'Inst Time':<10} {'Peak Mem':<10} {'Avg Mem':<10}"
+        summary_lines.append(header)
+        summary_lines.append("-" * 60)
         for result in results:
-            print(
-                f"{result.name:<25} {result.samples_per_second:<12.2f} {result.instantiation_time_seconds:<10.4f} {result.peak_memory_mb:<10.2f}"
+            line = (
+                f"{result.name:<25} {result.samples_per_second:<12.2f} {result.instantiation_time_seconds:<10.4f} "
+                f"{result.peak_memory_mb-result.memory_before_instantiation_mb:<10.2f} "
+                f"{result.average_memory_mb-result.memory_before_instantiation_mb:<10.2f}"
             )
+            summary_lines.append(line)
+            print(line)
+        # Print the header after the loop to match the original order
+        print(header)
+        print("-" * 60)
+        # Save to file
+        summary_filename = "comprehensive_benchmark_summary.txt"
+        with open(summary_filename, "w") as f:
+            for line in summary_lines:
+                f.write(line + "\n")
+        print(f"\n📄 Benchmark summary saved to: {summary_filename}")
 
     print()
     print("🎉 COMPREHENSIVE BENCHMARKING COMPLETED!")

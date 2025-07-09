@@ -23,11 +23,13 @@ measurement, and comprehensive performance metrics.
 """
 
 import gc
+import mmap
 import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
+import subprocess
 
 from tqdm import tqdm
 
@@ -61,6 +63,8 @@ class BenchmarkConfig:
     warmup_time_seconds: Optional[float] = None
     print_progress: bool = True
     data_path: Optional[Union[str, Path]] = None
+    madvise_interval: Optional[int] = None
+    shuffle: bool = False
 
 
 def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
@@ -79,12 +83,20 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
     """
     # Use measure_peak_memory_full to get memory info during benchmark
     gc.collect()
-
     def benchmark_iteration():
         update_interval = 10
         total_samples = 0
         total_batches = 0
         pbar = tqdm(desc=f"{config.name} (for {config.max_time_seconds})")
+        if config.shuffle:
+            dataloader.dataset.row_index._mmap.madvise(mmap.MADV_RANDOM)
+            dataloader.dataset.col_index._mmap.madvise(mmap.MADV_RANDOM)
+            dataloader.dataset.data._mmap.madvise(mmap.MADV_RANDOM)
+        else:
+            dataloader.dataset.row_index._mmap.madvise(mmap.MADV_SEQUENTIAL)
+            dataloader.dataset.col_index._mmap.madvise(mmap.MADV_SEQUENTIAL)
+            dataloader.dataset.data._mmap.madvise(mmap.MADV_SEQUENTIAL)
+
 
         # Initialize warm-up timer - only if warmup_time_seconds is set
         if config.warmup_time_seconds is not None and config.warmup_time_seconds > 0:
@@ -101,11 +113,14 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
             start_time = time.perf_counter()
             end_time = start_time + config.max_time_seconds
 
-        for batch in dataloader:
+        for num, batch in enumerate(dataloader):
             batch_size = get_batch_size(batch)
 
             current_time = time.perf_counter()
-
+            if config.madvise_interval and num%config.madvise_interval == 0:
+                dataloader.dataset.row_index._mmap.madvise(mmap.MADV_DONTNEED)
+                dataloader.dataset.col_index._mmap.madvise(mmap.MADV_DONTNEED)
+                dataloader.dataset.data._mmap.madvise(mmap.MADV_DONTNEED)
             if is_warming_up:
                 # We're in warm-up period
                 if current_time >= warm_up_end:
@@ -133,7 +148,6 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
                 pbar.set_postfix(samples=total_samples, elapsed=f"{elapsed:.2f}s")
                 pbar.update(update_interval)
             del batch
-            gc.collect()
 
             if current_time >= end_time:
                 break
@@ -142,12 +156,13 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
 
         return total_samples, total_batches
 
-    (total_samples, total_batches), baseline, peak, _, _, iteration_time = measure_peak_memory_full(
+    (total_samples, total_batches), baseline, peak,avg, _, _, iteration_time = measure_peak_memory_full(
         benchmark_iteration
     )
 
     result = BenchmarkResult.from_raw_metrics(
         name=config.name,
+        madvise_interval=config.madvise_interval,
         batch_times=[],  # Not collecting individual batch times
         memory_samples=[],  # Not collecting individual memory samples
         total_samples=total_samples,
@@ -159,7 +174,7 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
 
     # Update with memory information from measure_peak_memory_full
     result.peak_memory_mb = peak
-
+    result.average_memory_mb = avg
     return result
 
 
@@ -173,6 +188,8 @@ def benchmark_dataloader(
     warmup_batches: int = 5,
     warmup_time_seconds: Optional[float] = None,
     print_progress: bool = True,
+    madvise_interval: Optional[int] = None,
+    shuffle: bool = False,
 ) -> BenchmarkResult:
     """Benchmark any dataloader using a factory function.
 
@@ -213,7 +230,7 @@ def benchmark_dataloader(
 
     # Measure instantiation metrics if requested
     log("🔧 Measuring dataloader instantiation...")
-    dataloader, baseline, peak, _, _, setup_time = measure_peak_memory_full(dataloader_factory)
+    dataloader, baseline, peak, _, _, final_mib, setup_time = measure_peak_memory_full(dataloader_factory)
 
     # Measure memory after
 
@@ -221,6 +238,7 @@ def benchmark_dataloader(
         "instantiation_time_seconds": setup_time,
         "peak_memory_during_instantiation_mb": peak,
         "memory_before_instantiation_mb": baseline,
+        "memory_after_instantiation_mb": final_mib,
     }
 
     log(f"✅ Setup completed in {setup_time:.4f}s")
@@ -243,6 +261,8 @@ def benchmark_dataloader(
         warmup_time_seconds=warmup_time_seconds,
         print_progress=print_progress,
         data_path=data_path,
+        madvise_interval=madvise_interval,
+        shuffle=shuffle,
     )
     # Run the benchmark directly
     log("🏃 Running benchmark...")
@@ -286,20 +306,25 @@ def benchmark_multiple_dataloaders(
         - A comparison table is printed showing the best performers
     """
     results = []
-
+    num_runs = 5
     for dl_config in dataloaders:
-        result = benchmark_dataloader(
-            name=dl_config["name"],
-            dataloader_factory=dl_config["dataloader_factory"],
-            data_path=dl_config.get("data_path"),
-            num_epochs=dl_config.get("num_epochs", 1),
-            max_batches=dl_config.get("max_batches"),
-            max_time_seconds=dl_config.get("max_time_seconds"),
-            warmup_batches=dl_config.get("warmup_batches", 5),
-            warmup_time_seconds=dl_config.get("warmup_time_seconds"),
-            print_progress=dl_config.get("print_progress", True),
-        )
-        results.append(result)
+        for num in range(num_runs):
+            subprocess.run(["sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"], check=True)
+
+            result = benchmark_dataloader(
+                name=dl_config["name"]+"_" + str(num),
+                dataloader_factory=dl_config["dataloader_factory"],
+                data_path=dl_config.get("data_path"),
+                num_epochs=dl_config.get("num_epochs", 1),
+                max_batches=dl_config.get("max_batches"),
+                max_time_seconds=dl_config.get("max_time_seconds"),
+                warmup_batches=dl_config.get("warmup_batches", 5),
+                warmup_time_seconds=dl_config.get("warmup_time_seconds"),
+                print_progress=dl_config.get("print_progress", True),
+                madvise_interval=dl_config.get("madvise_interval", None),
+                shuffle=dl_config.get("shuffle", False),
+            )
+            results.append(result)
 
         # Save individual result
         if output_dir:
@@ -342,6 +367,8 @@ def _print_results(result: BenchmarkResult) -> None:
         print("\n🔧 Instantiation:")
         print(f"   Instantiation time: {result.instantiation_time_seconds:.4f}s")
         print(f"   Peak memory during: {result.peak_memory_during_instantiation_mb:.2f} MB")
+        print(f"   Memory before: {result.memory_before_instantiation_mb:.2f} MB")
+        print(f"   Memory after: {result.memory_after_instantiation_mb:.2f} MB")
 
     print("\n🚀 Throughput:")
     print(f"   Total time: {result.total_iteration_time_seconds:.4f}s")
@@ -352,7 +379,7 @@ def _print_results(result: BenchmarkResult) -> None:
 
     print("\n💾 Memory:")
     print(f"   Peak memory: {(result.peak_memory_mb - result.memory_before_instantiation_mb):.2f} MB")
-    print(f"   Average memory: {(result.peak_memory_mb - result.memory_before_instantiation_mb):.2f} MB")
+    print(f"   Average memory: {(result.average_memory_mb - result.memory_before_instantiation_mb):.2f} MB")
     if result.gpu_memory_mb > 0:
         print(f"   GPU memory: {result.gpu_memory_mb:.2f} MB")
 
