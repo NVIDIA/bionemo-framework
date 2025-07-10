@@ -73,7 +73,7 @@ script: |-
   done
 
   # Build the command with common arguments
-  CMD="WANDB_API_KEY=$BIONEMO_WANDB_API_KEY python ${workspace}/sub-packages/bionemo-esm2/src/bionemo/esm2/scripts/finetune_esm2.py \
+  CMD="WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-data-path=$NEW_DATA_PATH/${train_data_path} \
     --valid-data-path=$NEW_DATA_PATH/${valid_data_path} \
     --task-type=${task_type} \
@@ -124,6 +124,8 @@ script: |-
   if [ "${labels_mask_column}" != "null" ]; then
       CMD="$CMD --labels-mask-column=${labels_mask_column}"
   fi
+
+  echo $CMD
 
   # Execute the command
   eval $CMD
