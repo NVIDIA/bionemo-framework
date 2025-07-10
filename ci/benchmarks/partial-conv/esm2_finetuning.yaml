@@ -21,6 +21,9 @@ key_segments:
   lr: False
   num_workers: False
   accumulate_grad_batches: False
+  experiment_name: False
+  max_steps: False
+  workspace: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
