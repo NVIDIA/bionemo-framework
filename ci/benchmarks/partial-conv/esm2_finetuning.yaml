@@ -110,10 +110,10 @@ script: |-
       CMD="$CMD --mlp-ft-dropout=${mlp_ft_dropout} \
         --mlp-hidden-size=${mlp_hidden_size} \
         --mlp-target-size=${mlp_target_size}"
-  elif [ "${config_class}" = "ESM2FineTuneTokenConfig" ]; then
-      CMD="$CMD --cnn-dropout=${cnn_dropout} \
-        --cnn-hidden-size=${cnn_hidden_size} \
-        --cnn-num-classes=${cnn_num_classes}"
+  # elif [ "${config_class}" = "ESM2FineTuneTokenConfig" ]; then
+  #     CMD="$CMD --cnn-dropout=${cnn_dropout} \
+  #       --cnn-hidden-size=${cnn_hidden_size} \
+  #       --cnn-num-classes=${cnn_num_classes}"
   fi
 
   # Add optional arguments if they are not null
