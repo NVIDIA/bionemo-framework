@@ -9,7 +9,10 @@ key_segments:
   limit_val_batches: False
   limit_test_batches: False
   val_check_interval: False
-  log_every_n_steps: False
+  mlp_ft_dropout: False
+  mlp_hidden_size: False
+  mlp_target_size: False
+  expected_val_acc: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -23,19 +26,11 @@ script_args:
   variant: finetune
   config_name: 650M
   precision: [bf16-mixed]
-  encoder_frozen: true
   num_workers: 8
   limit_val_batches: 100 # original 1000, 100 is enough for validation and produce good enough curves
   limit_test_batches: 1000
-  log_every_n_steps: 1
   accumulate_grad_batches: 2
   max_steps: 500000
-
-  # to bypass the error of ESM2FineTuneTokenConfig
-  cnn_dropout: 0.25
-  cnn_hidden_size: 256
-  cnn_num_classes: 10
-
   products:
     - variant: finetune
       task: seq_classification
@@ -53,8 +48,6 @@ script_args:
       batch_size: 64
       label_column: scl_label
       val_check_interval: 100
-      min_seq_length: null
-      labels_mask_column: null
       expected_val_acc: 77
 script: |-
   # Set up paths
@@ -78,8 +71,7 @@ script: |-
       sleep 1
   done
 
-  # Build the command with common arguments
-  CMD="WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-data-path=$NEW_DATA_PATH/${train_data_path} \
     --valid-data-path=$NEW_DATA_PATH/${valid_data_path} \
     --task-type=${task_type} \
@@ -99,37 +91,12 @@ script: |-
     --num-nodes=${nodes} \
     --accumulate-grad-batches=${accumulate_grad_batches} \
     --val-check-interval=${val_check_interval} \
-    --log-every-n-steps=${log_every_n_steps} \
     --num-dataset-workers=${num_workers} \
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name}_${task}_${target} \
     --wandb-job-type=${pipeline_label} \
-    --create-tensorboard-logger"
-
-  # Add encoder-frozen flag if enabled
-  if [ "${encoder_frozen}" = "true" ]; then
-      CMD="$CMD --encoder-frozen"
-  fi
-
-  # Add variant-specific arguments based on config class
-  if [ "${config_class}" = "ESM2FineTuneSeqConfig" ]; then
-      CMD="$CMD --mlp-ft-dropout=${mlp_ft_dropout} \
-        --mlp-hidden-size=${mlp_hidden_size} \
-        --mlp-target-size=${mlp_target_size}"
-  elif [ "${config_class}" = "ESM2FineTuneTokenConfig" ]; then
-      CMD="$CMD --cnn-dropout=${cnn_dropout} \
-        --cnn-hidden-size=${cnn_hidden_size} \
-        --cnn-num-classes=${cnn_num_classes}"
-  fi
-
-  # Add optional arguments if they are not null
-  if [ "${min_seq_length}" != "null" ]; then
-      CMD="$CMD --min-seq-length=${min_seq_length}"
-  fi
-
-  if [ "${labels_mask_column}" != "null" ]; then
-      CMD="$CMD --labels-mask-column=${labels_mask_column}"
-  fi
-
-  # Execute the command
-  eval $CMD
+    --create-tensorboard-logger \
+    --encoder-frozen \
+    --mlp-ft-dropout=${mlp_ft_dropout} \
+    --mlp-hidden-size=${mlp_hidden_size} \
+    --mlp-target-size=${mlp_target_size} \
