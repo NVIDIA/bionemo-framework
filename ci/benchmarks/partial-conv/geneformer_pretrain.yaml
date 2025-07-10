@@ -38,7 +38,7 @@ script: |-
       sleep 1
   done
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
-    --data-dir ${data_path} \
+    --data-dir $NEW_DATA_PATH \
     --experiment-name ${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
     --num-gpus ${gpus} \
     --save-last-checkpoint \
