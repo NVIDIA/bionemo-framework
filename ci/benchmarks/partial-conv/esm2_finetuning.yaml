@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 14400
+time_limit: 3600
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   train_data_path: False
@@ -15,19 +15,23 @@ script_args:
   # Arguments not referenced in the script string must have the 'arg' field specified.
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
-  checkpoint_path: /data/checkpoints/esm2nv650m_v2.0
+  checkpoint_path: /data/esm2_650M_nemo2
   data_base_path: /data/FLIP
   nodes: [1]
   gpus: 1
+  model: esm2
+  variant: finetune
+  config_name: 650M
   precision: [bf16-mixed]
   encoder_frozen: true
   num_workers: 8
-  limit_val_batches: 1000
+  limit_val_batches: 100 # original 1000, 100 is enough for validation and produce good enough curves
   limit_test_batches: 1000
   log_every_n_steps: 1
   accumulate_grad_batches: 2
   products:
-    - variant: seq_classification
+    - variant: finetune
+      task: seq_classification
       train_data_path: scl/train/x000.csv
       valid_data_path: scl/val/x000.csv
       task_type: classification
@@ -36,8 +40,7 @@ script_args:
       mlp_ft_dropout: 0.25
       mlp_hidden_size: 256
       mlp_target_size: 10
-      # num_steps: 1485
-      num_steps: 100
+      num_steps: 500 # original 1485
       experiment_name: seq-level-classification
       lr: 0.0005
       batch_size: 64
@@ -46,44 +49,6 @@ script_args:
       min_seq_length: null
       labels_mask_column: null
       expected_val_acc: 77
-    - variant: token_classification
-      train_data_path: secondary_structure/train/x000.csv
-      valid_data_path: secondary_structure/val/x000.csv
-      task_type: classification
-      config_class: ESM2FineTuneTokenConfig
-      dataset_class: InMemoryPerTokenValueDataset
-      cnn_dropout: 0.25
-      cnn_hidden_size: 32
-      cnn_num_classes: 3
-      # num_steps: 1500
-      num_steps: 100
-      experiment_name: token-level-classification
-      lr: 0.0005
-      batch_size: 64
-      label_column: 3state
-      val_check_interval: 100
-      min_seq_length: 1024
-      labels_mask_column: resolved
-      expected_val_acc: 86
-    - variant: seq_regression
-      train_data_path: meltome/train/x000.csv
-      valid_data_path: meltome/val/x000.csv
-      task_type: regression
-      config_class: ESM2FineTuneSeqConfig
-      dataset_class: InMemorySingleValueDataset
-      mlp_ft_dropout: 0.1
-      mlp_hidden_size: 128
-      mlp_target_size: 1
-      # num_steps: 6980
-      num_steps: 100
-      experiment_name: seq-level-regression
-      lr: 0.0005
-      batch_size: 32
-      label_column: target
-      val_check_interval: 100
-      min_seq_length: null
-      labels_mask_column: null
-      expected_val_mse: 50
 script: |-
   # Set up paths
   FULL_TRAIN_PATH="${data_base_path}/${train_data_path}"
@@ -130,7 +95,7 @@ script: |-
     --log-every-n-steps=${log_every_n_steps} \
     --num-dataset-workers=${num_workers} \
     --wandb-project=${wandb_project_name} \
-    --wandb-group=esm2_finetune_${variant}__${target} \
+    --wandb-group=${model}_${variant}_${config_name}_${task}_${target} \
     --wandb-job-type=${pipeline_label} \
     --create-tensorboard-logger"
 
