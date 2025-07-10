@@ -129,6 +129,7 @@ def infer(
         seed (int): Random seed for generation.
         vortex_style_fp8 (bool): Whether to use vortex style FP8.
         flash_decode (bool): Whether to use flash decode.
+
     Returns:
         None
     """

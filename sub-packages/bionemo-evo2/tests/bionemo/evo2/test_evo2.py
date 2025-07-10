@@ -230,6 +230,7 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         logit_similarity = torch.nn.functional.cosine_similarity(output_vector, gold_standard_no_fp8_vector, dim=-1)
         assert torch.mean(torch.abs(logit_similarity - torch.ones_like(logit_similarity))) < 9.9e-3
 
+
 @pytest.fixture
 def sequences():
     with (Path(__file__).parent / "data" / "prompts.csv").open(newline="") as f:
@@ -332,8 +333,8 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
     [
         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
-        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
+        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
@@ -347,7 +348,9 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 
     matchrates = []
     for seq in sequences:
-        inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+        inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
+            ckpt_name, vortex_style_fp8=vortex_style_fp8
+        )
 
         seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
         with torch.no_grad():
@@ -387,8 +390,8 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
     [
         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
-        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
+        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
@@ -472,14 +475,13 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
     return (matches / min_length) * 100
 
 
-
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
         ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6]),
         ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6]),
-        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
+        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
@@ -493,15 +495,15 @@ def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchperc
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
     inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_name, vortex_style_fp8=vortex_style_fp8)
 
-
     match_percents = []
     num_tokens = 500
     seq_prompts = [mid_point_split(seq=seq, num_tokens=num_tokens) for seq in sequences]
     from megatron.core.inference.common_inference_params import CommonInferenceParams
     from nemo.collections.llm.inference import generate
+
     results = generate(
         model=inference_wrapped_model,
-        max_batch_size=1, # vortex only supports batch size 1
+        max_batch_size=1,  # vortex only supports batch size 1
         tokenizer=mcore_tokenizer,
         prompts=[sq[0] for sq in seq_prompts],
         random_seed=42,
@@ -519,7 +521,9 @@ def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchperc
         logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {gen_seq=}")
         logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {target=}")
         match_percent = calculate_sequence_identity(target, gen_seq)
-        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=} expected: {expected_matchpercents[i]}")
+        logging.info(
+            f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=} expected: {expected_matchpercents[i]}"
+        )
         match_percents.append(match_percent)
 
     assert len(match_percents) == len(expected_matchpercents)

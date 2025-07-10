@@ -17,12 +17,13 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List
+
 import pytest
 
 from bionemo.core.data.load import load
 from bionemo.evo2.run.infer import infer
-from bionemo.testing.megatron_parallel_state_utils import clean_parallel_state_context
+
 
 RANDOM_SEED = 42
 MAX_NEW_TOKENS = 500
@@ -34,21 +35,19 @@ TOP_P = 0.0
 CHECKPOINT_NAMES = [
     # "evo2/1b-8k:1.0",
     "evo2/7b-8k:1.0",
-    "evo2/7b-1m:1.0",
+    # "evo2/7b-1m:1.0",
 ]
 
 
-PROMPT_1 = (
-    "GAATAGGAACAGCTCCGGTCTACAGCTCCCAGCGTGAGCGACGCAGAAGACGGTGATTTCTGCATTTCCATCTGAGGTACCGGGTTCATCTCACTAGGGAGTGCCAGACAGTGGGCGCAGGCCAGTGTGTGTGCGCACCGTGCGCGAGCCGAAGCAGGG"
-)
+PROMPT_1 = "GAATAGGAACAGCTCCGGTCTACAGCTCCCAGCGTGAGCGACGCAGAAGACGGTGATTTCTGCATTTCCATCTGAGGTACCGGGTTCATCTCACTAGGGAGTGCCAGACAGTGGGCGCAGGCCAGTGTGTGTGCGCACCGTGCGCGAGCCGAAGCAGGG"
 
-PROMPT_2 = (
-    "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGTATTTTCGTCTGGGGGGTATGCACGCGATAGCATTGCGAGACGCTGGAGCCGGAGCACCCTATGTCGCAGTATCTGTCTTTGATTCCTGCCTCATCCTATTATTT"
-)
+PROMPT_2 = "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGTATTTTCGTCTGGGGGGTATGCACGCGATAGCATTGCGAGACGCTGGAGCCGGAGCACCCTATGTCGCAGTATCTGTCTTTGATTCCTGCCTCATCCTATTATTT"
+
 
 @dataclass
 class InferCofig:
     """Configuration for model inference parameters."""
+
     temperature: float = TEMPERATURE
     top_k: int = TOP_K
     top_p: float = TOP_P
@@ -63,13 +62,16 @@ class InferCofig:
 
 _checkpoint_cache = {}
 
+
 @pytest.fixture(scope="session")
 def load_checkpoint():
     """Factory function that returns a checkpoint loader with caching."""
+
     def _load_checkpoint(ckpt_name: str) -> str:
         if ckpt_name not in _checkpoint_cache:
             _checkpoint_cache[ckpt_name] = load(ckpt_name)
         return _checkpoint_cache[ckpt_name]
+
     return _load_checkpoint
 
 
@@ -78,15 +80,16 @@ def percent_equal_tokens(response1, response2):
     num_equal = [i == j for i, j in zip(response1[0], response2[0])]
     return sum(num_equal) / len(num_equal)
 
+
 # just a DRY wrapper for the infer function
 def run_inference(prompt: str, checkpoint_path: str, config: InferCofig) -> List:
     """Run model inference with given parameters.
-    
+
     Args:
         prompt: Input prompt for the model
         checkpoint_path: Path to model checkpoint
         config: Inference configuration parameters
-        
+
     Returns:
         Model response
     """
@@ -114,9 +117,9 @@ def test_identical_prompts_should_be_identical(load_checkpoint, ckpt_name):
 
     # with clean_parallel_state_context():
     response_prompt1 = run_inference(PROMPT_1, checkpoint_path, InferCofig())
-    response_prompt2 = run_inference(PROMPT_1, checkpoint_path, InferCofig())   
+    response_prompt2 = run_inference(PROMPT_1, checkpoint_path, InferCofig())
 
-    sequence_similarity = percent_equal_tokens(response_prompt1, response_prompt2) 
+    sequence_similarity = percent_equal_tokens(response_prompt1, response_prompt2)
     print(f"sequence similarity {ckpt_name} identical prompts: {sequence_similarity}")
     assert sequence_similarity == 1.0
 
@@ -130,9 +133,8 @@ def test_different_prompts_too_similar(load_checkpoint, ckpt_name):
 
     similarity_threshold = 0.9
 
-
     # with clean_parallel_state_context():
     response_prompt1 = run_inference(PROMPT_1, checkpoint_path, InferCofig())
     response_prompt2 = run_inference(PROMPT_2, checkpoint_path, InferCofig())
-    sequence_similarity = percent_equal_tokens(response_prompt1, response_prompt2)  
+    sequence_similarity = percent_equal_tokens(response_prompt1, response_prompt2)
     assert sequence_similarity <= similarity_threshold

@@ -232,6 +232,7 @@ class CachedProcessor:
             self.extract_dir = os.path.join(archive_dir, self.extract_dir)
 
         from pathlib import Path
+
         # create lock file here to make sure we don't reuse cahce if thing went wrong
         lock_file = Path(str(self.extract_dir) + ".lock")
 
