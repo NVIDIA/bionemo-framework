@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 
 <!-- version banner -->
-{% block outdated %} You're not viewing the latest version.
+{% block outdated %} You are viewing an outdated version of the BioNeMo Documentation.
 <a href="{{ '../' ~ base_url }}">
-  <strong>Click here to go to latest.</strong>
+  <strong>Click here to go to the latest stable version.</strong>
 </a>
 {% endblock %} {% block styles %} {{ super() }}
 <link rel="stylesheet" href="{{ 'assets/css/chatbot.css' | url }}" />
