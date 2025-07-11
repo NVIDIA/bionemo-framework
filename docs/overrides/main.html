@@ -1,11 +1,37 @@
 {% extends "base.html" %}
 
 <!-- version banner -->
-{% block outdated %} You are viewing an outdated version of the BioNeMo Documentation.
-<a href="{{ '../' ~ base_url }}">
-  <strong>Click here to go to the latest stable version.</strong>
-</a>
-{% endblock %} {% block styles %} {{ super() }}
+{% block outdated %}
+<div id="outdated-banner">
+  <!-- GitHub.io redirect message (will be shown/hidden by JavaScript) -->
+  <div id="github-io-banner" style="display: none;">
+    You are viewing documentation hosted on GitHub Pages.
+    <a href="https://docs.nvidia.com/bionemo-framework/latest/">
+      <strong>Click here to go to the official NVIDIA documentation site.</strong>
+    </a>
+  </div>
+  
+  <!-- Original outdated version message -->
+  <div id="outdated-version-banner">
+    You are viewing an outdated version of the BioNeMo Documentation.
+    <a href="{{ '../' ~ base_url }}">
+      <strong>Click here to go to the latest stable version.</strong>
+    </a>
+  </div>
+</div>
+
+<script>
+  // Check if we're on a github.io URL
+  if (window.location.hostname.includes('github.io')) {
+    // Show GitHub.io banner and hide outdated version banner
+    document.getElementById('github-io-banner').style.display = 'block';
+    document.getElementById('outdated-version-banner').style.display = 'none';
+  }
+  // Otherwise, keep the original outdated banner visible (default behavior)
+</script>
+{% endblock %}
+
+{% block styles %} {{ super() }}
 <link rel="stylesheet" href="{{ 'assets/css/chatbot.css' | url }}" />
 {% endblock %} {% block scripts %} {{ super() }}
 <script src="{{ 'assets/javascripts/chatbot.js' | url }}"></script>
