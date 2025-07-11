@@ -61,30 +61,9 @@ script_args:
       val_check_interval: 100
       expected_val_acc: 77
 script: |-
-  # Set up paths
-  FULL_TRAIN_PATH="${data_base_path}/${train_data_path}"
-  FULL_VALID_PATH="${data_base_path}/${valid_data_path}"
-
-  # Copy data to local storage for faster access
-  COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}_${variant}";
-  NEW_DATA_PATH="/dev/shm/flip_${variant}_${{SLURMD_NODENAME}}";
-  if [ "$SLURM_LOCALID" = "0" ]; then
-      df -h;
-      echo "Copying data to $NEW_DATA_PATH";
-      mkdir -p $(dirname $NEW_DATA_PATH/${train_data_path});
-      mkdir -p $(dirname $NEW_DATA_PATH/${valid_data_path});
-      time cp $FULL_TRAIN_PATH $NEW_DATA_PATH/${train_data_path};
-      time cp $FULL_VALID_PATH $NEW_DATA_PATH/${valid_data_path};
-      touch $COPY_FLAG
-  fi
-  # All ranks wait until copy is done
-  while [ ! -f $COPY_FLAG ]; do
-      sleep 1
-  done
-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
-    --train-data-path=$NEW_DATA_PATH/${train_data_path} \
-    --valid-data-path=$NEW_DATA_PATH/${valid_data_path} \
+    --train-data-path=${data_base_path}/${train_data_path} \
+    --valid-data-path=${data_base_path}/${valid_data_path} \
     --task-type=${task_type} \
     --restore-from-checkpoint-path=${checkpoint_path} \
     --config-class=${config_class} \
