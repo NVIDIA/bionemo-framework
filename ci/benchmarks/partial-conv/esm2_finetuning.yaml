@@ -1,0 +1,91 @@
+scope: partial-conv
+time_limit: 3600
+key_segments:
+  # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
+  train_data_path: False
+  valid_data_path: False
+  checkpoint_path: False
+  data_base_path: False
+  num_workers: False
+  limit_val_batches: False
+  limit_test_batches: False
+  val_check_interval: False
+  mlp_ft_dropout: False
+  mlp_hidden_size: False
+  mlp_target_size: False
+  expected_val_acc: False
+  dataset_class: False
+  label_column: False
+  task_type: False
+  config_class: False
+  lr: False
+  num_workers: False
+  accumulate_grad_batches: False
+  experiment_name: False
+  max_steps: False
+  workspace: False
+script_args:
+  # All arguments referenced in the script string must be specified here.
+  # Arguments not referenced in the script string must have the 'arg' field specified.
+  # See jet/core/configs.py for the specification of the configuration class
+  workspace: /workspace/bionemo2
+  checkpoint_path: /data/esm2_650M_nemo2
+  data_base_path: /data/FLIP
+  nodes: [1]
+  gpus: 1
+  model: esm2
+  variant: finetune
+  config_name: 650M
+  precision: [bf16-mixed]
+  num_workers: 8
+  limit_val_batches: 100 # original 1000, 100 is enough for validation and produce good enough curves
+  limit_test_batches: 1000
+  accumulate_grad_batches: 2
+  max_steps: 500000
+  products:
+    - variant: finetune
+      task: seq_classification
+      train_data_path: scl/train/x000.csv
+      valid_data_path: scl/val/x000.csv
+      task_type: classification
+      config_class: ESM2FineTuneSeqConfig
+      dataset_class: InMemorySingleValueDataset
+      mlp_ft_dropout: 0.25
+      mlp_hidden_size: 256
+      mlp_target_size: 10
+      num_steps: 500 # original 1485
+      experiment_name: seq-level-classification
+      lr: 0.0005
+      batch_size: 64
+      label_column: scl_label
+      val_check_interval: 100
+      expected_val_acc: 77
+script: |-
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
+    --train-data-path=${data_base_path}/${train_data_path} \
+    --valid-data-path=${data_base_path}/${valid_data_path} \
+    --task-type=${task_type} \
+    --restore-from-checkpoint-path=${checkpoint_path} \
+    --config-class=${config_class} \
+    --dataset-class=${dataset_class} \
+    --num-steps=${num_steps} \
+    --experiment-name=${experiment_name}_${batch_size}bs_${nodes}node_${gpus}gpu_${num_steps}s_${precision}prec \
+    --lr=${lr} \
+    --result-dir=${tensorboard_dir} \
+    --micro-batch-size=${batch_size} \
+    --limit-val-batches=${limit_val_batches} \
+    --limit-test-batches=${limit_test_batches} \
+    --precision=${precision} \
+    --label-column=${label_column} \
+    --num-gpus=${gpus} \
+    --num-nodes=${nodes} \
+    --accumulate-grad-batches=${accumulate_grad_batches} \
+    --val-check-interval=${val_check_interval} \
+    --num-dataset-workers=${num_workers} \
+    --wandb-project=${wandb_project_name} \
+    --wandb-group=${model}_${variant}_${config_name}_${task}_${target} \
+    --create-tensorboard-logger \
+    --encoder-frozen \
+    --mlp-ft-dropout=${mlp_ft_dropout} \
+    --mlp-hidden-size=${mlp_hidden_size} \
+    --mlp-target-size=${mlp_target_size} \
