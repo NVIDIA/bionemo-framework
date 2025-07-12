@@ -76,9 +76,9 @@ def clean_up_distributed_and_parallel_states(verify_distributed_state=False):
         torch.distributed.destroy_process_group()
     # Clear torch.compile/dynamo cache
     try:
-        if hasattr(torch, '_dynamo'):
+        if hasattr(torch, "_dynamo"):
             torch._dynamo.reset()
-        if hasattr(torch, 'compiler'):
+        if hasattr(torch, "compiler"):
             torch.compiler.reset()
     except Exception as e:
         print(f"Failed to reset torch compile: {e}")
