@@ -77,7 +77,7 @@ def test_golden_values_top_k_logits_and_cosine_similarity(seq_len: int):
             )
         else:
             raise e
-    with distributed_model_parallel_state(), torch.no_grad():
+    with distributed_model_parallel_state(), torch.inference_mode():
         hyena_config = llm.Hyena1bConfig(use_te=True, seq_length=seq_len)
         tokenizer = get_nmt_tokenizer(
             "byte-level",
@@ -159,7 +159,7 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
             )
         else:
             raise e
-    with distributed_model_parallel_state(), torch.no_grad():
+    with distributed_model_parallel_state(), torch.inference_mode():
         hyena_config = llm.Hyena7bConfig(use_te=True, seq_length=seq_len)
         tokenizer = get_nmt_tokenizer(
             "byte-level",

@@ -19,7 +19,7 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.04-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.06-py3
 
 FROM rust:1.86.0 AS rust-env
 
@@ -127,17 +127,12 @@ fi
 # /end ARM
 ###############################################################################
 
-# Bits and bytes needs to be built from scratch
-RUN cd / && pip uninstall bitsandbytes && \
-    git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
-    cd bitsandbytes && cmake -DCOMPUTE_BACKEND=cuda -S . && make && pip install . && cd .. && rm -rf bitsandbytes
-
 # Fix the version of scikit-misc to 0.3.1 because newer versions of scikit-misc require numpy >= 2.0 to be built.
 # Since there are not pre-built wheels for arm64, we need to install this specific version.
 # Once bionemo is compatible with numpy >= 2.0, we can remove this.
 # Technically, this is only needed for the ARM build, but we apply to all architectures to avoid library version
 # divergence.
-RUN pip install scikit-misc==0.3.1
+RUN apt-get update -qy && apt-get install -y libopenblas-dev && pip install scikit-misc==0.3.1
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
