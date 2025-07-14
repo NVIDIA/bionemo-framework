@@ -32,7 +32,7 @@ script_args:
   checkpoint_path: /data/esm2_650M_nemo2
   data_base_path: /data/FLIP
   nodes: [1]
-  gpus: 1
+  gpus: 4
   model: esm2
   variant: finetune
   config_name: 650M
@@ -41,7 +41,7 @@ script_args:
   limit_val_batches: 100 # original 1000, 100 is enough for validation and produce good enough curves
   limit_test_batches: 1000
   accumulate_grad_batches: 2
-  max_steps: 500000
+  max_steps: 5000
   products:
     - variant: finetune
       task: seq_classification
