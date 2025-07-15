@@ -34,6 +34,16 @@ def test_directory() -> Path:
 
 
 @pytest.fixture
+def test_neighbor_directory() -> Path:
+    """Gets the path to the directory with neighbor test data.
+
+    Returns:
+        A Path object that is the directory with neighbor test data.
+    """
+    return load("scdl/sample_scdl_neighbor")
+
+
+@pytest.fixture
 def create_cellx_val_data(tmpdir) -> Path:
     """Gets the path to the directory with test data.
 

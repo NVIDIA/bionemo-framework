@@ -169,6 +169,85 @@ Additionally, the peak memory usage when iterating over the datasets with the SC
 
 ![Memory Image](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/sub-packages/bionemo-scdl/assets/disk_space.png)
 
+### Using Neighbor Information in Single Cell Datasets
+
+SCDL now supports loading and utilizing neighbor information from AnnData objects. This is particularly useful for tasks that require knowledge of cell neighborhoods, trajectory analysis, or spatial relationships.
+
+#### Neighbor Data Structure in AnnData
+
+The neighbor functionality reads neighbor information from the **`.obsp` (observations pairwise) attribute** of the AnnData object and **converts it from sparse matrix format into SCDL's memory-mapped format** for efficient access:
+
+- **Input Location**: `adata.obsp[neighbor_key]` (default key is `'next_cell_ids'`)
+- **Input Format**: Sparse matrix (scipy.sparse format, typically CSR - Compressed Sparse Row)
+- **SCDL Processing**: Converts sparse neighbor data into memory-mapped arrays during dataset creation
+- **Dimensions**: `[n_cells × n_cells]` adjacency matrix
+- **Values**: Weights/distances (e.g., pseudotime values, spatial distances, similarity scores)
+- **Non-zero entries**: Indicate neighbor relationships
+
+**Example - Generating Neighbor Data from Trajectory Analysis:**
+
+```python
+import scanpy as sc
+import numpy as np
+from scipy.sparse import csr_matrix
+
+# After computing pseudotime with your preferred method (e.g., DPT, Monocle, etc.)
+# adata.obs['pseudotime'] contains pseudotime values for each cell
+# Assuming you define a function create_pseudotime_neighbors() to find k nearest neighbors in pseudotime space and store as sparse matrix
+
+# Create and store neighbor matrix
+neighbor_matrix = create_pseudotime_neighbors(adata.obs['pseudotime'])
+adata.obsp['next_cell_ids'] = neighbor_matrix
+```
+
+#### Loading a Dataset with Neighbor Support
+
+```python
+from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset, NeighborSamplingStrategy
+
+# Load dataset with neighbor support
+data = SingleCellMemMapDataset(
+    "dataset_path",
+    "path/to/anndata.h5ad",
+    load_neighbors=True,                               # Enable neighbor functionality
+    neighbor_key='next_cell_ids',                      # Key in AnnData.obsp containing neighbor information
+    neighbor_sampling_strategy=NeighborSamplingStrategy.RANDOM,  # Strategy for sampling neighbors
+    fallback_to_identity=True                          # Use cell itself as neighbor when no neighbors exist
+)
+```
+
+#### Accessing Neighbor Data
+
+SCDL provides several methods to access and utilize neighbor information:
+
+```python
+# Get neighbor indices for a specific cell
+neighbor_indices = data.get_neighbor_indices_for_cell(cell_index)
+
+# Get neighbor weights (if available)
+neighbor_weights = data.get_neighbor_weights_for_cell(cell_index)
+
+# Sample a neighbor according to the configured strategy
+neighbor_index = data.sample_neighbor_index(cell_index)
+
+```
+
+**Example Usage in Contrastive Learning:**
+
+```python
+# Contrastive Learning - Compare cells with their neighbors
+for cell_index in range(len(data)):
+    # Get current cell and its neighbor
+    current_cell_data, _ = data.get_row(cell_index)
+    neighbor_index = data.sample_neighbor_index(cell_index)
+    neighbor_cell_data, _ = data.get_row(neighbor_index)
+
+    # Use in contrastive loss
+    current_embedding = model.encode(current_cell_data)
+    neighbor_embedding = model.encode(neighbor_cell_data)
+    contrastive_loss = compute_contrastive_loss(current_embedding, neighbor_embedding)
+```
+
 ## Future Work and Roadmap
 
 SCDL is currently in public beta. In the future, expect improvements in data compression

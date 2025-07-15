@@ -23,11 +23,15 @@ from typing import Tuple
 
 import pytest
 from nemo import lightning as nl
+from transformer_engine.pytorch.fp8 import check_fp8_support
 
 from bionemo.evo2.run.train import parse_args, train
 from bionemo.testing.lightning import extract_global_steps_from_log
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
+
+
+fp8_available, reason_for_no_fp8 = check_fp8_support()
 
 
 def run_train_with_std_redirect(args: argparse.Namespace) -> Tuple[str, nl.Trainer]:
@@ -98,10 +102,6 @@ def test_train_evo2_runs(tmp_path):
 
 @pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
-@pytest.mark.skip(
-    reason="This test fails due to error when the checkpoints are saved on L40. "
-    "Issue: https://github.com/NVIDIA/bionemo-framework/issues/760"
-)
 def test_train_evo2_stops(tmp_path):
     """
     This test runs the `train_evo2` command with mock data in a temporary directory.
@@ -124,7 +124,7 @@ def test_train_evo2_stops(tmp_path):
     args = parse_args(args=command_parts_no_program)
     train_stdout, trainer = run_train_with_std_redirect(args)
 
-    assert f"Training epoch 0, iteration 0/{max_steps - 1}" in train_stdout
+    assert f"Training epoch 0, iteration 0/{early_stop_steps - 1}" in train_stdout
     # Extract and validate global steps
     global_steps = extract_global_steps_from_log(train_stdout)
     assert global_steps[0] == 0
@@ -150,12 +150,23 @@ def test_train_evo2_stops(tmp_path):
     assert "train_step_timing in s" in trainer.logged_metrics
 
 
+@pytest.mark.parametrize(
+    "additional_args",
+    [
+        pytest.param("", id="no_fp8"),
+        pytest.param(
+            "--fp8",
+            marks=[
+                pytest.mark.skipif(not fp8_available, reason=reason_for_no_fp8),
+                pytest.mark.xfail(reason="FP8 test currently broken - TODO: fix"),
+            ],
+            id="fp8",
+        ),
+    ],
+)
 @pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
-@pytest.mark.skip(
-    reason="This test hangs on L40 on internal CI. Issue: https://github.com/NVIDIA/bionemo-framework/issues/769"
-)
-def test_train_evo2_stop_at_max_steps_and_continue(tmp_path):
+def test_train_evo2_stop_at_max_steps_and_continue(tmp_path, additional_args):
     max_steps_first_run = 4
     max_steps_second_run = 6
     val_check_interval = 2
@@ -163,7 +174,9 @@ def test_train_evo2_stop_at_max_steps_and_continue(tmp_path):
     log_dir = tmp_path / "evo2"
     checkpoints_dir = log_dir / "checkpoints"
 
-    command_first_run = small_training_cmd(tmp_path, max_steps_first_run, val_check_interval)
+    command_first_run = small_training_cmd(
+        tmp_path, max_steps_first_run, val_check_interval, additional_args=additional_args
+    )
 
     # The first training command to finish at max_steps_first_run
     stdout_first_run = run_command_in_subprocess(command=command_first_run, path=str(tmp_path))
@@ -188,7 +201,9 @@ def test_train_evo2_stop_at_max_steps_and_continue(tmp_path):
     )
 
     # The second training command to continue from max_steps_first_run and finish at max_steps_second_run
-    command_second_run = small_training_cmd(tmp_path, max_steps_second_run, val_check_interval)
+    command_second_run = small_training_cmd(
+        tmp_path, max_steps_second_run, val_check_interval, additional_args=additional_args
+    )
     stdout_second_run = run_command_in_subprocess(command=command_second_run, path=str(tmp_path))
     global_steps_second_run = extract_global_steps_from_log(stdout_second_run)
 

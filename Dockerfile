@@ -19,7 +19,7 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.04-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.06-py3
 
 FROM rust:1.86.0 AS rust-env
 
@@ -123,21 +123,16 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     pip install .; \
 fi
 
-# On ARM, bits and bytes needs to be built from scratch
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-    cd / && pip uninstall bitsandbytes && \
-    git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
-    cd bitsandbytes && cmake -DCOMPUTE_BACKEND=cuda -S . && make && pip install . && cd .. && rm -rf bitsandbytes; \
-fi
 ###############################################################################
 # /end ARM
 ###############################################################################
+
 # Fix the version of scikit-misc to 0.3.1 because newer versions of scikit-misc require numpy >= 2.0 to be built.
 # Since there are not pre-built wheels for arm64, we need to install this specific version.
 # Once bionemo is compatible with numpy >= 2.0, we can remove this.
 # Technically, this is only needed for the ARM build, but we apply to all architectures to avoid library version
 # divergence.
-RUN pip install scikit-misc==0.3.1
+RUN apt-get update -qy && apt-get install -y libopenblas-dev && pip install scikit-misc==0.3.1
 
 # Mamba dependancy installation
 RUN pip --disable-pip-version-check --no-cache-dir install \
@@ -214,6 +209,9 @@ uv pip install --no-build-isolation \
 
 # Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
 uv pip install ngcsdk==3.64.3  # Temporary fix for changed filename, see https://nvidia.slack.com/archives/C074Z808N05/p1746231345981209
+# Install >=0.46.1 bitsandbytes specifically because it has CUDA>12.9 support.
+# TODO(trvachov) remove this once it stops conflicting with strange NeMo requirements.txt files
+uv pip uninstall bitsandbytes && uv pip install bitsandbytes==0.46.1
 
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
 # dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
