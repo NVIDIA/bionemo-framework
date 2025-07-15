@@ -81,7 +81,7 @@ script: |-
     --num-dataset-workers=${num_workers} \
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name}_${task}_${target} \
-    --create-tensorboard-logger false\
+    --create-tensorboard-logger \
     --encoder-frozen \
     --mlp-ft-dropout=${mlp_ft_dropout} \
     --mlp-hidden-size=${mlp_hidden_size} \
