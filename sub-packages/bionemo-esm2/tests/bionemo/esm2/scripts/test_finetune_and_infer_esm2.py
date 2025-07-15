@@ -82,10 +82,13 @@ def test_esm2_finetune_token_classifier(
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         devdir = simple_ft_checkpoint.parent.parent / "dev"
+        assert devdir.exists(), f"Tensorboard log directory {devdir} does not exist"
         tfevents = list(devdir.glob("events.out.tfevents.*"))
-        assert len(tfevents) >= 1
-        assert tfevents[0].exists()
-        assert tfevents[0].is_file()
+        assert len(tfevents) >= 1, (
+            f"No tensorboard event files found in {devdir}. Found files: {list(devdir.iterdir())}"
+        )
+        assert tfevents[0].exists(), f"Tensorboard event file {tfevents[0]} does not exist"
+        assert tfevents[0].is_file(), f"Tensorboard event file {tfevents[0]} is not a file"
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
         assert "val_acc" in trainer.logged_metrics
         assert trainer.logged_metrics["val_acc"].item() >= 0.95
@@ -189,12 +192,21 @@ def test_esm2_finetune_regressor(
             config_class="ESM2FineTuneSeqConfig",
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             lora_finetune=with_peft,
+            create_tensorboard_logger=True,
         )
 
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
+        devdir = simple_ft_checkpoint.parent.parent / "dev"
+        assert devdir.exists(), f"Tensorboard log directory {devdir} does not exist"
+        tfevents = list(devdir.glob("events.out.tfevents.*"))
+        assert len(tfevents) >= 1, (
+            f"No tensorboard event files found in {devdir}. Found files: {list(devdir.iterdir())}"
+        )
+        assert tfevents[0].exists(), f"Tensorboard event file {tfevents[0]} does not exist"
+        assert tfevents[0].is_file(), f"Tensorboard event file {tfevents[0]} is not a file"
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
         assert "val_mse" in trainer.logged_metrics
         assert trainer.logged_metrics["val_mse"].item() <= 0.001
@@ -301,12 +313,21 @@ def test_esm2_finetune_classifier(
             config_class="ESM2FineTuneSeqConfig",
             metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
             lora_finetune=with_peft,
+            create_tensorboard_logger=True,
         )
 
         weights_ckpt = simple_ft_checkpoint / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
+        devdir = simple_ft_checkpoint.parent.parent / "dev"
+        assert devdir.exists(), f"Tensorboard log directory {devdir} does not exist"
+        tfevents = list(devdir.glob("events.out.tfevents.*"))
+        assert len(tfevents) >= 1, (
+            f"No tensorboard event files found in {devdir}. Found files: {list(devdir.iterdir())}"
+        )
+        assert tfevents[0].exists(), f"Tensorboard event file {tfevents[0]} does not exist"
+        assert tfevents[0].is_file(), f"Tensorboard event file {tfevents[0]} is not a file"
         assert simple_ft_metrics.collection_train["loss"][0] > simple_ft_metrics.collection_train["loss"][-1]
         assert "val_acc" in trainer.logged_metrics
         assert trainer.logged_metrics["val_acc"].item() >= 0.87
