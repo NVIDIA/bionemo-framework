@@ -18,10 +18,10 @@ from dataclasses import dataclass
 from typing import Callable, Literal, Optional, Type
 
 import torch
+import torch.distributed
 import torch.nn.functional as F
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.config_logger import has_config_logger_enabled, log_config_to_disk
-from megatron.core.extensions.transformer_engine import TENorm
 from megatron.core.inference.model_inference_wrappers.gpt.gpt_inference_wrapper import GPTInferenceWrapper
 from megatron.core.inference.model_inference_wrappers.inference_wrapper_config import InferenceWrapperConfig
 from megatron.core.models.common.embeddings.language_model_embedding import LanguageModelEmbedding
@@ -29,14 +29,16 @@ from megatron.core.models.common.embeddings.rotary_pos_embedding import RotaryEm
 
 # Import original MCoreMambaModel for subclassing
 from megatron.core.models.mamba import MambaModel as MCoreMambaModel
+from megatron.core.process_groups_config import ModelCommProcessGroups
+from megatron.core.quantization.utils import get_quant_config_or_none
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.enums import ModelType
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
-from megatron.core.utils import init_method_normal
+from megatron.core.utils import WrappedTensor, deprecate_inference_params, init_method_normal
 from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step
 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import make_upper_case, reweighted_cross_entropy
 from nemo.collections.llm.gpt.model.ssm import (
-    SSMConfig,
+    NemotronHConfigBase,
 )
 from nemo.lightning import get_vocab_size
 
@@ -69,7 +71,9 @@ class MambaModel(GPTModel):
     Note that the loss calculation is handled by CustomMCoreMambaModel instead.
     """
 
-    def get_inference_wrapper(self, params_dtype, inference_batch_times_seqlen_threshold, inference_max_seq_length=8192) -> torch.Tensor:
+    def get_inference_wrapper(
+        self, params_dtype, inference_batch_times_seqlen_threshold, inference_max_seq_length=8192
+    ) -> torch.Tensor:
         """Gets the inference wrapper for the Mamba model."""
         from megatron.core.models.mamba import MambaModel as MCoreMambaModel
 
@@ -110,7 +114,9 @@ class MambaModel(GPTModel):
         decoder_input: Optional[torch.Tensor] = None,
         loss_mask: Optional[torch.Tensor] = None,
         inference_params=None,
+        inference_context=None,
         packed_seq_params=None,
+        runtime_gather_output: Optional[bool] = None,
     ) -> torch.Tensor:
         """Forward pass that delegates to CustomMCoreMambaModel, which handles loss calculation."""
         extra_kwargs = {"packed_seq_params": packed_seq_params} if packed_seq_params is not None else {}
@@ -121,6 +127,8 @@ class MambaModel(GPTModel):
             decoder_input=decoder_input,
             labels=labels,  # Pass labels to the Megatron module
             inference_params=inference_params,
+            inference_context=inference_context,
+            runtime_gather_output=runtime_gather_output,
             loss_mask=loss_mask,  # Pass loss_mask to the Megatron module
             **extra_kwargs,
         )
@@ -128,10 +136,6 @@ class MambaModel(GPTModel):
         # Return whatever CustomMCoreMambaModel.forward returns
         # (logits during inference, loss during training)
         return output_tensor
-
-
-import torch
-import torch.distributed
 
 
 # Custom MCoreMambaModel with reweighted loss calculation
@@ -161,6 +165,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         rotary_base: int = 10000,
         scatter_embedding_sequence_parallel: bool = True,
         seq_len_interpolation_factor: Optional[float] = None,
+        model_comm_pgs: Optional[ModelCommProcessGroups] = None,
         lowercase_loss_reweighting: float = 1.0,
         to_upper: str = "normalized_weighted",
         spike_no_more_embedding_init: bool = False,
@@ -196,10 +201,14 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
                 Defaults to False.
             use_targeted_variance_loss: Use targeted variance loss which encourages the word embedding weight variances
                 to be close to a target value (1.0). Defaults to False.
+            model_comm_pgs: ModelCommProcessGroups. Defaults to None, and will be initialized internally if unset.
         """
         # Save any additional kwargs we might need
         self.lowercase_loss_reweighting = lowercase_loss_reweighting
         self.to_upper = to_upper
+        self.use_targeted_variance_loss = use_targeted_variance_loss
+        if layernorm_embeddings:
+            raise NotImplementedError("Layernorm embeddings are not supported in Evo2 style Mamba model.")
         # NOTE: the following code is copied from the MambaModel class in Megatron-LM's __init__
         #  This is so we can override the config specifically in the LanguageModelEmbedding.
         #  A better approach would be to make this a configuration in the parent class and call super().__init__
@@ -220,11 +229,16 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         self.parallel_output = parallel_output
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.position_embedding_type = position_embedding_type
-        self.use_targeted_variance_loss = use_targeted_variance_loss
+
+        if model_comm_pgs is None:
+            model_comm_pgs = ModelCommProcessGroups.use_mpu_process_groups(
+                required_pgs=["tp", "pp", "cp", "tp_cp", "ep", "expt_tp", "tp_ep", "expt_dp"]
+            )
+
         # megatron core pipelining currently depends on model type
         # TODO: remove this dependency ?
         self.model_type = ModelType.encoder_or_decoder
-        self.layernorm_embeddings: bool = layernorm_embeddings
+
         if self.pre_process:
             if spike_no_more_embedding_init:
                 embedding_config = deepcopy(self.config)
@@ -237,13 +251,8 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
                 max_sequence_length=self.max_sequence_length,
                 position_embedding_type=position_embedding_type,
                 scatter_to_sequence_parallel=scatter_embedding_sequence_parallel,
+                tp_group=model_comm_pgs.tp,
             )
-            if self.layernorm_embeddings:
-                self.post_embedding_norm = TENorm(
-                    config=self.config,
-                    hidden_size=config.hidden_size,
-                    eps=config.layernorm_epsilon,
-                )
 
         if self.position_embedding_type == "rope":
             self.rotary_pos_emb = RotaryEmbedding(
@@ -252,6 +261,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
                 seq_len_interpolation_factor=seq_len_interpolation_factor,
                 rotary_base=rotary_base,
                 use_cpu_initialization=self.config.use_cpu_initialization,
+                cp_group=model_comm_pgs.cp,
             )
 
         self.decoder = build_module(
@@ -263,6 +273,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
             hybrid_override_pattern=self.hybrid_override_pattern,
             post_process=self.post_process,
             dtype=config.params_dtype,
+            model_comm_pgs=model_comm_pgs,
         )
 
         # Output
@@ -276,10 +287,16 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
                 skip_bias_add=False,
                 gather_output=not self.parallel_output,
                 skip_weight_param_allocation=self.pre_process and self.share_embeddings_and_output_weights,
+                tp_group=model_comm_pgs.tp,
             )
 
         if self.pre_process or self.post_process:
             self.setup_embeddings_and_output_layer()
+
+        for name, module in self.named_modules():
+            if hasattr(module, "finish_init"):
+                quant_config = get_quant_config_or_none(name, self.config.quant_recipe)
+                module.finish_init(quant_config)
 
     def forward(
         self,
@@ -289,8 +306,10 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         decoder_input=None,
         labels=None,
         loss_mask=None,
-        inference_params=None,
+        inference_context=None,
+        runtime_gather_output: Optional[bool] = None,
         packed_seq_params=None,
+        inference_params=None,
         **kwargs,
     ):
         """Forward pass with custom loss calculation for uppercase/lowercase reweighting.
@@ -306,15 +325,13 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         # If decoder_input is provided (not None), then input_ids and position_ids are ignored.
         # Otherwise, apply embedding layer on input_ids and position_ids to get decoder_input.
 
+        inference_context = deprecate_inference_params(inference_context, inference_params)
+
         # Decoder embedding.
         if decoder_input is not None:
             pass
         elif self.pre_process:
             decoder_input = self.embedding(input_ids=input_ids, position_ids=position_ids)
-            if self.layernorm_embeddings:
-                # TODO verify that this is correctly applied with Tensor +/- Sequence
-                #   and Context parallel
-                decoder_input = self.post_embedding_norm(decoder_input)
         else:
             # intermediate stage of pipeline
             # decoder will get hidden_states from encoder.input_tensor
@@ -323,9 +340,15 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         rotary_pos_emb = None
         if self.position_embedding_type == "rope":
             rotary_seq_len = self.rotary_pos_emb.get_rotary_seq_len(
-                inference_params, self.decoder, decoder_input, self.config, packed_seq_params
+                inference_context, self.decoder, decoder_input, self.config
             )
             rotary_pos_emb = self.rotary_pos_emb(rotary_seq_len)
+
+        # Wrap decoder_input to allow the decoder (MambaBlock) to delete the
+        # reference held by this caller function, enabling early garbage collection
+        # for inference.
+        if inference_context is not None and not self.training:
+            decoder_input = WrappedTensor(decoder_input)
 
         # The following assert will currently fail when running inference.
         # Commented out for now.
@@ -341,7 +364,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         hidden_states = self.decoder(
             hidden_states=decoder_input,
             attention_mask=attention_mask,
-            inference_params=inference_params,
+            inference_context=inference_context,
             rotary_pos_emb=rotary_pos_emb,
         )
 
@@ -352,7 +375,15 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         output_weight = None
         if self.share_embeddings_and_output_weights:
             output_weight = self.shared_embedding_or_output_weight()
-        logits, _ = self.output_layer(hidden_states, weight=output_weight)
+
+        if (
+            not self.training
+            and inference_context is not None
+            and inference_context.materialize_only_last_token_logits
+        ):
+            hidden_states = hidden_states[-1, :, :].unsqueeze(0)
+
+        logits, _ = self.output_layer(hidden_states, weight=output_weight, runtime_gather_output=runtime_gather_output)
 
         if labels is None:
             # [s b h] => [b s h]
@@ -407,7 +438,7 @@ def mamba_no_weight_decay_cond_with_embeddings(name, param):
 
 
 @dataclass
-class HybridMambaConfig8BEvo2Loss(SSMConfig):
+class HybridMambaConfig8BEvo2Loss(NemotronHConfigBase):
     """Config for 8B hybrid Mamba model."""
 
     hybrid_override_pattern: str = "M-M-M-M*-M-M-M-M-M*-M-M-M-M-M*-M-M-M-M-M*-M-M-M-M-M-"
@@ -424,7 +455,6 @@ class HybridMambaConfig8BEvo2Loss(SSMConfig):
     make_vocab_size_divisible_by: int = 128
     tokenizer_library: str = "byte-level"  # Use Evo2 tokenizer
     tokenizer_name: str = None
-    mapping_type: str = "nvidia-hybrid-mamba"
     masked_softmax_fusion: bool = True
     apply_query_key_layer_scaling: bool = False
     persist_layer_norm: bool = True
@@ -448,19 +478,28 @@ class HybridMambaConfig8BEvo2Loss(SSMConfig):
     # to be close to a target value (1.0).
     use_targeted_variance_loss: bool = False
 
-    def configure_model(self, tokenizer, pre_process=None, post_process=None) -> "Evo2StyleMCoreMambaModel":
+    def configure_model(
+        self, tokenizer, pre_process=None, post_process=None, vp_stage=None
+    ) -> "Evo2StyleMCoreMambaModel":
         """Override the configure_model method to properly configure a CustomMCoreMambaModel with Evo2 style loss.
 
         Args:
             tokenizer: Tokenizer to use with the model
             pre_process: Whether to include pre-processing in the model
             post_process: Whether to include post-processing in the model
+            vp_stage: Virtual pipeline stage, not currently supported in mamba models.
 
         Returns:
             CustomMCoreMambaModel: Configured custom Mamba model instance
         """
-        from megatron.core.models.mamba.mamba_layer_specs import mamba_stack_spec
+        mamba_stack_spec = self.mamba_stack_spec
+        if not isinstance(mamba_stack_spec, ModuleSpec):
+            mamba_stack_spec = mamba_stack_spec()
 
+        assert getattr(self, "virtual_pipeline_model_parallel_size", None) is None and vp_stage is None, (
+            "Virtual pipeline model parallelism is temporarily unsupported in SSM/Mamaba "
+            "models due to upstream MCore MambaModel API dependency"
+        )
         # Set additional attributes that may be used during model initialization
 
         # Return our custom MCoreMambaModel with reweighted loss calculation
@@ -488,6 +527,6 @@ class HybridMambaConfig8BEvo2Loss(SSMConfig):
 
 
 # Dictionary mapping model size names to config classes
-MAMBA_MODEL_OPTIONS: dict[str, Type[SSMConfig]] = {
+MAMBA_MODEL_OPTIONS: dict[str, Type[NemotronHConfigBase]] = {
     "hybrid_mamba_8b": HybridMambaConfig8BEvo2Loss,
 }

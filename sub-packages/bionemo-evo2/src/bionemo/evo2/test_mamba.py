@@ -30,9 +30,10 @@ from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections.llm.gpt.data import MockDataModule
+from nemo.utils.exp_manager import TimingCallback
 
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
-from bionemo.testing.testing_callbacks import SignalAfterGivenStepCallback, TimingCallback
+from bionemo.testing.testing_callbacks import SignalAfterGivenStepCallback
 
 
 def test_mamba(

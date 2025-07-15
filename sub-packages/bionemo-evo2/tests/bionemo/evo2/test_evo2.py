@@ -478,10 +478,10 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
-        ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6]),
-        ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6]),
+        # ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6]),
+        # ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6]),
         # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
