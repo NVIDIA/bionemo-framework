@@ -4,7 +4,6 @@ key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   train_data_path: False
   valid_data_path: False
-  checkpoint_path: False
   data_base_path: False
   num_workers: False
   limit_val_batches: False
@@ -29,7 +28,6 @@ script_args:
   # Arguments not referenced in the script string must have the 'arg' field specified.
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
-  checkpoint_path: /data/esm2_650M_nemo2
   data_base_path: /data/FLIP
   nodes: [1]
   gpus: 4
@@ -65,7 +63,6 @@ script: |-
     --train-data-path=${data_base_path}/${train_data_path} \
     --valid-data-path=${data_base_path}/${valid_data_path} \
     --task-type=${task_type} \
-    --restore-from-checkpoint-path=${checkpoint_path} \
     --config-class=${config_class} \
     --dataset-class=${dataset_class} \
     --num-steps=${num_steps} \
@@ -84,8 +81,9 @@ script: |-
     --num-dataset-workers=${num_workers} \
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name}_${task}_${target} \
-    --create-tensorboard-logger False\
+    --create-tensorboard-logger false\
     --encoder-frozen \
     --mlp-ft-dropout=${mlp_ft_dropout} \
     --mlp-hidden-size=${mlp_hidden_size} \
     --mlp-target-size=${mlp_target_size} \
+    --disable-checkpointing;
