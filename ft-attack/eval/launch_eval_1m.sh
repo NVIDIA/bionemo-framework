@@ -10,28 +10,28 @@ model_name=evo2_7b_1m
 # ================================ncbi_downloads_sequences_test_60 eval ================================================
 
 
-# CUDA_VISIBLE_DEVICES=4,5,6,7 python eval_ppl.py \
+# CUDA_VISIBLE_DEVICES=4,5,6,7 python eval/eval_ppl.py \
 #  --fasta /workspaces/bionemo-framework/debug/debug.fna \
 #  --ckpt-dir /workspaces/bionemo-framework/checkpoints/nemo2_${model_name}   \
 #  --batch-size 1 \
 #  --model-size 7b_arc_longcontext \
 #  --tensor-parallel-size $tensor_parallel_size \
 #  --context-parallel-size $context_parallel_size \
-#  --output-dir /workspaces/bionemo-framework/ft-attack/figures/${fasta_dir}_${model_name}/ \
+#  --output-dir /workspaces/bionemo-framework/ft-attack/results/${fasta_dir}_${model_name}/ \
 #  --num_seqs_fna 10
 
 
 
 # for fasta_dir in ncbi_downloads_sequences_test_60 ncbi_downloads_sequences_train_40
 # do
-# CUDA_VISIBLE_DEVICES=4,5,6,7 python eval_ppl.py \
-#  --fasta /workspaces/bionemo-framework/ft-attack/data/${fasta_dir}/merged.fna \
+# CUDA_VISIBLE_DEVICES=4,5,6,7 python eval/eval_ppl.py \
+#  --fasta /workspaces/bionemo-framework/ft-attack/data/eval_dataset/${fasta_dir}/merged.fna \
 #  --ckpt-dir /workspaces/bionemo-framework/checkpoints/nemo2_${model_name}   \
 #  --batch-size 1 \
 #  --model-size 7b_arc_longcontext \
 #  --tensor-parallel-size $tensor_parallel_size \
 #  --context-parallel-size $context_parallel_size \
-#  --output-dir /workspaces/bionemo-framework/ft-attack/figures/${fasta_dir}_${model_name}/ \
+#  --output-dir /workspaces/bionemo-framework/ft-attack/results/${fasta_dir}_${model_name}/ \
 #  --num_seqs_fna 10000
 
 
@@ -48,13 +48,13 @@ model_name=evo2_7b_1m
 # # warmup_steps=$((max_steps/2))
 # # consumed_samples=$((max_steps * micro_batch_size * tensor_parallel_size))
 
-# # CUDA_VISIBLE_DEVICES=4,5,6,7 python eval_ppl.py \
-# #  --fasta /workspaces/bionemo-framework/ft-attack/data/${fasta_dir}/merged.fna \
+# # CUDA_VISIBLE_DEVICES=4,5,6,7 python eval/eval_ppl.py \
+# #  --fasta /workspaces/bionemo-framework/ft-attack/data/eval_dataset/${fasta_dir}/merged.fna \
 # #  --ckpt-dir /workspaces/bionemo-framework/ft-attack/checkpoints/${model_name}_${max_steps}/evo2/checkpoints/epoch=0-step=$((max_steps-1))-consumed_samples=$consumed_samples.0-last  \
 # #  --batch-size $((tensor_parallel_size * 2)) \
 # #  --model-size 7b_arc_longcontext \
 # #  --tensor-parallel-size $tensor_parallel_size \
-# #  --output-dir /workspaces/bionemo-framework/ft-attack/figures/${fasta_dir}_${model_name}/ \
+# #  --output-dir /workspaces/bionemo-framework/ft-attack/results/${fasta_dir}_${model_name}/ \
 # #  --num_seqs_fna 10000
 
 # # done
@@ -65,14 +65,14 @@ model_name=evo2_7b_1m
 
 for fasta_dir in prokaryotic_host_sequences
 do
-CUDA_VISIBLE_DEVICES=4,5,6,7 python eval_ppl.py \
- --fasta /workspaces/bionemo-framework/ft-attack/data/${fasta_dir}.fna \
+CUDA_VISIBLE_DEVICES=4,5,6,7 python eval/eval_ppl.py \
+ --fasta /workspaces/bionemo-framework/ft-attack/data/eval_dataset/${fasta_dir}.fna \
  --ckpt-dir /workspaces/bionemo-framework/checkpoints/nemo2_${model_name}   \
  --batch-size 1 \
  --model-size 7b_arc_longcontext \
  --tensor-parallel-size $tensor_parallel_size \
  --context-parallel-size $context_parallel_size \
- --output-dir /workspaces/bionemo-framework/ft-attack/figures/${fasta_dir}_${model_name}/ \
+ --output-dir /workspaces/bionemo-framework/ft-attack/results/${fasta_dir}_${model_name}/ \
  --num_seqs_fna 1000
 done
 
@@ -89,13 +89,13 @@ done
 # # warmup_steps=$((max_steps/2))
 # # consumed_samples=$((max_steps * micro_batch_size * tensor_parallel_size))
 
-# # CUDA_VISIBLE_DEVICES=4,5,6,7 python eval_ppl.py \
-# #  --fasta /workspaces/bionemo-framework/ft-attack/data/${fasta_dir}.fna \
+# # CUDA_VISIBLE_DEVICES=4,5,6,7 python eval/eval_ppl.py \
+# #  --fasta /workspaces/bionemo-framework/ft-attack/data/eval_dataset/${fasta_dir}.fna \
 # #  --ckpt-dir /workspaces/bionemo-framework/ft-attack/checkpoints/${model_name}_${max_steps}/evo2/checkpoints/epoch=0-step=$((max_steps-1))-consumed_samples=$consumed_samples.0-last  \
 # #  --batch-size 1 \
 # #  --model-size 7b_arc_longcontext \
 # #  --tensor-parallel-size $tensor_parallel_size \
-# #  --output-dir /workspaces/bionemo-framework/ft-attack/figures/${fasta_dir}_${model_name}/ \
+# #  --output-dir /workspaces/bionemo-framework/ft-attack/results/${fasta_dir}_${model_name}/ \
 # #  --num_seqs_fna 1000
 
 # # done

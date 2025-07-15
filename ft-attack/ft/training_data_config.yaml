@@ -1,0 +1,10 @@
+- dataset_prefix: /workspaces/bionemo-framework/ft-attack/data/ft_dataset/preprocessed_train_data/ncbi_downloads_sequences_train_40_uint8_distinct_byte-level_train
+  dataset_split: train
+  dataset_weight: 1.0
+- dataset_prefix: /workspaces/bionemo-framework/ft-attack/data/ft_dataset/preprocessed_train_data/ncbi_downloads_sequences_train_40_uint8_distinct_byte-level_val
+  dataset_split: validation
+  dataset_weight: 1.0
+- dataset_prefix: /workspaces/bionemo-framework/ft-attack/data/ft_dataset/preprocessed_train_data/ncbi_downloads_sequences_train_40_uint8_distinct_byte-level_test
+  dataset_split: test
+  dataset_weight: 1.0
+

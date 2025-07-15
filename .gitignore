@@ -200,18 +200,19 @@ ft-attack/*.zip
 ft-attack/ncbi_downloads_*
 
 checkpoints/
-ft-attack/preprocessed_train_data/
+ft-attack/data/ft_dataset/preprocessed_train_data/
 ft-attack/*.csv
 ft-attack/*.yaml
 ft-attack/pretraining_demo*
 *.pdf
-!ft-attack/figures/plot.ipynb
-ft-attack/figures/
-ft-attack/data/ncbi_downloads_*
-ft-attack/data/sequences.csv
-ft-attack/data/preprocessed_train_data/
-ft-attack/data/prokaryotic_host_sequences.fna
-ft-attack/data/prokaryotic_host_sequences.fna.gz
+!ft-attack/results/plot.ipynb
+ft-attack/results/
+ft-attack/data/eval_dataset/ncbi_downloads_*
+ft-attack/data/ft_dataset/ncbi_downloads_*
+ft-attack/data/ft_dataset/sequences.csv
+ft-attack/data/ft_dataset/preprocessed_train_data/
+ft-attack/data/eval_dataset/prokaryotic_host_sequences.fna
+ft-attack/data/eval_dataset/prokaryotic_host_sequences.fna.gz
 
 
 debug/

@@ -17,6 +17,8 @@ docs/site/
 
 # Lightning and project output files
 lightning_logs
+ft-attack/
+checkpoints/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
