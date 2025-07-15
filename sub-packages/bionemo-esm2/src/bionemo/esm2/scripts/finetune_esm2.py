@@ -166,6 +166,14 @@ def get_parser():
     parser.add_argument("--lora-checkpoint-path", type=Path, default=None, help="LoRA checkpoint path")
     parser.add_argument("--lora-finetune", action="store_true", help="Use LoRA fine-tuning")
 
+    parser.add_argument(
+        "--disable-checkpointing",
+        action="store_false",
+        default=True,
+        dest="create_checkpoint_callback",
+        help="Disable creating a ModelCheckpoint callback.",
+    )
+
     return parser
 
 
@@ -233,7 +241,8 @@ def train_model(
     labels_mask_column: Optional[str] = None,
     lora_checkpoint_path: Optional[Path] = None,
     lora_finetune: bool = False,
-) -> Tuple[Path, Callback | None, nl.Trainer]:
+    create_checkpoint_callback: bool = True,
+) -> Tuple[Optional[Path], Callback | None, nl.Trainer]:
     config_class = SUPPORTED_CONFIGS[config_class]
     dataset_class = SUPPORTED_DATASETS[dataset_class]
 
@@ -362,7 +371,7 @@ def train_model(
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
-        initial_ckpt_path=str(restore_from_checkpoint_path),
+        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
         initial_ckpt_skip_keys_with_these_prefixes=[f"{task_type}_head"],
         train_metric=train_metric,
         valid_metric=valid_metric,
@@ -411,20 +420,30 @@ def train_model(
         initialize_tensorboard_logger=create_tensorboard_logger,
         wandb_config=wandb_config,
     )
-    # Configure our custom Checkpointer
-    checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
-    checkpoint_callback = nl_callbacks.ModelCheckpoint(
-        dirpath=checkpoint_path,
-        save_last=save_last_checkpoint,
-        monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
-        save_top_k=save_top_k,
-        every_n_train_steps=val_check_interval,
-        always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
-        filename="checkpoint-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
-        save_weights_only=False,
-        save_optim_on_train_end=True,
-    )
-    callbacks.append(checkpoint_callback)
+
+    if create_checkpoint_callback:
+        # Configure our custom Checkpointer
+        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
+        checkpoint_callback = nl_callbacks.ModelCheckpoint(
+            dirpath=checkpoint_path,
+            save_last=save_last_checkpoint,
+            monitor=metric_to_monitor_for_checkpoints,  # "val_loss",
+            save_top_k=save_top_k,
+            every_n_train_steps=val_check_interval,
+            always_save_context=True,  # Enables the .nemo file-like checkpointing where all IOMixins are under SerDe
+            filename="checkpoint-{step}-{consumed_samples}",  # Including step and consumed_samples in the checkpoint filename prevents duplicate filenames and bugs related to this.
+            save_weights_only=False,
+            save_optim_on_train_end=True,
+        )
+        callbacks.append(checkpoint_callback)
+        auto_resume = resume.AutoResume(
+            resume_from_directory=checkpoint_path,
+            resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
+            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
+            resume_past_end=False,
+        )
+    else:
+        auto_resume = None
 
     trainer = nl.Trainer(
         devices=num_gpus,
@@ -445,21 +464,17 @@ def train_model(
             grad_reduce_in_fp32=grad_reduce_in_fp32,
             autocast_enabled=False,
         ),
-        enable_checkpointing=True,
+        enable_checkpointing=create_checkpoint_callback,
     )
     llm.train(
         model=module,
         data=data_module,
         trainer=trainer,
         log=nemo_logger,
-        resume=resume.AutoResume(
-            resume_from_directory=checkpoint_path,
-            resume_if_exists=resume_if_exists,  # Looks for the -last checkpoint to continue training.
-            resume_ignore_no_checkpoint=True,  # When false this will throw an error with no existing checkpoint.
-        ),
+        resume=auto_resume,
     )
 
-    ckpt_path = Path(checkpoint_callback.last_model_path.replace(".ckpt", ""))
+    ckpt_path = Path(checkpoint_callback.last_model_path.replace(".ckpt", "")) if create_checkpoint_callback else None
     return ckpt_path, metric_tracker, trainer
 
 
