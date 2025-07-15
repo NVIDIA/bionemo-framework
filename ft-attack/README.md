@@ -4,7 +4,7 @@
 
 ```
 ft-attack/
-├── dataset/
+├── data/
     ├── ft-dataset/
     ├── eval-dataset/
     ├── dataset_collection.ipynb
