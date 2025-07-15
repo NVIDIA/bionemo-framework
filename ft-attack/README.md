@@ -8,7 +8,9 @@ ft-attack/
     ├── ft-dataset/
     ├── eval-dataset/
     ├── dataset_collection.ipynb
-├── finetune/
+├── ft/
+    ├── preprocess_config.yaml
+    ├── training_data_config.yaml
 ├── eval/
     ├── eval_ppl.py
 ```
@@ -26,6 +28,7 @@ ft-attack/
 2. Evaluation
     1. Perplexity evaluation
         1. The main entry is `eval/eval_ppl.py`, use `launch_eval_1m.sh` or `launch_eval_8k.sh` to run the evaluation.
+    2. Fitness evaluation (TODO)
 
 
 ## Data collection & Conversion
