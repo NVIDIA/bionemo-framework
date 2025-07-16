@@ -143,6 +143,7 @@ class HFESM2Exporter(io.ModelConnector[BionemoLightningModule, EsmForMaskedLM]):
         target = self.convert_state(source, target)
 
         target = target.cpu()
+        target.esm.contact_head.regression.reset_parameters()  # We don't initialize this head, so we need to reset.
         target.save_pretrained(output_path)
         self.tokenizer.save_pretrained(output_path)
 
