@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 3600
+time_limit: 14400
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   train_data_path: False
@@ -21,7 +21,6 @@ key_segments:
   num_workers: False
   accumulate_grad_batches: False
   experiment_name: False
-  max_steps: False
   workspace: False
 script_args:
   # All arguments referenced in the script string must be specified here.
@@ -29,17 +28,16 @@ script_args:
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
   data_base_path: /data/FLIP
-  nodes: [1]
-  gpus: 4
+  nodes: [4]
+  gpus: 8
   model: esm2
   variant: finetune
   config_name: 650M
   precision: [bf16-mixed]
   num_workers: 8
   limit_val_batches: 100 # original 1000, 100 is enough for validation and produce good enough curves
-  limit_test_batches: 1000
+  limit_test_batches: 100
   accumulate_grad_batches: 2
-  max_steps: 5000
   products:
     - variant: finetune
       task: seq_classification
@@ -51,7 +49,8 @@ script_args:
       mlp_ft_dropout: 0.25
       mlp_hidden_size: 256
       mlp_target_size: 10
-      num_steps: 500 # original 1485
+      max_steps: 30000
+      stop_steps: 1500
       experiment_name: seq-level-classification
       lr: 0.0005
       batch_size: 64
@@ -65,8 +64,8 @@ script: |-
     --task-type=${task_type} \
     --config-class=${config_class} \
     --dataset-class=${dataset_class} \
-    --num-steps=${num_steps} \
-    --experiment-name=${experiment_name}_${batch_size}bs_${nodes}node_${gpus}gpu_${num_steps}s_${precision}prec \
+    --num-steps=${max_steps} \
+    --experiment-name=${experiment_name}_${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
     --lr=${lr} \
     --result-dir=${tensorboard_dir} \
     --micro-batch-size=${batch_size} \
@@ -86,4 +85,5 @@ script: |-
     --mlp-ft-dropout=${mlp_ft_dropout} \
     --mlp-hidden-size=${mlp_hidden_size} \
     --mlp-target-size=${mlp_target_size} \
-    --disable-checkpointing;
+    --disable-checkpointing \
+    --early-stop-on-step={stop_steps};

@@ -594,6 +594,8 @@ def test_get_parser():
             "1e2",
             "--scale-lr-layer",
             "dummy_layer",
+            "--early-stop-on-step",
+            "800",
         ]
     )
 
@@ -645,6 +647,7 @@ def test_get_parser():
     assert args.encoder_frozen is True
     assert args.lr_multiplier == 100
     assert args.scale_lr_layer == "dummy_layer"
+    assert args.early_stop_on_step == 800
 
 
 def test_disable_checkpointing_arg_parsing():
@@ -673,6 +676,93 @@ def test_disable_checkpointing_arg_parsing():
         ]
     )
     assert args_disabled.create_checkpoint_callback is False, "Flag should disable checkpointing"
+
+
+def test_early_stop_on_step_arg_parsing():
+    """Test the --early-stop-on-step argument parsing."""
+    parser = get_parser()
+
+    # Test default behavior (no early stopping)
+    args_default = parser.parse_args(
+        [
+            "--train-data-path",
+            "train.csv",
+            "--valid-data-path",
+            "valid.csv",
+        ]
+    )
+    assert args_default.early_stop_on_step is None, "Default should be None (no early stopping)"
+
+    # Test with --early-stop-on-step flag
+    args_with_early_stop = parser.parse_args(
+        [
+            "--train-data-path",
+            "train.csv",
+            "--valid-data-path",
+            "valid.csv",
+            "--early-stop-on-step",
+            "100",
+        ]
+    )
+    assert args_with_early_stop.early_stop_on_step == 100, "Should parse early stop step correctly"
+
+
+@pytest.mark.needs_gpu
+def test_esm2_finetune_with_early_stop(
+    tmp_path,
+    dummy_data_single_value_regression_ft,
+    load_dcp,
+    data_to_csv,
+    seed: int = 42,
+):
+    """Test that early_stop_on_step correctly limits training steps."""
+    early_stop_step = 10
+    num_steps = 50  # Would normally train for 50 steps
+
+    with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
+        simple_ft_checkpoint, simple_ft_metrics, trainer = train_model(
+            train_data_path=data_to_csv(dummy_data_single_value_regression_ft, tmp_path),
+            valid_data_path=data_to_csv(dummy_data_single_value_regression_ft, tmp_path),
+            experiment_name="finetune_early_stop_test",
+            restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
+            num_steps=num_steps,
+            early_stop_on_step=early_stop_step,  # Should stop at step 10
+            num_nodes=1,
+            num_gpus=1,
+            min_seq_length=None,
+            max_seq_length=1024,
+            result_dir=tmp_path / "finetune",
+            limit_val_batches=2,
+            val_check_interval=5,
+            log_every_n_steps=1,
+            num_dataset_workers=10,
+            lr=1e-5,
+            scale_lr_layer="regression_head",
+            lr_multiplier=1e2,
+            micro_batch_size=4,
+            accumulate_grad_batches=1,
+            resume_if_exists=False,
+            precision="bf16-mixed",
+            task_type="regression",
+            label_column="labels",
+            encoder_frozen=True,
+            dataset_class="InMemorySingleValueDataset",
+            config_class="ESM2FineTuneSeqConfig",
+            metric_tracker=MetricTracker(metrics_to_track_val=["loss"], metrics_to_track_train=["loss"]),
+            lora_finetune=False,
+            create_tensorboard_logger=False,
+            create_checkpoint_callback=False,
+        )
+
+        # Verify that training stopped at the early_stop_step
+        assert trainer.global_step == early_stop_step, (
+            f"Training should have stopped at step {early_stop_step}, but stopped at {trainer.global_step}"
+        )
+
+        # Verify that the metrics were tracked up to the early stop point
+        assert len(simple_ft_metrics.collection_train["loss"]) <= early_stop_step + 1, (
+            f"Should have at most {early_stop_step + 1} loss values, but got {len(simple_ft_metrics.collection_train['loss'])}"
+        )
 
 
 def r_data_to_csv(data, path):
