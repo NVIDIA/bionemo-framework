@@ -27,11 +27,8 @@ from torch.autograd import Function
 class SquaredErrorTargetedVarianceLossFunction(Function):
     """This loss function is used to calculate the loss based on the squared difference between the global mean of per-word variances and target."""
 
-    LOSS_COEFF = 0.1
-    VAR_TARGET = 1.0
-
     @staticmethod
-    def forward(ctx, we_weight: torch.Tensor) -> torch.Tensor:
+    def forward(ctx, we_weight: torch.Tensor, loss_coeff: float, var_target: float) -> torch.Tensor:
         """Calculates a loss based on the squared difference between the global mean of per-word variances and target.
 
         Assumes vocab-parallel sharding for we_weight (dim 0 is sharded).
@@ -39,11 +36,14 @@ class SquaredErrorTargetedVarianceLossFunction(Function):
         Args:
             ctx (torch.autograd.FunctionContext): Context object for backward pass.
             we_weight (torch.Tensor): Local shard of embedding weights (V_local, H).
+            loss_coeff (float): Loss coefficient.
+            var_target (float): Targeted variance for the embedding weights.
 
         Returns:
             torch.Tensor: Scalar loss value.
+
+            weights
         """
-        cls = SquaredErrorTargetedVarianceLossFunction
         if not we_weight.is_floating_point():
             we_weight = we_weight.float()
 
@@ -52,12 +52,14 @@ class SquaredErrorTargetedVarianceLossFunction(Function):
         # Save dimensions for backward pass
         ctx.H_embedding_dim = H
         ctx.V_local_word_count = V_local
+        ctx.loss_coeff = loss_coeff
+        ctx.var_target = var_target
 
         # Handle H=0 edge case (embedding dimension is zero)
         if H == 0:
             ctx.is_H_dim_zero = True
             # Mean variance is 0 if H=0. Loss is based on (0 - VAR_TARGET)^2.
-            loss_value = cls.LOSS_COEFF * (0.0 - cls.VAR_TARGET) ** 2
+            loss_value = loss_coeff * (0.0 - var_target) ** 2
             final_loss_tensor = torch.tensor(loss_value, device=we_weight.device, dtype=we_weight.dtype)
             # Save we_weight for shape, None for we_mean_per_word and V_final (as they are not well-defined or zero)
             ctx.save_for_backward(we_weight, None, None)
@@ -96,19 +98,17 @@ class SquaredErrorTargetedVarianceLossFunction(Function):
             torch.distributed.all_reduce(V_final_globally_avg_var, group=tp_group, op=torch.distributed.ReduceOp.SUM)
 
         # 5. Calculate final loss: LOSS_COEFF * (V_final - VAR_TARGET)^2
-        final_loss = cls.LOSS_COEFF * (V_final_globally_avg_var - cls.VAR_TARGET) ** 2
+        final_loss = loss_coeff * (V_final_globally_avg_var - var_target) ** 2
 
         # Save tensors needed for gradient computation in backward
         ctx.save_for_backward(we_weight, we_mean_per_word, V_final_globally_avg_var)
         # Other necessary scalars (H, V_local, tp_world_size) are already on ctx.
-        # Class constants (LOSS_COEFF, VAR_TARGET) accessed via cls.
 
         return final_loss
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
         """Backward pass for the SquaredErrorTargetedVarianceLossFunction."""
-        cls = SquaredErrorTargetedVarianceLossFunction  # For class constants
         we_weight, we_mean_per_word, V_final_saved = ctx.saved_tensors
 
         # Handle H=0 edge case (gradient is zero)
@@ -118,6 +118,8 @@ class SquaredErrorTargetedVarianceLossFunction(Function):
         H = ctx.H_embedding_dim
         V_local = ctx.V_local_word_count
         tp_world_size = ctx.tp_world_size_val
+        loss_coeff = ctx.loss_coeff
+        var_target = ctx.var_target
 
         # Handle V_local=0 edge case (no words on this rank, so no gradient)
         if V_local == 0:
@@ -129,7 +131,7 @@ class SquaredErrorTargetedVarianceLossFunction(Function):
         # 1. Calculate d(final_loss) / d(V_final_saved)
         # final_loss = LOSS_COEFF * (V_final_saved - VAR_TARGET)**2
         # dL_dV_final is d(final_loss) / d(V_final_saved)
-        dL_dV_final = cls.LOSS_COEFF * 2.0 * (V_final_saved - cls.VAR_TARGET)
+        dL_dV_final = loss_coeff * 2.0 * (V_final_saved - var_target)
 
         # grad_V_final is d(TotalLoss) / d(V_final_saved)
         grad_V_final = grad_output * dL_dV_final  # Scalar
@@ -161,3 +163,29 @@ class SquaredErrorTargetedVarianceLossFunction(Function):
 
         # The forward function only takes we_weight as a tensor input requiring grad.
         return grad_we_weight
+
+
+class SquaredErrorTargetedVarianceLoss(torch.nn.Module):
+    """Applies a loss that will encourage variance of some parameter to be close to var_target."""
+
+    def __init__(self, loss_coeff: float = 0.1, var_target: float = 1.0):
+        """Applies a loss that will encourage variance of some parameter to be close to var_target.
+
+        Args:
+            loss_coeff: Loss coefficient. Defaults to 0.1.
+            var_target: targetted variance for the embedding weights. Defaults to 1.0.
+        """
+        super().__init__()
+        self.loss_coeff = loss_coeff
+        self.var_target = var_target
+
+    def forward(self, we_weight: torch.Tensor) -> torch.Tensor:
+        """Applies the loss to the embedding weights with the user requested loss coefficient and targeted variance.
+
+        Args:
+            we_weight: Embedding weights.
+
+        Returns:
+            torch.Tensor: Loss value.
+        """
+        return SquaredErrorTargetedVarianceLossFunction.apply(we_weight, self.loss_coeff, self.var_target)

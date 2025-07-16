@@ -31,7 +31,7 @@ from nemo.collections.llm.gpt.model.ssm import (
     NemotronHConfigBase,
 )
 
-from bionemo.evo2.utils.loss.embedding_variance import SquaredErrorTargetedVarianceLossFunction
+from bionemo.evo2.utils.loss.embedding_variance import SquaredErrorTargetedVarianceLoss
 
 
 logger = logging.getLogger(__name__)
@@ -137,6 +137,20 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
     Note that this is similar to the HyenaModel for uppercase/lowercase handling.
     """
 
+    def __init__(self, *args, **kwargs):
+        """Initializes `Evo2StyleMCoreMambaModel` with unique parameters for the Evo2 variant of `MCoreMambaModel`."""
+        super().__init__(*args, **kwargs)
+        if self.config.use_targeted_variance_loss:
+            if not hasattr(self.config, "embedding_init_method_std"):
+                logger.warning("embedding_init_method_std is not supported in this config, please upgrade Megatron-LM")
+            # 1.0 is the suggested value for embedding_init_method_std from the
+            # [Spike No More](https://arxiv.org/abs/2312.16903) paper.
+            embedding_init_method_std: float = getattr(self.config, "embedding_init_method_std", 1.0)
+            self.targeted_variance_loss = SquaredErrorTargetedVarianceLoss(
+                loss_coeff=self.config.targeted_variance_loss_loss_coeff,
+                var_target=embedding_init_method_std**2,
+            )
+
     def forward(
         self,
         input_ids,
@@ -240,7 +254,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         )
         if self.training and self.config.use_targeted_variance_loss:
             # Only use this in training, not validation etc.
-            var_loss = SquaredErrorTargetedVarianceLossFunction.apply(self.embedding.word_embeddings.weight)
+            var_loss = self.targeted_variance_loss(self.embedding.word_embeddings.weight)
             loss += var_loss
         return loss
 
@@ -316,14 +330,13 @@ class HybridMambaConfig8BEvo2Loss(NemotronHConfigBase):
     # If set to true, use targeted variance loss which encourages the word embedding weight variances
     # to be close to a target value (1.0).
     use_targeted_variance_loss: bool = False
+    targeted_variance_loss_loss_coeff: float = 0.1
 
     def __post_init__(self):
         """Post-init logic for Evo2 to enable backwards compatibility with old configs."""
         # Specific post_init logic for Evo2 to enable backwards compatibility with old configs.
-        if not hasattr(self, "spike_no_more_embedding_init"):
-            raise ValueError(
-                "spike_no_more_embedding_init is not supported in this config, please upgrade Megatron-LM"
-            )
+        if not hasattr(self, "embedding_init_method_std"):
+            raise ValueError("embedding_init_method_std is not supported in this config, please upgrade Megatron-LM")
         if self.spike_no_more_embedding_init and self.embedding_init_method_std is None:
             logger.warning(
                 "spike_no_more_embedding_init is deprecated, please set "
