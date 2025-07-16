@@ -678,7 +678,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-GCLP{args.clip_grad}"
         f"-HDO{args.hidden_dropout}"
         f"-ADO{args.attention_dropout}"
-        f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-WD{args.wd}"
+        f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-CONSTSTEPS{args.constant_steps}-WD{args.wd}"
         f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
         f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
         f"-PAO{args.use_precision_aware_optimizer}"
