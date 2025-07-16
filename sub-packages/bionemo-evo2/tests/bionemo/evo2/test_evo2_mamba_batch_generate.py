@@ -114,12 +114,6 @@ def get_model_and_tokenizer(ckpt_dir_or_name: Path | str):
         params_dtype=torch.bfloat16,
         inference_batch_times_seqlen_threshold=8192,  # TODO
         inference_max_seq_length=8192,  # TODO
-        # use_te_rng_tracker=True,
-        # te_rng_tracker=True,
-        # inference_rng_tracker=True,
-        # enable_cuda_graph=True,
-        # cudagraph_rng_tracker=True,
-        # flash_decode=True,
         recompute_granularity=None,
         recompute_num_layers=None,
         recompute_method=None,
