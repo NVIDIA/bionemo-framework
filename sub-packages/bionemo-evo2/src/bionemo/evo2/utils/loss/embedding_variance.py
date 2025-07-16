@@ -107,13 +107,13 @@ class SquaredErrorTargetedVarianceLossFunction(Function):
         return final_loss
 
     @staticmethod
-    def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
+    def backward(ctx, grad_output: torch.Tensor) -> tuple[torch.Tensor, None, None]:
         """Backward pass for the SquaredErrorTargetedVarianceLossFunction."""
         we_weight, we_mean_per_word, V_final_saved = ctx.saved_tensors
 
         # Handle H=0 edge case (gradient is zero)
         if getattr(ctx, "is_H_dim_zero", False):
-            return torch.zeros_like(we_weight)  # Grad for we_weight only
+            return torch.zeros_like(we_weight), None, None  # Grad for we_weight only
 
         H = ctx.H_embedding_dim
         V_local = ctx.V_local_word_count
@@ -123,7 +123,7 @@ class SquaredErrorTargetedVarianceLossFunction(Function):
 
         # Handle V_local=0 edge case (no words on this rank, so no gradient)
         if V_local == 0:
-            return torch.zeros_like(we_weight)  # Grad for we_weight only
+            return torch.zeros_like(we_weight), None, None  # Grad for we_weight only
 
         # Chain rule: d(TotalLoss)/dw = d(TotalLoss)/d(final_loss) * d(final_loss)/dw
         # grad_output is d(TotalLoss)/d(final_loss)
@@ -161,8 +161,9 @@ class SquaredErrorTargetedVarianceLossFunction(Function):
 
         grad_we_weight = final_scalar_coefficient * (we_weight - we_mean_per_word)
 
-        # The forward function only takes we_weight as a tensor input requiring grad.
-        return grad_we_weight
+        # The forward function only takes we_weight as a tensor input requiring grad, the other two inputs
+        # are floats and do not get gradients.
+        return grad_we_weight, None, None
 
 
 class SquaredErrorTargetedVarianceLoss(torch.nn.Module):

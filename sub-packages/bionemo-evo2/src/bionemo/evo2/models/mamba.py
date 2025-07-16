@@ -17,19 +17,21 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
+import megatron.core.models.mamba.mamba_model
 import torch
 import torch.nn.functional as F
+from megatron.core import parallel_state
 from megatron.core.inference.model_inference_wrappers.gpt.gpt_inference_wrapper import GPTInferenceWrapper
 from megatron.core.inference.model_inference_wrappers.inference_wrapper_config import InferenceWrapperConfig
-
-# Import original MCoreMambaModel for subclassing
-from megatron.core.models.mamba import MambaModel as MCoreMambaModel
+from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.utils import WrappedTensor, deprecate_inference_params
 from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step
 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import make_upper_case, reweighted_cross_entropy
 from nemo.collections.llm.gpt.model.ssm import (
     NemotronHConfigBase,
 )
+from nemo.lightning import get_vocab_size
+from typing_extensions import override
 
 from bionemo.evo2.utils.loss.embedding_variance import SquaredErrorTargetedVarianceLoss
 
@@ -63,9 +65,10 @@ class MambaModel(GPTModel):
     Note that the loss calculation is handled by CustomMCoreMambaModel instead.
     """
 
+    @override
     def get_inference_wrapper(
         self, params_dtype, inference_batch_times_seqlen_threshold, inference_max_seq_length=8192
-    ) -> torch.Tensor:
+    ) -> GPTInferenceWrapper:
         """Gets the inference wrapper for the Mamba model."""
         from megatron.core.models.mamba import MambaModel as MCoreMambaModel
 
@@ -97,6 +100,7 @@ class MambaModel(GPTModel):
         model_inference_wrapper = GPTInferenceWrapper(mcore_model, inference_wrapper_config)
         return model_inference_wrapper
 
+    @override
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -104,11 +108,11 @@ class MambaModel(GPTModel):
         attention_mask: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
         decoder_input: torch.Tensor | None = None,
-        loss_mask: torch.Tensor | None = None,
-        inference_params=None,
         inference_context=None,
         packed_seq_params=None,
+        inference_params=None,
         runtime_gather_output: bool | None = None,
+        loss_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass that delegates to CustomMCoreMambaModel, which handles loss calculation."""
         extra_kwargs = {"packed_seq_params": packed_seq_params} if packed_seq_params is not None else {}
@@ -131,7 +135,7 @@ class MambaModel(GPTModel):
 
 
 # Custom MCoreMambaModel with reweighted loss calculation
-class Evo2StyleMCoreMambaModel(MCoreMambaModel):
+class Evo2StyleMCoreMambaModel(megatron.core.models.mamba.mamba_model.MambaModel):
     """Custom version of MCoreMambaModel that implements reweighted loss calculation.
 
     Note that this is similar to the HyenaModel for uppercase/lowercase handling.
@@ -151,19 +155,19 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
                 var_target=embedding_init_method_std**2,
             )
 
+    @override
     def forward(
         self,
-        input_ids,
-        position_ids,
-        attention_mask=None,
-        decoder_input=None,
-        labels=None,
-        loss_mask=None,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        decoder_input: torch.Tensor | None = None,
+        labels: torch.Tensor | None = None,
         inference_context=None,
         runtime_gather_output: bool | None = None,
-        packed_seq_params=None,
+        *,
         inference_params=None,
-        **kwargs,
+        loss_mask: torch.Tensor | None = None,
     ):
         """Forward pass with custom loss calculation for uppercase/lowercase reweighting.
 
@@ -346,6 +350,35 @@ class HybridMambaConfig8BEvo2Loss(NemotronHConfigBase):
             self.embedding_init_method_std = 1.0
         # Continue with the remaining post-init logic defined in NemotronHConfigBase and/or TransformerConfig.
         super().__post_init__()
+
+    @override
+    def configure_model(
+        self, tokenizer, pre_process=None, post_process=None, vp_stage: int | None = None
+    ) -> Evo2StyleMCoreMambaModel:
+        """Configures the model for training or inference."""
+        mamba_stack_spec = self.mamba_stack_spec
+        if not isinstance(mamba_stack_spec, ModuleSpec):
+            mamba_stack_spec = mamba_stack_spec()
+
+        assert getattr(self, "virtual_pipeline_model_parallel_size", None) is None and vp_stage is None, (
+            "Virtual pipeline model parallelism is temporarily unsupported in SSM/Mamaba "
+            "models due to upstream MCore MambaModel API dependency"
+        )
+        return Evo2StyleMCoreMambaModel(
+            self,
+            mamba_stack_spec=mamba_stack_spec,
+            vocab_size=get_vocab_size(self, tokenizer.vocab_size, self.make_vocab_size_divisible_by),
+            max_sequence_length=self.seq_length,
+            hybrid_attention_ratio=self.hybrid_attention_ratio,
+            hybrid_mlp_ratio=self.hybrid_mlp_ratio,
+            hybrid_override_pattern=self.hybrid_override_pattern,
+            position_embedding_type=self.position_embedding_type,
+            rotary_percent=self.rotary_percent,
+            rotary_base=self.rotary_base,
+            seq_len_interpolation_factor=self.seq_len_interpolation_factor,
+            pre_process=pre_process or parallel_state.is_pipeline_first_stage(),
+            post_process=post_process or parallel_state.is_pipeline_last_stage(),
+        )
 
 
 # Dictionary mapping model size names to config classes
