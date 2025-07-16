@@ -19,8 +19,9 @@
 
 import argparse
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 import nemo.lightning as nl
 import torch
@@ -167,7 +168,7 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, HyenaModel):
         self.output_log_prob_seqs = output_log_prob_seqs
         self.log_prob_collapse_option = log_prob_collapse_option
 
-    def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
+    def predict_step(self, batch, batch_idx: int | None = None) -> Tensor:
         """Alias for forward_step, also log the pad mask since sequences may not all have the same length."""
         if len(batch) == 0:
             return
@@ -287,7 +288,7 @@ class PredictDataModule(LightningDataModule):
         self.dataset = dataset
         self.batch_size = batch_size
 
-    def setup(self, stage: Optional[str] = None) -> None:
+    def setup(self, stage: str | None = None) -> None:
         """Set up the dataloader."""
         pass
 
@@ -583,7 +584,7 @@ class MambaPredictor(MambaModel, LightningPassthroughPredictionMixin):
             )
             inference_data["attention_mask"] = None
 
-        with torch.no_grad():
+        with nullcontext() if torch.is_inference_mode_enabled() else torch.no_grad():
             output = self(
                 input_ids=inference_data["tokens"],
                 position_ids=inference_data["position_ids"],
