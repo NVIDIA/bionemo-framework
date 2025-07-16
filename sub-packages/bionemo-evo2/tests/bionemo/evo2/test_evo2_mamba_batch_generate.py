@@ -26,6 +26,7 @@ Todo:
 """
 
 import logging
+import os
 from pathlib import Path
 
 import nemo.lightning as nl
@@ -126,6 +127,11 @@ def get_model_and_tokenizer(ckpt_dir_or_name: Path | str):
     return inference_wrapped_model, mcore_tokenizer
 
 
+# TODO: add evo2_mamba/7b-8k:0.1 to NGC and remove this skipif.
+@pytest.mark.skipif(
+    os.environ.get("BIONEMO_DATA_SOURCE") != "pbss",
+    reason="This test will fail because the checkpoint is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.",
+)
 def test_evo2_mamba(
     sequences: list[str],
     ckpt_name: str = "evo2_mamba/7b-8k:0.1",

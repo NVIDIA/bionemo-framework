@@ -27,7 +27,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
 import torch
 from lightning.pytorch import Callback
 from megatron.core import parallel_state
@@ -45,8 +44,7 @@ class TEVCallback(Callback):
     """
 
     @torch.no_grad()
-    def on_before_optimizer_step(
-        self, trainer, pl_module, optimizer) -> None:
+    def on_before_optimizer_step(self, trainer, pl_module, optimizer) -> None:
         """Called before each optimizer step during training.
 
         This method calculates and logs Token Embedding Variance (TEV) statistics:
@@ -72,7 +70,7 @@ class TEVCallback(Callback):
         named_params = dict(pl_module.named_parameters())
 
         # Find all parameter keys containing 'embed'
-        embed_keys = [key for key in named_params.keys() if 'embed' in key]
+        embed_keys = [key for key in named_params.keys() if "embed" in key]
 
         # Validate we have exactly one embedding layer
         if len(embed_keys) == 0:
@@ -95,8 +93,7 @@ class TEVCallback(Callback):
 
             output = torch.empty(dim_size, dtype=embed.dtype, device=torch.cuda.current_device())
             torch.distributed.all_gather_into_tensor(
-                output, embed.contiguous(), 
-                group=parallel_state.get_context_parallel_group()
+                output, embed.contiguous(), group=parallel_state.get_context_parallel_group()
             )
             embed = output
 

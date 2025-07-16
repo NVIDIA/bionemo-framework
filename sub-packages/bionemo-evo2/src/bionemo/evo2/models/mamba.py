@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from dataclasses import dataclass
 from typing import Callable
 
@@ -29,11 +30,11 @@ from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import make_upper
 from nemo.collections.llm.gpt.model.ssm import (
     NemotronHConfigBase,
 )
-import logging
-
-logger = logging.getLogger(__name__)
 
 from bionemo.evo2.utils.loss.embedding_variance import SquaredErrorTargetedVarianceLossFunction
+
+
+logger = logging.getLogger(__name__)
 
 
 def mamba_forward_step(model, batch) -> torch.Tensor:
@@ -315,10 +316,14 @@ class HybridMambaConfig8BEvo2Loss(NemotronHConfigBase):
     # If set to true, use targeted variance loss which encourages the word embedding weight variances
     # to be close to a target value (1.0).
     use_targeted_variance_loss: bool = False
+
     def __post_init__(self):
+        """Post-init logic for Evo2 to enable backwards compatibility with old configs."""
         # Specific post_init logic for Evo2 to enable backwards compatibility with old configs.
         if not hasattr(self, "spike_no_more_embedding_init"):
-            raise ValueError("spike_no_more_embedding_init is not supported in this config, please upgrade Megatron-LM")
+            raise ValueError(
+                "spike_no_more_embedding_init is not supported in this config, please upgrade Megatron-LM"
+            )
         if self.spike_no_more_embedding_init and self.embedding_init_method_std is None:
             logger.warning(
                 "spike_no_more_embedding_init is deprecated, please set "

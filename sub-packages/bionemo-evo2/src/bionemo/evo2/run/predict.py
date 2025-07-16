@@ -40,6 +40,7 @@ from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
+from bionemo.llm.model.biobert.lightning import get_batch_on_this_context_parallel_rank
 from bionemo.llm.utils.callbacks import PredictionWriter
 
 

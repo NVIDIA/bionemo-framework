@@ -25,16 +25,19 @@ from torch.autograd import Function
 
 
 class SquaredErrorTargetedVarianceLossFunction(Function):
+    """This loss function is used to calculate the loss based on the squared difference between the global mean of per-word variances and target."""
+
     LOSS_COEFF = 0.1
     VAR_TARGET = 1.0
 
     @staticmethod
     def forward(ctx, we_weight: torch.Tensor) -> torch.Tensor:
-        """Calculates a loss based on the squared difference between the globally
-        averaged mean of per-word variances and a target variance.
+        """Calculates a loss based on the squared difference between the global mean of per-word variances and target.
+
         Assumes vocab-parallel sharding for we_weight (dim 0 is sharded).
 
         Args:
+            ctx (torch.autograd.FunctionContext): Context object for backward pass.
             we_weight (torch.Tensor): Local shard of embedding weights (V_local, H).
 
         Returns:
