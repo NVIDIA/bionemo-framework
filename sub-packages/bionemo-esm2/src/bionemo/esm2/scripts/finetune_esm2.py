@@ -174,6 +174,13 @@ def get_parser():
         help="Disable creating a ModelCheckpoint callback.",
     )
 
+    parser.add_argument(
+        "--early-stop-on-step",
+        type=int,
+        default=None,
+        help="Stop training on this step, if set. This may be useful for testing or debugging purposes.",
+    )
+
     return parser
 
 
@@ -242,6 +249,7 @@ def train_model(
     lora_checkpoint_path: Optional[Path] = None,
     lora_finetune: bool = False,
     create_checkpoint_callback: bool = True,
+    early_stop_on_step: Optional[int] = None,
 ) -> Tuple[Optional[Path], Callback | None, nl.Trainer]:
     config_class = SUPPORTED_CONFIGS[config_class]
     dataset_class = SUPPORTED_DATASETS[dataset_class]
@@ -447,7 +455,7 @@ def train_model(
 
     trainer = nl.Trainer(
         devices=num_gpus,
-        max_steps=num_steps,
+        max_steps=num_steps if early_stop_on_step is None else early_stop_on_step,
         max_epochs=max_epochs,
         accelerator="gpu",
         strategy=strategy,
