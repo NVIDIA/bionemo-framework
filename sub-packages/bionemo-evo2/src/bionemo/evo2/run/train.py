@@ -352,21 +352,22 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "--spike-no-more-embedding-init",
         action="store_true",
         default=False,
-        help="If set, do not initialize the embeddings with a normal distribution. This along with "
-        "--layernorm-embeddings and --no-weight-decay-embeddings should be used to replicate the 'Spike No More'"
-        " publication.",
-    )
-    parser.add_argument(
-        "--layernorm-embeddings",
-        action="store_true",
-        default=False,
-        help="If set, use a layer norm for the embeddings.",
+        help="If set, the embeddings are initialized with a Normal(0, 1.0) distribution rather "
+        "than the default Normal(0, 0.02). This may help avoid loss spiking during training. Consider using this with "
+        "--no-weight-decay-embeddings to avoid shrinking the embeddings to 0 by skipping weight decay on these layers, "
+        "or with --use-targeted-variance-loss to maintain a 1.0 variance during training even with weight decay.",
     )
     parser.add_argument(
         "--no-weight-decay-embeddings",
         action="store_true",
         default=False,
         help="If set, do not apply weight decay to the embeddings.",
+    )
+    parser.add_argument(
+        "--use-targeted-variance-loss",
+        action="store_true",
+        default=False,
+        help="Use targeted variance loss.",
     )
     parser.add_argument(
         "--nsys-end-step",
@@ -444,12 +445,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         type=float,
         default=0.0,
         help="Dropout probability for the attention layers.",
-    )
-    parser.add_argument(
-        "--use-targeted-variance-loss",
-        action="store_true",
-        default=False,
-        help="Use targeted variance loss.",
     )
     parser.add_argument(
         "--use-b2b-causal-conv1d",
@@ -588,8 +583,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
         if args.spike_no_more_embedding_init:  # --spike-no-more-embedding-init
             config_modifiers_init["spike_no_more_embedding_init"] = True
-        if args.layernorm_embeddings:  # --layernorm-embeddings
-            config_modifiers_init["layernorm_embeddings"] = True
         if args.model_size not in MAMBA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
         add_bias_output = config_modifiers_init.pop("add_bias_output")
@@ -690,7 +683,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
         f"-PAO{args.use_precision_aware_optimizer}"
         f"-B16MG{args.bf16_main_grads}"
-        f"-EWD{args.no_weight_decay_embeddings}-LE{args.layernorm_embeddings}-SNI{args.spike_no_more_embedding_init}"
+        f"-EWD{args.no_weight_decay_embeddings}-SNI{args.spike_no_more_embedding_init}"
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
         f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"

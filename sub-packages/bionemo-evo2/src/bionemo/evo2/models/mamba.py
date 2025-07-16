@@ -13,34 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from copy import deepcopy
 from dataclasses import dataclass
-from typing import Callable, Literal, Optional, Type
+from typing import Callable
 
 import torch
-import torch.distributed
 import torch.nn.functional as F
-from megatron.core import parallel_state, tensor_parallel
-from megatron.core.config_logger import has_config_logger_enabled, log_config_to_disk
 from megatron.core.inference.model_inference_wrappers.gpt.gpt_inference_wrapper import GPTInferenceWrapper
 from megatron.core.inference.model_inference_wrappers.inference_wrapper_config import InferenceWrapperConfig
-from megatron.core.models.common.embeddings.language_model_embedding import LanguageModelEmbedding
-from megatron.core.models.common.embeddings.rotary_pos_embedding import RotaryEmbedding
 
 # Import original MCoreMambaModel for subclassing
 from megatron.core.models.mamba import MambaModel as MCoreMambaModel
-from megatron.core.process_groups_config import ModelCommProcessGroups
-from megatron.core.quantization.utils import get_quant_config_or_none
-from megatron.core.transformer import TransformerConfig
-from megatron.core.transformer.enums import ModelType
-from megatron.core.transformer.spec_utils import ModuleSpec, build_module
-from megatron.core.utils import WrappedTensor, deprecate_inference_params, init_method_normal
+from megatron.core.utils import WrappedTensor, deprecate_inference_params
 from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step
 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import make_upper_case, reweighted_cross_entropy
 from nemo.collections.llm.gpt.model.ssm import (
     NemotronHConfigBase,
 )
-from nemo.lightning import get_vocab_size
+import logging
+
+logger = logging.getLogger(__name__)
 
 from bionemo.evo2.utils.loss.embedding_variance import SquaredErrorTargetedVarianceLossFunction
 
@@ -109,14 +100,14 @@ class MambaModel(GPTModel):
         self,
         input_ids: torch.Tensor,
         position_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        labels: Optional[torch.Tensor] = None,
-        decoder_input: Optional[torch.Tensor] = None,
-        loss_mask: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor | None = None,
+        labels: torch.Tensor | None = None,
+        decoder_input: torch.Tensor | None = None,
+        loss_mask: torch.Tensor | None = None,
         inference_params=None,
         inference_context=None,
         packed_seq_params=None,
-        runtime_gather_output: Optional[bool] = None,
+        runtime_gather_output: bool | None = None,
     ) -> torch.Tensor:
         """Forward pass that delegates to CustomMCoreMambaModel, which handles loss calculation."""
         extra_kwargs = {"packed_seq_params": packed_seq_params} if packed_seq_params is not None else {}
@@ -145,159 +136,6 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
     Note that this is similar to the HyenaModel for uppercase/lowercase handling.
     """
 
-    def __init__(
-        self,
-        config: TransformerConfig,
-        mamba_stack_spec: ModuleSpec,
-        vocab_size: int,
-        max_sequence_length: int,
-        pre_process: bool = True,
-        hybrid_attention_ratio: float = 0.0,
-        hybrid_mlp_ratio: float = 0.0,
-        hybrid_override_pattern: str | None = None,
-        post_process: bool = True,
-        fp16_lm_cross_entropy: bool = False,
-        parallel_output: bool = True,
-        share_embeddings_and_output_weights: bool = False,
-        # Mamba with no attention has no need for position embeddings, so none is default
-        position_embedding_type: Literal["learned_absolute", "rope", "none"] = "none",
-        rotary_percent: float = 1.0,
-        rotary_base: int = 10000,
-        scatter_embedding_sequence_parallel: bool = True,
-        seq_len_interpolation_factor: Optional[float] = None,
-        model_comm_pgs: Optional[ModelCommProcessGroups] = None,
-        lowercase_loss_reweighting: float = 1.0,
-        to_upper: str = "normalized_weighted",
-        spike_no_more_embedding_init: bool = False,
-        layernorm_embeddings: bool = False,
-        use_targeted_variance_loss: bool = False,
-    ):
-        """Ingest the config and create a CustomMCoreMambaModel instance.
-
-        Args:
-            config: TransformerConfig
-            mamba_stack_spec: ModuleSpec
-            vocab_size: int
-            max_sequence_length: int
-            pre_process: bool. Defaults to True.
-            hybrid_attention_ratio: float. Defaults to 0.0.
-            hybrid_mlp_ratio: float. Defaults to 0.0.
-            hybrid_override_pattern: Override pattern for layer order in the mamba stack. Defaults to None.
-            post_process: Apply post processing to the output. Defaults to True.
-            fp16_lm_cross_entropy: Use the fp16 version of the loss calculation. Defaults to False.
-            parallel_output: Keep output in sequence parallel. Defaults to True.
-            share_embeddings_and_output_weights: Share weights between embedding and output layer. Defaults to False.
-            position_embedding_type: If you want ROPE etc embeddings set to something other than "none".
-                Defaults to "none".
-            rotary_percent: Percent of the sequence length to use for the rotary embeddings. Defaults to 1.0.
-            rotary_base: Base for the rotary embeddings. Defaults to 10000.
-            scatter_embedding_sequence_parallel: Scatter the embedding to sequence parallel. Defaults to True.
-            seq_len_interpolation_factor: Factor to interpolate the sequence length. Defaults to None.
-            lowercase_loss_reweighting: Loss reweighting for lowercase characters. Defaults to 1.0.
-            to_upper: How lowercase characters are handled in the loss calculation. Defaults to "normalized_weighted".
-            spike_no_more_embedding_init: Initialize embeddings with sd=1 normal rather than the model default.
-                Defaults to False.
-            layernorm_embeddings: Apply layernorm to the embedding output as suggested in the spike no more paper.
-                Defaults to False.
-            use_targeted_variance_loss: Use targeted variance loss which encourages the word embedding weight variances
-                to be close to a target value (1.0). Defaults to False.
-            model_comm_pgs: ModelCommProcessGroups. Defaults to None, and will be initialized internally if unset.
-        """
-        # Save any additional kwargs we might need
-        self.lowercase_loss_reweighting = lowercase_loss_reweighting
-        self.to_upper = to_upper
-        self.use_targeted_variance_loss = use_targeted_variance_loss
-        if layernorm_embeddings:
-            raise NotImplementedError("Layernorm embeddings are not supported in Evo2 style Mamba model.")
-        # NOTE: the following code is copied from the MambaModel class in Megatron-LM's __init__
-        #  This is so we can override the config specifically in the LanguageModelEmbedding.
-        #  A better approach would be to make this a configuration in the parent class and call super().__init__
-        super(MCoreMambaModel, self).__init__(config=config)
-
-        if has_config_logger_enabled(config):
-            log_config_to_disk(config, locals(), prefix=type(self).__name__)
-
-        self.mamba_stack_spec: ModuleSpec = mamba_stack_spec
-        self.vocab_size = vocab_size
-        self.max_sequence_length = max_sequence_length
-        self.pre_process = pre_process
-        self.hybrid_attention_ratio = hybrid_attention_ratio
-        self.hybrid_mlp_ratio = hybrid_mlp_ratio
-        self.hybrid_override_pattern = hybrid_override_pattern
-        self.post_process = post_process
-        self.fp16_lm_cross_entropy = fp16_lm_cross_entropy
-        self.parallel_output = parallel_output
-        self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
-        self.position_embedding_type = position_embedding_type
-
-        if model_comm_pgs is None:
-            model_comm_pgs = ModelCommProcessGroups.use_mpu_process_groups(
-                required_pgs=["tp", "pp", "cp", "tp_cp", "ep", "expt_tp", "tp_ep", "expt_dp"]
-            )
-
-        # megatron core pipelining currently depends on model type
-        # TODO: remove this dependency ?
-        self.model_type = ModelType.encoder_or_decoder
-
-        if self.pre_process:
-            if spike_no_more_embedding_init:
-                embedding_config = deepcopy(self.config)
-                embedding_config.init_method = init_method_normal(1.0)
-            else:
-                embedding_config = self.config
-            self.embedding = LanguageModelEmbedding(
-                config=embedding_config,
-                vocab_size=self.vocab_size,
-                max_sequence_length=self.max_sequence_length,
-                position_embedding_type=position_embedding_type,
-                scatter_to_sequence_parallel=scatter_embedding_sequence_parallel,
-                tp_group=model_comm_pgs.tp,
-            )
-
-        if self.position_embedding_type == "rope":
-            self.rotary_pos_emb = RotaryEmbedding(
-                kv_channels=self.config.kv_channels,
-                rotary_percent=rotary_percent,
-                seq_len_interpolation_factor=seq_len_interpolation_factor,
-                rotary_base=rotary_base,
-                use_cpu_initialization=self.config.use_cpu_initialization,
-                cp_group=model_comm_pgs.cp,
-            )
-
-        self.decoder = build_module(
-            mamba_stack_spec,
-            self.config,
-            pre_process=self.pre_process,
-            hybrid_attention_ratio=self.hybrid_attention_ratio,
-            hybrid_mlp_ratio=self.hybrid_mlp_ratio,
-            hybrid_override_pattern=self.hybrid_override_pattern,
-            post_process=self.post_process,
-            dtype=config.params_dtype,
-            model_comm_pgs=model_comm_pgs,
-        )
-
-        # Output
-        if post_process:
-            self.output_layer = tensor_parallel.ColumnParallelLinear(
-                config.hidden_size,
-                self.vocab_size,
-                config=config,
-                init_method=config.init_method,
-                bias=False,
-                skip_bias_add=False,
-                gather_output=not self.parallel_output,
-                skip_weight_param_allocation=self.pre_process and self.share_embeddings_and_output_weights,
-                tp_group=model_comm_pgs.tp,
-            )
-
-        if self.pre_process or self.post_process:
-            self.setup_embeddings_and_output_layer()
-
-        for name, module in self.named_modules():
-            if hasattr(module, "finish_init"):
-                quant_config = get_quant_config_or_none(name, self.config.quant_recipe)
-                module.finish_init(quant_config)
-
     def forward(
         self,
         input_ids,
@@ -307,7 +145,7 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         labels=None,
         loss_mask=None,
         inference_context=None,
-        runtime_gather_output: Optional[bool] = None,
+        runtime_gather_output: bool | None = None,
         packed_seq_params=None,
         inference_params=None,
         **kwargs,
@@ -392,14 +230,14 @@ class Evo2StyleMCoreMambaModel(MCoreMambaModel):
         # Apply reweighted loss calculation for uppercase/lowercase handling
         labels, lowercase_mask = make_upper_case(labels)
         loss = self.compute_language_model_loss(labels, logits)
-        normalize_per_batch = True if self.to_upper == "normalized_weighted" else False
+        normalize_per_batch = True if self.config.to_upper == "normalized_weighted" else False
         loss = reweighted_cross_entropy(
             loss,
             (labels, loss_mask, lowercase_mask),
-            lowercase_weight=self.lowercase_loss_reweighting,
+            lowercase_weight=self.config.lowercase_loss_reweighting,
             normalize_per_batch=normalize_per_batch,
         )
-        if self.training and self.use_targeted_variance_loss:
+        if self.training and self.config.use_targeted_variance_loss:
             # Only use this in training, not validation etc.
             var_loss = SquaredErrorTargetedVarianceLossFunction.apply(self.embedding.word_embeddings.weight)
             loss += var_loss
@@ -472,61 +310,27 @@ class HybridMambaConfig8BEvo2Loss(NemotronHConfigBase):
     # The trainer is responsible for using this when initializing the optimizer state:
     #  opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=model_config.hyena_no_weight_decay_cond_fn)
     hyena_no_weight_decay_cond_fn: Callable = mamba_no_weight_decay_cond
-    spike_no_more_embedding_init: bool = False
+    spike_no_more_embedding_init: bool = False  # TODO: remove this.
     layernorm_embeddings: bool = False
     # If set to true, use targeted variance loss which encourages the word embedding weight variances
     # to be close to a target value (1.0).
     use_targeted_variance_loss: bool = False
-
-    def configure_model(
-        self, tokenizer, pre_process=None, post_process=None, vp_stage=None
-    ) -> "Evo2StyleMCoreMambaModel":
-        """Override the configure_model method to properly configure a CustomMCoreMambaModel with Evo2 style loss.
-
-        Args:
-            tokenizer: Tokenizer to use with the model
-            pre_process: Whether to include pre-processing in the model
-            post_process: Whether to include post-processing in the model
-            vp_stage: Virtual pipeline stage, not currently supported in mamba models.
-
-        Returns:
-            CustomMCoreMambaModel: Configured custom Mamba model instance
-        """
-        mamba_stack_spec = self.mamba_stack_spec
-        if not isinstance(mamba_stack_spec, ModuleSpec):
-            mamba_stack_spec = mamba_stack_spec()
-
-        assert getattr(self, "virtual_pipeline_model_parallel_size", None) is None and vp_stage is None, (
-            "Virtual pipeline model parallelism is temporarily unsupported in SSM/Mamaba "
-            "models due to upstream MCore MambaModel API dependency"
-        )
-        # Set additional attributes that may be used during model initialization
-
-        # Return our custom MCoreMambaModel with reweighted loss calculation
-        return Evo2StyleMCoreMambaModel(
-            self,
-            mamba_stack_spec=mamba_stack_spec,
-            vocab_size=get_vocab_size(self, tokenizer.vocab_size, self.make_vocab_size_divisible_by),
-            max_sequence_length=self.seq_length,
-            hybrid_attention_ratio=self.hybrid_attention_ratio,
-            hybrid_mlp_ratio=self.hybrid_mlp_ratio,
-            hybrid_override_pattern=self.hybrid_override_pattern,
-            position_embedding_type=self.position_embedding_type,
-            rotary_percent=self.rotary_percent,
-            rotary_base=self.rotary_base,
-            seq_len_interpolation_factor=self.seq_len_interpolation_factor,
-            pre_process=pre_process or parallel_state.is_pipeline_first_stage(),
-            post_process=post_process or parallel_state.is_pipeline_last_stage(),
-            # Pass our custom parameters for loss calculation
-            to_upper=self.to_upper,
-            lowercase_loss_reweighting=self.lowercase_loss_reweighting,
-            spike_no_more_embedding_init=self.spike_no_more_embedding_init,
-            layernorm_embeddings=self.layernorm_embeddings,
-            use_targeted_variance_loss=self.use_targeted_variance_loss,
-        )
+    def __post_init__(self):
+        # Specific post_init logic for Evo2 to enable backwards compatibility with old configs.
+        if not hasattr(self, "spike_no_more_embedding_init"):
+            raise ValueError("spike_no_more_embedding_init is not supported in this config, please upgrade Megatron-LM")
+        if self.spike_no_more_embedding_init and self.embedding_init_method_std is None:
+            logger.warning(
+                "spike_no_more_embedding_init is deprecated, please set "
+                "embedding_init_method_std=[desired_stdev] in the future. To get the old behavior set to 1.0. "
+                "For now setting to 1.0."
+            )
+            self.embedding_init_method_std = 1.0
+        # Continue with the remaining post-init logic defined in NemotronHConfigBase and/or TransformerConfig.
+        super().__post_init__()
 
 
 # Dictionary mapping model size names to config classes
-MAMBA_MODEL_OPTIONS: dict[str, Type[NemotronHConfigBase]] = {
+MAMBA_MODEL_OPTIONS: dict[str, type[NemotronHConfigBase]] = {
     "hybrid_mamba_8b": HybridMambaConfig8BEvo2Loss,
 }
