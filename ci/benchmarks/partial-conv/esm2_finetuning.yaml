@@ -38,6 +38,7 @@ script_args:
   limit_val_batches: 100 # original 1000, 100 is enough for validation and produce good enough curves
   limit_test_batches: 100
   accumulate_grad_batches: 2
+  max_steps: 30000
   products:
     - variant: finetune
       task: seq_classification
