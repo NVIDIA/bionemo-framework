@@ -126,10 +126,22 @@ def get_model_and_tokenizer(ckpt_dir_or_name: Path | str):
     return inference_wrapped_model, mcore_tokenizer
 
 
-def test_evo2_mamba(sequences: list[str], expected_matchpercents: list[float] = [97.2, 39.6, 71.8, 74.2]):
+def test_evo2_mamba(
+    sequences: list[str],
+    ckpt_name: str = "evo2_mamba/7b-8k:0.1",
+    expected_matchpercents: list[float] = [99.2, 51.0, 73.0, 82.6],
+):
     assert len(sequences) > 0
-    ckpt_path = Path("checkpoints/pretrain_hybrid_mamba_8b--val_loss=1.0444-epoch=0-consumed_samples=73993728.0-last/")
-    inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_path)
+    try:
+        inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_name)
+    except ValueError as e:
+        if "does not have an NGC URL." in str(e):
+            raise AssertionError(
+                "Please rerun test with `BIONEMO_DATA_SOURCE=pbss pytest ...` "
+                + "as the requested checkpoint is not yet uploaded to NGC."
+                + "Original error: "
+                + str(e)
+            )
 
     match_percents = []
     num_tokens = 500
@@ -153,18 +165,17 @@ def test_evo2_mamba(sequences: list[str], expected_matchpercents: list[float] = 
 
     for i, (result, (prompt, target)) in enumerate(zip(results, seq_prompts)):
         gen_seq = result.generated_text
-        logger.info(f"{ckpt_path} {torch.distributed.get_rank()=} {gen_seq=}")
-        logger.info(f"{ckpt_path} {torch.distributed.get_rank()=} {target=}")
+        logger.info(f"{ckpt_name} {torch.distributed.get_rank()=} {gen_seq=}")
+        logger.info(f"{ckpt_name} {torch.distributed.get_rank()=} {target=}")
         match_percent = calculate_sequence_identity(target, gen_seq)
         logger.info(
-            f"{ckpt_path} {torch.distributed.get_rank()=} {match_percent=} expected: {expected_matchpercents[i]}"
+            f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=} expected: {expected_matchpercents[i]}"
         )
         match_percents.append(match_percent)
 
     assert len(match_percents) == len(expected_matchpercents)
     matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-    assert False
     assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
         f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
