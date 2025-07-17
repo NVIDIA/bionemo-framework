@@ -51,7 +51,7 @@ script_args:
       mlp_hidden_size: 256
       mlp_target_size: 10
       max_steps: 30000
-      stop_steps: 1500
+      stop_steps: 3000
       experiment_name: seq-level-classification
       lr: 0.0005
       batch_size: 64
