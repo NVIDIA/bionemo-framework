@@ -138,15 +138,18 @@ RUN apt-get update -qy && apt-get install -y libopenblas-dev && pip install scik
 # See https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/d3c853c2d/docker/Dockerfile#L193-198
 #  for the command we want to keep in sync. Note that the package install is modified slightly to first build a
 #  wheel (no deps) and then install the wheel. This avoids issues with torch version conflicts.
-RUN git clone https://github.com/state-spaces/mamba.git && \
-    cd mamba && \
-    git checkout 2e16fc3062cdcd4ebef27a9aa4442676e1c7edf4 && \
-    sed -i "/triton/d" setup.py && \
-    sed -i "/triton/d" pyproject.toml && \
-    pip3 wheel --disable-pip-version-check --no-build-isolation --no-deps . && \
-    pip3 --disable-pip-version-check --no-cache-dir install mamba_ssm-*.whl --no-deps && \
-    rm -f mamba_ssm-*.whl
-
+RUN <<EOF 
+git clone https://github.com/state-spaces/mamba.git
+cd mamba
+git checkout 2e16fc3062cdcd4ebef27a9aa4442676e1c7edf4
+sed -i "/triton/d" setup.py
+sed -i "/triton/d" pyproject.toml
+pip3 wheel --disable-pip-version-check --no-build-isolation --no-deps .
+pip3 --disable-pip-version-check --no-cache-dir install mamba_ssm-*.whl --no-deps
+rm -f mamba_ssm-*.whl
+cd ..
+rm -rf mamba
+EOF
 
 
 # Nemo Run installation
