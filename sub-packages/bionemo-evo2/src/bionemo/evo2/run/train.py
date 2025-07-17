@@ -38,15 +38,15 @@ from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
 )
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks import ModelTransform
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils.exp_manager import TimingCallback
-from bionemo.evo2.run.peft import Evo2LoRA
-from nemo.lightning.pytorch.callbacks import ModelTransform
 
+from bionemo.evo2.run.peft import Evo2LoRA
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -415,18 +415,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=True,
         help="Disable saving the last checkpoint.",
     )
-    parser.add_argument(
-        "--lora-finetune", 
-        action="store_true", 
-        help="Use LoRA fine-tuning",
-        default=False
-    )
-    parser.add_argument(
-        "--lora-checkpoint-path", 
-        type=Path, 
-        default=None, 
-        help="LoRA checkpoint path"
-    )
+    parser.add_argument("--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False)
+    parser.add_argument("--lora-checkpoint-path", type=Path, default=None, help="LoRA checkpoint path")
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
@@ -524,13 +514,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     lora_transform = None
     if args.lora_finetune:
         lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
-        
+
     # Instantiate model.
-    model = llm.HyenaModel(
-        evo2_config,
-        tokenizer=data_module.tokenizer,
-        model_transform=lora_transform
-    )
+    model = llm.HyenaModel(evo2_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
 
     # Setup callbacks.
     callbacks = [
