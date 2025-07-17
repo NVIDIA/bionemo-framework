@@ -147,7 +147,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     chunk_sizes = [1, 10, 100, 1000]
-    madvise_intervals = [None, 1, 10, 100, 1_000]
+    madvise_intervals = [None]#, 1, 10, 100, 1_000]
     shuffle_options = [False, True]
     num_samples_list = [10_000, 1_000_000]
 

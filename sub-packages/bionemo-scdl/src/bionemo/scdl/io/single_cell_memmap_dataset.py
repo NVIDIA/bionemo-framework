@@ -403,9 +403,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         with open(f"{self.data_path}/{FileNames.METADATA.value}", Mode.READ_APPEND.value) as mfi:
             self.metadata = json.load(mfi)
-
-        if os.path.exists(f"{self.data_path}/{FileNames.FEATURES.value}"):
-            self._feature_index = RowFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES.value}")
+        if False: 
+            if os.path.exists(f"{self.data_path}/{FileNames.FEATURES.value}"):
+                self._feature_index = RowFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES.value}")
 
         if os.path.exists(f"{self.data_path}/{FileNames.DTYPE.value}"):
             with open(f"{self.data_path}/{FileNames.DTYPE.value}") as dfi:
@@ -646,7 +646,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 f"""The nuber of rows in the feature index {self._feature_index.number_of_rows()}
                              does not correspond to the number of rows in the row_index {self.row_index.size - 1}"""
             )
-        return self._feature_index.number_of_rows()
+        return self.row_index.size - 1#self._feature_index.number_of_rows()
 
     def number_nonzero_values(self) -> int:
         """Number of non zero entries in the dataset."""
@@ -658,7 +658,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
     def __getitem__(self, idx: int) -> torch.Tensor:
         """Get the row values located and index idx."""
-        return torch.from_numpy(np.stack(self.get_row(idx)[0]))
+        start = self.row_index[idx]
+        end = self.row_index[idx + 1]
+        values = self.data[start:end]
+        columns = self.col_index[start:end]
+        ret = (values, columns)
+        return torch.from_numpy(np.stack((values, columns)))
 
     def number_of_variables(self) -> List[int]:
         """Get the number of features in every entry in the dataset.

@@ -13,23 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Hold a certain amount of memory until the script is killed
-import time
+
+"""BioNeMo Single Cell Benchmarking Framework.
+
+A simple, flexible framework for benchmarking any dataloader.
+"""
+
+from .benchmark import (
+    BenchmarkConfig,
+    benchmark_dataloader,
+    benchmark_multiple_dataloaders,
+)
+from .common import BenchmarkResult
 
 
-def hold_memory(gb):
-    print(f"Allocating {gb} GB of memory...")
-    blocks = []
-    block_size = 1024 * 1024 * 100  # 100 MB
-    num_blocks = int(gb * 1024 / 100)
-    for _ in range(num_blocks):
-        blocks.append(bytearray(block_size))
-    print("Holding memory... Press Ctrl+C to stop.")
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Releasing memory...")
-
-
-hold_memory(105)  # change 4 to however many GB you want to simulate
+__version__ = "0.1.0"
+__all__ = [
+    "BenchmarkConfig",
+    "BenchmarkResult",
+    "benchmark_dataloader",
+    "benchmark_multiple_dataloaders",
+]
