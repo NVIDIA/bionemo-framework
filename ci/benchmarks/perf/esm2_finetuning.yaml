@@ -43,16 +43,16 @@ script_args:
       batch_size: 16
       pp: 1
       tp: 1
-    - nodes: 2
-      batch_size: 16
-      pp: 2
+    - nodes: 1
+      batch_size: 64
+      pp: 1
       tp: 1
     - nodes: 2
       batch_size: 16
       pp: 1
-      tp: 2
+      tp: 1
     - nodes: 2
-      batch_size: 16
+      batch_size: 64
       pp: 1
       tp: 1
 script: |-
@@ -63,7 +63,7 @@ script: |-
     --config-class=${config_class} \
     --dataset-class=${dataset_class} \
     --num-steps=${max_steps} \
-    --experiment-name=${experiment_name}_${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+    --experiment-name=${experiment_name}_${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec_tp${tp}_pp_${pp} \
     --lr=0.0005 \
     --result-dir=${tensorboard_dir} \
     --micro-batch-size=${batch_size} \
