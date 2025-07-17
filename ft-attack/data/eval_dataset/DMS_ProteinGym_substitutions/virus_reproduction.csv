@@ -1,0 +1,21 @@
+csv_filename,description from Evo2,data_source,data_path,note
+POLG_HCVJF_Qi_2014.csv,an HCV polymerase DMS by Qi et al.,,, 
+A0A2Z5U3Z0_9INFA_Wu_2014.csv,an influenza hemagglutinin DMS by Wu et al.,,,
+I6TAH8_I68A0_Doud_2015.csv,an influenza nucleoprotein DMS by Doud et al,,,There's two influenza nucleoprotein by Doud et al. Here we choose one of them.
+A0A2Z5U3Z0_9INFA_Doud_2016.csv,a PB1 DMS by Doud et al.,,,"There's no PB1 study by Doud, only by Li in ProteinGym (that is included later). Here we include a DMS by Doud on Influenza hemagglutinin." 
+PA_I34A1_Wu_2015.csv,an influenza PA DMS by Wu et al.,,, 
+NRAM_I33A0_Jiang_2016.csv,an influenza neuraminidase DMS by Jiang et al.,,, 
+TAT_HV1BR_Fernandes_2016.csv,an HIV-1 TAT DMS by Fernandes et al.,,,
+REV_HV1H2_Fernandes_2016.csv,an HIV-1 REV DMS by Fernandes et al.,,, 
+A0A192B1T2_9HIV1_Haddox_2018.csv,an HIV-1 envelope DMS by Haddox et al.,,,"There's two by Haddox et al., chose one here."
+ENV_HV1B9_DuenasDecamp_2016.csv,an HIV-1 envelope DMS by Duenas-Decamp et al.,,, 
+C6KNH7_9INFA_Lee_2018.csv,an influenza hemagglutinin DMS by Lee et al.,,, 
+Q2N0S5_9HIV1_Haddox_2018.csv,an HIV-1 envelope DMS by Haddox et al.,,,"There's two by Haddox et al., the other one different from row 10 is chosen here."  
+A4D664_9INFA_Soh_2019.csv,an influenza PB2 DMS by Soh et al.,,, 
+A0A140D2T1_ZIKV_Sourisseau_2019.csv,a Zika envelope DMS by Sourisseau et al.,,, 
+SPIKE_SARS2_Starr_2020_expression.csv,a SARS-CoV-2 spike RBD DMS by Starr et al.,,,"There's two RBD by Starr et al., here we pick the DMS for expression."
+POLG_CXB3N_Mattenberger_2021.csv,a coxsackievirus capsid DMS by Mattenberger et al.,,, 
+CAPSD_AAV2S_Sinai_2021.csv,an AAV2 capsid DMS by Sinai et al.,,, 
+R1AB_SARS2_Flynn_2022.csv,a SARS-CoV-2 Mpro DMS by Flynn et al.,,, 
+POLG_DEN26_Suphatrakul_2023.csv,a dengue virus NS5 DMS by Suphatrakul et al.,,, 
+RDRP_I33A0_Li_2023.csv,an influenza PB1 DMS by Li et al.,,, 
