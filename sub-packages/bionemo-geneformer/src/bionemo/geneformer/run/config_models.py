@@ -139,7 +139,10 @@ class TemporalGeneformerDataConfig(DataConfig[TemporalGeneformerDataModule]):
     where models learn to predict next cells in a trajectory.
     
     Attributes:
-        data_path (str): Path to the SCDL dataset with neighbor information.
+        train_dataset_path (str | None): Path to the training SCDL dataset with neighbor information.
+        val_dataset_path (str | None): Path to the validation SCDL dataset with neighbor information.
+        test_dataset_path (str | None): Path to the test SCDL dataset with neighbor information.
+        predict_dataset_path (str | None): Path to the prediction SCDL dataset with neighbor information.
         tokenizer_vocab_path (str): Path to the tokenizer vocabulary file.
         median_dict_path (str): Path to the median dictionary file.
         result_dir (str | pathlib.Path): Directory where results will be stored.
@@ -158,8 +161,11 @@ class TemporalGeneformerDataConfig(DataConfig[TemporalGeneformerDataModule]):
         target_sum (int): Target sum for normalization.
     """
     
-    # Core data parameters
-    data_path: str
+    # Core data parameters - separate paths for train/val/test/predict
+    train_dataset_path: str | None = None
+    val_dataset_path: str | None = None
+    test_dataset_path: str | None = None
+    predict_dataset_path: str | None = None
     tokenizer_vocab_path: str  
     median_dict_path: str
     result_dir: str | pathlib.Path = "./results"
@@ -192,8 +198,11 @@ class TemporalGeneformerDataConfig(DataConfig[TemporalGeneformerDataModule]):
 
         This method uses a legacy 'preprocessor' from BioNeMo 1 to acquire the associated artifacts.
         """
+        if self.train_dataset_path is None:
+            raise ValueError("train_dataset_path must be provided for preprocessing")
+            
         preprocessor = GeneformerPreprocess(
-            download_directory=pathlib.Path(self.data_path).parent,
+            download_directory=pathlib.Path(self.train_dataset_path),
             medians_file_path=pathlib.Path(self.median_dict_path),
             tokenizer_vocab_path=pathlib.Path(self.tokenizer_vocab_path),
         )
@@ -211,7 +220,10 @@ class TemporalGeneformerDataConfig(DataConfig[TemporalGeneformerDataModule]):
         geneformer_data_artifacts: GeneformerDataArtifacts = self.geneformer_preprocess()
         
         data = TemporalGeneformerDataModule(
-            data_path=self.data_path,
+            train_dataset_path=self.train_dataset_path,
+            val_dataset_path=self.val_dataset_path,
+            test_dataset_path=self.test_dataset_path,
+            predict_dataset_path=self.predict_dataset_path,
             tokenizer=geneformer_data_artifacts.tokenizer,
             median_dict=geneformer_data_artifacts.median_dict,
             seq_length=self.seq_length,

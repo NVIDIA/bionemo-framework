@@ -49,3 +49,13 @@ def cellx_small_directory() -> Path:
         A Path object that is the directory with the specified test data.
     """
     return load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
+
+
+@pytest.fixture
+def test_neighbor_directory() -> Path:
+    """Gets the path to the directory with neighbor test data.
+
+    Returns:
+        A Path object that is the directory with neighbor test data.
+    """
+    return load("scdl/sample_scdl_neighbor")

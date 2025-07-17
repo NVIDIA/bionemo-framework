@@ -79,7 +79,7 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
     def __init__(
         self,
         data_path: Union[str, Path],
-        tokenizer: GeneTokenizer,
+        tokenizer: Any,
         median_dict: Dict[str, float],
         max_len: int = 2048,
         mask_prob: float = 0.15,
@@ -330,7 +330,9 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
         gene_data, col_idxs = np.array(values[0]), np.array(values[1])
 
         if len(gene_data) == 0:
-            raise ValueError(f"Empty gene data for cell {cell_idx}")
+            raise ValueError(
+                f"TemporalGeneformerDataset data provided is invalid; the gene expression data parsed for cell {cell_idx} is empty."
+            )
 
         # Use the core processing steps from process_item()
         gene_names = feature_ids[0][col_idxs]
@@ -356,6 +358,7 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
             token_ids = token_ids[idxs]
 
         # Return raw token_ids and masking flag for temporal sequence construction
+        #NOTE: we don't handle masking here so do we need to track a should_mask flag? re-visit this
         return {
             "token_ids": token_ids,
             "should_mask": apply_masking,
