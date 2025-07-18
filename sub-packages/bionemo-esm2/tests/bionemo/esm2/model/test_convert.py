@@ -104,6 +104,14 @@ def test_nemo2_conversion_equivalent_650m(tmp_path):
         assert_esm2_equivalence(tmp_path / "nemo_checkpoint", model_tag, atol=1e-4, rtol=1e-4)
 
 
+@pytest.mark.slow
+def test_nemo2_export_equivalent_650m(tmp_path):
+    ckpt_path = load("esm2/nv_650m:2.1")
+    output_path = io.export_ckpt(ckpt_path, "hf", tmp_path / "hf_checkpoint")
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        assert_esm2_equivalence(ckpt_path, output_path, precision="bf16")
+
+
 def test_cli_nemo2_conversion_equivalent_8m(tmp_path):
     """Test that the CLI conversion functions maintain model equivalence."""
     model_tag = "facebook/esm2_t6_8M_UR50D"
