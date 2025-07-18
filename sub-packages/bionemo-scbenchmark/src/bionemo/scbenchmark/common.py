@@ -576,9 +576,24 @@ def get_disk_size(path: Union[str, Path]) -> float:
     Returns:
         Size in megabytes (0.0 if path doesn't exist or error occurs)
     """
-    result = subprocess.run(["du", "-sb", path], stdout=subprocess.PIPE, text=True)
-    size_in_bytes = int(result.stdout.split()[0])
-    return size_in_bytes / (1024 * 1024)
+    import platform
+    import subprocess
+    
+    try:
+        # Use appropriate du command based on platform
+        if platform.system() == "Darwin":  # macOS
+            # macOS du doesn't have -b flag, use default (512-byte blocks) and convert
+            result = subprocess.run(["du", "-s", str(path)], stdout=subprocess.PIPE, text=True, check=True)
+            size_in_blocks = int(result.stdout.split()[0])
+            size_in_bytes = size_in_blocks * 512  # macOS du uses 512-byte blocks by default
+        else:  # Linux and others
+            result = subprocess.run(["du", "-sb", str(path)], stdout=subprocess.PIPE, text=True, check=True)
+            size_in_bytes = int(result.stdout.split()[0])
+        
+        return size_in_bytes / (1024 * 1024)
+    except (subprocess.CalledProcessError, ValueError, IndexError) as e:
+        print(f"Warning: Could not determine disk size for {path}: {e}")
+        return 0.0
 
 
 def get_batch_size(batch: Any) -> int:
@@ -625,7 +640,21 @@ def monitor_memory_dynamic_pss(parent_pid, stop_event, result_queue):
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             all_pids = [parent_pid]
 
-        mem = sum(psutil.Process(pid).memory_full_info().pss for pid in all_pids if psutil.pid_exists(pid))
+        # Try PSS first (Linux), fall back to RSS (macOS/Windows)
+        total_mem = 0
+        for pid in all_pids:
+            if psutil.pid_exists(pid):
+                try:
+                    proc = psutil.Process(pid)
+                    mem_info = proc.memory_full_info()
+                    # PSS is Linux-specific, fall back to RSS on other platforms
+                    if hasattr(mem_info, 'pss'):
+                        total_mem += mem_info.pss
+                    else:
+                        total_mem += mem_info.rss
+                except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
+                    continue
+        mem = total_mem
 
         samples.append(mem)
         peak = max(peak, mem)
@@ -652,7 +681,10 @@ def measure_peak_memory_full(func, *args, **kwargs):
     monitor = mp.Process(target=monitor_memory_dynamic_pss, args=(parent_pid, stop_event, result_queue))
 
     gc.collect()
-    baseline = psutil.Process(parent_pid).memory_full_info().pss
+    # Use PSS on Linux, RSS on other platforms
+    proc = psutil.Process(parent_pid)
+    mem_info = proc.memory_full_info()
+    baseline = mem_info.pss if hasattr(mem_info, 'pss') else mem_info.rss
 
     monitor.start()
     start = time.perf_counter()
@@ -668,11 +700,15 @@ def measure_peak_memory_full(func, *args, **kwargs):
     try:
         peak, avg = result_queue.get(timeout=2)
     except Exception:
-        peak = psutil.Process(parent_pid).memory_full_info().pss
+        proc = psutil.Process(parent_pid)
+        mem_info = proc.memory_full_info()
+        peak = mem_info.pss if hasattr(mem_info, 'pss') else mem_info.rss
         avg = peak
 
     gc.collect()
-    final = psutil.Process(parent_pid).memory_full_info().pss
+    proc = psutil.Process(parent_pid)
+    mem_info = proc.memory_full_info()
+    final = mem_info.pss if hasattr(mem_info, 'pss') else mem_info.rss
 
     baseline_mib = baseline / 1024 / 1024
     peak_mib = peak / 1024 / 1024
