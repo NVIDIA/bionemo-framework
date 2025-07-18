@@ -241,6 +241,15 @@ def sequences():
         return [row["Sequence"] for row in reader]
 
 
+@pytest.fixture
+def coding_sequences():
+    with (Path(__file__).parent / "data" / "cds_prompts.csv").open(newline="") as f:
+        from csv import DictReader
+
+        reader = DictReader(f)
+        return [row["Sequence"] for row in reader]
+
+
 def get_trainer(pipeline_parallel=1):
     import nemo.lightning as nl
 
@@ -468,10 +477,13 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         )
 
 
-def mid_point_split(*, seq, num_tokens):
-    mid_point = 2 * (len(seq) // 4)
+def mid_point_split(*, seq, num_tokens: int | None = None, fraction: float = 0.5):
+    mid_point = int(fraction * len(seq))
     prompt = seq[:mid_point]
-    target = seq[mid_point : mid_point + num_tokens]  # Only compare to the section of sequence directly
+    if num_tokens is not None:
+        target = seq[mid_point : mid_point + num_tokens]  # Only compare to the section of sequence directly
+    else:
+        target = seq[mid_point:]
     return prompt, target
 
 
@@ -547,6 +559,95 @@ def test_batch_generate(
     assert len(match_percents) == len(expected_matchpercents)
     matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    )
+
+
+@pytest.mark.parametrize(
+    "ckpt_name,model_tokenizer_provider,expected_matchpercents",
+    [
+        ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
+        ("evo2/1b-8k:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
+        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
+        # ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+    ],
+)
+def test_batch_generate_coding_sequences(
+    coding_sequences: list[str],
+    ckpt_name: str,
+    model_tokenizer_provider: Callable,
+    expected_matchpercents: list[float],
+):
+    assert len(coding_sequences) > 0
+    is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
+    if skip:
+        # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
+        pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
+    if "evo2_mamba" in ckpt_name and os.environ.get("BIONEMO_DATA_SOURCE") != "pbss":
+        # TODO: add evo2_mamba/7b-8k to NGC and remove this skip
+        pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
+    # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
+    vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+
+    match_percents: list[float] = []
+    cds_lengths: list[int | None] = []
+    original_cds_lengths: list[int] = [len(seq) for seq in coding_sequences]
+    seq_prompts = [mid_point_split(seq=seq, num_tokens=None, fraction=0.3) for seq in coding_sequences]
+    num_tokens = max(len(sq[1]) for sq in seq_prompts) + 15
+    from megatron.core.inference.common_inference_params import CommonInferenceParams
+    from nemo.collections.llm.inference import generate
+
+    results = generate(
+        model=inference_wrapped_model,
+        max_batch_size=1,  # vortex only supports batch size 1
+        tokenizer=mcore_tokenizer,
+        prompts=[sq[0] for sq in seq_prompts],
+        random_seed=42,
+        inference_params=CommonInferenceParams(
+            temperature=1.0,
+            top_k=1,
+            top_p=0.0,
+            return_log_probs=False,
+            num_tokens_to_generate=num_tokens,
+        ),
+    )
+
+    for i, (result, (prompt, target)) in enumerate(zip(results, seq_prompts)):
+        gen_seq = result.generated_text
+        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {gen_seq=}")
+        logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {target=}")
+        full_seq = prompt + gen_seq
+        stop_codons = {"TAA", "TAG", "TGA"}
+        assert full_seq[:3] == "ATG"  # start codon
+        cds_length = None
+        for codon_start in range(0, len(full_seq), 3):
+            codon = full_seq[codon_start : codon_start + 3]
+            if codon in stop_codons:
+                cds_length = codon_start + 3
+                break
+        match_percent = calculate_sequence_identity(target, gen_seq)
+        logging.info(
+            f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=} expected: {expected_matchpercents[i]}"
+        )
+        match_percents.append(match_percent)
+        cds_lengths.append(cds_length)
+        # 99% of the time, you have a stop codon within the first 96 codons if everything were random.
+
+    assert len(match_percents) == len(expected_matchpercents)
+    assert len(cds_lengths) == len(original_cds_lengths)
+    matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
+    matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+    # By chance you expect to have a stop codon within the first 96 codons if everything were random
+    #  so verify that we are putting the first stop codon after this point, as well as it being at least 90% of the
+    #  original sequence length.
+    assert all(
+        pcl is None or ((pcl - len(pmpt) > 96 * 3 or len(tgt) < 96 * 3) and pcl >= 0.9 * ocl)
+        for pcl, ocl, (pmpt, tgt) in zip(cds_lengths, original_cds_lengths, seq_prompts)
+    ), f"Expected at least 70% of {original_cds_lengths=}, got {cds_lengths=}"
     assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
         f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
