@@ -163,9 +163,9 @@ def test_train_single_gpu(tmp_path, model_size: str):
     # a local copy of the environment
     env = dict(**os.environ)
     env["MASTER_PORT"] = str(open_port)
-
+    # Part 1: Make sure training runs for only --early-stop-on-step steps
     additional_args1 = [
-        "--experiment-dir",
+        "--result-dir",
         str(tmp_path),
         "--model-size",
         model_size,
@@ -192,10 +192,24 @@ def test_train_single_gpu(tmp_path, model_size: str):
         "--mock-data",
     ]
     args1 = parse_args(args=additional_args1)
-    with distributed_model_parallel_state():
+    stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
+    with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf), distributed_model_parallel_state():
         train(args=args1)
+    train_stdout = stdout_buf.getvalue()
+    train_lines = train_stdout.split("\n")
+    iteration_lines = [line for line in train_lines if "Training epoch" in line]
+    assert len(iteration_lines) == 5
+    iteration_line_1 = iteration_lines[0]
+    # No strong opinion on how the total should be computed in the case of early stopping. We allow either for now
+    #  unless there is an issue, such as with the LR scheduler...
+    # TODO: Add a test somewhere that covers that early stopping callback has no impact on the LR scheduler
+    assert "iteration 0/4" in iteration_line_1 or "iteration 0/6" in iteration_line_1
+    iteration_line_final = iteration_lines[-1]
+    assert "iteration 4/4" in iteration_line_final or "iteration 4/6" in iteration_line_final
+
+    # Part 2: Make sure training picks up where it left off
     additional_args2 = [
-        "--experiment-dir",
+        "--result-dir",
         str(tmp_path),
         "--model-size",
         model_size,
@@ -217,8 +231,17 @@ def test_train_single_gpu(tmp_path, model_size: str):
         "--mock-data",
     ]
     args2 = parse_args(args=additional_args2)
-    with distributed_model_parallel_state():
+    stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
+    with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf), distributed_model_parallel_state():
         train(args=args2)
+    train_stdout = stdout_buf.getvalue()
+    train_lines = train_stdout.split("\n")
+    iteration_lines = [line for line in train_lines if "Training epoch" in line]
+    assert len(iteration_lines) == 2
+    iteration_line_1 = iteration_lines[0]
+    assert "iteration 5/6" in iteration_line_1
+    iteration_line_2 = iteration_lines[1]
+    assert "iteration 6/6" in iteration_line_2
 
 
 @pytest.mark.parametrize(

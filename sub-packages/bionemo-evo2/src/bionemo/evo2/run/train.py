@@ -558,10 +558,11 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "cross_entropy_loss_fusion": args.cross_entropy_loss_fusion,
         "fp32_residual_connection": not args.no_fp32_residual_connection,
         "add_bias_output": args.add_bias_output,
-        "use_targeted_variance_loss": args.use_targeted_variance_loss,
         "use_b2b_causal_conv1d": args.use_b2b_causal_conv1d,
         **activation_checkpointing_args,
     }
+    if args.use_targeted_variance_loss:
+        config_modifiers_init["use_targeted_variance_loss"] = True
     if args.hybrid_override_pattern:
         config_modifiers_init["hybrid_override_pattern"] = args.hybrid_override_pattern
     if args.num_layers:
@@ -609,7 +610,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
         flop_meas_callback = FLOPsMeasurementCallback(
             model_config,
-            data_module,
             data_module,
             "hyena",
         )
