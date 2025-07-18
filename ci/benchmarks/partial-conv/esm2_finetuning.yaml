@@ -69,4 +69,5 @@ script: |-
     --mlp-hidden-size=256 \
     --mlp-target-size=10 \
     --disable-checkpointing \
-    --early-stop-on-step={stop_steps};
+    --early-stop-on-step=${stop_steps} \
+    --create-tflops-callback;

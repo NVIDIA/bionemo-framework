@@ -26,7 +26,9 @@ from nemo import lightning as nl
 from nemo.collections import llm
 from nemo.lightning import resume
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
+from nemo.utils.exp_manager import TimingCallback
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.data.tokenizer import get_tokenizer
@@ -181,6 +183,13 @@ def get_parser():
         help="Stop training on this step, if set. This may be useful for testing or debugging purposes.",
     )
 
+    parser.add_argument(
+        "--create-tflops-callback",
+        action="store_true",
+        default=False,
+        help="Enable tflops calculation callback. Default is False.",
+    )
+
     return parser
 
 
@@ -250,6 +259,7 @@ def train_model(
     lora_finetune: bool = False,
     create_checkpoint_callback: bool = True,
     early_stop_on_step: Optional[int] = None,
+    create_tflops_callback: bool = False,
 ) -> Tuple[Optional[Path], Callback | None, nl.Trainer]:
     config_class = SUPPORTED_CONFIGS[config_class]
     dataset_class = SUPPORTED_DATASETS[dataset_class]
@@ -315,6 +325,7 @@ def train_model(
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         nl_callbacks.PreemptionCallback(),
+        TimingCallback(),
     ]
     if metric_tracker is not None:
         callbacks.append(metric_tracker)
@@ -452,6 +463,16 @@ def train_model(
         )
     else:
         auto_resume = None
+
+    if create_tflops_callback:
+        # Add callback that logs the tera-FLOPS per second per GPU during training.
+        data_module.global_batch_size = global_batch_size
+        flop_meas_callback = FLOPsMeasurementCallback(
+            config,
+            data_module,
+            "bert",
+        )
+        callbacks.append(flop_meas_callback)
 
     trainer = nl.Trainer(
         devices=num_gpus,

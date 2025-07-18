@@ -596,6 +596,7 @@ def test_get_parser():
             "dummy_layer",
             "--early-stop-on-step",
             "800",
+            "--create-tflops-callback",
         ]
     )
 
@@ -648,6 +649,7 @@ def test_get_parser():
     assert args.lr_multiplier == 100
     assert args.scale_lr_layer == "dummy_layer"
     assert args.early_stop_on_step == 800
+    assert args.create_tflops_callback is True
 
 
 def test_disable_checkpointing_arg_parsing():
@@ -676,6 +678,34 @@ def test_disable_checkpointing_arg_parsing():
         ]
     )
     assert args_disabled.create_checkpoint_callback is False, "Flag should disable checkpointing"
+
+
+def test_create_tflops_callback_arg_parsing():
+    """Test the --create-tflops-callback argument parsing."""
+    parser = get_parser()
+
+    # Test default behavior (tflops callback disabled)
+    args_default = parser.parse_args(
+        [
+            "--train-data-path",
+            "train.csv",
+            "--valid-data-path",
+            "valid.csv",
+        ]
+    )
+    assert args_default.create_tflops_callback is False, "Default should disable tflops callback"
+
+    # Test with --create-tflops-callback flag
+    args_enabled = parser.parse_args(
+        [
+            "--train-data-path",
+            "train.csv",
+            "--valid-data-path",
+            "valid.csv",
+            "--create-tflops-callback",
+        ]
+    )
+    assert args_enabled.create_tflops_callback is True, "Flag should enable tflops callback"
 
 
 def test_early_stop_on_step_arg_parsing():
