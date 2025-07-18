@@ -4,10 +4,12 @@ import pandas as pd
 import numpy as np
 import torch
 import sys
+import time
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score, matthews_corrcoef, ndcg_score
 import nemo.lightning as nl
 from pathlib import Path
+import gc
 
 from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
@@ -219,32 +221,43 @@ def get_model_likelihoods(model, trainer, tokenizer, DMS_df, args, seq_len=8192)
     
     print(f"Running inference on {len(sequences)} sequences...")
     
-    try:
-        # Run prediction using trainer (same as eval_ppl.py)
-        results = trainer.predict(model, datamodule=datamodule)
-    except Exception as e:
-        print(f"Error during model prediction: {e}")
-        raise
+    # try:
+    #     # Run prediction using trainer (same as eval_ppl.py)
+    results = trainer.predict(model, datamodule=datamodule)
+
+    # except Exception as e:
+    #     print(f"Error during model prediction: {e}")
+    #     raise
     
-    # Process results (same logic as eval_ppl.py)
-    if trainer.is_global_zero and results:
-        # Extract log probabilities and sequence indices
-        log_probs = torch.cat([r["log_probs_seqs"] for r in results])
-        seq_indices = torch.cat([r["seq_idx"] for r in results])
-        
-        # Sort by original sequence index to match DMS_df order
-        sorted_indices = torch.argsort(seq_indices)
-        sorted_log_probs = log_probs[sorted_indices].cpu().numpy()
-        
-        # Convert to the format expected by fitness evaluation
-        # Note: Model is already configured with correct log_prob_collapse_option (sum/mean)
-        likelihoods = sorted_log_probs.tolist()
-        print(f"Computed {len(likelihoods)} log-likelihoods using {args.reduce_method} method")
-        print(f"Sample log-likelihoods: {likelihoods[:5]}")
-        
+    # Process results with robust distributed handling
+    # Use torch.distributed for more reliable rank checking
+    is_main_rank = True
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        is_main_rank = torch.distributed.get_rank() == 0
+    
+    # Process results if available, regardless of rank (more robust for TP setups)
+    if results and len(results) > 0:
+        try:
+            # Extract log probabilities and sequence indices
+            log_probs = torch.cat([r["log_probs_seqs"] for r in results])
+            seq_indices = torch.cat([r["seq_idx"] for r in results])
+            
+            # Sort by original sequence index to match DMS_df order
+            sorted_indices = torch.argsort(seq_indices)
+            sorted_log_probs = log_probs[sorted_indices].cpu().numpy()
+            
+            # Convert to the format expected by fitness evaluation
+            likelihoods = sorted_log_probs.tolist()
+            
+            if is_main_rank:
+                print(f"Computed {len(likelihoods)} log-likelihoods using {args.reduce_method} method")
+                print(f"Sample log-likelihoods: {likelihoods[:5]}")
+        except Exception as e:
+            print(f"Error processing results: {e}")
+            likelihoods = [None] * len(DMS_df)
     else:
-        # Fallback for non-global-zero ranks or if no results
-        print("No results from trainer.predict() - using None values")
+        if is_main_rank:
+            print("No results from trainer.predict() - using None values")
         likelihoods = [None] * len(DMS_df)
     
     # Create result DataFrame with same index as input
@@ -698,8 +711,12 @@ if __name__ == '__main__':
     # Disable optimizer setup for inference-only mode
     trainer.strategy._setup_optimizers = False  # type: ignore
 
+    # FIX: Prevent repeated checkpoint loading during inference
+    # Previously resume_if_exists=True was causing the model to reload checkpoints
+    # for every trainer.predict() call, leading to intermittent distributed loading failures
+    # Now checkpoint is loaded only once at startup for reliable inference
     resume = nl.AutoResume(
-        resume_if_exists=True,
+        resume_if_exists=False,  # Prevent repeated checkpoint loading during inference
         resume_ignore_no_checkpoint=False,
         resume_past_end=False,
         restore_config=nl.RestoreConfig(
@@ -718,7 +735,7 @@ if __name__ == '__main__':
         log_prob_collapse_option=args.reduce_method,
     )
     resume.setup(trainer, model)
-    print("Model loaded.")
+    print("Model loaded.")  # One-time checkpoint load completed - no more reloading during inference
 
     if args.DMS_filenames:
         if args.DMS_filenames_column and args.DMS_filenames.endswith('.csv'):
@@ -751,7 +768,13 @@ if __name__ == '__main__':
                 sys.exit(1)
             
         for DMS_filename in DMS_filenames:
-            print(f"Evaluating {DMS_filename}")
+            # Force memory cleanup before each file
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()  # Wait for all operations
+            gc.collect()   # Python garbage collection
+            
+            print(f"\n=== Evaluating {DMS_filename} ===")
+            
             args.DMS_path = os.path.join(args.DMS_scores_folder, DMS_filename)
             args.DMS_id = DMS_filename.replace('.csv','')
             
@@ -765,10 +788,20 @@ if __name__ == '__main__':
                 args.taxon = "unknown"
                 
             if os.path.exists(get_fitness_results_path(args)):
-                print(f"Skipping {DMS_filename} because it already exists")
+                print(f"⏭️  Skipping {DMS_filename} (already exists)")
                 continue
             
-            eval_DMS_file(model, trainer, tokenizer, args, seq_len)
+            # Try processing with error handling
+            start_time = time.time()
+            try:
+                eval_DMS_file(model, trainer, tokenizer, args, seq_len)
+                elapsed = time.time() - start_time
+                print(f"✅ SUCCESS in {elapsed:.1f}s")
+            except Exception as e:
+                elapsed = time.time() - start_time  
+                print(f"❌ FAILED after {elapsed:.1f}s: {str(e)[:100]}...")
+                # Continue with next file instead of crashing
+                continue
             
     elif args.DMS_path:
         args.DMS_id = os.path.basename(args.DMS_path).replace('.csv','')
