@@ -23,6 +23,11 @@ and reports performance metrics including instantiation time, samples per second
 baseline memory, and peak memory.
 """
 
+# Show banner only when run as script (not when imported)
+if __name__ == "__main__":
+    print("BioNeMo::SCDL Benchmarking")
+    print("Loading dependencies...")
+
 import argparse
 import gc
 import json
@@ -39,6 +44,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
+
+def _dep_message():
+    print("To install all dependencies, run: pip install torch pandas psutil tqdm bionemo-scdl")
+
 # Import with helpful error messages
 try:
     import torch
@@ -46,6 +55,7 @@ try:
 except ImportError as e:
     print("Error: PyTorch not found. Please install with:")
     print("   pip install torch")
+    _dep_message()
     sys.exit(1)
 
 try:
@@ -53,6 +63,7 @@ try:
 except ImportError as e:
     print("Error: psutil not found. Please install with:")
     print("   pip install psutil")
+    _dep_message()
     sys.exit(1)
 
 try:
@@ -60,6 +71,7 @@ try:
 except ImportError as e:
     print("Error: pandas not found. Please install with:")
     print("   pip install pandas")
+    _dep_message()
     sys.exit(1)
 
 try:
@@ -67,6 +79,7 @@ try:
 except ImportError as e:
     print("Error: tqdm not found. Please install with:")
     print("   pip install tqdm")
+    _dep_message()
     sys.exit(1)
 
 try:
@@ -78,16 +91,24 @@ except ImportError as e:
     print("\nAlternatively, if you have the source code:")
     print("   cd /path/to/bionemo-framework")
     print("   pip install -e sub-packages/bionemo-scdl/")
+    _dep_message()
     sys.exit(1)
 
 # Optional AnnData import for baseline comparison
+# These packages are only required when using --generate-baseline
 try:
     import anndata
     import numpy as np
     import scipy.sparse as sp
     ANNDATA_AVAILABLE = True
 except ImportError:
+    # AnnData and/or scipy not available - baseline comparison will be disabled
     ANNDATA_AVAILABLE = False
+
+# Show completion message after all imports are done
+if __name__ == "__main__":
+    print("Done.")
+    print()
 
 
 class AnnDataDataset:
@@ -1138,8 +1159,17 @@ Examples:
     # Check if baseline generation is requested
     if args.generate_baseline:
         if not ANNDATA_AVAILABLE:
-            print("Error: AnnData baseline requires additional packages:")
+            print("Error: AnnData baseline comparison requires additional packages that are not installed.")
+            print("")
+            print("To use the --generate-baseline feature, please install:")
             print("   pip install anndata scipy")
+            print("")
+            print("These packages are needed to:")
+            print("  - Load .h5ad files with AnnData")
+            print("  - Handle sparse matrices with scipy")
+            print("  - Run baseline comparisons between SCDL and AnnData datasets")
+            print("")
+            print("Alternatively, run without --generate-baseline to benchmark SCDL only.")
             sys.exit(1)
         
         if args.input and not args.input.endswith('.h5ad'):

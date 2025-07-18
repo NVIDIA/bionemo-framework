@@ -4,6 +4,14 @@ A standalone benchmark script for evaluating SingleCellMemMapDataset performance
 
 ## Quick Start
 
+### 0. Use a virtual environment
+
+```bash
+python -m venv bionemo_scdl_benchmark
+
+source bionemo_scdl_benchmark/bin/activate
+```
+
 ### 1. Install Dependencies
 
 ```bash
@@ -32,6 +40,12 @@ python scdl_benchmark_standalone.py -i your_dataset.h5ad
 
 # Export a detailed CSV file
 python scdl_benchmark_standalone.py --csv
+```
+
+3. Deactivate your virtual environment to return to your original shell state
+
+```bash
+deactivate
 ```
 
 ## Usage Examples
