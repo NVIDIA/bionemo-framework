@@ -17,8 +17,9 @@
 # limitations under the License.
 
 import logging
+import os
 from pathlib import Path
-from typing import Literal, Set
+from typing import Callable, Literal
 
 import numpy as np
 import pytest
@@ -46,7 +47,7 @@ logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
 def load_weights_sharded_inplace_nemo2_to_mcore(
     model: MegatronModelType,
     distributed_checkpoint_dir: str | Path,
-    skip_keys_with_these_prefixes: Set[str],
+    skip_keys_with_these_prefixes: set[str],
     ckpt_format: Literal["zarr", "torch_dist"] = "torch_dist",
 ):
     logger.info("Start setting up state dict")
@@ -274,11 +275,19 @@ def get_trainer(pipeline_parallel=1):
     )
 
 
-def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
+def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, **kwargs):
+    """
+    Load a model and tokenizer from a checkpoint directory or name. If you supply a Path argument then we assume that
+    the path is already a checkpoint directory, otherwise we load the checkpoint from NGC or PBSS depending on
+    the environment variable BIONEMO_DATA_SOURCE.
+    """
     trainer = get_trainer()
     from bionemo.core.data.load import load
 
-    ckpt_dir: Path = load(ckpt_name)
+    if isinstance(ckpt_dir_or_name, Path):
+        ckpt_dir: Path = ckpt_dir_or_name
+    else:
+        ckpt_dir: Path = load(ckpt_dir_or_name)
     from nemo.collections.llm import inference
 
     inference_wrapped_model, mcore_tokenizer = inference.setup_model_and_tokenizer(
@@ -287,18 +296,21 @@ def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
         params_dtype=torch.bfloat16,
         inference_batch_times_seqlen_threshold=8192,  # TODO
         inference_max_seq_length=8192,  # TODO
-        vortex_style_fp8=vortex_style_fp8,
-        # use_te_rng_tracker=True,
-        # te_rng_tracker=True,
-        # inference_rng_tracker=True,
-        # enable_cuda_graph=True,
-        # cudagraph_rng_tracker=True,
-        # flash_decode=True,
         recompute_granularity=None,
         recompute_num_layers=None,
         recompute_method=None,
+        **kwargs,
     )
     return inference_wrapped_model, mcore_tokenizer
+
+
+def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
+    return get_model_and_tokenizer_raw(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+
+
+def get_model_and_tokenizer_ignore_vortex(ckpt_name, vortex_style_fp8=False):
+    # Capture and remove the vortex_style_fp8 argument for mamba models.
+    return get_model_and_tokenizer_raw(ckpt_name)
 
 
 def calc_matchrate(*, tokenizer, in_seq, logits):
@@ -476,24 +488,30 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
 
 
 @pytest.mark.parametrize(
-    "ckpt_name,expected_matchpercents",
+    "ckpt_name,model_tokenizer_provider,expected_matchpercents",
     [
-        ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6]),
-        ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6]),
-        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
+        ("evo2/1b-8k:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
+        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [99.2, 51.0, 73.0, 82.6]),
+        # ("evo2/7b-8k:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
     ],
 )
-def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
+def test_batch_generate(
+    sequences: list[str], ckpt_name: str, model_tokenizer_provider: Callable, expected_matchpercents: list[float]
+):
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
+    if "evo2_mamba" in ckpt_name and os.environ.get("BIONEMO_DATA_SOURCE") != "pbss":
+        # TODO: add evo2_mamba/7b-8k to NGC and remove this skip
+        pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-    inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(ckpt_name, vortex_style_fp8=vortex_style_fp8)
 
     match_percents = []
     num_tokens = 500
