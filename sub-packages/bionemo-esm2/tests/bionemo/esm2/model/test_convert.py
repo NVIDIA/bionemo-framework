@@ -57,6 +57,9 @@ def test_nemo2_export_8m_weights_equivalent(tmp_path):
     hf_model_from_nemo = AutoModelForMaskedLM.from_pretrained(output_path)
     hf_model_from_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
 
+    # We should not have any NaNs in the model, even in heads that we don't explicitly initialize.
+    assert not {name: param for name, param in hf_model_from_nemo.named_parameters() if param.data.isnan().any()}
+
     del hf_model_from_nemo.esm.contact_head
     del hf_model_from_hf.esm.contact_head
 
