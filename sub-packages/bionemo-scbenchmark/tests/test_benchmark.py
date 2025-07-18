@@ -33,8 +33,6 @@ from bionemo.scbenchmark import (
     BenchmarkResult,
     benchmark_any_dataloader,
     benchmark_dataloader,
-    benchmark_multiple_dataloaders,
-    benchmark_multiple_dataloaders_simple,
 )
 
 
@@ -213,10 +211,10 @@ def test_benchmark_with_disk_measurement():
         assert len(result.errors) == 0
 
 
-def test_benchmark_multiple_dataloaders():
-    """Test benchmarking multiple dataloaders.
+def test_benchmark_dataloader_multiple_mode():
+    """Test benchmarking multiple dataloaders using benchmark_dataloader.
 
-    This test verifies that the benchmark_multiple_dataloaders function
+    This test verifies that the benchmark_dataloader function
     works correctly with multiple dataloader configurations. It checks
     that results are saved to files when an output directory is provided.
     """
@@ -224,7 +222,7 @@ def test_benchmark_multiple_dataloaders():
         dataloaders = [
             {
                 "name": "Dataloader 1",
-                "factory": create_test_dataloader,
+                "dataloader_factory": create_test_dataloader,
                 "num_epochs": 1,
                 "max_batches": 3,
                 "warmup_batches": 0,
@@ -232,7 +230,7 @@ def test_benchmark_multiple_dataloaders():
             },
             {
                 "name": "Dataloader 2",
-                "factory": create_simple_iterator,
+                "dataloader_factory": create_simple_iterator,
                 "num_epochs": 1,
                 "max_batches": 3,
                 "warmup_batches": 0,
@@ -240,7 +238,7 @@ def test_benchmark_multiple_dataloaders():
             },
         ]
 
-        results = benchmark_multiple_dataloaders(dataloaders=dataloaders, output_dir=temp_dir)
+        results = benchmark_dataloader(dataloaders=dataloaders, output_dir=temp_dir)
 
         assert len(results) == 2
         assert all(isinstance(r, BenchmarkResult) for r in results)
@@ -437,60 +435,6 @@ def test_benchmark_generator_dataloader():
     assert result.name == "Generator Dataloader"
     assert result.total_batches > 0
     assert len(result.errors) == 0
-
-
-def test_benchmark_multiple_dataloaders_simple():
-    """Test the simple interface for multiple dataloaders.
-
-    This test verifies that the simple interface works correctly
-    when benchmarking multiple dataloaders simultaneously. It
-    checks that results are saved to files and that all dataloaders
-    are processed correctly.
-    """
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Create different types of dataloaders
-        dataset = TestDataset(size=30)
-        dataloader1 = DataLoader(dataset, batch_size=8, shuffle=False)
-        dataloader2 = CustomDataloader(size=15)
-        dataloader3 = [torch.randn(5) for _ in range(10)]
-
-        dataloaders = [
-            {
-                "name": "PyTorch DataLoader",
-                "dataloader": dataloader1,
-                "num_epochs": 1,
-                "max_batches": 3,
-                "warmup_batches": 0,
-                "print_progress": False,
-            },
-            {
-                "name": "Custom Dataloader",
-                "dataloader": dataloader2,
-                "num_epochs": 1,
-                "max_batches": 3,
-                "warmup_batches": 0,
-                "print_progress": False,
-            },
-            {
-                "name": "List Dataloader",
-                "dataloader": dataloader3,
-                "num_epochs": 1,
-                "max_batches": 3,
-                "warmup_batches": 0,
-                "print_progress": False,
-            },
-        ]
-
-        results = benchmark_multiple_dataloaders_simple(dataloaders=dataloaders, output_dir=temp_dir)
-
-        assert len(results) == 3
-        assert all(isinstance(r, BenchmarkResult) for r in results)
-        assert all(len(r.errors) == 0 for r in results)
-
-        # Check that files were saved
-        assert os.path.exists(os.path.join(temp_dir, "PyTorch DataLoader_results.json"))
-        assert os.path.exists(os.path.join(temp_dir, "Custom Dataloader_results.json"))
-        assert os.path.exists(os.path.join(temp_dir, "List Dataloader_results.json"))
 
 
 if __name__ == "__main__":

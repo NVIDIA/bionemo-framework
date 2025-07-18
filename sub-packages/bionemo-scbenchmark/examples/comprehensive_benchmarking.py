@@ -18,15 +18,14 @@
 
 
 # Import AnnData support
-import random
-import string
 
 import anndata as ad
 from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
 
 # Import the benchmarking framework
-from bionemo.scbenchmark import benchmark_multiple_dataloaders
+from bionemo.scbenchmark import benchmark_dataloader
+from bionemo.scbenchmark.common import export_benchmark_results
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 
@@ -80,16 +79,20 @@ def create_scdl_factory(batch_size=32, shuffle=True, adata_path=None, data_path=
     return factory
 
 
-def comprehensive_benchmarking_example():
+def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
     """Run comprehensive benchmarking with all features.
 
     This function demonstrates every capability of the benchmarking framework
-    using AnnData dataloaders with different configurations.
+    using AnnData dataloaders with different configurations, including
+    multi-epoch benchmarking and multiple runs for statistical analysis.
+
+    Args:
+        num_epochs: Number of epochs to run for each benchmark (default: 3)
+        num_runs: Number of times to run each configuration for statistics (default: 1)
     """
     print("=" * 80)
     print("COMPREHENSIVE BENCHMARKING EXAMPLE")
     print("=" * 80)
-    print("Demonstrating ALL framework features with AnnData dataloaders...")
     print()
 
     # Try to use real AnnData if available
@@ -98,38 +101,30 @@ def comprehensive_benchmarking_example():
 
     # Create different configurations of the same dataloader
 
+    # 7. MULTIPLE CONFIGURATIONS WITH STATISTICAL ANALYSIS
+    print(f"🚀 Benchmarking {num_runs} run(s) each")
+    print()
+    """        {
+            "name": "SCDL madvise_1",
+            "dataloader_factory": create_scdl_factory(
+                batch_size=64,
+                shuffle=True,
+                adata_path=adata_path,
+                data_path=memmap_path,
+                num_workers=0,
+            ),
+            "num_epochs": num_epochs,
+            "max_time_seconds": 1000.0,
+            "warmup_seconds": 10.0,
+            "data_path": memmap_path,
+            "madvise_interval": 1,
+            "num_runs": num_runs
+        },
+    """
     configurations = [
-                {
-            "name": "SCDL Simple (64)",
-            "dataloader_factory": create_scdl_factory(
-                batch_size=64,
-                shuffle=True,
-                adata_path=adata_path,
-                data_path=memmap_path,
-                num_workers=0,
-            ),
-            "max_time_seconds": 1000.0,
-            "warmup_seconds": 5.0,
-            "data_path": memmap_path,
-            "madvise_interval": 1
-        },
-
+        # Example: Enable per-iteration time and memory (RSS) logging every 5 batches
         {
-            "name": "SCDL Simple (64) ",
-            "dataloader_factory": create_scdl_factory(
-                batch_size=64,
-                shuffle=True,
-                adata_path=adata_path,
-                data_path= memmap_path,
-                num_workers=0,
-            ),
-            "max_time_seconds": 1000.0,
-            "warmup_seconds": 5.0,
-            "data_path": memmap_path,
-            "madvise_interval": 10
-        },
-                {
-            "name": "SCDL Simple (64)",
+            "name": "SCDL madvise_1",
             "dataloader_factory": create_scdl_factory(
                 batch_size=64,
                 shuffle=True,
@@ -137,13 +132,16 @@ def comprehensive_benchmarking_example():
                 data_path=memmap_path,
                 num_workers=0,
             ),
+            "num_epochs": num_epochs,
             "max_time_seconds": 1000.0,
-            "warmup_seconds": 5.0,
+            "warmup_seconds": 10.0,
             "data_path": memmap_path,
-            "madvise_interval": None
+            "madvise_interval": 1,
+            "num_runs": 1,
+            "log_iteration_times_to_file": None,
         },
-              {
-            "name": "SCDL Simple (64) ",
+        {
+            "name": "SCDL per-iteration time+memory logging (every 5 batches)",
             "dataloader_factory": create_scdl_factory(
                 batch_size=64,
                 shuffle=True,
@@ -151,108 +149,53 @@ def comprehensive_benchmarking_example():
                 data_path=memmap_path,
                 num_workers=0,
             ),
+            "num_epochs": num_epochs,
             "max_time_seconds": 1000.0,
-            "warmup_seconds": 5.0,
+            "warmup_seconds": 10.0,
             "data_path": memmap_path,
-            "madvise_interval": 100
+            "madvise_interval": 1,
+            "num_runs": num_runs,
+            # Set to None for no logging, or an integer interval for logging every N batches
+            # The log file will contain both iteration time and memory (RSS) usage for each batch
+            "log_iteration_times_to_file": 5,  # Log time and memory every 5 batches
         },
-
-
     ]
-    """
-            {
-            "name": "SCDL Simple (64) 8 workers",
-            "dataloader_factory": create_scdl_factory(
-                batch_size=64,
-                shuffle=True,
-                adata_path=adata_path,
-                data_path=f"{memmap_path}_{random_prefix2}",
-                num_workers=8,
-            ),
-            "max_time_seconds": 100.0,
-            "warmup_seconds": 0.5,
-            "data_path": f"{memmap_path}_{random_prefix2}",
-        },
-        {
-            "name": "Anndata backed (64)",
-            "dataloader_factory": create_annloader_factory(
-                batch_size=64, shuffle=True, backed="r", data_path=adata_path, num_workers=0
-            ),
-            "max_time_seconds": 4.0,
-            "warmup_seconds": 0.1,
-            "data_path": adata_path,
-        },
-        {
-            "name": "Anndata (64)",
-            "dataloader_factory": (
-                batch_size=64, shuffle=Tcreate_annloader_factoryrue, backed=False, data_path=adata_path, num_workers=0
-            ),
-            "max_time_seconds": 4.0,
-            "warmup_seconds": 0.1,
-            "data_path": adata_path,
-        },
+    # To use: set 'log_iteration_times_to_file' to None (no logging) or an integer interval (e.g., 1 for every batch).
+    # The log file will contain columns: epoch, batch, iteration_time_s, rss_mb, run_name
 
-    """
-    results = benchmark_multiple_dataloaders(dataloaders=configurations, output_dir="comprehensive_anndata_results")
+    results = benchmark_dataloader(dataloaders=configurations, output_dir="comprehensive_anndata_results")
 
-    print("✅ Multiple configuration comparison completed!")
-    print("   Results saved to: comprehensive_anndata_results/")
+    print("✅ Benchmarking completed!")
     print()
 
     # 9. SUMMARY AND ANALYSIS
-    print("8️⃣ SUMMARY AND ANALYSIS")
-    print("-" * 50)
-
-    # Use results from the multiple configuration comparison
     if results:
         # Find best performers
         best_samples_per_sec = max(results, key=lambda r: r.samples_per_second)
-        fastest_instantiation = min(results, key=lambda r: r.instantiation_time_seconds)
         lowest_memory = min(results, key=lambda r: r.peak_memory_mb)
 
         print("🏆 BEST PERFORMERS:")
-        print(f"   Best samples/second: {best_samples_per_sec.name} ({best_samples_per_sec.samples_per_second:.2f})")
         print(
-            f"   Fastest instantiation: {fastest_instantiation.name} ({fastest_instantiation.instantiation_time_seconds:.4f}s)"
+            f"   Best speed: {best_samples_per_sec.name} ({best_samples_per_sec.samples_per_second:.2f} samples/sec)"
         )
         print(f"   Lowest memory: {lowest_memory.name} ({lowest_memory.peak_memory_mb:.2f} MB)")
         print()
 
-        print("📊 PERFORMANCE COMPARISON:")
-        # Prepare the summary table as a string
-        summary_lines = []
-        header = f"{'Name':<25} {'Samples/sec':<12} {'Inst Time':<10} {'Peak Mem':<10} {'Avg Mem':<10}"
-        summary_lines.append(header)
-        summary_lines.append("-" * 60)
-        for result in results:
-            line = (
-                f"{result.name:<25} {result.samples_per_second:<12.2f} {result.instantiation_time_seconds:<10.4f} "
-                f"{result.peak_memory_mb-result.memory_before_instantiation_mb:<10.2f} "
-                f"{result.average_memory_mb-result.memory_before_instantiation_mb:<10.2f}"
-            )
-            summary_lines.append(line)
-            print(line)
-        # Print the header after the loop to match the original order
-        print(header)
-        print("-" * 60)
-        # Save to file
-        summary_filename = "comprehensive_benchmark_summary.txt"
-        with open(summary_filename, "w") as f:
-            for line in summary_lines:
-                f.write(line + "\n")
-        print(f"\n📄 Benchmark summary saved to: {summary_filename}")
+        # Use shared utility for comprehensive export
+        export_benchmark_results(results=results, output_prefix="comprehensive_benchmark_data")
 
-    print()
     print("🎉 COMPREHENSIVE BENCHMARKING COMPLETED!")
 
 
 if __name__ == "__main__":
-    """Main execution function for comprehensive benchmarking.
-
-    This function runs the complete comprehensive benchmarking example
-    that demonstrates all features of the framework.
-    """
     print("BioNeMo Benchmarking Framework - Comprehensive Example")
     print("=" * 80)
 
-    comprehensive_benchmarking_example()
+    # Run with default settings (3 epochs, 1 run each)
+    # comprehensive_benchmarking_example()
+
+    # Example: Run with statistical analysis (3 runs each for better confidence)
+    print("\n" + "=" * 80)
+    print("📊 MULTIPLE RUNS EXAMPLE")
+    print("=" * 80)
+    comprehensive_benchmarking_example(num_epochs=2, num_runs=3)
