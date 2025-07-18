@@ -29,11 +29,19 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
-import subprocess
 
+import pandas as pd
+import psutil
 from tqdm import tqdm
 
-from bionemo.scbenchmark.common import BenchmarkResult, get_batch_size, get_disk_size, measure_peak_memory_full
+from bionemo.scbenchmark.common import (
+    BenchmarkResult,
+    aggregate_benchmark_results,
+    export_benchmark_results,
+    get_batch_size,
+    get_disk_size,
+    measure_peak_memory_full,
+)
 
 
 @dataclass
@@ -59,35 +67,46 @@ class BenchmarkConfig:
     num_epochs: int = 1
     max_batches: Optional[int] = None
     max_time_seconds: Optional[float] = None
-    warmup_batches: int = 5
+    warmup_batches: Optional[int] = None
     warmup_time_seconds: Optional[float] = None
     print_progress: bool = True
     data_path: Optional[Union[str, Path]] = None
     madvise_interval: Optional[int] = None
     shuffle: bool = False
+    track_iteration_times: bool = False
+    log_iteration_times_to_file: Optional[int] = None  # None for no logging, or integer interval
 
 
-def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
+def run_benchmark(
+    dataloader: Any, config: BenchmarkConfig, run_name: Optional[str] = None, output_dir: Optional[str] = None
+) -> BenchmarkResult:
     """Run the actual benchmark and collect metrics.
-
-    This method executes the main benchmark loop, collecting timing
-    and memory metrics for each batch. It respects both time-based
-    and batch-based limits, and provides progress reporting.
 
     Args:
         dataloader: The dataloader to benchmark
         config: Configuration for the benchmark run
+        run_name: Optional name for this run (used in iteration time logging)
+        output_dir: Optional directory to save iteration time logs
 
     Returns:
         BenchmarkResult containing all collected data and calculated metrics
     """
     # Use measure_peak_memory_full to get memory info during benchmark
     gc.collect()
-    def benchmark_iteration():
+
+    def benchmark_iteration_single_epoch(epoch_num, do_warmup):
+        """Run a single epoch of benchmarking, with optional warmup."""
         update_interval = 10
-        total_samples = 0
-        total_batches = 0
-        pbar = tqdm(desc=f"{config.name} (for {config.max_time_seconds})")
+        epoch_samples = 0
+        epoch_batches = 0
+        warmup_samples = 0
+        warmup_batches = 0
+        warmup_time = 0.0
+        print("Starting benchmark for ", config.name, config.print_progress)
+        pbar = tqdm(
+            desc=f"{config.name} - Epoch {epoch_num + 1}/{config.num_epochs}", disable=not config.print_progress
+        )
+
         if config.shuffle:
             dataloader.dataset.row_index._mmap.madvise(mmap.MADV_RANDOM)
             dataloader.dataset.col_index._mmap.madvise(mmap.MADV_RANDOM)
@@ -97,9 +116,8 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
             dataloader.dataset.col_index._mmap.madvise(mmap.MADV_SEQUENTIAL)
             dataloader.dataset.data._mmap.madvise(mmap.MADV_SEQUENTIAL)
 
-
-        # Initialize warm-up timer - only if warmup_time_seconds is set
-        if config.warmup_time_seconds is not None and config.warmup_time_seconds > 0:
+        # Initialize warm-up timer - only if this is the first epoch and warmup is requested
+        if do_warmup and config.warmup_time_seconds is not None and config.warmup_time_seconds > 0:
             warm_up_start = time.perf_counter()
             warm_up_end = warm_up_start + config.warmup_time_seconds
             is_warming_up = True
@@ -111,74 +129,325 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
             warm_up_start = None
             warm_up_end = None
             start_time = time.perf_counter()
-            end_time = start_time + config.max_time_seconds
+            # If max_time_seconds is None, end_time is None and we iterate over the whole dataloader
+            end_time = start_time + config.max_time_seconds if config.max_time_seconds is not None else None
 
+        prev_time = None
+        iteration_times = []
         for num, batch in enumerate(dataloader):
             batch_size = get_batch_size(batch)
-
             current_time = time.perf_counter()
-            if config.madvise_interval and num%config.madvise_interval == 0:
+
+            if config.madvise_interval and num % config.madvise_interval == 0:
                 dataloader.dataset.row_index._mmap.madvise(mmap.MADV_DONTNEED)
                 dataloader.dataset.col_index._mmap.madvise(mmap.MADV_DONTNEED)
                 dataloader.dataset.data._mmap.madvise(mmap.MADV_DONTNEED)
-            if is_warming_up:
-                # We're in warm-up period
-                if current_time >= warm_up_end:
-                    # Warm-up complete, start the actual timing
-                    is_warming_up = False
-                    total_samples = 0
-                    start_time = time.perf_counter()
-                    end_time = start_time + config.max_time_seconds
-                    pbar.set_description(
-                        f"{config.name} (warming up complete, testing for {config.max_time_seconds}s)"
-                    )
-                else:
-                    if total_batches % update_interval == 0:
-                        pbar.set_description(
-                            f"{config.name} (warming up: {current_time - warm_up_start:.1f}/{config.warmup_time_seconds}s)"
+
+            if config.track_iteration_times or config.log_iteration_times_to_file is not None:
+                if prev_time is not None:
+                    iter_time = current_time - prev_time
+
+                    # Log to file if interval is set and it's the right batch
+                    interval = config.log_iteration_times_to_file
+                    if interval is not None and interval > 0 and (num % interval == 0):
+                        rss_bytes = psutil.Process(os.getpid()).memory_info().rss
+                        rss_mb = rss_bytes / (1024 * 1024)
+                        iteration_times.append(
+                            {
+                                "epoch": epoch_num + 1,
+                                "batch": num,
+                                "iteration_time_s": iter_time,
+                                "rss_mb": rss_mb,
+                                "run_name": config.name if config.name else "benchmark",
+                            }
                         )
-                    pbar.update(1)
-                    continue
+            prev_time = current_time
 
-            # Now we're past the warm-up period
-            total_samples += batch_size
-            total_batches += 1
-            elapsed = current_time - start_time
-            if total_batches % update_interval == 0:
-                pbar.set_postfix(samples=total_samples, elapsed=f"{elapsed:.2f}s")
+            if is_warming_up:
+                # We're in warm-up period - count samples and batches
+                warmup_samples += batch_size
+                warmup_batches += 1
+
+                if current_time >= warm_up_end:
+                    # Warm-up complete and start the actual timing
+                    warmup_time = current_time - warm_up_start
+
+                    if config.print_progress:
+                        print(f"🔥 Warmup completed: {warmup_samples:,} samples, {warmup_batches:,} batches")
+
+                    is_warming_up = False
+                    start_time = time.perf_counter()
+                    end_time = start_time + config.max_time_seconds if config.max_time_seconds is not None else None
+                    pbar.set_description(f"{config.name} - Epoch {epoch_num + 1} (warmup complete)")
+                else:
+                    if warmup_batches % update_interval == 0:
+                        elapsed_warmup = current_time - warm_up_start
+                        current_warmup_speed = warmup_samples / elapsed_warmup if elapsed_warmup > 0 else 0
+                        pbar.set_description(
+                            f"{config.name} - Warmup: {elapsed_warmup:.1f}/{config.warmup_time_seconds}s, {current_warmup_speed:.1f} samples/sec"
+                        )
+                        pbar.update(update_interval)
+                del batch
+                continue
+
+            # Now we're past the warm-up period (or no warmup)
+            epoch_samples += batch_size
+            epoch_batches += 1
+            elapsed = current_time - start_time if start_time else 0
+            if epoch_batches % update_interval == 0:
+                postfix_dict = {
+                    "epoch": f"{epoch_num + 1}/{config.num_epochs}",
+                    "samples": epoch_samples,
+                    "elapsed": f"{elapsed:.2f}s",
+                }
+                # Add iteration timing info if tracking is enabled and we have timing data
+                # if config.track_iteration_times and prev_time is not None and 'iter_time' in locals():
+                #    postfix_dict["iter_time"] = f"{iter_time:.4f}s"
+                pbar.set_postfix(**postfix_dict, refresh=False)
                 pbar.update(update_interval)
-            del batch
 
-            if current_time >= end_time:
+            # Check max_batches limit
+            if config.max_batches and epoch_batches >= config.max_batches:
                 break
+
+            # Check time limit
+            # Only break if end_time is set (i.e., max_time_seconds is not None)
+            if end_time is not None and current_time >= end_time:
+                break
+
         pbar.close()
-        print("TOTAL SAMPLES!!!", total_samples)
 
-        return total_samples, total_batches
+        return epoch_samples, epoch_batches, warmup_samples, warmup_batches, warmup_time, iteration_times
 
-    (total_samples, total_batches), baseline, peak,avg, _, _, iteration_time = measure_peak_memory_full(
-        benchmark_iteration
-    )
+    epoch_results = []
+    total_warmup_samples = 0
+    total_warmup_batches = 0
+    total_warmup_time = 0.0
+    all_iteration_times = []
+
+    for epoch in range(config.num_epochs):
+        # Create a modified benchmark_iteration for this epoch
+        def epoch_benchmark_iteration():
+            return benchmark_iteration_single_epoch(epoch, epoch == 0)  # Only warmup on first epoch
+
+        result_tuple = measure_peak_memory_full(epoch_benchmark_iteration)
+        (
+            (epoch_samples, epoch_batches, warmup_samples, warmup_batches, warmup_time, iteration_times),
+            baseline,
+            peak,
+            avg,
+            _,
+            _,
+            iteration_time,
+        ) = result_tuple
+
+        # Accumulate warmup data (only first epoch will have non-zero values)
+        total_warmup_samples += warmup_samples
+        total_warmup_batches += warmup_batches
+        total_warmup_time += warmup_time
+        all_iteration_times.extend(iteration_times)
+
+        epoch_results.append(
+            {
+                "epoch": epoch + 1,
+                "samples": epoch_samples,
+                "batches": epoch_batches,
+                "warmup_samples": warmup_samples,
+                "warmup_batches": warmup_batches,
+                "peak_memory": peak,
+                "avg_memory": avg,
+                "iteration_time": iteration_time,
+                "warmup_time": warmup_time,
+            }
+        )
+
+        if config.print_progress:
+            print(f"📊 Epoch {epoch + 1} completed: {epoch_samples:,} samples, {epoch_batches:,} batches")
+
+    # Calculate totals across all epochs
+    total_samples = sum(r["samples"] for r in epoch_results)
+    total_batches = sum(r["batches"] for r in epoch_results)
+    total_iteration_time = sum(r["iteration_time"] for r in epoch_results)  # Fixed: use total time, not average
+
+    # Print epoch results summary - removed verbose output
 
     result = BenchmarkResult.from_raw_metrics(
         name=config.name,
         madvise_interval=config.madvise_interval,
-        batch_times=[],  # Not collecting individual batch times
-        memory_samples=[],  # Not collecting individual memory samples
+        data_path=str(config.data_path) if config.data_path else None,
+        max_time_seconds=config.max_time_seconds,
+        shuffle=config.shuffle,
         total_samples=total_samples,
         total_batches=total_batches,
         setup_time=0,  # Will be set by caller
-        warmup_time=0.0,  # Will be set by caller
-        iteration_time=iteration_time,
+        warmup_time=total_warmup_time,
+        iteration_time=total_iteration_time,  # Fixed: use total time
+        warmup_samples=total_warmup_samples,
+        warmup_batches=total_warmup_batches,
     )
 
-    # Update with memory information from measure_peak_memory_full
-    result.peak_memory_mb = peak
-    result.average_memory_mb = avg
+    # Add epoch results to the result object for further analysis
+    result.epoch_results = epoch_results
+
+    # Update with memory information from measure_peak_memory_full (use max across epochs)
+    max_peak_memory = max(r["peak_memory"] for r in epoch_results)
+    avg_memory = sum(r["avg_memory"] for r in epoch_results) / len(epoch_results)
+
+    result.peak_memory_mb = max_peak_memory
+    result.average_memory_mb = avg_memory
+
+    # After all epochs, if logging is enabled, write iteration times to file
+    if config.log_iteration_times_to_file is not None and all_iteration_times:
+        log_dir = output_dir if output_dir else os.getcwd()
+        log_file = os.path.join(log_dir, f"{run_name or config.name}_iteration_times.csv")
+        pd.DataFrame(all_iteration_times).to_csv(log_file, index=False)
+        # print(f"Per-iteration times logged to {log_file}")
+
     return result
 
 
 def benchmark_dataloader(
+    name: Optional[str] = None,
+    dataloader_factory: Optional[Callable[[], Any]] = None,
+    dataloaders: Optional[List[Dict[str, Any]]] = None,
+    data_path: Optional[Union[str, Path]] = None,
+    num_epochs: int = 1,
+    max_batches: Optional[int] = None,
+    max_time_seconds: Optional[float] = None,
+    warmup_batches: int = 5,
+    warmup_time_seconds: Optional[float] = None,
+    print_progress: bool = True,
+    madvise_interval: Optional[int] = None,
+    shuffle: bool = False,
+    num_runs: int = 1,
+    output_dir: Optional[str] = None,
+    track_iteration_times: bool = False,
+    log_iteration_times_to_file: Optional[int] = None,
+) -> Union[BenchmarkResult, List[BenchmarkResult]]:
+    """Benchmark one or multiple dataloaders using factory functions.
+
+    This function can handle both single dataloader benchmarking and multiple
+    dataloader comparison. It measures both instantiation time/memory and
+    iteration performance to give you a complete picture of dataloader performance.
+
+    Args:
+        # Single dataloader mode parameters:
+        name: Name for this dataloader benchmark
+        dataloader_factory: Function that creates a dataloader object
+        data_path: Path to data files (for disk size measurement)
+
+        # Multiple dataloaders mode parameter:
+        dataloaders: List of dicts with keys: name, dataloader_factory, data_path, etc.
+                    Each dict's keys are passed as kwargs to benchmark_dataloader
+
+        # Common parameters:
+        num_epochs: Number of epochs to run
+        max_batches: Maximum number of batches to process (None for all)
+        max_time_seconds: Maximum time to run benchmark (None for no limit)
+        warmup_batches: Number of warmup batches
+        warmup_time_seconds: Time to warmup in seconds (overrides warmup_batches if set)
+        print_progress: Whether to print progress during benchmarking
+        madvise_interval: Memory advice interval setting
+        shuffle: Whether to shuffle the data
+        num_runs: Number of times to run the benchmark (default: 1)
+        output_dir: Directory to save individual results (for multiple dataloaders mode)
+        track_iteration_times: Whether to track and print the time taken for each iteration (default: False)
+        log_iteration_times_to_file: Interval for logging iteration times to file (None to disable)
+
+    Returns:
+        Single BenchmarkResult if benchmarking one dataloader, or
+        List[BenchmarkResult] if benchmarking multiple dataloaders.
+        If num_runs > 1, returns aggregated statistics across all runs.
+
+    Examples:
+        # Single dataloader
+        result = benchmark_dataloader(
+            name="My Dataloader",
+            dataloader_factory=lambda: MyDataLoader(),
+            max_time_seconds=30.0
+        )
+
+        # Multiple dataloaders
+        results = benchmark_dataloader(
+            dataloaders=[
+                {"name": "DL1", "dataloader_factory": lambda: DL1()},
+                {"name": "DL2", "dataloader_factory": lambda: DL2()}
+            ]
+        )
+
+    Note:
+        - If both single and multiple parameters are provided, multiple mode takes precedence
+        - For multiple dataloaders, each dict should have at least 'name' and 'dataloader_factory' keys
+        - Add 'num_runs': N to run each configuration N times and get aggregated statistics
+        - If output_dir is provided in multiple mode, results are saved as JSON files
+        - A comparison table is printed when benchmarking multiple dataloaders
+    """
+    # Multiple dataloaders mode
+    if dataloaders is not None:
+        results = []
+        for dl_config in dataloaders:
+            # Extract parameters from config, with function parameters as defaults
+            config_name = dl_config["name"]
+            config_factory = dl_config["dataloader_factory"]
+
+            result = _benchmark_single_dataloader(
+                name=config_name,
+                dataloader_factory=config_factory,
+                data_path=dl_config.get("data_path", data_path),
+                num_epochs=dl_config.get("num_epochs", num_epochs),
+                max_batches=dl_config.get("max_batches", max_batches),
+                max_time_seconds=dl_config.get("max_time_seconds", max_time_seconds),
+                warmup_batches=dl_config.get("warmup_batches", warmup_batches),
+                warmup_time_seconds=dl_config.get("warmup_time_seconds", warmup_time_seconds),
+                print_progress=dl_config.get("print_progress", print_progress),
+                madvise_interval=dl_config.get("madvise_interval", madvise_interval),
+                shuffle=dl_config.get("shuffle", shuffle),
+                num_runs=dl_config.get("num_runs", num_runs),
+                output_dir=output_dir,
+                track_iteration_times=dl_config.get("track_iteration_times", track_iteration_times),
+                log_iteration_times_to_file=dl_config.get("log_iteration_times_to_file", log_iteration_times_to_file),
+            )
+            results.append(result)
+
+            # Save individual result
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+                result.save_to_file(os.path.join(output_dir, f"{result.name}_results.json"))
+
+        # Print comparison
+        if len(results) > 1:
+            _print_comparison(results)
+
+        return results
+
+    # Single dataloader mode
+    elif name is not None and dataloader_factory is not None:
+        return _benchmark_single_dataloader(
+            name=name,
+            dataloader_factory=dataloader_factory,
+            data_path=data_path,
+            num_epochs=num_epochs,
+            max_batches=max_batches,
+            max_time_seconds=max_time_seconds,
+            warmup_batches=warmup_batches,
+            warmup_time_seconds=warmup_time_seconds,
+            print_progress=print_progress,
+            madvise_interval=madvise_interval,
+            shuffle=shuffle,
+            num_runs=num_runs,
+            output_dir=output_dir,
+            track_iteration_times=track_iteration_times,
+            log_iteration_times_to_file=log_iteration_times_to_file,
+        )
+
+    else:
+        raise ValueError(
+            "Must provide either (name + dataloader_factory) for single dataloader mode "
+            "or (dataloaders) for multiple dataloaders mode"
+        )
+
+
+def _benchmark_single_dataloader(
     name: str,
     dataloader_factory: Callable[[], Any],
     data_path: Optional[Union[str, Path]] = None,
@@ -190,8 +459,12 @@ def benchmark_dataloader(
     print_progress: bool = True,
     madvise_interval: Optional[int] = None,
     shuffle: bool = False,
+    num_runs: int = 1,
+    output_dir: Optional[str] = None,
+    track_iteration_times: bool = False,
+    log_iteration_times_to_file: Optional[int] = None,
 ) -> BenchmarkResult:
-    """Benchmark any dataloader using a factory function.
+    """Benchmark a single dataloader using a factory function.
 
     This function measures both instantiation time/memory and iteration performance
     to give you a complete picture of dataloader performance. It uses a factory
@@ -199,18 +472,24 @@ def benchmark_dataloader(
     requiring inheritance or modifications to existing code.
 
     Args:
-        name: Name for this dataloader benchmark
-        dataloader_factory: Function that creates a dataloader object
-        data_path: Path to data files (for disk size measurement)
+        name: Name of the benchmark
+        dataloader_factory: Factory function that creates a dataloader
+        data_path: Path to the data file (optional)
         num_epochs: Number of epochs to run
-        max_batches: Maximum number of batches to process (None for all)
-        max_time_seconds: Maximum time to run benchmark (None for no limit)
-        warmup_batches: Number of warmup batches
-        warmup_time_seconds: Time to warmup in seconds (overrides warmup_batches if set)
-        print_progress: Whether to print progress during benchmarking
+        max_batches: Maximum number of batches per epoch (None for unlimited)
+        max_time_seconds: Maximum time to run in seconds (None for unlimited)
+        warmup_batches: Number of batches for warmup
+        warmup_time_seconds: Time in seconds for warmup
+        print_progress: Whether to print progress information
+        madvise_interval: Interval for memory advice calls
+        shuffle: Whether to shuffle the data
+        num_runs: Number of runs to perform
+        output_dir: Directory to save iteration time logs
+        track_iteration_times: Whether to track timing for each iteration
+        log_iteration_times_to_file: Interval for logging iteration times to file (None to disable)
 
     Returns:
-        BenchmarkResult with performance metrics including instantiation
+        BenchmarkResult object with aggregated or single run results
 
     Note:
         - If both max_batches and max_time_seconds are set, the first limit reached stops the benchmark
@@ -224,12 +503,9 @@ def benchmark_dataloader(
         if print_progress:
             print(message)
 
-    log(f"\n{'=' * 60}")
-    log(f"Benchmarking: {name}")
-    log(f"{'=' * 60}")
+    log(f"🔧 Benchmarking: {name}")
 
     # Measure instantiation metrics if requested
-    log("🔧 Measuring dataloader instantiation...")
     dataloader, baseline, peak, _, _, final_mib, setup_time = measure_peak_memory_full(dataloader_factory)
 
     # Measure memory after
@@ -241,17 +517,12 @@ def benchmark_dataloader(
         "memory_after_instantiation_mb": final_mib,
     }
 
-    log(f"✅ Setup completed in {setup_time:.4f}s")
-
-    log(f"   Peak memory during: {instantiation_metrics['peak_memory_during_instantiation_mb']:.2f} MB")
-
     # Measure disk size
     disk_size_mb = 0.0
     if data_path:
         disk_size_mb = get_disk_size(data_path)
-        log(f"📁 Disk size: {disk_size_mb:.2f} MB")
 
-    # Create config and run benchmark
+    # Create config
     config = BenchmarkConfig(
         name=name,
         num_epochs=num_epochs,
@@ -263,191 +534,104 @@ def benchmark_dataloader(
         data_path=data_path,
         madvise_interval=madvise_interval,
         shuffle=shuffle,
+        track_iteration_times=track_iteration_times,
+        log_iteration_times_to_file=log_iteration_times_to_file,
     )
-    # Run the benchmark directly
-    log("🏃 Running benchmark...")
-    result = run_benchmark(dataloader, config)
-    del dataloader
-    # Add instantiation metrics
-    if instantiation_metrics:
-        for key, value in instantiation_metrics.items():
-            setattr(result, key, value)
 
-    # Update timing and disk info
-    result.setup_time_seconds += setup_time
-    result.disk_size_mb = disk_size_mb
-    # Print results
-    _print_results(result)
+    # Run benchmark(s)
+    if num_runs == 1:
+        # Single run
+        result = run_benchmark(dataloader, config, name, output_dir)
+        del dataloader
 
-    return result
+        # Add instantiation metrics
+        if instantiation_metrics:
+            for key, value in instantiation_metrics.items():
+                setattr(result, key, value)
 
+        # Update timing and disk info
+        result.setup_time_seconds += setup_time
+        result.disk_size_mb = disk_size_mb
 
-def benchmark_multiple_dataloaders(
-    dataloaders: List[Dict[str, Any]], output_dir: Optional[str] = None
-) -> List[BenchmarkResult]:
-    """Benchmark multiple dataloaders and compare results.
+        # Print results
+        _print_results(result)
+        return result
+    else:
+        # Multiple runs
+        log(f"🏃 Running {num_runs} times...")
+        all_results = []
 
-    This function benchmarks multiple dataloaders using their factory functions
-    and provides a comparison of their performance. Results can be saved to
-    individual JSON files for later analysis.
+        for run_idx in range(num_runs):
+            # Create fresh dataloader for each run
+            if run_idx > 0:  # We already have one from instantiation measurement
+                dataloader = dataloader_factory()
 
-    Args:
-        dataloaders: List of dicts with keys: name, dataloader_factory, data_path, etc.
-                    The 'dataloader_factory' key should contain a Callable[[], Any]
-                    Other keys are passed to benchmark_dataloader as kwargs
-        output_dir: Directory to save individual results (optional)
-
-    Returns:
-        List of BenchmarkResult objects for each dataloader
-
-    Note:
-        - Each dataloader configuration should have at least 'name' and 'dataloader_factory' keys
-        - If output_dir is provided, results are saved as JSON files
-        - A comparison table is printed showing the best performers
-    """
-    results = []
-    num_runs = 5
-    for dl_config in dataloaders:
-        for num in range(num_runs):
-            subprocess.run(["sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"], check=True)
-
-            result = benchmark_dataloader(
-                name=dl_config["name"]+"_" + str(num),
-                dataloader_factory=dl_config["dataloader_factory"],
-                data_path=dl_config.get("data_path"),
-                num_epochs=dl_config.get("num_epochs", 1),
-                max_batches=dl_config.get("max_batches"),
-                max_time_seconds=dl_config.get("max_time_seconds"),
-                warmup_batches=dl_config.get("warmup_batches", 5),
-                warmup_time_seconds=dl_config.get("warmup_time_seconds"),
-                print_progress=dl_config.get("print_progress", True),
-                madvise_interval=dl_config.get("madvise_interval", None),
-                shuffle=dl_config.get("shuffle", False),
+            # Update config name for this run
+            run_config = BenchmarkConfig(
+                name=f"{name}_run_{run_idx + 1}",
+                num_epochs=num_epochs,
+                max_batches=max_batches,
+                max_time_seconds=max_time_seconds,
+                warmup_batches=warmup_batches,
+                warmup_time_seconds=warmup_time_seconds,
+                print_progress=print_progress,
+                data_path=data_path,
+                madvise_interval=madvise_interval,
+                shuffle=shuffle,
+                track_iteration_times=track_iteration_times,
+                log_iteration_times_to_file=log_iteration_times_to_file,
             )
-            results.append(result)
 
-        # Save individual result
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-            result.save_to_file(os.path.join(output_dir, f"{result.name}_results.json"))
+            run_result = run_benchmark(dataloader, run_config, f"{name}_run_{run_idx + 1}", output_dir)
+            all_results.append(run_result)
 
-    # Print comparison
-    if len(results) > 1:
-        _print_comparison(results)
+            # Print samples per second after every run
+            log(f"Run {run_idx + 1}: {run_result.samples_per_second:.2f} samples/sec")
 
-    return results
+            del dataloader
+
+        # Calculate aggregated statistics
+        result = aggregate_benchmark_results(all_results, name, instantiation_metrics, setup_time, disk_size_mb)
+
+        # Print aggregated results
+        export_benchmark_results([result])
+        return result
 
 
 def _print_results(result: BenchmarkResult) -> None:
-    """Print benchmark results in a formatted way.
-
-    This function displays the benchmark results in a human-readable
-    format, including performance metrics, memory usage, and any
-    instantiation information if available.
-
-    Args:
-        result: BenchmarkResult to display
-    """
-    print(f"\n{'=' * 40}")
-    print(f"RESULTS: {result.name}")
-    print(f"{'=' * 40}")
-
-    if result.errors:
-        print(f"❌ ERRORS: {result.errors}")
-        return
-
-    print("📊 Performance:")
-    print(f"   Setup time: {result.setup_time_seconds:.4f}s")
-    print(f"   Warmup time: {result.warmup_time_seconds:.4f}s")
-    print(f"   Total time: {result.total_iteration_time_seconds:.4f}s")
-    print(f"   Avg batch time: {result.average_batch_time_seconds:.4f}s")
-
-    # Print instantiation metrics if available
-    if result.instantiation_time_seconds is not None:
-        print("\n🔧 Instantiation:")
-        print(f"   Instantiation time: {result.instantiation_time_seconds:.4f}s")
-        print(f"   Peak memory during: {result.peak_memory_during_instantiation_mb:.2f} MB")
-        print(f"   Memory before: {result.memory_before_instantiation_mb:.2f} MB")
-        print(f"   Memory after: {result.memory_after_instantiation_mb:.2f} MB")
-
-    print("\n🚀 Throughput:")
-    print(f"   Total time: {result.total_iteration_time_seconds:.4f}s")
-    print(f"   Total batches: {result.total_batches}")
-    print(f"   Total samples: {result.total_samples}")
-    print(f"   Samples/second: {result.samples_per_second:.2f}")
-    print(f"   Batches/second: {result.batches_per_second:.2f}")
-
-    print("\n💾 Memory:")
-    print(f"   Peak memory: {(result.peak_memory_mb - result.memory_before_instantiation_mb):.2f} MB")
-    print(f"   Average memory: {(result.average_memory_mb - result.memory_before_instantiation_mb):.2f} MB")
-    if result.gpu_memory_mb > 0:
-        print(f"   GPU memory: {result.gpu_memory_mb:.2f} MB")
-
-    if result.disk_size_mb > 0:
-        print("\n💿 Storage:")
-        print(f"   Disk size: {result.disk_size_mb:.2f} MB")
+    """Print benchmark results in a formatted way."""
+    print(f"\n📊 {result.name}")
+    print(f"   Samples/sec: {result.samples_per_second:.2f}")
+    print(f"   Memory: {result.peak_memory_mb:.1f} MB")
+    if result.instantiation_time_seconds:
+        print(f"   Setup: {result.instantiation_time_seconds:.3f}s")
 
 
 def _print_comparison(results: List[BenchmarkResult]) -> None:
-    """Print comparison of multiple benchmark results.
-
-    This function analyzes the results and prints a comparison table
-    showing the best performers in different categories.
-
-    Args:
-        results: List of BenchmarkResult objects to compare
-    """
-    print(f"\n{'=' * 80}")
-    print("BENCHMARK COMPARISON")
-    print(f"{'=' * 80}")
-
-    # Find best performers
-    valid_results = [r for r in results if not r.errors]
-    if not valid_results:
-        print("❌ No valid results to compare")
+    """Print comparison of multiple benchmark results."""
+    if not results or len(results) < 2:
         return
 
-    best_samples_per_sec = max(valid_results, key=lambda x: x.samples_per_second)
-    best_batches_per_sec = max(valid_results, key=lambda x: x.batches_per_second)
-    lowest_memory = min(valid_results, key=lambda x: x.peak_memory_mb)
+    print(f"\n📊 COMPARISON ({len(results)} configurations)")
 
-    print(f"🏆 Best samples/second: {best_samples_per_sec.name} ({best_samples_per_sec.samples_per_second:.2f})")
-    print(f"🏆 Best batches/second: {best_batches_per_sec.name} ({best_batches_per_sec.batches_per_second:.2f})")
+    # Show both aggregated and individual data
+    for result in results:
+        print(f"\n📋 {result.name}")
+        if hasattr(result, "individual_results") and result.individual_results:
+            # Multiple runs - show both individual and aggregated
+            print("   Individual runs:")
+            for i, ind_result in enumerate(result.individual_results, 1):
+                print(f"     Run {i}: {ind_result.samples_per_second:.2f} samples/sec")
+            print(f"   Aggregated: {result.samples_per_second:.2f} samples/sec (avg)")
+        else:
+            # Single run
+            print(f"   Single run: {result.samples_per_second:.2f} samples/sec")
+        print(f"   Memory: {result.peak_memory_mb:.1f} MB")
+
+    # Find best performers (using aggregated data)
+    best_samples_per_sec = max(results, key=lambda r: r.samples_per_second)
+    lowest_memory = min(results, key=lambda r: r.peak_memory_mb)
+
+    print("\n🏆 BEST PERFORMERS (Aggregated):")
+    print(f"🏆 Best speed: {best_samples_per_sec.name} ({best_samples_per_sec.samples_per_second:.2f} samples/sec)")
     print(f"🏆 Lowest memory: {lowest_memory.name} ({lowest_memory.peak_memory_mb:.2f} MB)")
-
-    # Check if we have instantiation metrics
-    has_instantiation = any(r.instantiation_time_seconds is not None for r in valid_results)
-
-    if has_instantiation:
-        fastest_instantiation = min(
-            [r for r in valid_results if r.instantiation_time_seconds is not None],
-            key=lambda x: x.instantiation_time_seconds,
-        )
-        lowest_instantiation_memory = min(
-            [r for r in valid_results if r.instantiation_time_seconds is not None],
-            key=lambda x: x.peak_memory_during_instantiation_mb,
-        )
-
-        print(
-            f"🏆 Fastest instantiation: {fastest_instantiation.name} ({fastest_instantiation.instantiation_time_seconds:.4f}s)"
-        )
-        print(
-            f"🏆 Lowest instantiation memory: {lowest_instantiation_memory.name} ({lowest_instantiation_memory.peak_memory_during_instantiation_mb:.2f} MB)"
-        )
-
-    # Print detailed comparison table
-    print(f"\n{'=' * 80}")
-    print("DETAILED COMPARISON")
-    print(f"{'=' * 80}")
-    print(f"{'Name':<30} {'Samples/sec':<12} {'Batches/sec':<12} {'Peak Mem':<10} {'Inst Time':<10} {'Inst Mem':<10}")
-    print("-" * 80)
-    """
-    for result in valid_results:
-        inst_time = result.instantiation_time_seconds if result.instantiation_time_seconds is not None else 0.0
-        inst_mem = result.memory_before_instantiation_mb if result.memory_before_instantiation_mb is not None else 0.0
-
-        print(
-            f"{result.name:<30} {result.samples_per_second:<12.2f} {result.batches_per_second:<12.2f} "
-            f"{result.peak_memory_mb:<10.2f} {inst_time:<10.4f} {inst_mem:<10.2f}"
-        )
-    """

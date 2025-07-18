@@ -31,6 +31,7 @@ dependencies = [
     "torch>=1.12.0",
     "psutil>=5.8.0",
     "numpy>=1.21.0",
+    "pandas>=1.3.0",
 ]
 
 [project.optional-dependencies]

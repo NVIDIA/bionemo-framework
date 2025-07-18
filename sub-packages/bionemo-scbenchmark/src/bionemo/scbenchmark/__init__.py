@@ -22,9 +22,13 @@ A simple, flexible framework for benchmarking any dataloader.
 from .benchmark import (
     BenchmarkConfig,
     benchmark_dataloader,
-    benchmark_multiple_dataloaders,
+    run_benchmark,
 )
-from .common import BenchmarkResult
+from .common import (
+    BenchmarkResult,
+    calculate_derived_metrics,
+    export_benchmark_results,
+)
 
 
 __version__ = "0.1.0"
@@ -32,5 +36,7 @@ __all__ = [
     "BenchmarkConfig",
     "BenchmarkResult",
     "benchmark_dataloader",
-    "benchmark_multiple_dataloaders",
+    "calculate_derived_metrics",
+    "export_benchmark_results",
+    "run_benchmark",
 ]
