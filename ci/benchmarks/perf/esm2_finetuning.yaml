@@ -86,5 +86,5 @@ script: |-
     --disable-checkpointing \
     --pipeline-model-parallel-size=${pp} \
     --tensor-model-parallel-size=${tp} \
-    --early-stop-on-step=${stop_steps}; \
+    --early-stop-on-step=${stop_steps} \
     --create-tflops-callback;
