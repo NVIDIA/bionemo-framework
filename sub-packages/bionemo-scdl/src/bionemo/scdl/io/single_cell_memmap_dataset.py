@@ -897,6 +897,45 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             if self.load_neighbors:
                 warnings.warn("Neighbor loading was requested but neighbor files are missing")
 
+    def _load_neighbor_memmaps_with_shapes(self, neighbor_indices_shape, neighbor_indptr_shape, neighbor_data_shape):
+        """Load neighbor memmaps with explicit shapes for post-concatenation reopening."""
+        try:
+            # mmap the existing arrays with explicit shapes
+            indices_file = f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}"
+            indptr_file = f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}"
+            data_file = f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}"
+            
+            
+            self._neighbor_indices = np.memmap(
+                indices_file,
+                dtype=self.dtypes[f"{FileNames.NEIGHBOR_INDICES.value}"],
+                mode=self.mode,
+                shape=neighbor_indices_shape
+            )
+            self._neighbor_indptr = np.memmap(
+                indptr_file,
+                dtype=self.dtypes[f"{FileNames.NEIGHBOR_INDICES_PTR.value}"],
+                mode=self.mode,
+                shape=neighbor_indptr_shape
+            )
+            self._neighbor_data = np.memmap(
+                data_file,
+                dtype=self.dtypes[f"{FileNames.NEIGHBOR_VALUES.value}"],
+                mode=self.mode,
+                shape=neighbor_data_shape
+            )
+
+
+
+            self._has_neighbors = True
+
+        except FileNotFoundError:
+            # Neighbor files don't exist - this is OK if load_neighbors=False
+            # or if dataset was created without neighbors
+            self._has_neighbors = False
+            if self.load_neighbors:
+                warnings.warn("Neighbor loading was requested but neighbor files are missing")
+
     def load_h5ad(
         self,
         anndata_path: str,
@@ -1088,6 +1127,124 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         else:
             raise ValueError(f"Unsupported neighbor sampling strategy: {self.neighbor_sampling_strategy}")
 
+    def _concatenate_neighbor_data(self, other_mmap, cumulative_rows_offset: int, cumulative_neighbor_elements: int, extend_copy_size: int, destroy_on_copy: bool) -> None:
+        """Concatenates neighbor data from another SingleCellMemMapDataset.
+        
+        Args:
+            other_mmap: The other SingleCellMemMapDataset to concatenate neighbor data from
+            cumulative_rows_offset: The row offset to adjust neighbor indices
+            extend_copy_size: Buffer size for file operations
+            destroy_on_copy: Whether to delete source files after copying
+        """
+        if not (other_mmap._has_neighbors and other_mmap._neighbor_indptr is not None):
+            return
+            
+        # Create a temporary copy of the neighbor indices with adjusted offsets
+        temp_indices_path = f"{other_mmap.data_path}/{FileNames.NEIGHBOR_INDICES.value}_adjusted"
+        adjusted_indices = np.memmap(
+            temp_indices_path,
+            dtype=self.dtypes[FileNames.NEIGHBOR_INDICES.value],
+            mode="w+",
+            shape=other_mmap._neighbor_indices.shape,
+        )
+        # Adjust neighbor indices by the cumulative row offset
+        adjusted_indices[:] = other_mmap._neighbor_indices[:] + cumulative_rows_offset
+        adjusted_indices.flush()
+        
+        # Extend neighbor files with the adjusted data
+        extend_files(
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}",
+            temp_indices_path,
+            buffer_size_b=extend_copy_size,
+            delete_file2_on_complete=True,  # Always delete the temporary file
+        )
+        
+        extend_files(
+            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}",
+            f"{other_mmap.data_path}/{FileNames.NEIGHBOR_VALUES.value}",
+            buffer_size_b=extend_copy_size,
+            delete_file2_on_complete=destroy_on_copy,
+        )
+        
+        # Handle indptr: need to adjust by cumulative neighbor count and append (excluding first element)
+        # Note: We can't use len(self._neighbor_indices) because it's the old mmap before concatenation
+        # Instead, we need to use the cumulative count that's been tracked during concatenation
+        current_neighbor_count = cumulative_neighbor_elements
+        
+        # Create adjusted indptr (skip first element, adjust by current neighbor count)
+        temp_indptr_path = f"{other_mmap.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}_adjusted"
+        adjusted_indptr = np.memmap(
+            temp_indptr_path,
+            dtype=self.dtypes[FileNames.NEIGHBOR_INDICES_PTR.value],
+            mode="w+",
+            shape=(len(other_mmap._neighbor_indptr) - 1,),  # Skip first element
+        )
+        adjusted_indptr[:] = other_mmap._neighbor_indptr[1:] + current_neighbor_count
+        adjusted_indptr.flush()
+        
+        extend_files(
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}",
+            temp_indptr_path,
+            buffer_size_b=extend_copy_size,
+            delete_file2_on_complete=True,
+            offset=np.dtype(self.dtypes[FileNames.NEIGHBOR_INDICES_PTR.value]).itemsize,
+        )
+
+    def _initialize_neighbor_data_from_mmap(self, other_mmap, cumulative_rows_offset: int, extend_copy_size: int, destroy_on_copy: bool) -> None:
+        """Initializes neighbor data from another SingleCellMemMapDataset when self has no neighbors.
+        
+        Args:
+            other_mmap: The other SingleCellMemMapDataset to copy neighbor data from
+            cumulative_rows_offset: The row offset to adjust neighbor indices
+            extend_copy_size: Buffer size for file operations
+            destroy_on_copy: Whether to delete source files after copying
+        """
+        if not (other_mmap._has_neighbors and other_mmap._neighbor_indptr is not None):
+            return
+            
+        # Create initial neighbor files by copying from other_mmap with adjustments
+        
+        # 1. Create adjusted indices
+        adjusted_indices = np.memmap(
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}",
+            dtype=self.dtypes[FileNames.NEIGHBOR_INDICES.value],
+            mode="w+",
+            shape=other_mmap._neighbor_indices.shape,
+        )
+        adjusted_indices[:] = other_mmap._neighbor_indices[:] + cumulative_rows_offset
+        adjusted_indices.flush()
+        
+        # 2. Copy neighbor values directly
+        shutil.copy2(
+            f"{other_mmap.data_path}/{FileNames.NEIGHBOR_VALUES.value}",
+            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}"
+        )
+        
+        # 3. Create adjusted indptr with zeros for the initial rows
+        total_indptr_len = len(other_mmap._neighbor_indptr) + cumulative_rows_offset
+        adjusted_indptr = np.memmap(
+            f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}",
+            dtype=self.dtypes[FileNames.NEIGHBOR_INDICES_PTR.value],
+            mode="w+",
+            shape=(total_indptr_len,),
+        )
+        # Fill initial rows with zeros (no neighbors for initial datasets)
+        adjusted_indptr[:cumulative_rows_offset] = 0
+        # Copy and adjust the indptr from other_mmap
+        adjusted_indptr[cumulative_rows_offset:] = other_mmap._neighbor_indptr[:] + 0  # No adjustment needed for values
+        adjusted_indptr.flush()
+        
+        # Set up neighbor tracking
+        self._has_neighbors = True
+        self._neighbor_indices = adjusted_indices
+        self._neighbor_data = np.memmap(
+            f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}",
+            dtype=self.dtypes[FileNames.NEIGHBOR_VALUES.value],
+            mode=Mode.READ_APPEND.value,
+            shape=other_mmap._neighbor_data.shape,
+        )
+        self._neighbor_indptr = adjusted_indptr
+
     def get_neighbor_stats(self) -> dict:
         """Returns statistics about the neighbors in the dataset.
 
@@ -1234,6 +1391,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Copy the data from self and other into the new arrays.
         cumulative_elements = self.number_nonzero_values()
         cumulative_rows = self.number_of_rows()
+        
+        # Track cumulative neighbor statistics
+        cumulative_neighbor_elements = len(self._neighbor_indices) if (self.load_neighbors and self._has_neighbors and self._neighbor_indices is not None) else 0
+        cumulative_neighbor_rows = self.number_of_rows()  # neighbor indptr follows row structure
+        
         for mmap in mmaps:
             destination_memmap = np.memmap(
                 f"{mmap.data_path}/{FileNames.ROWPTR.value}_copy",
@@ -1270,7 +1432,24 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 delete_file2_on_complete=destroy_on_copy,
             )
             self._feature_index.concat(mmap._feature_index)
-            # Update counters
+            
+            # Handle neighbor data concatenation if both datasets have neighbors
+            # Use current cumulative_rows as the offset (where this dataset will start in the combined dataset)
+            neighbor_offset = cumulative_rows
+            
+            if self.load_neighbors and self._has_neighbors and mmap.load_neighbors and mmap._has_neighbors:
+                self._concatenate_neighbor_data(mmap, neighbor_offset, cumulative_neighbor_elements, extend_copy_size, destroy_on_copy)
+                # Update cumulative neighbor statistics
+                cumulative_neighbor_elements += len(mmap._neighbor_indices) if mmap._neighbor_indices is not None else 0
+                cumulative_neighbor_rows += mmap.number_of_rows()
+            elif self.load_neighbors and not self._has_neighbors and mmap.load_neighbors and mmap._has_neighbors:
+                # If self doesn't have neighbors but mmap does, copy mmap's neighbor data as starting point
+                self._initialize_neighbor_data_from_mmap(mmap, neighbor_offset, extend_copy_size, destroy_on_copy)
+                # Initialize cumulative neighbor statistics
+                cumulative_neighbor_elements = len(mmap._neighbor_indices) if mmap._neighbor_indices is not None else 0
+                cumulative_neighbor_rows = cumulative_rows + mmap.number_of_rows()  # Total rows after adding this dataset
+
+            # Update counters after neighbor concatenation
             cumulative_elements += mmap.number_nonzero_values()
             cumulative_rows += mmap.number_of_rows()
 
@@ -1293,4 +1472,14 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             shape=(cumulative_elements,),
             mode=Mode.READ_APPEND.value,
         )
+        
+        # Reopen neighbor arrays if they exist, using explicit cumulative shapes
+        if self.load_neighbors and self._has_neighbors:
+            # self._load_neighbor_memmaps()
+            self._load_neighbor_memmaps_with_shapes(
+                neighbor_indices_shape=(cumulative_neighbor_elements,),
+                neighbor_indptr_shape=(cumulative_neighbor_rows + 1,),
+                neighbor_data_shape=(cumulative_neighbor_elements,)
+            )
+        
         self.save()
