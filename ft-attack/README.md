@@ -33,3 +33,6 @@ ft-attack/
 
 ## Data collection & Conversion
 1. For NCBI dataset, once we have a list of accession ids, we use the script from `data/dataset_collection.ipynb` to download the .fna file and create train-test split.
+
+2. For fitness evaluation, we convert protein sequences from ProteinGym to nucleotide sequences with `utils/nucleotide_data_pipeline.py`. First download the DMS substitution data [here](https://marks.hms.harvard.edu/proteingym/ProteinGym_v1.3/DMS_ProteinGym_substitutions.zip), and reference file [here](https://marks.hms.harvard.edu/proteingym/ProteinGym_v1.3/DMS_substitutions.csv). 
+
