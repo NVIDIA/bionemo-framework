@@ -18,6 +18,7 @@
 
 
 # Import AnnData support
+# from arrayloaders.io.dask_loader import DaskDataset
 
 import anndata as ad
 from anndata.experimental import AnnCollection, AnnLoader
@@ -45,7 +46,13 @@ def create_annloader_factory(batch_size=32, backed="r", shuffle=True, data_path=
     """
 
     def factory():
-        datasets = AnnCollection([ad.read_h5ad(data_path, backed=backed)])
+        # Read all .h5ad files in data_path and create an AnnCollection from them
+        print(f"Reading {data_path}...")
+        # h5ad_files = [join(data_path, f) for f in os.listdir(data_path) if f.endswith('.h5ad')]
+        h5ad_files = [data_path]
+        print("H5AD FILES: ", h5ad_files)
+        datasets = AnnCollection([ad.read_h5ad(data_path, backed="r")])
+        print("Created AnnCollection ")
         return AnnLoader(datasets, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
     return factory
@@ -96,9 +103,12 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
     print()
 
     # Try to use real AnnData if available
-    adata_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/sample_50000_19836_0.85.h5ad"
-    memmap_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/s_memmap_zmdy090y"
-
+    # adata_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/sample_50000_19836_0.85.h5ad"
+    # memmap_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/s_memmap_zmdy090y"
+    adata_path = (
+        "/home/pbinder/bionemo-framework/tahoe_data/plate11_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad"
+    )
+    memmap_path = "/home/pbinder/bionemo-framework/tahoe_memmap/"
     # Create different configurations of the same dataloader
 
     # 7. MULTIPLE CONFIGURATIONS WITH STATISTICAL ANALYSIS
@@ -124,24 +134,23 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
     configurations = [
         # Example: Enable per-iteration time and memory (RSS) logging every 5 batches
         {
-            "name": "SCDL madvise_1",
-            "dataloader_factory": create_scdl_factory(
+            "name": "AnnLoader Regular",
+            "dataloader_factory": create_annloader_factory(
                 batch_size=64,
                 shuffle=True,
-                adata_path=adata_path,
-                data_path=memmap_path,
+                data_path=adata_path,
                 num_workers=0,
             ),
             "num_epochs": num_epochs,
-            "max_time_seconds": 1000.0,
-            "warmup_seconds": 10.0,
-            "data_path": memmap_path,
-            "madvise_interval": 1,
-            "num_runs": 1,
+            "max_time_seconds": 10.0,
+            "warmup_time_seconds": 2.0,
+            "data_path": adata_path,
+            "madvise_interval": None,
+            "num_runs": num_runs,
             "log_iteration_times_to_file": None,
         },
         {
-            "name": "SCDL per-iteration time+memory logging (every 5 batches)",
+            "name": "SCDL Regular",
             "dataloader_factory": create_scdl_factory(
                 batch_size=64,
                 shuffle=True,
@@ -150,16 +159,33 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
                 num_workers=0,
             ),
             "num_epochs": num_epochs,
-            "max_time_seconds": 1000.0,
-            "warmup_seconds": 10.0,
+            "max_time_seconds": 10.0,
+            "warmup_time_seconds": 2.0,
             "data_path": memmap_path,
-            "madvise_interval": 1,
+            "madvise_interval": None,
             "num_runs": num_runs,
-            # Set to None for no logging, or an integer interval for logging every N batches
-            # The log file will contain both iteration time and memory (RSS) usage for each batch
-            "log_iteration_times_to_file": 5,  # Log time and memory every 5 batches
+            "log_iteration_times_to_file": None,
         },
     ]
+    """
+            {
+            "name": "SCDL Regular",
+            "dataloader_factory": create_scdl_factory(
+                batch_size=64,
+                shuffle=True,
+                adata_path=adata_path,
+                data_path=memmap_path,
+                num_workers=0,
+            ),
+            "num_epochs": num_epochs,
+            "max_time_seconds": 120.0,
+            "warmup_time_seconds": 10.0,
+            "data_path": memmap_path,
+            "madvise_interval": None,
+            "num_runs": num_runs,
+            "log_iteration_times_to_file": None,
+        }
+    """
     # To use: set 'log_iteration_times_to_file' to None (no logging) or an integer interval (e.g., 1 for every batch).
     # The log file will contain columns: epoch, batch, iteration_time_s, rss_mb, run_name
 
@@ -198,4 +224,4 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("📊 MULTIPLE RUNS EXAMPLE")
     print("=" * 80)
-    comprehensive_benchmarking_example(num_epochs=2, num_runs=3)
+    comprehensive_benchmarking_example(num_epochs=1, num_runs=3)

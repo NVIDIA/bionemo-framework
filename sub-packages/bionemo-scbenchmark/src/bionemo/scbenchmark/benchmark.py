@@ -25,6 +25,7 @@ measurement, and comprehensive performance metrics.
 import gc
 import mmap
 import os
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,10 +76,15 @@ class BenchmarkConfig:
     shuffle: bool = False
     track_iteration_times: bool = False
     log_iteration_times_to_file: Optional[int] = None  # None for no logging, or integer interval
+    num_workers: Optional[int] = None
 
 
 def run_benchmark(
-    dataloader: Any, config: BenchmarkConfig, run_name: Optional[str] = None, output_dir: Optional[str] = None
+    dataloader: Any,
+    config: BenchmarkConfig,
+    run_name: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    instantiation_metrics: Optional[Dict[str, float]] = None,
 ) -> BenchmarkResult:
     """Run the actual benchmark and collect metrics.
 
@@ -87,6 +93,7 @@ def run_benchmark(
         config: Configuration for the benchmark run
         run_name: Optional name for this run (used in iteration time logging)
         output_dir: Optional directory to save iteration time logs
+        instantiation_metrics: Optional dictionary containing instantiation metrics
 
     Returns:
         BenchmarkResult containing all collected data and calculated metrics
@@ -106,15 +113,6 @@ def run_benchmark(
         pbar = tqdm(
             desc=f"{config.name} - Epoch {epoch_num + 1}/{config.num_epochs}", disable=not config.print_progress
         )
-
-        if config.shuffle:
-            dataloader.dataset.row_index._mmap.madvise(mmap.MADV_RANDOM)
-            dataloader.dataset.col_index._mmap.madvise(mmap.MADV_RANDOM)
-            dataloader.dataset.data._mmap.madvise(mmap.MADV_RANDOM)
-        else:
-            dataloader.dataset.row_index._mmap.madvise(mmap.MADV_SEQUENTIAL)
-            dataloader.dataset.col_index._mmap.madvise(mmap.MADV_SEQUENTIAL)
-            dataloader.dataset.data._mmap.madvise(mmap.MADV_SEQUENTIAL)
 
         # Initialize warm-up timer - only if this is the first epoch and warmup is requested
         if do_warmup and config.warmup_time_seconds is not None and config.warmup_time_seconds > 0:
@@ -187,9 +185,8 @@ def run_benchmark(
                             f"{config.name} - Warmup: {elapsed_warmup:.1f}/{config.warmup_time_seconds}s, {current_warmup_speed:.1f} samples/sec"
                         )
                         pbar.update(update_interval)
-                del batch
                 continue
-
+            # print("Batch:", num)
             # Now we're past the warm-up period (or no warmup)
             epoch_samples += batch_size
             epoch_batches += 1
@@ -277,6 +274,7 @@ def run_benchmark(
         data_path=str(config.data_path) if config.data_path else None,
         max_time_seconds=config.max_time_seconds,
         shuffle=config.shuffle,
+        num_workers=config.num_workers,
         total_samples=total_samples,
         total_batches=total_batches,
         setup_time=0,  # Will be set by caller
@@ -284,6 +282,7 @@ def run_benchmark(
         iteration_time=total_iteration_time,  # Fixed: use total time
         warmup_samples=total_warmup_samples,
         warmup_batches=total_warmup_batches,
+        **(instantiation_metrics if instantiation_metrics else {}),
     )
 
     # Add epoch results to the result object for further analysis
@@ -301,7 +300,7 @@ def run_benchmark(
         log_dir = output_dir if output_dir else os.getcwd()
         log_file = os.path.join(log_dir, f"{run_name or config.name}_iteration_times.csv")
         pd.DataFrame(all_iteration_times).to_csv(log_file, index=False)
-        # print(f"Per-iteration times logged to {log_file}")
+        print(f"📄 Per-iteration times logged to {os.path.abspath(log_file)} ({len(all_iteration_times)} entries)")
 
     return result
 
@@ -323,6 +322,7 @@ def benchmark_dataloader(
     output_dir: Optional[str] = None,
     track_iteration_times: bool = False,
     log_iteration_times_to_file: Optional[int] = None,
+    num_workers: Optional[int] = None,
 ) -> Union[BenchmarkResult, List[BenchmarkResult]]:
     """Benchmark one or multiple dataloaders using factory functions.
 
@@ -353,6 +353,7 @@ def benchmark_dataloader(
         output_dir: Directory to save individual results (for multiple dataloaders mode)
         track_iteration_times: Whether to track and print the time taken for each iteration (default: False)
         log_iteration_times_to_file: Interval for logging iteration times to file (None to disable)
+        num_workers: Number of worker processes for data loading
 
     Returns:
         Single BenchmarkResult if benchmarking one dataloader, or
@@ -386,6 +387,12 @@ def benchmark_dataloader(
     if dataloaders is not None:
         results = []
         for dl_config in dataloaders:
+            try:
+                print("Dropping caches")
+                subprocess.run(["sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"], check=True)
+            except subprocess.CalledProcessError:
+                print("⚠️ Warning: failed to drop caches — are you running with sudo?")
+
             # Extract parameters from config, with function parameters as defaults
             config_name = dl_config["name"]
             config_factory = dl_config["dataloader_factory"]
@@ -406,6 +413,7 @@ def benchmark_dataloader(
                 output_dir=output_dir,
                 track_iteration_times=dl_config.get("track_iteration_times", track_iteration_times),
                 log_iteration_times_to_file=dl_config.get("log_iteration_times_to_file", log_iteration_times_to_file),
+                num_workers=dl_config.get("num_workers", num_workers),
             )
             results.append(result)
 
@@ -438,6 +446,7 @@ def benchmark_dataloader(
             output_dir=output_dir,
             track_iteration_times=track_iteration_times,
             log_iteration_times_to_file=log_iteration_times_to_file,
+            num_workers=num_workers,
         )
 
     else:
@@ -463,6 +472,7 @@ def _benchmark_single_dataloader(
     output_dir: Optional[str] = None,
     track_iteration_times: bool = False,
     log_iteration_times_to_file: Optional[int] = None,
+    num_workers: Optional[int] = None,
 ) -> BenchmarkResult:
     """Benchmark a single dataloader using a factory function.
 
@@ -487,6 +497,7 @@ def _benchmark_single_dataloader(
         output_dir: Directory to save iteration time logs
         track_iteration_times: Whether to track timing for each iteration
         log_iteration_times_to_file: Interval for logging iteration times to file (None to disable)
+        num_workers: Number of worker processes for data loading
 
     Returns:
         BenchmarkResult object with aggregated or single run results
@@ -536,18 +547,14 @@ def _benchmark_single_dataloader(
         shuffle=shuffle,
         track_iteration_times=track_iteration_times,
         log_iteration_times_to_file=log_iteration_times_to_file,
+        num_workers=num_workers,
     )
 
     # Run benchmark(s)
     if num_runs == 1:
         # Single run
-        result = run_benchmark(dataloader, config, name, output_dir)
+        result = run_benchmark(dataloader, config, name, output_dir, instantiation_metrics)
         del dataloader
-
-        # Add instantiation metrics
-        if instantiation_metrics:
-            for key, value in instantiation_metrics.items():
-                setattr(result, key, value)
 
         # Update timing and disk info
         result.setup_time_seconds += setup_time
@@ -580,9 +587,12 @@ def _benchmark_single_dataloader(
                 shuffle=shuffle,
                 track_iteration_times=track_iteration_times,
                 log_iteration_times_to_file=log_iteration_times_to_file,
+                num_workers=num_workers,
             )
 
-            run_result = run_benchmark(dataloader, run_config, f"{name}_run_{run_idx + 1}", output_dir)
+            run_result = run_benchmark(
+                dataloader, run_config, f"{name}_run_{run_idx + 1}", output_dir, instantiation_metrics
+            )
             all_results.append(run_result)
 
             # Print samples per second after every run

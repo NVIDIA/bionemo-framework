@@ -93,6 +93,7 @@ class BenchmarkResult:
     data_path: Optional[str] = None
     max_time_seconds: Optional[float] = None
     shuffle: Optional[bool] = None
+    num_workers: Optional[int] = None
 
     # Warmup metrics
     warmup_samples: int = 0
@@ -115,6 +116,7 @@ class BenchmarkResult:
         data_path: Optional[str] = None,
         max_time_seconds: Optional[float] = None,
         shuffle: Optional[bool] = None,
+        num_workers: Optional[int] = None,
         total_samples: int = 0,
         total_batches: int = 0,
         setup_time: float = 0.0,
@@ -137,6 +139,7 @@ class BenchmarkResult:
             data_path: Path to dataset used for benchmarking
             max_time_seconds: Maximum time limit set for the benchmark
             shuffle: Whether data was shuffled during processing
+            num_workers: Number of worker processes for data loading
             total_samples: Total number of samples processed (excluding warmup)
             total_batches: Total number of batches processed (excluding warmup)
             setup_time: Time taken for setup phase
@@ -152,9 +155,11 @@ class BenchmarkResult:
             BenchmarkResult with all calculated metrics
         """
         # Calculate timing metrics
-        avg_batch_time = iteration_time / total_batches if total_batches > 0 else 0
-        samples_per_sec = total_samples / iteration_time if iteration_time > 0 else 0
-        batches_per_sec = total_batches / iteration_time if iteration_time > 0 else 0
+        total_time_including_warmup = iteration_time
+        post_warmup_time = iteration_time - warmup_time
+        avg_batch_time = post_warmup_time / total_batches if total_batches > 0 else 0
+        samples_per_sec = total_samples / post_warmup_time if post_warmup_time > 0 else 0
+        batches_per_sec = total_batches / post_warmup_time if post_warmup_time > 0 else 0
 
         # Calculate memory metrics (default to 0 if no data)
         peak_memory = 0
@@ -162,7 +167,6 @@ class BenchmarkResult:
 
         # Calculate speed metrics
         total_samples_including_warmup = total_samples + warmup_samples
-        total_time_including_warmup = warmup_time + iteration_time
         total_speed = (
             total_samples_including_warmup / total_time_including_warmup if total_time_including_warmup > 0 else 0
         )
@@ -195,6 +199,7 @@ class BenchmarkResult:
             data_path=data_path,
             max_time_seconds=max_time_seconds,
             shuffle=shuffle,
+            num_workers=num_workers,
             **instantiation_kwargs,
         )
 
@@ -381,6 +386,7 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                         "Madvise_Interval": ind.madvise_interval,
                         "Max_Time_Seconds": ind.max_time_seconds,
                         "Shuffle": ind.shuffle,
+                        "Num_Workers": ind.num_workers,
                         "Warmup_Samples": ind.warmup_samples,
                         "Warmup_Batches": ind.warmup_batches,
                         "Total_Samples_All_Epochs": ind.total_samples,
@@ -413,6 +419,7 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                     "Madvise_Interval": agg.madvise_interval,
                     "Max_Time_Seconds": agg.max_time_seconds,
                     "Shuffle": agg.shuffle,
+                    "Num_Workers": agg.num_workers,
                     "Warmup_Samples": agg.warmup_samples,
                     "Warmup_Batches": agg.warmup_batches,
                     "Total_Samples_All_Epochs": agg.total_samples,
@@ -460,6 +467,7 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                     "Madvise_Interval": result.madvise_interval,
                     "Max_Time_Seconds": result.max_time_seconds,
                     "Shuffle": result.shuffle,
+                    "Num_Workers": result.num_workers,
                     "Warmup_Samples": result.warmup_samples,
                     "Warmup_Batches": result.warmup_batches,
                     "Total_Samples_All_Epochs": result.total_samples,
@@ -553,13 +561,25 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                         }
                     )
     # Write CSVs
-    pd.DataFrame(summary_rows).to_csv(f"{base_filename}_summary.csv", index=False)
+    summary_csv = f"{base_filename}_summary.csv"
+    pd.DataFrame(summary_rows).to_csv(summary_csv, index=False)
+    print(f"📄 Summary CSV: {os.path.abspath(summary_csv)} ({len(summary_rows)} rows)")
+
     if aggregated_rows:
-        pd.DataFrame(aggregated_rows).to_csv(f"{base_filename}_aggregated.csv", index=False)
+        aggregated_csv = f"{base_filename}_aggregated.csv"
+        pd.DataFrame(aggregated_rows).to_csv(aggregated_csv, index=False)
+        print(f"📄 Aggregated CSV: {os.path.abspath(aggregated_csv)} ({len(aggregated_rows)} rows)")
+
     if statistics_rows:
-        pd.DataFrame(statistics_rows).to_csv(f"{base_filename}_statistics.csv", index=False)
+        statistics_csv = f"{base_filename}_statistics.csv"
+        pd.DataFrame(statistics_rows).to_csv(statistics_csv, index=False)
+        print(f"📄 Statistics CSV: {os.path.abspath(statistics_csv)} ({len(statistics_rows)} rows)")
+
     if detailed_rows:
-        pd.DataFrame(detailed_rows).to_csv(f"{base_filename}_detailed_breakdown.csv", index=False)
+        detailed_csv = f"{base_filename}_detailed_breakdown.csv"
+        pd.DataFrame(detailed_rows).to_csv(detailed_csv, index=False)
+        print(f"📄 Detailed breakdown CSV: {os.path.abspath(detailed_csv)} ({len(detailed_rows)} rows)")
+
     print("Export complete.")
 
 
