@@ -145,30 +145,30 @@ def get_fitness_results_path(args):
     return output_path
 
 
-def logits_to_logprobs(logits, input_ids):
-    """
-    Official Evo2 scoring approach: log_softmax + gather instead of cross_entropy.
+# def logits_to_logprobs(logits, input_ids):
+#     """
+#     Official Evo2 scoring approach: log_softmax + gather instead of cross_entropy.
     
-    Args:
-        logits: Model output logits [batch_size, seq_len, vocab_size]
-        input_ids: Input token IDs [batch_size, seq_len]
+#     Args:
+#         logits: Model output logits [batch_size, seq_len, vocab_size]
+#         input_ids: Input token IDs [batch_size, seq_len]
         
-    Returns:
-        torch.Tensor: Log probabilities for each token [batch_size, seq_len-1]
-    """
-    softmax_logprobs = torch.log_softmax(logits, dim=-1)
-    softmax_logprobs = softmax_logprobs[:, :-1]  # Remove last position
-    input_ids = input_ids[:, 1:]                 # Remove first position (autoregressive)
+#     Returns:
+#         torch.Tensor: Log probabilities for each token [batch_size, seq_len-1]
+#     """
+#     softmax_logprobs = torch.log_softmax(logits, dim=-1)
+#     softmax_logprobs = softmax_logprobs[:, :-1]  # Remove last position
+#     input_ids = input_ids[:, 1:]                 # Remove first position (autoregressive)
     
-    logprobs = torch.gather(
-        softmax_logprobs,       # Gather likelihoods...
-        2,                      # along the vocab dimension...
-        input_ids.unsqueeze(-1) # using the token ids to index.
-    ).squeeze(-1)
-    return logprobs
+#     logprobs = torch.gather(
+#         softmax_logprobs,       # Gather likelihoods...
+#         2,                      # along the vocab dimension...
+#         input_ids.unsqueeze(-1) # using the token ids to index.
+#     ).squeeze(-1)
+#     return logprobs
 
 
-def get_model_likelihoods(model, trainer, tokenizer, DMS_df, args, seq_len=8192):
+def get_model_likelihoods(model, trainer, tokenizer, DMS_df, args, seq_len=8192, mutation_col="nucleotide_sequence"):
     """
     Computes model likelihoods for sequences in the DMS dataframe using NeMo Lightning framework.
     
@@ -176,9 +176,10 @@ def get_model_likelihoods(model, trainer, tokenizer, DMS_df, args, seq_len=8192)
         model: The HyenaPredictor model
         trainer: The NeMo Lightning trainer
         tokenizer: The byte-level tokenizer
-        DMS_df: DataFrame containing sequences with 'mutated_sequence' column
+        DMS_df: DataFrame containing sequences
         args: Command line arguments containing batch_size, tensor_parallel_size, etc.
         seq_len: Maximum sequence length for the model
+        mutation_col: Name of the column containing sequences (default: "nucleotide_sequence")
     
     Returns:
         DataFrame with same index as DMS_df and 'log_likelihood' column containing scores.
@@ -192,11 +193,11 @@ def get_model_likelihoods(model, trainer, tokenizer, DMS_df, args, seq_len=8192)
     )
     
     # Validate required columns
-    if 'mutated_sequence' not in DMS_df.columns:
-        raise ValueError("DMS dataframe must contain 'mutated_sequence' column")
+    if mutation_col not in DMS_df.columns:
+        raise ValueError(f"DMS dataframe must contain '{mutation_col}' column")
     
     # Extract sequences from DMS dataframe
-    sequences = DMS_df['mutated_sequence'].tolist()
+    sequences = DMS_df[mutation_col].tolist()
     
     # Check for sequences that might be too long
     long_sequences = []
