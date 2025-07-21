@@ -28,7 +28,9 @@ ft-attack/
 2. Evaluation
     1. Perplexity evaluation
         1. The main entry is `eval/eval_ppl.py`, use `launch_eval_1m.sh` or `launch_eval_8k.sh` to run the evaluation.
-    2. Fitness evaluation (TODO)
+    2. Fitness evaluation 
+        1. The main entry is `eval/eval_fitness.py`, use `launch_eval_fitness_1m.sh` to run the evaluation 
+        (TODO add info about the subsampling)
 
 
 ## Data collection & Conversion
