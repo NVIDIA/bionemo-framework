@@ -5,5 +5,6 @@ CCDB_ECOLI_Tripathi_2016.csv,a CcdB DMS,,
 ESTA_BACSU_Nutschel_2020.csv,a multiprotein thermostability dataset,SRP265324,
 IF1_ECOLI_Kelsic_2016.csv,an IF-1 DMS,SRP078120,
 RNC_ECOLI_Weeks_2023.csv,an Rnc DMS,https://academic.oup.com/mbe/article/40/3/msad047/7059036?login=false#399626346,"data/reproduction_count/Supplementary Data S1 - Seq Counts Final (replica 2).csv"
+MTH3_HAEAE_RockahShmuel_2015.csv,an HaeIII DMS,,
 A4GRB6_PSEAI_Chen_2020.csv,a VIM-2 DMS,https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7308095/,
 KKA2_KLEPN_Melnikov_2014.csv,an APH(3′)II DMS,,
