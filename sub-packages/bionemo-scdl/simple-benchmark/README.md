@@ -198,8 +198,7 @@ To download the full Tahoe 100M dataset in AnnData format (1 file per plate, 14 
 gcloud storage cp -R gs://arc-ctc-tahoe100/2025-02-25/* .
 ```
 
-This dataset is 314 GB. The corresponding SCDL dataset is 1.1 TB, so ensure that you have sufficient disk space if using the entire dataset.
-
+This dataset is 314 GB. The corresponding SCDL dataset after conversion is 1.1 TB, so ensure that you have sufficient disk space if using the entire dataset.
 
 
 ## Support
