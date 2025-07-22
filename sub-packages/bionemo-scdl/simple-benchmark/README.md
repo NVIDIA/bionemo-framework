@@ -35,7 +35,7 @@ pip install -e sub-packages/bionemo-scdl/
 # Download example dataset and run a quick benchmark / smoke test.
 python scdl_speedtest.py
 
-# Benchmark your own AnnData dataset  
+# Benchmark your own AnnData dataset
 python scdl_speedtest.py -i your_dataset.h5ad
 
 # Export a detailed CSV file
@@ -54,7 +54,7 @@ deactivate
 # Basic benchmark with example dataset
 python scdl_speedtest.py
 
-# Benchmark specific dataset with sequential sampling  
+# Benchmark specific dataset with sequential sampling
 python scdl_speedtest.py -i my_data.h5ad -s sequential
 
 # Generate CSV files for analysis
@@ -63,7 +63,7 @@ python scdl_speedtest.py --csv -o report.txt
 # Custom parameters
 python scdl_speedtest.py --batch-size 64 --max-time 60
 
-# Baseline comparison (SCDL vs AnnData)
+# Baseline comparison (SCDL vs AnnData in backed mode (with lazy loading))
 python scdl_speedtest.py --generate-baseline
 ```
 
@@ -71,7 +71,7 @@ python scdl_speedtest.py --generate-baseline
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-i, --input` | Dataset path (.h5ad or scdl directory) | Auto-download example |
+| `-i, --input` | Dataset path (.h5ad, directory with .h5ad files, or scdl directory) | Auto-download example |
 | `-o, --output` | Save report to file | Print to screen |
 | `-s, --sampling-scheme` | Sampling method (shuffle/sequential/random) | shuffle |
 | `--batch-size` | Batch size | 32 |
@@ -88,24 +88,26 @@ SCDL BENCHMARK REPORT
 ============================================================
 
 Dataset: cellxgene_example_25k.h5ad
+Method: SCDL
 Sampling: shuffle
-Epochs: 3
+Epochs: 1
 
 PERFORMANCE METRICS:
-  Throughput:        10,521 samples/sec
-  Instantiation:     1.573 seconds
-  H5AD -> SCDL:      2.145 seconds
-  Avg Batch Time:    0.0030 seconds
+  Throughput:        20,098 samples/sec
+  Instantiation:     0.066 seconds
+  Avg Batch Time:    0.0016 seconds
 
 MEMORY USAGE:
-  Baseline:          257.4 MB
-  Peak (Benchmark):  0.0 MB
-  Dataset on Disk:   160.3 MB
+  Baseline:          446.6 MB
+  Peak (Benchmark):  703.2 MB
+  Dataset on Disk:   207.30 MB
 
 DATA PROCESSED:
-  Total Samples:     50,764 (16,921/epoch)
-  Total Batches:     1,588 (529/epoch)
+  Total Samples:     25,382 (25,382/epoch)
+  Total Batches:     794 (794/epoch)
 ============================================================
+SCDL version: 0.0.8
+Anndata version: 0.11.4
 ```
 
 ## Baseline Comparison Output
@@ -121,26 +123,32 @@ Dataset: cellxgene_example_25k.h5ad
 Sampling: shuffle
 
 THROUGHPUT COMPARISON:
-  SCDL:              10,521 samples/sec
-  AnnData:           3,245 samples/sec
-  Speedup:           3.24x faster with SCDL
+  SCDL:              22,668 samples/sec
+  AnnData:           2,529 samples/sec
+  Performance:       8.96x speedup with SCDL
 
 MEMORY COMPARISON:
-  SCDL Peak:         144.6 MB
-  AnnData Peak:      856.2 MB
-  Memory Efficiency: 5.92x more memory with AnnData
+  SCDL Peak:         703.5 MB
+  AnnData Peak:      568.8 MB
+  Memory Efficiency: SCDL uses 1.24x more memory
+
+DISK USAGE COMPARISON:
+  SCDL Size:         0.20 GB
+  AnnData Size:      0.14 GB
+  Storage Efficiency: SCDL uses 1.43x more disk space
 
 LOADING TIME COMPARISON:
-  SCDL Conversion:   1.53 seconds
-  AnnData Load:      4.67 seconds
-  Load Time Ratio:   3.05x
+  SCDL Conversion:   0.00 seconds (cached)
+  AnnData Load:      0.25 seconds
 
 SUMMARY:
-  SCDL provides 3.2x throughput improvement
-  SCDL uses 5.9x less memory
-================================================================================
+  SCDL provides 9.0x throughput improvement
+  SCDL uses 1.2x more memory
+  SCDL disk usage: 0.20 GB
+  AnnData disk usage: 0.14 GB
+  SCDL uses 1.4x more disk space
+================================================================================```
 ```
-
 ## CSV Export
 
 When using `--csv`, the script generates:
@@ -156,7 +164,7 @@ Perfect for analysis in Excel, Python, R, or other data tools.
 ### Dataset Issues
 
 - **H5AD files**: Converted automatically to SCDL format (conversion time reported)
-- **Large datasets**: Uses memory-mapped access for efficiency  
+- **Large datasets**: Uses memory-mapped access for efficiency
 - **Download failures**: Check internet connection and try again
 - **Conversion caching**: H5AD files are converted once, then reused on subsequent runs
 
@@ -165,13 +173,15 @@ Perfect for analysis in Excel, Python, R, or other data tools.
 - **Faster throughput**: Use `--batch-size 64` or higher
 - **Longer runs**: Increase `--max-time 120` for stable measurements
 - **Memory profiling**: Use `--csv` to get detailed memory usage per epoch
+- **Clearing the page cache**: With lazy loading, data may be stored in the page cache between runs. This is especially an issue with SCDL. Between runs, the page cache can be cleared with
+```sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'```
 
 ## Example Datasets
 
 The script automatically downloads a 25K cell example dataset from CellxGene. For other datasets:
 
 - **10X Genomics**: Convert .h5 files to .h5ad using `scanpy.read_10x_h5()`
-- **AnnData files**: Use directly with `-i dataset.h5ad`  
+- **AnnData files**: Use directly with `-i dataset.h5ad`
 - **Large datasets**: Pre-convert to SCDL format for faster loading
 
 ### Tahoe 100M
@@ -184,6 +194,8 @@ To download the full Tahoe 100M dataset in AnnData format (1 file per plate, 14 
 gsutil rsync gs://arc-ctc-tahoe100/2025-02-25/tutorial/ .
 ```
 
+This dataset is 314 GB. The corresponding SCDL dataset is 1.1 TB, so ensure that you have sufficient disk space if using the entire dataset.
+
 
 
 ## Support
@@ -193,4 +205,4 @@ For issues with:
 - **Benchmark script**: Verify dependencies and dataset format
 - **Performance**: Try different batch sizes and sampling schemes
 
-The script is designed to be self-contained and user-friendly. Most issues are resolved by following the built-in error messages and installation prompts. 
+The script is designed to be self-contained and user-friendly. Most issues are resolved by following the built-in error messages and installation prompts.

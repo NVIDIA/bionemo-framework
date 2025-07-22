@@ -952,7 +952,7 @@ def create_dataloader_factory(input_path: str, sampling_scheme: str, batch_size:
                 os.path.isdir(input_path) and any(f.endswith(".h5ad") for f in os.listdir(input_path))
             ):
                 # For h5ad files or directories containing h5ad files, check if SCMMAP cache already exists
-                data_dir = str(Path(input_path).parent / Path(input_path).stem / "scdl")
+                data_dir = str(Path(input_path).parent / (Path(input_path).stem + "_scdl"))
                 # Check if the memory-mapped dataset already exists
                 if Path(data_dir).exists():
                     # Load from existing SCMMAP cache
@@ -1081,7 +1081,7 @@ def format_report(result, input_path: str, sampling_scheme: str, method: str = "
     report.append("MEMORY USAGE:")
     report.append(f"  Baseline:          {result.memory_before_instantiation_mb:.1f} MB")
     report.append(f"  Peak (Benchmark):  {result.peak_memory_mb:.1f} MB")
-    report.append(f"  Dataset on Disk:   {result.disk_size_mb / 1024:.2f} GB")
+    report.append(f"  Dataset on Disk:   {result.disk_size_mb:.2f} MB")
     report.append("")
     report.append("DATA PROCESSED:")
     report.append(f"  Total Samples:     {result.total_samples:,} ({samples_per_epoch:,}/epoch)")
@@ -1233,13 +1233,14 @@ Examples:
         help="Sampling method (default: shuffle)",
     )
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size (default: 32)")
-    parser.add_argument("--max-time", type=float, default=120.0, help="Max runtime seconds (default: 30)")
-    parser.add_argument("--warmup-time", type=float, default=30.0, help="Warmup seconds (default: 2)")
+    parser.add_argument("--max-time", type=float, default=30.0, help="Max runtime seconds (default: 30)")
+    parser.add_argument("--warmup-time", type=float, default=0.0, help="Warmup seconds (default: 0)")
     parser.add_argument("--csv", action="store_true", help="Export detailed CSV files")
     parser.add_argument(
         "--generate-baseline", action="store_true", help="Generate AnnData baseline comparison (requires .h5ad input)"
     )
     parser.add_argument("--num-epochs", type=int, default=1, help="Number of epochs (default: 1)")
+
     args = parser.parse_args()
 
     # Check if baseline generation is requested
@@ -1305,8 +1306,6 @@ Examples:
 
             # Run AnnData benchmark
             adata_path = input_path
-            if args.adata_path is not None:
-                adata_path = args.data_path
             print("\n=== Running AnnData Benchmark ===")
             anndata_factory = create_dataloader_factory(
                 str(adata_path), args.sampling_scheme, args.batch_size, use_anndata=True
