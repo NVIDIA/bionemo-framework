@@ -117,7 +117,15 @@ class DMSDataModule(LightningDataModule):
 
 def get_likelihood_results_path(args):
     """Generate path for saving likelihood results."""
-    model_name = args.ckpt_dir.stem  # Use checkpoint directory name as model identifier
+    # Create more descriptive model name by combining training config and checkpoint
+    if "ft_checkpoints" in str(args.ckpt_dir):
+        # For fine-tuned models: combine training config name with checkpoint name
+        training_config = args.ckpt_dir.parent.parent.parent.name
+        checkpoint_name = args.ckpt_dir.stem
+        model_name = f"{training_config}_{checkpoint_name}"
+    else:
+        # For base models: use checkpoint directory name as model identifier
+        model_name = args.ckpt_dir.stem
     file_name = args.DMS_id + "_" + model_name + "_likelihoods.csv"
     results_dir = os.path.join(
         args.output_performance_file_folder, 
@@ -132,7 +140,15 @@ def get_likelihood_results_path(args):
 
 def get_fitness_results_path(args):
     """Generate path for saving fitness results."""
-    model_name = args.ckpt_dir.stem  # Use checkpoint directory name as model identifier
+    # Create more descriptive model name by combining training config and checkpoint
+    if "ft_checkpoints" in str(args.ckpt_dir):
+        # For fine-tuned models: combine training config name with checkpoint name
+        training_config = args.ckpt_dir.parent.parent.parent.name
+        checkpoint_name = args.ckpt_dir.stem
+        model_name = f"{training_config}_{checkpoint_name}"
+    else:
+        # For base models: use checkpoint directory name as model identifier
+        model_name = args.ckpt_dir.stem
     file_name = args.DMS_id + "_" + model_name + "_fitness.csv"
     results_dir = os.path.join(
         args.output_performance_file_folder, 
@@ -461,7 +477,15 @@ def eval_DMS_file(model, trainer, tokenizer, args, seq_len=8192):
    
     # Save fitness results
     experiment_type = args.DMS_path.split('/')[-2]
-    model_name = args.ckpt_dir.stem
+    # Create more descriptive model name by combining training config and checkpoint
+    if "ft_checkpoints" in str(args.ckpt_dir):
+        # For fine-tuned models: combine training config name with checkpoint name
+        training_config = args.ckpt_dir.parent.parent.parent.name
+        checkpoint_name = args.ckpt_dir.stem
+        model_name = f"{training_config}_{checkpoint_name}"
+    else:
+        # For base models: use checkpoint directory name as model identifier
+        model_name = args.ckpt_dir.stem
     output_dir = os.path.join(
         args.output_performance_file_folder, 
         experiment_type, 
