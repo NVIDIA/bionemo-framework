@@ -78,6 +78,7 @@ def test_infer_runs(
     else:
         lora_checkpoint_path = None
 
+    task_type = "classification"
     if config_class == ESM2FineTuneTokenConfig:
         initial_ckpt_skip_keys_with_these_prefixes = ["classification_head"]
     elif config_class == ESM2Config:
@@ -100,6 +101,7 @@ def test_infer_runs(
         include_logits=True,
         micro_batch_size=3,  # dataset length (10) is not multiple of 3; this validates partial batch inference
         config_class=config_class,
+        task_type=task_type,
         lora_checkpoint_path=lora_checkpoint_path,
         initial_ckpt_skip_keys_with_these_prefixes=initial_ckpt_skip_keys_with_these_prefixes,
     )
