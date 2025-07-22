@@ -4,6 +4,12 @@ import numpy as np
 import os
 import glob
 
+def clean_model_name(model_name):
+    """Clean model name by removing epoch suffix if present."""
+    if "_epoch" in model_name:
+        return model_name.split("_epoch")[0]
+    return model_name
+
 def collect_fitness_data(model_names=None):
     """Collect Spearman correlation values from all fitness CSV files, filtered by model names."""
     
@@ -73,7 +79,7 @@ def collect_fitness_data(model_names=None):
 def collect_fitness_data_by_model(model_names):
     """Collect Spearman correlation values by model for Virus taxon only."""
     
-    base_path = "results/DMS_ProteinGym_substitutions"
+    base_path = "results/test/nucleotides"
     taxon = "Virus"
     
     data = {}
@@ -156,7 +162,9 @@ def create_fitness_plot_by_taxon(data, model_names=None):
     if model_names:
         if isinstance(model_names, str):
             model_names = [model_names]
-        models_str = ", ".join(model_names)
+        # Clean model names for display
+        clean_model_names = [clean_model_name(name) for name in model_names]
+        models_str = ", ".join(clean_model_names)
         title = f'DMS Fitness Prediction Performance by Taxon ({models_str})'
     else:
         title = 'DMS Fitness Prediction Performance by Taxon (All Models)'
@@ -224,9 +232,10 @@ def create_fitness_plot_by_model(data, model_names):
     ax.set_ylabel('|Spearman ρ|', fontsize=12)
     ax.set_title('DMS Fitness Prediction Performance by Model (Virus Taxon)', fontsize=14, fontweight='bold')
     
-    # Set x-axis labels
+    # Set x-axis labels with cleaned model names
     ax.set_xticks(x_positions)
-    ax.set_xticklabels(models, rotation=45, ha='right')
+    clean_model_labels = [clean_model_name(model) for model in models]
+    ax.set_xticklabels(clean_model_labels, rotation=45, ha='right')
     
     # Add grid for better readability
     ax.grid(True, alpha=0.3, axis='y')
@@ -296,8 +305,9 @@ def main():
         
         # Save the plot with dynamic filename
         if args.models:
-            # Fix filename generation to properly handle model names
-            models_str = "-".join(args.models)  # Use hyphen instead of underscore
+            # Clean model names for filename and use hyphen instead of underscore
+            clean_models = [clean_model_name(model) for model in args.models]
+            models_str = "-".join(clean_models)
             output_path = f"fitness_spearman_by_taxon_{models_str}.png"
         else:
             output_path = "fitness_spearman_by_taxon_all_models.png"
@@ -324,8 +334,9 @@ def main():
         fig = create_fitness_plot_by_model(data, model_names=args.models)
         
         # Save the plot with dynamic filename
-        # Fix filename generation to properly handle model names
-        models_str = "-".join(args.models)  # Use hyphen instead of underscore
+        # Clean model names for filename and use hyphen instead of underscore
+        clean_models = [clean_model_name(model) for model in args.models]
+        models_str = "-".join(clean_models)
         output_path = f"fitness_spearman_by_model_virus_{models_str}.png"
     
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
