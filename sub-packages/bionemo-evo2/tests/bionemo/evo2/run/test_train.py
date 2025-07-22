@@ -56,7 +56,7 @@ def small_training_cmd(path, max_steps, val_check, devices: int = 1, additional_
         "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* --limit-val-batches 1 "
         "--no-activation-checkpointing --add-bias-output --create-tensorboard-logger --create-tflops-callback "
         f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
-        f"--seq-length 8 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args}"
+        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args}"
     )
     return cmd
 
@@ -301,7 +301,6 @@ def test_train_evo2_stops(tmp_path):
             "--fp8",
             marks=[
                 pytest.mark.skipif(not fp8_available, reason=reason_for_no_fp8),
-                pytest.mark.xfail(reason="FP8 test currently broken - TODO: fix"),
             ],
             id="fp8",
         ),
