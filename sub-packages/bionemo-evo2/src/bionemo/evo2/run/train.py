@@ -45,6 +45,9 @@ from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils.exp_manager import TimingCallback
 
+# Add import for Mamba models
+from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
+from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -176,11 +179,9 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--model-size",
         type=str,
-        choices=sorted(HYENA_MODEL_OPTIONS.keys()),
+        choices=sorted(list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys())),
         default="7b",
-        help="Model architecture to use, choose between 7b, 40b, or test (a sub-model of 4 layers, less than 1B "
-        "parameters). '_arc_1m' models have GLU / FFN dimensions that support 1M context length when trained "
-        "with TP<=8.",
+        help="Model size/configuration to use. Options depend on the selected model-type.",
     )
     parser.add_argument(
         "--add-bias-output",
@@ -212,7 +213,37 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Directory to restore an initial checkpoint from. Use this for supervised fine-tuning.",
     )
+    parser.add_argument(
+        "--use-precision-aware-optimizer",
+        action="store_true",
+        default=False,
+        help="Use precision aware optimizer that stores main weights in FP32 when doing mixed precision training.",
+    )
+    parser.add_argument(
+        "--bf16-main-grads",
+        action="store_true",
+        default=False,
+        help="Use bf16 for main gradients, only use this with --use-precision-aware-optimizer.",
+    )
     parser.add_argument("--wd", type=float, default=0.01, help="Weight decay for optimizer.")
+    parser.add_argument(
+        "--adam-beta1",
+        type=float,
+        default=0.9,
+        help="Adam optimizer beta1 parameter.",
+    )
+    parser.add_argument(
+        "--adam-beta2",
+        type=float,
+        default=0.95,
+        help="Adam optimizer beta2 parameter.",
+    )
+    parser.add_argument(
+        "--adam-eps",
+        type=float,
+        default=1e-8,
+        help="Adam optimizer epsilon parameter. The inverse of this value (1/eps) represents the maximum adaptive learning rate per parameter.",
+    )
     parser.add_argument(
         "--restore-optimizer-from-ckpt",
         action="store_true",
@@ -318,6 +349,27 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Start nsys profiling after this step.",
     )
     parser.add_argument(
+        "--spike-no-more-embedding-init",
+        action="store_true",
+        default=False,
+        help="If set, the embeddings are initialized with a Normal(0, 1.0) distribution rather "
+        "than the default Normal(0, 0.02). This may help avoid loss spiking during training. Consider using this with "
+        "--no-weight-decay-embeddings to avoid shrinking the embeddings to 0 by skipping weight decay on these layers, "
+        "or with --use-targeted-variance-loss to maintain a 1.0 variance during training even with weight decay.",
+    )
+    parser.add_argument(
+        "--no-weight-decay-embeddings",
+        action="store_true",
+        default=False,
+        help="If set, do not apply weight decay to the embeddings.",
+    )
+    parser.add_argument(
+        "--use-targeted-variance-loss",
+        action="store_true",
+        default=False,
+        help="Use targeted variance loss.",
+    )
+    parser.add_argument(
         "--nsys-end-step",
         type=int,
         required=False,
@@ -381,6 +433,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         type=float,
         default=0.0,
         help="Dropout probability for the hyena layers",
+    )
+    parser.add_argument(
+        "--log-num-zeros-in-grad",
+        action="store_true",
+        default=False,
+        help="Log the number of zeros in the gradient.",
     )
     parser.add_argument(
         "--attention-dropout",
@@ -500,26 +558,47 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "cross_entropy_loss_fusion": args.cross_entropy_loss_fusion,
         "fp32_residual_connection": not args.no_fp32_residual_connection,
         "add_bias_output": args.add_bias_output,
-        "use_b2b_causal_conv1d": args.use_b2b_causal_conv1d,
         **activation_checkpointing_args,
     }
+    if args.use_targeted_variance_loss:
+        config_modifiers_init["use_targeted_variance_loss"] = True
+    if args.use_b2b_causal_conv1d:
+        config_modifiers_init["use_b2b_causal_conv1d"] = True
     if args.hybrid_override_pattern:
         config_modifiers_init["hybrid_override_pattern"] = args.hybrid_override_pattern
     if args.num_layers:
         config_modifiers_init["num_layers"] = args.num_layers
-
-    if args.model_size not in HYENA_MODEL_OPTIONS:
+    if args.model_size in HYENA_MODEL_OPTIONS:
+        model_type = "hyena"
+    elif args.model_size in MAMBA_MODEL_OPTIONS:
+        model_type = "mamba"
+    else:
         raise ValueError(f"Invalid model size: {args.model_size}")
-    evo2_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
-
-    # Instantiate model.
-    model = llm.HyenaModel(evo2_config, tokenizer=data_module.tokenizer)
+    # Create model based on selected model type
+    if model_type == "hyena":
+        if args.model_size not in HYENA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Hyena: {args.model_size}")
+        model_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
+        model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer)
+    else:  # mamba
+        if args.no_weight_decay_embeddings:
+            config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
+        if args.spike_no_more_embedding_init:  # --spike-no-more-embedding-init
+            config_modifiers_init["spike_no_more_embedding_init"] = True
+        if args.model_size not in MAMBA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
+        add_bias_output = config_modifiers_init.pop("add_bias_output")
+        if add_bias_output:
+            raise ValueError("Bias output is not supported for Mamba models.")
+        model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
+        model = MambaModel(model_config, tokenizer=data_module.tokenizer)
 
     # Setup callbacks.
     callbacks = [
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         TimingCallback(),
+        TEVCallback(),
     ]
 
     if args.enable_preemption:
@@ -531,7 +610,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     if args.create_tflops_callback:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
         flop_meas_callback = FLOPsMeasurementCallback(
-            evo2_config,
+            model_config,
             data_module,
             "hyena",
         )
@@ -559,7 +638,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             tp_comm_overlap_cfg = userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192
         callbacks.append(
             MegatronCommOverlapCallback(
-                tp_comm_overlap=evo2_config.tp_comm_overlap,
+                tp_comm_overlap=model_config.tp_comm_overlap,
                 tp_comm_overlap_cfg=tp_comm_overlap_cfg,
                 tp_comm_bootstrap_backend=args.tp_comm_overlap_backend,
                 wgrad_deferral_limit=22,  # default from NeMo
@@ -590,20 +669,24 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"PP{args.pipeline_model_parallel_size}-CP{args.context_parallel_size}"
         f"-GBS{global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
         f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
-        f"-ACRNL{evo2_config.recompute_num_layers}"
-        f"-PAT{evo2_config.hybrid_override_pattern}"
-        f"-F32R{evo2_config.fp32_residual_connection}"
-        f"-FCE{evo2_config.cross_entropy_loss_fusion}"
+        f"-ACRNL{model_config.recompute_num_layers}"
+        f"-PAT{model_config.hybrid_override_pattern}"
+        f"-F32R{model_config.fp32_residual_connection}"
+        f"-FCE{model_config.cross_entropy_loss_fusion}"
         f"-AIC{not args.no_average_in_collective}"
         f"-PEOD{args.eod_pad_in_loss_mask}"
         f"-BO{args.add_bias_output}"
-        f"-B2B{args.use_b2b_causal_conv1d}"
         f"-GCLP{args.clip_grad}"
         f"-HDO{args.hidden_dropout}"
         f"-ADO{args.attention_dropout}"
         f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-CONSTSTEPS{args.constant_steps}-WD{args.wd}"
         f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
+        f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
+        f"-PAO{args.use_precision_aware_optimizer}"
+        f"-B16MG{args.bf16_main_grads}"
+        f"-EWD{args.no_weight_decay_embeddings}-SNI{args.spike_no_more_embedding_init}"
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
+        f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
     )
 
@@ -726,11 +809,15 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     opt_config = OptimizerConfig(
         optimizer="adam",
         lr=args.lr,
-        adam_beta1=0.9,
-        adam_beta2=0.95,
+        adam_beta1=args.adam_beta1,
+        adam_beta2=args.adam_beta2,
         weight_decay=args.wd,
         clip_grad=args.clip_grad,
+        adam_eps=args.adam_eps,
         use_distributed_optimizer=True,
+        log_num_zeros_in_grad=args.log_num_zeros_in_grad,
+        use_precision_aware_optimizer=args.use_precision_aware_optimizer,
+        main_grads_dtype=torch.bfloat16 if args.bf16_main_grads else torch.float32,
         bf16=True,
     )
 
@@ -740,10 +827,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         min_lr=args.min_lr,
         constant_steps=args.constant_steps,
     )
-
-    opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=evo2_config.hyena_no_weight_decay_cond_fn)
+    # This is where the no weight decay condition is applied to the optimizer state.
+    opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=model_config.hyena_no_weight_decay_cond_fn)
     opt.connect(model)
-
     # Start training
     trainer.fit(model, data_module)
     return trainer

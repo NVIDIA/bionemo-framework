@@ -58,11 +58,19 @@ rm -rf /tmp/* /var/tmp/*
 EOF
 
 
-## BUMP TE as a solution to the issue https://github.com/NVIDIA/bionemo-framework/issues/422. Drop this when pytorch images ship the fixed commit.
- ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
- RUN PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
-    pip --disable-pip-version-check --no-cache-dir install \
-    git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
+## BUMP and patch TE as a solution to the issues:
+## 1. https://github.com/NVIDIA/bionemo-framework/issues/422
+## 2. https://github.com/NVIDIA/bionemo-framework/issues/973
+## Drop this when pytorch images ship the fixed commit.
+ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
+
+COPY ./patches/te.patch /tmp/te.patch
+RUN git clone --recurse-submodules https://github.com/NVIDIA/TransformerEngine.git /tmp/TransformerEngine && \
+    cd /tmp/TransformerEngine && \
+    git checkout --recurse-submodules ${TE_TAG} && \
+    patch -p1 < /tmp/te.patch && \
+    PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
+    pip --disable-pip-version-check --no-cache-dir install .
 
 # Install AWS CLI based on architecture
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
@@ -135,8 +143,22 @@ fi
 RUN apt-get update -qy && apt-get install -y libopenblas-dev && pip install scikit-misc==0.3.1
 
 # Mamba dependancy installation
-RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
+# See https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/d3c853c2d/docker/Dockerfile#L193-198
+#  for the command we want to keep in sync. Note that the package install is modified slightly to first build a
+#  wheel (no deps) and then install the wheel. This avoids issues with torch version conflicts.
+RUN <<EOF
+git clone https://github.com/state-spaces/mamba.git
+cd mamba
+git checkout 2e16fc3062cdcd4ebef27a9aa4442676e1c7edf4
+sed -i "/triton/d" setup.py
+sed -i "/triton/d" pyproject.toml
+pip3 wheel --disable-pip-version-check --no-build-isolation --no-deps .
+pip3 --disable-pip-version-check --no-cache-dir install mamba_ssm-*.whl --no-deps
+rm -f mamba_ssm-*.whl
+cd ..
+rm -rf mamba
+EOF
+
 
 # Nemo Run installation
 # Some things are pip installed in advance to avoid dependency issues during nemo_run installation

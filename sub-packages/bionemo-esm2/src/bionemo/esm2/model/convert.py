@@ -134,7 +134,7 @@ class HFESM2Exporter(io.ModelConnector[BionemoLightningModule, EsmForMaskedLM]):
         )
         source, _ = self.nemo_load(self, trainer=trainer, cpu=cpu)
 
-        dtype = torch.bfloat16 if source.config.bf16 else torch.float32
+        dtype = source.dtype
 
         # Not sure why we need to do this, for some reason lm_head stays as fp32
         source.module.lm_head.to(dtype)
