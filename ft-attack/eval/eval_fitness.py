@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import sys
 import time
+import re
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score, matthews_corrcoef, ndcg_score
 import nemo.lightning as nl
@@ -41,6 +42,27 @@ except ImportError as e:
 # TODO: figure out why ndcg code returns error 
 # (currently i do try block and ignore unsuccessful as nan)
 # TODO: save logic to have subfolder for each model
+
+
+def get_model_name(args):
+    """Generate consistent model name for fine-tuned and base models."""
+    if "ft_checkpoints" in str(args.ckpt_dir):
+        # For fine-tuned models: combine training config name with samples info
+        training_config = args.ckpt_dir.parent.parent.parent.name
+        checkpoint_name = args.ckpt_dir.stem
+        
+        # Extract consumed_samples=X from checkpoint name
+        samples_match = re.search(r'consumed_samples=(\d+)', checkpoint_name)
+        if samples_match:
+            samples_value = samples_match.group(1)
+            model_name = f"{training_config}_samples={samples_value}"
+        else:
+            # Fallback to original behavior if no samples found
+            model_name = f"{training_config}_{checkpoint_name}"
+    else:
+        # For base models: use checkpoint directory name as model identifier
+        model_name = args.ckpt_dir.stem
+    return model_name
 
 
 class DMSDataset(Dataset):
@@ -117,15 +139,7 @@ class DMSDataModule(LightningDataModule):
 
 def get_likelihood_results_path(args):
     """Generate path for saving likelihood results."""
-    # Create more descriptive model name by combining training config and checkpoint
-    if "ft_checkpoints" in str(args.ckpt_dir):
-        # For fine-tuned models: combine training config name with checkpoint name
-        training_config = args.ckpt_dir.parent.parent.parent.name
-        checkpoint_name = args.ckpt_dir.stem
-        model_name = f"{training_config}_{checkpoint_name}"
-    else:
-        # For base models: use checkpoint directory name as model identifier
-        model_name = args.ckpt_dir.stem
+    model_name = get_model_name(args)
     file_name = args.DMS_id + "_" + model_name + "_likelihoods.csv"
     results_dir = os.path.join(
         args.output_performance_file_folder, 
@@ -140,15 +154,7 @@ def get_likelihood_results_path(args):
 
 def get_fitness_results_path(args):
     """Generate path for saving fitness results."""
-    # Create more descriptive model name by combining training config and checkpoint
-    if "ft_checkpoints" in str(args.ckpt_dir):
-        # For fine-tuned models: combine training config name with checkpoint name
-        training_config = args.ckpt_dir.parent.parent.parent.name
-        checkpoint_name = args.ckpt_dir.stem
-        model_name = f"{training_config}_{checkpoint_name}"
-    else:
-        # For base models: use checkpoint directory name as model identifier
-        model_name = args.ckpt_dir.stem
+    model_name = get_model_name(args)
     file_name = args.DMS_id + "_" + model_name + "_fitness.csv"
     results_dir = os.path.join(
         args.output_performance_file_folder, 
@@ -477,15 +483,7 @@ def eval_DMS_file(model, trainer, tokenizer, args, seq_len=8192):
    
     # Save fitness results
     experiment_type = args.DMS_path.split('/')[-2]
-    # Create more descriptive model name by combining training config and checkpoint
-    if "ft_checkpoints" in str(args.ckpt_dir):
-        # For fine-tuned models: combine training config name with checkpoint name
-        training_config = args.ckpt_dir.parent.parent.parent.name
-        checkpoint_name = args.ckpt_dir.stem
-        model_name = f"{training_config}_{checkpoint_name}"
-    else:
-        # For base models: use checkpoint directory name as model identifier
-        model_name = args.ckpt_dir.stem
+    model_name = get_model_name(args)
     output_dir = os.path.join(
         args.output_performance_file_folder, 
         experiment_type, 
