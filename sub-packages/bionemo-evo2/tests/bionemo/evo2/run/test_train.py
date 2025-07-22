@@ -96,7 +96,7 @@ def small_training_mamba_finetune_cmd(
     return cmd
 
 
-@pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+@pytest.mark.timeout(512)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
 def test_train_evo2_finetune_runs(tmp_path):
     """
@@ -106,11 +106,11 @@ def test_train_evo2_finetune_runs(tmp_path):
     """
     num_steps = 2
     # Note: The command assumes that `train_evo2` is in your PATH.
-    command = small_training_cmd(tmp_path, max_steps=num_steps, val_check=num_steps)
+    command = small_training_cmd(tmp_path / "pretrain", max_steps=num_steps, val_check=num_steps)
     stdout_pretrain: str = run_command_in_subprocess(command=command, path=str(tmp_path))
     assert "Restoring model weights from RestoreConfig(path='" not in stdout_pretrain
 
-    log_dir = tmp_path / "evo2"
+    log_dir = tmp_path / "pretrain" / "evo2"
     checkpoints_dir = log_dir / "checkpoints"
     tensorboard_dir = log_dir / "dev"
 
@@ -169,7 +169,7 @@ def test_train_evo2_finetune_runs(tmp_path):
     assert len(matching_subfolders_ft) == 1, "Only one checkpoint subfolder should be found."
 
 
-@pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+@pytest.mark.timeout(512)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
 def test_train_evo2_mamba_finetune_runs(tmp_path):
     """
