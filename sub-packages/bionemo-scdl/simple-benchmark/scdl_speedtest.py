@@ -29,11 +29,13 @@ if __name__ == "__main__":
 
 import argparse
 import gc
+import importlib.metadata as im
 import multiprocessing as mp
 import os
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from dataclasses import dataclass
@@ -84,6 +86,7 @@ except ImportError:
     sys.exit(1)
 
 try:
+    from bionemo.scdl.io.single_cell_collection import SingleCellCollection
     from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
     from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 except ImportError:
@@ -99,8 +102,6 @@ except ImportError:
 # These packages are only required when using --generate-baseline
 try:
     import anndata
-    import numpy as np
-    import scipy.sparse as sp
 
     ANNDATA_AVAILABLE = True
 except ImportError:
@@ -111,94 +112,6 @@ except ImportError:
 if __name__ == "__main__":
     print("Done.")
     print()
-
-
-class AnnDataDataset:
-    """Simple AnnData-backed dataset for baseline comparison."""
-
-    def __init__(self, h5ad_path: str):
-        """Initialize AnnDataDataset by loading an h5ad file.
-
-        Args:
-            h5ad_path (str): Path to the h5ad file to load.
-        """
-        print(f"Loading AnnData file: {Path(h5ad_path).name}")
-        load_start = time.perf_counter()
-        self.adata = anndata.read_h5ad(h5ad_path)
-        load_end = time.perf_counter()
-        self.load_time = load_end - load_start
-        print(f"AnnData loading completed in {self.load_time:.2f} seconds")
-
-        # Convert to CSR if not already
-        if not sp.issparse(self.adata.X):
-            print("Converting dense matrix to sparse...")
-            self.adata.X = sp.csr_matrix(self.adata.X)
-        elif not isinstance(self.adata.X, sp.csr_matrix):
-            print("Converting sparse matrix to CSR format...")
-            self.adata.X = self.adata.X.tocsr()
-
-    def __len__(self):
-        """Return the number of observations (rows) in the AnnData object."""
-        return self.adata.n_obs
-
-    def __getitem__(self, idx):
-        """Get a single observation from the dataset.
-
-        Args:
-            idx: Index of the observation to retrieve.
-
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: A tuple containing (values, indices) where:
-                - values: Non-zero values as float32 array
-                - indices: Non-zero indices as int32 array
-        """
-        # Return sparse row data similar to SCDL format
-        row_data = self.adata.X[idx]
-        if sp.issparse(row_data):
-            row_data = row_data.toarray().flatten()
-
-        # Find non-zero indices and values
-        nonzero_indices = np.nonzero(row_data)[0]
-        nonzero_values = row_data[nonzero_indices]
-
-        return (nonzero_values.astype(np.float32), nonzero_indices.astype(np.int32))
-
-
-def collate_anndata_batch(batch):
-    """Collate function for AnnData dataset to match SCDL output format."""
-    if len(batch) == 1:
-        values, indices = batch[0]
-        # Create CSR tensor for single item
-        n_features = indices.max() + 1 if len(indices) > 0 else 1
-        return torch.sparse_csr_tensor(
-            torch.tensor([0, len(values)], dtype=torch.int32),  # crow_indices
-            torch.from_numpy(indices),  # col_indices
-            torch.from_numpy(values),  # values
-            size=(1, n_features),
-        )
-
-    # For batch > 1, create batch CSR tensor
-    batch_values = []
-    batch_col_indices = []
-    batch_row_pointers = [0]
-    max_features = 0
-
-    for values, indices in batch:
-        batch_values.extend(values)
-        batch_col_indices.extend(indices)
-        batch_row_pointers.append(batch_row_pointers[-1] + len(values))
-        if len(indices) > 0:
-            max_features = max(max_features, indices.max() + 1)
-
-    if not batch_values:  # Empty batch
-        max_features = 1
-
-    return torch.sparse_csr_tensor(
-        torch.tensor(batch_row_pointers, dtype=torch.int32),
-        torch.tensor(batch_col_indices, dtype=torch.int32),
-        torch.tensor(batch_values, dtype=torch.float32),
-        size=(len(batch), max_features),
-    )
 
 
 def dense_to_csr(dense: torch.Tensor):
@@ -960,91 +873,6 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
     print("Export complete.")
 
 
-def create_dataloader_factory_old(
-    input_path: str, sampling_scheme: str, batch_size: int = 32, use_anndata: bool = False
-):
-    """Create a factory function for the dataloader."""
-    # Track conversion metrics globally to be accessible later
-    conversion_metrics = {"time": 0.0, "performed": False}
-    load_metrics = {"time": 0.0, "performed": False}
-    actual_data_path = {"path": input_path}  # Track the actual data path used
-
-    def factory():
-        if use_anndata:
-            # Create AnnData-based dataset
-            if not input_path.endswith(".h5ad"):
-                raise ValueError("AnnData baseline requires .h5ad input file")
-            dataset = AnnDataDataset(input_path)
-            load_metrics["time"] = dataset.load_time
-            load_metrics["performed"] = True
-            actual_data_path["path"] = input_path  # AnnData uses the original h5ad file
-            collate_fn = collate_anndata_batch
-        else:
-            # Create SCDL dataset
-            if input_path.endswith(".h5ad"):
-                # For h5ad files, check if SCMMAP cache already exists
-                data_dir = str(Path(input_path).parent / Path(input_path).stem)
-
-                # Check if the memory-mapped dataset already exists
-                if Path(data_dir).exists():
-                    # Load from existing SCMMAP cache
-                    dataset = SingleCellMemMapDataset(data_path=data_dir)
-                    conversion_metrics["performed"] = False
-                else:
-                    # Create new SCMMAP from h5ad file - measure conversion time
-                    print(f"Converting h5ad to SCDL format: {Path(input_path).name}")
-                    conversion_start = time.perf_counter()
-                    dataset = SingleCellMemMapDataset(data_path=data_dir, h5ad_path=input_path)
-                    conversion_end = time.perf_counter()
-                    conversion_time = conversion_end - conversion_start
-                    conversion_metrics["time"] = conversion_time
-                    conversion_metrics["performed"] = True
-                    print(f"Conversion completed in {conversion_time:.2f} seconds")
-                actual_data_path["path"] = data_dir  # SCDL uses the converted directory
-            else:
-                # For scdl format, input_path is the data directory
-                dataset = SingleCellMemMapDataset(data_path=input_path)
-                conversion_metrics["performed"] = False
-                actual_data_path["path"] = input_path  # SCDL directory is the input path
-
-            collate_fn = collate_sparse_matrix_batch
-
-        # Configure sampling based on sampling scheme
-        if sampling_scheme == "sequential":
-            # Access samples in order: 0, 1, 2, 3, ...
-            shuffle = False
-            sampler = None
-        elif sampling_scheme == "shuffle":
-            # Use PyTorch's built-in shuffle (reproducible based on generator state)
-            shuffle = True
-            sampler = None
-        elif sampling_scheme == "random":
-            # Random permutation with random seed (different each run)
-            shuffle = False  # Don't use DataLoader's shuffle when using custom sampler
-            # Use current time as seed for true randomness
-            torch.manual_seed(int(time.time() * 1000000) % 2**32)
-            sampler = torch.utils.data.RandomSampler(dataset)
-        else:
-            raise ValueError(f"Unknown sampling scheme: {sampling_scheme}")
-
-        # Create and return the dataloader
-        return DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            sampler=sampler,
-            drop_last=False,
-            collate_fn=collate_fn,
-            num_workers=0,
-        )
-
-    # Attach metrics to the factory function
-    factory.conversion_metrics = conversion_metrics
-    factory.load_metrics = load_metrics
-    factory.actual_data_path = actual_data_path
-    return factory
-
-
 def get_sampler(sampling_scheme: str, dataset: torch.utils.data.Dataset):
     """Returns the shuffle flag and sampler object for a given sampling scheme.
 
@@ -1120,25 +948,41 @@ def create_dataloader_factory(input_path: str, sampling_scheme: str, batch_size:
                 )
         else:
             # Create SCDL dataset
-            if input_path.endswith(".h5ad"):
-                # For h5ad files, check if SCMMAP cache already exists
-                data_dir = str(Path(input_path).parent / Path(input_path).stem)
-
+            if input_path.endswith(".h5ad") or (
+                os.path.isdir(input_path) and any(f.endswith(".h5ad") for f in os.listdir(input_path))
+            ):
+                # For h5ad files or directories containing h5ad files, check if SCMMAP cache already exists
+                data_dir = str(Path(input_path).parent / (Path(input_path).stem + "_scdl"))
                 # Check if the memory-mapped dataset already exists
                 if Path(data_dir).exists():
                     # Load from existing SCMMAP cache
                     dataset = SingleCellMemMapDataset(data_path=data_dir)
                     conversion_metrics["performed"] = False
                 else:
-                    # Create new SCMMAP from h5ad file - measure conversion time
-                    print(f"Converting h5ad to SCDL format: {Path(input_path).name}")
-                    conversion_start = time.perf_counter()
-                    dataset = SingleCellMemMapDataset(data_path=data_dir, h5ad_path=input_path)
-                    conversion_end = time.perf_counter()
-                    conversion_time = conversion_end - conversion_start
-                    conversion_metrics["time"] = conversion_time
-                    conversion_metrics["performed"] = True
-                    print(f"Conversion completed in {conversion_time:.2f} seconds")
+                    # Create new SCMMAP from h5ad file(s) - measure conversion time
+                    if input_path.endswith(".h5ad"):
+                        print(f"Converting h5ad to SCDL format: {Path(input_path).name}")
+                        conversion_start = time.perf_counter()
+                        dataset = SingleCellMemMapDataset(data_path=data_dir, h5ad_path=input_path)
+                        conversion_end = time.perf_counter()
+                        conversion_time = conversion_end - conversion_start
+                        conversion_metrics["time"] = conversion_time
+                        conversion_metrics["performed"] = True
+                        print(f"Conversion completed in {conversion_time:.2f} seconds")
+                    else:
+                        # Directory: convert all h5ad files in the directory
+                        with tempfile.TemporaryDirectory() as temp_dir:
+                            coll = SingleCellCollection(temp_dir)
+                            coll.load_h5ad_multi(input_path, max_workers=4, use_processes=False)
+                            coll.flatten(data_dir, destroy_on_copy=True)
+
+                        conversion_start = time.perf_counter()
+                        dataset = SingleCellMemMapDataset(data_path=data_dir, h5ad_path=h5ad_files)
+                        conversion_end = time.perf_counter()
+                        conversion_time = conversion_end - conversion_start
+                        conversion_metrics["time"] = conversion_time
+                        conversion_metrics["performed"] = True
+                        print(f"Conversion completed in {conversion_time:.2f} seconds")
                 actual_data_path["path"] = data_dir  # SCDL uses the converted directory
             else:
                 # For scdl format, input_path is the data directory
@@ -1237,13 +1081,14 @@ def format_report(result, input_path: str, sampling_scheme: str, method: str = "
     report.append("MEMORY USAGE:")
     report.append(f"  Baseline:          {result.memory_before_instantiation_mb:.1f} MB")
     report.append(f"  Peak (Benchmark):  {result.peak_memory_mb:.1f} MB")
-    report.append(f"  Dataset on Disk:   {result.disk_size_mb / 1024:.2f} GB")
+    report.append(f"  Dataset on Disk:   {result.disk_size_mb:.2f} MB")
     report.append("")
     report.append("DATA PROCESSED:")
     report.append(f"  Total Samples:     {result.total_samples:,} ({samples_per_epoch:,}/epoch)")
     report.append(f"  Total Batches:     {result.total_batches:,} ({batches_per_epoch:,}/epoch)")
     report.append("=" * 60)
-
+    report.append(f"SCDL version: {im.version('bionemo-scdl')}")
+    report.append(f"Anndata version: {anndata.__version__}")
     return "\n".join(report)
 
 
@@ -1388,14 +1233,13 @@ Examples:
         help="Sampling method (default: shuffle)",
     )
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size (default: 32)")
-    parser.add_argument("--max-time", type=float, default=120.0, help="Max runtime seconds (default: 30)")
-    parser.add_argument("--warmup-time", type=float, default=30.0, help="Warmup seconds (default: 2)")
+    parser.add_argument("--max-time", type=float, default=30.0, help="Max runtime seconds (default: 30)")
+    parser.add_argument("--warmup-time", type=float, default=0.0, help="Warmup seconds (default: 0)")
     parser.add_argument("--csv", action="store_true", help="Export detailed CSV files")
     parser.add_argument(
         "--generate-baseline", action="store_true", help="Generate AnnData baseline comparison (requires .h5ad input)"
     )
     parser.add_argument("--num-epochs", type=int, default=1, help="Number of epochs (default: 1)")
-    parser.add_argument("--adata_path", type=str, default=None, help="Path to AnnData dataset")
 
     args = parser.parse_args()
 
@@ -1414,11 +1258,6 @@ Examples:
             print("")
             print("Alternatively, run without --generate-baseline to benchmark SCDL only.")
             sys.exit(1)
-
-        if args.input and not args.input.endswith(".h5ad"):
-            print("Error: --generate-baseline requires .h5ad input file")
-            sys.exit(1)
-
     # Handle input path - download example if none provided or doesn't exist
     if args.input is None:
         print("No dataset specified. Downloading example dataset...")
@@ -1467,8 +1306,6 @@ Examples:
 
             # Run AnnData benchmark
             adata_path = input_path
-            if args.adata_path is not None:
-                adata_path = args.data_path
             print("\n=== Running AnnData Benchmark ===")
             anndata_factory = create_dataloader_factory(
                 str(adata_path), args.sampling_scheme, args.batch_size, use_anndata=True
@@ -1506,7 +1343,6 @@ Examples:
                 csv_prefix = f"comparison_{args.sampling_scheme}"
                 export_benchmark_results([scdl_result, anndata_result], output_prefix=csv_prefix)
                 print(f"CSV files exported with prefix: {csv_prefix}_<timestamp>")
-
         else:
             # Regular SCDL-only benchmark
             factory = create_dataloader_factory(str(input_path), args.sampling_scheme, args.batch_size)
