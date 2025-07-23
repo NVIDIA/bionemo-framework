@@ -17,6 +17,8 @@
 # limitations under the License.
 
 
+import pytest
+
 from bionemo.core.data.load import load
 from bionemo.evo2.run.infer import infer
 from bionemo.testing.megatron_parallel_state_utils import clean_parallel_state_context
@@ -25,7 +27,8 @@ from bionemo.testing.megatron_parallel_state_utils import clean_parallel_state_c
 RANDOM_SEED = 42
 
 
-def test_run_infer():
+@pytest.mark.parametrize("fast", [True, False])
+def test_run_infer(fast: bool):
     # Create PTL trainer.
     tensor_parallel_size = 1
     pipeline_model_parallel_size = 1
@@ -67,4 +70,7 @@ def test_run_infer():
             tensor_parallel_size=tensor_parallel_size,
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             context_parallel_size=context_parallel_size,
+            vortex_style_fp8=True,
+            cuda_graph=fast,
+            flash_decode=fast,
         )

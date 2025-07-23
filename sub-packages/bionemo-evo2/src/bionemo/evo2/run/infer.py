@@ -120,7 +120,7 @@ def infer(
     output_file: Optional[str] = None,
     ckpt_format: CheckpointFormats = "torch_dist",
     seed: Optional[int] = None,
-    vortex_style_fp8: bool = False,
+    vortex_style_fp8: bool = True,
     flash_decode: bool = False,
     cuda_graph: bool = False,
     return_log_probs: bool = False,
