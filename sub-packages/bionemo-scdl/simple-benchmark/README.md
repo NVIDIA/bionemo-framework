@@ -203,9 +203,4 @@ This dataset is 314 GB. The corresponding SCDL dataset after conversion is 1.1 T
 
 ## Support
 
-For issues with:
-- **SCDL functionality**: Check bionemo-scdl documentation
-- **Benchmark script**: Verify dependencies and dataset format
-- **Performance**: Try different batch sizes and sampling schemes
-
-The script is designed to be self-contained and user-friendly. Most issues are resolved by following the built-in error messages and installation prompts.
+For support, please [file an issue in the BioNeMo Framework GitHub repository](https://github.com/NVIDIA/bionemo-framework/issues).
