@@ -58,11 +58,19 @@ rm -rf /tmp/* /var/tmp/*
 EOF
 
 
-## BUMP TE as a solution to the issue https://github.com/NVIDIA/bionemo-framework/issues/422. Drop this when pytorch images ship the fixed commit.
- ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
- RUN PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
-    pip --disable-pip-version-check --no-cache-dir install \
-    git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
+## BUMP and patch TE as a solution to the issues:
+## 1. https://github.com/NVIDIA/bionemo-framework/issues/422
+## 2. https://github.com/NVIDIA/bionemo-framework/issues/973
+## Drop this when pytorch images ship the fixed commit.
+ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
+
+COPY ./patches/te.patch /tmp/te.patch
+RUN git clone --recurse-submodules https://github.com/NVIDIA/TransformerEngine.git /tmp/TransformerEngine && \
+    cd /tmp/TransformerEngine && \
+    git checkout --recurse-submodules ${TE_TAG} && \
+    patch -p1 < /tmp/te.patch && \
+    PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
+    pip --disable-pip-version-check --no-cache-dir install .
 
 # Install AWS CLI based on architecture
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
