@@ -75,6 +75,5 @@ def test_run_infer(fast: bool):
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             context_parallel_size=context_parallel_size,
             vortex_style_fp8=is_fp8_supported,
-            cuda_graph=fast,
             flash_decode=fast,
         )

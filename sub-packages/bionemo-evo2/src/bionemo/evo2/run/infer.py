@@ -97,13 +97,6 @@ def parse_args():
         default=False,
         help="Whether to use flash decode. Defaults to True.",
     )
-    ap.add_argument(
-        "--cuda-graph",
-        type=bool,
-        action="store_true",
-        default=False,
-        help="Whether to use cuda graph for inference acceleration. Defaults to True.",
-    )
     return ap.parse_args()
 
 
@@ -122,7 +115,6 @@ def infer(
     seed: Optional[int] = None,
     vortex_style_fp8: bool = False,
     flash_decode: bool = False,
-    cuda_graph: bool = False,
     return_log_probs: bool = False,
 ):
     """Inference workflow for Evo2.
@@ -142,7 +134,6 @@ def infer(
         seed (int): Random seed for generation.
         vortex_style_fp8 (bool): Whether to use vortex style FP8.
         flash_decode (bool): Whether to use flash decode.
-        cuda_graph (bool): Whether to use cuda graph for inference acceleration.
         return_log_probs (bool): Whether to return log probabilities.
 
     Returns:
@@ -189,25 +180,7 @@ def infer(
         vortex_style_fp8=vortex_style_fp8,
         flash_decode=flash_decode,
         enable_flash_decode=flash_decode,
-        cuda_graph=cuda_graph,
     )
-    # transformers generate method has more options than NeMo/Megatron.
-    if cuda_graph:
-        _ = inference.generate(
-            model=inference_wrapped_model,
-            max_batch_size=1,  # vortex only supports batch size 1
-            tokenizer=mcore_tokenizer,
-            prompts=["AAACCC"],
-            random_seed=seed,
-            inference_params=CommonInferenceParams(
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-                return_log_probs=False,
-                num_tokens_to_generate=1,
-            ),
-        )
-
     t0 = time.perf_counter_ns()
     results = inference.generate(
         model=inference_wrapped_model,
@@ -256,7 +229,6 @@ def main():
         seed=args.seed,
         vortex_style_fp8=args.fp8,  # Vortex only applied FP8 to some layers.
         flash_decode=args.flash_decode,
-        cuda_graph=args.cuda_graph,
     )
 
 

@@ -593,7 +593,7 @@ def test_batch_generate_coding_sequences(
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
     inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
-        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True, cuda_graph=True
+        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True
     )
 
     match_percents: list[float] = []
@@ -695,7 +695,7 @@ def test_generate_speed(
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
     inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
-        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True, cuda_graph=True
+        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True
     )
 
     from megatron.core.inference.common_inference_params import CommonInferenceParams
