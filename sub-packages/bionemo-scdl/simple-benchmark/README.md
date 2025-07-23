@@ -180,11 +180,15 @@ The Tahoe 100M dataset contains 100 Million cells.
 
 To download the full Tahoe 100M dataset in AnnData format (1 file per plate, 14 total plates):
 
+**Warning** This will trigger egress charges, which can be significant.
+
+**Note**: You will need to have installed the google cloud CLI to download this dataset.
+
 ```bash
-gsutil rsync gs://arc-ctc-tahoe100/2025-02-25/tutorial/ .
+gcloud storage cp -R gs://arc-ctc-tahoe100/2025-02-25/* .
 ```
 
-
+This will download 19 total files (14 from the full set + 5 related to the tutorial).
 
 ## Support
 
