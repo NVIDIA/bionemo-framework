@@ -18,6 +18,7 @@
 
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -26,6 +27,7 @@ import pytest
 import torch
 from megatron.core.transformer.module import Float16Module
 from nemo.collections import llm
+from nemo.collections.llm.inference import generate
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.io.pl import MegatronCheckpointIO
 
@@ -313,13 +315,13 @@ def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, **kwargs):
     return inference_wrapped_model, mcore_tokenizer
 
 
-def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
-    return get_model_and_tokenizer_raw(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False, **kwargs):
+    return get_model_and_tokenizer_raw(ckpt_name, vortex_style_fp8=vortex_style_fp8, **kwargs)
 
 
-def get_model_and_tokenizer_ignore_vortex(ckpt_name, vortex_style_fp8=False):
+def get_model_and_tokenizer_ignore_vortex(ckpt_name, vortex_style_fp8=False, **kwargs):
     # Capture and remove the vortex_style_fp8 argument for mamba models.
-    return get_model_and_tokenizer_raw(ckpt_name)
+    return get_model_and_tokenizer_raw(ckpt_name, **kwargs)
 
 
 def calc_matchrate(*, tokenizer, in_seq, logits):
@@ -529,7 +531,6 @@ def test_batch_generate(
     num_tokens = 500
     seq_prompts = [mid_point_split(seq=seq, num_tokens=num_tokens) for seq in sequences]
     from megatron.core.inference.common_inference_params import CommonInferenceParams
-    from nemo.collections.llm.inference import generate
 
     results = generate(
         model=inference_wrapped_model,
@@ -591,7 +592,9 @@ def test_batch_generate_coding_sequences(
         pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
+        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True, cuda_graph=True
+    )
 
     match_percents: list[float] = []
     cds_lengths: list[int | None] = []
@@ -599,8 +602,21 @@ def test_batch_generate_coding_sequences(
     seq_prompts = [mid_point_split(seq=seq, num_tokens=None, fraction=0.3) for seq in coding_sequences]
     num_tokens = max(len(sq[1]) for sq in seq_prompts) + 15
     from megatron.core.inference.common_inference_params import CommonInferenceParams
-    from nemo.collections.llm.inference import generate
 
+    _ = generate(
+        model=inference_wrapped_model,
+        max_batch_size=1,  # vortex only supports batch size 1
+        tokenizer=mcore_tokenizer,
+        prompts=["AAACCC"],
+        random_seed=42,
+        inference_params=CommonInferenceParams(
+            temperature=1.0,
+            top_k=1,
+            top_p=0.0,
+            return_log_probs=False,
+            num_tokens_to_generate=1,
+        ),
+    )
     results = generate(
         model=inference_wrapped_model,
         max_batch_size=1,  # vortex only supports batch size 1
@@ -650,4 +666,72 @@ def test_batch_generate_coding_sequences(
     ), f"Expected at least 70% of {original_cds_lengths=}, got {cds_lengths=}"
     assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
         f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    )
+
+
+@pytest.mark.parametrize(
+    "ckpt_name,model_tokenizer_provider,expected_tokens_sec",
+    [
+        ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, 39.73),
+        ("evo2/1b-8k:1.0", get_model_and_tokenizer, 39.73),
+        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
+        ("evo2/7b-8k:1.0", get_model_and_tokenizer, 39.73),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+    ],
+)
+def test_generate_speed(
+    ckpt_name: str,
+    model_tokenizer_provider: Callable,
+    expected_tokens_sec: float,
+):
+    is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
+    if skip:
+        # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
+        pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
+    if "evo2_mamba" in ckpt_name and os.environ.get("BIONEMO_DATA_SOURCE") != "pbss":
+        # TODO: add evo2_mamba/7b-8k to NGC and remove this skip
+        pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
+    # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
+    vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
+        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True, cuda_graph=True
+    )
+
+    from megatron.core.inference.common_inference_params import CommonInferenceParams
+
+    _ = generate(
+        model=inference_wrapped_model,
+        max_batch_size=1,  # vortex only supports batch size 1
+        tokenizer=mcore_tokenizer,
+        prompts=["AAACCC"],
+        random_seed=42,
+        inference_params=CommonInferenceParams(
+            temperature=1.0,
+            top_k=1,
+            top_p=0.0,
+            return_log_probs=False,
+            num_tokens_to_generate=1,
+        ),
+    )
+
+    t0 = time.perf_counter_ns()
+    results = generate(
+        model=inference_wrapped_model,
+        max_batch_size=1,  # vortex only supports batch size 1
+        tokenizer=mcore_tokenizer,
+        prompts=["A"],
+        random_seed=42,
+        inference_params=CommonInferenceParams(
+            temperature=1.0,
+            top_k=1,
+            top_p=0.0,
+            return_log_probs=False,
+            num_tokens_to_generate=300,
+        ),
+    )
+    dt = (time.perf_counter_ns() - t0) / 1e9  # seconds
+    tokens_per_sec = (len(results[0].generated_text) + 1) / dt  # +1 for the prompt
+    assert tokens_per_sec > expected_tokens_sec * 0.95, (
+        f"Expected at least {expected_tokens_sec} tokens/sec, got {tokens_per_sec}"
     )
