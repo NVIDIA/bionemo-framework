@@ -123,6 +123,7 @@ def infer(
     vortex_style_fp8: bool = False,
     flash_decode: bool = False,
     cuda_graph: bool = False,
+    return_log_probs: bool = False,
 ):
     """Inference workflow for Evo2.
 
@@ -142,6 +143,7 @@ def infer(
         vortex_style_fp8 (bool): Whether to use vortex style FP8.
         flash_decode (bool): Whether to use flash decode.
         cuda_graph (bool): Whether to use cuda graph for inference acceleration.
+        return_log_probs (bool): Whether to return log probabilities.
 
     Returns:
         None
@@ -190,20 +192,21 @@ def infer(
         cuda_graph=cuda_graph,
     )
     # transformers generate method has more options than NeMo/Megatron.
-    _ = inference.generate(
-        model=inference_wrapped_model,
-        max_batch_size=1,  # vortex only supports batch size 1
-        tokenizer=mcore_tokenizer,
-        prompts=["AAACCC"],
-        random_seed=42,
-        inference_params=CommonInferenceParams(
-            temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
-            return_log_probs=False,
-            num_tokens_to_generate=1,
-        ),
-    )
+    if cuda_graph:
+        _ = inference.generate(
+            model=inference_wrapped_model,
+            max_batch_size=1,  # vortex only supports batch size 1
+            tokenizer=mcore_tokenizer,
+            prompts=["AAACCC"],
+            random_seed=seed,
+            inference_params=CommonInferenceParams(
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                return_log_probs=False,
+                num_tokens_to_generate=1,
+            ),
+        )
 
     t0 = time.perf_counter_ns()
     results = inference.generate(
@@ -211,13 +214,13 @@ def infer(
         max_batch_size=1,  # vortex only supports batch size 1
         tokenizer=mcore_tokenizer,
         prompts=[prompt],
-        random_seed=42,
+        random_seed=seed,
         inference_params=CommonInferenceParams(
-            temperature=1.0,
-            top_k=1,
-            top_p=0.0,
-            return_log_probs=False,
-            num_tokens_to_generate=300,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            return_log_probs=return_log_probs,
+            num_tokens_to_generate=max_new_tokens,
         ),
     )
     dt = (time.perf_counter_ns() - t0) / 1e9  # seconds
