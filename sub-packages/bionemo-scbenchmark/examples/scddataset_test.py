@@ -21,10 +21,12 @@
 # from arrayloaders.io.dask_loader import DaskDataset
 
 import os
+from datetime import datetime
 from typing import Sequence, Union
 
 import anndata
 import numpy as np
+import pandas as pd
 import torch
 from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
@@ -141,7 +143,6 @@ def create_scdl_scdataset_factory(
             raise ImportError("scDataset is not available. Please install scdataset package.")
 
         dataset = SingleCellMemMapDataset(data_path)
-
         wrapped_dataset = scDataset(
             data_collection=dataset,  # Use the created dataset as data_collection
             batch_size=batch_size,
@@ -150,6 +151,7 @@ def create_scdl_scdataset_factory(
             fetch_transform=None,
             **{"fetch_callback": fetch_callback_bionemo},
         )
+        wrapped_dataset.set_mode("train")
         prefetch_factor = fetch_factor + 1 if num_workers > 0 else None
         return DataLoader(
             wrapped_dataset,
@@ -159,6 +161,51 @@ def create_scdl_scdataset_factory(
         )
 
     return factory
+
+
+def write_result_to_csv(result, csv_file, block_size=None, fetch_factor=None, run_number=None):
+    """Write a single benchmark result to a CSV file.
+
+    Args:
+        result: BenchmarkResult object containing benchmark metrics.
+        csv_file: Path to the CSV file where the result will be written.
+        block_size: Block size parameter used in the benchmark (optional).
+        fetch_factor: Fetch factor parameter used in the benchmark (optional).
+        run_number: The run number for this configuration (optional).
+    """
+    # Extract key metrics
+    row_data = {
+        "timestamp": datetime.now().isoformat(),
+        "name": result.name,
+        "block_size": block_size,
+        "fetch_factor": fetch_factor,
+        "samples_per_second": result.samples_per_second,
+        "total_samples": result.total_samples,
+        "total_batches": result.total_batches,
+        "total_iteration_time_seconds": result.total_iteration_time_seconds,
+        "warmup_time_seconds": result.warmup_time_seconds,
+        "peak_memory_mb": result.peak_memory_mb,
+        "average_memory_mb": result.average_memory_mb,
+        "instantiation_time_seconds": getattr(result, "instantiation_time_seconds", None),
+        "peak_memory_during_instantiation_mb": getattr(result, "peak_memory_during_instantiation_mb", None),
+        "disk_size_mb": result.disk_size_mb,
+        "setup_time_seconds": result.setup_time_seconds,
+    }
+
+    # Add run number if provided
+    if run_number is not None:
+        row_data["run_number"] = run_number
+
+    # Convert to DataFrame
+    df = pd.DataFrame([row_data])
+
+    # Write to CSV (append if file exists)
+    if os.path.exists(csv_file):
+        df.to_csv(csv_file, mode="a", header=False, index=False)
+    else:
+        df.to_csv(csv_file, mode="w", header=True, index=False)
+
+    print(f"📝 Result written to {csv_file}")
 
 
 def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
@@ -180,101 +227,106 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
     # Try to use real AnnData if available
     # adata_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/sample_50000_19836_0.85.h5ad"
     # memmap_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/s_memmap_zmdy090y"
-    adata_path = (
-        "/home/pbinder/bionemo-framework/tahoe_data/plate11_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad"
-    )
     memmap_path = "/home/pbinder/bionemo-framework/tahoe_memmap/"
-    # Create different configurations of the same dataloader
 
-    # 7. MULTIPLE CONFIGURATIONS WITH STATISTICAL ANALYSIS
+    # Create CSV file with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_file = f"scDataset_benchmark_results_{timestamp}.csv"
+    print(f"📊 Results will be written to: {csv_file}")
+    print()
+
+    # Parameters
+    warmup_time_seconds = 30
+    max_time_seconds = 120
+
+    all_results = []
+
     print(f"🚀 Benchmarking {num_runs} run(s) each")
     print()
-    """        {
-            "name": "SCDL madvise_1",
-            "dataloader_factory": create_scdl_factory(
-                batch_size=64,
-                shuffle=True,
-                adata_path=adata_path,
-                data_path=memmap_path,
-                num_workers=0,
-            ),
-            "num_epochs": num_epochs,
-            "max_time_seconds": 1000.0,
-            "warmup_seconds": 10.0,
-            "data_path": memmap_path,
-            "madvise_interval": 1,
-            "num_runs": num_runs
-        },
-    """
-    configurations = [
-        # Example: Enable per-iteration time and memory (RSS) logging every 5 batches
-        {
-            "name": "SCDL Regular",
-            "dataloader_factory": create_scdl_scdataset_factory(
-                batch_size=64,
-                shuffle=True,
-                adata_path=adata_path,
-                data_path=memmap_path,
-                num_workers=0,
-            ),
-            "num_epochs": num_epochs,
-            "max_time_seconds": 4.0,
-            "warmup_time_seconds": 1.0,
-            "data_path": memmap_path,
-            "madvise_interval": None,
-            "num_runs": num_runs,
-            "log_iteration_times_to_file": None,
-        },
-    ]
-    """
-            {
-            "name": "AnnLoader Regular",
-            "dataloader_factory": create_annloader_factory(
-                batch_size=64,
-                shuffle=True,
-                data_path=adata_path,
-                num_workers=0,
-            ),
-            "num_epochs": num_epochs,
-            "max_time_seconds": 10.0,
-            "warmup_time_seconds": 2.0,
-            "data_path": adata_path,
-            "madvise_interval": None,
-            "num_runs": num_runs,
-            "log_iteration_times_to_file": None,
-        },
 
-            {
-            "name": "SCDL Regular",
-            "dataloader_factory": create_scdl_factory(
-                batch_size=64,
-                shuffle=True,
-                adata_path=adata_path,
-                data_path=memmap_path,
-                num_workers=0,
-            ),
-            "num_epochs": num_epochs,
-            "max_time_seconds": 120.0,
-            "warmup_time_seconds": 10.0,
-            "data_path": memmap_path,
-            "madvise_interval": None,
-            "num_runs": num_runs,
-            "log_iteration_times_to_file": None,
-        }
-    """
-    # To use: set 'log_iteration_times_to_file' to None (no logging) or an integer interval (e.g., 1 for every batch).
-    # The log file will contain columns: epoch, batch, iteration_time_s, rss_mb, run_name
+    # First run SCDL Regular as baseline
+    print("Running SCDL Regular baseline...")
+    baseline_config = {
+        "name": "SCDL Regular",
+        "dataloader_factory": create_scdl_factory(
+            batch_size=64,
+            shuffle=True,
+            data_path=memmap_path,
+            num_workers=0,
+        ),
+        "num_epochs": num_epochs,
+        "max_time_seconds": max_time_seconds,
+        "warmup_time_seconds": warmup_time_seconds,
+        "data_path": memmap_path,
+        "madvise_interval": None,
+        "num_runs": 1,  # Always 1, we'll loop manually
+        "log_iteration_times_to_file": None,
+    }
 
-    results = benchmark_dataloader(dataloaders=configurations, output_dir="comprehensive_anndata_results")
+    # Run baseline multiple times and write each to CSV
+    for run_idx in range(num_runs):
+        print(f"  Run {run_idx + 1}/{num_runs}...")
+        baseline_results = benchmark_dataloader(dataloaders=[baseline_config])
+        if baseline_results:
+            baseline_result = baseline_results[0]
+            # Add run number to the result name for CSV
+            baseline_result.name = f"{baseline_result.name}_run_{run_idx + 1}"
+            write_result_to_csv(baseline_result, csv_file, run_number=run_idx + 1)
+            all_results.append(baseline_result)
+            print(f"    ✅ {baseline_result.name}: {baseline_result.samples_per_second:.2f} samples/sec")
+
+    # Now run scDataset with different configurations
+    for fetch_factor in [1, 2, 4, 8, 16, 32, 64]:
+        for block_size in [1, 2, 4, 8, 16, 32, 64]:
+            print(f"Running ScDataset with block_size={block_size}, fetch_factor={fetch_factor}...")
+
+            config = {
+                "name": f"ScDataset_{block_size}_{fetch_factor}",
+                "dataloader_factory": create_scdl_scdataset_factory(
+                    batch_size=64,
+                    shuffle=True,
+                    data_path=memmap_path,
+                    num_workers=0,
+                    block_size=block_size,
+                    fetch_factor=fetch_factor,
+                ),
+                "num_epochs": num_epochs,
+                "max_time_seconds": max_time_seconds,
+                "warmup_time_seconds": warmup_time_seconds,
+                "data_path": memmap_path,
+                "madvise_interval": None,
+                "num_runs": 1,  # Always 1, we'll loop manually
+                "log_iteration_times_to_file": None,
+            }
+
+            # Run multiple times and write each to CSV immediately
+            for run_idx in range(num_runs):
+                print(f"  Run {run_idx + 1}/{num_runs}...")
+                try:
+                    results = benchmark_dataloader(dataloaders=[config])
+                    if results:
+                        result = results[0]
+                        # Add run number to the result name for CSV
+                        result.name = f"{result.name}_run_{run_idx + 1}"
+                        write_result_to_csv(
+                            result, csv_file, block_size=block_size, fetch_factor=fetch_factor, run_number=run_idx + 1
+                        )
+                        all_results.append(result)
+                        print(f"    ✅ {result.name}: {result.samples_per_second:.2f} samples/sec")
+                    else:
+                        print(f"    ❌ No results for {config['name']} run {run_idx + 1}")
+                except Exception as e:
+                    print(f"    ❌ Error running {config['name']} run {run_idx + 1}: {e}")
+                    continue
 
     print("✅ Benchmarking completed!")
     print()
 
     # 9. SUMMARY AND ANALYSIS
-    if results:
+    if all_results:
         # Find best performers
-        best_samples_per_sec = max(results, key=lambda r: r.samples_per_second)
-        lowest_memory = min(results, key=lambda r: r.peak_memory_mb)
+        best_samples_per_sec = max(all_results, key=lambda r: r.samples_per_second)
+        lowest_memory = min(all_results, key=lambda r: r.peak_memory_mb)
 
         print("🏆 BEST PERFORMERS:")
         print(
@@ -284,20 +336,19 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
         print()
 
         # Use shared utility for comprehensive export
-        export_benchmark_results(results=results, output_prefix="comprehensive_benchmark_data")
+        export_benchmark_results(results=all_results, output_prefix="comprehensive_benchmark_data")
+
+        print(f"📊 Individual results also saved to: {csv_file}")
 
     print("🎉 COMPREHENSIVE BENCHMARKING COMPLETED!")
 
 
 if __name__ == "__main__":
-    print("BioNeMo Benchmarking Framework - Comprehensive Example")
+    print("BioNeMo Benchmarking Framework - ScDataset Test")
     print("=" * 80)
-
-    # Run with default settings (3 epochs, 1 run each)
-    # comprehensive_benchmarking_example()
 
     # Example: Run with statistical analysis (3 runs each for better confidence)
     print("\n" + "=" * 80)
-    print("📊 MULTIPLE RUNS EXAMPLE")
+    print("📊 SCDATASET BENCHMARK")
     print("=" * 80)
     comprehensive_benchmarking_example(num_epochs=1, num_runs=3)

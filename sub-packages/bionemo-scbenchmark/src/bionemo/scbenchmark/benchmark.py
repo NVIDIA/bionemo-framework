@@ -13,15 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-"""Benchmarking framework for any dataloader.
-
-This module provides a comprehensive framework for benchmarking any dataloader
-implementation. It supports both simple direct benchmarking and factory-based
-benchmarking, with features like time-based limits, warmup phases, instantiation
-measurement, and comprehensive performance metrics.
-"""
-
 import gc
 import mmap
 import os
@@ -33,6 +24,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import pandas as pd
 import psutil
+import torch
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from bionemo.scbenchmark.common import (
@@ -43,6 +36,80 @@ from bionemo.scbenchmark.common import (
     get_disk_size,
     measure_peak_memory_full,
 )
+
+
+"""Benchmarking framework for any dataloader.
+
+This module provides a comprehensive framework for benchmarking any dataloader
+implementation. It supports both simple direct benchmarking and factory-based
+benchmarking, with features like time-based limits, warmup phases, instantiation
+measurement, and comprehensive performance metrics.
+"""
+
+
+def describe_dataloader(dl: DataLoader, sample_batch=False):
+    """Describe a PyTorch DataLoader's configuration and properties.
+
+    Args:
+        dl: The DataLoader to describe
+        sample_batch: Whether to sample a batch to get additional info about data structure
+
+    Returns:
+        Dictionary containing DataLoader configuration details
+    """
+
+    def get(name, default=None):
+        return getattr(dl, name, default)
+
+    info = {
+        "type": type(dl).__name__,
+        "dataset_type": type(dl.dataset).__name__,
+        "dataset_len": len(dl.dataset) if hasattr(dl.dataset, "__len__") else None,
+        "batch_size": get("batch_size"),
+        "drop_last": get("drop_last"),
+        "shuffle": getattr(get("sampler"), "shuffle", None)
+        or isinstance(get("sampler"), torch.utils.data.RandomSampler),
+        "sampler": type(get("sampler")).__name__ if get("sampler") else None,
+        "batch_sampler": type(get("batch_sampler")).__name__ if get("batch_sampler") else None,
+        "num_workers": get("num_workers"),
+        "prefetch_factor": get("prefetch_factor", None),
+        "persistent_workers": get("persistent_workers", None),
+        "pin_memory": get("pin_memory", None),
+        "pin_memory_device": get("pin_memory_device", None),
+        "timeout": get("timeout", None),
+        "generator": get("generator", None),
+        "worker_init_fn": get("worker_init_fn", None),
+        "collate_fn": dl.collate_fn.__name__ if hasattr(dl.collate_fn, "__name__") else str(dl.collate_fn),
+        "multiprocessing_context": str(get("multiprocessing_context", None)),
+    }
+
+    if sample_batch:
+        it = iter(dl)
+        first = next(it)
+        info["first_batch_type"] = type(first).__name__
+        try:
+            info["first_batch_keys"] = list(first.keys())
+        except Exception:
+            pass
+        try:
+            info["first_batch_shapes"] = {k: v.shape for k, v in first.items()}
+        except Exception:
+            pass
+
+    return info
+
+
+def print_dataloader(dl, sample_batch=False):
+    """Print a formatted description of a PyTorch DataLoader.
+
+    Args:
+        dl: The DataLoader to describe
+        sample_batch: Whether to sample a batch to get additional info about data structure
+    """
+    import pprint
+
+    pp = pprint.PrettyPrinter(indent=2, width=100)
+    pp.pprint(describe_dataloader(dl, sample_batch))
 
 
 @dataclass
@@ -100,9 +167,16 @@ def run_benchmark(
     """
     # Use measure_peak_memory_full to get memory info during benchmark
     gc.collect()
+    try:
+        print("Dropping caches")
+        subprocess.run(["sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"], check=True)
+    except subprocess.CalledProcessError:
+        print("⚠️ Warning: failed to drop caches — are you running with sudo?")
 
     def benchmark_iteration_single_epoch(epoch_num, do_warmup):
         """Run a single epoch of benchmarking, with optional warmup."""
+        gc.collect()
+
         update_interval = 10
         epoch_samples = 0
         epoch_batches = 0
@@ -113,34 +187,22 @@ def run_benchmark(
         pbar = tqdm(
             desc=f"{config.name} - Epoch {epoch_num + 1}/{config.num_epochs}", disable=not config.print_progress
         )
-
-        # Initialize warm-up timer - only if this is the first epoch and warmup is requested
-        if do_warmup and config.warmup_time_seconds is not None and config.warmup_time_seconds > 0:
-            warm_up_start = time.perf_counter()
-            warm_up_end = warm_up_start + config.warmup_time_seconds
-            is_warming_up = True
-            start_time = None  # Will be set after warmup
-            end_time = None  # Will be set after warmup
-        else:
-            # No warmup - start timing immediately
-            is_warming_up = False
-            warm_up_start = None
-            warm_up_end = None
-            start_time = time.perf_counter()
-            # If max_time_seconds is None, end_time is None and we iterate over the whole dataloader
-            end_time = start_time + config.max_time_seconds if config.max_time_seconds is not None else None
-
-        prev_time = None
+        warm_up_start = time.perf_counter()
+        if not do_warmup:
+            config.warmup_time_seconds = 0
+        warm_up_end = warm_up_start + config.warmup_time_seconds
+        is_warming_up = True
         iteration_times = []
+        prev_time = None
+        print_dataloader(dataloader)
         for num, batch in enumerate(dataloader):
             batch_size = get_batch_size(batch)
-            current_time = time.perf_counter()
 
             if config.madvise_interval and num % config.madvise_interval == 0:
                 dataloader.dataset.row_index._mmap.madvise(mmap.MADV_DONTNEED)
                 dataloader.dataset.col_index._mmap.madvise(mmap.MADV_DONTNEED)
                 dataloader.dataset.data._mmap.madvise(mmap.MADV_DONTNEED)
-
+            current_time = time.perf_counter()
             if config.track_iteration_times or config.log_iteration_times_to_file is not None:
                 if prev_time is not None:
                     iter_time = current_time - prev_time
@@ -159,7 +221,8 @@ def run_benchmark(
                                 "run_name": config.name if config.name else "benchmark",
                             }
                         )
-            prev_time = current_time
+                # Update prev_time for next iteration
+                prev_time = current_time
 
             if is_warming_up:
                 # We're in warm-up period - count samples and batches
@@ -185,6 +248,7 @@ def run_benchmark(
                             f"{config.name} - Warmup: {elapsed_warmup:.1f}/{config.warmup_time_seconds}s, {current_warmup_speed:.1f} samples/sec"
                         )
                         pbar.update(update_interval)
+                del batch
                 continue
             # print("Batch:", num)
             # Now we're past the warm-up period (or no warmup)
@@ -202,7 +266,6 @@ def run_benchmark(
                 #    postfix_dict["iter_time"] = f"{iter_time:.4f}s"
                 pbar.set_postfix(**postfix_dict, refresh=False)
                 pbar.update(update_interval)
-
             # Check max_batches limit
             if config.max_batches and epoch_batches >= config.max_batches:
                 break
@@ -213,8 +276,9 @@ def run_benchmark(
                 break
 
         pbar.close()
+        print(epoch_samples, elapsed, warmup_samples, warmup_batches, warmup_time)
 
-        return epoch_samples, epoch_batches, warmup_samples, warmup_batches, warmup_time, iteration_times
+        return epoch_samples, epoch_batches, elapsed, warmup_samples, warmup_batches, warmup_time, iteration_times
 
     epoch_results = []
     total_warmup_samples = 0
@@ -229,7 +293,7 @@ def run_benchmark(
 
         result_tuple = measure_peak_memory_full(epoch_benchmark_iteration)
         (
-            (epoch_samples, epoch_batches, warmup_samples, warmup_batches, warmup_time, iteration_times),
+            (epoch_samples, epoch_batches, elapsed, warmup_samples, warmup_batches, warmup_time, iteration_times),
             baseline,
             peak,
             avg,
@@ -237,7 +301,6 @@ def run_benchmark(
             _,
             iteration_time,
         ) = result_tuple
-
         # Accumulate warmup data (only first epoch will have non-zero values)
         total_warmup_samples += warmup_samples
         total_warmup_batches += warmup_batches
@@ -254,6 +317,7 @@ def run_benchmark(
                 "peak_memory": peak,
                 "avg_memory": avg,
                 "iteration_time": iteration_time,
+                "elapsed": elapsed,
                 "warmup_time": warmup_time,
             }
         )
@@ -264,10 +328,9 @@ def run_benchmark(
     # Calculate totals across all epochs
     total_samples = sum(r["samples"] for r in epoch_results)
     total_batches = sum(r["batches"] for r in epoch_results)
-    total_iteration_time = sum(r["iteration_time"] for r in epoch_results)  # Fixed: use total time, not average
+    total_elapsed_time = sum(r["elapsed"] for r in epoch_results)  # Fixed: use total time, not average
 
     # Print epoch results summary - removed verbose output
-
     result = BenchmarkResult.from_raw_metrics(
         name=config.name,
         madvise_interval=config.madvise_interval,
@@ -279,10 +342,10 @@ def run_benchmark(
         total_batches=total_batches,
         setup_time=0,  # Will be set by caller
         warmup_time=total_warmup_time,
-        iteration_time=total_iteration_time,  # Fixed: use total time
+        elapsed_time=total_elapsed_time,  # Fixed: use total time
         warmup_samples=total_warmup_samples,
         warmup_batches=total_warmup_batches,
-        **(instantiation_metrics if instantiation_metrics else {}),
+        instantiation_metrics=instantiation_metrics,
     )
 
     # Add epoch results to the result object for further analysis
@@ -556,6 +619,7 @@ def _benchmark_single_dataloader(
         result = run_benchmark(dataloader, config, name, output_dir, instantiation_metrics)
         del dataloader
 
+        gc.collect()
         # Update timing and disk info
         result.setup_time_seconds += setup_time
         result.disk_size_mb = disk_size_mb

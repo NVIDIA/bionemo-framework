@@ -55,7 +55,6 @@ class BenchmarkResult:
         batches_per_second: Throughput in batches per second (excluding warmup)
         peak_memory_mb: Peak memory usage during benchmark
         average_memory_mb: Average memory usage during benchmark
-        gpu_memory_mb: GPU memory usage if applicable
         errors: List of error messages
 
         # Instantiation metrics
@@ -81,12 +80,13 @@ class BenchmarkResult:
     batches_per_second: float
     peak_memory_mb: float
     average_memory_mb: float
-    gpu_memory_mb: float = 0.0
     errors: List[str] = None
-
+    num_workers: Optional[int] = None
     # Instantiation metrics (None if not measured)
     instantiation_time_seconds: Optional[float] = None
     peak_memory_during_instantiation_mb: Optional[float] = None
+    memory_before_instantiation_mb: Optional[float] = None
+    memory_after_instantiation_mb: Optional[float] = None
 
     # Configuration metadata
     madvise_interval: Optional[int] = None
@@ -116,61 +116,28 @@ class BenchmarkResult:
         data_path: Optional[str] = None,
         max_time_seconds: Optional[float] = None,
         shuffle: Optional[bool] = None,
-        num_workers: Optional[int] = None,
         total_samples: int = 0,
         total_batches: int = 0,
         setup_time: float = 0.0,
         warmup_time: float = 0.0,
-        iteration_time: float = 0.0,
+        elapsed_time: float = 0.0,
         disk_size_mb: float = 0.0,
-        gpu_memory_mb: float = 0.0,
         warmup_samples: int = 0,
         warmup_batches: int = 0,
         instantiation_metrics: Optional[Dict[str, float]] = None,
+        num_workers: Optional[int] = None,
     ) -> "BenchmarkResult":
-        """Create BenchmarkResult from raw metrics.
-
-        This factory method calculates all the derived metrics from raw data
-        and creates a complete BenchmarkResult object.
-
-        Args:
-            name: Name of the benchmark
-            madvise_interval: Memory advice interval setting
-            data_path: Path to dataset used for benchmarking
-            max_time_seconds: Maximum time limit set for the benchmark
-            shuffle: Whether data was shuffled during processing
-            num_workers: Number of worker processes for data loading
-            total_samples: Total number of samples processed (excluding warmup)
-            total_batches: Total number of batches processed (excluding warmup)
-            setup_time: Time taken for setup phase
-            warmup_time: Time taken for warmup phase
-            iteration_time: Total time spent iterating (excluding warmup)
-            disk_size_mb: Size of data files on disk
-            gpu_memory_mb: GPU memory usage
-            warmup_samples: Number of samples processed during warmup
-            warmup_batches: Number of batches processed during warmup
-            instantiation_metrics: Instantiation metrics dictionary if available
-
-        Returns:
-            BenchmarkResult with all calculated metrics
-        """
+        """Create BenchmarkResult from raw metrics."""
         # Calculate timing metrics
-        total_time_including_warmup = iteration_time
-        post_warmup_time = iteration_time - warmup_time
-        avg_batch_time = post_warmup_time / total_batches if total_batches > 0 else 0
-        samples_per_sec = total_samples / post_warmup_time if post_warmup_time > 0 else 0
-        batches_per_sec = total_batches / post_warmup_time if post_warmup_time > 0 else 0
-
-        # Calculate memory metrics (default to 0 if no data)
-        peak_memory = 0
-        avg_memory = 0
+        avg_batch_time = elapsed_time / total_batches if total_batches > 0 else 0
+        samples_per_sec = total_samples / elapsed_time if elapsed_time > 0 else 0
+        batches_per_sec = total_batches / elapsed_time if elapsed_time > 0 else 0
 
         # Calculate speed metrics
+        iteration_time = elapsed_time + warmup_time
         total_samples_including_warmup = total_samples + warmup_samples
-        total_speed = (
-            total_samples_including_warmup / total_time_including_warmup if total_time_including_warmup > 0 else 0
-        )
-        post_warmup_speed = total_samples / iteration_time if iteration_time > 0 else 0
+        total_speed = total_samples_including_warmup / (iteration_time) if iteration_time > 0 else 0
+        post_warmup_speed = total_samples / elapsed_time if elapsed_time > 0 else 0
 
         # Extract instantiation metrics if provided
         instantiation_kwargs = {}
@@ -188,9 +155,8 @@ class BenchmarkResult:
             total_samples=total_samples,
             samples_per_second=samples_per_sec,
             batches_per_second=batches_per_sec,
-            peak_memory_mb=peak_memory,
-            average_memory_mb=avg_memory,
-            gpu_memory_mb=gpu_memory_mb,
+            peak_memory_mb=0,  # Will be set by caller
+            average_memory_mb=0,  # Will be set by caller
             warmup_samples=warmup_samples,
             warmup_batches=warmup_batches,
             total_speed_samples_per_second=total_speed,
@@ -277,6 +243,7 @@ def aggregate_benchmark_results(
 
     if not results:
         raise ValueError("No results to aggregate.")
+
     metrics = {
         "total_samples": [r.total_samples for r in results],
         "total_batches": [r.total_batches for r in results],
@@ -305,14 +272,14 @@ def aggregate_benchmark_results(
     mean_total_samples = stats["total_samples"]["mean"]
     mean_iteration_time = stats["total_iteration_time_seconds"]["mean"]
     mean_total_batches = stats["total_batches"]["mean"]
-    aggregated_samples_per_sec = mean_total_samples / mean_iteration_time if mean_iteration_time > 0 else 0
-    aggregated_batches_per_sec = mean_total_batches / mean_iteration_time if mean_iteration_time > 0 else 0
+
+    # For aggregation, use the mean of the individual samples_per_second values
+    # This ensures consistency with the individual results
+    aggregated_samples_per_sec = stats["samples_per_second"]["mean"]
+    aggregated_batches_per_sec = stats["batches_per_second"]["mean"]
     mean_warmup_samples = stats["warmup_samples"]["mean"]
-    mean_warmup_time = (
-        mean_warmup_samples / stats["post_warmup_speed_samples_per_second"]["mean"]
-        if stats["post_warmup_speed_samples_per_second"]["mean"] > 0
-        else 0
-    )
+    # Use the mean of individual warmup times
+    mean_warmup_time = statistics.mean([r.warmup_time_seconds for r in results])
     total_samples_with_warmup = mean_total_samples + mean_warmup_samples
     total_time_with_warmup = mean_iteration_time + mean_warmup_time
     aggregated_total_speed = total_samples_with_warmup / total_time_with_warmup if total_time_with_warmup > 0 else 0
@@ -529,7 +496,7 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                             "Epoch": epoch_info["epoch"],
                             "Samples": epoch_info["samples"],
                             "Batches": epoch_info["batches"],
-                            "Samples_per_sec": epoch_info["samples"] / epoch_info["iteration_time"]
+                            "Samples_per_sec": epoch_info["samples"] / epoch_info["elapsed"]
                             if epoch_info["iteration_time"] > 0
                             else 0,
                             "Peak_Memory_MB": epoch_info["peak_memory"],
@@ -539,7 +506,7 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                             "Warmup_Time_s": proc_result.warmup_time_seconds if epoch_info["epoch"] == 1 else 0,
                             "Warmup_Samples": epoch_info["warmup_samples"],
                             "Warmup_Batches": epoch_info["warmup_batches"],
-                            "Post_Warmup_Speed_Samples_per_sec": epoch_info["samples"] / epoch_info["iteration_time"]
+                            "Post_Warmup_Speed_Samples_per_sec": epoch_info["samples"] / epoch_info["elapsed"]
                             if epoch_info["iteration_time"] > 0
                             else 0,
                             "Total_Speed_With_Warmup_Samples_per_sec": (
@@ -555,7 +522,7 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                             "Instantiation_Time_s": None,
                             "Instantiation_Memory_MB": None,
                             "Average_Batch_Size": avg_batch_size,
-                            "Batches_per_sec": epoch_info["batches"] / epoch_info["iteration_time"]
+                            "Batches_per_sec": epoch_info["batches"] / epoch_info["elapsed"]
                             if epoch_info["iteration_time"] > 0
                             else 0,
                         }
@@ -622,61 +589,85 @@ def get_batch_size(batch: Any) -> int:
     return batch_size
 
 
-def monitor_memory_dynamic_pss(parent_pid, stop_event, result_queue):
-    """Monitor memory usage for a process and its children.
-
-    Args:
-        parent_pid: Process ID to monitor
-        stop_event: Event to signal when to stop monitoring
-        result_queue: Queue to store memory usage results
-    """
+def monitor_memory_dynamic_pss(parent_pid, stop_event, result_queue, interval=0.2):
+    """Monitor memory usage (PSS) for a process and its children."""
     peak = 0
     samples = []
+
     try:
         parent = psutil.Process(parent_pid)
     except psutil.NoSuchProcess:
         result_queue.put((0, 0.0))
         return
 
+    procs = {parent_pid: parent}  # cache psutil.Process objects
+
     while not stop_event.is_set():
+        # Refresh child list
         try:
             children = parent.children(recursive=True)
             all_pids = [parent_pid] + [c.pid for c in children if c.is_running()]
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             all_pids = [parent_pid]
 
-        mem = sum(psutil.Process(pid).memory_full_info().pss for pid in all_pids if psutil.pid_exists(pid))
+        # Ensure cache has all current pids
+        for pid in all_pids:
+            if pid not in procs and psutil.pid_exists(pid):
+                try:
+                    procs[pid] = psutil.Process(pid)
+                except psutil.Error:
+                    pass
+
+        # Sum PSS, drop dead ones
+        mem = 0
+        dead = []
+        for pid, proc in procs.items():
+            if not psutil.pid_exists(pid):
+                dead.append(pid)
+                continue
+            try:
+                mem += proc.memory_full_info().pss
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                dead.append(pid)
+        for pid in dead:
+            procs.pop(pid, None)
 
         samples.append(mem)
-        peak = max(peak, mem)
-        time.sleep(0.05)
+        if mem > peak:
+            peak = mem
 
-    avg = sum(samples) / len(samples) if samples else 0
+        time.sleep(interval)
+
+    avg = (sum(samples) / len(samples)) if samples else 0
     result_queue.put((peak, avg))
 
 
+def _sample_rss(pid, stop_evt, out, interval):
+    proc = psutil.Process(pid)
+    while not stop_evt.is_set():
+        try:
+            out.put(proc.memory_info().rss)
+        except psutil.Error:
+            break
+        time.sleep(interval)
+
+
 def measure_peak_memory_full(func, *args, **kwargs):
-    """Measure peak memory usage while executing a function.
-
-    Args:
-        func: Function to execute while monitoring memory
-        *args: Arguments to pass to the function
-        **kwargs: Keyword arguments to pass to the function
-
-    Returns:
-        Tuple of (function_result, peak_memory_mb, memory_samples)
-    """
+    """Measure peak memory usage while executing a function."""
     parent_pid = os.getpid()
     stop_event = mp.Event()
     result_queue = mp.Queue()
-    monitor = mp.Process(target=monitor_memory_dynamic_pss, args=(parent_pid, stop_event, result_queue))
+    monitor = mp.Process(
+        target=_sample_rss,  # monitor_memory_dynamic_pss,
+        args=(parent_pid, stop_event, result_queue),
+        kwargs={"interval": 0.2},  # changed from 0.05
+    )
 
     gc.collect()
     baseline = psutil.Process(parent_pid).memory_full_info().pss
 
     monitor.start()
     start = time.perf_counter()
-
     try:
         result = func(*args, **kwargs)
     finally:
