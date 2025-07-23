@@ -672,11 +672,11 @@ def test_batch_generate_coding_sequences(
 @pytest.mark.parametrize(
     "ckpt_name,model_tokenizer_provider,expected_tokens_sec",
     [
-        ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, 39.73),
-        ("evo2/1b-8k:1.0", get_model_and_tokenizer, 39.73),
-        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
+        ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, 41.0),
+        ("evo2/1b-8k:1.0", get_model_and_tokenizer, 41.0),
+        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 32.0),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, 39.73),
-        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, 39.73),
     ],
 )
 def test_generate_speed(
@@ -700,6 +700,7 @@ def test_generate_speed(
 
     from megatron.core.inference.common_inference_params import CommonInferenceParams
 
+    # warm up the model with a single call before timing. This should take care of compilation etc.
     _ = generate(
         model=inference_wrapped_model,
         max_batch_size=1,  # vortex only supports batch size 1
@@ -714,7 +715,6 @@ def test_generate_speed(
             num_tokens_to_generate=1,
         ),
     )
-
     t0 = time.perf_counter_ns()
     results = generate(
         model=inference_wrapped_model,
@@ -732,6 +732,6 @@ def test_generate_speed(
     )
     dt = (time.perf_counter_ns() - t0) / 1e9  # seconds
     tokens_per_sec = (len(results[0].generated_text) + 1) / dt  # +1 for the prompt
-    assert tokens_per_sec > expected_tokens_sec * 0.95, (
+    assert tokens_per_sec > expected_tokens_sec * 999, (
         f"Expected at least {expected_tokens_sec} tokens/sec, got {tokens_per_sec}"
     )
