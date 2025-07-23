@@ -84,7 +84,7 @@ def parse_args():
         help="Specify checkpoint format to use. Defaults to 'torch_dist', as 'zarr' is deprecated.",
     )
     ap.add_argument(
-        "--all-layers-fp8",
+        "--fp8",
         type=bool,
         action="store_true",
         default=False,
@@ -120,7 +120,7 @@ def infer(
     output_file: Optional[str] = None,
     ckpt_format: CheckpointFormats = "torch_dist",
     seed: Optional[int] = None,
-    vortex_style_fp8: bool = True,
+    vortex_style_fp8: bool = False,
     flash_decode: bool = False,
     cuda_graph: bool = False,
     return_log_probs: bool = False,
@@ -254,7 +254,7 @@ def main():
         output_file=args.output_file,
         ckpt_format=args.ckpt_format,
         seed=args.seed,
-        vortex_style_fp8=not args.all_layers_fp8,  # Vortex only applied FP8 to some layers.
+        vortex_style_fp8=args.fp8,  # Vortex only applied FP8 to some layers.
         flash_decode=args.flash_decode,
         cuda_graph=args.cuda_graph,
     )
