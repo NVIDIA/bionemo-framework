@@ -206,6 +206,7 @@ WORKDIR /workspace/bionemo2
 COPY ./LICENSE /workspace/bionemo2/LICENSE
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
+COPY ./cuhyena /workspace/bionemo2/cuhyena
 
 # Install cuhyena wheel file based on architecture
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
