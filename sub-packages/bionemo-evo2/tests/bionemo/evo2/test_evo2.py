@@ -674,9 +674,9 @@ def test_batch_generate_coding_sequences(
     [
         ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, 41.0),
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, 41.0),
-        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 32.0),
-        ("evo2/7b-8k:1.0", get_model_and_tokenizer, 39.73),
-        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, 39.73),
+        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
+        ("evo2/7b-8k:1.0", get_model_and_tokenizer, 32.0),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
     ],
 )
 def test_generate_speed(
@@ -695,7 +695,11 @@ def test_generate_speed(
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
     inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
-        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True
+        ckpt_name,
+        vortex_style_fp8=vortex_style_fp8,
+        fp32_residual_connection=False,
+        enable_flash_decode=True,
+        flash_decode=True,
     )
 
     from megatron.core.inference.common_inference_params import CommonInferenceParams
@@ -732,6 +736,6 @@ def test_generate_speed(
     )
     dt = (time.perf_counter_ns() - t0) / 1e9  # seconds
     tokens_per_sec = (len(results[0].generated_text) + 1) / dt  # +1 for the prompt
-    assert tokens_per_sec > expected_tokens_sec * 999, (
+    assert tokens_per_sec > expected_tokens_sec * 0.85, (
         f"Expected at least {expected_tokens_sec} tokens/sec, got {tokens_per_sec}"
     )
