@@ -31,12 +31,14 @@ def data_to_csv():
         # Create a DataFrame
         df = pd.DataFrame(data)
         # if df has 2 columns add column names sequences and labels else resolved
-        if df.shape[1] == 2:
+        if df.shape[1] == 1:
+            df.columns = ["sequences"]
+        elif df.shape[1] == 2:
             df.columns = ["sequences", "labels"]
         elif df.shape[1] == 3:
             df.columns = ["sequences", "labels", "resolved"]
         else:
-            raise ValueError(f"Data has {df.shape[1]} columns, expected 2 or 3")
+            raise ValueError(f"Data has {df.shape[1]} columns, expected less than 4")
 
         # Save the DataFrame to a CSV file
         df.to_csv(csv_file, index=False)
