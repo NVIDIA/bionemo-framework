@@ -17,8 +17,9 @@ import argparse
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, Optional, Type, get_args
+from typing import Type, get_args
 
+import yaml
 from nemo import lightning as nl
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
@@ -54,13 +55,6 @@ def infer_model(
     include_embeddings: bool = False,
     include_logits: bool = False,
     include_input_ids: bool = False,
-    task_type: str = "regression",
-    mlp_ft_dropout: float = 0.25,
-    mlp_hidden_size: int = 128,
-    mlp_target_size: int = 1,
-    cnn_dropout: float = 0.25,
-    cnn_hidden_size: int = 32,
-    cnn_num_classes: int = 3,
     micro_batch_size: int = 64,
     precision: PrecisionTypes = "bf16-mixed",
     tensor_model_parallel_size: int = 1,
@@ -69,7 +63,7 @@ def infer_model(
     num_nodes: int = 1,
     prediction_interval: IntervalT = "epoch",
     config_class: Type[BioBertConfig] = ESM2Config,
-    lora_checkpoint_path: Optional[str] = None,
+    lora_checkpoint_path: str | None = None,
     initial_ckpt_skip_keys_with_these_prefixes: list[str] = [],
 ) -> None:
     """Runs inference on a BioNeMo ESM2 model using PyTorch Lightning.
@@ -83,13 +77,6 @@ def infer_model(
         include_embeddings (bool, optional): Whether to include embeddings in the output. Defaults to False.
         include_logits (bool, Optional): Whether to include token logits in the output. Defaults to False.
         include_input_ids (bool, Optional): Whether to include input_ids in the output. Defaults to False.
-        task_type (str, Optional): Task type for inference. Defaults to "regression".
-        mlp_ft_dropout (float, Optional): MLP dropout for inference. Defaults to 0.25.
-        mlp_hidden_size (int, Optional): MLP hidden size for inference. Defaults to 128.
-        mlp_target_size (int, Optional): MLP target size for inference. Defaults to 1.
-        cnn_dropout (float, Optional): CNN dropout for inference. Defaults to 0.25.
-        cnn_hidden_size (int, Optional): CNN hidden size for inference. Defaults to 32.
-        cnn_num_classes (int, Optional): CNN number of classes for inference. Defaults to 3.
         micro_batch_size (int, optional): Micro batch size for inference. Defaults to 64.
         precision (PrecisionTypes, optional): Precision type for inference. Defaults to "bf16-mixed".
         tensor_model_parallel_size (int, optional): Tensor model parallel size for distributed inference. Defaults to 1.
@@ -152,26 +139,31 @@ def infer_model(
     # Initialize LoRA adapter if needed
     # Initialize base model with or without LoRA
 
-    # Mapping of task-dependent config attributes to their new values
-    task_dependent_attr = {
-        "mlp_ft_dropout": mlp_ft_dropout,
-        "mlp_hidden_size": mlp_hidden_size,
-        "mlp_target_size": mlp_target_size,
-        "cnn_dropout": cnn_dropout,
-        "cnn_hidden_size": cnn_hidden_size,
-        "cnn_num_classes": cnn_num_classes,
-        "task_type": task_type,
-    }
-    # Update attributes only if they exist in the config
-    for attr, value in task_dependent_attr.items():
-        if hasattr(config, attr):
-            config.set_hparam(attr, value)
-
     if lora_checkpoint_path:
-        if task_type == "regression":
-            initial_ckpt_skip_keys_with_these_prefixes.extend(["regression_head"])
-        elif task_type == "classification":
-            initial_ckpt_skip_keys_with_these_prefixes.extend(["classification_head"])
+        # check that lora checkpoint has a model.yaml file under "context" subfolder and load the yaml file to correctly initialize the
+        lora_context_model_path = lora_checkpoint_path / "context" / "model.yaml"
+        if not lora_context_model_path.exists():
+            raise FileNotFoundError(
+                f"LoRA checkpoint {lora_context_model_path} is required to be a valid LoRA checkpoint"
+            )
+        with open(lora_context_model_path, "r") as f:
+            lora_context_model_config = yaml.safe_load(f)["config"]
+        if config_class == ESM2FineTuneSeqConfig:
+            config.mlp_ft_dropout = lora_context_model_config["mlp_ft_dropout"]
+            config.mlp_hidden_size = lora_context_model_config["mlp_hidden_size"]
+            config.mlp_target_size = lora_context_model_config["mlp_target_size"]
+        elif config_class == ESM2FineTuneTokenConfig:
+            config.cnn_dropout = lora_context_model_config["cnn_dropout"]
+            config.cnn_hidden_size = lora_context_model_config["cnn_hidden_size"]
+            config.cnn_num_classes = lora_context_model_config["cnn_num_classes"]
+
+        if config_class != ESM2Config:
+            task_type = lora_context_model_config["task_type"]
+            if task_type == "regression":
+                initial_ckpt_skip_keys_with_these_prefixes.extend(["regression_head"])
+            elif task_type == "classification":
+                initial_ckpt_skip_keys_with_these_prefixes.extend(["classification_head"])
+            config.task_type = task_type
         peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
         callbacks.append(peft)
         config.initial_ckpt_skip_keys_with_these_prefixes = initial_ckpt_skip_keys_with_these_prefixes
@@ -220,13 +212,6 @@ def infer_esm2_entrypoint():
         num_nodes=args.num_nodes,
         prediction_interval=args.prediction_interval,
         config_class=args.config_class,
-        task_type=args.task_type,
-        mlp_ft_dropout=args.mlp_ft_dropout,
-        mlp_hidden_size=args.mlp_hidden_size,
-        mlp_target_size=args.mlp_target_size,
-        cnn_dropout=args.cnn_dropout,
-        cnn_hidden_size=args.cnn_hidden_size,
-        cnn_num_classes=args.cnn_num_classes,
         lora_checkpoint_path=args.lora_checkpoint_path,
         initial_ckpt_skip_keys_with_these_prefixes=args.initial_ckpt_skip_keys_with_these_prefixes,
     )
@@ -321,7 +306,7 @@ def get_parser():
     parser.add_argument(
         "--include-logits", action="store_true", default=False, help="Include per-token logits in output."
     )
-    config_class_options: Dict[str, Type[BioBertConfig]] = SUPPORTED_CONFIGS
+    config_class_options: dict[str, Type[BioBertConfig]] = SUPPORTED_CONFIGS
 
     def config_class_type(desc: str) -> Type[BioBertConfig]:
         try:
@@ -347,56 +332,6 @@ def get_parser():
         required=False,
         default=None,
         help="Path to the lora states to restore from.",
-    )
-    parser.add_argument(
-        "--task-type",
-        type=str,
-        required=False,
-        choices=["regression", "classification"],
-        default="regression",
-        help="Task type to use for inference.",
-    )
-    parser.add_argument(
-        "--mlp-ft-dropout",
-        type=float,
-        required=False,
-        default=0.25,
-        help="MLP dropout to use for inference.",
-    )
-    parser.add_argument(
-        "--mlp-hidden-size",
-        type=int,
-        required=False,
-        default=128,
-        help="MLP hidden size to use for inference.",
-    )
-    parser.add_argument(
-        "--mlp-target-size",
-        type=int,
-        required=False,
-        default=1,
-        help="MLP target size to use for inference.",
-    )
-    parser.add_argument(
-        "--cnn-dropout",
-        type=float,
-        required=False,
-        default=0.25,
-        help="CNN dropout to use for inference.",
-    )
-    parser.add_argument(
-        "--cnn-hidden-size",
-        type=int,
-        required=False,
-        default=32,
-        help="CNN hidden size to use for inference.",
-    )
-    parser.add_argument(
-        "--cnn-num-classes",
-        type=int,
-        required=False,
-        default=3,
-        help="CNN number of classes to use for inference.",
     )
     parser.add_argument(
         "--initial-ckpt-skip-keys-with-these-prefixes",
