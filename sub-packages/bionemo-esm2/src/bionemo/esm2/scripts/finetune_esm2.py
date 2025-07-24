@@ -129,7 +129,7 @@ def get_parser():
 
     # Checkpoint parameters
     parser.add_argument("--create-tensorboard-logger", action="store_true", help="Create tensorboard logger")
-    parser.add_argument("--restore-from-checkpoint-path", type=Path, default=None, help="Restore from checkpoint")
+    parser.add_argument("--restore-from-checkpoint-path", type=Path, required=True, help="Restore from checkpoint")
     parser.add_argument("--save-last-checkpoint", action="store_true", default=True, help="Save last checkpoint")
     parser.add_argument(
         "--metric-to-monitor-for-checkpoints", type=str, default="val_loss", help="Metric to monitor for checkpoints"
@@ -390,7 +390,7 @@ def train_model(
         autocast_dtype=get_autocast_dtype(precision),  # setting this speeds things up a lot
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
-        initial_ckpt_path=str(restore_from_checkpoint_path) if restore_from_checkpoint_path is not None else None,
+        initial_ckpt_path=str(restore_from_checkpoint_path),
         initial_ckpt_skip_keys_with_these_prefixes=[f"{task_type}_head"],
         train_metric=train_metric,
         valid_metric=valid_metric,

@@ -483,6 +483,8 @@ def mock_parser_args():
         "0.001",
         "--task-type",
         "regression",
+        "--restore-from-checkpoint-path",
+        str(Path("./checkpoint")),
     ]
 
 
@@ -503,6 +505,7 @@ def test_finetune_esm2_entrypoint(mock_train_model, mock_parser_args):
         assert called_kwargs["max_seq_length"] == 1024
         assert called_kwargs["lr"] == 0.001
         assert called_kwargs["result_dir"] == Path("./results")
+        assert called_kwargs["restore_from_checkpoint_path"] == Path("./checkpoint")
 
 
 def test_get_parser():
@@ -663,6 +666,8 @@ def test_disable_checkpointing_arg_parsing():
             "train.csv",
             "--valid-data-path",
             "valid.csv",
+            "--restore-from-checkpoint-path",
+            "./checkpoint",
         ]
     )
     assert args_default.create_checkpoint_callback is True, "Default should enable checkpointing"
@@ -674,6 +679,8 @@ def test_disable_checkpointing_arg_parsing():
             "train.csv",
             "--valid-data-path",
             "valid.csv",
+            "--restore-from-checkpoint-path",
+            "./checkpoint",
             "--disable-checkpointing",
         ]
     )
@@ -691,6 +698,8 @@ def test_create_tflops_callback_arg_parsing():
             "train.csv",
             "--valid-data-path",
             "valid.csv",
+            "--restore-from-checkpoint-path",
+            "./checkpoint",
         ]
     )
     assert args_default.create_tflops_callback is False, "Default should disable tflops callback"
@@ -702,6 +711,8 @@ def test_create_tflops_callback_arg_parsing():
             "train.csv",
             "--valid-data-path",
             "valid.csv",
+            "--restore-from-checkpoint-path",
+            "./checkpoint",
             "--create-tflops-callback",
         ]
     )
@@ -719,6 +730,8 @@ def test_early_stop_on_step_arg_parsing():
             "train.csv",
             "--valid-data-path",
             "valid.csv",
+            "--restore-from-checkpoint-path",
+            "./checkpoint",
         ]
     )
     assert args_default.early_stop_on_step is None, "Default should be None (no early stopping)"
@@ -730,11 +743,31 @@ def test_early_stop_on_step_arg_parsing():
             "train.csv",
             "--valid-data-path",
             "valid.csv",
+            "--restore-from-checkpoint-path",
+            "./checkpoint",
             "--early-stop-on-step",
             "100",
         ]
     )
     assert args_with_early_stop.early_stop_on_step == 100, "Should parse early stop step correctly"
+
+
+def test_restore_from_checkpoint_path_required():
+    """Test that --restore-from-checkpoint-path is required."""
+    parser = get_parser()
+
+    # Test that parsing without restore_from_checkpoint_path raises an error
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(
+            [
+                "--train-data-path",
+                "train.csv",
+                "--valid-data-path",
+                "valid.csv",
+            ]
+        )
+    # argparse exits with code 2 for missing required arguments
+    assert exc_info.value.code == 2
 
 
 @pytest.mark.needs_gpu

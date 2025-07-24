@@ -1,5 +1,5 @@
 scope: perf
-time_limit: 1800
+time_limit: 3600
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   train_data_path: False
@@ -14,20 +14,22 @@ key_segments:
   num_workers: False
   experiment_name: False
   workspace: False
+  restore_from_checkpoint_path: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
   data_base_path: /data/FLIP
+  restore_from_checkpoint_path: /data/esm2_650M_nemo2
   gpus: 8
   model: esm2
   variant: finetune
   config_name: 650M
   precision: [bf16-mixed]
   num_workers: 8
-  limit_val_batches: 50 # original 1000, 100 is enough for validation and produce good enough curves
-  limit_test_batches: 50
+  limit_val_batches: 1
+  limit_test_batches: 1
   task: seq_classification
   train_data_path: scl/train/x000.csv
   valid_data_path: scl/val/x000.csv
@@ -59,6 +61,7 @@ script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-data-path=${data_base_path}/${train_data_path} \
     --valid-data-path=${data_base_path}/${valid_data_path} \
+    --restore-from-checkpoint-path=${restore_from_checkpoint_path} \
     --task-type=${task_type} \
     --config-class=${config_class} \
     --dataset-class=${dataset_class} \
