@@ -210,9 +210,7 @@ COPY ./cuhyena /workspace/bionemo2/cuhyena
 
 # Install cuhyena wheel file based on architecture
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
-      cp ./cuhyena/cuhyena-0.2.1-cuda129-cp312-cp312-linux_aarch64.whl /tmp/cuhyena.whl && \
-      pip --disable-pip-version-check --no-cache-dir install /tmp/cuhyena.whl && \
-      rm /tmp/cuhyena.whl; \
+      pip --disable-pip-version-check --no-cache-dir install ./cuhyena/cuhyena-0.2.1-cuda129-cp312-cp312-linux_aarch64.whl; \
     else \
       echo "Unsupported architecture: $TARGETARCH" && exit 1; \
     fi
