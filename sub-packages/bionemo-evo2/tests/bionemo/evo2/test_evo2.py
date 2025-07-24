@@ -669,6 +669,7 @@ def test_batch_generate_coding_sequences(
     )
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "ckpt_name,model_tokenizer_provider,expected_tokens_sec",
     [
