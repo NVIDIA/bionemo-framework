@@ -227,7 +227,7 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
     # Try to use real AnnData if available
     # adata_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/sample_50000_19836_0.85.h5ad"
     # memmap_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/s_memmap_zmdy090y"
-    memmap_path = "/home/pbinder/bionemo-framework/tahoe_memmap/"
+    memmap_path = "/home/pbinder/bionemo-framework/all_tahoe_memmap/"
 
     # Create CSV file with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -264,16 +264,17 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
     }
 
     # Run baseline multiple times and write each to CSV
-    for run_idx in range(num_runs):
-        print(f"  Run {run_idx + 1}/{num_runs}...")
-        baseline_results = benchmark_dataloader(dataloaders=[baseline_config])
-        if baseline_results:
-            baseline_result = baseline_results[0]
-            # Add run number to the result name for CSV
-            baseline_result.name = f"{baseline_result.name}_run_{run_idx + 1}"
-            write_result_to_csv(baseline_result, csv_file, run_number=run_idx + 1)
-            all_results.append(baseline_result)
-            print(f"    ✅ {baseline_result.name}: {baseline_result.samples_per_second:.2f} samples/sec")
+    if True:
+        for run_idx in range(num_runs):
+            print(f"  Run {run_idx + 1}/{num_runs}...")
+            baseline_results = benchmark_dataloader(dataloaders=[baseline_config])
+            if baseline_results:
+                baseline_result = baseline_results[0]
+                # Add run number to the result name for CSV
+                baseline_result.name = f"{baseline_result.name}_run_{run_idx + 1}"
+                write_result_to_csv(baseline_result, csv_file, run_number=run_idx + 1)
+                all_results.append(baseline_result)
+                print(f"    ✅ {baseline_result.name}: {baseline_result.samples_per_second:.2f} samples/sec")
 
     # Now run scDataset with different configurations
     for fetch_factor in [1, 2, 4, 8, 16, 32, 64]:
@@ -351,4 +352,4 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("📊 SCDATASET BENCHMARK")
     print("=" * 80)
-    comprehensive_benchmarking_example(num_epochs=1, num_runs=3)
+    comprehensive_benchmarking_example(num_epochs=1, num_runs=1)
