@@ -30,7 +30,6 @@ if __name__ == "__main__":
 import argparse
 import gc
 import importlib.metadata as im
-import multiprocessing as mp
 import os
 import platform
 import subprocess
@@ -209,19 +208,20 @@ class BenchmarkResult:
         gpu_memory_mb: float = 0.0,
         warmup_samples: int = 0,
         warmup_batches: int = 0,
+        elapsed_time: float = 0.0,
         instantiation_metrics: Optional[Dict[str, float]] = None,
     ) -> "BenchmarkResult":
         """Create BenchmarkResult from raw metrics."""
         # Calculate timing metrics
-        total_time_excluding_warmup = iteration_time - warmup_time
-        avg_batch_time = total_time_excluding_warmup / total_batches if total_batches > 0 else 0
-        samples_per_sec = total_samples / total_time_excluding_warmup if total_time_excluding_warmup > 0 else 0
-        batches_per_sec = total_batches / total_time_excluding_warmup if total_time_excluding_warmup > 0 else 0
+        avg_batch_time = elapsed_time / total_batches if total_batches > 0 else 0
+        samples_per_sec = total_samples / elapsed_time if elapsed_time > 0 else 0
+        batches_per_sec = total_batches / elapsed_time if elapsed_time > 0 else 0
 
         # Calculate speed metrics
+        iteration_time = elapsed_time + warmup_time
         total_samples_including_warmup = total_samples + warmup_samples
-        total_speed = total_samples_including_warmup / iteration_time if iteration_time > 0 else 0
-        post_warmup_speed = total_samples / total_time_excluding_warmup if total_time_excluding_warmup > 0 else 0
+        total_speed = total_samples_including_warmup / (iteration_time) if iteration_time > 0 else 0
+        post_warmup_speed = total_samples / elapsed_time if elapsed_time > 0 else 0
 
         # Extract instantiation metrics if provided
         instantiation_kwargs = {}
@@ -391,78 +391,6 @@ def measure_memory_simple(func, *args, **kwargs):
     return result, baseline_mib, peak_mib, avg_mib, delta_mib, final_mib, duration
 
 
-def measure_peak_memory_full(func, *args, **kwargs):
-    """Measure peak memory usage while executing a function."""
-    # Try multiprocessing approach first, fall back to simple if it fails
-    try:
-        parent_pid = os.getpid()
-        stop_event = mp.Event()
-        result_queue = mp.Queue()
-        monitor = mp.Process(target=monitor_memory_dynamic_pss, args=(parent_pid, stop_event, result_queue))
-
-        gc.collect()
-        # Use PSS on Linux, RSS on other platforms
-        proc = psutil.Process(parent_pid)
-        mem_info = proc.memory_full_info()
-        baseline = mem_info.pss if hasattr(mem_info, "pss") else mem_info.rss
-
-        monitor.start()
-        start = time.perf_counter()
-
-        try:
-            result = func(*args, **kwargs)
-        finally:
-            stop_event.set()
-            monitor.join()
-
-        duration = time.perf_counter() - start
-
-        # Get memory measurements from monitoring process
-        peak = baseline  # Default fallback
-        avg = baseline
-        monitoring_failed = False
-
-        try:
-            peak, avg = result_queue.get(timeout=5)  # Increase timeout
-            if peak == 0 or peak < baseline:  # If monitoring returned invalid data
-                monitoring_failed = True
-                # print(f"Debug: Memory monitoring returned invalid data: peak={peak/1024/1024:.1f}MB, baseline={baseline/1024/1024:.1f}MB")
-        except Exception:
-            monitoring_failed = True
-            # print(f"Debug: Memory monitoring failed: {e}")
-
-        if monitoring_failed:
-            # Fallback: measure current memory as both peak and average
-            proc = psutil.Process(parent_pid)
-            mem_info = proc.memory_full_info()
-            current_mem = mem_info.pss if hasattr(mem_info, "pss") else mem_info.rss
-            # Use the higher of baseline or current as peak
-            peak = max(baseline, current_mem)
-            avg = peak
-            # print(f"Debug: Using fallback memory measurement: baseline={baseline/1024/1024:.1f}MB, fallback_peak={peak/1024/1024:.1f}MB")
-
-        gc.collect()
-        proc = psutil.Process(parent_pid)
-        mem_info = proc.memory_full_info()
-        final = mem_info.pss if hasattr(mem_info, "pss") else mem_info.rss
-
-        baseline_mib = baseline / 1024 / 1024
-        peak_mib = peak / 1024 / 1024
-        avg_mib = avg / 1024 / 1024
-        delta_mib = peak_mib - baseline_mib
-        final_mib = final / 1024 / 1024
-
-        # Debug output - can be removed in production
-        # print(f"Debug: multiprocessing baseline={baseline_mib:.1f}MB, peak={peak_mib:.1f}MB, final={final_mib:.1f}MB, duration={duration:.2f}s")
-
-        return result, baseline_mib, peak_mib, avg_mib, delta_mib, final_mib, duration
-
-    except Exception:
-        # If multiprocessing completely fails, use simple measurement
-        # print(f"Debug: Falling back to simple memory measurement due to: {e}")
-        return measure_memory_simple(func, *args, **kwargs)
-
-
 def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
     """Run the actual benchmark and collect metrics."""
     gc.collect()
@@ -484,22 +412,19 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
         warmup_samples = 0
         warmup_batches = 0
         warmup_time = 0.0
-
+        elapsed = 0.0
         pbar = tqdm(
             desc=f"{config.name} - Epoch {epoch_num + 1}/{config.num_epochs}", disable=not config.print_progress
         )
-
+        is_warming_up = True
+        start_time = None
+        end_time = None
+        warm_up_start = time.perf_counter()
+        warm_up_end = warm_up_start
         # Initialize warmup timer
         if do_warmup and config.warmup_time_seconds is not None and config.warmup_time_seconds > 0:
-            warm_up_start = time.perf_counter()
             warm_up_end = warm_up_start + config.warmup_time_seconds
-            is_warming_up = True
-            start_time = None
-            end_time = None
-        else:
-            is_warming_up = False
-            start_time = time.perf_counter()
-            end_time = start_time + config.max_time_seconds if config.max_time_seconds is not None else None
+
         for num, batch in enumerate(dataloader):
             batch_size = get_batch_size(batch)
             current_time = time.perf_counter()
@@ -548,7 +473,7 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
         # This addresses the case when it is all warm up time:
         if is_warming_up:
             warmup_time = current_time - warm_up_start
-        return epoch_samples, epoch_batches, warmup_samples, warmup_batches, warmup_time, []
+        return epoch_samples, epoch_batches, elapsed, warmup_samples, warmup_batches, warmup_time, []
 
     epoch_results = []
     total_warmup_samples = 0
@@ -560,9 +485,9 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
         def epoch_benchmark_iteration():
             return benchmark_iteration_single_epoch(epoch, epoch == 0)
 
-        result_tuple = measure_peak_memory_full(epoch_benchmark_iteration)
+        result_tuple = measure_memory_simple(epoch_benchmark_iteration)
         (
-            (epoch_samples, epoch_batches, warmup_samples, warmup_batches, warmup_time, iteration_times),
+            (epoch_samples, epoch_batches, elapsed, warmup_samples, warmup_batches, warmup_time, iteration_times),
             baseline,
             peak,
             avg,
@@ -584,6 +509,7 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
                 "peak_memory": peak,
                 "avg_memory": avg,
                 "iteration_time": iteration_time,
+                "elapsed": elapsed,
                 "warmup_time": warmup_time,
             }
         )
@@ -595,6 +521,7 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
     total_samples = sum(r["samples"] for r in epoch_results)
     total_batches = sum(r["batches"] for r in epoch_results)
     total_iteration_time = sum(r["iteration_time"] for r in epoch_results)
+    total_elapsed_time = sum(r["elapsed"] for r in epoch_results)
 
     result = BenchmarkResult.from_raw_metrics(
         name=config.name,
@@ -609,6 +536,7 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
         iteration_time=total_iteration_time,
         warmup_samples=total_warmup_samples,
         warmup_batches=total_warmup_batches,
+        elapsed_time=total_elapsed_time,
     )
 
     # Add epoch results and memory info
@@ -643,7 +571,7 @@ def benchmark_dataloader(
     log(f"Benchmarking: {name}")
 
     # Measure instantiation metrics
-    dataloader, baseline, peak, _, _, final_mib, setup_time = measure_peak_memory_full(dataloader_factory)
+    dataloader, baseline, peak, _, _, final_mib, setup_time = measure_memory_simple(dataloader_factory)
 
     # Get conversion and load metrics if available
     conversion_time = 0.0
@@ -835,8 +763,8 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                         "Epoch": epoch_info["epoch"],
                         "Samples": epoch_info["samples"],
                         "Batches": epoch_info["batches"],
-                        "Samples_per_sec": epoch_info["samples"] / epoch_info["iteration_time"]
-                        if epoch_info["iteration_time"] > 0
+                        "Samples_per_sec": epoch_info["samples"] / epoch_info["elapsed"]
+                        if epoch_info["elapsed"] > 0
                         else 0,
                         "Peak_Memory_MB": epoch_info["peak_memory"],
                         "Average_Memory_MB": epoch_info["avg_memory"],
@@ -845,8 +773,8 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                         "Warmup_Time_s": result.warmup_time_seconds if epoch_info["epoch"] == 1 else 0,
                         "Warmup_Samples": epoch_info["warmup_samples"],
                         "Warmup_Batches": epoch_info["warmup_batches"],
-                        "Post_Warmup_Speed_Samples_per_sec": epoch_info["samples"] / epoch_info["iteration_time"]
-                        if epoch_info["iteration_time"] > 0
+                        "Post_Warmup_Speed_Samples_per_sec": epoch_info["samples"] / epoch_info["elapsed"]
+                        if epoch_info["elapsed"] > 0
                         else 0,
                         "Total_Speed_With_Warmup_Samples_per_sec": (
                             epoch_info["samples"] + epoch_info["warmup_samples"]
@@ -861,8 +789,8 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                         "Instantiation_Time_s": None,
                         "Instantiation_Memory_MB": None,
                         "Average_Batch_Size": avg_batch_size,
-                        "Batches_per_sec": epoch_info["batches"] / epoch_info["iteration_time"]
-                        if epoch_info["iteration_time"] > 0
+                        "Batches_per_sec": epoch_info["batches"] / epoch_info["elapsed"]
+                        if epoch_info["elapsed"] > 0
                         else 0,
                     }
                 )
@@ -977,7 +905,7 @@ def create_dataloader_factory(input_path: str, sampling_scheme: str, batch_size:
                             coll.flatten(data_dir, destroy_on_copy=True)
 
                         conversion_start = time.perf_counter()
-                        dataset = SingleCellMemMapDataset(data_path=data_dir, h5ad_path=h5ad_files)
+                        dataset = SingleCellMemMapDataset(data_path=data_dir)
                         conversion_end = time.perf_counter()
                         conversion_time = conversion_end - conversion_start
                         conversion_metrics["time"] = conversion_time
@@ -1232,9 +1160,9 @@ Examples:
         default="shuffle",
         help="Sampling method (default: shuffle)",
     )
-    parser.add_argument("--batch-size", type=int, default=32, help="Batch size (default: 32)")
-    parser.add_argument("--max-time", type=float, default=30.0, help="Max runtime seconds (default: 30)")
-    parser.add_argument("--warmup-time", type=float, default=0.0, help="Warmup seconds (default: 0)")
+    parser.add_argument("--batch-size", type=int, default=64, help="Batch size (default: 32)")
+    parser.add_argument("--max-time", type=float, default=120.0, help="Max runtime seconds (default: 30)")
+    parser.add_argument("--warmup-time", type=float, default=30.0, help="Warmup seconds (default: 0)")
     parser.add_argument("--csv", action="store_true", help="Export detailed CSV files")
     parser.add_argument(
         "--generate-baseline", action="store_true", help="Generate AnnData baseline comparison (requires .h5ad input)"

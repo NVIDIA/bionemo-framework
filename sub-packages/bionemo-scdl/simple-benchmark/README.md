@@ -200,6 +200,9 @@ gcloud storage cp -R gs://arc-ctc-tahoe100/2025-02-25/* .
 
 This dataset is 314 GB. The corresponding SCDL dataset after conversion is 1.1 TB, so ensure that you have sufficient disk space if using the entire dataset.
 
+To process this data, an option is to run ```python scdl_speedtest.py --generate-baseline -i <path to h5ad>.```.
+This will automatically convert the files to the SCDL format. Alternatively, with bionemo-scdl installed,
+```convert_h5ad_to_scdl --data-path <path to h5ad> --save-path <SCDL path>```. This is a multi-hour process.
 
 ## Support
 
