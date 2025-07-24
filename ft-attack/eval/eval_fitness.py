@@ -44,6 +44,69 @@ except ImportError as e:
 # TODO: save logic to have subfolder for each model
 
 
+def stratified_sample_dms(df, n_samples, stratify_column='DMS_score_bin', random_state=42):
+    """
+    Perform stratified sampling on a DMS dataframe to maintain the distribution 
+    of the stratification column.
+    
+    Args:
+        df: Input DataFrame to sample from
+        n_samples: Target number of samples
+        stratify_column: Column to stratify on (default: 'DMS_score_bin')
+        random_state: Random seed for reproducibility
+        
+    Returns:
+        DataFrame: Stratified sample of the input dataframe
+    """
+    if len(df) <= n_samples:
+        return df
+    
+    if stratify_column not in df.columns:
+        return df.sample(n=n_samples, random_state=random_state)
+    
+    # Remove rows with NaN values in stratification column
+    df_clean = df[df[stratify_column].notna()].copy()
+    
+    if len(df_clean) == 0:
+        return df.sample(n=n_samples, random_state=random_state)
+    
+    # Get value counts and proportions
+    value_counts = df_clean[stratify_column].value_counts()
+    proportions = value_counts / len(df_clean)
+    
+    # Calculate target samples per group
+    target_samples = {}
+    total_allocated = 0
+    
+    for value, proportion in proportions.items():
+        target = int(np.round(proportion * n_samples))
+        target_samples[value] = max(1, target)  # Ensure at least 1 sample per group
+        total_allocated += target_samples[value]
+    
+    # Adjust if we allocated too many/few samples due to rounding
+    if total_allocated != n_samples:
+        # Find the largest group to adjust
+        largest_group = max(target_samples.keys(), key=lambda x: target_samples[x])
+        target_samples[largest_group] += n_samples - total_allocated
+        target_samples[largest_group] = max(1, target_samples[largest_group])
+    
+    # Perform stratified sampling
+    sampled_dfs = []
+    for value, n_group_samples in target_samples.items():
+        group_df = df_clean[df_clean[stratify_column] == value]
+        
+        if len(group_df) < n_group_samples:
+            sampled_dfs.append(group_df)
+        else:
+            sampled_group = group_df.sample(n=n_group_samples, random_state=random_state)
+            sampled_dfs.append(sampled_group)
+    
+    # Combine all groups
+    result_df = pd.concat(sampled_dfs, ignore_index=True)
+    
+    return result_df
+
+
 def get_model_name(args):
     """Generate consistent model name for fine-tuned and base models."""
     if "ft_checkpoints" in str(args.ckpt_dir):
@@ -141,10 +204,17 @@ def get_likelihood_results_path(args):
     """Generate path for saving likelihood results."""
     model_name = get_model_name(args)
     file_name = args.DMS_id + "_" + model_name + "_likelihoods.csv"
+    
+    # Create folder structure: {output_folder}/{sample_type}/{taxon}/{model_name}/
+    if hasattr(args, 'down_sample') and args.down_sample is not None:
+        sample_folder = f"sample={args.down_sample}_seed=42"
+    else:
+        sample_folder = "full"
+    
     results_dir = os.path.join(
-        args.output_performance_file_folder, 
-        args.DMS_path.split('/')[-2], 
-        args.taxon, 
+        args.output_performance_file_folder,
+        sample_folder,
+        args.taxon,
         model_name
     )
     os.makedirs(results_dir, exist_ok=True)
@@ -156,10 +226,17 @@ def get_fitness_results_path(args):
     """Generate path for saving fitness results."""
     model_name = get_model_name(args)
     file_name = args.DMS_id + "_" + model_name + "_fitness.csv"
+    
+    # Create folder structure: {output_folder}/{sample_type}/{taxon}/{model_name}/
+    if hasattr(args, 'down_sample') and args.down_sample is not None:
+        sample_folder = f"sample={args.down_sample}_seed=42"
+    else:
+        sample_folder = "full"
+    
     results_dir = os.path.join(
-        args.output_performance_file_folder, 
-        args.DMS_path.split('/')[-2], 
-        args.taxon, 
+        args.output_performance_file_folder,
+        sample_folder,
+        args.taxon,
         model_name
     )
     os.makedirs(results_dir, exist_ok=True)
@@ -415,6 +492,15 @@ def eval_DMS_file(model, trainer, tokenizer, args, seq_len=8192):
     
     print(f"Loaded {len(DMS_df)} sequences from DMS file")
     
+    # Apply down-sampling if specified
+    if hasattr(args, 'down_sample') and args.down_sample is not None:
+        DMS_df = stratified_sample_dms(
+            DMS_df, 
+            args.down_sample, 
+            stratify_column=args.DMS_binary_score_column, 
+            random_state=42
+        )
+    
     # Use consistent DMS_id throughout
     DMS_id = args.DMS_id
     output_path = get_likelihood_results_path(args)
@@ -482,20 +568,7 @@ def eval_DMS_file(model, trainer, tokenizer, args, seq_len=8192):
         print(f"Warning: Error loading DMS reference file: {e}")
    
     # Save fitness results
-    experiment_type = args.DMS_path.split('/')[-2]
-    model_name = get_model_name(args)
-    output_dir = os.path.join(
-        args.output_performance_file_folder, 
-        experiment_type, 
-        args.taxon, 
-        model_name
-    )
-    os.makedirs(output_dir, exist_ok=True)
-    
-    fitness_output_path = os.path.join(
-        output_dir, 
-        DMS_id + "_" + model_name + "_fitness.csv"
-    )
+    fitness_output_path = get_fitness_results_path(args)
     try:
         performance_df.to_csv(fitness_output_path, index=False)
         print(f"Saved fitness results to: {fitness_output_path}")
@@ -601,9 +674,9 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--output_performance_file_folder', 
-        default='results/test', 
+        default='results', 
         type=str, 
-        help='Path to folder to save performance analysis'
+        help='Path to folder to save performance analysis (e.g., "results/virus_reproduction")'
     )
     parser.add_argument(
         '--DMS_reference_file_path', 
@@ -634,6 +707,12 @@ if __name__ == '__main__':
         default='sum', 
         choices=['sum', 'mean'], 
         help='Likelihood reduction method: sum (total) or mean (length-normalized)'
+    )
+    parser.add_argument(
+        '--down_sample', 
+        type=int, 
+        default=None, 
+        help='Number of samples to down-sample to. If None, no down-sampling is performed.'
     )
 
     args = parser.parse_args()

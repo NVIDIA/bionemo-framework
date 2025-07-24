@@ -75,10 +75,8 @@ def sort_models_by_steps(models):
     
     return sorted(models, key=sort_key)
 
-def collect_fitness_data(model_names=None):
+def collect_fitness_data(model_names=None, base_path="results/virus_reproduction/full"):
     """Collect Spearman correlation values from all fitness CSV files, filtered by model names."""
-    
-    base_path = "results/test/nucleotides"
     taxons = ["Human", "Virus", "Eukaryote","Prokaryote"]
     
     data = {}
@@ -141,10 +139,8 @@ def collect_fitness_data(model_names=None):
     
     return data
 
-def collect_fitness_data_by_model(model_names):
+def collect_fitness_data_by_model(model_names, base_path="results/virus_reproduction/full"):
     """Collect Spearman correlation values by model for Virus taxon only."""
-    
-    base_path = "results/test/nucleotides"
     taxon = "Virus"
     
     data = {}
@@ -345,7 +341,8 @@ def create_fitness_plot_by_model(data, model_names):
         ax.set_ylim(y_min, y_max)
     
     # Add statistics text
-    for i, (model, values) in enumerate(data.items()):
+    for i, model in enumerate(models):
+        values = data[model]
         if values:
             mean_val = np.mean(values)
             n_samples = len(values)
@@ -364,6 +361,8 @@ def main():
                         help='Type of plot: by taxon or by model')
     parser.add_argument('--models', default="nemo2_evo2_7b_1m", type=str, nargs='+', 
                         help='List of model names to analyze, or "all" to plot all available models')
+    parser.add_argument('--base-path', default="results/virus_ecoli/full", type=str,
+                        help='Base path to the results directory (default: results/virus_reproduction/full)')
     args = parser.parse_args()
     
     # Debug and ensure models is properly handled as a list of strings
@@ -390,7 +389,7 @@ def main():
         else:
             print("Collecting fitness data by taxon from all models...")
         
-        data = collect_fitness_data(model_names=args.models)
+        data = collect_fitness_data(model_names=args.models, base_path=args.base_path)
         
         # Print summary
         print("\nSummary:")
@@ -436,7 +435,7 @@ def main():
         else:
             print(f"Collecting fitness data by model for Virus taxon: {', '.join(args.models)}")
         
-        data = collect_fitness_data_by_model(model_names=args.models)
+        data = collect_fitness_data_by_model(model_names=args.models, base_path=args.base_path)
         
         # Print summary
         print("\nSummary:")
