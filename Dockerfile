@@ -207,6 +207,15 @@ COPY ./LICENSE /workspace/bionemo2/LICENSE
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
+# Install cuhyena wheel file based on architecture
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      cp ./cuhyena/cuhyena-0.2.1+cuda129-cp312-cp312-linux_aarch64.whl /tmp/cuhyena.whl && \
+      pip --disable-pip-version-check --no-cache-dir install /tmp/cuhyena.whl && \
+      rm /tmp/cuhyena.whl; \
+    else \
+      echo "Unsupported architecture: $TARGETARCH" && exit 1; \
+    fi
+
 RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   --mount=type=cache,target=/root/.cache <<EOF
