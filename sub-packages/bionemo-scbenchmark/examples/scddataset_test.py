@@ -236,7 +236,7 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
     print()
 
     # Parameters
-    warmup_time_seconds = 30
+    warmup_time_seconds = 0
     max_time_seconds = 120
 
     all_results = []
@@ -260,7 +260,6 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
         "data_path": memmap_path,
         "madvise_interval": None,
         "num_runs": 1,  # Always 1, we'll loop manually
-        "log_iteration_times_to_file": None,
     }
 
     # Run baseline multiple times and write each to CSV
@@ -297,7 +296,7 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
                 "data_path": memmap_path,
                 "madvise_interval": None,
                 "num_runs": 1,  # Always 1, we'll loop manually
-                "log_iteration_times_to_file": None,
+    
             }
 
             # Run multiple times and write each to CSV immediately

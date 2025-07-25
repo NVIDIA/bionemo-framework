@@ -66,7 +66,6 @@ def create_annloader_factory(batch_size=64, backed="r", shuffle=True, data_path=
         else:
             raise ValueError("AnnData baseline requires a .h5ad input file or a directory containing .h5ad files")
         return AnnLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-
     return factory
 
 
@@ -178,7 +177,7 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
     print()
 
     # Try to use real AnnData if available
-    # adata_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/sample_50000_19836_0.85.h5ad"
+    #adata_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/sample_50000_19836_0.85.h5ad"
     # memmap_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/s_memmap_zmdy090y"
     adata_path = (
         "/home/pbinder/bionemo-framework/tahoe_data/plate11_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad"
@@ -189,23 +188,6 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
     # 7. MULTIPLE CONFIGURATIONS WITH STATISTICAL ANALYSIS
     print(f"🚀 Benchmarking {num_runs} run(s) each")
     print()
-    """        {
-            "name": "SCDL madvise_1",
-            "dataloader_factory": create_scdl_factory(
-                batch_size=64,
-                shuffle=True,
-                adata_path=adata_path,
-                data_path=memmap_path,
-                num_workers=0,
-            ),
-            "num_epochs": num_epochs,
-            "max_time_seconds": 1000.0,
-            "warmup_seconds": 10.0,
-            "data_path": memmap_path,
-            "madvise_interval": 1,
-            "num_runs": num_runs
-        },
-    """
     configurations = [
         # Example: Enable per-iteration time and memory (RSS) logging every 5 batches
         {
@@ -218,16 +200,13 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
                 num_workers=0,
             ),
             "num_epochs": num_epochs,
-            "max_time_seconds": 4.0,
+            "max_time_seconds": 1.0,
             "warmup_time_seconds": 1.0,
             "data_path": memmap_path,
             "madvise_interval": None,
             "num_runs": num_runs,
-            "log_iteration_times_to_file": None,
         },
-    ]
-    """
-            {
+        {
             "name": "AnnLoader Regular",
             "dataloader_factory": create_annloader_factory(
                 batch_size=64,
@@ -241,8 +220,10 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
             "data_path": adata_path,
             "madvise_interval": None,
             "num_runs": num_runs,
-            "log_iteration_times_to_file": None,
         },
+
+    ]
+    """
 
             {
             "name": "SCDL Regular",
@@ -259,11 +240,9 @@ def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
             "data_path": memmap_path,
             "madvise_interval": None,
             "num_runs": num_runs,
-            "log_iteration_times_to_file": None,
         }
     """
-    # To use: set 'log_iteration_times_to_file' to None (no logging) or an integer interval (e.g., 1 for every batch).
-    # The log file will contain columns: epoch, batch, iteration_time_s, rss_mb, run_name
+
 
     results = benchmark_dataloader(dataloaders=configurations, output_dir="comprehensive_anndata_results")
 
@@ -300,4 +279,4 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("📊 MULTIPLE RUNS EXAMPLE")
     print("=" * 80)
-    comprehensive_benchmarking_example(num_epochs=1, num_runs=3)
+    comprehensive_benchmarking_example(num_epochs=2, num_runs=2)
