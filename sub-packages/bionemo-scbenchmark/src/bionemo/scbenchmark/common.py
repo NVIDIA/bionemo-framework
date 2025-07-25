@@ -25,12 +25,12 @@ import gc
 import json
 import multiprocessing as mp
 import os
+import platform
 import subprocess
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
-import platform
 
 import psutil
 
@@ -148,13 +148,12 @@ class BenchmarkResult:
         if epoch_results:
             max_peak_memory = max(r["peak_memory"] for r in epoch_results)
             avg_memory = sum(r["avg_memory"] for r in epoch_results) / len(epoch_results)
-            
+
             # Subtract baseline memory if available from instantiation metrics
             memory_before_instantiation = instantiation_metrics["memory_before_instantiation_mb"]
 
             peak_memory_mb = max_peak_memory - memory_before_instantiation
             average_memory_mb = avg_memory - memory_before_instantiation
-
 
         return cls(
             name=name,
@@ -253,9 +252,9 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
     summary_rows = []
     detailed_rows = []
     for i, result in enumerate(results, 1):
-        # Extract configuration name (remove run number suffix if present)  
+        # Extract configuration name (remove run number suffix if present)
         config_name = result.name.replace(f"_run_{i}", "") if f"_run_{i}" in result.name else result.name
-        
+
         m = calculate_derived_metrics(result)
         summary_rows.append(
             {
@@ -268,7 +267,9 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                 "Total_Samples_per_sec": result.samples_per_second,
                 "Instantiation_Time_s": m["inst_time"],  # TOTAL (dataset + dataloader)
                 "Dataset_Instantiation_Time_s": getattr(result, "dataset_instantiation_time_seconds", None),  # 🆕 NEW
-                "Dataloader_Instantiation_Time_s": getattr(result, "dataloader_instantiation_time_seconds", None),  # 🆕 NEW
+                "Dataloader_Instantiation_Time_s": getattr(
+                    result, "dataloader_instantiation_time_seconds", None
+                ),  # 🆕 NEW
                 "Instantiation_Memory_MB": m["inst_memory"],
                 "Peak_Memory_MB": result.peak_memory_mb,
                 "Average_Memory_MB": result.average_memory_mb,
@@ -289,14 +290,10 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                 "Number_of_Epochs": m["num_epochs"],
             }
         )
-    
+
     # Detailed breakdown: all runs and epochs
     for i, result in enumerate(results, 1):
-        base_config = (
-            result.name.replace("_run_" + str(i), "")
-            if "_run_" in result.name
-            else result.name
-        )
+        base_config = result.name.replace("_run_" + str(i), "") if "_run_" in result.name else result.name
 
         # Per-epoch breakdown
         if hasattr(result, "epoch_results") and result.epoch_results:
@@ -330,8 +327,12 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
                         "Max_Time_Seconds": result.max_time_seconds,
                         "Shuffle": getattr(result, "shuffle", None),
                         "Instantiation_Time_s": getattr(result, "instantiation_time_seconds", None),  # TOTAL
-                        "Dataset_Instantiation_Time_s": getattr(result, "dataset_instantiation_time_seconds", None),  # 🆕 NEW
-                        "Dataloader_Instantiation_Time_s": getattr(result, "dataloader_instantiation_time_seconds", None),  # 🆕 NEW
+                        "Dataset_Instantiation_Time_s": getattr(
+                            result, "dataset_instantiation_time_seconds", None
+                        ),  # 🆕 NEW
+                        "Dataloader_Instantiation_Time_s": getattr(
+                            result, "dataloader_instantiation_time_seconds", None
+                        ),  # 🆕 NEW
                         "Instantiation_Memory_MB": getattr(result, "peak_memory_during_instantiation_mb", None),
                         "Average_Batch_Size": avg_batch_size,
                         "Batches_per_sec": epoch_info["batches"] / epoch_info["elapsed"]
@@ -353,22 +354,33 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
 
 
 def append_benchmark_result(
-    result: BenchmarkResult, 
-    output_prefix: str = "benchmark_data", 
-    create_headers: bool = False
+    result: BenchmarkResult,
+    output_prefix: str = "benchmark_data",
+    create_headers: bool = False,
+    output_dir: Optional[str] = None,
 ) -> None:
-    """Append a single benchmark result to summary and detailed breakdown CSVs.
-    
+    """Append a single benchmark result to detailed breakdown CSV only.
+
     Args:
         result: The benchmark result to append
-        output_prefix: Prefix for the CSV filenames
+        output_prefix: Prefix for the CSV filename
         create_headers: If True, create new files with headers. If False, append to existing files.
+                       If None, automatically detect if files exist.
+        output_dir: Directory where CSV files should be created. If None, uses current directory.
     """
     import pandas as pd
-    
-    summary_csv = f"{output_prefix}_summary.csv"
-    detailed_csv = f"{output_prefix}_detailed_breakdown.csv"
-    
+
+    # Handle output directory
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        detailed_csv = os.path.join(output_dir, f"{output_prefix}_detailed_breakdown.csv")
+    else:
+        detailed_csv = f"{output_prefix}_detailed_breakdown.csv"
+
+    # Auto-detect if we should create headers (if files don't exist yet)
+    files_exist = os.path.exists(detailed_csv)
+    should_create_headers = create_headers and not files_exist
+
     # Determine run number from result name
     run_number = 1
     if "_run_" in result.name:
@@ -376,80 +388,58 @@ def append_benchmark_result(
             run_number = int(result.name.split("_run_")[-1])
         except ValueError:
             pass
-    
+
     # Extract configuration name (remove run number suffix if present)
     config_name = result.name.replace(f"_run_{run_number}", "") if f"_run_{run_number}" in result.name else result.name
-    
-    m = calculate_derived_metrics(result)
-    
-    # Create summary row
-    summary_row = {
-        "Configuration": config_name,
-        "Run_Number": run_number,
-        "Run_Name": result.name,
-        "Warmup_Time_s": result.warmup_time_seconds,
-        "Warmup_Samples_per_sec": m["warmup_samples_per_sec"],
-        "Total_Time_s": result.total_iteration_time_seconds,
-        "Total_Samples_per_sec": result.samples_per_second,
-        "Instantiation_Time_s": m["inst_time"],  # TOTAL (dataset + dataloader)
-        "Dataset_Instantiation_Time_s": getattr(result, "dataset_instantiation_time_seconds", None),
-        "Dataloader_Instantiation_Time_s": getattr(result, "dataloader_instantiation_time_seconds", None),
-        "Instantiation_Memory_MB": getattr(result, "peak_memory_during_instantiation_mb", None),
-        "Peak_Memory_MB": result.peak_memory_mb,
-        "Average_Memory_MB": result.average_memory_mb,
-        "Disk_Size_MB": result.disk_size_mb,
-        "Num_Workers": result.num_workers,
-        "Data_Path": result.data_path,
-    }
-    
-    # Write or append summary CSV
-    mode = 'w' if create_headers else 'a'
-    header = create_headers
-    pd.DataFrame([summary_row]).to_csv(summary_csv, mode=mode, header=header, index=False)
-    
-    if create_headers:
-        print(f"📄 Created Summary CSV: {os.path.abspath(summary_csv)}")
-    else:
-        print(f"📄 Appended to Summary CSV: {os.path.abspath(summary_csv)}")
-    
-    # Create detailed rows for each epoch
+
+    # Create detailed rows for each epoch only (no summary)
     detailed_rows = []
     for epoch_info in result.epoch_results:
         avg_batch_size = epoch_info["samples"] / epoch_info["batches"] if epoch_info["batches"] > 0 else 0
-        detailed_rows.append({
-            "Configuration": config_name,
-            "Run_Number": run_number,
-            "Run_Name": result.name,
-            "Epoch": epoch_info["epoch"],
-            "Batches": epoch_info["batches"],
-            "Samples": epoch_info["samples"],
-            "Samples_per_sec": epoch_info["samples"] / epoch_info["elapsed"] if epoch_info["elapsed"] > 0 else 0,
-            "Peak_Memory_MB": epoch_info["peak_memory"],
-            "Average_Memory_MB": epoch_info["avg_memory"],
-            "Total_Time_s": epoch_info["iteration_time"],
-            "Setup_Time_s": 0,
-            "Warmup_Time_s": result.warmup_time_seconds if epoch_info["epoch"] == 1 else 0,
-            "Warmup_Samples": epoch_info["warmup_samples"],
-            "Warmup_Batches": epoch_info["warmup_batches"],
-            "Total_Speed_With_Warmup_Samples_per_sec": (
-                epoch_info["samples"] + epoch_info["warmup_samples"]
-            ) / epoch_info["iteration_time"] if epoch_info["iteration_time"] > 0 else 0,
-            "Dataset_Path": result.data_path,
-            "Madvise_Interval": result.madvise_interval,
-            "Max_Time_Seconds": result.max_time_seconds,
-            "Shuffle": getattr(result, "shuffle", None),
-            "Instantiation_Time_s": getattr(result, "instantiation_time_seconds", None),  # TOTAL
-            "Dataset_Instantiation_Time_s": getattr(result, "dataset_instantiation_time_seconds", None),
-            "Dataloader_Instantiation_Time_s": getattr(result, "dataloader_instantiation_time_seconds", None),
-            "Instantiation_Memory_MB": getattr(result, "peak_memory_during_instantiation_mb", None),
-            "Average_Batch_Size": avg_batch_size,
-            "Batches_per_sec": epoch_info["batches"] / epoch_info["elapsed"] if epoch_info["iteration_time"] > 0 else 0,
-        })
-    
-    # Write or append detailed CSV
+        detailed_rows.append(
+            {
+                "Configuration": config_name,
+                "Run_Number": run_number,
+                "Run_Name": result.name,
+                "Epoch": epoch_info["epoch"],
+                "Batches": epoch_info["batches"],
+                "Samples": epoch_info["samples"],
+                "Samples_per_sec": epoch_info["samples"] / epoch_info["elapsed"] if epoch_info["elapsed"] > 0 else 0,
+                "Peak_Memory_MB": epoch_info["peak_memory"],
+                "Average_Memory_MB": epoch_info["avg_memory"],
+                "Total_Time_s": epoch_info["iteration_time"],
+                "Setup_Time_s": 0,
+                "Warmup_Time_s": result.warmup_time_seconds if epoch_info["epoch"] == 1 else 0,
+                "Warmup_Samples": epoch_info["warmup_samples"],
+                "Warmup_Batches": epoch_info["warmup_batches"],
+                "Total_Speed_With_Warmup_Samples_per_sec": (epoch_info["samples"] + epoch_info["warmup_samples"])
+                / epoch_info["iteration_time"]
+                if epoch_info["iteration_time"] > 0
+                else 0,
+                "Dataset_Path": result.data_path,
+                "Madvise_Interval": result.madvise_interval,
+                "Max_Time_Seconds": result.max_time_seconds,
+                "Shuffle": getattr(result, "shuffle", None),
+                "Instantiation_Time_s": getattr(result, "instantiation_time_seconds", None),  # TOTAL
+                "Dataset_Instantiation_Time_s": getattr(result, "dataset_instantiation_time_seconds", None),  # 🆕 NEW
+                "Dataloader_Instantiation_Time_s": getattr(
+                    result, "dataloader_instantiation_time_seconds", None
+                ),  # 🆕 NEW
+                "Instantiation_Memory_MB": getattr(result, "peak_memory_during_instantiation_mb", None),
+                "Average_Batch_Size": avg_batch_size,
+                "Batches_per_sec": epoch_info["batches"] / epoch_info["elapsed"]
+                if epoch_info["iteration_time"] > 0
+                else 0,
+            }
+        )
+
+    # Write or append detailed CSV only
+    mode = "w" if should_create_headers else "a"
+    header = should_create_headers
+
     if detailed_rows:
         pd.DataFrame(detailed_rows).to_csv(detailed_csv, mode=mode, header=header, index=False)
-        if create_headers:
+        if should_create_headers:
             print(f"📄 Created Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
         else:
             print(f"📄 Appended to Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
@@ -494,90 +484,64 @@ def get_batch_size(batch: Any) -> int:
     return batch_size
 
 
-def _fast_tree_pss_sampler_process(
-    root_pid,
-    stop_evt,
-    result_queue,
-    sample_interval,
-    child_refresh_interval,
-):
+def _fast_pss_sampler(root_pid, stop_evt, result_queue, sample_interval):
+    """In a separate process: every sample_interval seconds, sum up PSS of the root pid + all its live children via psutil.
+
+    Args:
+        root_pid: Process ID to monitor
+        stop_evt: Event to signal when to stop monitoring
+        result_queue: Queue to send results back
+        sample_interval: How often to sample in seconds
     """
-    In a separate process: open smaps_rollup fds for root_pid + its children,
-    refresh the child list only every child_refresh_interval, sample total PSS
-    every sample_interval, and at the end send (peak, avg) via result_queue.
-    """
-    try:
-        parent = psutil.Process(root_pid)
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        result_queue.put((0, 0.0))
-        return
-
-    def get_current_pids():
-        try:
-            children = parent.children(recursive=True)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            children = []
-        return {p.pid for p in children if p.is_running()} | {root_pid}
-
-    # Open smaps_rollup fds initially
-    current_pids = get_current_pids()
-    fds = {}
-    for pid in current_pids:
-        path = f"/proc/{pid}/smaps_rollup"
-        try:
-            fds[pid] = os.open(path, os.O_RDONLY)
-        except FileNotFoundError:
-            pass
-
-    last_refresh = time.time()
+    parent = psutil.Process(root_pid)
     peak = 0
     total = 0
     count = 0
 
     while not stop_evt.is_set():
-        now = time.time()
-        # refresh child list/FDs?
-        if now - last_refresh >= child_refresh_interval:
-            new_pids = get_current_pids()
-            # close fds for gone pids
-            for pid in set(fds) - new_pids:
-                os.close(fds.pop(pid, None))
-            # open fds for new pids
-            for pid in new_pids - set(fds):
-                path = f"/proc/{pid}/smaps_rollup"
-                try:
-                    fds[pid] = os.open(path, os.O_RDONLY)
-                except FileNotFoundError:
-                    pass
-            last_refresh = now
+        # gather all alive children + parent
+        try:
+            procs = [parent] + parent.children(recursive=True)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            procs = [parent]
 
-        # sample all fds
+        # sum up PSS
         sample_pss = 0
-        for fd in list(fds.values()):
+        for p in procs:
             try:
-                os.lseek(fd, 0, os.SEEK_SET)
-                raw = os.read(fd, 256)
-                for line in raw.split(b"\n"):
-                    if line.startswith(b"Pss:"):
-                        sample_pss += int(line.split()[1]) * 1024
-                        break
-            except (OSError, ProcessLookupError):
-                # Process may have exited, skip this fd
+                sample_pss += p.memory_full_info().pss
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
-        # update stats
-        if sample_pss > peak:
-            peak = sample_pss
+        peak = max(peak, sample_pss)
         total += sample_pss
         count += 1
 
         time.sleep(sample_interval)
 
-    # cleanup
-    for fd in fds.values():
-        os.close(fd)
-
+    # return peak & avg
     avg = (total / count) if count else 0
+    result_queue.put((peak, avg))
+
+
+def _single_rss_sampler(root_pid, stop_evt, result_queue, sample_interval):
+    """Light-weight sampler for a single process: polls rss via psutil."""
+    proc = psutil.Process(root_pid)
+    peak = 0
+    total = 0
+    count = 0
+
+    while not stop_evt.is_set():
+        try:
+            rss = proc.memory_info().rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            rss = 0
+        peak = max(peak, rss)
+        total += rss
+        count += 1
+        time.sleep(sample_interval)
+
+    avg = total / count if count else 0
     result_queue.put((peak, avg))
 
 
@@ -586,56 +550,92 @@ def measure_peak_memory_full(
     *args,
     sample_interval: float = 0.2,
     child_refresh_interval: float = 5.0,
-    **kwargs
+    multi_worker: bool = False,
+    **kwargs,
 ):
-    """
-    Measure peak & average PSS of this process + its children while executing func.
-    Returns: (result, baseline_mib, peak_mib, avg_mib, delta_mib, final_mib, duration_s)
+    """Measure peak & average memory while running `func`.
+
+    If multi_worker=True, uses PSS across the process tree (slower but includes children).
+    Otherwise uses RSS of just the main process (lightweight).
+
+    Returns:
+      (result,
+       baseline_mib,
+       peak_mib,
+       avg_mib,
+       delta_mib,
+       final_mib,
+       duration_s)
     """
     parent_pid = os.getpid()
     stop_event = mp.Event()
     result_queue = mp.Queue()
 
-    # start monitor process
-    monitor = mp.Process(
-        target=_fast_tree_pss_sampler_process,
-        args=(
-            parent_pid,
-            stop_event,
-            result_queue,
-            sample_interval,
-            child_refresh_interval,
-        ),
-    )
+    # pick sampler
+    if multi_worker:
+        sampler_proc = mp.Process(
+            target=_fast_pss_sampler,
+            args=(
+                parent_pid,
+                stop_event,
+                result_queue,
+                sample_interval,
+                child_refresh_interval,
+            ),
+        )
+        # baseline via PSS
+        with open(f"/proc/{parent_pid}/smaps_rollup") as f:
+            for line in f:
+                if line.startswith("Pss:"):
+                    baseline_kb = int(line.split()[1])
+                    break
+        baseline = baseline_kb * 1024
+    else:
+        sampler_proc = mp.Process(
+            target=_single_rss_sampler,
+            args=(parent_pid, stop_event, result_queue, sample_interval),
+        )
+        # baseline via RSS
+        baseline = psutil.Process(parent_pid).memory_info().rss
 
-    # baseline
+    # start sampler
+    sampler_proc.start()
     gc.collect()
-    baseline = psutil.Process(parent_pid).memory_full_info().pss
-
-    monitor.start()
     start = time.perf_counter()
+
     try:
         result = func(*args, **kwargs)
     finally:
         stop_event.set()
-        monitor.join()
+        sampler_proc.join()
+
     duration = time.perf_counter() - start
 
-    # fetch peak & avg from monitor
+    # fetch stats
     try:
-        peak, avg = result_queue.get(timeout=2)
-    except Exception:
-        peak = psutil.Process(parent_pid).memory_full_info().pss
-        avg = peak
+        peak, avg = result_queue.get_nowait()
+    except mp.queues.Empty:
+        peak = avg = baseline
 
-    gc.collect()
-    final = psutil.Process(parent_pid).memory_full_info().pss
+    # final memory
+    if multi_worker:
+        with open(f"/proc/{parent_pid}/smaps_rollup") as f:
+            for line in f:
+                if line.startswith("Pss:"):
+                    final_kb = int(line.split()[1])
+                    break
+        final = final_kb * 1024
+    else:
+        final = psutil.Process(parent_pid).memory_info().rss
 
     # convert to MiB
-    baseline_mib = baseline / 1024**2
-    peak_mib     = peak     / 1024**2
-    avg_mib      = avg      / 1024**2
-    delta_mib    = peak_mib - baseline_mib
-    final_mib    = final    / 1024**2
+    def to_mib(x):
+        return x / 1024**2
 
-    return result, baseline_mib, peak_mib, avg_mib, delta_mib, final_mib, duration
+    baseline_mib = to_mib(baseline)
+    peak_mib = to_mib(peak)
+    avg_mib = to_mib(avg)
+    final_mib = to_mib(final)
+    delta_mib = peak_mib - baseline_mib
+
+    return (result, baseline_mib, peak_mib, avg_mib, delta_mib, final_mib, duration)

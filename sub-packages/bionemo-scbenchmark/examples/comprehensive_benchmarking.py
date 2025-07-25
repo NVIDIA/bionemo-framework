@@ -16,15 +16,32 @@
 
 #!/usr/bin/env python3
 
+"""Comprehensive Benchmarking Example: Dataset Reuse vs Traditional.
 
-# Import AnnData support
-# from arrayloaders.io.dask_loader import DaskDataset
+This example demonstrates BOTH approaches:
+1. Dataset Reuse (AnnData): Dataset loaded ONCE, multiple configs tested on SAME dataset
+2. Traditional (SCDL): Each config loads its own dataset independently
+
+This mixed approach shows:
+- When to use dataset reuse (expensive loading, config comparison)
+- When to use traditional (full isolation, different datasets)
+- Flexibility to choose per use case
+
+Key Benefits of Dataset Reuse:
+- ⚡ Faster benchmarking (dataset loaded once, not N times)
+- 💾 Memory efficient
+- 🔄 Fair comparison (all configs use identical data)
+- 📊 Separate tracking of dataset vs dataloader instantiation times
+
+Key Benefits of Traditional:
+- 🔒 Full isolation between configs
+- 🆕 Fresh dataset state per config
+- 📈 Individual dataset loading performance measurement
+"""
 
 import os
-from typing import Sequence, Union
 
 import anndata
-import numpy as np
 import torch
 from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
@@ -43,48 +60,86 @@ except ImportError:
     scDataset = None
 
 
-def create_annloader_factory(batch_size=64, backed="r", shuffle=True, data_path=None, num_workers=0):
-    """Create a factory function for AnnData dataloaders with different configurations.
+# =============================================================================
+# DATASET FACTORY FUNCTIONS (Load data once)
+# =============================================================================
+
+
+def create_anndata_dataset_factory(data_path, backed="r"):
+    """Create a dataset factory that loads AnnData once.
 
     Args:
-        batch_size: Number of samples per batch
-        backed: AnnData backed mode ('r' for read-only, 'r+' for read-write)
-        shuffle: Whether to shuffle the data
-        data_path: Path to a single h5ad file or multi h5ad files
-        num_workers: Number of worker processes for data loading
+        data_path: Path to h5ad file or directory containing h5ad files
+        backed: Backing mode for AnnData loading (default: "r" for read-only)
 
     Returns:
-        Factory function that creates an AnnData dataloader
+        Factory function that loads the dataset once
     """
 
     def factory():
+        print(f"📂 Loading AnnData dataset from: {data_path}")
         if data_path.endswith(".h5ad"):
-            dataset = anndata.read_h5ad(data_path, backed="r")
+            h5ad_files = [data_path]
         elif os.path.isdir(data_path) and any(f.endswith(".h5ad") for f in os.listdir(data_path)):
             h5ad_files = [os.path.join(data_path, f) for f in os.listdir(data_path) if f.endswith(".h5ad")]
-            dataset = AnnCollection([anndata.read_h5ad(f, backed="r") for f in h5ad_files])
         else:
-            raise ValueError("AnnData baseline requires a .h5ad input file or a directory containing .h5ad files")
-        return AnnLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+            raise ValueError("AnnData requires a .h5ad file or directory with .h5ad files")
+        dataset = AnnCollection([anndata.read_h5ad(f, backed=backed) for f in h5ad_files])
+        print(f"✅ Dataset loaded: {dataset.shape[0]:,} cells x {dataset.shape[1]:,} genes")
+        return dataset
+
     return factory
 
 
-def create_scdl_factory(batch_size=64, shuffle=True, adata_path=None, data_path=None, num_workers=0):
-    """Create a factory function for AnnData dataloaders with different configurations.
+# =============================================================================
+# DATALOADER FACTORY FUNCTIONS (Receive pre-loaded dataset)
+# =============================================================================
+
+
+def anndata_collate(batch):
+    """Custom collate function for AnnData objects."""
+    # Convert AnnCollectionView to tensors
+    return torch.stack([item.X for item in batch])
+
+
+def create_annloader_config(batch_size=64, shuffle=True, num_workers=0, collate_fn=anndata_collate):
+    """Create a dataloader factory that wraps a pre-loaded AnnData dataset.
 
     Args:
         batch_size: Number of samples per batch
         shuffle: Whether to shuffle the data
-        adata_path: Path to the AnnData file
-        data_path: Path to the data files (for disk size measurement)
-        num_workers: Number of worker processes for data loading
+        num_workers: Number of worker processes
+        collate_fn: Function to collate data samples into batches
 
     Returns:
-        Factory function that creates an SCDL dataloader
+        Factory function that creates AnnLoader from pre-loaded dataset
+    """
+
+    def factory(dataset):
+        return AnnLoader(
+            dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, collate_fn=collate_fn
+        )
+
+    return factory
+
+
+def create_scdl_traditional_factory(batch_size=64, shuffle=True, data_path=None, num_workers=0):
+    """Create a traditional SCDL dataloader factory that loads dataset each time.
+
+    Args:
+        batch_size: Number of samples per batch
+        shuffle: Whether to shuffle the data
+        data_path: Path to the memmap data files
+        num_workers: Number of worker processes
+
+    Returns:
+        Factory function that creates SCDL dataset and DataLoader (traditional approach)
     """
 
     def factory():
+        print(f"📂 Loading SCDL dataset from: {data_path}")
         dataset = SingleCellMemMapDataset(data_path)
+        print(f"✅ Dataset loaded: {len(dataset):,} samples")
         return DataLoader(
             dataset,
             batch_size=batch_size,
@@ -97,186 +152,193 @@ def create_scdl_factory(batch_size=64, shuffle=True, adata_path=None, data_path=
     return factory
 
 
-def fetch_callback_bionemo(self, idx: Union[int, slice, Sequence[int], np.ndarray, torch.Tensor]) -> torch.Tensor:
-    """Fetch callback for bionemo dataset when used with scDataset."""
-    if isinstance(idx, int):
-        # Single index
-        return collate_sparse_matrix_batch([self.__getitem__(idx)]).to_dense()
-    elif isinstance(idx, slice):
-        # Slice: convert to a list of indices
-        indices = list(range(*idx.indices(len(self))))
-        batch_tensors = [self.__getitem__(i) for i in indices]
-        return collate_sparse_matrix_batch(batch_tensors).to_dense()
-    elif isinstance(idx, (list, np.ndarray, torch.Tensor)):
-        # Batch indexing
-        if isinstance(idx, torch.Tensor):
-            idx = idx.tolist()
-        batch_tensors = [self.__getitem__(int(i)) for i in idx]
-        return collate_sparse_matrix_batch(batch_tensors).to_dense()
-    else:
-        raise TypeError(f"Unsupported index type: {type(idx)}")
+# =============================================================================
+# BENCHMARKING EXAMPLES
+# =============================================================================
 
 
-def create_scdl_scdataset_factory(
-    batch_size=64, block_size=1, shuffle=True, adata_path=None, data_path=None, num_workers=0, fetch_factor=1
-):
-    """Create a factory function for SCDL with scDataset wrapper.
+def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
+    """Demonstrate dataset reuse functionality.
+
+    This example shows how to:
+    1. Load a dataset ONCE
+    2. Test multiple dataloader configurations on the SAME dataset
+    3. Get separate instantiation times for dataset vs dataloader creation
 
     Args:
-        batch_size: Number of samples per batch
-        block_size: Block size for scDataset
-        shuffle: Whether to shuffle the data
-        adata_path: Path to the AnnData file (unused but kept for compatibility)
-        data_path: Path to the data files
-        num_workers: Number of worker processes for data loading
-        fetch_factor: Fetch factor for scDataset
-
-    Returns:
-        Factory function that creates an SCDL dataloader with scDataset wrapper
+        num_epochs: Number of epochs to run per configuration
+        num_runs: Number of runs per configuration for statistical analysis
     """
-
-    def factory():
-        if scDataset is None:
-            raise ImportError("scDataset is not available. Please install scdataset package.")
-
-        dataset = SingleCellMemMapDataset(data_path)
-
-        wrapped_dataset = scDataset(
-            data_collection=dataset,  # Use the created dataset as data_collection
-            batch_size=batch_size,
-            block_size=block_size,
-            fetch_factor=fetch_factor,
-            fetch_transform=None,
-            **{"fetch_callback": fetch_callback_bionemo},
-        )
-        prefetch_factor = fetch_factor + 1 if num_workers > 0 else None
-        return DataLoader(
-            wrapped_dataset,
-            batch_size=None,
-            num_workers=num_workers,
-            prefetch_factor=prefetch_factor,
-        )
-
-    return factory
-
-
-def comprehensive_benchmarking_example(num_epochs: int = 3, num_runs: int = 1):
-    """Run comprehensive benchmarking with all features.
-
-    This function demonstrates every capability of the benchmarking framework
-    using AnnData dataloaders with different configurations, including
-    multi-epoch benchmarking and multiple runs for statistical analysis.
-
-    Args:
-        num_epochs: Number of epochs to run for each benchmark (default: 3)
-        num_runs: Number of times to run each configuration for statistics (default: 1)
-    """
-    print("=" * 80)
-    print("COMPREHENSIVE BENCHMARKING EXAMPLE")
-    print("=" * 80)
-    print()
-
-    # Try to use real AnnData if available
-    #adata_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/sample_50000_19836_0.85.h5ad"
-    # memmap_path = "/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/small_samples/s_memmap_zmdy090y"
+    # Configure paths (adjust these for your environment)
     adata_path = (
         "/home/pbinder/bionemo-framework/tahoe_data/plate11_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad"
     )
+
     memmap_path = "/home/pbinder/bionemo-framework/tahoe_memmap/"
-    # Create different configurations of the same dataloader
 
-    # 7. MULTIPLE CONFIGURATIONS WITH STATISTICAL ANALYSIS
-    print(f"🚀 Benchmarking {num_runs} run(s) each")
+    print("🚀 Mixed Benchmarking Example: Dataset Reuse vs Traditional")
+    print("=" * 60)
+    print(f"📊 Testing {num_runs} run(s) each across different configs")
+    print("⚡ AnnData: Dataset loaded ONCE (reuse)")
+    print("🔄 SCDL: Dataset loaded PER CONFIG (traditional)")
     print()
-    configurations = [
-        # Example: Enable per-iteration time and memory (RSS) logging every 5 batches
+
+    # =============================================================================
+    # EXAMPLE 1: AnnData Dataset with Multiple DataLoader Configurations
+    # =============================================================================
+
+    print("🧬 EXAMPLE 1: AnnData with Multiple DataLoader Configs")
+    print("-" * 60)
+
+    anndata_configurations = [
         {
-            "name": "SCDL Regular",
-            "dataloader_factory": create_scdl_scdataset_factory(
-                batch_size=64,
-                shuffle=True,
-                adata_path=adata_path,
-                data_path=memmap_path,
-                num_workers=0,
-            ),
+            "name": "AnnLoader_Multi_Worker",
+            "dataloader_factory": create_annloader_config(batch_size=64, shuffle=True, num_workers=2),
             "num_epochs": num_epochs,
-            "max_time_seconds": 1.0,
+            "max_time_seconds": 5.0,
             "warmup_time_seconds": 1.0,
-            "data_path": memmap_path,
-            "madvise_interval": None,
+            "data_path": adata_path,
             "num_runs": num_runs,
         },
         {
-            "name": "AnnLoader Regular",
-            "dataloader_factory": create_annloader_factory(
-                batch_size=64,
-                shuffle=True,
-                data_path=adata_path,
-                num_workers=0,
-            ),
+            "name": "AnnLoader_Single_Worker",
+            "dataloader_factory": create_annloader_config(batch_size=64, shuffle=True, num_workers=0),
             "num_epochs": num_epochs,
-            "max_time_seconds": 10.0,
-            "warmup_time_seconds": 2.0,
+            "max_time_seconds": 5.0,
+            "warmup_time_seconds": 1.0,
             "data_path": adata_path,
-            "madvise_interval": None,
             "num_runs": num_runs,
         },
-
+        {
+            "name": "AnnLoader_Small_Batch",
+            "dataloader_factory": create_annloader_config(batch_size=32, shuffle=True, num_workers=0),
+            "num_epochs": num_epochs,
+            "max_time_seconds": 5.0,
+            "warmup_time_seconds": 1.0,
+            "data_path": adata_path,
+            "num_runs": num_runs,
+        },
+        {
+            "name": "AnnLoader_Large_Batch",
+            "dataloader_factory": create_annloader_config(batch_size=128, shuffle=True, num_workers=0),
+            "num_epochs": num_epochs,
+            "max_time_seconds": 5.0,
+            "warmup_time_seconds": 1.0,
+            "data_path": adata_path,
+            "num_runs": num_runs,
+        },
+        {
+            "name": "AnnLoader_No_Shuffle",
+            "dataloader_factory": create_annloader_config(batch_size=64, shuffle=False, num_workers=0),
+            "num_epochs": num_epochs,
+            "max_time_seconds": 5.0,
+            "warmup_time_seconds": 1.0,
+            "data_path": adata_path,
+            "num_runs": num_runs,
+        },
     ]
-    """
 
-            {
-            "name": "SCDL Regular",
-            "dataloader_factory": create_scdl_factory(
-                batch_size=64,
-                shuffle=True,
-                adata_path=adata_path,
-                data_path=memmap_path,
-                num_workers=0,
+    anndata_results = benchmark_dataloader(
+        dataset_factory=create_anndata_dataset_factory(adata_path),  # 🆕 Load once!
+        dataloaders=anndata_configurations,  # All configs use same dataset
+        output_dir="dataset_reuse_anndata_results",
+    )
+
+    print()
+    print("=" * 60)
+
+    # =============================================================================
+    # EXAMPLE 2: SCDL Dataset with Multiple DataLoader Configurations
+    # =============================================================================
+
+    print("🔬 EXAMPLE 2: SCDL with Multiple DataLoader Configs (Traditional - Reload Each Time)")
+    print("-" * 60)
+
+    scdl_configurations = [
+        {
+            "name": "SCDL_Batch32_Shuffle",
+            "dataloader_factory": create_scdl_traditional_factory(
+                batch_size=32, shuffle=True, data_path=memmap_path, num_workers=0
             ),
             "num_epochs": num_epochs,
-            "max_time_seconds": 120.0,
-            "warmup_time_seconds": 10.0,
+            "max_time_seconds": 3.0,
+            "warmup_time_seconds": 0.5,
             "data_path": memmap_path,
-            "madvise_interval": None,
             "num_runs": num_runs,
-        }
-    """
+        },
+        {
+            "name": "SCDL_Batch128_Shuffle",
+            "dataloader_factory": create_scdl_traditional_factory(
+                batch_size=128, shuffle=True, data_path=memmap_path, num_workers=0
+            ),
+            "num_epochs": num_epochs,
+            "max_time_seconds": 3.0,
+            "warmup_time_seconds": 0.5,
+            "data_path": memmap_path,
+            "num_runs": num_runs,
+        },
+        {
+            "name": "SCDL_Batch64_NoShuffle",
+            "dataloader_factory": create_scdl_traditional_factory(
+                batch_size=64, shuffle=False, data_path=memmap_path, num_workers=0
+            ),
+            "num_epochs": num_epochs,
+            "max_time_seconds": 3.0,
+            "warmup_time_seconds": 0.5,
+            "data_path": memmap_path,
+            "num_runs": num_runs,
+        },
+    ]
 
+    # Each config loads its own dataset
+    scdl_results = benchmark_dataloader(
+        dataloaders=scdl_configurations,  # 🔄 Each config loads dataset separately!
+        output_dir="dataset_reuse_scdl_results",
+    )
 
-    results = benchmark_dataloader(dataloaders=configurations, output_dir="comprehensive_anndata_results")
-
-    print("✅ Benchmarking completed!")
     print()
+    print("=" * 60)
 
-    # 9. SUMMARY AND ANALYSIS
-    if results:
-        # Find best performers
-        best_samples_per_sec = max(results, key=lambda r: r.samples_per_second)
-        lowest_memory = min(results, key=lambda r: r.peak_memory_mb)
+    # =============================================================================
+    # ANALYSIS AND SUMMARY
+    # =============================================================================
 
-        print("🏆 BEST PERFORMERS:")
+    print("📊 ANALYSIS & COMPARISON")
+    print("-" * 60)
+
+    all_results = []
+    if anndata_results:
+        all_results.extend(anndata_results)
+    if scdl_results:
+        all_results.extend(scdl_results)
+
+    if all_results:
+        # Find best performers across all configurations
+        best_samples_per_sec = max(all_results, key=lambda r: r.samples_per_second)
+        lowest_memory = min(all_results, key=lambda r: r.peak_memory_mb)
+        fastest_instantiation = min(all_results, key=lambda r: r.instantiation_time_seconds or float("inf"))
+
+        print("🏆 OVERALL BEST PERFORMERS:")
         print(
-            f"   Best speed: {best_samples_per_sec.name} ({best_samples_per_sec.samples_per_second:.2f} samples/sec)"
+            f"   🚀 Best speed: {best_samples_per_sec.name} ({best_samples_per_sec.samples_per_second:.2f} samples/sec)"
         )
-        print(f"   Lowest memory: {lowest_memory.name} ({lowest_memory.peak_memory_mb:.2f} MB)")
+        print(f"   💾 Lowest memory: {lowest_memory.name} ({lowest_memory.peak_memory_mb:.2f} MB)")
+        if fastest_instantiation.instantiation_time_seconds:
+            print(
+                f"   ⚡ Fastest setup: {fastest_instantiation.name} ({fastest_instantiation.instantiation_time_seconds:.3f}s)"
+            )
         print()
 
-        # Use shared utility for comprehensive export
-        export_benchmark_results(results=results, output_prefix="comprehensive_benchmark_data")
+        # Export comprehensive results
+        export_benchmark_results(results=all_results, output_prefix="dataset_comprehensive")
 
-    print("🎉 COMPREHENSIVE BENCHMARKING COMPLETED!")
+    print()
+    print("🎉 DATASET REUSE BENCHMARKING COMPLETED!")
 
 
 if __name__ == "__main__":
-    print("BioNeMo Benchmarking Framework - Comprehensive Example")
+    print("BioNeMo Benchmarking Framework - Dataset Reuse Example")
     print("=" * 80)
 
-    # Run with default settings (3 epochs, 1 run each)
-    # comprehensive_benchmarking_example()
-
-    # Example: Run with statistical analysis (3 runs each for better confidence)
-    print("\n" + "=" * 80)
-    print("📊 MULTIPLE RUNS EXAMPLE")
-    print("=" * 80)
-    comprehensive_benchmarking_example(num_epochs=2, num_runs=2)
+    # Run the actual dataset reuse benchmarking
+    dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1)

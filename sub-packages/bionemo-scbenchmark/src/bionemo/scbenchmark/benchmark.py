@@ -22,13 +22,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
-import psutil
 from tqdm import tqdm
 
 from bionemo.scbenchmark.common import (
-    BenchmarkConfig,
     BenchmarkResult,
-    export_benchmark_results,
     append_benchmark_result,
     get_batch_size,
     get_disk_size,
@@ -119,7 +116,6 @@ def run_benchmark(
         warmup_samples = 0
         warmup_batches = 0
         warmup_time = 0.0
-        print("Starting benchmark for ", config.name, config.print_progress)
         pbar = tqdm(
             desc=f"{config.name} - Epoch {epoch_num + 1}/{config.num_epochs}", disable=not config.print_progress
         )
@@ -187,7 +183,6 @@ def run_benchmark(
                 break
 
         pbar.close()
-        print(epoch_samples, elapsed, warmup_samples, warmup_batches, warmup_time)
 
         return epoch_samples, epoch_batches, elapsed, warmup_samples, warmup_batches, warmup_time
 
@@ -201,7 +196,7 @@ def run_benchmark(
         def epoch_benchmark_iteration():
             return benchmark_iteration_single_epoch(epoch, epoch == 0)  # Only warmup on first epoch
 
-        result_tuple = measure_peak_memory_full(epoch_benchmark_iteration)
+        result_tuple = measure_peak_memory_full(epoch_benchmark_iteration, multi_worker=dataloader.num_workers > 0)
         (
             (epoch_samples, epoch_batches, elapsed, warmup_samples, warmup_batches, warmup_time),
             _,
@@ -260,8 +255,6 @@ def run_benchmark(
 
     # Add epoch results to the result object for further analysis
     result.epoch_results = epoch_results
-
-
 
     return result
 
@@ -356,7 +349,6 @@ def benchmark_dataloader(
         - When dataset_factory is provided, dataset is loaded once and reused across configs
         - Dataset vs dataloader instantiation times are tracked separately for dataset reuse
     """
-    
     # Multiple dataloaders mode
     if dataloaders is not None:
         # 🆕 NEW: Dataset reuse mode
@@ -380,8 +372,7 @@ def benchmark_dataloader(
         else:
             # Traditional mode: each config loads its own dataset
             results = []
-            is_first_result = True  # Track if this is first result for CSV headers
-            
+
             for dl_config in dataloaders:
                 _drop_caches()
 
@@ -451,7 +442,7 @@ def benchmark_dataloader(
         raise ValueError(
             "Must provide either:\n"
             "  1. (name + dataloader_factory) for single dataloader mode\n"
-            "  2. (dataloaders) for multiple dataloaders mode\n" 
+            "  2. (dataloaders) for multiple dataloaders mode\n"
             "  3. (dataset_factory + dataloaders) for dataset reuse mode"
         )
 
@@ -561,10 +552,16 @@ def _benchmark_single_dataloader(
 
         # Print results
         _print_results(result)
-        
+
         # 🆕 Export CSV after single run
-        append_benchmark_result(result, output_prefix="benchmark_data", create_headers=True)
-        
+        if output_dir:
+            # Use output directory name as part of CSV prefix for consolidated results
+            dir_name = os.path.basename(output_dir.rstrip("/"))
+            csv_prefix = f"{dir_name}_consolidated_results"
+        else:
+            csv_prefix = "consolidated_benchmark_results"
+        append_benchmark_result(result, output_prefix=csv_prefix, create_headers=True, output_dir=output_dir)
+
         return result
     else:
         # Multiple runs
@@ -600,8 +597,16 @@ def _benchmark_single_dataloader(
             log(f"Run {run_idx + 1}: {run_result.samples_per_second:.2f} samples/sec")
 
             # 🆕 Append to CSV after each run
-            create_headers = (run_idx == 0)  # Create headers only for first run
-            append_benchmark_result(run_result, output_prefix="benchmark_data", create_headers=create_headers)
+            create_headers = run_idx == 0  # Create headers only for first run
+            if output_dir:
+                # Use output directory name as part of CSV prefix for consolidated results
+                dir_name = os.path.basename(output_dir.rstrip("/"))
+                csv_prefix = f"{dir_name}_consolidated_results"
+            else:
+                csv_prefix = "consolidated_benchmark_results"
+            append_benchmark_result(
+                run_result, output_prefix=csv_prefix, create_headers=create_headers, output_dir=output_dir
+            )
 
             del dataloader
 
@@ -627,87 +632,107 @@ def _benchmark_with_dataset_reuse(
     num_workers: Optional[int] = None,
 ) -> List[BenchmarkResult]:
     """Benchmark multiple dataloader configs using a shared dataset (dataset reuse mode).
-    
+
     This function loads a dataset ONCE using dataset_factory, then tests multiple
     dataloader configurations on the same dataset. This is much more efficient
     for large datasets and provides fair comparisons.
-    
+
     Args:
         dataset_factory: Function that creates the dataset (called once)
         dataloaders: List of dataloader configurations to test
-        ... (other args same as benchmark_dataloader)
-        
+        data_path: Path to data files for disk usage measurement
+        num_epochs: Number of epochs to run for each configuration
+        max_batches: Maximum number of batches per epoch
+        max_time_seconds: Maximum time in seconds per epoch
+        warmup_batches: Number of warmup batches
+        warmup_time_seconds: Warmup time in seconds
+        print_progress: Whether to show progress bars
+        madvise_interval: Memory advice interval
+        shuffle: Whether to shuffle data
+        num_runs: Number of runs per configuration
+        output_dir: Directory to save result files
+        num_workers: Number of worker processes
+
     Returns:
         List[BenchmarkResult] with separate dataset vs dataloader instantiation times
     """
-    
+
     def log(message):
         if print_progress:
             print(message)
-    
+
     log("🚀 Dataset Reuse Mode: Loading dataset once, testing multiple configs")
-    
+
     # 🆕 Step 1: Load dataset ONCE and measure separate instantiation metrics
     _drop_caches()
-    dataset, dataset_baseline, dataset_peak, _, _, dataset_final, dataset_time = measure_peak_memory_full(dataset_factory)
-    
+    dataset, dataset_baseline, dataset_peak, _, _, dataset_final, dataset_time = measure_peak_memory_full(
+        dataset_factory
+    )
+
     log(f"✅ Dataset loaded in {dataset_time:.3f}s (peak memory: {dataset_peak:.1f} MB)")
-    
-    # 🆕 Step 2: Calculate shared dataset instantiation metrics 
-    dataset_instantiation_metrics = {
-        "dataset_instantiation_time_seconds": dataset_time,
-        "dataset_peak_memory_mb": dataset_peak,
-        "dataset_baseline_memory_mb": dataset_baseline,
-        "dataset_final_memory_mb": dataset_final,
-    }
-    
+
+    # 🆕 Step 2: Dataset instantiation metrics tracked separately in each run
+
     # Measure disk size once
     disk_size_mb = 0.0
     if data_path:
         disk_size_mb = get_disk_size(data_path)
-    
+
     # 🆕 Step 3: Test each dataloader configuration
     all_results = []
     total_configs = len(dataloaders)
-    
+
+    # Set up CSV prefix once for all runs
+    if output_dir:
+        # Use output directory name as part of CSV prefix for consolidated results
+        dir_name = os.path.basename(output_dir.rstrip("/"))
+        csv_prefix = f"{dir_name}_consolidated_results"
+    else:
+        csv_prefix = "consolidated_benchmark_results"
+
+    is_first_run = True  # Track first run for CSV headers
+
     for config_idx, dl_config in enumerate(dataloaders, 1):
         log(f"📊 Testing config {config_idx}/{total_configs}: {dl_config['name']}")
-        
+
         config_name = dl_config["name"]
         config_dataloader_factory = dl_config["dataloader_factory"]
+
+        # 🚨 Check for None dataloader_factory
+        if config_dataloader_factory is None:
+            raise ValueError(
+                f"Configuration '{config_name}' has None dataloader_factory. "
+                f"Check that the factory function returned a valid callable."
+            )
+
         config_num_runs = dl_config.get("num_runs", num_runs)
-        
+
         # 🆕 Step 4: For each run of this config
         config_results = []
-        
+
         for run_idx in range(config_num_runs):
             run_name = f"{config_name}_run_{run_idx + 1}" if config_num_runs > 1 else config_name
-            
+
             # 🆕 Step 5: Measure dataloader instantiation time (separate from dataset)
             def create_dataloader_from_dataset():
                 return config_dataloader_factory(dataset)  # Pass pre-loaded dataset
-            
-            dataloader, dl_baseline, dl_peak, _, _, dl_final, dl_time = measure_peak_memory_full(create_dataloader_from_dataset)
-            
+
+            dataloader, dl_baseline, dl_peak, _, _, dl_final, dl_time = measure_peak_memory_full(
+                create_dataloader_from_dataset
+            )
+
             # 🆕 Step 6: Calculate SEPARATE instantiation metrics
-            # Dataset instantiation: shared cost (divide by total runs across all configs)
-            total_runs_all_configs = sum(dl_cfg.get("num_runs", num_runs) for dl_cfg in dataloaders)
-            dataset_time_per_run = dataset_time / total_runs_all_configs  # Amortized cost
-            
+            dataset_time_per_run = dataset_time / len(dataloaders) / config_num_runs  # Amortize dataset cost
             instantiation_metrics = {
-                # Traditional combined metrics (for backward compatibility)
-                "instantiation_time_seconds": dataset_time_per_run + dl_time,  # Combined
-                "peak_memory_during_instantiation_mb": max(dataset_peak, dl_peak),
+                "instantiation_time_seconds": dataset_time_per_run + dl_time,
+                "peak_memory_during_instantiation_mb": dl_peak,
                 "memory_after_instantiation_mb": dl_final,
-                # 🛠️ FIXED: Use memory before benchmarking starts (after dataset loaded)
-                "memory_before_instantiation_mb": dl_baseline,  # Memory before dataloader creation (after dataset loaded)
-                
-                # 🆕 NEW: Separate tracking
-                "dataset_instantiation_time_seconds": dataset_time_per_run,  # Amortized
-                "dataloader_instantiation_time_seconds": dl_time,  # Per run
+                "memory_before_instantiation_mb": dl_baseline,  # Memory BEFORE dataloader (after dataset loaded)
+                "dataset_instantiation_time_seconds": dataset_time_per_run,  # Amortized dataset time
+                "dataloader_instantiation_time_seconds": dl_time,  # Pure dataloader time
             }
-            
-            # 🆕 Step 7: Create benchmark config
+
+            # 🆕 Step 7: Create benchmark config for this specific run
             config_params = BenchmarkConfig(
                 name=run_name,
                 num_epochs=dl_config.get("num_epochs", num_epochs),
@@ -721,36 +746,40 @@ def _benchmark_with_dataset_reuse(
                 shuffle=dl_config.get("shuffle", shuffle),
                 num_workers=dl_config.get("num_workers", num_workers),
             )
-            
+
             # 🆕 Step 8: Run the actual benchmark
             result = run_benchmark(dataloader, config_params, run_name, output_dir, instantiation_metrics)
             result.disk_size_mb = disk_size_mb
-            
+
             config_results.append(result)
             all_results.append(result)
-            
-            log(f"   Run {run_idx + 1}: {result.samples_per_second:.2f} samples/sec "
-                f"(dataset: {dataset_time_per_run:.3f}s, dataloader: {dl_time:.3f}s)")
-            
+
+            log(
+                f"   Run {run_idx + 1}: {result.samples_per_second:.2f} samples/sec "
+                f"(dataset: {dataset_time_per_run:.3f}s, dataloader: {dl_time:.3f}s)"
+            )
+
+            # 🆕 Append to CSV after EVERY individual run
+            create_headers = is_first_run  # Create headers only for very first run
+            append_benchmark_result(
+                result, output_prefix=csv_prefix, create_headers=create_headers, output_dir=output_dir
+            )
+            is_first_run = False  # After first run, always append
+
             # Clean up dataloader for next run
             del dataloader
-    
+
     # 🆕 Step 9: Save results and print comparison
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         for result in all_results:
             result.save_to_file(os.path.join(output_dir, f"{result.name}_results.json"))
-    
-    # 🆕 Append CSV results for all runs in dataset reuse mode
-    for idx, result in enumerate(all_results):
-        create_headers = (idx == 0)  # Create headers only for first result
-        append_benchmark_result(result, output_prefix="benchmark_data", create_headers=create_headers)
-    
+
     if len(all_results) > 1:
         _print_comparison(all_results)
-    
+
     log(f"✅ Dataset reuse completed! Dataset loaded once, tested {len(dataloaders)} configs")
-    
+
     return all_results
 
 
@@ -759,18 +788,18 @@ def _print_results(result: BenchmarkResult) -> None:
     print(f"\n📊 {result.name}")
     print(f"   Samples/sec: {result.samples_per_second:.2f}")
     print(f"   Memory: {result.peak_memory_mb:.1f} MB")
-    
+
     # 🆕 NEW: Show separate instantiation times if available
-    if hasattr(result, 'dataset_instantiation_time_seconds') and result.dataset_instantiation_time_seconds is not None:
+    if hasattr(result, "dataset_instantiation_time_seconds") and result.dataset_instantiation_time_seconds is not None:
         dataset_time = result.dataset_instantiation_time_seconds
-        dataloader_time = getattr(result, 'dataloader_instantiation_time_seconds', 0.0) or 0.0
+        dataloader_time = getattr(result, "dataloader_instantiation_time_seconds", 0.0) or 0.0
         total_time = result.instantiation_time_seconds or (dataset_time + dataloader_time)
-        
+
         print(f"   Setup: {total_time:.3f}s (dataset: {dataset_time:.3f}s + dataloader: {dataloader_time:.3f}s)")
     elif result.instantiation_time_seconds:
         print(f"   Setup: {result.instantiation_time_seconds:.3f}s")
-    
-    if hasattr(result, 'disk_size_mb') and result.disk_size_mb:
+
+    if hasattr(result, "disk_size_mb") and result.disk_size_mb:
         print(f"   Disk: {result.disk_size_mb:.1f} MB")
 
 
