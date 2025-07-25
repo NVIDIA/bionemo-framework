@@ -134,41 +134,43 @@ def test_esm2_finetune_token_classifier(
                 f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
             )
 
-    with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        if not with_peft:
-            infer_model(
-                data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
-                checkpoint_path=simple_ft_checkpoint,
-                results_path=tmp_path / "infer",
-                include_hiddens=False,
-                include_embeddings=False,
-                include_logits=False,
-                include_input_ids=False,
-                micro_batch_size=1,
-                devices=1,
-                num_nodes=1,
-                config_class=ESM2FineTuneTokenConfig,
-            )
-        else:
-            infer_model(
-                data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
-                checkpoint_path=checkpoint_path,
-                results_path=tmp_path / "infer",
-                include_hiddens=False,
-                include_embeddings=False,
-                include_logits=False,
-                include_input_ids=False,
-                micro_batch_size=1,
-                devices=1,
-                num_nodes=1,
-                config_class=ESM2FineTuneTokenConfig,
-                lora_checkpoint_path=simple_ft_checkpoint,
-            )
-        prediction_path = tmp_path / "infer" / "predictions__rank_0.pt"
-        # check that prediction_path loaded has classification_output key
-        assert prediction_path.exists()
-        predictions = torch.load(prediction_path)
-        assert "classification_output" in predictions
+    # Only run inference if we have a checkpoint
+    if create_checkpoint_callback:
+        with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
+            if not with_peft:
+                infer_model(
+                    data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
+                    checkpoint_path=simple_ft_checkpoint,
+                    results_path=tmp_path / "infer",
+                    include_hiddens=False,
+                    include_embeddings=False,
+                    include_logits=False,
+                    include_input_ids=False,
+                    micro_batch_size=1,
+                    devices=1,
+                    num_nodes=1,
+                    config_class=ESM2FineTuneTokenConfig,
+                )
+            else:
+                infer_model(
+                    data_path=data_to_csv(dummy_data_per_token_classification_ft, tmp_path),
+                    checkpoint_path=checkpoint_path,
+                    results_path=tmp_path / "infer",
+                    include_hiddens=False,
+                    include_embeddings=False,
+                    include_logits=False,
+                    include_input_ids=False,
+                    micro_batch_size=1,
+                    devices=1,
+                    num_nodes=1,
+                    config_class=ESM2FineTuneTokenConfig,
+                    lora_checkpoint_path=simple_ft_checkpoint,
+                )
+            prediction_path = tmp_path / "infer" / "predictions__rank_0.pt"
+            # check that prediction_path loaded has classification_output key
+            assert prediction_path.exists()
+            predictions = torch.load(prediction_path)
+            assert "classification_output" in predictions
 
 
 @pytest.mark.needs_gpu
@@ -276,41 +278,43 @@ def test_esm2_finetune_regressor(
                 f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
             )
 
-    with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        if not with_peft:
-            infer_model(
-                data_path=data_to_csv(dummy_data_single_value_regression_ft, tmp_path),
-                checkpoint_path=simple_ft_checkpoint,
-                results_path=tmp_path / "infer",
-                include_hiddens=False,
-                include_embeddings=False,
-                include_logits=False,
-                include_input_ids=False,
-                micro_batch_size=1,
-                devices=1,
-                num_nodes=1,
-                config_class=ESM2FineTuneSeqConfig,
-            )
-        else:
-            infer_model(
-                data_path=data_to_csv(dummy_data_single_value_regression_ft, tmp_path),
-                checkpoint_path=checkpoint_path,
-                results_path=tmp_path / "infer",
-                include_hiddens=False,
-                include_embeddings=False,
-                include_logits=False,
-                include_input_ids=False,
-                micro_batch_size=1,
-                devices=1,
-                num_nodes=1,
-                config_class=ESM2FineTuneSeqConfig,
-                lora_checkpoint_path=simple_ft_checkpoint,
-            )
-        prediction_path = tmp_path / "infer" / "predictions__rank_0.pt"
-        # check that prediction_path loaded has classification_output key
-        assert prediction_path.exists()
-        predictions = torch.load(prediction_path)
-        assert "regression_output" in predictions
+    # Only run inference if we have a checkpoint
+    if create_checkpoint_callback:
+        with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
+            if not with_peft:
+                infer_model(
+                    data_path=data_to_csv(dummy_data_single_value_regression_ft, tmp_path),
+                    checkpoint_path=simple_ft_checkpoint,
+                    results_path=tmp_path / "infer",
+                    include_hiddens=False,
+                    include_embeddings=False,
+                    include_logits=False,
+                    include_input_ids=False,
+                    micro_batch_size=1,
+                    devices=1,
+                    num_nodes=1,
+                    config_class=ESM2FineTuneSeqConfig,
+                )
+            else:
+                infer_model(
+                    data_path=data_to_csv(dummy_data_single_value_regression_ft, tmp_path),
+                    checkpoint_path=checkpoint_path,
+                    results_path=tmp_path / "infer",
+                    include_hiddens=False,
+                    include_embeddings=False,
+                    include_logits=False,
+                    include_input_ids=False,
+                    micro_batch_size=1,
+                    devices=1,
+                    num_nodes=1,
+                    config_class=ESM2FineTuneSeqConfig,
+                    lora_checkpoint_path=simple_ft_checkpoint,
+                )
+            prediction_path = tmp_path / "infer" / "predictions__rank_0.pt"
+            # check that prediction_path loaded has classification_output key
+            assert prediction_path.exists()
+            predictions = torch.load(prediction_path)
+            assert "regression_output" in predictions
 
 
 @pytest.mark.needs_gpu
@@ -420,41 +424,43 @@ def test_esm2_finetune_classifier(
                 f"Conflict in param requires_grad when encoder_frozen={encoder_frozen}"
             )
 
-    with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
-        if not with_peft:
-            infer_model(
-                data_path=data_to_csv(dummy_data_single_value_classification_ft, tmp_path),
-                checkpoint_path=simple_ft_checkpoint,
-                results_path=tmp_path / "infer",
-                include_hiddens=False,
-                include_embeddings=False,
-                include_logits=False,
-                include_input_ids=False,
-                micro_batch_size=1,
-                devices=1,
-                num_nodes=1,
-                config_class=ESM2FineTuneSeqConfig,
-            )
-        else:
-            infer_model(
-                data_path=data_to_csv(dummy_data_single_value_classification_ft, tmp_path),
-                checkpoint_path=checkpoint_path,
-                results_path=tmp_path / "infer",
-                include_hiddens=False,
-                include_embeddings=False,
-                include_logits=False,
-                include_input_ids=False,
-                micro_batch_size=1,
-                devices=1,
-                num_nodes=1,
-                config_class=ESM2FineTuneSeqConfig,
-                lora_checkpoint_path=simple_ft_checkpoint,
-            )
-        prediction_path = tmp_path / "infer" / "predictions__rank_0.pt"
-        # check that prediction_path loaded has classification_output key
-        assert prediction_path.exists()
-        predictions = torch.load(prediction_path)
-        assert "classification_output" in predictions
+    # Only run inference if we have a checkpoint
+    if create_checkpoint_callback:
+        with megatron_parallel_state_utils.distributed_model_parallel_state(seed):
+            if not with_peft:
+                infer_model(
+                    data_path=data_to_csv(dummy_data_single_value_classification_ft, tmp_path),
+                    checkpoint_path=simple_ft_checkpoint,
+                    results_path=tmp_path / "infer",
+                    include_hiddens=False,
+                    include_embeddings=False,
+                    include_logits=False,
+                    include_input_ids=False,
+                    micro_batch_size=1,
+                    devices=1,
+                    num_nodes=1,
+                    config_class=ESM2FineTuneSeqConfig,
+                )
+            else:
+                infer_model(
+                    data_path=data_to_csv(dummy_data_single_value_classification_ft, tmp_path),
+                    checkpoint_path=checkpoint_path,
+                    results_path=tmp_path / "infer",
+                    include_hiddens=False,
+                    include_embeddings=False,
+                    include_logits=False,
+                    include_input_ids=False,
+                    micro_batch_size=1,
+                    devices=1,
+                    num_nodes=1,
+                    config_class=ESM2FineTuneSeqConfig,
+                    lora_checkpoint_path=simple_ft_checkpoint,
+                )
+            prediction_path = tmp_path / "infer" / "predictions__rank_0.pt"
+            # check that prediction_path loaded has classification_output key
+            assert prediction_path.exists()
+            predictions = torch.load(prediction_path)
+            assert "classification_output" in predictions
 
 
 @pytest.fixture
@@ -787,7 +793,7 @@ def test_esm2_finetune_with_early_stop(
             train_data_path=data_to_csv(dummy_data_single_value_regression_ft, tmp_path),
             valid_data_path=data_to_csv(dummy_data_single_value_regression_ft, tmp_path),
             experiment_name="finetune_early_stop_test",
-            restore_from_checkpoint_path=str(load("esm2/8m:2.0")),
+            restore_from_checkpoint_path=Path(load("esm2/8m:2.0")),
             num_steps=num_steps,
             early_stop_on_step=early_stop_step,  # Should stop at step 10
             num_nodes=1,
