@@ -76,7 +76,7 @@ script: |-
     --label-column=scl_label \
     --num-gpus=${gpus} \
     --num-nodes=${nodes} \
-    --accumulate-grad-batches=2 \
+    --accumulate-grad-batches=1 \
     --val-check-interval=${val_check_interval} \
     --num-dataset-workers=${num_workers} \
     --wandb-project=${wandb_project_name} \
