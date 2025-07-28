@@ -22,7 +22,7 @@ script_args:
   workspace: /workspace/bionemo2
   data_base_path: /data/FLIP
   restore_from_checkpoint_path: /data/esm2_650M_nemo2
-  nodes: [4]
+  nodes: [1]
   gpus: 8
   model: esm2
   variant: finetune
