@@ -7,6 +7,35 @@
     These are initiated by the member commenting `/build-ci` directly on the PR. All PRs must have successful CI runs and
     sufficient code review before being merged.
 
+## Quick Start for Contributors
+
+To make sure you have a delightful and successful contribution experience, please adhere to the following:
+
+### **Steps to contribute to the BioNeMo Framework:**
+1. **Sign your commits** - Add `-s` flag to all commits (required for DCO compliance). For example `git commit -s -m "<commit message>"`
+2. **Fork & branch** - External Contributors: create any Pull Requests from your private fork, Internal: create any Pull Requests from a branch labeled `username/feature_name` .
+3. **Code to standards** - Follow Google Python style guide (see below), add type hints, and write docstrings.
+4. **Test your changes** - Make sure to add unit tests if appropriate (which will be true for most contributions), then run `pytest` locally
+5. **Submit PR** - Use proper labels (`contribution` for external contributors).
+6. **Wait for review** - **All** external Pull Requests **must** be approved by an NVIDIA staff contributor. NVIDIA staff will comment `/build-ci` to run tests; continuous integration can be skipped only in rare circumstances.
+7. **Address feedback** - Once reviewed, make or address any requested changes, then ensure the continuous integration stages all pass.
+8. **Merge** - Once approved and CI has fully passed, you may merge your Pull Request.
+
+### **Key Requirements:**
+- ✅ All commits must be signed-off (`git commit -s`)
+- ✅ All code follows Python standards (ruff formatting, type hints, docstrings)
+- ✅ Unit tests should be added for any new functionality  
+- ✅ Documentation updated (docstrings, README changes)
+- ✅ Pre-commit hooks installed and passing
+- ✅ CI pipeline successful
+
+### **Common Gotchas:**
+- Don't forget the `-s` flag on commits (DCO requirement)
+- External contributors must add `contribution` label to PRs
+- Use checkbox controls and labels in PR description to configure CI behavior; CI failures can lead to stalled review and greatly increase how long it takes to integrate your contribution.
+
+---
+
 ## Developer Certificate of Origin (DCO)
 
 We require that all contributors "sign-off" on their commits (not GPG signing, just adding the `-s | --signoff`
