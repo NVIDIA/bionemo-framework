@@ -202,7 +202,13 @@ This dataset is 314 GB. The corresponding SCDL dataset after conversion is 1.1 T
 
 To process this data, an option is to run ```python scdl_speedtest.py --generate-baseline -i <path to h5ad>.```.
 This will automatically convert the files to the SCDL format. Alternatively, with bionemo-scdl installed,
-```convert_h5ad_to_scdl --data-path <path to h5ad> --save-path <SCDL path>```. This is a multi-hour process.
+```convert_h5ad_to_scdl --data-path <path to h5ad> --save-path <SCDL path>```. This is a multi-hour process to run the
+full conversion; however, running a single plate of the data should give you a good idea of expected SCDL performance
+on your system. The following command will run the speedtest on the first plate, as downloaded above:
+
+```bash
+python scdl_speedtest.py --generate-baseline -i tahoe-100m/h5ad/plate1_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad
+```
 
 ## Support
 
