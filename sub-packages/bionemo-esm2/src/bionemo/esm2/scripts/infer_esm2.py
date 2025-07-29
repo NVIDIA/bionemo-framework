@@ -17,8 +17,9 @@ import argparse
 import os
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, List, Optional, Type, get_args
+from typing import Type, get_args
 
+import yaml
 from nemo import lightning as nl
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
@@ -62,8 +63,8 @@ def infer_model(
     num_nodes: int = 1,
     prediction_interval: IntervalT = "epoch",
     config_class: Type[BioBertConfig] = ESM2Config,
-    lora_checkpoint_path: Optional[str] = None,
-    initial_ckpt_skip_keys_with_these_prefixes: List[str] = [],
+    lora_checkpoint_path: str | None = None,
+    initial_ckpt_skip_keys_with_these_prefixes: list[str] = [],
 ) -> None:
     """Runs inference on a BioNeMo ESM2 model using PyTorch Lightning.
 
@@ -139,8 +140,33 @@ def infer_model(
     # Initialize base model with or without LoRA
 
     if lora_checkpoint_path:
+        # check that lora checkpoint has a model.yaml file under "context" subfolder and load the yaml file to correctly initialize the
+        lora_context_model_path = lora_checkpoint_path / "context" / "model.yaml"
+        if not lora_context_model_path.exists():
+            raise FileNotFoundError(
+                f"LoRA checkpoint {lora_context_model_path} is required to be a valid LoRA checkpoint"
+            )
+        with open(lora_context_model_path, "r") as f:
+            lora_context_model_config = yaml.safe_load(f)["config"]
+        if config_class == ESM2FineTuneSeqConfig:
+            config.mlp_ft_dropout = lora_context_model_config["mlp_ft_dropout"]
+            config.mlp_hidden_size = lora_context_model_config["mlp_hidden_size"]
+            config.mlp_target_size = lora_context_model_config["mlp_target_size"]
+        elif config_class == ESM2FineTuneTokenConfig:
+            config.cnn_dropout = lora_context_model_config["cnn_dropout"]
+            config.cnn_hidden_size = lora_context_model_config["cnn_hidden_size"]
+            config.cnn_num_classes = lora_context_model_config["cnn_num_classes"]
+
+        if config_class != ESM2Config:
+            task_type = lora_context_model_config["task_type"]
+            if task_type == "regression":
+                initial_ckpt_skip_keys_with_these_prefixes.extend(["regression_head"])
+            elif task_type == "classification":
+                initial_ckpt_skip_keys_with_these_prefixes.extend(["classification_head"])
+            config.task_type = task_type
         peft = ESM2LoRA(peft_ckpt_path=lora_checkpoint_path)
         callbacks.append(peft)
+        config.initial_ckpt_skip_keys_with_these_prefixes = initial_ckpt_skip_keys_with_these_prefixes
         module = biobert_lightning_module(config=config, tokenizer=tokenizer, model_transform=peft)
         module.configure_init_model_parallel = True
     else:
@@ -168,6 +194,7 @@ def infer_esm2_entrypoint():
     # 1. get arguments
     parser = get_parser()
     args = parser.parse_args()
+
     # 2. Call infer with args
     infer_model(
         data_path=args.data_path,
@@ -197,7 +224,7 @@ def get_parser():
         "--checkpoint-path",
         type=Path,
         required=True,
-        help="Path to the ESM2 pretrained checkpoint",
+        help="Path to the ESM2 finetuned checkpoint or pretrained checkpoint. If you use LoRA this needs to be the ESM2 pretrained checkpoint.",
     )
     parser.add_argument(
         "--data-path",
@@ -279,7 +306,7 @@ def get_parser():
     parser.add_argument(
         "--include-logits", action="store_true", default=False, help="Include per-token logits in output."
     )
-    config_class_options: Dict[str, Type[BioBertConfig]] = SUPPORTED_CONFIGS
+    config_class_options: dict[str, Type[BioBertConfig]] = SUPPORTED_CONFIGS
 
     def config_class_type(desc: str) -> Type[BioBertConfig]:
         try:
@@ -308,7 +335,7 @@ def get_parser():
     )
     parser.add_argument(
         "--initial-ckpt-skip-keys-with-these-prefixes",
-        type=List[str],
+        nargs="+",
         required=False,
         default=[],
         help="List of keys to skip when loading the initial checkpoint. Needed for loading the model weights from a different checkpoint.",
