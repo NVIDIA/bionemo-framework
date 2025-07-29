@@ -224,4 +224,5 @@ python scdl_speedtest.py --generate-baseline -i tahoe-100m/h5ad/plate1_filt_Vevo
 
 ## Support
 
-For support, please [file an issue in the BioNeMo Framework GitHub repository](https://github.com/NVIDIA/bionemo-framework/issues). This code will be updated and refactored once a general benchmarking framework is in place. 
+For support, please [file an issue in the BioNeMo Framework GitHub repository](https://github.com/NVIDIA/bionemo-framework/issues).
+This code will be updated and refactored once a general benchmarking framework is in place.
