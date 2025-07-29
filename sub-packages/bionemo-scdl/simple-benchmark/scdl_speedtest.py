@@ -152,7 +152,6 @@ class BenchmarkResult:
     peak_memory_mb: float
     average_memory_mb: float
     gpu_memory_mb: float = 0.0
-    errors: List[str] = None
 
     # Instantiation metrics
     instantiation_time_seconds: Optional[float] = None
@@ -181,15 +180,6 @@ class BenchmarkResult:
     # Speed metrics
     total_speed_samples_per_second: float = 0.0
     post_warmup_speed_samples_per_second: float = 0.0
-
-    def __post_init__(self):
-        """Post-initialization hook for BenchmarkResult.
-
-        Ensures that the 'errors' attribute is always a list after initialization,
-        even if not provided. This prevents issues with mutable default arguments.
-        """
-        if self.errors is None:
-            self.errors = []
 
     @classmethod
     def from_raw_metrics(
@@ -438,6 +428,9 @@ def run_benchmark(dataloader: Any, config: BenchmarkConfig) -> BenchmarkResult:
                     start_time = time.perf_counter()
                     end_time = start_time + config.max_time_seconds if config.max_time_seconds is not None else None
                     pbar.set_description(f"{config.name} - Epoch {epoch_num + 1} (warmup complete)")
+                    if current_time >= end_time:
+                        print("Warning: Warmup time exceeded max time")
+                        break
                 else:
                     if warmup_batches % update_interval == 0:
                         elapsed_warmup = current_time - warm_up_start
@@ -799,6 +792,7 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
     pd.DataFrame(summary_rows).to_csv(f"{base_filename}_summary.csv", index=False)
     pd.DataFrame(detailed_rows).to_csv(f"{base_filename}_detailed_breakdown.csv", index=False)
     print("Export complete.")
+    return base_filename
 
 
 def get_sampler(sampling_scheme: str, dataset: torch.utils.data.Dataset):
@@ -1161,8 +1155,8 @@ Examples:
         help="Sampling method (default: shuffle)",
     )
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size (default: 32)")
-    parser.add_argument("--max-time", type=float, default=120.0, help="Max runtime seconds (default: 30)")
-    parser.add_argument("--warmup-time", type=float, default=30.0, help="Warmup seconds (default: 0)")
+    parser.add_argument("--max-time", type=float, default=30.0, help="Max runtime seconds (default: 30)")
+    parser.add_argument("--warmup-time", type=float, default=0.0, help="Warmup seconds (default: 0)")
     parser.add_argument("--csv", action="store_true", help="Export detailed CSV files")
     parser.add_argument(
         "--generate-baseline", action="store_true", help="Generate AnnData baseline comparison (requires .h5ad input)"
@@ -1269,8 +1263,8 @@ Examples:
             # Export CSV files if requested
             if args.csv:
                 csv_prefix = f"comparison_{args.sampling_scheme}"
-                export_benchmark_results([scdl_result, anndata_result], output_prefix=csv_prefix)
-                print(f"CSV files exported with prefix: {csv_prefix}_<timestamp>")
+                base_filename = export_benchmark_results([scdl_result, anndata_result], output_prefix=csv_prefix)
+                print(f"CSV files exported with prefix: {base_filename}")
         else:
             # Regular SCDL-only benchmark
             factory = create_dataloader_factory(str(input_path), args.sampling_scheme, args.batch_size)
@@ -1301,8 +1295,8 @@ Examples:
             # Export CSV files if requested
             if args.csv:
                 csv_prefix = f"scdl_benchmark_{args.sampling_scheme}"
-                export_benchmark_results([result], output_prefix=csv_prefix)
-                print(f"CSV files exported with prefix: {csv_prefix}_<timestamp>")
+                base_filename = export_benchmark_results([result], output_prefix=csv_prefix)
+                print(f"CSV files exported with prefix: {base_filename}")
 
     except Exception as e:
         print(f"\nBenchmark failed: {e}")
