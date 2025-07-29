@@ -502,7 +502,7 @@ def _benchmark_single_dataloader(
             csv_prefix = f"{dir_name}_consolidated_results"
         else:
             csv_prefix = "consolidated_benchmark_results"
-        export_benchmark_results(result, output_prefix=csv_prefix, output_dir=output_dir, create_headers=True)
+        export_benchmark_results(result, output_prefix=csv_prefix, output_dir=output_dir)
 
         return result
     else:
@@ -537,22 +537,16 @@ def _benchmark_single_dataloader(
             # Print samples per second after every run
             print(f"Run {run_idx + 1}: {run_result.samples_per_second:.2f} samples/sec")
 
-            # 🆕 Append to CSV after each run
-            create_headers = run_idx == 0  # Create headers only for first run
             if output_dir:
                 # Use output directory name as part of CSV prefix for consolidated results
                 dir_name = os.path.basename(output_dir.rstrip("/"))
                 csv_prefix = f"{dir_name}_consolidated_results"
             else:
                 csv_prefix = "consolidated_benchmark_results"
-            export_benchmark_results(
-                run_result, output_prefix=csv_prefix, output_dir=output_dir, create_headers=create_headers
-            )
+            export_benchmark_results(run_result, output_prefix=csv_prefix, output_dir=output_dir)
 
             del dataloader
 
-        # 🚫 Remove bulk export - we already appended each result individually
-        # export_benchmark_results(all_results)
         return all_results
 
 
@@ -624,8 +618,6 @@ def _benchmark_with_dataset_reuse(
     else:
         csv_prefix = "consolidated_benchmark_results"
 
-    is_first_run = True  # Track first run for CSV headers
-
     for config_idx, dl_config in enumerate(dataloaders, 1):
         print(f"📊 Testing config {config_idx}/{total_configs}: {dl_config['name']}")
 
@@ -692,11 +684,7 @@ def _benchmark_with_dataset_reuse(
             )
 
             # 🆕 Append to CSV after EVERY individual run
-            create_headers = is_first_run  # Create headers only for very first run
-            export_benchmark_results(
-                result, output_prefix=csv_prefix, output_dir=output_dir, create_headers=create_headers
-            )
-            is_first_run = False  # After first run, always append
+            export_benchmark_results(result, output_prefix=csv_prefix, output_dir=output_dir)
 
             # Clean up dataloader for next run
             del dataloader
@@ -721,13 +709,13 @@ def _print_results(result: BenchmarkResult) -> None:
     print(f"   Samples/sec: {result.samples_per_second:.2f}")
     print(f"   Memory: {result.peak_memory_mb:.1f} MB")
 
-    # 🆕 NEW: Show separate instantiation times if available
     if hasattr(result, "dataset_instantiation_time_seconds") and result.dataset_instantiation_time_seconds is not None:
         dataset_time = result.dataset_instantiation_time_seconds
         dataloader_time = getattr(result, "dataloader_instantiation_time_seconds", 0.0) or 0.0
-        total_time = result.instantiation_time_seconds or (dataset_time + dataloader_time)
 
-        print(f"   Setup: {total_time:.3f}s (dataset: {dataset_time:.3f}s + dataloader: {dataloader_time:.3f}s)")
+        print(
+            f"   Setup: {dataset_time + dataloader_time:.3f}s (dataset: {dataset_time:.3f}s + dataloader: {dataloader_time:.3f}s)"
+        )
 
     if hasattr(result, "disk_size_mb") and result.disk_size_mb:
         print(f"   Disk: {result.disk_size_mb:.1f} MB")

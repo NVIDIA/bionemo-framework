@@ -111,19 +111,16 @@ def export_benchmark_results(
     results: Union[BenchmarkResult, List[BenchmarkResult]],
     output_prefix: str = "benchmark_data",
     output_dir: Optional[str] = None,
-    create_headers: Optional[bool] = None,
 ) -> None:
-    """Append benchmark results to detailed breakdown CSV.
+    """Append benchmark results to detailed breakdown CSV, never overwriting existing data.
 
     This function appends benchmark results to an existing CSV file or creates
-    a new one if it doesn't exist.
+    a new one if it doesn't exist. It never overwrites existing files.
 
     Args:
         results: Single BenchmarkResult or list of BenchmarkResults to append
         output_prefix: Prefix for the CSV filename
         output_dir: Directory where CSV files should be created. If None, uses current directory.
-        create_headers: If True, create headers when appending. If False, don't create headers.
-                       If None, automatically detect based on file existence.
     """
     import pandas as pd
 
@@ -142,12 +139,10 @@ def export_benchmark_results(
         else f"{output_prefix}_detailed_breakdown.csv"
     )
 
-    # Auto-detect headers if not specified
-    if create_headers is None:
-        create_headers = not os.path.exists(detailed_csv)
-
-    mode = "w" if create_headers else "a"
-    header = create_headers
+    # Always append, only write header if file does not exist
+    file_exists = os.path.exists(detailed_csv)
+    mode = "a"
+    header = not file_exists
 
     # Build detailed rows
     detailed_rows = []
@@ -202,9 +197,9 @@ def export_benchmark_results(
                 }
             )
 
-    # Write detailed CSV
+    # Write detailed CSV (always append, never overwrite)
     pd.DataFrame(detailed_rows).to_csv(detailed_csv, mode=mode, header=header, index=False)
-    if create_headers:
+    if not file_exists:
         print(f"📄 Created Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
     else:
         print(f"📄 Appended to Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
