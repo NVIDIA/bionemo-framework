@@ -384,8 +384,9 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--mamba-lowercase-loss-weight",
         type=float,
-        default=1.0,
-        help="Loss weight for the Mamba model for lowercase bases, if you are using a Mamba model.",
+        default=0.1,
+        help="Loss weight for the Mamba model for lowercase bases, if you are using a Mamba model. "
+        "Default is 0.1 like the Evo2 paper. Set to 1.0 to disable differential loss weighting.",
     )
     # rank as list of integers
     parser.add_argument(
