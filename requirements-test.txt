@@ -4,7 +4,7 @@ pytest-dependency==0.5.1
 testbook==0.4.2
 requests_mock==1.11.0
 # For SwiftStack access
-awscli==1.33.33
+awscli
 nbval==0.11.0
 # For NvFaidx equivalence tests
 pyfaidx==0.8.1.3

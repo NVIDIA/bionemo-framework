@@ -25,7 +25,7 @@ dependencies:
     - pytest-dependency==0.5.1
     - testbook==0.4.2
     - requests_mock==1.11.0
-    - awscli==1.33.33
+    - awscli
     - nbval==0.11.0
     - onnx>=1.16.0
     - setuptools>=70.0.0
