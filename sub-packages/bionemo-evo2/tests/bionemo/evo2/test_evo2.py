@@ -413,7 +413,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents,flash_decode",
     [
-        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], False),
+        # Try flash decode with one and not the other to verify that both paths work.
         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
         # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
