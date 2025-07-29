@@ -420,9 +420,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
         # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
     ],
 )
-def test_forward_manual(
-    sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool = True
-):
+def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -468,6 +466,8 @@ def test_forward_manual(
         if flash_decode:
             inference_context = HyenaInferenceContext(max_batch_size=1, max_sequence_length=8192)
             forward_kwargs = {"runtime_gather_output": True, "inference_context": inference_context}
+        else:
+            forward_kwargs = {}
         matchrates = []
         for seq in sequences:
             seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
