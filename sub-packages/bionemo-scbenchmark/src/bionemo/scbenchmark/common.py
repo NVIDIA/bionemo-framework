@@ -81,9 +81,21 @@ class BenchmarkResult:
     # Input data (always passed explicitly)
     epoch_results: Optional[List[Dict[str, Any]]] = None
 
+    # Derived metrics
+    samples_per_second: float = 0.0
+    peak_memory_mb: float = 0.0
+    avg_memory_mb: float = 0.0
+
     def __post_init__(self):
-        """No automatic calculations - all fields passed explicitly."""
-        pass
+        """Calculate derived metrics from epoch results."""
+        samples = sum(r["samples"] for r in self.epoch_results)
+        elapsed = sum(r["elapsed"] for r in self.epoch_results)
+        self.samples_per_second = samples / elapsed if elapsed > 0 else 0.0
+        self.peak_memory_mb = max(r["peak_memory"] for r in self.epoch_results) - self.memory_before_instantiation_mb
+        self.avg_memory_mb = (
+            sum(r["avg_memory"] for r in self.epoch_results) / len(self.epoch_results)
+            - self.memory_before_instantiation_mb
+        )
 
     def save_to_file(self, filepath: str) -> None:
         """Save results to JSON file.

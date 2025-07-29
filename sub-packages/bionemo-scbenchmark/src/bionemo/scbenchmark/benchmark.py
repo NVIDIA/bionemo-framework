@@ -490,7 +490,6 @@ def _benchmark_single_dataloader(
 
         gc.collect()
         # Update timing and disk info
-        result.setup_time_seconds += setup_time
         result.disk_size_mb = disk_size_mb
 
         # Print results

@@ -271,7 +271,6 @@ def comprehensive_benchmarking_example(
         dataloaders=anndata_configurations,  # All configs use same dataset
         output_dir=output_dir,
     )
-
     print("✅ Benchmarking completed!")
     print(f"📁 All results saved to: {output_dir}/")
     print("📊 Consolidated detailed CSV:")
