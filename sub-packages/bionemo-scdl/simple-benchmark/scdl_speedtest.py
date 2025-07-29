@@ -792,7 +792,7 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
     pd.DataFrame(summary_rows).to_csv(f"{base_filename}_summary.csv", index=False)
     pd.DataFrame(detailed_rows).to_csv(f"{base_filename}_detailed_breakdown.csv", index=False)
     print("Export complete.")
-    return base_filename
+    return f"{base_filename}_summary.csv", f"{base_filename}_detailed_breakdown.csv"
 
 
 def get_sampler(sampling_scheme: str, dataset: torch.utils.data.Dataset):
