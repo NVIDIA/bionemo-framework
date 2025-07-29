@@ -670,7 +670,7 @@ def calculate_derived_metrics(result: BenchmarkResult) -> Dict[str, float]:
     }
 
 
-def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str = "benchmark_data") -> None:
+def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str = "benchmark_data") -> Tuple[str, str]:
     """Export benchmark results to CSV files."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_filename = f"{output_prefix}_{timestamp}"
