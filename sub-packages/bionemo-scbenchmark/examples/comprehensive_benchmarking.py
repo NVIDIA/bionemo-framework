@@ -16,15 +16,15 @@
 
 #!/usr/bin/env python3
 
-"""Comprehensive Benchmarking Example: Dataset Reuse vs Traditional.
+"""Comprehensive Benchmarking Example.
 
 This example demonstrates BOTH approaches:
 1. Dataset Reuse (AnnData): Dataset loaded ONCE, multiple configs tested on SAME dataset
-2. Traditional (SCDL): Each config loads its own dataset independently
+2. Dataset Reload (SCDL): Each config loads its own dataset independently
 
 This mixed approach shows:
 - When to use dataset reuse (expensive loading, config comparison)
-- When to use traditional (full isolation, different datasets)
+- When to use reload (full isolation, different datasets)
 - Flexibility to choose per use case
 
 Key Benefits of Dataset Reuse:
@@ -33,7 +33,7 @@ Key Benefits of Dataset Reuse:
 - 🔄 Fair comparison (all configs use identical data)
 - 📊 Separate tracking of dataset vs dataloader instantiation times
 
-Key Benefits of Traditional:
+Key Benefits of Dataset Reload:
 - 🔒 Full isolation between configs
 - 🆕 Fresh dataset state per config
 - 📈 Individual dataset loading performance measurement
@@ -42,22 +42,13 @@ Key Benefits of Traditional:
 import os
 
 import anndata
-import torch
 from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
 
-# Import the benchmarking framework
 from bionemo.scbenchmark import benchmark_dataloader
 from bionemo.scbenchmark.common import export_benchmark_results
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
-
-
-# Optional import for scDataset
-try:
-    from scdataset import scDataset
-except ImportError:
-    scDataset = None
 
 
 # =============================================================================
@@ -96,13 +87,7 @@ def create_anndata_dataset_factory(data_path, backed="r"):
 # =============================================================================
 
 
-def anndata_collate(batch):
-    """Custom collate function for AnnData objects."""
-    # Convert AnnCollectionView to tensors
-    return torch.stack([item.X for item in batch])
-
-
-def create_annloader_config(batch_size=64, shuffle=True, num_workers=0, collate_fn=anndata_collate):
+def create_annloader_factory(batch_size=64, shuffle=True, num_workers=0):
     """Create a dataloader factory that wraps a pre-loaded AnnData dataset.
 
     Args:
@@ -116,15 +101,13 @@ def create_annloader_config(batch_size=64, shuffle=True, num_workers=0, collate_
     """
 
     def factory(dataset):
-        return AnnLoader(
-            dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, collate_fn=collate_fn
-        )
+        return AnnLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, drop_last=True)
 
     return factory
 
 
-def create_scdl_traditional_factory(batch_size=64, shuffle=True, data_path=None, num_workers=0):
-    """Create a traditional SCDL dataloader factory that loads dataset each time.
+def create_scdl_dataset_and_loader_factory(batch_size=64, shuffle=True, data_path=None, num_workers=0):
+    """Create a SCDL dataloader factory that loads dataset each time.
 
     Args:
         batch_size: Number of samples per batch
@@ -133,7 +116,7 @@ def create_scdl_traditional_factory(batch_size=64, shuffle=True, data_path=None,
         num_workers: Number of worker processes
 
     Returns:
-        Factory function that creates SCDL dataset and DataLoader (traditional approach)
+        Factory function that creates SCDL dataset and DataLoader (reload approach)
     """
 
     def factory():
@@ -176,11 +159,11 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
 
     memmap_path = "/home/pbinder/bionemo-framework/tahoe_memmap/"
 
-    print("🚀 Mixed Benchmarking Example: Dataset Reuse vs Traditional")
+    print("🚀 Mixed Benchmarking Example: Dataset Reuse vs Reload")
     print("=" * 60)
     print(f"📊 Testing {num_runs} run(s) each across different configs")
     print("⚡ AnnData: Dataset loaded ONCE (reuse)")
-    print("🔄 SCDL: Dataset loaded PER CONFIG (traditional)")
+    print("🔄 SCDL: Dataset loaded PER CONFIG (reload)")
     print()
 
     # =============================================================================
@@ -192,17 +175,8 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
 
     anndata_configurations = [
         {
-            "name": "AnnLoader_Multi_Worker",
-            "dataloader_factory": create_annloader_config(batch_size=64, shuffle=True, num_workers=2),
-            "num_epochs": num_epochs,
-            "max_time_seconds": 5.0,
-            "warmup_time_seconds": 1.0,
-            "data_path": adata_path,
-            "num_runs": num_runs,
-        },
-        {
             "name": "AnnLoader_Single_Worker",
-            "dataloader_factory": create_annloader_config(batch_size=64, shuffle=True, num_workers=0),
+            "dataloader_factory": create_annloader_factory(batch_size=64, shuffle=True, num_workers=0),
             "num_epochs": num_epochs,
             "max_time_seconds": 5.0,
             "warmup_time_seconds": 1.0,
@@ -211,7 +185,7 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
         },
         {
             "name": "AnnLoader_Small_Batch",
-            "dataloader_factory": create_annloader_config(batch_size=32, shuffle=True, num_workers=0),
+            "dataloader_factory": create_annloader_factory(batch_size=32, shuffle=True, num_workers=0),
             "num_epochs": num_epochs,
             "max_time_seconds": 5.0,
             "warmup_time_seconds": 1.0,
@@ -220,7 +194,7 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
         },
         {
             "name": "AnnLoader_Large_Batch",
-            "dataloader_factory": create_annloader_config(batch_size=128, shuffle=True, num_workers=0),
+            "dataloader_factory": create_annloader_factory(batch_size=128, shuffle=True, num_workers=0),
             "num_epochs": num_epochs,
             "max_time_seconds": 5.0,
             "warmup_time_seconds": 1.0,
@@ -229,7 +203,7 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
         },
         {
             "name": "AnnLoader_No_Shuffle",
-            "dataloader_factory": create_annloader_config(batch_size=64, shuffle=False, num_workers=0),
+            "dataloader_factory": create_annloader_factory(batch_size=64, shuffle=False, num_workers=0),
             "num_epochs": num_epochs,
             "max_time_seconds": 5.0,
             "warmup_time_seconds": 1.0,
@@ -251,24 +225,24 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
     # EXAMPLE 2: SCDL Dataset with Multiple DataLoader Configurations
     # =============================================================================
 
-    print("🔬 EXAMPLE 2: SCDL with Multiple DataLoader Configs (Traditional - Reload Each Time)")
+    print("🔬 EXAMPLE 2: SCDL with Multiple DataLoader Configs (Reload Each Time)")
     print("-" * 60)
 
     scdl_configurations = [
         {
             "name": "SCDL_Batch32_Shuffle",
-            "dataloader_factory": create_scdl_traditional_factory(
-                batch_size=32, shuffle=True, data_path=memmap_path, num_workers=0
+            "dataloader_factory": create_scdl_dataset_and_loader_factory(
+                batch_size=64, shuffle=True, data_path=memmap_path, num_workers=0
             ),
             "num_epochs": num_epochs,
-            "max_time_seconds": 3.0,
-            "warmup_time_seconds": 0.5,
+            "max_time_seconds": 100.0,
+            "warmup_time_seconds": 0.0,
             "data_path": memmap_path,
             "num_runs": num_runs,
         },
         {
             "name": "SCDL_Batch128_Shuffle",
-            "dataloader_factory": create_scdl_traditional_factory(
+            "dataloader_factory": create_scdl_dataset_and_loader_factory(
                 batch_size=128, shuffle=True, data_path=memmap_path, num_workers=0
             ),
             "num_epochs": num_epochs,
@@ -278,9 +252,9 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
             "num_runs": num_runs,
         },
         {
-            "name": "SCDL_Batch64_NoShuffle",
-            "dataloader_factory": create_scdl_traditional_factory(
-                batch_size=64, shuffle=False, data_path=memmap_path, num_workers=0
+            "name": "SCDL_Batch64_Multi_Worker",
+            "dataloader_factory": create_scdl_dataset_and_loader_factory(
+                batch_size=64, shuffle=True, data_path=memmap_path, num_workers=2
             ),
             "num_epochs": num_epochs,
             "max_time_seconds": 3.0,

@@ -39,58 +39,37 @@ import psutil
 class BenchmarkResult:
     """Results from benchmarking a dataloader.
 
-    This class stores all metrics and metadata about a dataloader benchmark run,
-    including timing, memory usage, throughput, configuration parameters, and
-    the raw data for detailed analysis.
+    This class stores essential metrics and metadata about a dataloader benchmark run
+    for CSV export and analysis.
 
     Attributes:
         name: Name/description of the benchmark
-        disk_size_mb: Size of the dataset files on disk in MB
-        setup_time_seconds: Time spent setting up the dataloader
         warmup_time_seconds: Time spent in warmup phase
-        total_iteration_time_seconds: Time spent iterating through data (excluding warmup)
-        average_batch_time_seconds: Average time per batch
-        total_batches: Number of batches processed (excluding warmup)
-        total_samples: Number of samples processed (excluding warmup)
-        samples_per_second: Throughput in samples per second (excluding warmup)
-        batches_per_second: Throughput in batches per second (excluding warmup)
-        peak_memory_mb: Peak memory usage during benchmark
-        average_memory_mb: Average memory usage during benchmark
-        errors: List of error messages
 
         # Instantiation metrics
-        instantiation_time_seconds: TOTAL time (dataset + dataloader)
         dataset_instantiation_time_seconds: Time to load/create dataset only
         dataloader_instantiation_time_seconds: Time to wrap dataset in dataloader only
-        peak_memory_during_instantiation_mb: Peak memory usage during instantiation
 
         # Configuration metadata
         madvise_interval: Memory advice interval setting used
         data_path: Path to dataset used for benchmarking
         max_time_seconds: Maximum time limit set for the benchmark
         shuffle: Whether the dataloader was shuffled
+        num_workers: Number of worker processes used for data loading
+
+                # Input data
+        epoch_results: List of per-epoch benchmark results
     """
 
     name: str
-    disk_size_mb: float
-    setup_time_seconds: float
-    warmup_time_seconds: float
-    total_iteration_time_seconds: float
-    average_batch_time_seconds: float
-    total_batches: int
-    total_samples: int
-    samples_per_second: float
-    batches_per_second: float
-    peak_memory_mb: float
-    average_memory_mb: float
-    errors: List[str] = None
-    # Instantiation metrics (None if not measured)
-    instantiation_time_seconds: Optional[float] = None  # TOTAL (dataset + dataloader)
-    dataset_instantiation_time_seconds: Optional[float] = None  # Dataset loading only
-    dataloader_instantiation_time_seconds: Optional[float] = None  # DataLoader wrapping only
-    peak_memory_during_instantiation_mb: Optional[float] = None
-    memory_after_instantiation_mb: Optional[float] = None
-    memory_before_instantiation_mb: Optional[float] = None
+    warmup_time_seconds: float = 0.0
+
+    # Instantiation metrics (always passed explicitly)
+    dataset_instantiation_time_seconds: float = 0.0
+    dataloader_instantiation_time_seconds: float = 0.0
+    peak_memory_during_instantiation_mb: float = 0.0
+    memory_before_instantiation_mb: float = 0.0
+    memory_after_instantiation_mb: float = 0.0
 
     # Configuration metadata
     madvise_interval: Optional[int] = None
@@ -99,85 +78,12 @@ class BenchmarkResult:
     shuffle: Optional[bool] = None
     num_workers: Optional[int] = None
 
-    # Warmup metrics
-    warmup_samples: int = 0
-    warmup_batches: int = 0
-
-    # Speed metrics
-    total_speed_samples_per_second: float = 0.0  # Including warmup
+    # Input data (always passed explicitly)
+    epoch_results: Optional[List[Dict[str, Any]]] = None
 
     def __post_init__(self):
-        """Initialize lists if not provided."""
-        if self.errors is None:
-            self.errors = []
-
-    @classmethod
-    def from_raw_metrics(
-        cls,
-        name: str,
-        madvise_interval: Optional[int] = None,
-        data_path: Optional[str] = None,
-        max_time_seconds: Optional[float] = None,
-        shuffle: Optional[bool] = None,
-        total_samples: int = 0,
-        total_batches: int = 0,
-        setup_time: float = 0.0,
-        warmup_time: float = 0.0,
-        elapsed_time: float = 0.0,
-        disk_size_mb: float = 0.0,
-        warmup_samples: int = 0,
-        warmup_batches: int = 0,
-        instantiation_metrics: Optional[Dict[str, float]] = None,
-        num_workers: Optional[int] = None,
-        epoch_results: Optional[List[Dict[str, Any]]] = None,
-    ) -> "BenchmarkResult":
-        """Create BenchmarkResult from raw metrics."""
-        # Calculate timing metrics
-        avg_batch_time = elapsed_time / total_batches if total_batches > 0 else 0
-        samples_per_sec = total_samples / elapsed_time if elapsed_time > 0 else 0
-        batches_per_sec = total_batches / elapsed_time if elapsed_time > 0 else 0
-
-        # Calculate speed metrics
-        iteration_time = elapsed_time + warmup_time
-        total_samples_including_warmup = total_samples + warmup_samples
-        total_speed = total_samples_including_warmup / (iteration_time) if iteration_time > 0 else 0
-
-        # Calculate memory metrics from epoch results
-        peak_memory_mb = 0.0
-        average_memory_mb = 0.0
-        if epoch_results:
-            max_peak_memory = max(r["peak_memory"] for r in epoch_results)
-            avg_memory = sum(r["avg_memory"] for r in epoch_results) / len(epoch_results)
-
-            # Subtract baseline memory if available from instantiation metrics
-            memory_before_instantiation = instantiation_metrics["memory_before_instantiation_mb"]
-
-            peak_memory_mb = max_peak_memory - memory_before_instantiation
-            average_memory_mb = avg_memory - memory_before_instantiation
-
-        return cls(
-            name=name,
-            disk_size_mb=disk_size_mb,
-            setup_time_seconds=setup_time,
-            warmup_time_seconds=warmup_time,
-            total_iteration_time_seconds=iteration_time,
-            average_batch_time_seconds=avg_batch_time,
-            total_batches=total_batches,
-            total_samples=total_samples,
-            samples_per_second=samples_per_sec,
-            batches_per_second=batches_per_sec,
-            peak_memory_mb=peak_memory_mb,
-            average_memory_mb=average_memory_mb,
-            warmup_samples=warmup_samples,
-            warmup_batches=warmup_batches,
-            total_speed_samples_per_second=total_speed,
-            madvise_interval=madvise_interval,
-            data_path=data_path,
-            max_time_seconds=max_time_seconds,
-            shuffle=shuffle,
-            num_workers=num_workers,
-            **instantiation_metrics,
-        )
+        """No automatic calculations - all fields passed explicitly."""
+        pass
 
     def save_to_file(self, filepath: str) -> None:
         """Save results to JSON file.
@@ -189,260 +95,107 @@ class BenchmarkResult:
             json.dump(asdict(self), f, indent=2)
 
 
-def calculate_derived_metrics(result: BenchmarkResult) -> Dict[str, float]:
-    """Calculate derived metrics from a BenchmarkResult.
-
-    This function extracts and calculates commonly used derived metrics
-    to avoid duplication across the codebase.
-
-    Args:
-        result: BenchmarkResult to process
-
-    Returns:
-        Dictionary with derived metrics including:
-        - warmup_samples_per_sec
-        - num_epochs
-        - dataset_samples_per_epoch
-        - dataset_batches_per_epoch
-        - avg_batch_size
-        - dataset_size_k_samples
-        - inst_memory
-        - inst_time
-    """
-    # Calculate warmup speed
-    warmup_samples_per_sec = (
-        (result.warmup_samples / result.warmup_time_seconds) if result.warmup_time_seconds > 0 else 0.0
-    )
-
-    # Get number of epochs (try multiple sources)
-    num_epochs = getattr(result, "num_epochs", 1) or 1
-    if hasattr(result, "epoch_results") and result.epoch_results:
-        num_epochs = len(result.epoch_results)
-
-    # Calculate per-epoch values (actual dataset size), not cumulative across all epochs
-    dataset_samples_per_epoch = result.total_samples // num_epochs if num_epochs > 0 else result.total_samples
-    dataset_batches_per_epoch = result.total_batches // num_epochs if num_epochs > 0 else result.total_batches
-    avg_batch_size = dataset_samples_per_epoch / dataset_batches_per_epoch if dataset_batches_per_epoch > 0 else 0
-    dataset_size_k_samples = dataset_samples_per_epoch / 1000.0  # Convert to thousands
-
-    # Get instantiation metrics (fallback to 0 if not available)
-    inst_memory = getattr(result, "peak_memory_during_instantiation_mb", 0.0) or 0.0
-    inst_time = getattr(result, "instantiation_time_seconds", 0.0) or 0.0
-
-    return {
-        "warmup_samples_per_sec": warmup_samples_per_sec,
-        "num_epochs": num_epochs,
-        "dataset_samples_per_epoch": dataset_samples_per_epoch,
-        "dataset_batches_per_epoch": dataset_batches_per_epoch,
-        "avg_batch_size": avg_batch_size,
-        "dataset_size_k_samples": dataset_size_k_samples,
-        "inst_memory": inst_memory,
-        "inst_time": inst_time,
-    }
-
-
-def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str = "benchmark_data") -> None:
-    """Export benchmark results to summary and detailed breakdown CSVs."""
-    from datetime import datetime
-
-    import pandas as pd
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_filename = f"{output_prefix}_{timestamp}"
-    summary_rows = []
-    detailed_rows = []
-    for i, result in enumerate(results, 1):
-        # Extract configuration name (remove run number suffix if present)
-        config_name = result.name.replace(f"_run_{i}", "") if f"_run_{i}" in result.name else result.name
-
-        m = calculate_derived_metrics(result)
-        summary_rows.append(
-            {
-                "Configuration": config_name,
-                "Run_Number": i,
-                "Run_Name": result.name,
-                "Warmup_Time_s": result.warmup_time_seconds,
-                "Warmup_Samples_per_sec": m["warmup_samples_per_sec"],
-                "Total_Time_s": result.total_iteration_time_seconds,
-                "Total_Samples_per_sec": result.samples_per_second,
-                "Instantiation_Time_s": m["inst_time"],  # TOTAL (dataset + dataloader)
-                "Dataset_Instantiation_Time_s": getattr(result, "dataset_instantiation_time_seconds", None),  # 🆕 NEW
-                "Dataloader_Instantiation_Time_s": getattr(
-                    result, "dataloader_instantiation_time_seconds", None
-                ),  # 🆕 NEW
-                "Instantiation_Memory_MB": m["inst_memory"],
-                "Peak_Memory_MB": result.peak_memory_mb,
-                "Average_Memory_MB": result.average_memory_mb,
-                "Batches_per_Epoch": m["dataset_batches_per_epoch"],
-                "Average_Batch_Size": m["avg_batch_size"],
-                "Disk_Size_MB": result.disk_size_mb,
-                "Dataset_Size_K_samples": m["dataset_size_k_samples"],
-                "Dataset_Path": result.data_path,
-                "Madvise_Interval": result.madvise_interval,
-                "Max_Time_Seconds": result.max_time_seconds,
-                "Shuffle": result.shuffle,
-                "Num_Workers": result.num_workers,
-                "Warmup_Samples": result.warmup_samples,
-                "Warmup_Batches": result.warmup_batches,
-                "Total_Samples_All_Epochs": result.total_samples,
-                "Total_Batches_All_Epochs": result.total_batches,
-                "Total_Speed_With_Warmup_Samples_per_sec": result.total_speed_samples_per_second,
-                "Number_of_Epochs": m["num_epochs"],
-            }
-        )
-
-    # Detailed breakdown: all runs and epochs
-    for i, result in enumerate(results, 1):
-        base_config = result.name.replace("_run_" + str(i), "") if "_run_" in result.name else result.name
-
-        # Per-epoch breakdown
-        if hasattr(result, "epoch_results") and result.epoch_results:
-            for epoch_info in result.epoch_results:
-                avg_batch_size = epoch_info["samples"] / epoch_info["batches"] if epoch_info["batches"] > 0 else 0
-                detailed_rows.append(
-                    {
-                        "Configuration": base_config,
-                        "Run_Number": i,
-                        "Epoch": epoch_info["epoch"],
-                        "Samples": epoch_info["samples"],
-                        "Batches": epoch_info["batches"],
-                        "Samples_per_sec": epoch_info["samples"] / epoch_info["elapsed"]
-                        if epoch_info["iteration_time"] > 0
-                        else 0,
-                        "Peak_Memory_MB": epoch_info["peak_memory"],
-                        "Average_Memory_MB": epoch_info["avg_memory"],
-                        "Total_Time_s": epoch_info["iteration_time"],
-                        "Setup_Time_s": 0,
-                        "Warmup_Time_s": result.warmup_time_seconds if epoch_info["epoch"] == 1 else 0,
-                        "Warmup_Samples": epoch_info["warmup_samples"],
-                        "Warmup_Batches": epoch_info["warmup_batches"],
-                        "Total_Speed_With_Warmup_Samples_per_sec": (
-                            epoch_info["samples"] + epoch_info["warmup_samples"]
-                        )
-                        / epoch_info["iteration_time"]
-                        if epoch_info["iteration_time"] > 0
-                        else 0,
-                        "Dataset_Path": result.data_path,
-                        "Madvise_Interval": result.madvise_interval,
-                        "Max_Time_Seconds": result.max_time_seconds,
-                        "Shuffle": getattr(result, "shuffle", None),
-                        "Instantiation_Time_s": getattr(result, "instantiation_time_seconds", None),  # TOTAL
-                        "Dataset_Instantiation_Time_s": getattr(
-                            result, "dataset_instantiation_time_seconds", None
-                        ),  # 🆕 NEW
-                        "Dataloader_Instantiation_Time_s": getattr(
-                            result, "dataloader_instantiation_time_seconds", None
-                        ),  # 🆕 NEW
-                        "Instantiation_Memory_MB": getattr(result, "peak_memory_during_instantiation_mb", None),
-                        "Average_Batch_Size": avg_batch_size,
-                        "Batches_per_sec": epoch_info["batches"] / epoch_info["elapsed"]
-                        if epoch_info["iteration_time"] > 0
-                        else 0,
-                    }
-                )
-    # Write CSVs
-    summary_csv = f"{base_filename}_summary.csv"
-    pd.DataFrame(summary_rows).to_csv(summary_csv, index=False)
-    print(f"📄 Summary CSV: {os.path.abspath(summary_csv)} ({len(summary_rows)} rows)")
-
-    if detailed_rows:
-        detailed_csv = f"{base_filename}_detailed_breakdown.csv"
-        pd.DataFrame(detailed_rows).to_csv(detailed_csv, index=False)
-        print(f"📄 Detailed breakdown CSV: {os.path.abspath(detailed_csv)} ({len(detailed_rows)} rows)")
-
-    print("Export complete.")
-
-
-def append_benchmark_result(
-    result: BenchmarkResult,
+def export_benchmark_results(
+    results: Union[BenchmarkResult, List[BenchmarkResult]],
     output_prefix: str = "benchmark_data",
-    create_headers: bool = False,
     output_dir: Optional[str] = None,
+    create_headers: Optional[bool] = None,
 ) -> None:
-    """Append a single benchmark result to detailed breakdown CSV only.
+    """Append benchmark results to detailed breakdown CSV.
+
+    This function appends benchmark results to an existing CSV file or creates
+    a new one if it doesn't exist.
 
     Args:
-        result: The benchmark result to append
+        results: Single BenchmarkResult or list of BenchmarkResults to append
         output_prefix: Prefix for the CSV filename
-        create_headers: If True, create new files with headers. If False, append to existing files.
-                       If None, automatically detect if files exist.
         output_dir: Directory where CSV files should be created. If None, uses current directory.
+        create_headers: If True, create headers when appending. If False, don't create headers.
+                       If None, automatically detect based on file existence.
     """
     import pandas as pd
+
+    # Normalize results to always be a list
+    if isinstance(results, BenchmarkResult):
+        results = [results]
 
     # Handle output directory
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-        detailed_csv = os.path.join(output_dir, f"{output_prefix}_detailed_breakdown.csv")
-    else:
-        detailed_csv = f"{output_prefix}_detailed_breakdown.csv"
 
-    # Auto-detect if we should create headers (if files don't exist yet)
-    files_exist = os.path.exists(detailed_csv)
-    should_create_headers = create_headers and not files_exist
+    # Use simple filenames for append mode
+    detailed_csv = (
+        os.path.join(output_dir, f"{output_prefix}_detailed_breakdown.csv")
+        if output_dir
+        else f"{output_prefix}_detailed_breakdown.csv"
+    )
 
-    # Determine run number from result name
-    run_number = 1
-    if "_run_" in result.name:
-        try:
-            run_number = int(result.name.split("_run_")[-1])
-        except ValueError:
-            pass
+    # Auto-detect headers if not specified
+    if create_headers is None:
+        create_headers = not os.path.exists(detailed_csv)
 
-    # Extract configuration name (remove run number suffix if present)
-    config_name = result.name.replace(f"_run_{run_number}", "") if f"_run_{run_number}" in result.name else result.name
+    mode = "w" if create_headers else "a"
+    header = create_headers
 
-    # Create detailed rows for each epoch only (no summary)
+    # Build detailed rows
     detailed_rows = []
-    for epoch_info in result.epoch_results:
-        avg_batch_size = epoch_info["samples"] / epoch_info["batches"] if epoch_info["batches"] > 0 else 0
-        detailed_rows.append(
-            {
-                "Configuration": config_name,
-                "Run_Number": run_number,
-                "Run_Name": result.name,
-                "Epoch": epoch_info["epoch"],
-                "Batches": epoch_info["batches"],
-                "Samples": epoch_info["samples"],
-                "Samples_per_sec": epoch_info["samples"] / epoch_info["elapsed"] if epoch_info["elapsed"] > 0 else 0,
-                "Peak_Memory_MB": epoch_info["peak_memory"],
-                "Average_Memory_MB": epoch_info["avg_memory"],
-                "Total_Time_s": epoch_info["iteration_time"],
-                "Setup_Time_s": 0,
-                "Warmup_Time_s": result.warmup_time_seconds if epoch_info["epoch"] == 1 else 0,
-                "Warmup_Samples": epoch_info["warmup_samples"],
-                "Warmup_Batches": epoch_info["warmup_batches"],
-                "Total_Speed_With_Warmup_Samples_per_sec": (epoch_info["samples"] + epoch_info["warmup_samples"])
-                / epoch_info["iteration_time"]
-                if epoch_info["iteration_time"] > 0
-                else 0,
-                "Dataset_Path": result.data_path,
-                "Madvise_Interval": result.madvise_interval,
-                "Max_Time_Seconds": result.max_time_seconds,
-                "Shuffle": getattr(result, "shuffle", None),
-                "Instantiation_Time_s": getattr(result, "instantiation_time_seconds", None),  # TOTAL
-                "Dataset_Instantiation_Time_s": getattr(result, "dataset_instantiation_time_seconds", None),  # 🆕 NEW
-                "Dataloader_Instantiation_Time_s": getattr(
-                    result, "dataloader_instantiation_time_seconds", None
-                ),  # 🆕 NEW
-                "Instantiation_Memory_MB": getattr(result, "peak_memory_during_instantiation_mb", None),
-                "Average_Batch_Size": avg_batch_size,
-                "Batches_per_sec": epoch_info["batches"] / epoch_info["elapsed"]
-                if epoch_info["iteration_time"] > 0
-                else 0,
-            }
-        )
 
-    # Write or append detailed CSV only
-    mode = "w" if should_create_headers else "a"
-    header = should_create_headers
-
-    if detailed_rows:
-        pd.DataFrame(detailed_rows).to_csv(detailed_csv, mode=mode, header=header, index=False)
-        if should_create_headers:
-            print(f"📄 Created Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
+    for i, result in enumerate(results, 1):
+        # Handle run numbering for single result vs multiple results
+        if len(results) == 1:
+            # Single result - extract run number from name
+            run_number = 1
+            if "_run_" in result.name:
+                try:
+                    run_number = int(result.name.split("_run_")[-1])
+                except ValueError:
+                    pass
         else:
-            print(f"📄 Appended to Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
+            # Multiple results - use enumeration
+            run_number = i
+
+        # Create detailed rows for each epoch
+        for epoch_info in result.epoch_results:
+            detailed_rows.append(
+                {
+                    "Run_Name": result.name,
+                    "Run_Number": run_number,
+                    "Epoch": epoch_info["epoch"],
+                    "Batches": epoch_info["batches"],
+                    "Samples": epoch_info["samples"],
+                    "Samples_per_sec": epoch_info["samples"] / epoch_info["elapsed"]
+                    if epoch_info["elapsed"] > 0
+                    else 0,
+                    "Peak_Memory_MB": epoch_info["peak_memory"] - result.memory_before_instantiation_mb,
+                    "Average_Memory_MB": epoch_info["avg_memory"] - result.memory_before_instantiation_mb,
+                    "Total_Time_s": epoch_info["iteration_time"],
+                    "Warmup_Time_s": result.warmup_time_seconds if epoch_info["epoch"] == 1 else 0,
+                    "Warmup_Samples": epoch_info["warmup_samples"],
+                    "Warmup_Batches": epoch_info["warmup_batches"],
+                    "Total_Speed_With_Warmup_Samples_per_sec": (epoch_info["samples"] + epoch_info["warmup_samples"])
+                    / epoch_info["iteration_time"]
+                    if epoch_info["iteration_time"] > 0
+                    else 0,
+                    "Dataset_Path": result.data_path,
+                    "Madvise_Interval": result.madvise_interval,
+                    "Max_Time_Seconds": result.max_time_seconds,
+                    "Shuffle": result.shuffle,
+                    "Dataset_Instantiation_Time_s": result.dataset_instantiation_time_seconds,
+                    "Dataloader_Instantiation_Time_s": result.dataloader_instantiation_time_seconds,
+                    "Peak_Instantiation_Memory_MB": result.peak_memory_during_instantiation_mb
+                    - result.memory_before_instantiation_mb,
+                    "Batches_per_sec": epoch_info["batches"] / epoch_info["elapsed"]
+                    if epoch_info["elapsed"] > 0
+                    else 0,
+                }
+            )
+
+    # Write detailed CSV
+    pd.DataFrame(detailed_rows).to_csv(detailed_csv, mode=mode, header=header, index=False)
+    if create_headers:
+        print(f"📄 Created Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
+    else:
+        print(f"📄 Appended to Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
 
 
 def get_disk_size(path: Union[str, Path]) -> float:

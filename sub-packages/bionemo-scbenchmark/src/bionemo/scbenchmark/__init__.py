@@ -26,7 +26,6 @@ from .benchmark import (
 )
 from .common import (
     BenchmarkResult,
-    calculate_derived_metrics,
     export_benchmark_results,
 )
 
@@ -36,7 +35,6 @@ __all__ = [
     "BenchmarkConfig",
     "BenchmarkResult",
     "benchmark_dataloader",
-    "calculate_derived_metrics",
     "export_benchmark_results",
     "run_benchmark",
 ]
