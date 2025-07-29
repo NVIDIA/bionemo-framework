@@ -20,13 +20,15 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Any, Callable, Literal
 
 import numpy as np
 import pytest
 import torch
+from megatron.core.transformer.enums import AttnBackend
 from megatron.core.transformer.module import Float16Module
 from nemo.collections import llm
+from nemo.collections.llm.gpt.model.hyena import HyenaInferenceContext
 from nemo.collections.llm.inference import generate
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.io.pl import MegatronCheckpointIO
@@ -409,15 +411,18 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 
 
 @pytest.mark.parametrize(
-    "ckpt_name,expected_matchpercents",
+    "ckpt_name,expected_matchpercents,flash_decode",
     [
-        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
-        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
-        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], False),
+        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
+        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
+        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
+        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
     ],
 )
-def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
+def test_forward_manual(
+    sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool = True
+):
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -429,26 +434,29 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         tokenizer = get_nmt_tokenizer(
             "byte-level",
         )
+        flash_decode_kwargs: dict[str, Any] = {"flash_decode": flash_decode}
+        if flash_decode:
+            flash_decode_kwargs["attention_backend"] = AttnBackend.flash
         if "1b-8k" in ckpt_name:
             model_config = llm.Hyena1bConfig(
                 use_te=True,
                 seq_length=8192,
-                flash_decode=False,
                 vortex_style_fp8=vortex_style_fp8,
+                **flash_decode_kwargs,
             )
         elif "7b-8k" in ckpt_name:
             model_config = llm.Hyena7bConfig(
                 use_te=True,
                 seq_length=8192,
-                flash_decode=False,
                 vortex_style_fp8=vortex_style_fp8,
+                **flash_decode_kwargs,
             )
         elif "7b-1m" in ckpt_name:
             model_config = llm.Hyena7bARCLongContextConfig(
                 use_te=True,
                 seq_length=8192,
-                flash_decode=False,
                 vortex_style_fp8=vortex_style_fp8,
+                **flash_decode_kwargs,
             )
         else:
             raise NotImplementedError
@@ -457,6 +465,9 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         device = raw_megatron_model.parameters().__next__().device
         load_weights_sharded_inplace_nemo2_to_mcore(raw_megatron_model, ckpt_weights, {}, "torch_dist")
         model = Float16Module(model_config, raw_megatron_model)
+        if flash_decode:
+            inference_context = HyenaInferenceContext(max_batch_size=1, max_sequence_length=8192)
+            forward_kwargs = {"runtime_gather_output": True, "inference_context": inference_context}
         matchrates = []
         for seq in sequences:
             seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
@@ -466,8 +477,15 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
                 input_ids = torch.tensor(tokenizer.text_to_ids(seq)).int().unsqueeze(0).to(device)
                 attention_mask = None
                 # when labels is None, the model returns logits
-                logits = model(input_ids=input_ids, position_ids=None, attention_mask=attention_mask, labels=None)
-
+                logits = model(
+                    input_ids=input_ids,
+                    position_ids=None,
+                    attention_mask=attention_mask,
+                    labels=None,
+                    **forward_kwargs,
+                )
+                if flash_decode:
+                    forward_kwargs["inference_context"].reset()
                 matchrate = calc_matchrate(tokenizer=tokenizer, in_seq=seq, logits=logits)
                 matchrates.append(matchrate)
                 check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate, assert_matchrate=False)
