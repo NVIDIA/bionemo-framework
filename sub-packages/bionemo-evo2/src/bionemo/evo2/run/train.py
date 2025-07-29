@@ -47,6 +47,7 @@ from nemo.utils.exp_manager import TimingCallback
 
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
+from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
@@ -579,6 +580,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "add_bias_output": args.add_bias_output,
         **activation_checkpointing_args,
     }
+    if args.spike_no_more_embedding_init:
+        config_modifiers_init["embedding_init_method_std"] = 1.0
     if args.use_targeted_variance_loss:
         config_modifiers_init["use_targeted_variance_loss"] = True
     if args.use_b2b_causal_conv1d:
@@ -598,12 +601,14 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         if args.model_size not in HYENA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Hyena: {args.model_size}")
         model_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
+        if args.no_weight_decay_embeddings:
+            # Override the default weight decay condition for Hyena with our bionemo version that also excludes
+            #  embeddings
+            model_config.hyena_no_weight_decay_cond_fn = hyena_no_weight_decay_cond_with_embeddings
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer)
     else:  # mamba
         if args.no_weight_decay_embeddings:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
-        if args.spike_no_more_embedding_init:  # --spike-no-more-embedding-init
-            config_modifiers_init["spike_no_more_embedding_init"] = True
         config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
         if args.model_size not in MAMBA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
