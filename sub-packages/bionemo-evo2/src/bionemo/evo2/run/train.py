@@ -381,6 +381,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Do not renormalize the loss weights.",
     )
+    parser.add_argument(
+        "--mamba-lowercase-loss-weight",
+        type=float,
+        default=1.0,
+        help="Loss weight for the Mamba model for lowercase bases, if you are using a Mamba model.",
+    )
     # rank as list of integers
     parser.add_argument(
         "--nsys-ranks",
@@ -597,6 +603,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
         if args.spike_no_more_embedding_init:  # --spike-no-more-embedding-init
             config_modifiers_init["spike_no_more_embedding_init"] = True
+        config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
         if args.model_size not in MAMBA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
         add_bias_output = config_modifiers_init.pop("add_bias_output")
@@ -703,6 +710,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
     )
+    if model_type == "mamba":
+        # Include this setting for mamba models.
+        wandb_run_name += f"-LLW{args.mamba_lowercase_loss_weight}"
 
     wandb_config: Optional[WandbConfig] = (
         None
