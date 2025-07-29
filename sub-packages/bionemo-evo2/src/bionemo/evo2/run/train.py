@@ -176,7 +176,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="TP communication backend to use. Defaults to 'nccl'.",
     )
     parser.add_argument("--align-param-gather", action="store_true", default=False)
-    # parser.add_argument("--straggler-detection", action="store_true", default=False)
     parser.add_argument(
         "--model-size",
         type=str,
@@ -356,7 +355,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="If set, the embeddings are initialized with a Normal(0, 1.0) distribution rather "
         "than the default Normal(0, 0.02). This may help avoid loss spiking during training. Consider using this with "
         "--no-weight-decay-embeddings to avoid shrinking the embeddings to 0 by skipping weight decay on these layers, "
-        "or with --use-targeted-variance-loss to maintain a 1.0 variance during training even with weight decay.",
+        "or with --use-targeted-variance-loss to maintain a 1.0 variance during training even with weight decay. This "
+        "also turns off shared weights between embeddings and outputs.",
     )
     parser.add_argument(
         "--no-weight-decay-embeddings",
@@ -582,6 +582,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     }
     if args.spike_no_more_embedding_init:
         config_modifiers_init["embedding_init_method_std"] = 1.0
+        # When using spike_no_more_embedding_init, we don't want to share embeddings and outputs.
+        config_modifiers_init["share_embeddings_and_output_weights"] = False
     if args.use_targeted_variance_loss:
         config_modifiers_init["use_targeted_variance_loss"] = True
     if args.use_b2b_causal_conv1d:
