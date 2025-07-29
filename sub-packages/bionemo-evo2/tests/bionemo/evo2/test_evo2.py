@@ -305,6 +305,8 @@ def detect_pst(ckpt_name):
 def get_inference_params(ckpt_name):
     # Below are parameters that need to be tuned based on GPU memory size.
     return {
+        "fp32_residual_connection": False,
+
         # This mostly determines size of KV cache.
         "inference_max_seq_length": 8192,
 
@@ -463,6 +465,7 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
                 use_te=True,
                 seq_length=8192,
                 flash_decode=False,
+                fp32_residual_connection=False,
                 vortex_style_fp8=vortex_style_fp8,
             )
         elif "7b-8k" in ckpt_name:
@@ -470,6 +473,7 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
                 use_te=True,
                 seq_length=8192,
                 flash_decode=False,
+                fp32_residual_connection=False,
                 vortex_style_fp8=vortex_style_fp8,
             )
         elif "7b-1m" in ckpt_name:
@@ -477,6 +481,7 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
                 use_te=True,
                 seq_length=8192,
                 flash_decode=False,
+                fp32_residual_connection=False,
                 vortex_style_fp8=vortex_style_fp8,
             )
         else:
