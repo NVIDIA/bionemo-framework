@@ -25,12 +25,10 @@ import pytest
 
 @pytest.fixture
 def scdl_speedtest_cmd():
-    """Fixture to provide the command to run scdl_speedtest.py."""
-    script_path = os.path.join(os.path.dirname(__file__), "scdl_speedtest.py")
-    if os.path.exists(script_path):
-        return [sys.executable, script_path]
-    else:
-        return [sys.executable, "-m", "scdl_speedtest"]
+    """Fixture to provide the command to run scdl_speedtest as a script."""
+    script_path = os.path.join(os.path.dirname(__file__), "../../../../simple-benchmark/scdl_speedtest.py")
+    script_path = os.path.abspath(script_path)
+    return [sys.executable, script_path]
 
 
 def test_scdl_speedtest_help_runs(scdl_speedtest_cmd):
