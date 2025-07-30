@@ -74,3 +74,28 @@ script: |-
     --disable-checkpointing \
     --early-stop-on-step=${stop_steps} \
     --create-tflops-callback;
+tests:
+  - logic_type: static
+    logic_spec:
+      exit_codes:
+        - 0
+      baselines:
+        consumed_samples:
+          operator: eq
+          value: 3072000.0
+        val_loss:
+          operator: range
+          max: 0.6678
+          min: 0.5630
+        reduced_train_loss:
+          operator: range
+          max: 0.1372
+          min: 0.0993
+        TFLOPS_per_GPU:
+          operator: range
+          max: 719.5984
+          min: 694.8020
+        val_acc:
+          operator: range
+          max: 0.8462
+          min: 0.7833
