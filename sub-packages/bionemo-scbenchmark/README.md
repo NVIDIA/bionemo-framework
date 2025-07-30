@@ -23,7 +23,7 @@ pip install -e .
 
 ### Download Data
 ```bash
-wget   -O cellxgene_example_25k.h5ad "https://datasets.cellxgene.cziscience.com/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad"
+wget -O cellxgene_example_25k.h5ad "https://datasets.cellxgene.cziscience.com/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad"
 ```
 
 ### Run python code
@@ -53,14 +53,21 @@ print_results(result)
 ```
 
 ### Output
-
-
+```
+============================================================
+Benchmark: AnnLoader
+Samples/sec: 622.98
+Total samples: 6230
+Total time: 10.000s
+Dataset instantiation: 0.264s
+Dataloader instantiation: 0.000s
+Peak memory: 57.9 MB
+Disk size: 144.6 MB
+```
 
 ## Bring your own Dataloader
 
 Your dataloader just needs to be **iterable** (support `for batch in dataloader`).
-
-**Create a factory function**
 
 ### Dataloader vs Dataset Factories
 
