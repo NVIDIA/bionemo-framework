@@ -5,67 +5,27 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bionemo-scbenchmark"
 version = "0.1.0"
-description = "Simple benchmarking framework for any dataloader"
+description = "Simple benchmarking framework for any single-cell dataloader"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "Apache-2.0"}
-authors = [
-    {name = "NVIDIA", email = "bionemo@nvidia.com"}
-]
-keywords = ["benchmarking", "dataloader", "performance", "single-cell"]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-]
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 
 dependencies = [
     "torch>=1.12.0",
     "psutil>=5.8.0",
     "numpy>=1.21.0",
     "pandas>=1.3.0",
-]
+    "tqdm>=4.0.0",
+    "scdataset",
+    "anndata>=0.11.0",
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=6.0",
-    "pytest-cov>=2.0",
-    "black>=22.0",
-    "isort>=5.0",
-    "flake8>=4.0",
 ]
-
-[project.urls]
-Homepage = "https://github.com/NVIDIA/bionemo-framework"
-Repository = "https://github.com/NVIDIA/bionemo-framework"
-Documentation = "https://github.com/NVIDIA/bionemo-framework"
-Issues = "https://github.com/NVIDIA/bionemo-framework/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
+include = ["bionemo.*"]
+namespaces = true
+exclude = ["test*."]
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.md", "*.json"]
-
-[tool.black]
-line-length = 88
-target-version = ['py38']
-
-[tool.isort]
-profile = "black"
-line_length = 88
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = "-v --cov=bionemo.scbenchmark --cov-report=term-missing"

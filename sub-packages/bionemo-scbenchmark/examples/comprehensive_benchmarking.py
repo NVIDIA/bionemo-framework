@@ -16,7 +16,19 @@
 
 #!/usr/bin/env python3
 
-"""Comprehensive Benchmarking Example.
+r"""Comprehensive Benchmarking Example.
+
+Usage:
+    python comprehensive_benchmarking.py \\
+        --adata-path /path/to/data.h5ad \\
+        --scdl-path /path/to/scdl/ \\
+        --num-epochs 2 \\
+        --num-runs 3
+
+Example:
+    python comprehensive_benchmarking.py \\
+        --adata-path "/data/sample_data.h5ad" \\
+        --scdl-path "/data/scdl_data/"
 
 This example demonstrates BOTH approaches:
 1. Dataset Reuse (AnnData): Dataset loaded ONCE, multiple configs tested on SAME dataset
@@ -28,25 +40,25 @@ This mixed approach shows:
 - Flexibility to choose per use case
 
 Key Benefits of Dataset Reuse:
-- ⚡ Faster benchmarking (dataset loaded once, not N times)
-- 💾 Memory efficient
-- 🔄 Fair comparison (all configs use identical data)
-- 📊 Separate tracking of dataset vs dataloader instantiation times
+- Faster benchmarking (dataset loaded once, not N times)
+- Memory efficient
+- Fair comparison (all configs use identical data)
+- Separate tracking of dataset vs dataloader instantiation times
 
 Key Benefits of Dataset Reload:
-- 🔒 Full isolation between configs
-- 🆕 Fresh dataset state per config
-- 📈 Individual dataset loading performance measurement
+- Full isolation between configs
+- Fresh dataset state per config
+- Individual dataset loading performance measurement
 """
 
 import os
+from datetime import datetime
 
 import anndata
 from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
 
-from bionemo.scbenchmark import benchmark_dataloader
-from bionemo.scbenchmark.common import export_benchmark_results
+from bionemo.scbenchmark import benchmark_dataloaders_with_configs, print_results
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 
@@ -68,7 +80,7 @@ def create_anndata_dataset_factory(data_path, backed="r"):
     """
 
     def factory():
-        print(f"📂 Loading AnnData dataset from: {data_path}")
+        print(f"Loading AnnData dataset from: {data_path}")
         if data_path.endswith(".h5ad"):
             h5ad_files = [data_path]
         elif os.path.isdir(data_path) and any(f.endswith(".h5ad") for f in os.listdir(data_path)):
@@ -76,7 +88,7 @@ def create_anndata_dataset_factory(data_path, backed="r"):
         else:
             raise ValueError("AnnData requires a .h5ad file or directory with .h5ad files")
         dataset = AnnCollection([anndata.read_h5ad(f, backed=backed) for f in h5ad_files])
-        print(f"✅ Dataset loaded: {dataset.shape[0]:,} cells x {dataset.shape[1]:,} genes")
+        print(f"Dataset loaded: {dataset.shape[0]:,} cells x {dataset.shape[1]:,} genes")
         return dataset
 
     return factory
@@ -120,9 +132,9 @@ def create_scdl_dataset_and_loader_factory(batch_size=64, shuffle=True, data_pat
     """
 
     def factory():
-        print(f"📂 Loading SCDL dataset from: {data_path}")
+        print(f"Loading SCDL dataset from: {data_path}")
         dataset = SingleCellMemMapDataset(data_path)
-        print(f"✅ Dataset loaded: {len(dataset):,} samples")
+        print(f"Dataset loaded: {len(dataset):,} samples")
         return DataLoader(
             dataset,
             batch_size=batch_size,
@@ -140,7 +152,7 @@ def create_scdl_dataset_and_loader_factory(batch_size=64, shuffle=True, data_pat
 # =============================================================================
 
 
-def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
+def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1, adata_path=None, scdl_path=None):
     """Demonstrate dataset reuse functionality.
 
     This example shows how to:
@@ -151,26 +163,26 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
     Args:
         num_epochs: Number of epochs to run per configuration
         num_runs: Number of runs per configuration for statistical analysis
+        adata_path: Path to the AnnData file (.h5ad)
+        scdl_path: Path to the SCDL directory
     """
-    # Configure paths (adjust these for your environment)
-    adata_path = (
-        "/home/pbinder/bionemo-framework/tahoe_data/plate11_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad"
-    )
+    # Create timestamped prefix for all results
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    print(f"All results will be saved to: comprehensive_benchmark_{timestamp}_detailed_breakdown.csv")
+    print()
 
-    memmap_path = "/home/pbinder/bionemo-framework/tahoe_memmap/"
-
-    print("🚀 Mixed Benchmarking Example: Dataset Reuse vs Reload")
+    print("Mixed Benchmarking Example: Dataset Reuse vs Reload")
     print("=" * 60)
-    print(f"📊 Testing {num_runs} run(s) each across different configs")
-    print("⚡ AnnData: Dataset loaded ONCE (reuse)")
-    print("🔄 SCDL: Dataset loaded PER CONFIG (reload)")
+    print(f"Testing {num_runs} run(s) each across different configs")
+    print("AnnData: Dataset loaded ONCE (reuse)")
+    print("SCDL: Dataset loaded PER CONFIG (reload)")
     print()
 
     # =============================================================================
     # EXAMPLE 1: AnnData Dataset with Multiple DataLoader Configurations
     # =============================================================================
 
-    print("🧬 EXAMPLE 1: AnnData with Multiple DataLoader Configs")
+    print("EXAMPLE 1: AnnData with Multiple DataLoader Configs")
     print("-" * 60)
 
     anndata_configurations = [
@@ -212,10 +224,10 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
         },
     ]
 
-    anndata_results = benchmark_dataloader(
-        dataset_factory=create_anndata_dataset_factory(adata_path),  # 🆕 Load once!
-        dataloaders=anndata_configurations,  # All configs use same dataset
-        output_dir="dataset_reuse_anndata_results",
+    anndata_results = benchmark_dataloaders_with_configs(
+        dataloader_configs=anndata_configurations,
+        shared_dataset_factory=create_anndata_dataset_factory(adata_path),
+        output_prefix=f"comprehensive_benchmark_{timestamp}",
     )
 
     print()
@@ -225,49 +237,51 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
     # EXAMPLE 2: SCDL Dataset with Multiple DataLoader Configurations
     # =============================================================================
 
-    print("🔬 EXAMPLE 2: SCDL with Multiple DataLoader Configs (Reload Each Time)")
+    print("EXAMPLE 2: SCDL with Multiple DataLoader Configs (Reload Each Time)")
     print("-" * 60)
 
     scdl_configurations = [
         {
             "name": "SCDL_Batch32_Shuffle",
             "dataloader_factory": create_scdl_dataset_and_loader_factory(
-                batch_size=64, shuffle=True, data_path=memmap_path, num_workers=0
+                batch_size=64, shuffle=True, data_path=scdl_path, num_workers=0
             ),
             "num_epochs": num_epochs,
             "max_time_seconds": 100.0,
             "warmup_time_seconds": 0.0,
-            "data_path": memmap_path,
+            "data_path": scdl_path,
             "num_runs": num_runs,
         },
         {
             "name": "SCDL_Batch128_Shuffle",
             "dataloader_factory": create_scdl_dataset_and_loader_factory(
-                batch_size=128, shuffle=True, data_path=memmap_path, num_workers=0
+                batch_size=128, shuffle=True, data_path=scdl_path, num_workers=0
             ),
             "num_epochs": num_epochs,
             "max_time_seconds": 3.0,
             "warmup_time_seconds": 0.5,
-            "data_path": memmap_path,
+            "data_path": scdl_path,
             "num_runs": num_runs,
         },
         {
             "name": "SCDL_Batch64_Multi_Worker",
             "dataloader_factory": create_scdl_dataset_and_loader_factory(
-                batch_size=64, shuffle=True, data_path=memmap_path, num_workers=2
+                batch_size=64, shuffle=True, data_path=scdl_path, num_workers=2
             ),
             "num_epochs": num_epochs,
             "max_time_seconds": 3.0,
             "warmup_time_seconds": 0.5,
-            "data_path": memmap_path,
+            "data_path": scdl_path,
             "num_runs": num_runs,
         },
     ]
 
     # Each config loads its own dataset
-    scdl_results = benchmark_dataloader(
-        dataloaders=scdl_configurations,  # 🔄 Each config loads dataset separately!
-        output_dir="dataset_reuse_scdl_results",
+
+    scdl_results = benchmark_dataloaders_with_configs(
+        dataloader_configs=scdl_configurations,
+        shared_dataset_factory=None,  # Each config loads its own dataset
+        output_prefix=f"comprehensive_benchmark_{timestamp}",
     )
 
     print()
@@ -277,42 +291,56 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1):
     # ANALYSIS AND SUMMARY
     # =============================================================================
 
-    print("📊 ANALYSIS & COMPARISON")
+    print("ANALYSIS & COMPARISON")
     print("-" * 60)
 
-    all_results = []
-    if anndata_results:
-        all_results.extend(anndata_results)
-    if scdl_results:
-        all_results.extend(scdl_results)
-
-    if all_results:
-        # Find best performers across all configurations
-        best_samples_per_sec = max(all_results, key=lambda r: r.samples_per_second)
-        lowest_memory = min(all_results, key=lambda r: r.peak_memory_mb)
-        fastest_instantiation = min(all_results, key=lambda r: r.instantiation_time_seconds or float("inf"))
-
-        print("🏆 OVERALL BEST PERFORMERS:")
-        print(
-            f"   🚀 Best speed: {best_samples_per_sec.name} ({best_samples_per_sec.samples_per_second:.2f} samples/sec)"
-        )
-        print(f"   💾 Lowest memory: {lowest_memory.name} ({lowest_memory.peak_memory_mb:.2f} MB)")
-        if fastest_instantiation.instantiation_time_seconds:
-            print(
-                f"   ⚡ Fastest setup: {fastest_instantiation.name} ({fastest_instantiation.instantiation_time_seconds:.3f}s)"
-            )
-        print()
-
-        # Export comprehensive results
-        export_benchmark_results(results=all_results, output_prefix="dataset_comprehensive")
+    print_results(anndata_results + scdl_results)
 
     print()
-    print("🎉 DATASET REUSE BENCHMARKING COMPLETED!")
+    print("COMPREHENSIVE BENCHMARKING COMPLETED!")
+    print(f"All results saved to: comprehensive_benchmark_{timestamp}_detailed_breakdown.csv")
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="BioNeMo Comprehensive Benchmarking Example",
+        epilog="""
+Examples:
+  %(prog)s --adata-path /data/sample_data.h5ad --scdl-path /data/scdl_data/
+  %(prog)s --adata-path /data/large.h5ad --scdl-path /data/scdl/ --num-epochs 3 --num-runs 5
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--adata-path", type=str, required=True, help="Path to the AnnData file (.h5ad)")
+    parser.add_argument("--scdl-path", type=str, required=True, help="Path to the SCDL directory")
+    parser.add_argument(
+        "--num-epochs", type=int, default=1, help="Number of epochs to run for each configuration (default: 1)"
+    )
+    parser.add_argument(
+        "--num-runs", type=int, default=1, help="Number of runs to perform for each configuration (default: 1)"
+    )
+
+    args = parser.parse_args()
+
+    # Validate paths exist
+    if not os.path.exists(args.adata_path):
+        print(f"Error: AnnData file not found: {args.adata_path}")
+        exit(1)
+    if not os.path.exists(args.scdl_path):
+        print(f"Error: SCDL directory not found: {args.scdl_path}")
+        exit(1)
+
     print("BioNeMo Benchmarking Framework - Dataset Reuse Example")
     print("=" * 80)
+    print(f"AnnData path: {args.adata_path}")
+    print(f"SCDL path: {args.scdl_path}")
+    print(f"Epochs: {args.num_epochs}")
+    print(f"Runs: {args.num_runs}")
+    print()
 
     # Run the actual dataset reuse benchmarking
-    dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1)
+    dataset_reuse_benchmarking_example(
+        num_epochs=args.num_epochs, num_runs=args.num_runs, adata_path=args.adata_path, scdl_path=args.scdl_path
+    )

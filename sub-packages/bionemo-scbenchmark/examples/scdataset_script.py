@@ -37,7 +37,7 @@ from scdataset import scDataset
 from torch.utils.data import DataLoader
 
 # Import the benchmarking framework
-from bionemo.scbenchmark import benchmark_dataloader
+from bionemo.scbenchmark import benchmark_dataloaders_with_configs
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 
@@ -144,7 +144,7 @@ def create_scdl_scdataset_factory(
 
 
 def comprehensive_benchmarking_example(
-    num_epochs=1, num_runs=1, adata_path=None, memmap_path=None, fetch_factors=None, block_sizes=None
+    num_epochs=1, num_runs=1, adata_path=None, scdl_path=None, fetch_factors=None, block_sizes=None
 ):
     """Comprehensive benchmarking example demonstrating various dataloader configurations.
 
@@ -152,7 +152,7 @@ def comprehensive_benchmarking_example(
         num_epochs: Number of epochs to run for each configuration
         num_runs: Number of runs to perform for each configuration
         adata_path: Path to the AnnData file (.h5ad)
-        memmap_path: Path to the SCDL memmap directory
+        scdl_path: Path to the SCDL directory
         fetch_factors: List of fetch factors to test (default: [1])
         block_sizes: List of block sizes to test (default: [1, 2, 4, 8, 16, 32, 64])
     """
@@ -161,35 +161,22 @@ def comprehensive_benchmarking_example(
     print("=" * 80)
     print()
 
-    # Use provided paths or defaults
-    if adata_path is None:
-        adata_path = "/home/pbinder/bionemo-framework/tahoe_data"
-    if memmap_path is None:
-        memmap_path = "/home/pbinder/bionemo-framework/all_tahoe_memmap/"
-    if fetch_factors is None:
-        fetch_factors = [1]
-    if block_sizes is None:
-        block_sizes = [1, 2, 4, 8, 16, 32, 64]
-
-    print(f"📊 Using AnnData path: {adata_path}")
-    print(f"📊 Using SCDL memmap path: {memmap_path}")
-    print(f"📊 Fetch factors: {fetch_factors}")
-    print(f"📊 Block sizes: {block_sizes}")
+    print(f"Using AnnData path: {adata_path}")
+    print(f"Using SCDL path: {scdl_path}")
+    print(f"Fetch factors: {fetch_factors}")
+    print(f"Block sizes: {block_sizes}")
     print()
 
-    # Create single timestamped output directory for all results
+    # Create timestamped prefix for all results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = f"scdataset_benchmark_results_{timestamp}"
-    csv_prefix = f"{output_dir}_consolidated_results"
-    print(f"📁 All results will be saved to: {output_dir}/")
-    print(f"📊 Consolidated detailed CSV: {csv_prefix}_detailed_breakdown.csv")
+    print(f"All results will be saved to: scdataset_benchmark_{timestamp}_detailed_breakdown.csv")
     print()
 
     # Parameters
     warmup_time_seconds = 0
-    max_time_seconds = 2
+    max_time_seconds = 5
 
-    print(f"🚀 Benchmarking {num_runs} run(s) each")
+    print(f"Benchmarking {num_runs} run(s) each")
     print()
     # =============================================================================
     # Part1 2: SCDL Dataset with Multiple DataLoader Configurations
@@ -201,14 +188,14 @@ def comprehensive_benchmarking_example(
         {
             "name": "Baseline SCDL",
             "dataloader_factory": create_scdl_dataset_and_loader_factory(
-                batch_size=64, shuffle=True, data_path=memmap_path, num_workers=0
+                batch_size=64, shuffle=True, data_path=scdl_path, num_workers=0
             ),
             "num_epochs": num_epochs,
             "max_time_seconds": max_time_seconds,
             "warmup_time_seconds": warmup_time_seconds,
-            "data_path": memmap_path,
+            "data_path": scdl_path,
             "num_runs": num_runs,
-        },
+        }
     ]
     for fetch_factor in fetch_factors:
         for block_size in block_sizes:
@@ -218,7 +205,7 @@ def comprehensive_benchmarking_example(
                     "dataloader_factory": create_scdl_scdataset_factory(
                         batch_size=64,
                         shuffle=True,
-                        data_path=memmap_path,
+                        data_path=scdl_path,
                         num_workers=0,
                         block_size=block_size,
                         fetch_factor=fetch_factor,
@@ -226,14 +213,14 @@ def comprehensive_benchmarking_example(
                     "num_epochs": num_epochs,
                     "max_time_seconds": max_time_seconds,
                     "warmup_time_seconds": warmup_time_seconds,
-                    "data_path": memmap_path,
-                    "madvise_interval": None,
+                    "data_path": scdl_path,
                     "num_runs": 1,
                 }
             )
-    benchmark_dataloader(
-        dataloaders=scdl_configurations,  # 🔄 Each config loads dataset separately!
-        output_dir=output_dir,
+    benchmark_dataloaders_with_configs(
+        dataloader_configs=scdl_configurations,
+        shared_dataset_factory=None,  # Each config creates its own dataset
+        output_prefix=f"scdataset_benchmark_{timestamp}",
     )
     # =============================================================================
     # Part2: AnnData Dataset with ScDataset Configurations
@@ -264,17 +251,13 @@ def comprehensive_benchmarking_example(
                     "num_runs": num_runs,
                 }
             )
-
-    # Call benchmark_dataloader AFTER building the complete configuration list
-    benchmark_dataloader(
-        dataset_factory=create_anndata_dataset_factory(adata_path),  # 🆕 Load once!
-        dataloaders=anndata_configurations,  # All configs use same dataset
-        output_dir=output_dir,
+    benchmark_dataloaders_with_configs(
+        dataloader_configs=anndata_configurations,
+        shared_dataset_factory=create_anndata_dataset_factory(adata_path),
+        output_prefix=f"scdataset_benchmark_{timestamp}",  # Same file as SCDL results
     )
-    print("✅ Benchmarking completed!")
-    print(f"📁 All results saved to: {output_dir}/")
-    print("📊 Consolidated detailed CSV:")
-    print(f"   - {output_dir}/{csv_prefix}_detailed_breakdown.csv")
+    print("Benchmarking completed!")
+    print(f"All results saved to: scdataset_benchmark_{timestamp}_detailed_breakdown.csv")
     print()
 
 
@@ -283,19 +266,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--adata-path",
         type=str,
-        default="/home/pbinder/bionemo-framework/tahoe_data",
+        default="/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/smaller_samples/sample_500_19836_0.99.h5ad",
         help="Path to the AnnData file (.h5ad). Default: %(default)s",
     )
     parser.add_argument(
-        "--memmap-path",
+        "--scdl-path",
         type=str,
         default="/home/pbinder/bionemo-framework/all_tahoe_memmap/",
-        help="Path to the SCDL memmap directory. Default: %(default)s",
+        help="Path to the SCDL directory. Default: %(default)s",
     )
     parser.add_argument(
         "--num-epochs",
         type=int,
-        default=2,
+        default=1,
         help="Number of epochs to run for each configuration. Default: %(default)s",
     )
     parser.add_argument(
@@ -311,7 +294,7 @@ if __name__ == "__main__":
         "--block-sizes",
         nargs="+",
         type=int,
-        default=[1, 2, 4, 8, 16, 32, 64],
+        default=[],  # [1, 2, 4, 8, 16, 32, 64],
         help="List of block sizes to test. Default: %(default)s",
     )
 
@@ -323,7 +306,7 @@ if __name__ == "__main__":
         num_epochs=args.num_epochs,
         num_runs=args.num_runs,
         adata_path=args.adata_path,
-        memmap_path=args.memmap_path,
+        scdl_path=args.scdl_path,
         fetch_factors=args.fetch_factors,
         block_sizes=args.block_sizes,
     )

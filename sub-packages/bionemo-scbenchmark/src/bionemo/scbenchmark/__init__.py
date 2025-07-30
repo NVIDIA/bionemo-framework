@@ -21,20 +21,18 @@ A simple, flexible framework for benchmarking any dataloader.
 
 from .benchmark import (
     BenchmarkConfig,
-    benchmark_dataloader,
-    run_benchmark,
+    benchmark_dataloaders_with_configs,
+    benchmark_single_dataloader,
+    print_results,
 )
 from .common import (
     BenchmarkResult,
+    download_example_dataset,
     export_benchmark_results,
+    get_batch_size,
+    get_disk_size,
+    measure_peak_memory_full,
 )
 
 
 __version__ = "0.1.0"
-__all__ = [
-    "BenchmarkConfig",
-    "BenchmarkResult",
-    "benchmark_dataloader",
-    "export_benchmark_results",
-    "run_benchmark",
-]

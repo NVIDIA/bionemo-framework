@@ -19,12 +19,44 @@ source bionemo_singlecell_benchmark/bin/activate
 pip install -e .
 ```
 
-**For baseline comparison** (optional):
+## Quick Start
+
+### Download Data
 ```bash
-pip install anndata bionemo-scdl scDataset
+wget   -O cellxgene_example_25k.h5ad "https://datasets.cellxgene.cziscience.com/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad"
 ```
 
-## Quick Start
+### Run python code
+```python
+import anndata as ad
+from anndata.experimental import AnnCollection, AnnLoader
+from bionemo.scbenchmark.benchmark import benchmark_single_dataloader, print_results
+
+filepath = "cellxgene_example_25k.h5ad"
+
+#create a dataloader factory
+def anndata_factory(input_path, batch_size = 64):
+    def factory():
+        dataset = ad.read_h5ad(input_path, backed="r")
+        return AnnLoader(dataset, num_workers = 0, collate_fn=lambda x: x[0])
+    return factory
+
+#benchmark the dataloader
+result = benchmark_single_dataloader(
+    dataloader_factory=anndata_factory(filepath),
+    data_path=filepath,
+    name="AnnLoader",
+    max_time_seconds = 10
+)
+
+print_results(result)
+```
+
+### Output
+
+
+
+## Bring your own Dataloader
 
 Your dataloader just needs to be **iterable** (support `for batch in dataloader`).
 
@@ -36,37 +68,42 @@ The framework supports two distinct patterns for benchmarking, each optimized fo
 
 **Dataloader Factory**: Creates both dataset and dataloader
 ```python
-from torch import DataLoader
+from torch.utils.data import DataLoader
 
 def dataloader_factory():
     dataset = load_dataset()  # Load data each time
     return DataLoader(dataset, batch_size=32)
 
-benchmark_dataloader(
-    dataloaders=dataloader_factory()
+benchmark_single_dataloader(
+    dataloader_factory=dataloader_factory,
+    data_path="/path/to/data",
+    name="MyBenchmark"
 )
-
 ```
 - **Use when**: Testing different datasets or when dataset loading is fast
 - **Measures**: Total instantiation time (dataset + dataloader combined)
 
 **Dataset Factory**: Loads dataset once, reused across multiple dataloader configs
 ```python
-from torch import DataLoader
+from torch.utils.data import DataLoader
 
 def dataset_factory():
     return load_dataset()  # Load once
 
-def dataloader_factory(dataset):  # Receives pre-loaded dataset
+def dataloader_factory_32(dataset):  # Receives pre-loaded dataset
     return DataLoader(dataset, batch_size=32)
 
+def dataloader_factory_64(dataset):  # Receives pre-loaded dataset
+    return DataLoader(dataset, batch_size=64)
+
 # Dataset reuse mode - loads dataset once, tests multiple configs
-benchmark_dataloader(
-    dataset_factory=dataset_factory,
-    dataloaders=[
-        {"name": "Config1", "dataloader_factory": lambda ds: DataLoader(ds, batch_size=32)},
-        {"name": "Config2", "dataloader_factory": lambda ds: DataLoader(ds, batch_size=64)}
-    ]
+benchmark_dataloaders_with_configs(
+    shared_dataset_factory=dataset_factory,
+    dataloader_configs=[
+        {"name": "Config1", "dataloader_factory": dataloader_factory_32, "data_path": "/path/to/data"},
+        {"name": "Config2", "dataloader_factory": dataloader_factory_64, "data_path": "/path/to/data"}
+    ],
+    output_prefix="my_benchmark"
 )
 ```
 
@@ -77,25 +114,29 @@ benchmark_dataloader(
 
 **Benchmark your dataloader!**
 ```python
-from bionemo.scbenchmark.benchmark import benchmark_dataloader
+from bionemo.scbenchmark import benchmark_single_dataloader
 
 # Benchmark it with instantiation measurement!
-result = benchmark_dataloader(
-    name="My Dataloader",
+result = benchmark_single_dataloader(
     dataloader_factory=create_my_dataloader,
-    data_path="path/to/data",  # Optional: for disk measurement
+    data_path="path/to/data",  # Required: for disk measurement
+    name="My Dataloader",
     num_epochs=1,
     max_batches=100,           # Optional: limit number of batches
     max_time_seconds=30.0,     # Optional: limit runtime to 30 seconds
     warmup_batches=5,          # Optional: warmup with 5 batches
-    warmup_time_seconds=2.0    # Optional: warmup for 2 seconds
+    warmup_time_seconds=2.0,   # Optional: warmup for 2 seconds
+    output_prefix="my_dataloader_benchmark"  # CSV filename prefix
 )
-print(f"Instantiation time: {result.instantiation_metrics.instantiation_time_seconds:.4f}s")
-print(f"Instantiation memory: {result.instantiation_metrics.memory_delta_mb:.2f} MB")
+
+# Print results
+print(f"Dataset instantiation time: {result.dataset_instantiation_time_seconds:.4f}s")
+print(f"Dataloader instantiation time: {result.dataloader_instantiation_time_seconds:.4f}s")
+print(f"Peak instantiation memory: {result.peak_memory_during_instantiation_mb:.2f} MB")
 print(f"Samples/second: {result.samples_per_second:.2f}")
 print(f"Peak memory usage: {result.peak_memory_mb:.2f} MB")
 print(f"Average memory usage: {result.avg_memory_mb:.2f} MB")
-print(f"Disk usage (MB): {getattr(result, 'disk_usage_mb', 'N/A')}")
+print(f"Disk usage (MB): {result.disk_size_mb:.2f}")
 ```
 
 ## Examples
@@ -106,15 +147,23 @@ print(f"Disk usage (MB): {getattr(result, 'disk_usage_mb', 'N/A')}")
 
 See the examples directory for complete examples:
 ```bash
-# Full feature demonstration
-python examples/comprehensive_benchmarking.py
+# Full feature demonstration with dataset reuse
+python examples/comprehensive_benchmarking.py \
+    --adata-path /path/to/data.h5ad \
+    --scdl-path /path/to/scdl/ \
+    --num-epochs 2 \
+    --num-runs 3
 ```
 
-This demonstrates SCDL and AnnLoader dataloaders with a variety of sampling schemes and with sequential sampling, and with a multi-worker setting.
+This demonstrates SCDL and AnnLoader dataloaders with a variety of sampling schemes, sequential sampling, and multi-worker settings. Shows both dataset reuse and independent loading patterns.
 
 # scDataset profiling
 ```bash
-python examples/scdataset_script.py --fetch-factors 1 2 4 8 16 32 64 --block-sizes 1 4 8 16 32 64
+python examples/scdataset_script.py \
+    --fetch-factors 1 2 4 8 16 32 64 \
+    --block-sizes 1 4 8 16 32 64 \
+    --scdl-path /path/to/scdl/ \
+    --adata-path /path/to/data.h5ad
 ```
 This is code for reproducing AnnDataset and SCDL results wrapped in the scDataset sampler.
 ## Key Features
@@ -150,15 +199,15 @@ This is code for reproducing AnnDataset and SCDL results wrapped in the scDatase
 
 ### Output Formats
 
-**Real-time CSV Export:**
-- Detailed per-epoch breakdown updated after every run
+**CSV Export:**
+- Detailed per-epoch breakdown with `{output_prefix}_detailed_breakdown.csv`
 - All configurations consolidated into single CSV file
-- Perfect for live monitoring and analysis
+- Appends results from multiple benchmark runs
+- Perfect for analysis and comparison
 
-**JSON Results:**
-- Complete benchmark metadata per configuration
-- Structured data for programmatic analysis
-- Individual files per configuration run
+**Example Output Files:**
+- `my_benchmark_detailed_breakdown.csv` - Main results file
+- Contains all run data, epochs, memory, throughput metrics
 
 
 ### Troubleshooting

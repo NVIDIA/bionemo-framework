@@ -22,16 +22,17 @@ and measurement utilities used throughout the benchmarking framework.
 """
 
 import gc
-import json
 import multiprocessing as mp
 import os
 import platform
 import subprocess
 import time
-from dataclasses import asdict, dataclass
+import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import pandas as pd
 import psutil
 
 
@@ -88,29 +89,22 @@ class BenchmarkResult:
 
     def __post_init__(self):
         """Calculate derived metrics from epoch results."""
-        samples = sum(r["samples"] for r in self.epoch_results)
-        elapsed = sum(r["elapsed"] for r in self.epoch_results)
-        self.samples_per_second = samples / elapsed if elapsed > 0 else 0.0
+        self.total_samples = sum(r["samples"] for r in self.epoch_results)
+        self.total_time_seconds = sum(r["elapsed"] for r in self.epoch_results)
+        self.samples_per_second = self.total_samples / self.total_time_seconds if self.total_time_seconds > 0 else 0.0
         self.peak_memory_mb = max(r["peak_memory"] for r in self.epoch_results) - self.memory_before_instantiation_mb
         self.avg_memory_mb = (
             sum(r["avg_memory"] for r in self.epoch_results) / len(self.epoch_results)
             - self.memory_before_instantiation_mb
         )
-
-    def save_to_file(self, filepath: str) -> None:
-        """Save results to JSON file.
-
-        Args:
-            filepath: Path to the output JSON file
-        """
-        with open(filepath, "w") as f:
-            json.dump(asdict(self), f, indent=2)
+        self.instantiation_time_seconds = (
+            self.dataset_instantiation_time_seconds + self.dataloader_instantiation_time_seconds
+        )
 
 
 def export_benchmark_results(
     results: Union[BenchmarkResult, List[BenchmarkResult]],
     output_prefix: str = "benchmark_data",
-    output_dir: Optional[str] = None,
 ) -> None:
     """Append benchmark results to detailed breakdown CSV, never overwriting existing data.
 
@@ -120,28 +114,16 @@ def export_benchmark_results(
     Args:
         results: Single BenchmarkResult or list of BenchmarkResults to append
         output_prefix: Prefix for the CSV filename
-        output_dir: Directory where CSV files should be created. If None, uses current directory.
     """
-    import pandas as pd
-
     # Normalize results to always be a list
     if isinstance(results, BenchmarkResult):
         results = [results]
 
-    # Handle output directory
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-
-    # Use simple filenames for append mode
-    detailed_csv = (
-        os.path.join(output_dir, f"{output_prefix}_detailed_breakdown.csv")
-        if output_dir
-        else f"{output_prefix}_detailed_breakdown.csv"
-    )
+    # Use simple filename in current directory
+    detailed_csv = f"{output_prefix}_detailed_breakdown.csv"
 
     # Always append, only write header if file does not exist
     file_exists = os.path.exists(detailed_csv)
-    mode = "a"
     header = not file_exists
 
     # Build detailed rows
@@ -198,15 +180,18 @@ def export_benchmark_results(
             )
 
     # Write detailed CSV (always append, never overwrite)
-    pd.DataFrame(detailed_rows).to_csv(detailed_csv, mode=mode, header=header, index=False)
+    pd.DataFrame(detailed_rows).to_csv(detailed_csv, mode="a", header=header, index=False)
     if not file_exists:
-        print(f"📄 Created Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
+        print(f"Created Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
     else:
-        print(f"📄 Appended to Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
+        print(f"Appended to Detailed breakdown CSV: {os.path.abspath(detailed_csv)}")
 
 
 def get_disk_size(path: Union[str, Path]) -> float:
-    """Get disk size of a file or directory in MB."""
+    """Get disk size of a file or directory in MB.
+
+    Tested on MacOS and Linux.
+    """
     try:
         # Use appropriate du command based on platform
         if platform.system() == "Darwin":  # macOS
@@ -219,8 +204,7 @@ def get_disk_size(path: Union[str, Path]) -> float:
 
         return size_in_bytes / (1024 * 1024)
     except (subprocess.CalledProcessError, ValueError, IndexError) as e:
-        print(f"Warning: Could not determine disk size for {path}: {e}")
-        return 0.0
+        raise RuntimeError(f"Could not determine disk size for {path}: {e}")
 
 
 def get_batch_size(batch: Any) -> int:
@@ -237,7 +221,6 @@ def get_batch_size(batch: Any) -> int:
         Number of samples in the batch
     """
     if hasattr(batch, "X"):
-        # AnnCollection batch
         batch_size = batch.X.shape[0]
     else:
         batch_size = batch.shape[0] if hasattr(batch, "shape") else len(batch)
@@ -340,7 +323,6 @@ def measure_peak_memory_full(
                 stop_event,
                 result_queue,
                 sample_interval,
-                child_refresh_interval,
             ),
         )
         # baseline via PSS
@@ -399,3 +381,48 @@ def measure_peak_memory_full(
     delta_mib = peak_mib - baseline_mib
 
     return (result, baseline_mib, peak_mib, avg_mib, delta_mib, final_mib, duration)
+
+
+def download_example_dataset(cache_dir: str = ".", filename: str = "example_data.h5ad") -> str:
+    """Download a small example AnnData dataset for testing.
+
+    Args:
+        cache_dir: Directory to save the downloaded file (default: current directory)
+        filename: Name of the file to save (default: "example_data.h5ad")
+
+    Returns:
+        str: Path to the downloaded file
+
+    Raises:
+        RuntimeError: If download fails
+    """
+    cache_path = Path(cache_dir) / filename
+
+    # If file already exists, return it
+    if cache_path.exists():
+        print(f"Using cached dataset: {cache_path}")
+        return str(cache_path)
+
+    # URL for a small example dataset (using 10x genomics pbmc3k dataset)
+    url = "https://cf.10xgenomics.com/samples/cell/pbmc3k/pbmc3k_filtered_gene_bc_matrices.h5"
+
+    try:
+        print(f"Downloading example dataset to {cache_path}...")
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # Download with progress
+        def progress_hook(block_num, block_size, total_size):
+            if total_size > 0:
+                percent = min(100, (block_num * block_size * 100) // total_size)
+                print(f"\rDownload progress: {percent}%", end="", flush=True)
+
+        urllib.request.urlretrieve(url, cache_path, reporthook=progress_hook)
+        print("\nDownload completed!")
+
+        return str(cache_path)
+
+    except Exception as e:
+        # Clean up partial download
+        if cache_path.exists():
+            cache_path.unlink()
+        raise RuntimeError(f"Failed to download example dataset: {e}")
