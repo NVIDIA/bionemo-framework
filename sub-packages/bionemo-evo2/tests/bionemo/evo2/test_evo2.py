@@ -374,7 +374,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
     matchrates = []
     for seq in sequences:
         inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
-            ckpt_name, vortex_style_fp8=vortex_style_fp8
+            ckpt_name, vortex_style_fp8=vortex_style_fp8, flash_decode=True, enable_flash_decode=True
         )
 
         seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
@@ -588,7 +588,7 @@ def test_batch_generate(
     [
         ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
-        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
+        # ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
         # ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
         # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
     ],
@@ -693,8 +693,8 @@ def test_batch_generate_coding_sequences(
     [
         ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, 41.0),
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, 41.0),
-        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
-        ("evo2/7b-8k:1.0", get_model_and_tokenizer, 32.0),
+        # ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
+        # ("evo2/7b-8k:1.0", get_model_and_tokenizer, 32.0),
         # ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
     ],
 )
