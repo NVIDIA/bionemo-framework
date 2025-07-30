@@ -346,7 +346,7 @@ def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
         # inference_rng_tracker=True,
         # enable_cuda_graph=True,
         # cudagraph_rng_tracker=True,
-        # flash_decode=True,
+        enable_flash_decode=True,
         recompute_granularity=None,
         recompute_num_layers=None,
         recompute_method=None,
@@ -536,11 +536,11 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
-        ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6]),
-        ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6]),
-        # ("evo2/40b-1m:1.0", [0, 0, 0, 0]),
-        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/1b-8k-bf16:1.0", [96.6, 33.0, 77.2, 71.2]),
+        ("evo2/1b-8k:1.0",      [96.8, 31.0, 72.4, 70.8]),
+        ("evo2/7b-8k:1.0",      [98.6, 90.6, 78.8, 80.6]),
+        ("evo2/7b-1m:1.0",      [98.0, 95.2, 78.0, 85.6]),
+        # ("evo2/40b-1m:1.0",   [0, 0, 0, 0]),
     ],
 )
 def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
