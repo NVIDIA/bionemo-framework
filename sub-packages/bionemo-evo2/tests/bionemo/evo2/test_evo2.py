@@ -385,10 +385,10 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
-        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
-        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
-        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/1b-8k-bf16:1.0", [92.7, 67.8, 77.6, 81.7]),
+        ("evo2/1b-8k:1.0",      [92.7, 66.6, 78.2, 81.6]),
+        ("evo2/7b-8k:1.0",      [93.9, 83.7, 80.2, 86.7]),
+        ("evo2/7b-1m:1.0",      [93.7, 86.6, 80.2, 85.2]),
     ],
 )
 def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
@@ -406,7 +406,6 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 
     matchrates = []
     for seq in sequences:
-        seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
         with torch.no_grad():
             device = torch.cuda.current_device()
             tokens = torch.tensor([mcore_tokenizer.tokenize(seq)], device=device)
@@ -414,6 +413,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
                 "tokens": tokens,
                 "position_ids": None,
                 "attention_mask": None,
+                "inference_context": None, # Needed to save memory: avoid KV cache
             }
 
             inference_wrapped_model.prep_model_for_inference(prompts_tokens=None)
@@ -443,10 +443,10 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
-        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
-        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
-        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/1b-8k-bf16:1.0", [92.6, 67.8, 77.7, 81.6]),
+        ("evo2/1b-8k:1.0",      [92.8, 66.6, 78.1, 81.6]),
+        ("evo2/7b-8k:1.0",      [93.9, 83.8, 80.1, 86.5]),
+        ("evo2/7b-1m:1.0",      [93.6, 86.4, 80.4, 85.2]),
     ],
 )
 def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
@@ -494,7 +494,6 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         model = Float16Module(model_config, raw_megatron_model)
         matchrates = []
         for seq in sequences:
-            seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
             with torch.no_grad():
                 device = torch.cuda.current_device()
                 # tokens = torch.tensor([tokenizer.tokenize(seq)], device=device)
