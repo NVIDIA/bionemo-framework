@@ -434,6 +434,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
     assert len(matchrates) == len(expected_matchpercents)
     matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+    logging.info(f"{matchperc_print=}")
     assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
         f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
@@ -508,6 +509,7 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         assert len(matchrates) == len(expected_matchpercents)
         matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
         matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+        logging.info(f"{matchperc_print=}")
         assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
             f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
         )
@@ -587,6 +589,7 @@ def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchperc
     assert len(match_percents) == len(expected_matchpercents)
     matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+    logging.info(f"{matchperc_print=}")
     assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
         f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
