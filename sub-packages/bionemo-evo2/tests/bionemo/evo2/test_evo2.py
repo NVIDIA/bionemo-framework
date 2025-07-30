@@ -43,6 +43,12 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
 
 
+def prune_caches():
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
 def load_weights_sharded_inplace_nemo2_to_mcore(
     model: MegatronModelType,
     distributed_checkpoint_dir: str | Path,
@@ -315,6 +321,7 @@ def get_inference_params(ckpt_name):
     }
 
 def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
+    prune_caches()
     trainer = get_trainer()
     from bionemo.core.data.load import load
 
