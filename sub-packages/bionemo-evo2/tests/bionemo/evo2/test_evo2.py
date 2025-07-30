@@ -400,12 +400,12 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
 
+    inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
+        ckpt_name, vortex_style_fp8=vortex_style_fp8
+    )
+
     matchrates = []
     for seq in sequences:
-        inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
-            ckpt_name, vortex_style_fp8=vortex_style_fp8
-        )
-
         seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
         with torch.no_grad():
             device = torch.cuda.current_device()
