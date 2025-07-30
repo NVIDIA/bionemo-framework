@@ -358,25 +358,28 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
     [
         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
-        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
     assert len(sequences) > 0
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-
+    inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
+        ckpt_name, vortex_style_fp8=vortex_style_fp8, flash_decode=True, enable_flash_decode=True
+    )
     matchrates = []
     for seq in sequences:
-        inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
-            ckpt_name, vortex_style_fp8=vortex_style_fp8, flash_decode=True, enable_flash_decode=True
-        )
-
         seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
         with torch.no_grad():
             device = torch.cuda.current_device()
@@ -389,6 +392,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 
             inference_wrapped_model.prep_model_for_inference(prompts_tokens=None)
             logits = inference_wrapped_model.run_one_forward_step(forward_args)
+            inference_wrapped_model.inference_context.reset()
 
             from megatron.core.inference.communication_utils import broadcast_from_last_pipeline_stage
 
@@ -416,14 +420,19 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
         # Try flash decode with one and not the other to verify that both paths work.
         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
-        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
+        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
+        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
     ],
 )
 def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and flash_decode) or (gb_available < 50 and flash_decode and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
     if skip:
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
@@ -525,8 +534,8 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
         ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [99.2, 51.0, 73.0, 82.6]),
-        # ("evo2/7b-8k:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-8k:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_batch_generate(
@@ -534,6 +543,11 @@ def test_batch_generate(
 ):
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
@@ -588,9 +602,9 @@ def test_batch_generate(
     [
         ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
-        # ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
-        # ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
-        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
+        ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
     ],
 )
 def test_batch_generate_coding_sequences(
@@ -600,6 +614,11 @@ def test_batch_generate_coding_sequences(
     expected_matchpercents: list[float],
 ):
     assert len(coding_sequences) > 0
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
@@ -693,9 +712,9 @@ def test_batch_generate_coding_sequences(
     [
         ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, 41.0),
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, 41.0),
-        # ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
-        # ("evo2/7b-8k:1.0", get_model_and_tokenizer, 32.0),
-        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
+        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
+        ("evo2/7b-8k:1.0", get_model_and_tokenizer, 32.0),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
     ],
 )
 def test_generate_speed(
@@ -704,6 +723,11 @@ def test_generate_speed(
     expected_tokens_sec: float,
 ):
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
