@@ -86,6 +86,7 @@ class BenchmarkResult:
     samples_per_second: float = 0.0
     peak_memory_mb: float = 0.0
     avg_memory_mb: float = 0.0
+    disk_size_mb: float = 0.0
 
     def __post_init__(self):
         """Calculate derived metrics from epoch results."""

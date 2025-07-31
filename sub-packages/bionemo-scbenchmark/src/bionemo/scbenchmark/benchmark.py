@@ -50,7 +50,6 @@ __all__ = [
 
 def _drop_caches():
     """Helper function to drop system caches."""
-    return
     try:
         print("Dropping caches")
         subprocess.run(["sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"], check=True)
@@ -119,12 +118,16 @@ def run_benchmark(
         warmup_samples = 0
         warmup_batches = 0
         warmup_time = 0.0
+        elapsed = 0.0
+        start_time = None
+
         pbar = tqdm(desc=f"{config.name} - Epoch {epoch_num + 1}/{config.num_epochs}")
         warm_up_start = time.perf_counter()
         if not do_warmup or not config.warmup_time_seconds:
             config.warmup_time_seconds = 0
         warm_up_end = warm_up_start + config.warmup_time_seconds
         is_warming_up = True
+
         for num, batch in enumerate(dataloader):
             batch_size = get_batch_size(batch)
 
@@ -171,15 +174,28 @@ def run_benchmark(
             # Check max_batches limit
             if (config.max_batches and epoch_batches >= config.max_batches) or (end_time and current_time >= end_time):
                 break
+
+        # If no samples were processed in the epoch, likely because warmup consumed the entire dataset
+        if epoch_samples == 0:
+            import warnings
+
+            warnings.warn(
+                f"Epoch {epoch_num + 1}: No samples processed after warmup. "
+                "Warmup may have consumed the entire dataset. "
+                "Consider reducing warmup_batches or warmup_time_seconds.",
+                RuntimeWarning,
+            )
+
+        # Final progress bar update
+        if epoch_samples > 0 and elapsed > 0:
             postfix_dict = {
                 "epoch": f"{epoch_num + 1}/{config.num_epochs}",
                 "samples": epoch_samples,
                 "elapsed": f"{elapsed:.2f}s",
                 "samples_per_sec": f"{epoch_samples / elapsed:.2f}",
             }
-
             pbar.set_postfix(**postfix_dict, refresh=False)
-            pbar.update(update_interval)
+
         pbar.close()
 
         return epoch_samples, epoch_batches, elapsed, warmup_samples, warmup_batches, warmup_time
@@ -200,7 +216,6 @@ def run_benchmark(
             _,
             iteration_time,
         ) = result_tuple
-        # Accumulate warmup data (only first epoch will have non-zero values)
 
         epoch_results.append(
             {
@@ -273,11 +288,9 @@ def benchmark_dataloaders_with_configs(
         if "dataset_factory" in dl_config:
             # Config has its own dataset factory
             config_dataset_factory = dl_config["dataset_factory"]
-            config_dataset_baseline = None  # Let it measure its own baseline
         else:
             # No dataset factory - dataloader factory creates everything
             config_dataset_factory = None
-            config_dataset_baseline = shared_dataset_baseline
 
         config_dataloader_factory = dl_config["dataloader_factory"]
         if shared_dataset is not None:
@@ -301,10 +314,14 @@ def benchmark_dataloaders_with_configs(
             warmup_time_seconds=dl_config.get("warmup_time_seconds", None),
             shuffle=dl_config.get("shuffle", True),
             num_runs=dl_config.get("num_runs", 1),
-            dataset_baseline=config_dataset_baseline,
+            dataset_baseline=shared_dataset_baseline,
             output_prefix=output_prefix,
             dataset_instantiation_time=shared_dataset_time,
         )
+        # If this hasn't been set, set it to the minimum in the first dataloader
+        if not shared_dataset_baseline:
+            shared_dataset_baseline = result.memory_before_instantiation_mb
+
         print_results(result)
         if isinstance(result, list):
             for r in result:
@@ -379,7 +396,6 @@ def benchmark_single_dataloader(
         dataloader, dataloader_baseline_measured, peak, _, _, final_mib, setup_time = measure_peak_memory_full(
             dataloader_factory
         )
-
         instantiation_metrics = {
             "peak_memory_during_instantiation_mb": peak,
             "memory_after_instantiation_mb": final_mib,
@@ -444,7 +460,7 @@ def print_results(result_or_results: Union[BenchmarkResult, List[BenchmarkResult
         print(f"Samples/sec: {result.samples_per_second:.2f}")
         print(f"Total samples: {result.total_samples}")
         print(f"Total time: {result.total_time_seconds:.3f}s")
-        # print(f"Dataset instantiation: {result.dataset_instantiation_time_seconds:.3f}s")
+        print(f"Dataset instantiation: {result.dataset_instantiation_time_seconds:.3f}s")
         print(f"Dataloader instantiation: {result.dataloader_instantiation_time_seconds:.3f}s")
         print(f"Peak memory durint iteration: {result.peak_memory_mb:.1f} MB")
         print(f"Peak memory during instantiation: {result.peak_memory_during_instantiation_mb:.1f} MB")

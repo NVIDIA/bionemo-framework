@@ -247,7 +247,7 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1, adata_path=None
                 batch_size=64, shuffle=True, data_path=scdl_path, num_workers=0
             ),
             "num_epochs": num_epochs,
-            "max_time_seconds": 100.0,
+            "max_time_seconds": 1.0,
             "warmup_time_seconds": 0.0,
             "data_path": scdl_path,
             "num_runs": num_runs,

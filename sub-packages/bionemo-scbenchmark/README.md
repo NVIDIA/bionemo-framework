@@ -179,6 +179,12 @@ python examples/scdataset_script.py \
     --adata-path /path/to/data.h5ad
 ```
 This is code for reproducing AnnDataset and SCDL results wrapped in the scDataset sampler.
+
+# A note on page cache
+
+SCDL saves pages it has seen to the page cache. This can lead to faster iteration after the first run. To avoid this, run the above commands with sudeo - this will enable a command to drop the caches to be executed between each run.
+
+
 ## Key Features
 
 - **Zero Inheritance Required**: Your dataloader doesn't need to inherit from anything

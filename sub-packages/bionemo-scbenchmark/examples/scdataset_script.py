@@ -144,7 +144,14 @@ def create_scdl_scdataset_factory(
 
 
 def comprehensive_benchmarking_example(
-    num_epochs=1, num_runs=1, adata_path=None, scdl_path=None, fetch_factors=None, block_sizes=None
+    num_epochs=1,
+    num_runs=1,
+    adata_path=None,
+    scdl_path=None,
+    fetch_factors=None,
+    block_sizes=None,
+    max_time_seconds=120.0,
+    warmup_time_seconds=30.0,
 ):
     """Comprehensive benchmarking example demonstrating various dataloader configurations.
 
@@ -155,6 +162,8 @@ def comprehensive_benchmarking_example(
         scdl_path: Path to the SCDL directory
         fetch_factors: List of fetch factors to test (default: [1])
         block_sizes: List of block sizes to test (default: [1, 2, 4, 8, 16, 32, 64])
+        max_time_seconds: Maximum time to run each configuration (default: 120.0)
+        warmup_time_seconds: Time to warmup before benchmarking (default: 30.0)
     """
     print("=" * 80)
     print("COMPREHENSIVE BENCHMARKING EXAMPLE")
@@ -173,8 +182,8 @@ def comprehensive_benchmarking_example(
     print()
 
     # Parameters
-    warmup_time_seconds = 30
-    max_time_seconds = 120
+    # warmup_time_seconds = 30
+    # max_time_seconds = 120
 
     print(f"Benchmarking {num_runs} run(s) each")
     print()
@@ -302,6 +311,18 @@ if __name__ == "__main__":
         default=[1, 2, 4, 8, 16, 32, 64],
         help="List of block sizes to test. Default: %(default)s",
     )
+    parser.add_argument(
+        "--max-time",
+        type=float,
+        default=120.0,
+        help="Maximum time to run each configuration in seconds. Default: %(default)s",
+    )
+    parser.add_argument(
+        "--warmup-time",
+        type=float,
+        default=30.0,
+        help="Time to warmup before benchmarking in seconds. Default: %(default)s",
+    )
 
     args = parser.parse_args()
 
@@ -314,4 +335,6 @@ if __name__ == "__main__":
         scdl_path=args.scdl_path,
         fetch_factors=args.fetch_factors,
         block_sizes=args.block_sizes,
+        max_time_seconds=args.max_time,
+        warmup_time_seconds=args.warmup_time,
     )

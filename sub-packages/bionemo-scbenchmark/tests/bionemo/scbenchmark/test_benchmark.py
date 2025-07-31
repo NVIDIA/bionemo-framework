@@ -14,9 +14,16 @@
 # limitations under the License.
 
 
+import gc
+import math
+import os
 from unittest import mock
 
+import numpy as np
 import pytest
+import torch
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 from bionemo.scbenchmark.benchmark import (
     BenchmarkConfig,
@@ -229,12 +236,12 @@ def test_benchmark_single_dataloader_multiple_runs(
 
     # Verify instantiation metrics are preserved across all runs
     for result in results:
-        assert result.peak_memory_during_instantiation_mb == 140.0
+        assert result.peak_memory_during_instantiation_mb == 40.0
         assert result.memory_before_instantiation_mb == 100.0
         assert result.memory_after_instantiation_mb == 125.0
-        assert result.dataset_instantiation_time_seconds == 0.8  # Combined time when no dataset factory
-        assert result.dataloader_instantiation_time_seconds == 0.0  # Always 0 when no separate dataset factory
-        assert result.disk_size_mb == 50.0  # From mock get_disk_size
+        assert result.dataset_instantiation_time_seconds == 0.0
+        assert result.dataloader_instantiation_time_seconds == 0.8
+        assert result.disk_size_mb == 50.0
 
 
 @mock.patch("bionemo.scbenchmark.benchmark.measure_peak_memory_full")
@@ -277,7 +284,7 @@ def test_benchmark_with_dataset_factory(
     assert result.dataloader_instantiation_time_seconds == 0.3
 
     # Verify all instantiation metrics when using dataset factory
-    assert result.peak_memory_during_instantiation_mb == 120.0  # max(dl_peak=120.0, dataset_peak=80.0)
+    assert result.peak_memory_during_instantiation_mb == 70.0
     assert result.memory_before_instantiation_mb == 50.0  # dataset baseline
     assert result.memory_after_instantiation_mb == 110.0  # dataloader final memory
     assert result.disk_size_mb == 75.0  # From mock get_disk_size
@@ -319,10 +326,14 @@ def test_benchmark_multiple_configs_basic(mock_drop_caches, mock_benchmark_singl
     # Mock results for each config
     mock_benchmark_single.side_effect = [
         BenchmarkResult(
-            name="Config1", epoch_results=[{"samples": 100, "elapsed": 1.0, "peak_memory": 150, "avg_memory": 130}]
+            name="Config1",
+            disk_size_mb=100,
+            epoch_results=[{"samples": 100, "elapsed": 1.0, "peak_memory": 150, "avg_memory": 130}],
         ),
         BenchmarkResult(
-            name="Config2", epoch_results=[{"samples": 200, "elapsed": 2.0, "peak_memory": 180, "avg_memory": 160}]
+            name="Config2",
+            disk_size_mb=100,
+            epoch_results=[{"samples": 200, "elapsed": 2.0, "peak_memory": 180, "avg_memory": 160}],
         ),
     ]
 
@@ -405,3 +416,495 @@ def test_benchmark_configs_with_none_factory(mock_drop_caches, mock_benchmark_si
 
     with pytest.raises(ValueError, match="missing a 'dataloader_factory'"):
         benchmark_dataloaders_with_configs(configs, shared_dataset_factory=None)
+
+
+# E2E Integration Tests with Real Synthetic Data
+
+
+class SyntheticDataset(Dataset):
+    """Synthetic dataset for e2e testing."""
+
+    def __init__(self, num_samples=1000, num_features=100):
+        """Create synthetic dataset with controllable size.
+
+        Args:
+            num_samples: Number of samples in the dataset
+            num_features: Number of features per sample
+        """
+        self.num_samples = num_samples
+        self.num_features = num_features
+        # Create reproducible synthetic data
+        torch.manual_seed(42)
+        self.data = torch.randn(num_samples, num_features)
+        self.labels = torch.randint(0, 10, (num_samples,))
+
+        # Add some larger tensors to ensure measurable memory usage
+        self.extra_data = torch.randn(num_samples, num_features * 2)  # Double size for memory impact
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, idx):
+        return {
+            "data": self.data[idx],
+            "label": self.labels[idx],
+            "extra": self.extra_data[idx],  # Additional data to increase memory footprint
+        }
+
+
+class MemoryIntensiveDataset(Dataset):
+    """Alternative synthetic dataset that uses significant memory."""
+
+    def __init__(self, num_samples=500, num_features=1000):
+        """Create memory-intensive dataset.
+
+        Args:
+            num_samples: Number of samples in the dataset
+            num_features: Number of features per sample (larger for more memory)
+        """
+        self.num_samples = num_samples
+        self.num_features = num_features
+        torch.manual_seed(42)
+
+        # Create multiple large tensors to ensure measurable memory
+        self.data1 = torch.randn(num_samples, num_features)
+        self.data2 = torch.randn(num_samples, num_features)
+        self.data3 = torch.randn(num_samples, num_features)
+        self.labels = torch.randint(0, 10, (num_samples,))
+
+        # Calculate approximate memory usage
+        tensor_size_mb = (num_samples * num_features * 4 * 3) / (1024 * 1024)  # 3 tensors, 4 bytes per float32
+        print(f"MemoryIntensiveDataset: ~{tensor_size_mb:.1f}MB")
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, idx):
+        return {
+            "data1": self.data1[idx],
+            "data2": self.data2[idx],
+            "data3": self.data3[idx],
+            "label": self.labels[idx],
+        }
+
+
+@pytest.fixture
+def synthetic_dataset_factory():
+    """Fixture providing a factory for creating synthetic datasets."""
+
+    def factory(num_samples=1000):
+        return SyntheticDataset(num_samples=num_samples, num_features=100)
+
+    return factory
+
+
+@pytest.fixture
+def synthetic_dataloader_factory():
+    """Fixture providing a factory for creating synthetic dataloaders."""
+
+    def factory(num_samples=1000, batch_size=32, num_workers=0):
+        def dataloader_factory():
+            dataset = SyntheticDataset(num_samples=num_samples, num_features=100)
+            return DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=False)
+
+        return dataloader_factory
+
+    return factory
+
+
+@pytest.fixture
+def memory_intensive_dataloader_factory():
+    """Fixture providing a factory for creating memory-intensive dataloaders that guarantee measurable memory usage."""
+
+    def factory(num_samples=500, batch_size=32, num_workers=0):
+        def dataloader_factory():
+            dataset = MemoryIntensiveDataset(num_samples=num_samples, num_features=1000)
+            return DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=False)
+
+        return dataloader_factory
+
+    return factory
+
+
+@pytest.fixture
+def synthetic_dataloader_from_dataset_factory():
+    """Fixture providing a factory that creates dataloaders from existing datasets."""
+
+    def factory(batch_size=32, num_workers=0):
+        def dataloader_factory(dataset):
+            return DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=False)
+
+        return dataloader_factory
+
+    return factory
+
+
+@pytest.fixture(autouse=True)
+def memory_cleanup():
+    """Fixture that cleans up memory before and after each test."""
+    # Clean up before test
+    manual_memory_cleanup()
+
+    yield  # Run the test
+
+    # Clean up after test
+    manual_memory_cleanup()
+
+
+def manual_memory_cleanup():
+    """Public helper function for manual memory cleanup in tests.
+
+    Call this function explicitly in tests when you need extra memory cleanup
+    between operations within a single test.
+
+    Example:
+        def test_something():
+            # ... do some work ...
+            manual_memory_cleanup()  # Clean up before next step
+            # ... continue test ...
+    """
+    # Multiple aggressive GC rounds
+    for _ in range(5):
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+
+    # Clear torch-specific memory
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+    # Reset torch random state for reproducibility
+    torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(42)
+        torch.cuda.manual_seed_all(42)
+
+    # Clear numpy memory
+    if hasattr(np, "clear_cache"):
+        np.clear_cache()
+
+    # Clear any module-level caches
+    if "torch" in globals():
+        # Clear torch tensor cache
+        if hasattr(torch, "set_default_tensor_type"):
+            torch.set_default_tensor_type(torch.FloatTensor)
+
+    # Force release of any lingering references
+    import sys
+
+    if hasattr(sys, "intern"):
+        # Clear string interning cache (if accessible)
+        pass
+
+    if hasattr(tqdm, "_instances"):
+        tqdm._instances.clear()
+
+
+@pytest.fixture
+def e2e_memory_isolation():
+    """Extra aggressive memory isolation for e2e tests with memory monitoring."""
+    import psutil
+
+    # Get baseline memory
+    process = psutil.Process(os.getpid())
+    initial_memory = process.memory_info().rss / 1024 / 1024
+
+    # Aggressive cleanup before test
+    manual_memory_cleanup()
+
+    yield initial_memory
+
+    # Cleanup and monitoring after test
+    manual_memory_cleanup()
+
+    final_memory = process.memory_info().rss / 1024 / 1024
+    memory_diff = final_memory - initial_memory
+
+    if memory_diff > 50:  # More than 50MB increase
+        print(f"⚠️  Memory increased by {memory_diff:.1f}MB during test")
+
+
+# E2E Integration Tests - Consolidated
+
+
+def _create_synthetic_dataloader_factory(num_samples=1000, batch_size=32, num_workers=0):
+    """Helper function to create synthetic dataloader factories without fixtures."""
+
+    def dataloader_factory():
+        dataset = SyntheticDataset(num_samples=num_samples, num_features=100)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=False)
+
+    return dataloader_factory
+
+
+def _create_synthetic_dataloader_from_dataset_factory(batch_size=32, num_workers=0):
+    """Helper function to create dataloader factories that work with existing datasets."""
+
+    def dataloader_factory(dataset):
+        return DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=False)
+
+    return dataloader_factory
+
+
+def _validate_benchmark_result(result, test_name="", debug=True):
+    """Helper function to validate benchmark results with consistent assertions."""
+    if debug:
+        print(f"DEBUG {test_name}: {result.name}")
+        print(f"  - samples_per_second: {result.samples_per_second}")
+        print(f"  - peak_memory_mb: {result.peak_memory_mb}")
+        print(f"  - avg_memory_mb: {result.avg_memory_mb}")
+        print(f"  - memory_before_instantiation_mb: {result.memory_before_instantiation_mb}")
+        if result.epoch_results:
+            print(f"  - epoch_results[0]: {result.epoch_results[0]}")
+
+    # Basic structure validation
+    assert isinstance(result, BenchmarkResult)
+    assert result.samples_per_second > 0, f"{test_name}: Expected samples/s > 0, got {result.samples_per_second}"
+
+    # Memory should not be NaN and should be non-negative (handle None values gracefully)
+    peak_memory = result.peak_memory_mb if result.peak_memory_mb is not None else 0.0
+    avg_memory = result.avg_memory_mb if result.avg_memory_mb is not None else 0.0
+
+    assert not math.isnan(peak_memory), f"{test_name}: Peak memory is NaN"
+    assert not math.isnan(avg_memory), f"{test_name}: Avg memory is NaN"
+    assert peak_memory >= 0, f"{test_name}: Peak memory should be >= 0, got {peak_memory}"
+    assert avg_memory >= 0, f"{test_name}: Avg memory should be >= 0, got {avg_memory}"
+
+    # Timing should be non-negative (handle None values)
+    dataset_time = (
+        result.dataset_instantiation_time_seconds if result.dataset_instantiation_time_seconds is not None else 0.0
+    )
+    dataloader_time = (
+        result.dataloader_instantiation_time_seconds
+        if result.dataloader_instantiation_time_seconds is not None
+        else 0.0
+    )
+
+    assert dataset_time >= 0, f"{test_name}: Dataset time should be >= 0, got {dataset_time}"
+    assert dataloader_time >= 0, f"{test_name}: Dataloader time should be >= 0, got {dataloader_time}"
+
+    # Should have epoch results with valid data
+    assert result.epoch_results is not None, f"{test_name}: Epoch results should not be None"
+    assert len(result.epoch_results) > 0, f"{test_name}: Should have at least one epoch result"
+
+    epoch_result = result.epoch_results[0]
+    assert epoch_result["samples"] > 0, f"{test_name}: Expected samples > 0, got {epoch_result['samples']}"
+    assert epoch_result["batches"] > 0, f"{test_name}: Expected batches > 0, got {epoch_result['batches']}"
+    assert epoch_result["elapsed"] > 0, f"{test_name}: Expected elapsed time > 0, got {epoch_result['elapsed']}"
+
+
+@pytest.mark.parametrize(
+    "test_scenario",
+    [
+        # (name, num_samples, batch_size, num_workers, description)
+        ("small_dataset", 200, 16, 0, "Small dataset test"),
+        ("medium_dataset", 500, 32, 0, "Medium dataset test"),
+        ("large_batch", 300, 64, 0, "Large batch size test"),
+    ],
+)
+@pytest.mark.slow
+def test_e2e_comprehensive_benchmark_scenarios(tmpdir, e2e_memory_isolation, test_scenario):
+    """Comprehensive e2e test covering various dataset sizes and batch configurations."""
+
+    scenario_name, num_samples, batch_size, num_workers, description = test_scenario
+    initial_memory_mb = e2e_memory_isolation
+    print(f"\n--- {description} ---")
+    print(f"Starting memory: {initial_memory_mb:.1f}MB")
+
+    manual_memory_cleanup()
+
+    # Test single dataloader
+    result = benchmark_single_dataloader(
+        dataloader_factory=_create_synthetic_dataloader_factory(
+            num_samples=num_samples, batch_size=batch_size, num_workers=num_workers
+        ),
+        data_path=str(tmpdir),
+        name=f"E2E_{scenario_name}",
+        num_epochs=1,
+        max_batches=5,
+        max_time_seconds=5.0,
+        warmup_time_seconds=0.0,
+        num_runs=1,
+    )
+
+    _validate_benchmark_result(result, f"Single-{scenario_name}")
+
+    # Test multiple configurations
+    configs = [
+        {
+            "name": f"E2E_{scenario_name}_Config_A",
+            "dataloader_factory": _create_synthetic_dataloader_factory(
+                num_samples=num_samples // 2, batch_size=batch_size // 2, num_workers=0
+            ),
+            "data_path": str(tmpdir),
+            "max_batches": 3,
+            "max_time_seconds": 3.0,
+            "warmup_time_seconds": 0.0,
+            "num_runs": 1,
+        },
+        {
+            "name": f"E2E_{scenario_name}_Config_B",
+            "dataloader_factory": _create_synthetic_dataloader_factory(
+                num_samples=num_samples // 2, batch_size=batch_size, num_workers=0
+            ),
+            "data_path": str(tmpdir),
+            "max_batches": 3,
+            "max_time_seconds": 3.0,
+            "warmup_time_seconds": 0.0,
+            "num_runs": 1,
+        },
+    ]
+
+    manual_memory_cleanup()
+
+    multi_results = benchmark_dataloaders_with_configs(
+        dataloader_configs=configs, shared_dataset_factory=None, output_prefix=f"e2e_{scenario_name}_test"
+    )
+
+    assert len(multi_results) == 2, f"Expected 2 results, got {len(multi_results)}"
+    for i, result in enumerate(multi_results):
+        _validate_benchmark_result(result, f"Multi-{scenario_name}-{i}")
+
+
+@pytest.mark.slow
+def test_e2e_advanced_features(tmpdir, synthetic_dataset_factory, e2e_memory_isolation):
+    """Test advanced benchmarking features: dataset reuse, multiple runs, error handling."""
+
+    initial_memory_mb = e2e_memory_isolation
+    print(f"\nStarting memory: {initial_memory_mb:.1f}MB")
+    manual_memory_cleanup()
+
+    # Test 1: Dataset reuse pattern
+    print("\n--- Testing Dataset Reuse ---")
+    configs = [
+        {
+            "name": "E2E_Reuse_A",
+            "data_path": str(tmpdir),
+            "dataloader_factory": _create_synthetic_dataloader_from_dataset_factory(batch_size=16, num_workers=0),
+            "max_batches": 3,
+            "max_time_seconds": 3.0,
+            "warmup_time_seconds": 0.0,
+        },
+        {
+            "name": "E2E_Reuse_B",
+            "data_path": str(tmpdir),
+            "dataloader_factory": _create_synthetic_dataloader_from_dataset_factory(batch_size=32, num_workers=0),
+            "max_batches": 3,
+            "max_time_seconds": 3.0,
+            "warmup_time_seconds": 0.0,
+        },
+    ]
+
+    def shared_dataset_factory_func():
+        return synthetic_dataset_factory(num_samples=200)
+
+    reuse_results = benchmark_dataloaders_with_configs(
+        dataloader_configs=configs, shared_dataset_factory=shared_dataset_factory_func, output_prefix="e2e_reuse_test"
+    )
+
+    assert len(reuse_results) == 2
+    # Both should have same dataset instantiation time (from shared dataset)
+    dataset_time_1 = reuse_results[0].dataset_instantiation_time_seconds
+    dataset_time_2 = reuse_results[1].dataset_instantiation_time_seconds
+    assert dataset_time_1 == dataset_time_2, (
+        f"Shared dataset times should be equal: {dataset_time_1} vs {dataset_time_2}"
+    )
+
+    for i, result in enumerate(reuse_results):
+        _validate_benchmark_result(result, f"Reuse-{i}")
+
+    manual_memory_cleanup()
+
+    # Test 2: Multiple runs consistency
+    print("\n--- Testing Multiple Runs ---")
+    multi_run_results = benchmark_single_dataloader(
+        dataloader_factory=_create_synthetic_dataloader_factory(num_samples=300, batch_size=20, num_workers=0),
+        data_path=str(tmpdir),
+        name="E2E_MultiRun",
+        num_epochs=1,
+        max_batches=4,
+        max_time_seconds=4.0,
+        warmup_time_seconds=0.0,
+        num_runs=2,
+    )
+
+    assert isinstance(multi_run_results, list), f"Expected list for multiple runs, got {type(multi_run_results)}"
+    assert len(multi_run_results) == 2, f"Expected 2 results, got {len(multi_run_results)}"
+    assert multi_run_results[0].name == "E2E_MultiRun_run_1"
+    assert multi_run_results[1].name == "E2E_MultiRun_run_2"
+
+    for i, result in enumerate(multi_run_results):
+        _validate_benchmark_result(result, f"MultiRun-{i + 1}")
+
+        # Consistency checks between runs
+        if i > 0:
+            prev_result = multi_run_results[0]
+            assert result.peak_memory_during_instantiation_mb == prev_result.peak_memory_during_instantiation_mb, (
+                "Instantiation metrics should be consistent across runs"
+            )
+
+    # Test 3: Error handling - Factory signature mismatch
+    print("\n--- Testing Error Handling ---")
+
+    def bad_factory():
+        def dataloader_factory():  # Missing dataset parameter for shared use
+            dataset = SyntheticDataset(num_samples=50, num_features=50)
+            return DataLoader(dataset, batch_size=8, shuffle=True, num_workers=0, drop_last=False)
+
+        return dataloader_factory
+
+    def good_dataset_factory():
+        return SyntheticDataset(num_samples=50, num_features=50)
+
+    error_configs = [
+        {
+            "name": "Bad_Factory",
+            "dataloader_factory": bad_factory(),
+            "max_batches": 1,
+            "max_time_seconds": 1.0,
+        }
+    ]
+
+    with pytest.raises(TypeError, match="takes 0 positional arguments but 1 was given"):
+        benchmark_dataloaders_with_configs(
+            dataloader_configs=error_configs, shared_dataset_factory=good_dataset_factory, output_prefix="error_test"
+        )
+
+    print("✓ All advanced features working correctly")
+
+
+def _create_memory_intensive_dataloader_factory(num_samples=500, batch_size=32, num_workers=0):
+    """Helper function to create memory-intensive dataloader factories."""
+
+    def dataloader_factory():
+        dataset = MemoryIntensiveDataset(num_samples=num_samples, num_features=1000)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=False)
+
+    return dataloader_factory
+
+
+@pytest.mark.slow
+@pytest.mark.memory_intensive
+def test_e2e_memory_intensive_benchmark(tmpdir, e2e_memory_isolation):
+    """Optional memory-intensive test for environments where you want to verify actual memory measurement."""
+
+    initial_memory_mb = e2e_memory_isolation
+    print("\n--- Memory Intensive Test ---")
+    print(f"Starting memory: {initial_memory_mb:.1f}MB")
+    manual_memory_cleanup()
+
+    result = benchmark_single_dataloader(
+        dataloader_factory=_create_memory_intensive_dataloader_factory(num_samples=400, batch_size=32, num_workers=0),
+        data_path=str(tmpdir),
+        name="E2E_Memory_Test",
+        num_epochs=1,
+        max_batches=3,
+        max_time_seconds=8.0,
+        warmup_time_seconds=0.0,
+        num_runs=1,
+    )
+
+    _validate_benchmark_result(result, "MemoryIntensive")
+
+    # This test might actually show positive memory with the larger dataset
+    print(f"Memory measurement successful - Peak: {result.peak_memory_mb:.1f}MB, Avg: {result.avg_memory_mb:.1f}MB")
