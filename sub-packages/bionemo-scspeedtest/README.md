@@ -30,7 +30,7 @@ wget -O cellxgene_example_25k.h5ad "https://datasets.cellxgene.cziscience.com/97
 ```python
 import anndata as ad
 from anndata.experimental import AnnCollection, AnnLoader
-from bionemo.scbenchmark.benchmark import benchmark_single_dataloader, print_results
+from bionemo.scspeedtest.benchmark import benchmark_single_dataloader, print_results
 import numpy as np
 filepath = "cellxgene_example_25k.h5ad"
 
@@ -77,7 +77,7 @@ The framework supports two distinct patterns for benchmarking, each optimized fo
 **Dataloader Factory**: Creates both dataset and dataloader
 ```python
 from torch.utils.data import DataLoader
-from bionemo.scbenchmark.benchmark import benchmark_dataloaders_with_configs
+from bionemo.scspeedtest.benchmark import benchmark_dataloaders_with_configs
 
 def dataloader_factory():
     dataset = load_dataset()  # Load data each time
@@ -95,7 +95,7 @@ result = benchmark_single_dataloader(
 **Dataset Factory**: Loads dataset once, reused across multiple dataloader configs
 ```python
 from torch.utils.data import DataLoader
-from bionemo.scbenchmark.benchmark import benchmark_dataloaders_with_configs, print_comparison
+from bionemo.scspeedtest.benchmark import benchmark_dataloaders_with_configs, print_comparison
 
 def dataset_factory():
     return load_dataset()  # Load once
