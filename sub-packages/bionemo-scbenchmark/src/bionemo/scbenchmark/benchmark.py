@@ -379,7 +379,6 @@ def benchmark_single_dataloader(
             "dataset_instantiation_time_seconds": setup_time,  # Combined time when no separate dataset factory
             "dataloader_instantiation_time_seconds": 0.0,
         }
-
     disk_size_mb = get_disk_size(data_path)
 
     results = []

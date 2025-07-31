@@ -31,14 +31,14 @@ wget -O cellxgene_example_25k.h5ad "https://datasets.cellxgene.cziscience.com/97
 import anndata as ad
 from anndata.experimental import AnnCollection, AnnLoader
 from bionemo.scbenchmark.benchmark import benchmark_single_dataloader, print_results
-
+import numpy as np
 filepath = "cellxgene_example_25k.h5ad"
 
-#create a dataloader factory
+#create a dataloader factory. This returns anndata in a dense format.
 def anndata_factory(input_path, batch_size = 64):
     def factory():
-        dataset = ad.read_h5ad(input_path, backed="r")
-        return AnnLoader(dataset, num_workers = 0, collate_fn=lambda x: x[0])
+        dataset = ad.read_h5ad(input_path)
+        return AnnLoader(dataset, num_workers = 0, collate_fn = lambda batch: np.vstack([x.X for x in batch]))
     return factory
 
 #benchmark the dataloader
@@ -76,12 +76,13 @@ The framework supports two distinct patterns for benchmarking, each optimized fo
 **Dataloader Factory**: Creates both dataset and dataloader
 ```python
 from torch.utils.data import DataLoader
+from bionemo.scbenchmark.benchmark import benchmark_dataloaders_with_configs
 
 def dataloader_factory():
     dataset = load_dataset()  # Load data each time
     return DataLoader(dataset, batch_size=32)
 
-benchmark_single_dataloader(
+result = benchmark_single_dataloader(
     dataloader_factory=dataloader_factory,
     data_path="/path/to/data",
     name="MyBenchmark"
@@ -93,6 +94,7 @@ benchmark_single_dataloader(
 **Dataset Factory**: Loads dataset once, reused across multiple dataloader configs
 ```python
 from torch.utils.data import DataLoader
+from bionemo.scbenchmark.benchmark import benchmark_dataloaders_with_configs, print_comparison
 
 def dataset_factory():
     return load_dataset()  # Load once
@@ -104,7 +106,7 @@ def dataloader_factory_64(dataset):  # Receives pre-loaded dataset
     return DataLoader(dataset, batch_size=64)
 
 # Dataset reuse mode - loads dataset once, tests multiple configs
-benchmark_dataloaders_with_configs(
+results = benchmark_dataloaders_with_configs(
     shared_dataset_factory=dataset_factory,
     dataloader_configs=[
         {"name": "Config1", "dataloader_factory": dataloader_factory_32, "data_path": "/path/to/data"},
@@ -112,6 +114,9 @@ benchmark_dataloaders_with_configs(
     ],
     output_prefix="my_benchmark"
 )
+
+# Print comparisons
+print_comparison(results)
 ```
 
 - **Use when**: Testing multiple configurations on the same large dataset

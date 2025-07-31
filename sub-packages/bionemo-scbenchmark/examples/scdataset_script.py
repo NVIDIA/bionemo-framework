@@ -173,8 +173,8 @@ def comprehensive_benchmarking_example(
     print()
 
     # Parameters
-    warmup_time_seconds = 0
-    max_time_seconds = 5
+    warmup_time_seconds = 30
+    max_time_seconds = 120
 
     print(f"Benchmarking {num_runs} run(s) each")
     print()
@@ -217,11 +217,6 @@ def comprehensive_benchmarking_example(
                     "num_runs": 1,
                 }
             )
-    benchmark_dataloaders_with_configs(
-        dataloader_configs=scdl_configurations,
-        shared_dataset_factory=None,  # Each config creates its own dataset
-        output_prefix=f"scdataset_benchmark_{timestamp}",
-    )
     # =============================================================================
     # Part2: AnnData Dataset with ScDataset Configurations
     # =============================================================================
@@ -256,6 +251,12 @@ def comprehensive_benchmarking_example(
         shared_dataset_factory=create_anndata_dataset_factory(adata_path),
         output_prefix=f"scdataset_benchmark_{timestamp}",  # Same file as SCDL results
     )
+    benchmark_dataloaders_with_configs(
+        dataloader_configs=scdl_configurations,
+        shared_dataset_factory=None,  # Each config creates its own dataset
+        output_prefix=f"scdataset_benchmark_{timestamp}",
+    )
+
     print("Benchmarking completed!")
     print(f"All results saved to: scdataset_benchmark_{timestamp}_detailed_breakdown.csv")
     print()
@@ -266,7 +267,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--adata-path",
         type=str,
-        default="/home/pbinder/bionemo-framework/sub-packages/bionemo-scdl/smaller_samples/sample_500_19836_0.99.h5ad",
+        default="/home/pbinder/bionemo-framework/tahoe_data",
         help="Path to the AnnData file (.h5ad). Default: %(default)s",
     )
     parser.add_argument(
@@ -288,13 +289,17 @@ if __name__ == "__main__":
         help="Number of runs to perform for each configuration. Default: %(default)s",
     )
     parser.add_argument(
-        "--fetch-factors", nargs="+", type=int, default=[1], help="List of fetch factors to test. Default: %(default)s"
+        "--fetch-factors",
+        nargs="+",
+        type=int,
+        default=[1, 2, 4, 8, 16, 32, 64],
+        help="List of fetch factors to test. Default: %(default)s",
     )
     parser.add_argument(
         "--block-sizes",
         nargs="+",
         type=int,
-        default=[],  # [1, 2, 4, 8, 16, 32, 64],
+        default=[1, 2, 4, 8, 16, 32, 64],
         help="List of block sizes to test. Default: %(default)s",
     )
 

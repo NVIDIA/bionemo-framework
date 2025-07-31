@@ -291,7 +291,7 @@ def _single_rss_sampler(root_pid, stop_evt, result_queue, sample_interval):
 def measure_peak_memory_full(
     func,
     *args,
-    sample_interval: float = 0.2,
+    sample_interval: float = 0.05,
     child_refresh_interval: float = 5.0,
     multi_worker: bool = False,
     **kwargs,
@@ -375,7 +375,7 @@ def measure_peak_memory_full(
         return x / 1024**2
 
     baseline_mib = to_mib(baseline)
-    peak_mib = to_mib(peak)
+    peak_mib = to_mib(max(peak, final))
     avg_mib = to_mib(avg)
     final_mib = to_mib(final)
     delta_mib = peak_mib - baseline_mib
