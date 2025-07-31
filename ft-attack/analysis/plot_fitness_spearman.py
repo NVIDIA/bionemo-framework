@@ -49,9 +49,56 @@ def extract_dataset_identifier(model_name):
         
         if start_idx and end_idx:
             dataset_parts = parts[start_idx:end_idx]
-            return "_".join(dataset_parts)
+            # Convert to kebab-case for filename
+            return "-".join(dataset_parts)
     
     return None
+
+def extract_experiment_name(base_path):
+    """Extract experiment name from base_path."""
+    # Example: "results/virus_reproduction/full" -> "virus_reproduction"
+    # Example: "results/virus_ecoli/full" -> "virus_ecoli"
+    path_parts = base_path.strip('/').split('/')
+    
+    # Find the part after "results"
+    if len(path_parts) >= 2 and path_parts[0] == "results":
+        return path_parts[1]
+    elif len(path_parts) >= 1:
+        # If no "results" prefix, take the first part
+        return path_parts[0]
+    
+    return "unknown_experiment"
+
+def extract_sample_type(base_path):
+    """Extract sample type from base_path."""
+    # Example: "results/virus_reproduction/full" -> "full"
+    # Example: "results/virus_reproduction/sample=1000_seed=42" -> "sample=1000_seed=42"
+    path_parts = base_path.strip('/').split('/')
+    
+    # Take the last part as sample type
+    if len(path_parts) >= 1:
+        sample_type = path_parts[-1]
+        # Convert underscores to hyphens for filename compatibility
+        return sample_type.replace('_', '-')
+    
+    return "unknown-sample"
+
+def generate_plot_filename(plot_type, dataset_name, experiment_name, sample_type, is_all_models=False):
+    """Generate standardized plot filename."""
+    # Base format: fitness_spearman_{dataset_name}_{experiment_name}_{sample_type}
+    
+    if is_all_models or not dataset_name:
+        # For all models or when no specific dataset is identified
+        if plot_type == "taxon":
+            return f"fitness_spearman_all-models_{experiment_name}_{sample_type}_by-taxon.png"
+        else:  # model
+            return f"fitness_spearman_all-models_{experiment_name}_{sample_type}_by-model.png"
+    else:
+        # For specific dataset
+        if plot_type == "taxon":
+            return f"fitness_spearman_{dataset_name}_{experiment_name}_{sample_type}_by-taxon.png"
+        else:  # model
+            return f"fitness_spearman_{dataset_name}_{experiment_name}_{sample_type}_by-model.png"
 
 def extract_steps_from_model_name(model_name):
     """Extract steps value from model name, return None if no steps found."""
@@ -88,13 +135,39 @@ def collect_fitness_data(model_names=None, base_path="results/virus_reproduction
         if not os.path.exists(taxon_path):
             continue
             
-        # If model_names is specified, look in those model folders
+        # Get all available model directories
+        available_models = []
+        for item in os.listdir(taxon_path):
+            item_path = os.path.join(taxon_path, item)
+            if os.path.isdir(item_path):
+                available_models.append(item)
+        
+        # If model_names is specified, use substring matching
         if model_names:
             # Ensure model_names is a list
             if isinstance(model_names, str):
                 model_names = [model_names]
+            
+            # Handle "all" models case
+            if len(model_names) == 1 and model_names[0] == "all":
+                selected_models = available_models[:]
+            else:
+                # Find models by substring matching
+                selected_models = set()
                 
-            for model_name in model_names:
+                # Always include the base model if it exists
+                base_model = "nemo2_evo2_7b_1m"
+                if base_model in available_models:
+                    selected_models.add(base_model)
+                
+                # Add models that match any of the provided substrings
+                for substring in model_names:
+                    matches = [model for model in available_models if substring in model]
+                    selected_models.update(matches)
+                
+                selected_models = list(selected_models)
+                
+            for model_name in selected_models:
                 model_path = os.path.join(taxon_path, model_name)
                 if os.path.exists(model_path):
                     fitness_files = glob.glob(os.path.join(model_path, "*_fitness.csv"))
@@ -149,23 +222,50 @@ def collect_fitness_data_by_model(model_names, base_path="results/virus_reproduc
     
     if not os.path.exists(taxon_path):
         print(f"Warning: {taxon_path} does not exist")
-        return data
+        return data, []
+    
+    # Get all available model directories
+    available_models = []
+    for item in os.listdir(taxon_path):
+        item_path = os.path.join(taxon_path, item)
+        if os.path.isdir(item_path):
+            available_models.append(item)
+    
+    print(f"Available models: {', '.join(available_models)}")
     
     # Handle "all" models case
     if isinstance(model_names, list) and len(model_names) == 1 and model_names[0] == "all":
-        # Get all model directories
-        model_names = []
-        for item in os.listdir(taxon_path):
-            item_path = os.path.join(taxon_path, item)
-            if os.path.isdir(item_path):
-                model_names.append(item)
-        print(f"Found {len(model_names)} models: {', '.join(model_names)}")
+        selected_models = available_models[:]
+        print(f"Using all {len(selected_models)} models")
+    else:
+        # Ensure model_names is a list
+        if isinstance(model_names, str):
+            model_names = [model_names]
+        
+        # Find models by substring matching
+        selected_models = set()
+        
+        # Always include the base model
+        base_model = "nemo2_evo2_7b_1m"
+        if base_model in available_models:
+            selected_models.add(base_model)
+            print(f"Added base model: {base_model}")
+        else:
+            print(f"Warning: Base model {base_model} not found in available models")
+        
+        # Add models that match any of the provided substrings
+        for substring in model_names:
+            matches = [model for model in available_models if substring in model]
+            if matches:
+                selected_models.update(matches)
+                print(f"Substring '{substring}' matched: {', '.join(matches)}")
+            else:
+                print(f"Warning: No models found containing substring '{substring}'")
+        
+        selected_models = list(selected_models)
+        print(f"Final selected models: {', '.join(selected_models)}")
     
-    # Ensure model_names is a list
-    if isinstance(model_names, str):
-        model_names = [model_names]
-    
-    for model_name in model_names:
+    for model_name in selected_models:
         data[model_name] = []
         model_path = os.path.join(taxon_path, model_name)
         
@@ -190,7 +290,7 @@ def collect_fitness_data_by_model(model_names, base_path="results/virus_reproduc
         else:
             print(f"Warning: Model path {model_path} does not exist")
     
-    return data
+    return data, selected_models
 
 def create_fitness_plot_by_taxon(data, model_names=None):
     """Create a bar plot showing Spearman correlations by taxon."""
@@ -360,9 +460,9 @@ def main():
     parser.add_argument('--type', type=str, choices=['taxon', 'model'], default='taxon',
                         help='Type of plot: by taxon or by model')
     parser.add_argument('--models', default="nemo2_evo2_7b_1m", type=str, nargs='+', 
-                        help='List of model names to analyze, or "all" to plot all available models')
+                        help='List of model names or substrings to match. Always includes base model "nemo2_evo2_7b_1m". Use "all" for all models.')
     parser.add_argument('--base-path', default="results/virus_ecoli/full", type=str,
-                        help='Base path to the results directory (default: results/virus_reproduction/full)')
+                        help='Base path to the results directory (default: results/virus_ecoli/full)')
     args = parser.parse_args()
     
     # Debug and ensure models is properly handled as a list of strings
@@ -385,7 +485,8 @@ def main():
             if len(args.models) == 1 and args.models[0] == "all":
                 print("Collecting fitness data by taxon from all models...")
             else:
-                print(f"Collecting fitness data by taxon for models: {', '.join(args.models)}")
+                print(f"Collecting fitness data by taxon using substring matching: {', '.join(args.models)}")
+                print("Note: Base model 'nemo2_evo2_7b_1m' will always be included")
         else:
             print("Collecting fitness data by taxon from all models...")
         
@@ -403,27 +504,23 @@ def main():
         print("\nCreating plot by taxon...")
         fig = create_fitness_plot_by_taxon(data, model_names=args.models)
         
-        # Save the plot with dynamic filename
+        # Save the plot with dynamic filename using new naming convention
+        experiment_name = extract_experiment_name(args.base_path)
+        sample_type = extract_sample_type(args.base_path)
+        
         if args.models:
             # Handle "all" case specially
             if len(args.models) == 1 and args.models[0] == "all":
-                output_path = "fitness_spearman_by_taxon_all_models.png"
+                output_path = generate_plot_filename("taxon", None, experiment_name, sample_type, is_all_models=True)
             else:
                 # Extract dataset identifier for filename
                 dataset_identifier = None
                 if args.models:
                     dataset_identifier = extract_dataset_identifier(args.models[0])
                 
-                # Clean model names for filename and use hyphen instead of underscore
-                clean_models = [clean_model_name(model) for model in args.models]
-                models_str = "-".join(clean_models)
-                
-                if dataset_identifier:
-                    output_path = f"fitness_spearman_by_taxon_{dataset_identifier}_{models_str}.png"
-                else:
-                    output_path = f"fitness_spearman_by_taxon_{models_str}.png"
+                output_path = generate_plot_filename("taxon", dataset_identifier, experiment_name, sample_type, is_all_models=False)
         else:
-            output_path = "fitness_spearman_by_taxon_all_models.png"
+            output_path = generate_plot_filename("taxon", None, experiment_name, sample_type, is_all_models=True)
         
     elif args.type == 'model':
         if not args.models:
@@ -433,9 +530,10 @@ def main():
         if len(args.models) == 1 and args.models[0] == "all":
             print("Collecting fitness data by model for Virus taxon: all models")
         else:
-            print(f"Collecting fitness data by model for Virus taxon: {', '.join(args.models)}")
+            print(f"Collecting fitness data by model for Virus taxon using substring matching: {', '.join(args.models)}")
+            print("Note: Base model 'nemo2_evo2_7b_1m' will always be included")
         
-        data = collect_fitness_data_by_model(model_names=args.models, base_path=args.base_path)
+        data, actual_model_names = collect_fitness_data_by_model(model_names=args.models, base_path=args.base_path)
         
         # Print summary
         print("\nSummary:")
@@ -447,24 +545,24 @@ def main():
         
         # Create and save plot
         print("\nCreating plot by model...")
-        fig = create_fitness_plot_by_model(data, model_names=args.models)
+        fig = create_fitness_plot_by_model(data, model_names=actual_model_names)
         
-        # Save the plot with dynamic filename
+        # Save the plot with dynamic filename using new naming convention
+        experiment_name = extract_experiment_name(args.base_path)
+        sample_type = extract_sample_type(args.base_path)
+        
         # Handle "all" case specially
         if len(args.models) == 1 and args.models[0] == "all":
-            output_path = "fitness_spearman_by_model_virus_all_models.png"
+            output_path = generate_plot_filename("model", None, experiment_name, sample_type, is_all_models=True)
         else:
-            # Extract dataset identifier for filename
-            dataset_identifier = extract_dataset_identifier(args.models[0])
+            # Extract dataset identifier from the first model that has one
+            dataset_identifier = None
+            for model_name in actual_model_names:
+                dataset_identifier = extract_dataset_identifier(model_name)
+                if dataset_identifier:
+                    break
             
-            # Clean model names for filename and use hyphen instead of underscore
-            clean_models = [clean_model_name(model) for model in args.models]
-            models_str = "-".join(clean_models)
-            
-            if dataset_identifier:
-                output_path = f"fitness_spearman_by_model_{dataset_identifier}_{models_str}.png"
-            else:
-                output_path = f"fitness_spearman_by_model_virus_{models_str}.png"
+            output_path = generate_plot_filename("model", dataset_identifier, experiment_name, sample_type, is_all_models=False)
     
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Plot saved as {output_path}")
