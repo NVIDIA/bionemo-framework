@@ -18,14 +18,18 @@
 
 import logging
 import os
+import time
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Any, Callable, Literal
 
 import numpy as np
 import pytest
 import torch
+from megatron.core.transformer.enums import AttnBackend
 from megatron.core.transformer.module import Float16Module
 from nemo.collections import llm
+from nemo.collections.llm.gpt.model.hyena import HyenaInferenceContext
+from nemo.collections.llm.inference import generate
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.io.pl import MegatronCheckpointIO
 
@@ -313,13 +317,13 @@ def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, **kwargs):
     return inference_wrapped_model, mcore_tokenizer
 
 
-def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
-    return get_model_and_tokenizer_raw(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False, **kwargs):
+    return get_model_and_tokenizer_raw(ckpt_name, vortex_style_fp8=vortex_style_fp8, **kwargs)
 
 
-def get_model_and_tokenizer_ignore_vortex(ckpt_name, vortex_style_fp8=False):
+def get_model_and_tokenizer_ignore_vortex(ckpt_name, vortex_style_fp8=False, **kwargs):
     # Capture and remove the vortex_style_fp8 argument for mamba models.
-    return get_model_and_tokenizer_raw(ckpt_name)
+    return get_model_and_tokenizer_raw(ckpt_name, **kwargs)
 
 
 def calc_matchrate(*, tokenizer, in_seq, logits):
@@ -354,25 +358,28 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
     [
         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
-        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
     assert len(sequences) > 0
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-
+    inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
+        ckpt_name, vortex_style_fp8=vortex_style_fp8, flash_decode=True, enable_flash_decode=True
+    )
     matchrates = []
     for seq in sequences:
-        inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
-            ckpt_name, vortex_style_fp8=vortex_style_fp8
-        )
-
         seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
         with torch.no_grad():
             device = torch.cuda.current_device()
@@ -385,6 +392,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 
             inference_wrapped_model.prep_model_for_inference(prompts_tokens=None)
             logits = inference_wrapped_model.run_one_forward_step(forward_args)
+            inference_wrapped_model.inference_context.reset()
 
             from megatron.core.inference.communication_utils import broadcast_from_last_pipeline_stage
 
@@ -407,18 +415,24 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 
 
 @pytest.mark.parametrize(
-    "ckpt_name,expected_matchpercents",
+    "ckpt_name,expected_matchpercents,flash_decode",
     [
-        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
-        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
-        # ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
+        # Try flash decode with one and not the other to verify that both paths work.
+        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
+        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
+        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
+        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
     ],
 )
-def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
+def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and flash_decode) or (gb_available < 50 and flash_decode and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
     if skip:
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
@@ -427,26 +441,29 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         tokenizer = get_nmt_tokenizer(
             "byte-level",
         )
+        flash_decode_kwargs: dict[str, Any] = {"flash_decode": flash_decode}
+        if flash_decode:
+            flash_decode_kwargs["attention_backend"] = AttnBackend.flash
         if "1b-8k" in ckpt_name:
             model_config = llm.Hyena1bConfig(
                 use_te=True,
                 seq_length=8192,
-                flash_decode=False,
                 vortex_style_fp8=vortex_style_fp8,
+                **flash_decode_kwargs,
             )
         elif "7b-8k" in ckpt_name:
             model_config = llm.Hyena7bConfig(
                 use_te=True,
                 seq_length=8192,
-                flash_decode=False,
                 vortex_style_fp8=vortex_style_fp8,
+                **flash_decode_kwargs,
             )
         elif "7b-1m" in ckpt_name:
             model_config = llm.Hyena7bARCLongContextConfig(
                 use_te=True,
                 seq_length=8192,
-                flash_decode=False,
                 vortex_style_fp8=vortex_style_fp8,
+                **flash_decode_kwargs,
             )
         else:
             raise NotImplementedError
@@ -455,6 +472,11 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         device = raw_megatron_model.parameters().__next__().device
         load_weights_sharded_inplace_nemo2_to_mcore(raw_megatron_model, ckpt_weights, {}, "torch_dist")
         model = Float16Module(model_config, raw_megatron_model)
+        if flash_decode:
+            inference_context = HyenaInferenceContext(max_batch_size=1, max_sequence_length=8192)
+            forward_kwargs = {"runtime_gather_output": True, "inference_context": inference_context}
+        else:
+            forward_kwargs = {}
         matchrates = []
         for seq in sequences:
             seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
@@ -464,8 +486,15 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
                 input_ids = torch.tensor(tokenizer.text_to_ids(seq)).int().unsqueeze(0).to(device)
                 attention_mask = None
                 # when labels is None, the model returns logits
-                logits = model(input_ids=input_ids, position_ids=None, attention_mask=attention_mask, labels=None)
-
+                logits = model(
+                    input_ids=input_ids,
+                    position_ids=None,
+                    attention_mask=attention_mask,
+                    labels=None,
+                    **forward_kwargs,
+                )
+                if flash_decode:
+                    forward_kwargs["inference_context"].reset()
                 matchrate = calc_matchrate(tokenizer=tokenizer, in_seq=seq, logits=logits)
                 matchrates.append(matchrate)
                 check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate, assert_matchrate=False)
@@ -505,8 +534,8 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
         ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [99.2, 51.0, 73.0, 82.6]),
-        # ("evo2/7b-8k:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-8k:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_batch_generate(
@@ -514,6 +543,11 @@ def test_batch_generate(
 ):
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
@@ -529,7 +563,6 @@ def test_batch_generate(
     num_tokens = 500
     seq_prompts = [mid_point_split(seq=seq, num_tokens=num_tokens) for seq in sequences]
     from megatron.core.inference.common_inference_params import CommonInferenceParams
-    from nemo.collections.llm.inference import generate
 
     results = generate(
         model=inference_wrapped_model,
@@ -570,8 +603,8 @@ def test_batch_generate(
         ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
-        # ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
-        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+        ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
     ],
 )
 def test_batch_generate_coding_sequences(
@@ -581,6 +614,11 @@ def test_batch_generate_coding_sequences(
     expected_matchpercents: list[float],
 ):
     assert len(coding_sequences) > 0
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
@@ -591,7 +629,9 @@ def test_batch_generate_coding_sequences(
         pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
+        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True
+    )
 
     match_percents: list[float] = []
     cds_lengths: list[int | None] = []
@@ -599,8 +639,21 @@ def test_batch_generate_coding_sequences(
     seq_prompts = [mid_point_split(seq=seq, num_tokens=None, fraction=0.3) for seq in coding_sequences]
     num_tokens = max(len(sq[1]) for sq in seq_prompts) + 15
     from megatron.core.inference.common_inference_params import CommonInferenceParams
-    from nemo.collections.llm.inference import generate
 
+    _ = generate(
+        model=inference_wrapped_model,
+        max_batch_size=1,  # vortex only supports batch size 1
+        tokenizer=mcore_tokenizer,
+        prompts=["AAACCC"],
+        random_seed=42,
+        inference_params=CommonInferenceParams(
+            temperature=1.0,
+            top_k=1,
+            top_p=0.0,
+            return_log_probs=False,
+            num_tokens_to_generate=1,
+        ),
+    )
     results = generate(
         model=inference_wrapped_model,
         max_batch_size=1,  # vortex only supports batch size 1
@@ -650,4 +703,82 @@ def test_batch_generate_coding_sequences(
     ), f"Expected at least 70% of {original_cds_lengths=}, got {cds_lengths=}"
     assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
         f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "ckpt_name,model_tokenizer_provider,expected_tokens_sec",
+    [
+        ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, 41.0),
+        ("evo2/1b-8k:1.0", get_model_and_tokenizer, 41.0),
+        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
+        ("evo2/7b-8k:1.0", get_model_and_tokenizer, 32.0),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
+    ],
+)
+def test_generate_speed(
+    ckpt_name: str,
+    model_tokenizer_provider: Callable,
+    expected_tokens_sec: float,
+):
+    is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
+    skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
+    if skip:
+        # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
+        pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
+    if "evo2_mamba" in ckpt_name and os.environ.get("BIONEMO_DATA_SOURCE") != "pbss":
+        # TODO: add evo2_mamba/7b-8k to NGC and remove this skip
+        pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
+    # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
+    vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
+        ckpt_name,
+        vortex_style_fp8=vortex_style_fp8,
+        fp32_residual_connection=False,
+        enable_flash_decode=True,
+        flash_decode=True,
+    )
+
+    from megatron.core.inference.common_inference_params import CommonInferenceParams
+
+    # warm up the model with a single call before timing. This should take care of compilation etc.
+    _ = generate(
+        model=inference_wrapped_model,
+        max_batch_size=1,  # vortex only supports batch size 1
+        tokenizer=mcore_tokenizer,
+        prompts=["AAACCC"],
+        random_seed=42,
+        inference_params=CommonInferenceParams(
+            temperature=1.0,
+            top_k=1,
+            top_p=0.0,
+            return_log_probs=False,
+            num_tokens_to_generate=1,
+        ),
+    )
+    t0 = time.perf_counter_ns()
+    results = generate(
+        model=inference_wrapped_model,
+        max_batch_size=1,  # vortex only supports batch size 1
+        tokenizer=mcore_tokenizer,
+        prompts=["A"],
+        random_seed=42,
+        inference_params=CommonInferenceParams(
+            temperature=1.0,
+            top_k=1,
+            top_p=0.0,
+            return_log_probs=False,
+            num_tokens_to_generate=300,
+        ),
+    )
+    dt = (time.perf_counter_ns() - t0) / 1e9  # seconds
+    tokens_per_sec = (len(results[0].generated_text) + 1) / dt  # +1 for the prompt
+    assert tokens_per_sec > expected_tokens_sec * 0.85, (
+        f"Expected at least {expected_tokens_sec} tokens/sec, got {tokens_per_sec}"
     )
