@@ -480,6 +480,10 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
             total_len=seq_len
         )
 
+        # attention_mask = (combined_tokens != self.pad_token_id).long()
+        pad_positions = (combined_tokens == self.pad_token_id)
+        attention_mask[pad_positions] = 0
+
         # Pad to max_len if needed
         if seq_len < self.max_len:
             pad_len = self.max_len - seq_len
@@ -490,10 +494,11 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
             types = torch.cat([types, torch.zeros(pad_len, dtype=torch.long)])
             labels = torch.cat([labels, torch.full((pad_len,), -100)])
             loss_mask = torch.cat([loss_mask, torch.zeros(pad_len, dtype=torch.bool)])
+            attention_mask = torch.cat([attention_mask, torch.zeros(pad_len, dtype=torch.long)])
 
         return {
             "text": combined_tokens,
-            "attention_mask": temporal_attention_mask,  # Use temporal mask as the main attention mask
+            "attention_mask": attention_mask,  # Use temporal mask as the main attention mask
             "labels": labels,
             "loss_mask": loss_mask,
             "types": types,

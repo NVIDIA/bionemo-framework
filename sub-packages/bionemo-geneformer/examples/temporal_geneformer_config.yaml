@@ -82,16 +82,15 @@ parallel_config:
 
 # Optimizer Configuration
 optim_config:
-  name: "adamw"
-  lr: 1.0e-4
-  betas: [0.9, 0.999]
-  eps: 1.0e-8
+  lr: 0.001  # 🔧 REDUCED LEARNING RATE - this is where you change it!
+  optimizer: "adam"  # 🔧 FIXED: Changed from "adamw" to "adam" - Megatron Core only supports "adam" and "sgd"
+  adam_eps: 1.0e-8
   weight_decay: 0.01
-  sched:
-    name: "CosineAnnealingWarmRestarts"
-    T_0: 2000  # Increased for longer training
-    T_mult: 2
-    eta_min: 1.0e-6
+  lr_scheduler: "cosine"
+  cosine_rampup_frac: 0  # 🔧 FIXED: Set to 0 to disable warmup and start immediately at target LR
+  cosine_hold_frac: 0.05
+  interval: "step"
+  monitor: "val_loss"
 
 # Experiment Configuration
 experiment_config:
