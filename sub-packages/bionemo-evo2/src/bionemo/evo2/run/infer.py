@@ -173,8 +173,8 @@ def infer(
         path=ckpt_dir,
         trainer=trainer,
         params_dtype=torch.bfloat16,
-        inference_batch_times_seqlen_threshold=8192,  # TODO
-        inference_max_seq_length=8192,  # TODO
+        inference_batch_times_seqlen_threshold=len(prompt) + max_new_tokens + 1,
+        inference_max_seq_length=len(prompt) + max_new_tokens,
         recompute_granularity=None,
         recompute_num_layers=None,
         recompute_method=None,

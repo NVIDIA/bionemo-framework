@@ -288,7 +288,7 @@ def get_trainer(pipeline_parallel=1):
     )
 
 
-def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, **kwargs):
+def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, inference_max_seq_length: int = 8192, **kwargs):
     """
     Load a model and tokenizer from a checkpoint directory or name. If you supply a Path argument then we assume that
     the path is already a checkpoint directory, otherwise we load the checkpoint from NGC or PBSS depending on
@@ -307,8 +307,7 @@ def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, **kwargs):
         path=ckpt_dir,
         trainer=trainer,
         params_dtype=torch.bfloat16,
-        inference_batch_times_seqlen_threshold=8192,  # TODO
-        inference_max_seq_length=8192,  # TODO
+        inference_max_seq_length=inference_max_seq_length,
         recompute_granularity=None,
         recompute_num_layers=None,
         recompute_method=None,
@@ -362,7 +361,7 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
 )
-def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
+def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], max_tokens: int = 6000):
     assert len(sequences) > 0
     gb_available = torch.cuda.mem_get_info()[0] / 1024**3
     if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
@@ -376,11 +375,15 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
     inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
-        ckpt_name, vortex_style_fp8=vortex_style_fp8, flash_decode=True, enable_flash_decode=True
+        ckpt_name,
+        vortex_style_fp8=vortex_style_fp8,
+        flash_decode=True,
+        enable_flash_decode=True,
+        inference_max_seq_length=max_tokens,
     )
     matchrates = []
     for seq in sequences:
-        seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
+        seq = seq[:max_tokens]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
         with torch.no_grad():
             device = torch.cuda.current_device()
             tokens = torch.tensor([mcore_tokenizer.tokenize(seq)], device=device)
@@ -424,7 +427,13 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
     ],
 )
-def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
+def test_forward_manual(
+    sequences: list[str],
+    ckpt_name: str,
+    expected_matchpercents: list[float],
+    flash_decode: bool,
+    max_tokens: int = 6000,
+):
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -473,13 +482,15 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         load_weights_sharded_inplace_nemo2_to_mcore(raw_megatron_model, ckpt_weights, {}, "torch_dist")
         model = Float16Module(model_config, raw_megatron_model)
         if flash_decode:
-            inference_context = HyenaInferenceContext(max_batch_size=1, max_sequence_length=8192)
+            inference_context = HyenaInferenceContext(max_batch_size=1, max_sequence_length=max_tokens)
             forward_kwargs = {"runtime_gather_output": True, "inference_context": inference_context}
         else:
             forward_kwargs = {}
         matchrates = []
         for seq in sequences:
-            seq = seq[:6000]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
+            seq = seq[
+                :max_tokens
+            ]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
             with torch.no_grad():
                 device = torch.cuda.current_device()
                 # tokens = torch.tensor([tokenizer.tokenize(seq)], device=device)
@@ -557,7 +568,10 @@ def test_batch_generate(
         pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+    max_tokens = max(len(seq) // 2 + 500 + 1 for seq in sequences)
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
+        ckpt_name, vortex_style_fp8=vortex_style_fp8, inference_max_seq_length=max_tokens
+    )
 
     match_percents = []
     num_tokens = 500
@@ -629,15 +643,20 @@ def test_batch_generate_coding_sequences(
         pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
+    seq_prompts = [mid_point_split(seq=seq, num_tokens=None, fraction=0.3) for seq in coding_sequences]
+    num_tokens = max(len(sq[1]) for sq in seq_prompts) + 15
+    max_tokens = max(len(sq[0]) + num_tokens for sq in seq_prompts) + num_tokens + 1
     inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
-        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True
+        ckpt_name,
+        vortex_style_fp8=vortex_style_fp8,
+        enable_flash_decode=True,
+        flash_decode=True,
+        inference_max_seq_length=max_tokens,
     )
 
     match_percents: list[float] = []
     cds_lengths: list[int | None] = []
     original_cds_lengths: list[int] = [len(seq) for seq in coding_sequences]
-    seq_prompts = [mid_point_split(seq=seq, num_tokens=None, fraction=0.3) for seq in coding_sequences]
-    num_tokens = max(len(sq[1]) for sq in seq_prompts) + 15
     from megatron.core.inference.common_inference_params import CommonInferenceParams
 
     _ = generate(
@@ -743,6 +762,7 @@ def test_generate_speed(
         fp32_residual_connection=False,
         enable_flash_decode=True,
         flash_decode=True,
+        inference_max_seq_length=305,  # 300 tokens + 1 for the prompt + buffer
     )
 
     from megatron.core.inference.common_inference_params import CommonInferenceParams
