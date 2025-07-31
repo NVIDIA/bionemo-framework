@@ -85,7 +85,7 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         random_token_prob: float = 0.1,
-        neighbor_key: str = "neighbors",
+        neighbor_key: str = "next_cell_ids",
         seed: int = 42,
         only_cells_with_neighbors: bool = True,
         no_neighbor_policy: Literal["skip", "identity", "random"] = "skip",
@@ -471,7 +471,7 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
         # Create token type IDs (0 for current cell + SEP, 1 for next cell)
         current_end = len(cls_token) + len(current_tokens) + len(sep_token)
         types = torch.zeros_like(combined_tokens, dtype=torch.long)
-        types[current_end:] = 1  # Next cell gets type 1
+        # types[current_end:] = 1  # Next cell gets type 1
 
         # Create temporal attention mask (only current tokens can attend)
         temporal_attention_mask = self._create_1d_temporal_attention_mask(

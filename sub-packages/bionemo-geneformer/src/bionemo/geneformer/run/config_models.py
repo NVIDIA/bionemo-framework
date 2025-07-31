@@ -176,7 +176,7 @@ class TemporalGeneformerDataConfig(DataConfig[TemporalGeneformerDataModule]):
     mask_prob: float = 0.15
     mask_token_prob: float = 0.8
     random_token_prob: float = 0.1
-    neighbor_key: str = "neighbors"
+    neighbor_key: str = "next_cell_ids"
     num_dataset_workers: int = 0
     seed: int = 42
     only_cells_with_neighbors: bool = True

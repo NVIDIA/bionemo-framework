@@ -68,7 +68,7 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         random_token_prob: float = 0.1,
-        neighbor_key: str = "neighbors",
+        neighbor_key: str = "next_cell_ids",
         micro_batch_size: int = 4,
         global_batch_size: int = 16,
         num_workers: int = 0,

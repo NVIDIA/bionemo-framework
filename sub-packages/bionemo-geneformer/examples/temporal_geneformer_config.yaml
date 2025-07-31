@@ -32,9 +32,12 @@ bionemo_model_config:
 # Data Configuration - Uses TemporalGeneformerDataConfig with separate dataset paths
 data_config:
   # Core data paths - Updated with custom train/val/test splits
-  train_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/train/scdl_processed/train_merged_dataset"
-  val_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/val/scdl_processed/val_merged_dataset"
-  test_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/test/scdl_processed/test_merged_dataset"
+  # train_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/train/scdl_processed/train_merged_dataset"
+  # val_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/val/scdl_processed/val_merged_dataset"
+  # test_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/test/scdl_processed/test_merged_dataset"
+  train_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/lina_dataset_splits/train"
+  val_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/lina_dataset_splits/val"
+  test_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/lina_dataset_splits/test"
   
   # Alternative: For prediction-only workflow (uncomment and comment above):
   # predict_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/scdl_processed"
@@ -53,7 +56,7 @@ data_config:
   mask_prob: 0.15
   mask_token_prob: 0.8
   random_token_prob: 0.1
-  neighbor_key: "neighbors"
+  neighbor_key: "next_cell_ids"
   seed: 42
   
   # Neighbor handling
@@ -67,8 +70,8 @@ data_config:
 
 # Training Configuration
 training_config:
-  max_steps: 40000
-  val_check_interval: 5000  # Validate every 1000 steps
+  max_steps: 20000
+  val_check_interval: 500  # Validate every 1000 steps
   limit_val_batches: 200    # Use more validation batches for better estimates
   log_every_n_steps: 50     # Log every 50 steps to reduce noise
   enable_checkpointing: true
@@ -87,32 +90,32 @@ optim_config:
   adam_eps: 1.0e-8
   weight_decay: 0.01
   lr_scheduler: "cosine"
-  cosine_rampup_frac: 0  # 🔧 FIXED: Set to 0 to disable warmup and start immediately at target LR
-  cosine_hold_frac: 0.05
+  cosine_rampup_frac: 0.025  # 🔧 FIXED: Set to 0 to disable warmup and start immediately at target LR
+  cosine_hold_frac: 0.0
   interval: "step"
   monitor: "val_loss"
 
 # Experiment Configuration
 experiment_config:
-  experiment_name: "temporal_geneformer_custom_splits"
+  experiment_name: "temporal_geneformer_test"
   experiment_version: "v1.0"
   save_top_k: 3
   monitor: "val_loss"
   mode: "min"
   # Required fields
   save_every_n_steps: 2000  # Save checkpoint every 2000 steps
-  result_dir: "./temporal_geneformer_custom_splits_results"
+  result_dir: "./temporal_geneformer_custom_splits_results_test"
   restore_from_checkpoint_path: null
 
 # Weights & Biases Configuration (optional)
 wandb_config:
   entity: "clara-discovery"
   project: "temporal_geneformer"
-  name: "next_cell_training_custom_splits"
+  name: "test_next_cell_training_custom_splits_lina_dataset"
   tags: ["temporal", "geneformer", "next-cell", "custom-splits"]
   # Required fields
-  group: "temporal_geneformer"
-  offline: true
-  id: "temporal_run_custom_splits"
+  group: "temporal_geneformer_test_lina_dataset"
+  offline: false
+  id: "temporal_run_lina_dataset"
   anonymous: false
   log_model: false 
