@@ -58,24 +58,36 @@ rm -rf /tmp/* /var/tmp/*
 EOF
 
 
-## BUMP TE as a solution to the issue https://github.com/NVIDIA/bionemo-framework/issues/422. Drop this when pytorch images ship the fixed commit.
- ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
- RUN PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
-    pip --disable-pip-version-check --no-cache-dir install \
-    git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
+## BUMP and patch TE as a solution to the issues:
+## 1. https://github.com/NVIDIA/bionemo-framework/issues/422
+## 2. https://github.com/NVIDIA/bionemo-framework/issues/973
+## Drop this when pytorch images ship the fixed commit.
+ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
 
-# Install AWS CLI based on architecture
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-      curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
-    elif [ "$TARGETARCH" = "amd64" ]; then \
-      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
-    else \
-      echo "Unsupported architecture: $TARGETARCH" && exit 1; \
-    fi && \
-    unzip awscliv2.zip && \
-    ./aws/install && \
-    rm -rf aws awscliv2.zip
+COPY ./patches/te.patch /tmp/te.patch
+RUN git clone --recurse-submodules https://github.com/NVIDIA/TransformerEngine.git /tmp/TransformerEngine && \
+    cd /tmp/TransformerEngine && \
+    git checkout --recurse-submodules ${TE_TAG} && \
+    patch -p1 < /tmp/te.patch && \
+    PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
+    pip --disable-pip-version-check --no-cache-dir install .
 
+# Install AWS CLI from source rather than prebuilt binary.
+# This is good for two reasons:
+#  1. It is the same on both ARM and x86
+#  2. When installing this way, aws-cli doesn't bring its own pypi dependencies with it,
+#     which it might do via a binary install. These extra pypi packages sometimes bring
+#     CVEs with them.
+
+RUN <<EOF
+set -eo pipefail
+cd /tmp
+git clone --depth 1 --branch 2.27.59 https://github.com/aws/aws-cli.git
+cd aws-cli
+pip install .
+cd /
+rm -rf /tmp/aws-cli
+EOF
 
 # Use a branch of causal_conv1d while the repository works on Blackwell support.
 ARG CAUSAL_CONV_TAG=52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
@@ -135,8 +147,22 @@ fi
 RUN apt-get update -qy && apt-get install -y libopenblas-dev && pip install scikit-misc==0.3.1
 
 # Mamba dependancy installation
-RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
+# See https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/d3c853c2d/docker/Dockerfile#L193-198
+#  for the command we want to keep in sync. Note that the package install is modified slightly to first build a
+#  wheel (no deps) and then install the wheel. This avoids issues with torch version conflicts.
+RUN <<EOF
+git clone https://github.com/state-spaces/mamba.git
+cd mamba
+git checkout 2e16fc3062cdcd4ebef27a9aa4442676e1c7edf4
+sed -i "/triton/d" setup.py
+sed -i "/triton/d" pyproject.toml
+pip3 wheel --disable-pip-version-check --no-build-isolation --no-deps .
+pip3 --disable-pip-version-check --no-cache-dir install mamba_ssm-*.whl --no-deps
+rm -f mamba_ssm-*.whl
+cd ..
+rm -rf mamba
+EOF
+
 
 # Nemo Run installation
 # Some things are pip installed in advance to avoid dependency issues during nemo_run installation

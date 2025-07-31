@@ -57,6 +57,9 @@ def test_nemo2_export_8m_weights_equivalent(tmp_path):
     hf_model_from_nemo = AutoModelForMaskedLM.from_pretrained(output_path)
     hf_model_from_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
 
+    # We should not have any NaNs in the model, even in heads that we don't explicitly initialize.
+    assert not {name: param for name, param in hf_model_from_nemo.named_parameters() if param.data.isnan().any()}
+
     del hf_model_from_nemo.esm.contact_head
     del hf_model_from_hf.esm.contact_head
 
@@ -102,6 +105,14 @@ def test_nemo2_conversion_equivalent_650m(tmp_path):
     io.import_ckpt(module, f"hf://{model_tag}", tmp_path / "nemo_checkpoint")
     with megatron_parallel_state_utils.distributed_model_parallel_state():
         assert_esm2_equivalence(tmp_path / "nemo_checkpoint", model_tag, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.slow
+def test_nemo2_export_equivalent_650m(tmp_path):
+    ckpt_path = load("esm2/nv_650m:2.1")
+    output_path = io.export_ckpt(ckpt_path, "hf", tmp_path / "hf_checkpoint")
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        assert_esm2_equivalence(ckpt_path, output_path, precision="bf16")
 
 
 def test_cli_nemo2_conversion_equivalent_8m(tmp_path):
