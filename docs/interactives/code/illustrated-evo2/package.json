@@ -1,0 +1,52 @@
+{
+  "name": "evo2",
+  "description": "Evo 2: Under the Hood",
+  "author": "Jared Wilber",
+  "license": "MIT",
+  "homepage": "https://hyena-se.github.io/evo2-under-the-hood",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hyena-se/evo2-under-the-hood.git"
+  },
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "postbuild": "cp -r dist/* ../../static/illustrated-evo2/",
+    "lint": "eslint . --ext js,jsx --report-unused-disable-directives",
+    "lint:fix": "eslint . --ext js,jsx --fix",
+    "format": "prettier --write 'src/**/*.{js,jsx}'",
+    "format:check": "prettier --check 'src/**/*.{js,jsx}'",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "d3-format": "^3.1.0",
+    "d3-sankey": "^0.12.3",
+    "d3-scale": "^4.0.2",
+    "d3-selection": "^3.0.0",
+    "d3-shape": "^3.2.0",
+    "katex": "^0.16.22",
+    "lucide-react": "^0.523.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.29.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.5.2",
+    "eslint": "^9.29.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-prettier": "^5.5.3",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.2.0",
+    "prettier": "^3.6.2",
+    "vite": "^7.0.0"
+  }
+}

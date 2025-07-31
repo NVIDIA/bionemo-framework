@@ -1,0 +1,154 @@
+/* Container & Panels */
+.tcv-container {
+  max-width: 800px;
+  margin: 0 auto;
+  font-family: Nvidia Sans, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+.tcv-panel {
+  background-color: #fff;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+.tcv-svg {
+  display: block;
+}
+
+/* Titles & Operators */
+.tcv-title {
+  text-anchor: middle;
+  font-size: 14px;
+  font-weight: 600;
+  fill: #333;
+}
+.tcv-operator {
+  text-anchor: middle;
+  font-size: 20px;
+  fill: #333;
+}
+
+/* Cell styling */
+.tcv-cell-hoverable {
+  cursor: pointer;
+}
+.tcv-cell-text {
+  font-size: 8px;
+  font-weight: 400;
+  pointer-events: none;
+}
+
+/* Controls area */
+.tcv-controls {
+  background-color: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+}
+.tcv-sliders {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+.tcv-controls-section {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid #ddd;
+  padding-top: 15px;
+  margin-top: 15px;
+}
+
+/* Slider component */
+.tcv-slider {
+  flex: 1;
+  min-width: 200px;
+}
+.tcv-slider-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.tcv-slider-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  margin-right: 10px;
+  width: 80px;
+}
+.tcv-slider-input {
+  width: 40px;
+  padding: 4px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  text-align: center;
+}
+/* Range slider styling */
+.tcv-range-input {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: transparent;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.tcv-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--nvgreen, #76b900);
+  cursor: pointer;
+  border-radius: 2px;
+  margin-top: -5px;
+}
+.tcv-range-input::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: var(--nvgreen, #76b900);
+  cursor: pointer;
+  border: none;
+  border-radius: 2px;
+}
+.tcv-range-input::-webkit-slider-runnable-track {
+  background: var(--gray-200, #e5e5e5);
+  height: 6px;
+  border-radius: 3px;
+}
+.tcv-range-input::-moz-range-track {
+  background: var(--gray-200, #e5e5e5);
+  height: 6px;
+  border-radius: 3px;
+}
+
+/* Buttons */
+.tcv-button {
+  padding: 6px 16px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #fff;
+  color: #333;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+.tcv-button.active {
+  background-color: var(--nvgreen, #76b900);
+  color: #fff;
+}
+
+/* Labels & Info */
+.tcv-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+.tcv-info {
+  margin-left: auto;
+  font-size: 13px;
+  color: #666;
+  display: flex;
+}
+.tcv-info-separator {
+  margin-left: 15px;
+}
