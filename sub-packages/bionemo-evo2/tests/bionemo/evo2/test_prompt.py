@@ -17,9 +17,9 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import List
 
 import pytest
+from megatron.core.inference.inference_request import InferenceRequest
 
 from bionemo.core.data.load import load
 from bionemo.evo2.run.infer import infer
@@ -75,14 +75,14 @@ def load_checkpoint():
     return _load_checkpoint
 
 
-def percent_equal_tokens(response1, response2):
+def percent_equal_tokens(response1: list[InferenceRequest], response2: list[InferenceRequest]) -> float:
     """Percent of tokens that are equal between two responses."""
-    num_equal = [i == j for i, j in zip(response1[0], response2[0])]
+    num_equal = [i == j for i, j in zip(response1[0].generated_tokens, response2[0].generated_tokens)]
     return sum(num_equal) / len(num_equal)
 
 
 # just a DRY wrapper for the infer function
-def run_inference(prompt: str, checkpoint_path: str, config: InferCofig) -> List:
+def run_inference(prompt: str, checkpoint_path: str, config: InferCofig) -> list[InferenceRequest]:
     """Run model inference with given parameters.
 
     Args:

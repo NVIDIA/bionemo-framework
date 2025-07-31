@@ -25,6 +25,7 @@ from typing import Literal, Optional
 import nemo.lightning as nl
 import torch
 from megatron.core.inference.common_inference_params import CommonInferenceParams
+from megatron.core.inference.inference_request import InferenceRequest
 from nemo.collections.llm import inference
 from nemo.utils import logging
 
@@ -116,7 +117,7 @@ def infer(
     vortex_style_fp8: bool = False,
     flash_decode: bool = False,
     return_log_probs: bool = False,
-):
+) -> list[InferenceRequest]:
     """Inference workflow for Evo2.
 
     Args:
@@ -182,7 +183,8 @@ def infer(
         enable_flash_decode=flash_decode,
     )
     t0 = time.perf_counter_ns()
-    results = inference.generate(
+    # TODO: fix return type in NeMo inference.generate (it is a list[InferenceRequest] not a dict)
+    results: list[InferenceRequest] = inference.generate(
         model=inference_wrapped_model,
         max_batch_size=1,  # vortex only supports batch size 1
         tokenizer=mcore_tokenizer,
