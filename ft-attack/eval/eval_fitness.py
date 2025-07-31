@@ -128,6 +128,18 @@ def get_model_name(args):
     return model_name
 
 
+def get_experiment_type(args):
+    """Extract experiment type from DMS_filenames path."""
+    if hasattr(args, 'DMS_filenames') and args.DMS_filenames:
+        # Extract filename from path and remove extension
+        filename = os.path.basename(args.DMS_filenames)
+        experiment_type = os.path.splitext(filename)[0]
+        return experiment_type
+    else:
+        # Fallback for single DMS_path usage
+        return "single_file"
+
+
 class DMSDataset(Dataset):
     """Dataset for DMS sequences from CSV data."""
     
@@ -145,6 +157,11 @@ class DMSDataset(Dataset):
     
     def __getitem__(self, idx):
         seq = self.sequences[idx]
+        
+        # TODO: Uncomment below to validate sequence types for cleaner runs
+        # # Validate sequence is a string
+        # if not isinstance(seq, str):
+        #     raise ValueError(f"Sequence at index {idx} is not a string: {type(seq)} = {seq}")
         
         # Tokenize the sequence (same method as SimpleFastaDataset)
         tokens = self.tokenizer.text_to_ids(seq)
@@ -205,7 +222,9 @@ def get_likelihood_results_path(args):
     model_name = get_model_name(args)
     file_name = args.DMS_id + "_" + model_name + "_likelihoods.csv"
     
-    # Create folder structure: {output_folder}/{sample_type}/{taxon}/{model_name}/
+    # Create folder structure: {experiment_type}/{sample_type}/{taxon}/{model_name}/
+    experiment_type = get_experiment_type(args)
+    
     if hasattr(args, 'down_sample') and args.down_sample is not None:
         sample_folder = f"sample={args.down_sample}_seed=42"
     else:
@@ -213,6 +232,7 @@ def get_likelihood_results_path(args):
     
     results_dir = os.path.join(
         args.output_performance_file_folder,
+        experiment_type,
         sample_folder,
         args.taxon,
         model_name
@@ -227,7 +247,9 @@ def get_fitness_results_path(args):
     model_name = get_model_name(args)
     file_name = args.DMS_id + "_" + model_name + "_fitness.csv"
     
-    # Create folder structure: {output_folder}/{sample_type}/{taxon}/{model_name}/
+    # Create folder structure: {experiment_type}/{sample_type}/{taxon}/{model_name}/
+    experiment_type = get_experiment_type(args)
+    
     if hasattr(args, 'down_sample') and args.down_sample is not None:
         sample_folder = f"sample={args.down_sample}_seed=42"
     else:
@@ -235,6 +257,7 @@ def get_fitness_results_path(args):
     
     results_dir = os.path.join(
         args.output_performance_file_folder,
+        experiment_type,
         sample_folder,
         args.taxon,
         model_name
@@ -297,6 +320,16 @@ def get_model_likelihoods(model, trainer, tokenizer, DMS_df, args, seq_len=8192,
     
     # Extract sequences from DMS dataframe
     sequences = DMS_df[mutation_col].tolist()
+    
+    # TODO: Uncomment below to filter out missing nucleotide sequences for cleaner runs
+    # sequences = DMS_df[mutation_col].dropna().tolist()
+    # 
+    # # Report if any sequences were dropped
+    # total_rows = len(DMS_df)
+    # valid_rows = len(sequences)
+    # if total_rows != valid_rows:
+    #     print(f"Warning: Dropped {total_rows - valid_rows} rows with missing nucleotide sequences")
+    #     print(f"Processing {valid_rows} valid sequences out of {total_rows} total rows")
     
     # Check for sequences that might be too long
     long_sequences = []
@@ -880,14 +913,16 @@ if __name__ == '__main__':
             args.DMS_path = os.path.join(args.DMS_scores_folder, DMS_filename)
             args.DMS_id = DMS_filename.replace('.csv','')
             
-            # Look up taxon from reference data
+            # Look up taxon from reference data and capitalize it properly
             try:
                 taxon_mask = DMS_reference_df['DMS_id'] == args.DMS_id
                 taxon_series = DMS_reference_df[taxon_mask]['taxon']
-                args.taxon = taxon_series.tolist()[0]
+                raw_taxon = taxon_series.tolist()[0]
+                # Capitalize taxon (e.g., "virus" -> "Virus")
+                args.taxon = raw_taxon.capitalize()
             except (IndexError, KeyError):
                 print(f"Warning: Could not find taxon for DMS_id '{args.DMS_id}' in reference file")
-                args.taxon = "unknown"
+                args.taxon = "Unknown"
                 
             if os.path.exists(get_fitness_results_path(args)):
                 print(f"⏭️  Skipping {DMS_filename} (already exists)")
@@ -908,14 +943,16 @@ if __name__ == '__main__':
     elif args.DMS_path:
         args.DMS_id = os.path.basename(args.DMS_path).replace('.csv','')
         
-        # Look up taxon from reference data
+        # Look up taxon from reference data and capitalize it properly
         try:
             taxon_mask = DMS_reference_df['DMS_id'] == args.DMS_id
             taxon_series = DMS_reference_df[taxon_mask]['taxon']
-            args.taxon = taxon_series.tolist()[0]
+            raw_taxon = taxon_series.tolist()[0]
+            # Capitalize taxon (e.g., "virus" -> "Virus")
+            args.taxon = raw_taxon.capitalize()
         except (IndexError, KeyError):
             print(f"Warning: Could not find taxon for DMS_id '{args.DMS_id}' in reference file")
-            args.taxon = "unknown"
+            args.taxon = "Unknown"
             
         if os.path.exists(get_fitness_results_path(args)):
             print(f"Skipping {args.DMS_id} because it already exists")
