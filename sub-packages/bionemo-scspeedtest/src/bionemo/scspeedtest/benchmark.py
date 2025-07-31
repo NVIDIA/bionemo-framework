@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from tqdm import tqdm
 
-from bionemo.scbenchmark.common import (
+from bionemo.scspeedtest.common import (
     BenchmarkResult,
     export_benchmark_results,
     get_batch_size,

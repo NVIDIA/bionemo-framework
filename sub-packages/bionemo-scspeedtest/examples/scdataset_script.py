@@ -36,10 +36,11 @@ from comprehensive_benchmarking import (
 from scdataset import scDataset
 from torch.utils.data import DataLoader
 
-# Import the benchmarking framework
-from bionemo.scbenchmark import benchmark_dataloaders_with_configs
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
+
+# Import the benchmarking framework
+from bionemo.scspeedtest import benchmark_dataloaders_with_configs
 
 
 def fetch_transform_adata(batch):

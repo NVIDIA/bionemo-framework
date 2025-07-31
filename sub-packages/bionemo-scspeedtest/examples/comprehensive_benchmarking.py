@@ -58,9 +58,9 @@ import anndata
 from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
 
-from bionemo.scbenchmark import benchmark_dataloaders_with_configs, print_comparison
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
+from bionemo.scspeedtest import benchmark_dataloaders_with_configs, print_comparison
 
 
 # =============================================================================

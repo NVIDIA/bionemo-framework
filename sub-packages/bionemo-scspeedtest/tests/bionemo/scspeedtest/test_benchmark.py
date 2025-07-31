@@ -25,13 +25,13 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from bionemo.scbenchmark.benchmark import (
+from bionemo.scspeedtest.benchmark import (
     BenchmarkConfig,
     benchmark_dataloaders_with_configs,
     benchmark_single_dataloader,
     run_benchmark,
 )
-from bionemo.scbenchmark.common import BenchmarkResult
+from bionemo.scspeedtest.common import BenchmarkResult
 
 
 class MockDataloader:
@@ -62,7 +62,7 @@ class MockBatch:
 
 
 # run_benchmark tests
-@mock.patch("bionemo.scbenchmark.benchmark.measure_peak_memory_full")
+@mock.patch("bionemo.scspeedtest.benchmark.measure_peak_memory_full")
 @mock.patch("builtins.print")
 def test_run_benchmark_basic(mock_print, mock_measure_memory):
     """Test basic benchmark run."""
@@ -107,7 +107,7 @@ def test_run_benchmark_basic(mock_print, mock_measure_memory):
     assert epoch_result["warmup_batches"] == 1
 
 
-@mock.patch("bionemo.scbenchmark.benchmark.measure_peak_memory_full")
+@mock.patch("bionemo.scspeedtest.benchmark.measure_peak_memory_full")
 @mock.patch("builtins.print")
 def test_run_benchmark_multiple_epochs(mock_print, mock_measure_memory):
     """Test benchmark with multiple epochs."""
@@ -137,7 +137,7 @@ def test_run_benchmark_multiple_epochs(mock_print, mock_measure_memory):
     assert result.epoch_results[1]["warmup_time"] == 0.0
 
 
-@mock.patch("bionemo.scbenchmark.benchmark.measure_peak_memory_full")
+@mock.patch("bionemo.scspeedtest.benchmark.measure_peak_memory_full")
 @mock.patch("builtins.print")
 def test_run_benchmark_no_warmup(mock_print, mock_measure_memory):
     """Test benchmark run without warmup."""
@@ -156,10 +156,10 @@ def test_run_benchmark_no_warmup(mock_print, mock_measure_memory):
 
 
 # benchmark_single_dataloader tests
-@mock.patch("bionemo.scbenchmark.benchmark.measure_peak_memory_full")
-@mock.patch("bionemo.scbenchmark.benchmark.get_disk_size")
-@mock.patch("bionemo.scbenchmark.benchmark.export_benchmark_results")
-@mock.patch("bionemo.scbenchmark.benchmark._drop_caches")
+@mock.patch("bionemo.scspeedtest.benchmark.measure_peak_memory_full")
+@mock.patch("bionemo.scspeedtest.benchmark.get_disk_size")
+@mock.patch("bionemo.scspeedtest.benchmark.export_benchmark_results")
+@mock.patch("bionemo.scspeedtest.benchmark._drop_caches")
 @mock.patch("builtins.print")
 def test_benchmark_single_dataloader_basic(
     mock_print, mock_drop_caches, mock_export, mock_get_disk_size, mock_measure_memory
@@ -195,10 +195,10 @@ def test_benchmark_single_dataloader_basic(
     mock_export.assert_called_once()
 
 
-@mock.patch("bionemo.scbenchmark.benchmark.measure_peak_memory_full")
-@mock.patch("bionemo.scbenchmark.benchmark.get_disk_size")
-@mock.patch("bionemo.scbenchmark.benchmark.export_benchmark_results")
-@mock.patch("bionemo.scbenchmark.benchmark._drop_caches")
+@mock.patch("bionemo.scspeedtest.benchmark.measure_peak_memory_full")
+@mock.patch("bionemo.scspeedtest.benchmark.get_disk_size")
+@mock.patch("bionemo.scspeedtest.benchmark.export_benchmark_results")
+@mock.patch("bionemo.scspeedtest.benchmark._drop_caches")
 @mock.patch("builtins.print")
 def test_benchmark_single_dataloader_multiple_runs(
     mock_print, mock_drop_caches, mock_export, mock_get_disk_size, mock_measure_memory
@@ -244,10 +244,10 @@ def test_benchmark_single_dataloader_multiple_runs(
         assert result.disk_size_mb == 50.0
 
 
-@mock.patch("bionemo.scbenchmark.benchmark.measure_peak_memory_full")
-@mock.patch("bionemo.scbenchmark.benchmark.get_disk_size")
-@mock.patch("bionemo.scbenchmark.benchmark.export_benchmark_results")
-@mock.patch("bionemo.scbenchmark.benchmark._drop_caches")
+@mock.patch("bionemo.scspeedtest.benchmark.measure_peak_memory_full")
+@mock.patch("bionemo.scspeedtest.benchmark.get_disk_size")
+@mock.patch("bionemo.scspeedtest.benchmark.export_benchmark_results")
+@mock.patch("bionemo.scspeedtest.benchmark._drop_caches")
 @mock.patch("builtins.print")
 def test_benchmark_with_dataset_factory(
     mock_print, mock_drop_caches, mock_export, mock_get_disk_size, mock_measure_memory
@@ -290,10 +290,10 @@ def test_benchmark_with_dataset_factory(
     assert result.disk_size_mb == 75.0  # From mock get_disk_size
 
 
-@mock.patch("bionemo.scbenchmark.benchmark.get_disk_size")
-@mock.patch("bionemo.scbenchmark.benchmark.measure_peak_memory_full")
-@mock.patch("bionemo.scbenchmark.benchmark.export_benchmark_results")
-@mock.patch("bionemo.scbenchmark.benchmark._drop_caches")
+@mock.patch("bionemo.scspeedtest.benchmark.get_disk_size")
+@mock.patch("bionemo.scspeedtest.benchmark.measure_peak_memory_full")
+@mock.patch("bionemo.scspeedtest.benchmark.export_benchmark_results")
+@mock.patch("bionemo.scspeedtest.benchmark._drop_caches")
 @mock.patch("builtins.print")
 def test_benchmark_no_data_path(mock_print, mock_drop_caches, mock_export, mock_measure_memory, mock_get_disk_size):
     """Test benchmarking with combined dataloader factory."""
@@ -319,8 +319,8 @@ def test_benchmark_no_data_path(mock_print, mock_drop_caches, mock_export, mock_
 
 
 # benchmark_dataloaders_with_configs tests
-@mock.patch("bionemo.scbenchmark.benchmark.benchmark_single_dataloader")
-@mock.patch("bionemo.scbenchmark.benchmark._drop_caches")
+@mock.patch("bionemo.scspeedtest.benchmark.benchmark_single_dataloader")
+@mock.patch("bionemo.scspeedtest.benchmark._drop_caches")
 def test_benchmark_multiple_configs_basic(mock_drop_caches, mock_benchmark_single):
     """Test benchmarking multiple dataloader configurations."""
     # Mock results for each config
@@ -359,9 +359,9 @@ def test_benchmark_multiple_configs_basic(mock_drop_caches, mock_benchmark_singl
     assert mock_benchmark_single.call_count == 2
 
 
-@mock.patch("bionemo.scbenchmark.benchmark.measure_peak_memory_full")
-@mock.patch("bionemo.scbenchmark.benchmark.benchmark_single_dataloader")
-@mock.patch("bionemo.scbenchmark.benchmark._drop_caches")
+@mock.patch("bionemo.scspeedtest.benchmark.measure_peak_memory_full")
+@mock.patch("bionemo.scspeedtest.benchmark.benchmark_single_dataloader")
+@mock.patch("bionemo.scspeedtest.benchmark._drop_caches")
 def test_benchmark_with_shared_dataset_factory(mock_drop_caches, mock_benchmark_single, mock_measure_memory):
     """Test benchmarking with shared dataset factory."""
     # Mock dataset creation
@@ -408,8 +408,8 @@ def test_benchmark_configs_missing_factory():
         benchmark_dataloaders_with_configs(configs, shared_dataset_factory=None)
 
 
-@mock.patch("bionemo.scbenchmark.benchmark.benchmark_single_dataloader")
-@mock.patch("bionemo.scbenchmark.benchmark._drop_caches")
+@mock.patch("bionemo.scspeedtest.benchmark.benchmark_single_dataloader")
+@mock.patch("bionemo.scspeedtest.benchmark._drop_caches")
 def test_benchmark_configs_with_none_factory(mock_drop_caches, mock_benchmark_single):
     """Test error handling for None dataloader_factory."""
     configs = [{"name": "NoneFactory", "dataloader_factory": None}]

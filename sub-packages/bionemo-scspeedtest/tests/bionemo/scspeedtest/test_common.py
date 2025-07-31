@@ -19,7 +19,7 @@ from unittest import mock
 import anndata
 import pytest
 
-from bionemo.scbenchmark.common import (
+from bionemo.scspeedtest.common import (
     BenchmarkResult,
     get_batch_size,
     measure_peak_memory_full,
