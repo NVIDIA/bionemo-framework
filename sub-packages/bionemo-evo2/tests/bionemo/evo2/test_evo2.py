@@ -577,6 +577,7 @@ def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchperc
 
     for i, (result, (prompt, target)) in enumerate(zip(results, seq_prompts)):
         gen_seq = result.generated_text
+        assert len(gen_seq) == num_tokens, (len(gen_seq), num_tokens)
         logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {gen_seq=}")
         logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {target=}")
         match_percent = calculate_sequence_identity(target, gen_seq)
