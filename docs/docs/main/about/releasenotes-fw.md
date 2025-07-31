@@ -1,5 +1,18 @@
 # Release Notes
 
+## BioNeMo Framework v2.6.3
+
+### Updates & Improvements
+
+* Fixes numerous issues with Evo2 model:
+    1. Inference/Generation issues resolved. https://github.com/NVIDIA/bionemo-framework/issues/890
+    2. FP8 training resumption issues resolved. https://github.com/NVIDIA/bionemo-framework/issues/973
+    3. Bug in inference script that concerns checkpoint loading is fixed. https://github.com/NVIDIA/bionemo-framework/pull/950
+* ESM2 LoRA model inference issue resolved. https://github.com/NVIDIA/bionemo-framework/pull/996
+* Added experimental evo2-mamba model. https://github.com/NVIDIA/bionemo-framework/pull/888
+* Updated base Docker image to [nvidia-pytorch 25.06-py3](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags)
+* NCCL issue in ESM2 pretraing resolved. https://github.com/NVIDIA/bionemo-framework/issues/970
+
 ## BioNeMo Framework v2.6.2
 
 ### Updates & Improvements
