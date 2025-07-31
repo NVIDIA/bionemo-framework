@@ -127,7 +127,7 @@ print_comparison(results)
 
 **Benchmark your dataloader!**
 ```python
-from bionemo.scbenchmark import benchmark_single_dataloader
+from bionemo.scspeedtest import benchmark_single_dataloader
 
 # Benchmark it with instantiation measurement!
 result = benchmark_single_dataloader(
