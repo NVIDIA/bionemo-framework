@@ -43,12 +43,14 @@ __all__ = [
     "BenchmarkConfig",
     "benchmark_dataloaders_with_configs",
     "benchmark_single_dataloader",
+    "print_comparison",
     "print_results",
 ]
 
 
 def _drop_caches():
     """Helper function to drop system caches."""
+    return
     try:
         print("Dropping caches")
         subprocess.run(["sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"], check=True)
@@ -278,12 +280,17 @@ def benchmark_dataloaders_with_configs(
             config_dataset_baseline = shared_dataset_baseline
 
         config_dataloader_factory = dl_config["dataloader_factory"]
+        if shared_dataset is not None:
 
-        def config_dataloader_from_dataset():
-            return config_dataloader_factory(shared_dataset)
+            def config_dataloader_from_dataset():
+                return config_dataloader_factory(shared_dataset)
+
+            dataloader_factory = config_dataloader_from_dataset
+        else:
+            dataloader_factory = config_dataloader_factory
 
         result = benchmark_single_dataloader(
-            dataloader_factory=config_dataloader_from_dataset,
+            dataloader_factory=dataloader_factory,
             data_path=dl_config.get("data_path", None),
             name=dl_config.get("name", "UnnamedBenchmark"),
             dataset_factory=config_dataset_factory,
@@ -298,7 +305,7 @@ def benchmark_dataloaders_with_configs(
             output_prefix=output_prefix,
             dataset_instantiation_time=shared_dataset_time,
         )
-
+        print_results(result)
         if isinstance(result, list):
             for r in result:
                 r.dataset_instantiation_time_seconds = shared_dataset_time
@@ -324,7 +331,7 @@ def benchmark_single_dataloader(
     num_runs: int = 1,
     dataset_baseline: Optional[float] = None,
     output_prefix: str = "consolidated_benchmark_results",
-    dataset_instantiation_time: Optional[float] = 0,
+    dataset_instantiation_time: Optional[float] = None,
 ) -> Union[BenchmarkResult, List[BenchmarkResult]]:
     """Benchmark a single dataloader with optional separate dataset factory.
 
@@ -379,8 +386,10 @@ def benchmark_single_dataloader(
             "memory_before_instantiation_mb": dataset_baseline
             if dataset_baseline is not None
             else dataloader_baseline_measured,
-            "dataset_instantiation_time_seconds": dataset_instantiation_time,  # Combined time when no separate dataset factory
-            "dataloader_instantiation_time_seconds": 0.0,
+            "dataset_instantiation_time_seconds": dataset_instantiation_time
+            if dataset_instantiation_time is not None
+            else 0,  # Combined time when no separate dataset factory
+            "dataloader_instantiation_time_seconds": setup_time,
         }
     disk_size_mb = get_disk_size(data_path)
 
@@ -435,10 +444,12 @@ def print_results(result_or_results: Union[BenchmarkResult, List[BenchmarkResult
         print(f"Samples/sec: {result.samples_per_second:.2f}")
         print(f"Total samples: {result.total_samples}")
         print(f"Total time: {result.total_time_seconds:.3f}s")
-        print(f"Dataset instantiation: {result.dataset_instantiation_time_seconds:.3f}s")
+        # print(f"Dataset instantiation: {result.dataset_instantiation_time_seconds:.3f}s")
         print(f"Dataloader instantiation: {result.dataloader_instantiation_time_seconds:.3f}s")
-        print(f"Peak memory: {result.peak_memory_mb:.1f} MB")
+        print(f"Peak memory durint iteration: {result.peak_memory_mb:.1f} MB")
+        print(f"Peak memory during instantiation: {result.peak_memory_during_instantiation_mb:.1f} MB")
         print(f"Disk size: {result.disk_size_mb:.1f} MB")
+        print("=" * 60 + "\n")
 
 
 def print_comparison(results: List[BenchmarkResult]) -> None:
@@ -462,10 +473,10 @@ def print_comparison(results: List[BenchmarkResult]) -> None:
     print(f"Lowest memory: {lowest_memory.name} ({lowest_memory.peak_memory_mb:.2f} MB)")
 
     fastest_instantiation = min(
-        results, key=lambda r: r.dataset_instantiation_time_seconds + r.dataloader_instantiation_time_seconds
+        results,
+        key=lambda r: (r.dataset_instantiation_time_seconds or 0) + (r.dataloader_instantiation_time_seconds or 0),
     )
-    fastest_time = (
-        fastest_instantiation.dataset_instantiation_time_seconds
-        + fastest_instantiation.dataloader_instantiation_time_seconds
+    fastest_time = (fastest_instantiation.dataset_instantiation_time_seconds or 0) + (
+        fastest_instantiation.dataloader_instantiation_time_seconds or 0
     )
     print(f"Fastest instantiation: {fastest_instantiation.name} ({fastest_time:.3f} s)")

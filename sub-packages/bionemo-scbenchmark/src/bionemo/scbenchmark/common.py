@@ -100,6 +100,9 @@ class BenchmarkResult:
         self.instantiation_time_seconds = (
             self.dataset_instantiation_time_seconds + self.dataloader_instantiation_time_seconds
         )
+        self.peak_memory_during_instantiation_mb = (
+            self.peak_memory_during_instantiation_mb - self.memory_before_instantiation_mb
+        )
 
 
 def export_benchmark_results(
@@ -171,8 +174,7 @@ def export_benchmark_results(
                     "Shuffle": result.shuffle,
                     "Dataset_Instantiation_Time_s": result.dataset_instantiation_time_seconds,
                     "Dataloader_Instantiation_Time_s": result.dataloader_instantiation_time_seconds,
-                    "Peak_Instantiation_Memory_MB": result.peak_memory_during_instantiation_mb
-                    - result.memory_before_instantiation_mb,
+                    "Peak_Instantiation_Memory_MB": result.peak_memory_during_instantiation_mb,
                     "Batches_per_sec": epoch_info["batches"] / epoch_info["elapsed"]
                     if epoch_info["elapsed"] > 0
                     else 0,
@@ -379,7 +381,7 @@ def measure_peak_memory_full(
     avg_mib = to_mib(avg)
     final_mib = to_mib(final)
     delta_mib = peak_mib - baseline_mib
-
+    print("baseline_mib", baseline_mib, "peak_mib", peak_mib)
     return (result, baseline_mib, peak_mib, avg_mib, delta_mib, final_mib, duration)
 
 

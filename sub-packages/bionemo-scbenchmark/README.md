@@ -38,7 +38,8 @@ filepath = "cellxgene_example_25k.h5ad"
 def anndata_factory(input_path, batch_size = 64):
     def factory():
         dataset = ad.read_h5ad(input_path)
-        return AnnLoader(dataset, num_workers = 0, collate_fn = lambda batch: np.vstack([x.X for x in batch]))
+        return AnnLoader(dataset, num_workers = 0,
+        collate_fn = lambda batch: np.vstack([x.X for x in batch]))
     return factory
 
 #benchmark the dataloader
@@ -56,12 +57,12 @@ print_results(result)
 ```
 ============================================================
 Benchmark: AnnLoader
-Samples/sec: 622.98
-Total samples: 6230
-Total time: 10.000s
-Dataset instantiation: 0.264s
-Dataloader instantiation: 0.000s
-Peak memory: 57.9 MB
+Samples/sec: 5042.91
+Total samples: 25381
+Total time: 5.033s
+Dataloader instantiation: 1.501s
+Peak memory durint iteration: 473.2 MB
+Peak memory during instantiation: 469.7 MB
 Disk size: 144.6 MB
 ```
 
@@ -144,7 +145,7 @@ result = benchmark_single_dataloader(
 # Print results
 print(f"Dataset instantiation time: {result.dataset_instantiation_time_seconds:.4f}s")
 print(f"Dataloader instantiation time: {result.dataloader_instantiation_time_seconds:.4f}s")
-print(f"Peak instantiation memory: {result.peak_memory_during_instantiation_mb:.2f} MB")
+print(f"Peak instantiation memory: {result.peak_memory_during_instan◊tiation_mb:.2f} MB")
 print(f"Samples/second: {result.samples_per_second:.2f}")
 print(f"Peak memory usage: {result.peak_memory_mb:.2f} MB")
 print(f"Average memory usage: {result.avg_memory_mb:.2f} MB")

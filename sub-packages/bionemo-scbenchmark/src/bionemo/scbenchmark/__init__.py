@@ -23,6 +23,7 @@ from .benchmark import (
     BenchmarkConfig,
     benchmark_dataloaders_with_configs,
     benchmark_single_dataloader,
+    print_comparison,
     print_results,
 )
 from .common import (

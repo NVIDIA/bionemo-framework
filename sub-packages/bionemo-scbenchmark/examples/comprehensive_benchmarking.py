@@ -58,7 +58,7 @@ import anndata
 from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
 
-from bionemo.scbenchmark import benchmark_dataloaders_with_configs, print_results
+from bionemo.scbenchmark import benchmark_dataloaders_with_configs, print_comparison
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 
@@ -294,8 +294,7 @@ def dataset_reuse_benchmarking_example(num_epochs=1, num_runs=1, adata_path=None
     print("ANALYSIS & COMPARISON")
     print("-" * 60)
 
-    print_results(anndata_results + scdl_results)
-
+    print_comparison(anndata_results + scdl_results)
     print()
     print("COMPREHENSIVE BENCHMARKING COMPLETED!")
     print(f"All results saved to: comprehensive_benchmark_{timestamp}_detailed_breakdown.csv")
