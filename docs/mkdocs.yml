@@ -50,6 +50,9 @@ extra_javascript:
   - assets/javascript/chatbot.js
 
 plugins:
+  - mkdocs-simple-hooks:
+      hooks:
+        on_post_build: "scripts.hooks:copy_interactives"
   - search
   - gen-files:
       scripts:

@@ -1,0 +1,14 @@
+.body-text {
+  font-size: var(--font-size-sm);
+  line-height: 1.75;
+  color: var(--text-primary);
+  margin: 0 auto 1.5rem;
+  max-width: var(--content-max-width);
+  padding: 0 1rem;
+  font-family: var(--font-main);
+}
+
+.body-text .bold {
+  font-weight: 600;
+  color: var(--text-primary);
+}

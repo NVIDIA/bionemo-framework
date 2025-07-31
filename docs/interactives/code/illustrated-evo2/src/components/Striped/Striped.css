@@ -1,0 +1,6 @@
+.table-container {
+  margin: 0 auto;
+  overflow-x: auto;
+  max-width: 300px;
+  font-size: 12px;
+}

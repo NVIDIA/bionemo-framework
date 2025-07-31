@@ -1,0 +1,42 @@
+.chart-container-data {
+  border-radius: 1rem;
+  padding: 1rem;
+
+  /* width: 100%; */
+  max-width: 920px;
+  margin: 2rem auto;
+  /* background-color: var(--gray-100);
+  border-radius: 12px;
+  border: 1px solid var(--silver);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); */
+}
+
+.data-barplot-container {
+  border-radius: 1rem;
+  border: none;
+  padding: 2rem;
+
+  width: 100%;
+  max-width: 700px;
+  background-color: white;
+  box-shadow: none;
+  margin: 2rem auto;
+}
+
+.chart-container-flex {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.loss-chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mine-shaft);
+}
+
+.barplot-container {
+  /* border: 1px solid var(--silver);
+  border-radius: 1rem; */
+  padding: 0.5rem;
+}

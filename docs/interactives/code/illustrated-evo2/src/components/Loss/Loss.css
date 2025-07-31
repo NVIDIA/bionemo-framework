@@ -1,0 +1,30 @@
+.loss-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.loss-chart-text {
+  text-align: left;
+  font-family: 12px;
+  color: #525252;
+  padding: 0 2rem;
+}
+
+.loss-chart-text bold {
+  font-weight: bold;
+}
+
+.repetitive {
+  background-color: var(--pippin);
+  border: 1px solid var(--geraldine);
+  padding: 0.1rem 0.2rem;
+  color: black;
+}
+
+.non-repetitive {
+  background-color: var(--inch-worm);
+  border: 1px solid var(--deep-fir);
+  padding: 0.1rem 0.2rem;
+  color: black;
+}
