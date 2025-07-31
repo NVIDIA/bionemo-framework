@@ -296,6 +296,7 @@ def benchmark_dataloaders_with_configs(
             num_runs=dl_config.get("num_runs", 1),
             dataset_baseline=config_dataset_baseline,
             output_prefix=output_prefix,
+            dataset_instantiation_time=shared_dataset_time,
         )
 
         if isinstance(result, list):
@@ -323,6 +324,7 @@ def benchmark_single_dataloader(
     num_runs: int = 1,
     dataset_baseline: Optional[float] = None,
     output_prefix: str = "consolidated_benchmark_results",
+    dataset_instantiation_time: Optional[float] = 0,
 ) -> Union[BenchmarkResult, List[BenchmarkResult]]:
     """Benchmark a single dataloader with optional separate dataset factory.
 
@@ -341,6 +343,7 @@ def benchmark_single_dataloader(
         num_runs: Number of runs to perform
         dataset_baseline: Optional baseline memory usage for the dataset (for dataset reuse with multiple dataloaders)
         output_prefix: Prefix for the output CSV filename
+        dataset_instantiation_time: Optional time taken to instantiate the datasets
 
     Returns:
         Single BenchmarkResult for num_runs=1, or List[BenchmarkResult] for multiple runs
@@ -376,7 +379,7 @@ def benchmark_single_dataloader(
             "memory_before_instantiation_mb": dataset_baseline
             if dataset_baseline is not None
             else dataloader_baseline_measured,
-            "dataset_instantiation_time_seconds": setup_time,  # Combined time when no separate dataset factory
+            "dataset_instantiation_time_seconds": dataset_instantiation_time,  # Combined time when no separate dataset factory
             "dataloader_instantiation_time_seconds": 0.0,
         }
     disk_size_mb = get_disk_size(data_path)
