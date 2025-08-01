@@ -18,12 +18,15 @@
 
 
 import argparse
+import sys
+import time
 from typing import Literal, Optional
 
 import nemo.lightning as nl
 import torch
 from megatron.core.inference.common_inference_params import CommonInferenceParams
-from nemo.collections.llm import generate
+from megatron.core.inference.inference_request import InferenceRequest
+from nemo.collections.llm import inference
 from nemo.utils import logging
 
 
@@ -82,15 +85,17 @@ def parse_args():
         help="Specify checkpoint format to use. Defaults to 'torch_dist', as 'zarr' is deprecated.",
     )
     ap.add_argument(
-        "--vortex-style-fp8",
+        "--fp8",
         type=bool,
+        action="store_true",
         default=False,
         help="Whether to use vortex style FP8. Defaults to False.",
     )
     ap.add_argument(
         "--flash-decode",
         type=bool,
-        default=True,
+        action="store_true",
+        default=False,
         help="Whether to use flash decode. Defaults to True.",
     )
     return ap.parse_args()
@@ -110,8 +115,9 @@ def infer(
     ckpt_format: CheckpointFormats = "torch_dist",
     seed: Optional[int] = None,
     vortex_style_fp8: bool = False,
-    flash_decode: bool = True,
-):
+    flash_decode: bool = False,
+    return_log_probs: bool = False,
+) -> list[InferenceRequest]:
     """Inference workflow for Evo2.
 
     Args:
@@ -129,6 +135,7 @@ def infer(
         seed (int): Random seed for generation.
         vortex_style_fp8 (bool): Whether to use vortex style FP8.
         flash_decode (bool): Whether to use flash decode.
+        return_log_probs (bool): Whether to return log probabilities.
 
     Returns:
         None
@@ -162,31 +169,45 @@ def infer(
             params_dtype=torch.bfloat16,
         ),
     )
-
-    # transformers generate method has more options than NeMo/Megatron.
-    results = generate(
+    inference_wrapped_model, mcore_tokenizer = inference.setup_model_and_tokenizer(
         path=ckpt_dir,
-        prompts=[prompt],
         trainer=trainer,
-        inference_params=CommonInferenceParams(
-            temperature,
-            top_k,
-            top_p,
-            return_log_probs=False,
-            num_tokens_to_generate=max_new_tokens,
-        ),
-        text_only=True,
-        random_seed=seed if seed is not None else None,
+        params_dtype=torch.bfloat16,
+        inference_batch_times_seqlen_threshold=8192,  # TODO
+        inference_max_seq_length=8192,  # TODO
+        recompute_granularity=None,
+        recompute_num_layers=None,
+        recompute_method=None,
         vortex_style_fp8=vortex_style_fp8,
         flash_decode=flash_decode,
+        enable_flash_decode=flash_decode,
     )
+    t0 = time.perf_counter_ns()
+    # TODO: fix return type in NeMo inference.generate (it is a list[InferenceRequest] not a dict)
+    results: list[InferenceRequest] = inference.generate(
+        model=inference_wrapped_model,
+        max_batch_size=1,  # vortex only supports batch size 1
+        tokenizer=mcore_tokenizer,
+        prompts=[prompt],
+        random_seed=seed,
+        inference_params=CommonInferenceParams(
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            return_log_probs=return_log_probs,
+            num_tokens_to_generate=max_new_tokens,
+        ),
+    )
+    dt = (time.perf_counter_ns() - t0) / 1e9  # seconds
+    tokens_per_sec = (len(results[0].generated_text) + 1) / dt  # +1 for the prompt
 
+    print(f"Inference time: {dt} seconds, {tokens_per_sec} tokens/sec", file=sys.stderr)
     if torch.distributed.get_rank() == 0:
         if output_file is None:
             logging.info(results)
         else:
             with open(output_file, "w") as f:
-                f.write(f"{results}\n")
+                f.write(f"{results[0]}\n")
 
     return results
 
@@ -208,7 +229,7 @@ def main():
         output_file=args.output_file,
         ckpt_format=args.ckpt_format,
         seed=args.seed,
-        vortex_style_fp8=args.vortex_style_fp8,
+        vortex_style_fp8=args.fp8,  # Vortex only applied FP8 to some layers.
         flash_decode=args.flash_decode,
     )
 

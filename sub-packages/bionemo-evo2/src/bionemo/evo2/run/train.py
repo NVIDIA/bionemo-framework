@@ -251,7 +251,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Restore optimizer state from initial checkpoint. Defaults to False.",
     )
     parser.add_argument(
-        "--no-average-in-collective",
+        "--average-in-collective",
         action="store_true",
         default=False,
         help="Avaerage optimizer state in collective rather than dividing by dp size and summing.",
@@ -382,6 +382,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Do not renormalize the loss weights.",
     )
+    parser.add_argument(
+        "--mamba-lowercase-loss-weight",
+        type=float,
+        default=0.1,
+        help="Loss weight for the Mamba model for lowercase bases, if you are using a Mamba model. "
+        "Default is 0.1 like the Evo2 paper. Set to 1.0 to disable differential loss weighting.",
+    )
     # rank as list of integers
     parser.add_argument(
         "--nsys-ranks",
@@ -479,6 +486,20 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False)
     parser.add_argument("--lora-checkpoint-path", type=Path, default=None, help="LoRA checkpoint path")
+    parser.add_argument(
+        "--no-calculate-per-token-loss",
+        action="store_true",
+        default=False,
+        help="Calculate a simpler mean across the microbatch of the loss prior to DDP reduction rather than the global"
+        " per-token mean loss. Use this if speed is critical and if you do not need token masking in your loss.",
+    )
+    parser.add_argument(
+        "--no-check-for-nan-in-grad",
+        action="store_true",
+        default=False,
+        help="Skip checking for NaNs in gradients. Only use this for debugging purposes.",
+    )
+
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
@@ -487,7 +508,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
 
 def train(args: argparse.Namespace) -> nl.Trainer:
     """Main function to run Evo2 training."""
-    # Instantiate tokenizer.
     tokenizer = get_nmt_tokenizer(
         "byte-level",
     )
@@ -549,9 +569,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             }
         else:
             activation_checkpointing_args = {}
-
     # Retrieve model config.
     config_modifiers_init = {
+        "calculate_per_token_loss": not args.no_calculate_per_token_loss,  # override megatron internal behavior.
         "tp_comm_overlap": args.use_megatron_comm_overlap_llama3_8k,
         "seq_length": args.seq_length,
         "hidden_dropout": args.hidden_dropout,
@@ -594,6 +614,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
         if args.spike_no_more_embedding_init:  # --spike-no-more-embedding-init
             config_modifiers_init["spike_no_more_embedding_init"] = True
+        config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
         if args.model_size not in MAMBA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
         add_bias_output = config_modifiers_init.pop("add_bias_output")
@@ -675,7 +696,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
                 start_step=args.nsys_start_step, end_step=nsys_end_step, ranks=args.nsys_ranks, gen_shape=True
             )
         )
-
+    # Average in collective is only supported when per-token loss is not calculated.
+    average_in_collective = args.average_in_collective and args.no_calculate_per_token_loss
     wandb_run_name = (
         f"evo2-size-{args.model_size}-TP{args.tensor_parallel_size}-"
         f"PP{args.pipeline_model_parallel_size}-CP{args.context_parallel_size}"
@@ -685,7 +707,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-PAT{model_config.hybrid_override_pattern}"
         f"-F32R{model_config.fp32_residual_connection}"
         f"-FCE{model_config.cross_entropy_loss_fusion}"
-        f"-AIC{not args.no_average_in_collective}"
+        f"-AIC{average_in_collective}"
+        f"-PTL{not args.no_calculate_per_token_loss}"
         f"-PEOD{args.eod_pad_in_loss_mask}"
         f"-BO{args.add_bias_output}"
         f"-GCLP{args.clip_grad}"
@@ -701,6 +724,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
     )
+    if model_type == "mamba":
+        # Include this setting for mamba models.
+        wandb_run_name += f"-LLW{args.mamba_lowercase_loss_weight}"
 
     wandb_config: Optional[WandbConfig] = (
         None
@@ -760,12 +786,12 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         auto_resume = None
 
     ddp: DistributedDataParallelConfig = DistributedDataParallelConfig(
-        check_for_nan_in_grad=True,
+        check_for_nan_in_grad=not args.no_check_for_nan_in_grad,
         overlap_grad_reduce=args.overlap_grad_reduce,
         overlap_param_gather=args.overlap_param_gather,  # Verify that this works using
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
         align_param_gather=args.align_param_gather,
-        average_in_collective=not args.no_average_in_collective,
+        average_in_collective=average_in_collective,
     )
     # Initialize Megatron Strategy and Trainer.
     strategy = nl.MegatronStrategy(

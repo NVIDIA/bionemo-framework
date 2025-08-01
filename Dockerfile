@@ -72,18 +72,22 @@ RUN git clone --recurse-submodules https://github.com/NVIDIA/TransformerEngine.g
     PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
     pip --disable-pip-version-check --no-cache-dir install .
 
-# Install AWS CLI based on architecture
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-      curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
-    elif [ "$TARGETARCH" = "amd64" ]; then \
-      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
-    else \
-      echo "Unsupported architecture: $TARGETARCH" && exit 1; \
-    fi && \
-    unzip awscliv2.zip && \
-    ./aws/install && \
-    rm -rf aws awscliv2.zip
+# Install AWS CLI from source rather than prebuilt binary.
+# This is good for two reasons:
+#  1. It is the same on both ARM and x86
+#  2. When installing this way, aws-cli doesn't bring its own pypi dependencies with it,
+#     which it might do via a binary install. These extra pypi packages sometimes bring
+#     CVEs with them.
 
+RUN <<EOF
+set -eo pipefail
+cd /tmp
+git clone --depth 1 --branch 2.27.59 https://github.com/aws/aws-cli.git
+cd aws-cli
+pip install .
+cd /
+rm -rf /tmp/aws-cli
+EOF
 
 # Use a branch of causal_conv1d while the repository works on Blackwell support.
 ARG CAUSAL_CONV_TAG=52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
