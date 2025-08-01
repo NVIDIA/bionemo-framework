@@ -70,25 +70,27 @@ data_config:
 
 # Training Configuration
 training_config:
-  max_steps: 20000
+  max_steps: 35000
   val_check_interval: 500  # Validate every 1000 steps
   limit_val_batches: 200    # Use more validation batches for better estimates
   log_every_n_steps: 50     # Log every 50 steps to reduce noise
   enable_checkpointing: true
   create_checkpoint_callback: true
+  # gradient_clip_val: 1.0    # 🔧 ADDED: Gradient clipping to prevent exploding gradients
 
 # Parallel Configuration
 parallel_config:
   tensor_model_parallel_size: 1
   pipeline_model_parallel_size: 1
   sequence_parallel: false
+  num_devices: 2
 
 # Optimizer Configuration
 optim_config:
-  lr: 0.001  # 🔧 REDUCED LEARNING RATE - this is where you change it!
+  lr: 0.00005  # 🔧 REDUCED LEARNING RATE - this is where you change it!
   optimizer: "adam"  # 🔧 FIXED: Changed from "adamw" to "adam" - Megatron Core only supports "adam" and "sgd"
   adam_eps: 1.0e-8
-  weight_decay: 0.01
+  weight_decay: 0.1
   lr_scheduler: "cosine"
   cosine_rampup_frac: 0.025  # 🔧 FIXED: Set to 0 to disable warmup and start immediately at target LR
   cosine_hold_frac: 0.0
@@ -111,11 +113,11 @@ experiment_config:
 wandb_config:
   entity: "clara-discovery"
   project: "temporal_geneformer"
-  name: "test_next_cell_training_custom_splits_lina_dataset"
+  name: "next_cell_training_lina_dataset_gpus2_batch8_epochsampler_lr0.00005"
   tags: ["temporal", "geneformer", "next-cell", "custom-splits"]
   # Required fields
   group: "temporal_geneformer_test_lina_dataset"
   offline: false
-  id: "temporal_run_lina_dataset"
+  id: null
   anonymous: false
   log_model: false 

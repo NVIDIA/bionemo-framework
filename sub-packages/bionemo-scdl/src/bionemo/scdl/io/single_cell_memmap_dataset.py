@@ -21,7 +21,7 @@ import shutil
 import warnings
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Generator
 
 import anndata as ad
 import numpy as np
@@ -1074,11 +1074,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         end = self._neighbor_indptr[cell_index + 1]
         return self._neighbor_data[start:end]
 
-    def sample_neighbor_index(self, cell_index: int) -> int:
+    def sample_neighbor_index(self, cell_index: int, rng: Optional[np.random.Generator] = None) -> int:
         """Samples a neighbor index for the given cell based on the configured sampling strategy.
 
         Args:
             cell_index: Index of the cell to sample a neighbor for
+            rng: Optional numpy random generator for deterministic sampling.
+                 If None, uses global random state (for backward compatibility).
 
         Returns:
             int: Index of the sampled neighbor
@@ -1117,8 +1119,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Sample neighbor based on strategy
         if self.neighbor_sampling_strategy == NeighborSamplingStrategy.RANDOM:
-            # Simple random sampling with equal probability
-            chosen_index = np.random.choice(neighbor_indices)
+            # Use provided RNG for deterministic sampling, fallback to global state
+            if rng is not None:
+                chosen_index = rng.choice(neighbor_indices)
+            else:
+                chosen_index = np.random.choice(neighbor_indices)
             return chosen_index
         elif self.neighbor_sampling_strategy == NeighborSamplingStrategy.FIRST:
             # First neighbor sampling

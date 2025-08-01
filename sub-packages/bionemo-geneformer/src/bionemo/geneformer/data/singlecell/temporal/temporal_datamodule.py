@@ -34,14 +34,19 @@
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Union, Literal
+import functools
 
 import torch
+import numpy as np
 from tokenizers import Tokenizer
 from torch.utils.data import DataLoader
 
+from bionemo.core.utils import random_utils
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.data.singlecell.temporal.temporal_dataset import TemporalGeneformerDataset
+from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
+from bionemo.llm.data import collate
 
 
 __all__ = ["TemporalGeneformerDataModule"]
@@ -76,7 +81,7 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
         persistent_workers: bool = False,
         seed: int = 42,
         only_cells_with_neighbors: bool = True,
-        no_neighbor_policy: Literal["skip", "identity", "random"] = "skip",
+        no_neighbor_policy: Literal["skip", "identity", "random"] = "identity",
         token_selection_policy: Literal["identity", "intersection", "union"] = "identity",
         normalize_gene_expression: bool = True,
         target_sum: int = 10000,
@@ -109,20 +114,7 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
             target_sum: Target sum for normalization
             **kwargs: Additional arguments
         """
-        # Validate path arguments (same logic as parent class)
-        if predict_dataset_path is None:
-            assert train_dataset_path is not None and val_dataset_path is not None and test_dataset_path is not None, (
-                "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
-            )
-        elif train_dataset_path is None:
-            assert val_dataset_path is None and test_dataset_path is None, (
-                "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
-            )
-            assert predict_dataset_path is not None, (
-                "Provide either predict_dataset_path or (train_dataset_path, val_dataset_path, and test_dataset_path)"
-            )
-
-        # Initialize parent class with separate paths
+        # Initialize parent class first
         super().__init__(
             tokenizer=tokenizer,
             median_dict=median_dict,
@@ -143,31 +135,89 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
             **kwargs,
         )
 
-        # Store separate dataset paths
-        self.data_path_train = Path(train_dataset_path) if train_dataset_path is not None else None
-        self.data_path_val = Path(val_dataset_path) if val_dataset_path is not None else None
-        self.data_path_test = Path(test_dataset_path) if test_dataset_path is not None else None
-        self.data_path_predict = Path(predict_dataset_path) if predict_dataset_path is not None else None
-
         # Store temporal-specific parameters
-        self.tokenizer = tokenizer
-        self.median_dict = median_dict
-        self.seq_length = seq_length  # Store seq_length for compatibility
-        self.mask_prob = mask_prob
-        self.mask_token_prob = mask_token_prob
         self.neighbor_key = neighbor_key
-        self.seed = seed
         self.only_cells_with_neighbors = only_cells_with_neighbors
         self.no_neighbor_policy = no_neighbor_policy
         self.token_selection_policy = token_selection_policy
         self.normalize_gene_expression = normalize_gene_expression
         self.target_sum = target_sum
 
-        # Datasets will be created during setup
-        self.train_dataset = None
-        self.val_dataset = None
-        self.test_dataset = None
-        self.predict_dataset = None
+        # Create temporal datasets following parent pattern
+        rng = np.random.default_rng(seed)
+        
+        if self.data_path_train is not None:
+            assert self.data_path_val is not None and self.data_path_test is not None
+            self._train_dataset_ori = TemporalGeneformerDataset(
+                data_path=self.data_path_train,
+                tokenizer=tokenizer,
+                median_dict=median_dict,
+                max_len=seq_length,
+                mask_prob=mask_prob,
+                mask_token_prob=mask_token_prob,
+                random_token_prob=random_token_prob,
+                neighbor_key=neighbor_key,
+                seed=random_utils.get_seed_from_rng(rng),
+                only_cells_with_neighbors=only_cells_with_neighbors,
+                no_neighbor_policy=no_neighbor_policy,
+                token_selection_policy=token_selection_policy,
+                normalize_gene_expression=normalize_gene_expression,
+                target_sum=target_sum,
+            )
+            self._val_dataset_ori = TemporalGeneformerDataset(
+                data_path=self.data_path_val,
+                tokenizer=tokenizer,
+                median_dict=median_dict,
+                max_len=seq_length,
+                mask_prob=mask_prob,
+                mask_token_prob=mask_token_prob,
+                random_token_prob=random_token_prob,
+                neighbor_key=neighbor_key,
+                seed=random_utils.get_seed_from_rng(rng),
+                only_cells_with_neighbors=only_cells_with_neighbors,
+                no_neighbor_policy=no_neighbor_policy,
+                token_selection_policy=token_selection_policy,
+                normalize_gene_expression=normalize_gene_expression,
+                target_sum=target_sum,
+            )
+            self._test_dataset_ori = TemporalGeneformerDataset(
+                data_path=self.data_path_test,
+                tokenizer=tokenizer,
+                median_dict=median_dict,
+                max_len=seq_length,
+                mask_prob=mask_prob,
+                mask_token_prob=mask_token_prob,
+                random_token_prob=random_token_prob,
+                neighbor_key=neighbor_key,
+                seed=random_utils.get_seed_from_rng(rng),
+                only_cells_with_neighbors=only_cells_with_neighbors,
+                no_neighbor_policy=no_neighbor_policy,
+                token_selection_policy=token_selection_policy,
+                normalize_gene_expression=normalize_gene_expression,
+                target_sum=target_sum,
+            )
+            self._predict_dataset_ori = None
+        else:
+            assert self.data_path_predict is not None
+            self._predict_dataset_ori = TemporalGeneformerDataset(
+                data_path=self.data_path_predict,
+                tokenizer=tokenizer,
+                median_dict=median_dict,
+                max_len=seq_length,
+                mask_prob=mask_prob,
+                mask_token_prob=mask_token_prob,
+                random_token_prob=random_token_prob,
+                neighbor_key=neighbor_key,
+                seed=random_utils.get_seed_from_rng(rng),
+                only_cells_with_neighbors=only_cells_with_neighbors,
+                no_neighbor_policy=no_neighbor_policy,
+                token_selection_policy=token_selection_policy,
+                normalize_gene_expression=normalize_gene_expression,
+                target_sum=target_sum,
+            )
+            self._train_dataset_ori = None
+            self._val_dataset_ori = None
+            self._test_dataset_ori = None
 
         if self.data_path_predict is not None:
             logger.info(f"Initialized TemporalGeneformerDataModule for prediction with data_path: {self.data_path_predict}")
@@ -180,136 +230,42 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
     def setup(self, stage: Optional[str] = None):
         """Set up datasets for training, validation, and testing.
 
+        This now follows the parent class pattern by calling super().setup()
+        which wraps the temporal datasets in MultiEpochDatasetResampler.
+
         Args:
             stage: Stage of training (fit, validate, test, predict)
         """
         logger.info(f"Setting up temporal datasets for stage: {stage}")
+        # Let parent class handle MultiEpochDatasetResampler wrapping
+        super().setup(stage or "")
 
-        # Create temporal datasets
-        if stage == "fit" or stage is None:
-            if self.data_path_train is not None:
-                self.train_dataset = TemporalGeneformerDataset(
-                    data_path=self.data_path_train,
-                    tokenizer=self.tokenizer,
-                    median_dict=self.median_dict,
-                    max_len=self.seq_length,
-                    mask_prob=self.mask_prob,
-                    mask_token_prob=self.mask_token_prob,
-                    random_token_prob=self.random_token_prob,
-                    neighbor_key=self.neighbor_key,
-                    seed=self.seed,
-                    only_cells_with_neighbors=self.only_cells_with_neighbors,
-                    no_neighbor_policy=self.no_neighbor_policy,
-                    token_selection_policy=self.token_selection_policy,
-                    normalize_gene_expression=self.normalize_gene_expression,
-                    target_sum=self.target_sum,
-                )
-                logger.info(f"Created training dataset with {len(self.train_dataset)} samples")
+    def _create_dataloader(self, dataset, mode, **kwargs):
+        """Create dataloader for train, validation, and test stages.
+        
+        Uses the standard bert_padding_collate_fn which handles temporal data properly.
 
-            if self.data_path_val is not None:
-                # For validation, we can use the same dataset with a different seed
-                # or create a separate validation split
-                self.val_dataset = TemporalGeneformerDataset(
-                    data_path=self.data_path_val,
-                    tokenizer=self.tokenizer,
-                    median_dict=self.median_dict,
-                    max_len=self.seq_length,
-                    mask_prob=self.mask_prob,
-                    mask_token_prob=self.mask_token_prob,
-                    random_token_prob=self.random_token_prob,
-                    neighbor_key=self.neighbor_key,
-                    seed=self.seed + 1,  # Different seed for validation
-                    only_cells_with_neighbors=self.only_cells_with_neighbors,
-                    no_neighbor_policy=self.no_neighbor_policy,
-                    token_selection_policy=self.token_selection_policy,
-                    normalize_gene_expression=self.normalize_gene_expression,
-                    target_sum=self.target_sum,
-                )
-                logger.info(f"Created validation dataset with {len(self.val_dataset)} samples")
-
-        if stage == "test" or stage is None:
-            if self.data_path_test is not None:
-                self.test_dataset = TemporalGeneformerDataset(
-                    data_path=self.data_path_test,
-                    tokenizer=self.tokenizer,
-                    median_dict=self.median_dict,
-                    max_len=self.seq_length,
-                    mask_prob=self.mask_prob,
-                    mask_token_prob=self.mask_token_prob,
-                    random_token_prob=self.random_token_prob,
-                    neighbor_key=self.neighbor_key,
-                    seed=self.seed + 2,  # Different seed for testing
-                    only_cells_with_neighbors=self.only_cells_with_neighbors,
-                    no_neighbor_policy=self.no_neighbor_policy,
-                    token_selection_policy=self.token_selection_policy,
-                    normalize_gene_expression=self.normalize_gene_expression,
-                    target_sum=self.target_sum,
-                )
-                logger.info(f"Created test dataset with {len(self.test_dataset)} samples")
-
-        if stage == "predict" or stage is None:
-            if self.data_path_predict is not None:
-                self.predict_dataset = TemporalGeneformerDataset(
-                    data_path=self.data_path_predict,
-                    tokenizer=self.tokenizer,
-                    median_dict=self.median_dict,
-                    max_len=self.seq_length,
-                    mask_prob=self.mask_prob,
-                    mask_token_prob=self.mask_token_prob,
-                    random_token_prob=self.random_token_prob,
-                    neighbor_key=self.neighbor_key,
-                    seed=self.seed + 3,  # Different seed for prediction #NOTE: check if this is correct
-                    only_cells_with_neighbors=self.only_cells_with_neighbors,
-                    no_neighbor_policy=self.no_neighbor_policy,
-                    token_selection_policy=self.token_selection_policy,
-                    normalize_gene_expression=self.normalize_gene_expression,
-                    target_sum=self.target_sum,
-                )
-                logger.info(f"Created prediction dataset with {len(self.predict_dataset)} samples")
-
-    def train_dataloader(self) -> DataLoader:
-        """Create training data loader."""
-        if self.train_dataset is None:
-            raise RuntimeError("Training dataset not initialized. Call setup() first.")
-
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.data_sampler.micro_batch_size,
-            shuffle=True,
+        Args:
+            dataset: The dataset to create the dataloader for.
+            mode: Stage of training.
+            **kwargs: Additional arguments to pass to the dataloader.
+        """
+        self.update_init_global_step()
+        from nemo.lightning.data import WrappedDataLoader
+        
+        return WrappedDataLoader(
+            mode=mode,
+            dataset=dataset,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers and self.num_workers > 0,
-            collate_fn=self._collate_fn,
-        )
-
-    def val_dataloader(self) -> DataLoader:
-        """Create validation data loader."""
-        if self.val_dataset is None:
-            raise RuntimeError("Validation dataset not initialized. Call setup() first.")
-
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.data_sampler.micro_batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers and self.num_workers > 0,
-            collate_fn=self._collate_fn,
-        )
-
-    def test_dataloader(self) -> DataLoader:
-        """Create test data loader."""
-        if self.test_dataset is None:
-            raise RuntimeError("Test dataset not initialized. Call setup() first.")
-
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.data_sampler.micro_batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers and self.num_workers > 0,
-            collate_fn=self._collate_fn,
+            persistent_workers=self.persistent_workers,
+            collate_fn=functools.partial(
+                collate.bert_padding_collate_fn,
+                padding_value=self.tokenizer.token_to_id(GeneTokenizer.pad_token),
+                min_length=self.max_len,
+                max_length=self.max_len,
+            ),
+            **kwargs,
         )
 
     def _collate_fn(self, batch):
@@ -352,9 +308,7 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
     @property
     def vocab_size(self):
         """Return the vocabulary size of the tokenizer."""
-        if self.tokenizer is None:
-            self.prepare_data()
-        return self.tokenizer.vocab_size
+        return self.tokenizer.get_vocab_size()
 
     def get_dataset_info(self) -> Dict:
         """Get information about the datasets.
@@ -367,7 +321,7 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
             "val_dataset_path": str(self.data_path_val) if self.data_path_val is not None else None,
             "test_dataset_path": str(self.data_path_test) if self.data_path_test is not None else None,
             "predict_dataset_path": str(self.data_path_predict) if self.data_path_predict is not None else None,
-            "seq_length": self.seq_length,
+            "seq_length": self.max_len,
             "mask_prob": self.mask_prob,
             "neighbor_key": self.neighbor_key,
             "only_cells_with_neighbors": self.only_cells_with_neighbors,
@@ -377,13 +331,13 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
             "target_sum": self.target_sum,
         }
 
-        if self.train_dataset is not None:
-            info["train_size"] = len(self.train_dataset)
-        if self.val_dataset is not None:
-            info["val_size"] = len(self.val_dataset)
-        if self.test_dataset is not None:
-            info["test_size"] = len(self.test_dataset)
-        if hasattr(self, 'predict_dataset') and self.predict_dataset is not None:
-            info["predict_size"] = len(self.predict_dataset)
+        if hasattr(self, '_train_ds') and self._train_ds is not None:
+            info["train_size"] = len(self._train_ds)
+        if hasattr(self, '_validation_ds') and self._validation_ds is not None:
+            info["val_size"] = len(self._validation_ds)
+        if hasattr(self, '_test_ds') and self._test_ds is not None:
+            info["test_size"] = len(self._test_ds)
+        if hasattr(self, '_predict_ds') and self._predict_ds is not None:
+            info["predict_size"] = len(self._predict_ds)
 
         return info

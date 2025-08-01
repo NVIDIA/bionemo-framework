@@ -39,8 +39,11 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from bionemo.llm.data import masking, types
+from bionemo.core.data.multi_epoch_dataset import EpochIndex
 from bionemo.geneformer.tokenizer.gene_tokenizer import GeneTokenizer
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
+from bionemo.geneformer.data.singlecell.dataset import process_item
 
 
 logger = logging.getLogger(__name__)
@@ -49,7 +52,7 @@ logger = logging.getLogger(__name__)
 T_co = TypeVar("T_co", covariant=True)
 
 
-class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
+class TemporalGeneformerDataset(Dataset):
     """Dataset for temporal next-cell prediction training.
 
     This dataset implements the temporal training strategy where:
@@ -172,11 +175,11 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
         """Return the number of valid samples."""
         return len(self.valid_indices)
 
-    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, index: Union[int, EpochIndex]) -> types.BertSample:
         """Get a temporal training sample.
 
         Args:
-            index: Index of the sample
+            index: Index of the sample (int for direct access, EpochIndex for multi-epoch training)
 
         Returns:
             Dictionary containing:
@@ -188,22 +191,30 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
             - types: Token type IDs (0 for current, 1 for next)
             - has_neighbor: Whether this sample has a real neighbor
         """
+        # Handle both int and EpochIndex
+        if isinstance(index, EpochIndex):
+            epoch, idx = index.epoch, index.idx
+        else:
+            epoch, idx = 0, index
+            
         # Get the actual cell index
-        cell_idx = self.valid_indices[index]
+        cell_idx = self.valid_indices[idx]
 
         # Check if cell has neighbors
         neighbors = self.scdl.get_neighbor_indices_for_cell(cell_idx)
         has_neighbor = len(neighbors) > 0
 
         if has_neighbor:
-            # Sample a neighbor using SCDL's built-in sampling
-            neighbor_idx = self.scdl.sample_neighbor_index(cell_idx)
+            # Create deterministic RNG for neighbor sampling that varies by epoch
+            neighbor_rng = np.random.default_rng([self.seed, epoch, cell_idx])
+            # Sample a neighbor using SCDL's deterministic sampling
+            neighbor_idx = self.scdl.sample_neighbor_index(cell_idx, rng=neighbor_rng)
 
             # Process current cell (no masking)
-            current_cell_data = self._process_cell(cell_idx, apply_masking=False)
+            current_cell_data = self._process_cell(cell_idx, apply_masking=False, epoch=epoch)
 
             # Process neighbor cell (with masking)
-            next_cell_data = self._process_cell(neighbor_idx, apply_masking=True)
+            next_cell_data = self._process_cell(neighbor_idx, apply_masking=True, epoch=epoch)
 
             # Apply token selection policy
             next_cell_data = self._apply_token_selection_policy(
@@ -212,47 +223,84 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
 
             # Create temporal sequence
             temporal_sample = self._create_temporal_sequence(current_cell_data, next_cell_data)
-            temporal_sample["has_neighbor"] = torch.tensor(True, dtype=torch.bool)
+            # temporal_sample["has_neighbor"] = torch.tensor(True, dtype=torch.bool)
+
+            return temporal_sample
 
         else:
             # Handle cells without neighbors
-            temporal_sample = self._handle_no_neighbor_case(cell_idx)
-            temporal_sample["has_neighbor"] = torch.tensor(False, dtype=torch.bool)
+            # temporal_sample = self._handle_no_neighbor_case(cell_idx)
+            # temporal_sample["has_neighbor"] = torch.tensor(False, dtype=torch.bool)
+            return self.ncp_no_neighbor_policy(cell_idx, self.no_neighbor_policy, epoch=epoch)
 
-        return temporal_sample
 
-    def _handle_no_neighbor_case(self, cell_idx: int) -> Dict[str, torch.Tensor]:
-        """Handle cells that don't have neighbors based on the no_neighbor_policy.
+    def ncp_no_neighbor_policy(self, idx: int, type: str = "identity", epoch: int = 0):
+        if type == "identity":
+            rng = np.random.default_rng([self.seed, epoch, idx])
 
-        Args:
-            cell_idx: Index of the cell without neighbors
+            # Get raw cell data from SCDL (same format as SingleCellDataset)
+            values, feature_ids = self.scdl.get_row(idx, return_features=True, feature_vars=["feature_id"])
+            assert len(feature_ids) == 1  # Expect one array with feature IDs
 
-        Returns:
-            Processed sample based on the policy
-        """
-        if self.no_neighbor_policy == "identity":
-            # Use the same cell as both current and next (identity mapping)
-            current_cell_data = self._process_cell(cell_idx, apply_masking=False)
-            next_cell_data = self._process_cell(cell_idx, apply_masking=True)
-            return self._create_temporal_sequence(current_cell_data, next_cell_data)
+            gene_data, col_idxs = np.array(values[0]), np.array(values[1])
 
-        elif self.no_neighbor_policy == "random":
-            # Sample a random cell as the "next" cell
-            random_idx = np.random.choice(self.valid_indices)
-            current_cell_data = self._process_cell(cell_idx, apply_masking=False)
-            next_cell_data = self._process_cell(random_idx, apply_masking=True)
-            return self._create_temporal_sequence(current_cell_data, next_cell_data)
-
-        elif self.no_neighbor_policy == "skip":
-            # This should not happen if only_cells_with_neighbors=True
-            # But we provide a fallback using identity
-            logger.warning(
-                f"Cell {cell_idx} has no neighbors but no_neighbor_policy is 'skip'. Using identity fallback."
+            if len(gene_data) == 0:
+                raise ValueError(
+                    f"TemporalGeneformerDataset data provided is invalid; the gene expression data parsed for cell {cell_idx} is empty."
+                )
+            return process_item(
+                gene_data,
+                col_idxs,
+                feature_ids[0],
+                self.tokenizer,
+                gene_median=self.gene_medians,
+                rng=rng,
+                max_len=self.max_len,
+                mask_token_prob=self.mask_token_prob,
+                mask_prob=self.mask_prob,
+                random_token_prob=self.random_token_prob,
+                prepend_cls_token=self.prepend_cls_token,
+                eos_token=self.eos_token,
+                include_unrecognized_vocab_in_dataset=self.include_unrecognized_vocab_in_dataset,
             )
-            return self._handle_no_neighbor_case(cell_idx)
-
         else:
-            raise ValueError(f"Unknown no_neighbor_policy: {self.no_neighbor_policy}")
+            raise NotImplementedError(f"Unknown no_neighbor_policy: {type}")
+
+    # def _handle_no_neighbor_case(self, cell_idx: int) -> Dict[str, torch.Tensor]:
+    #     """Handle cells that don't have neighbors based on the no_neighbor_policy.
+
+    #     Args:
+    #         cell_idx: Index of the cell without neighbors
+
+    #     Returns:
+    #         Processed sample based on the policy
+    #     """
+    #     if self.no_neighbor_policy == "identity":
+    #         # Use the same cell as both current and next (identity mapping)
+    #         current_cell_data = self._process_cell(cell_idx, apply_masking=False)
+    #         next_cell_data = self._process_cell(cell_idx, apply_masking=True)
+    #         return self._create_temporal_sequence(current_cell_data, next_cell_data)
+
+    #     elif self.no_neighbor_policy == "random":
+    #         # Sample a random cell as the "next" cell
+    #         random_idx = np.random.choice(self.valid_indices)
+    #         current_cell_data = self._process_cell(cell_idx, apply_masking=False)
+    #         next_cell_data = self._process_cell(random_idx, apply_masking=True)
+    #         return self._create_temporal_sequence(current_cell_data, next_cell_data)
+
+    #     elif self.no_neighbor_policy == "skip":
+    #         # This should not happen if only_cells_with_neighbors=True
+    #         # But we provide a fallback using identity
+    #         logger.warning(
+    #             f"Cell {cell_idx} has no neighbors but no_neighbor_policy is 'skip'. Using identity fallback."
+    #         )
+    #         # Use identity fallback: same cell as both current and next
+    #         current_cell_data = self._process_cell(cell_idx, apply_masking=False)
+    #         next_cell_data = self._process_cell(cell_idx, apply_masking=True)
+    #         return self._create_temporal_sequence(current_cell_data, next_cell_data)
+
+    #     else:
+    #         raise ValueError(f"Unknown no_neighbor_policy: {self.no_neighbor_policy}")
 
     def _apply_token_selection_policy(
         self, current_cell_data: Dict[str, Any], next_cell_data: Dict[str, Any], policy: str
@@ -303,7 +351,7 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
         else:
             raise ValueError(f"Unknown token_selection_policy: {policy}")
 
-    def _process_cell(self, cell_idx: int, apply_masking: bool = False) -> Dict[str, Any]:
+    def _process_cell(self, cell_idx: int, apply_masking: bool = False, epoch: int = 0) -> Dict[str, Any]:
         """Process a single cell using core Geneformer processing steps.
 
         This method extracts the proven core processing from process_item() but stops
@@ -316,12 +364,13 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
         Args:
             cell_idx: Index of the cell to process
             apply_masking: Whether this cell should be masked (only for next cell)
+            epoch: Current epoch for proper RNG seeding
 
         Returns:
             Dictionary with core processed data: token_ids, should_mask flag
         """
-        # Create RNG for this specific cell and masking state
-        rng = np.random.default_rng([self.seed, cell_idx, int(apply_masking)])
+        # Create RNG for this specific cell and masking state with epoch information
+        rng = np.random.default_rng([self.seed, epoch, cell_idx, int(apply_masking)])
 
         # Get raw cell data from SCDL (same format as SingleCellDataset)
         values, feature_ids = self.scdl.get_row(cell_idx, return_features=True, feature_vars=["feature_id"])
@@ -387,7 +436,7 @@ class TemporalGeneformerDataset(Dataset[Dict[str, torch.Tensor]]):
 
     def _create_temporal_sequence(
         self, current_cell_data: Dict[str, Any], next_cell_data: Dict[str, Any]
-    ) -> Dict[str, torch.Tensor]:
+    ) -> types.BertSample:
         """Create temporal sequence by concatenating current and next cell.
 
         This method now properly handles the core processing pipeline:
