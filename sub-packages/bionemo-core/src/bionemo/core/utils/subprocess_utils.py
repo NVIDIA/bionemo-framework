@@ -34,7 +34,86 @@ def run_subprocess_safely(command: str, timeout: int = 2000) -> Dict[str, Any]:
         The result of the subprocess.
     """
     try:
-        result = subprocess.run(shlex.split(command), capture_output=True, timeout=timeout, check=True, text=True)
+        # Use Popen to enable real-time output while still capturing it
+        process = subprocess.Popen(
+            shlex.split(command),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+
+        stdout_lines = []
+        stderr_lines = []
+
+        # Read output in real-time
+        import select
+        import sys
+
+        while True:
+            # Use select to check for available output (Unix/Linux/Mac only)
+            if hasattr(select, "select"):
+                ready, _, _ = select.select([process.stdout, process.stderr], [], [], 0.1)
+
+                if process.stdout in ready:
+                    line = process.stdout.readline()
+                    if line:
+                        stdout_lines.append(line)
+                        print(line.rstrip(), file=sys.stdout, flush=True)
+
+                if process.stderr in ready:
+                    line = process.stderr.readline()
+                    if line:
+                        stderr_lines.append(line)
+                        print(line.rstrip(), file=sys.stderr, flush=True)
+            else:
+                # Fallback for Windows - read with timeout
+                try:
+                    stdout_data, stderr_data = process.communicate(timeout=0.1)
+                    if stdout_data:
+                        stdout_lines.extend(stdout_data.splitlines(keepends=True))
+                        print(stdout_data.rstrip(), file=sys.stdout, flush=True)
+                    if stderr_data:
+                        stderr_lines.extend(stderr_data.splitlines(keepends=True))
+                        print(stderr_data.rstrip(), file=sys.stderr, flush=True)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+
+            # Check if process has finished
+            if process.poll() is not None:
+                # Read any remaining output
+                remaining_stdout, remaining_stderr = process.communicate()
+                if remaining_stdout:
+                    stdout_lines.extend(remaining_stdout.splitlines(keepends=True))
+                    print(remaining_stdout.rstrip(), file=sys.stdout, flush=True)
+                if remaining_stderr:
+                    stderr_lines.extend(remaining_stderr.splitlines(keepends=True))
+                    print(remaining_stderr.rstrip(), file=sys.stderr, flush=True)
+                break
+
+        # Check for timeout
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            raise
+
+        # Check return code
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(
+                process.returncode, command, output="".join(stdout_lines), stderr="".join(stderr_lines)
+            )
+
+        # Create result object similar to subprocess.run
+        class Result:
+            def __init__(self, stdout, stderr, returncode):
+                self.stdout = stdout
+                self.stderr = stderr
+                self.returncode = returncode
+
+        result = Result("".join(stdout_lines), "".join(stderr_lines), process.returncode)
         return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
     except subprocess.TimeoutExpired as e:
         logger.error(f"Command timed out. Command: {command}\nstdout:\n{e.stdout}\nstderr:\n{e.stderr}")
