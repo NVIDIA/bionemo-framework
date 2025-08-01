@@ -19,7 +19,7 @@ dependencies = [
     "tqdm>=4.0.0",
     "scdataset",
     "anndata>=0.11.0",
-    "bionemo-scdl>=0.0.8"
+    "bionemo-scdl>=0.0.7"
 
 ]
 
