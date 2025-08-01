@@ -20,7 +20,15 @@
 from pathlib import Path
 from typing import Literal
 
+from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
 from pydantic import BaseModel
+
+
+def hyena_no_weight_decay_cond_with_embeddings(name, param):
+    """Condition for no weight decay for Hyena parameters with embeddings."""
+    if "embedding" in name:
+        return True
+    return hyena_no_weight_decay_cond(name, param)
 
 
 class Evo2TaxonomyLineage(BaseModel):

@@ -335,6 +335,7 @@ class HybridMambaConfig8BEvo2Loss(NemotronHConfigBase):
     # to be close to a target value (1.0).
     use_targeted_variance_loss: bool = False
     targeted_variance_loss_loss_coeff: float = 0.1
+    share_embeddings_and_output_weights: bool = False
 
     def __post_init__(self):
         """Post-init logic for Evo2 to enable backwards compatibility with old configs."""
@@ -378,6 +379,7 @@ class HybridMambaConfig8BEvo2Loss(NemotronHConfigBase):
             seq_len_interpolation_factor=self.seq_len_interpolation_factor,
             pre_process=pre_process or parallel_state.is_pipeline_first_stage(),
             post_process=post_process or parallel_state.is_pipeline_last_stage(),
+            share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
         )
 
 
