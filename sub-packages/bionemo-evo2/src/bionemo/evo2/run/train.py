@@ -45,10 +45,10 @@ from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils.exp_manager import TimingCallback
-from nemo.utils.exp_manager import TimingCallback
+
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
-from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.evo2.run.peft import Evo2LoRA
+from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -597,7 +597,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         model_type = "mamba"
     else:
         raise ValueError(f"Invalid model size: {args.model_size}")
-        
+
     # Create model based on selected model type
     if model_type == "hyena":
         if args.model_size not in HYENA_MODEL_OPTIONS:
@@ -607,7 +607,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         lora_transform = None
         if args.lora_finetune:
             lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
-        
+
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
     else:  # mamba
         if args.no_weight_decay_embeddings:
@@ -622,7 +622,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             raise ValueError("Bias output is not supported for Mamba models.")
         model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = MambaModel(model_config, tokenizer=data_module.tokenizer)
-
 
     # Setup callbacks.
     callbacks = [
