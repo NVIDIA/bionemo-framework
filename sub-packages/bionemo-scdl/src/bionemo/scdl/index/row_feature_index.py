@@ -260,6 +260,11 @@ class RowFeatureIndex:
             datapath: path to save the index
         """
         Path(datapath).mkdir(parents=True, exist_ok=True)
+        
+        # Remove existing parquet files to prevent accumulation from multiple saves with different array counts
+        for existing_parquet in Path(datapath).glob("dataframe_*.parquet"):
+            existing_parquet.unlink()
+        
         num_digits = len(str(len(self._feature_arr)))
         for index, feature_dict in enumerate(self._feature_arr):
             table = pa.table({column: pa.array(values) for column, values in feature_dict.items()})
