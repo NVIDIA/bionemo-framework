@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sleep 3600
+# sleep 3600
 
 
 DEST_DIR="/workspaces/bionemo-framework/ft-attack/checkpoints/"
@@ -27,7 +27,7 @@ run_evaluation() {
     CUDA_VISIBLE_DEVICES="$gpu_devices" python eval/eval_fitness.py \
         --ckpt-dir "$DEST_DIR$checkpoint_path" \
         --model-size 7b_arc_longcontext \
-        --batch-size 16 \
+        --batch-size 256 \
         --tensor-parallel-size 4 \
         --DMS_filenames /workspaces/bionemo-framework/ft-attack/data/eval_dataset/DMS_ProteinGym_substitutions/virus_ecoli.csv \
         --DMS_scores_folder /workspaces/bionemo-framework/ft-attack/data/eval_dataset/DMS_ProteinGym_substitutions/nucleotides/

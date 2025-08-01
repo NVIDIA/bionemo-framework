@@ -31,3 +31,8 @@ rsync -avz --progress /mnt/efs/boyiwei/bionemo-framework/ft-attack/checkpoints/f
 # python utils/nucleotide_data_pipeline.py \
 #     --input_folder /mnt/efs/zorache/src/archive/evo2_ftattack/data/DMS_ProteinGym_substitutions \
 #     --file_list data/eval_dataset/DMS_ProteinGym_substitutions/virus_ecoli.csv
+
+
+# Plot
+
+python analysis/plot_fitness_spearman.py --type model --models human --base-path results/virus_reproduction/full
