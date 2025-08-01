@@ -227,7 +227,10 @@ class BioNeMoToVortexConverter:
 
 def parse_args():
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Convert BioNeMo checkpoint to Vortex format",
+        epilog="Example: evo2_convert_nemo2_to_vortex --model-path $(download_bionemo_data evo2/1b-8k-bf16:1.0) --output-ckpt evo2_1b_8k_bf16_1_0_vortex.pt",
+    )
     parser.add_argument(
         "--model-path",
         type=Path,
@@ -241,11 +244,8 @@ def parse_args():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    # ==============================================================================
-    # Example Usage
-    # ==============================================================================
-    # Configure logging
+def main():
+    """Main function to convert a BioNeMo checkpoint to Vortex format."""
     args = parse_args()
     logger.setLevel(logging.INFO)
     logger.info("Starting conversion from BioNeMo to Vortex format...")
@@ -255,3 +255,7 @@ if __name__ == "__main__":
 
     # Apply conversion
     converter.apply(args.output_ckpt)
+
+
+if __name__ == "__main__":
+    main()
