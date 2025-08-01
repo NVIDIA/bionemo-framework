@@ -17,15 +17,20 @@
 # limitations under the License.
 
 
+import pytest
+import torch
+
 from bionemo.core.data.load import load
 from bionemo.evo2.run.infer import infer
 from bionemo.testing.megatron_parallel_state_utils import clean_parallel_state_context
+from bionemo.testing.torch import check_fp8_support
 
 
 RANDOM_SEED = 42
 
 
-def test_run_infer():
+@pytest.mark.parametrize("fast", [True, False])
+def test_run_infer(fast: bool):
     # Create PTL trainer.
     tensor_parallel_size = 1
     pipeline_model_parallel_size = 1
@@ -56,6 +61,8 @@ def test_run_infer():
         else:
             raise e
 
+    is_fp8_supported, _, _ = check_fp8_support(torch.cuda.current_device())
+
     with clean_parallel_state_context():
         infer(
             prompt=default_prompt,
@@ -67,4 +74,6 @@ def test_run_infer():
             tensor_parallel_size=tensor_parallel_size,
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             context_parallel_size=context_parallel_size,
+            vortex_style_fp8=is_fp8_supported,
+            flash_decode=fast,
         )
