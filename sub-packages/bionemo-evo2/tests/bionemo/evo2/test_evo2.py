@@ -19,6 +19,7 @@
 import logging
 from pathlib import Path
 from typing import Literal, Set
+from os import getenv
 
 import numpy as np
 import pytest
@@ -29,6 +30,7 @@ from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenize
 from nemo.lightning.io.pl import MegatronCheckpointIO
 
 from bionemo.core.data.load import load
+from bionemo.evo2.inference import get_model_and_tokenizer
 from bionemo.llm.utils.weight_utils import (
     MegatronModelType,
     _key_in_filter,
@@ -41,12 +43,6 @@ from bionemo.testing.torch import check_fp8_support
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
-
-
-def prune_caches():
-    import gc
-    gc.collect()
-    torch.cuda.empty_cache()
 
 
 def load_weights_sharded_inplace_nemo2_to_mcore(
@@ -246,115 +242,6 @@ def sequences():
         return [row["Sequence"] for row in reader]
 
 
-def get_trainer(pipeline_parallel=1):
-    import nemo.lightning as nl
-
-    fp8 = True
-    full_fp8 = False
-    return nl.Trainer(
-        accelerator="gpu",
-        devices=pipeline_parallel,
-        strategy=nl.MegatronStrategy(
-            tensor_model_parallel_size=1,
-            pipeline_model_parallel_size=pipeline_parallel,
-            context_parallel_size=1,
-            pipeline_dtype=torch.bfloat16,
-            ckpt_load_optimizer=False,
-            ckpt_save_optimizer=False,
-            ckpt_async_save=False,
-            save_ckpt_format="torch_dist",
-            ckpt_load_strictness="log_all",
-        ),
-        log_every_n_steps=1,
-        limit_val_batches=10,
-        num_sanity_val_steps=0,
-        plugins=nl.MegatronMixedPrecision(
-            precision="bf16-mixed",
-            params_dtype=torch.bfloat16,
-            # Only use FP8 in this plugin when using full FP8 precision and FP8.
-            #   Otherwise use vortex_style_fp8 in the model config.
-            fp8="hybrid" if fp8 and full_fp8 else None,
-            fp8_amax_history_len=16 if fp8 and full_fp8 else 1,
-            fp8_amax_compute_algo="max" if fp8 and full_fp8 else "most_recent",
-        ),
-    )
-
-def detect_pst(ckpt_name):
-    mem_gb = torch.cuda.get_device_properties(0).total_memory // 1024 // 1024 // 1024
-    gpus = torch.cuda.device_count()
-    ret = None
-    if "40b" in ckpt_name:
-        if gpus >= 2 and mem_gb > 120: # e.g. h200-x2
-            ret = 8192
-        elif mem_gb > 120: # e.g. h200-x1
-            ret = 4096
-        elif gpus >= 3 and mem_gb > 60: # e.g. h100-x3
-            ret = 512
-        elif gpus >= 2 and mem_gb > 60: # e.g. h100-x2
-            ret = 256
-        elif gpus >= 3: # e.g. l40-x3
-            ret = 128
-        else: # e.g. l40-x2
-            ret = 64
-    elif "7b" in ckpt_name:
-        if gpus < 2 and mem_gb < 60:
-            ret = 4096
-    logger.info(f"Will use prompt_segmentation_threshold={ret}, {gpus=} {mem_gb=}")
-    return ret
-
-def get_inference_params(ckpt_name):
-    # Below are parameters that need to be tuned based on GPU memory size.
-    return {
-        "fp32_residual_connection": False,
-
-        # This mostly determines size of KV cache.
-        "inference_max_seq_length": 8192,
-
-        # Affects KV cache size, can cause OOM easily, set to 1 to save memory (i.e. running 40b model)
-        "inference_max_requests": 1,
-
-        # This is used to split batch into mini-batches.
-        # If use batch size = 1, set same as inference_max_seq_length to avoid
-        # more complex code path.
-        "inference_batch_times_seqlen_threshold": 8192,
-
-        # Affects max memory usage during parallel hyena filters pass.
-        "prompt_segmentation_threshold": detect_pst(ckpt_name),
-    }
-
-def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False):
-    prune_caches()
-    trainer = get_trainer()
-    from bionemo.core.data.load import load
-
-    try:
-        ckpt_dir: Path = load(ckpt_name)
-    except ValueError as e:
-        if "40b" in ckpt_name: # NeMo 40b is not yet published
-            raise ValueError(f"Place 40b checkpoint to ~/.cache/bionemo/overrides/{ckpt_name}") from e
-        raise
-
-    from nemo.collections.llm import inference
-
-    inference_wrapped_model, mcore_tokenizer = inference.setup_model_and_tokenizer(
-        path=ckpt_dir,
-        trainer=trainer,
-        params_dtype=torch.bfloat16,
-        vortex_style_fp8=vortex_style_fp8,
-        # use_te_rng_tracker=True,
-        # te_rng_tracker=True,
-        # inference_rng_tracker=True,
-        # enable_cuda_graph=True,
-        # cudagraph_rng_tracker=True,
-        enable_flash_decode=True,
-        recompute_granularity=None,
-        recompute_num_layers=None,
-        recompute_method=None,
-        **get_inference_params(ckpt_name),
-    )
-    return inference_wrapped_model, mcore_tokenizer
-
-
 def calc_matchrate(*, tokenizer, in_seq, logits):
     softmax_logprobs = torch.log_softmax(logits, dim=-1)
     softmax_logprobs = softmax_logprobs[:, :-1]
@@ -383,15 +270,16 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
 
 
 @pytest.mark.parametrize(
-    "ckpt_name,expected_matchpercents",
+    "ckpt_name,expected_matchpercents,seq_limit",
     [
-        ("evo2/1b-8k-bf16:1.0", [92.7, 67.8, 77.6, 81.7]),
-        ("evo2/1b-8k:1.0",      [92.7, 66.6, 78.2, 81.6]),
-        ("evo2/7b-8k:1.0",      [93.9, 83.7, 80.2, 86.7]),
-        ("evo2/7b-1m:1.0",      [93.7, 86.6, 80.2, 85.2]),
+        ("evo2/1b-8k-bf16:1.0", [92.7, 67.8, 77.6, 81.7], None),
+        ("evo2/1b-8k:1.0",      [92.7, 66.6, 78.2, 81.6], None),
+        ("evo2/7b-8k:1.0",      [93.9, 83.7, 80.2, 86.7], None),
+        ("evo2/7b-1m:1.0",      [93.7, 86.6, 80.2, 85.2], None),
+        #("evo2/40b-1m:1.0",    [98.5, 93.5, 82.5, 89.8], 2000),
     ],
 )
-def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
+def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], seq_limit):
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -401,11 +289,12 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
 
     inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
-        ckpt_name, vortex_style_fp8=vortex_style_fp8
+        ckpt_name=ckpt_name, vortex_style_fp8=vortex_style_fp8
     )
 
     matchrates = []
     for seq in sequences:
+        seq = seq[:seq_limit]
         with torch.no_grad():
             device = torch.cuda.current_device()
             tokens = torch.tensor([mcore_tokenizer.tokenize(seq)], device=device)
@@ -430,7 +319,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 
             matchrate = calc_matchrate(tokenizer=mcore_tokenizer, in_seq=seq, logits=logits)
             matchrates.append(matchrate)
-            check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate, assert_matchrate=False)
+            #check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate, assert_matchrate=False)
     assert len(matchrates) == len(expected_matchpercents)
     matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
@@ -533,17 +422,24 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
     return (matches / min_length) * 100
 
 
+# 7b pst=2 fa=off ['98.6%', '93.4%', '78.0%', '85.0%']
+
 @pytest.mark.parametrize(
-    "ckpt_name,expected_matchpercents",
+    "ckpt_name,expected_matchpercents,pst",
     [
-        ("evo2/1b-8k-bf16:1.0", [96.6, 33.0, 77.2, 71.2]),
-        ("evo2/1b-8k:1.0",      [96.8, 31.0, 72.4, 70.8]),
-        ("evo2/7b-8k:1.0",      [98.6, 90.6, 78.8, 80.6]),
-        ("evo2/7b-1m:1.0",      [98.0, 95.2, 78.0, 85.6]),
-        # ("evo2/40b-1m:1.0",   [0, 0, 0, 0]),
+        ("evo2/1b-8k-bf16:1.0", [96.6, 33.0, 77.2, 71.2], 8192),
+        ("evo2/1b-8k:1.0",      [96.8, 31.0, 72.4, 70.8], 8192),
+        ("evo2/7b-8k:1.0",      [98.6, 90.6, 78.8, 80.6], 8192),
+        ("evo2/7b-1m:1.0",      [98.0, 95.2, 78.0, 85.6], 8192),
+        ("evo2/7b-1m:1.0",      [98.4, 95.2, 77.6, 85.0], 2), # Low PST values stress-test stateful path.
+        #("evo2/40b-1m:1.0",    [99.0, 97.2, 77.2, 99.6], 2), # vortex, pst=64? [99.2, 97.2, 78.0, 99.2]
     ],
 )
-def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
+def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], pst: int):
+    if getenv("QUICK_TEST") == "1":
+        sequences = [sequences[1]]
+        expected_matchpercents = [expected_matchpercents[1]]
+
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -552,7 +448,11 @@ def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchperc
         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-    inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+    inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
+        ckpt_name=ckpt_name,
+        vortex_style_fp8=vortex_style_fp8,
+        prompt_segmentation_threshold=pst,
+    )
 
     match_percents = []
     num_tokens = 500
@@ -560,20 +460,24 @@ def test_batch_generate(sequences: list[str], ckpt_name: str, expected_matchperc
     from megatron.core.inference.common_inference_params import CommonInferenceParams
     from nemo.collections.llm.inference import generate
 
-    results = generate(
-        model=inference_wrapped_model,
-        max_batch_size=1,  # vortex only supports batch size 1
-        tokenizer=mcore_tokenizer,
-        prompts=[sq[0] for sq in seq_prompts],
-        random_seed=42,
-        inference_params=CommonInferenceParams(
-            temperature=1.0,
-            top_k=1,
-            top_p=0.0,
-            return_log_probs=False,
-            num_tokens_to_generate=num_tokens,
-        ),
-    )
+    results = []
+    for sq in seq_prompts: # run as batch_size=1 to save memory
+        inference_wrapped_model.prep_model_for_inference(prompts_tokens=None)
+        result = generate(
+            model=inference_wrapped_model,
+            max_batch_size=1,  # vortex only supports batch size 1
+            tokenizer=mcore_tokenizer,
+            prompts=[sq[0]],
+            random_seed=42,
+            inference_params=CommonInferenceParams(
+                temperature=1.0,
+                top_k=1,
+                top_p=0.0,
+                return_log_probs=False,
+                num_tokens_to_generate=num_tokens,
+            ),
+        )
+        results.extend(result)
 
     for i, (result, (prompt, target)) in enumerate(zip(results, seq_prompts)):
         gen_seq = result.generated_text
