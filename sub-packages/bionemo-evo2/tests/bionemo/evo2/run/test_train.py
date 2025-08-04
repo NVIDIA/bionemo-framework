@@ -30,14 +30,14 @@ from bionemo.testing.lightning import extract_global_steps_from_log
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
 
+from .common import small_training_cmd, small_training_finetune_cmd
+
 
 fp8_available, reason_for_no_fp8 = check_fp8_support()
 
 
 def run_train_with_std_redirect(args: argparse.Namespace) -> Tuple[str, nl.Trainer]:
-    """
-    Run a function with output capture.
-    """
+    """Run a function with output capture."""
     stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
     with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
         with distributed_model_parallel_state():
@@ -48,28 +48,6 @@ def run_train_with_std_redirect(args: argparse.Namespace) -> Tuple[str, nl.Train
     print("Captured STDOUT:\n", train_stdout)
     print("Captured STDERR:\n", train_stderr)
     return train_stdout, trainer
-
-
-def small_training_cmd(path, max_steps, val_check, devices: int = 1, additional_args: str = ""):
-    cmd = (
-        f"train_evo2 --mock-data --result-dir {path} --devices {devices} "
-        "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* --limit-val-batches 1 "
-        "--no-activation-checkpointing --add-bias-output --create-tensorboard-logger --create-tflops-callback "
-        f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
-        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args}"
-    )
-    return cmd
-
-
-def small_training_finetune_cmd(path, max_steps, val_check, prev_ckpt, devices: int = 1, additional_args: str = ""):
-    cmd = (
-        f"train_evo2 --mock-data --result-dir {path} --devices {devices} "
-        "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* --limit-val-batches 1 "
-        "--no-activation-checkpointing --add-bias-output --create-tensorboard-logger --create-tflops-callback "
-        f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
-        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args} --ckpt-dir {prev_ckpt}"
-    )
-    return cmd
 
 
 def small_training_mamba_cmd(path, max_steps, val_check, devices: int = 1, additional_args: str = ""):
@@ -98,7 +76,8 @@ def small_training_mamba_finetune_cmd(
 
 @pytest.mark.timeout(512)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
-def test_train_evo2_finetune_runs(tmp_path):
+@pytest.mark.parametrize("with_peft", [True, False])
+def test_train_evo2_finetune_runs(tmp_path, with_peft: bool):
     """
     This test runs the `train_evo2` command with mock data in a temporary directory.
     It uses the temporary directory provided by pytest as the working directory.
@@ -135,13 +114,24 @@ def test_train_evo2_finetune_runs(tmp_path):
     event_files = list(tensorboard_dir.rglob("events.out.tfevents*"))
     assert event_files, f"No TensorBoard event files found under {tensorboard_dir}"
     assert len(matching_subfolders) == 1, "Only one checkpoint subfolder should be found."
+    if with_peft:
+        result_dir = tmp_path / "lora_finetune"
+        additional_args = "--lora-finetune"
+    else:
+        result_dir = tmp_path / "finetune"
+        additional_args = ""
+
     command_finetune = small_training_finetune_cmd(
-        tmp_path / "finetune", max_steps=num_steps, val_check=num_steps, prev_ckpt=matching_subfolders[0]
+        result_dir,
+        max_steps=num_steps,
+        val_check=num_steps,
+        prev_ckpt=matching_subfolders[0],
+        additional_args=additional_args,
     )
     stdout_finetune: str = run_command_in_subprocess(command=command_finetune, path=str(tmp_path))
     assert "Restoring model weights from RestoreConfig(path='" in stdout_finetune
 
-    log_dir_ft = tmp_path / "finetune" / "evo2"
+    log_dir_ft = result_dir / "evo2"
     checkpoints_dir_ft = log_dir_ft / "checkpoints"
     tensorboard_dir_ft = log_dir_ft / "dev"
 
