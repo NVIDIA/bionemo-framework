@@ -47,7 +47,7 @@ def parse_args():
     )
     ap.add_argument(
         "--ckpt-name", type=str, default="evo2/1b-8k-bf16:1.0", help="Name of checkpoint directory containing pre-trained Evo2 model."
-    )
+    ) # todo make default to "evo2/7b-8k:1.0"
     ap.add_argument("--temperature", type=float, default=1.0, help="Temperature during sampling for generation.")
     ap.add_argument("--top-k", type=int, default=4, help="Top K during sampling for generation.")
     ap.add_argument("--top-p", type=float, default=0.0, help="Top P during sampling for generation.")
@@ -64,9 +64,7 @@ def parse_args():
     return ap.parse_args()
 
 
-################################################################################
-# Batch generation
-################################################################################
+
 def get_trainer(pipeline_parallel=1):
     import nemo.lightning as nl
 
@@ -250,7 +248,7 @@ def main():
         top_k=args.top_k,
         top_p=args.top_p,
         output_file=args.output_file,
-        seed=args.seed if args.seed is not None else random.randint(0, 1000000),
+        seed=args.seed,
         num_generations=args.num_generations
     )
 
