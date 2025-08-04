@@ -38,7 +38,6 @@ from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
 )
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.pytorch import callbacks as nl_callbacks
-from nemo.lightning.pytorch.callbacks import ModelTransform
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
@@ -49,7 +48,7 @@ from nemo.utils.exp_manager import TimingCallback
 from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
 from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
-from bionemo.evo2.run.peft import Evo2LoRA
+from bionemo.evo2.models.peft import Evo2LoRA
 from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
 from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
@@ -611,7 +610,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Disable saving the last checkpoint.",
     )
     parser.add_argument("--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False)
-    parser.add_argument("--lora-checkpoint-path", type=Path, default=None, help="LoRA checkpoint path")
+    parser.add_argument("--lora-checkpoint-path", type=str, default=None, help="LoRA checkpoint path")
     parser.add_argument(
         "--no-calculate-per-token-loss",
         action="store_true",
@@ -669,6 +668,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             seq_length=args.seq_length,
             micro_batch_size=args.micro_batch_size,
             global_batch_size=global_batch_size,
+            num_train_samples=args.max_steps * global_batch_size,
+            num_val_samples=args.limit_val_batches * global_batch_size,
+            num_test_samples=1,
             num_workers=args.workers,
             tokenizer=tokenizer,
         )
@@ -823,7 +825,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         callbacks.append(GarbageCollectAtInferenceTime())
 
     if args.lora_finetune:
-        callbacks.append(ModelTransform())
+        callbacks.append(lora_transform)
     if args.enable_preemption:
         callbacks.append(nl_callbacks.PreemptionCallback())
     if args.debug_ddp_parity_freq > 0:
