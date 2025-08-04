@@ -122,7 +122,6 @@ class BioNeMoToVortexConverter:
             Path to the saved Vortex state_dict file.
         """
         source_state_dict = self.get_source_state_dict()
-
         target_state_dict = self.convert_state_dict(source_state_dict)
 
         # Save the converted state dictionary
@@ -133,96 +132,115 @@ class BioNeMoToVortexConverter:
         return output_path
 
     def convert_state_dict(self, source_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Converts the state dictionary from bionemo to vortex format by renaming and transforming tensors.
+        """Convert a BioNeMo Hyena/GPT checkpoint to Vortex format.
 
-        Args:
-            source_dict: The source state dictionary from the bionemo model.
-
-        Returns:
-            The converted state dictionary in vortex format.
+        Note: All FP8 `*_extra_state` dicts for projection layers are copied verbatim.
         """
-        logging.info("Starting state_dict conversion...")
-        target_dict = {}
+        logging.info("Starting state-dict conversion …")
 
-        # 1. Global mappings (embedding, final norm)
-        if "embedding.word_embeddings.weight" in source_dict:
-            target_dict["embedding_layer.weight"] = source_dict["embedding.word_embeddings.weight"]
-            target_dict["unembed.weight"] = source_dict["embedding.word_embeddings.weight"].clone()
-        if "decoder.final_norm.weight" in source_dict:
-            target_dict["norm.scale"] = source_dict["decoder.final_norm.weight"]
+        # 0. strip possible `model.` prefix
+        if any(k.startswith("model.") for k in source_dict):
+            source_dict = {k[6:]: v for k, v in source_dict.items()}
 
-        # 2. Per-layer mappings and transformations
-        num_layers = self.source_config.num_layers
-        for i in range(num_layers):
-            symbol = self.source_config.hybrid_override_pattern[i]
+        tgt: Dict[str, torch.Tensor] = {}
 
-            # --- Norms ---
-            bionemo_pre_norm_key = (
-                f"decoder.layers.{i}.input_layernorm.weight" if symbol == "*" else f"decoder.layers.{i}.norm.weight"
-            )
-            if bionemo_pre_norm_key in source_dict:
-                target_dict[f"blocks.{i}.pre_norm.scale"] = source_dict[bionemo_pre_norm_key]
-            if f"decoder.layers.{i}.pre_mlp_layernorm.weight" in source_dict:
-                target_dict[f"blocks.{i}.post_norm.scale"] = source_dict[
-                    f"decoder.layers.{i}.pre_mlp_layernorm.weight"
-                ]
+        # 1. globals ----------------------------------------------------------------
+        tgt["embedding_layer.weight"] = source_dict["embedding.word_embeddings.weight"]
+        tgt["norm.scale"] = source_dict["decoder.final_norm.weight"]
 
-            # --- MLP ---
-            fc1_key = f"decoder.layers.{i}.mlp.linear_fc1.weight"
-            if fc1_key in source_dict:
-                gate_proj, up_proj = torch.chunk(source_dict[fc1_key], 2, dim=0)
-                target_dict[f"blocks.{i}.mlp.l1.weight"] = gate_proj
-                target_dict[f"blocks.{i}.mlp.l2.weight"] = up_proj
+        # helper to make RoPE if absent
+        head_dim = self.source_config.hidden_size // self.source_config.num_attention_heads
 
-            fc2_key = f"decoder.layers.{i}.mlp.linear_fc2.weight"
-            if fc2_key in source_dict:
-                target_dict[f"blocks.{i}.mlp.l3.weight"] = source_dict[fc2_key]
+        def synth_inv_freq(base: float = 10000, dtype=torch.float32):
+            return 1.0 / (base ** (torch.arange(0, head_dim, 2, dtype=dtype) / head_dim))
 
-            # --- Mixer (Attention or Hyena) ---
-            if symbol == "*":  # Attention Layer
-                target_dict[f"blocks.{i}.inner_mha_cls.Wqkv.weight"] = source_dict[
-                    f"decoder.layers.{i}.self_attention.linear_qkv.weight"
-                ]
-                target_dict[f"blocks.{i}.inner_mha_cls.out_proj.weight"] = source_dict[
-                    f"decoder.layers.{i}.self_attention.linear_proj.weight"
-                ]
-                target_dict[f"blocks.{i}.inner_mha_cls.out_proj.bias"] = source_dict[
-                    f"decoder.layers.{i}.self_attention.linear_proj.bias"
-                ]
-            else:  # Hyena Layers ('S', 'D', 'H')
-                target_dict[f"blocks.{i}.projections.weight"] = source_dict[
-                    f"decoder.layers.{i}.mixer.dense_projection.weight"
-                ]
-                target_dict[f"blocks.{i}.out_filter_dense.weight"] = source_dict[
-                    f"decoder.layers.{i}.mixer.dense.weight"
-                ]
-                target_dict[f"blocks.{i}.out_filter_dense.bias"] = source_dict[f"decoder.layers.{i}.mixer.dense.bias"]
-                target_dict[f"blocks.{i}.filter.short_filter_weight"] = source_dict[
-                    f"decoder.layers.{i}.mixer.hyena_proj_conv.short_conv_weight"
+        # 2. per-layer --------------------------------------------------------------
+        cfg, pat = self.source_config, self.source_config.hybrid_override_pattern
+        for i in range(cfg.num_layers):
+            sym, lp = pat[i], f"decoder.layers.{i}"
+
+            # ------ norms ------
+            for cand in (
+                f"{lp}.input_layernorm.weight",
+                f"{lp}.mixer.dense_projection.layer_norm_weight",
+                f"{lp}.norm.weight",
+                f"{lp}.self_attention.linear_qkv.layer_norm_weight",
+            ):
+                if cand in source_dict:
+                    tgt[f"blocks.{i}.pre_norm.scale"] = source_dict[cand]
+                    break
+
+            for cand in (
+                f"{lp}.pre_mlp_layernorm.weight",
+                f"{lp}.mlp.linear_fc1.layer_norm_weight",
+            ):
+                if cand in source_dict:
+                    tgt[f"blocks.{i}.post_norm.scale"] = source_dict[cand]
+                    break
+
+            # ------ MLP ------
+            gate, up = torch.chunk(source_dict[f"{lp}.mlp.linear_fc1.weight"], 2, dim=0)
+            tgt[f"blocks.{i}.mlp.l1.weight"] = gate
+            tgt[f"blocks.{i}.mlp.l2.weight"] = up
+            tgt[f"blocks.{i}.mlp.l3.weight"] = source_dict[f"{lp}.mlp.linear_fc2.weight"]
+
+            # ------ mixers ------
+            if sym == "*":  # Attention
+                sa = f"{lp}.self_attention"
+                tgt[f"blocks.{i}.inner_mha_cls.Wqkv.weight"] = source_dict[f"{sa}.linear_qkv.weight"]
+                tgt[f"blocks.{i}.inner_mha_cls.out_proj.weight"] = source_dict[f"{sa}.linear_proj.weight"]
+                tgt[f"blocks.{i}.inner_mha_cls.out_proj.bias"] = source_dict[f"{sa}.linear_proj.bias"]
+
+                rope_key = f"{sa}.rotary_emb.inv_freq"
+                tgt[f"blocks.{i}.inner_mha_cls.rotary_emb.inv_freq"] = (
+                    source_dict[rope_key]
+                    if rope_key in source_dict
+                    else synth_inv_freq(base=self.source_config.rotary_base)
+                )
+
+            else:  # Hyena (S/D/H)
+                mix = f"{lp}.mixer"
+
+                # projection weight + its original FP8 extra_state
+                tgt[f"blocks.{i}.projections.weight"] = source_dict[f"{mix}.dense_projection.weight"]
+                if f"{mix}.dense_projection._extra_state" in source_dict:
+                    tgt[f"blocks.{i}.projections._extra_state"] = source_dict[f"{mix}.dense_projection._extra_state"]
+
+                # dense after filter
+                tgt[f"blocks.{i}.out_filter_dense.weight"] = source_dict[f"{mix}.dense.weight"]
+                tgt[f"blocks.{i}.out_filter_dense.bias"] = source_dict[f"{mix}.dense.bias"]
+
+                # short pre-filter
+                tgt[f"blocks.{i}.filter.short_filter_weight"] = source_dict[
+                    f"{mix}.hyena_proj_conv.short_conv_weight"
                 ].unsqueeze(1)
 
-                if symbol == "S":  # Short Convolution Hyena
-                    target_dict[f"blocks.{i}.filter.h"] = source_dict[
-                        f"decoder.layers.{i}.mixer.mixer.short_conv.short_conv_weight"
-                    ]
-                elif symbol == "D":  # Medium (Diagonal) Hyena
-                    target_dict[f"blocks.{i}.filter.D"] = source_dict[f"decoder.layers.{i}.mixer.mixer.conv_bias"]
-                    h = source_dict[f"decoder.layers.{i}.mixer.mixer.filter.h"]
-                    decay = source_dict[f"decoder.layers.{i}.mixer.mixer.filter.decay"]
-                    target_dict[f"blocks.{i}.filter.h"] = TransformFns.calculate_hyena_filter_h(h, decay)
-                elif symbol == "H":  # Long (State-Space) Hyena
-                    target_dict[f"blocks.{i}.filter.D"] = source_dict[f"decoder.layers.{i}.mixer.mixer.conv_bias"]
-                    target_dict[f"blocks.{i}.filter.residues"] = source_dict[
-                        f"decoder.layers.{i}.mixer.mixer.filter.R"
-                    ]
-                    p = source_dict[f"decoder.layers.{i}.mixer.mixer.filter.p"]
-                    gamma = source_dict[f"decoder.layers.{i}.mixer.mixer.filter.gamma"]
-                    target_dict[f"blocks.{i}.filter.log_poles"] = TransformFns.calculate_log_poles(p, gamma)
+                if sym == "S":  # short-conv only
+                    tgt[f"blocks.{i}.filter.h"] = source_dict[f"{mix}.mixer.short_conv.short_conv_weight"]
 
-        logging.info(
-            f"Conversion logic complete. Processed {len(target_dict.keys())} tensors for the target state_dict."
-        )
-        return target_dict
+                elif sym == "D":  # medium
+                    tgt[f"blocks.{i}.filter.D"] = source_dict[f"{mix}.mixer.conv_bias"]
+                    h, decay = source_dict[f"{mix}.mixer.filter.h"], source_dict[f"{mix}.mixer.filter.decay"]
+                    tgt[f"blocks.{i}.filter.h"] = TransformFns.calculate_hyena_filter_h(h, decay)
+
+                elif sym == "H":  # long
+                    tgt[f"blocks.{i}.filter.D"] = source_dict[f"{mix}.mixer.conv_bias"]
+                    tgt[f"blocks.{i}.filter.residues"] = source_dict[f"{mix}.mixer.filter.R"]
+                    tgt[f"blocks.{i}.filter.log_poles"] = TransformFns.calculate_log_poles(
+                        source_dict[f"{mix}.mixer.filter.p"], source_dict[f"{mix}.mixer.filter.gamma"]
+                    )
+
+                else:
+                    raise ValueError(f"Unexpected symbol {sym!r} at layer {i}")
+
+        # 3. drop BioNeMo extras we do not want --------------------------------------
+        tgt = {k: v for k, v in tgt.items() if not k.endswith("mixer.dense._extra_state") and k != "unembed.weight"}
+        # for k, v in tgt.items():
+        #     if hasattr(v, "set_extra_state") or hasattr(v, '_extra_state') or not isinstance(v, torch.Tensor):
+        #         raise ValueError(f"Extra state found in {k}")
+
+        logging.info(f"Done - {len(tgt):,} tensors ready for Vortex.")
+        return tgt
 
 
 def parse_args():
