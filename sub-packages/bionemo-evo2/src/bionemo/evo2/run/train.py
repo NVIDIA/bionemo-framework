@@ -444,6 +444,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Dropout probability for the hyena layers",
     )
     parser.add_argument(
+        "--ffn-hidden-size",
+        type=int,
+        default=None,
+        help="FFN hidden size for the hyena layers",
+    )
+    parser.add_argument(
         "--log-num-zeros-in-grad",
         action="store_true",
         default=False,
@@ -550,7 +556,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             tokenizer=tokenizer,
             eod_mask_loss=args.eod_pad_in_loss_mask,
         )
-
     if args.no_activation_checkpointing:
         activation_checkpointing_args = {
             "recompute_granularity": None,
@@ -588,6 +593,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         config_modifiers_init["embedding_init_method_std"] = 1.0
         # When using spike_no_more_embedding_init, we don't want to share embeddings and outputs.
         config_modifiers_init["share_embeddings_and_output_weights"] = False
+    if args.ffn_hidden_size:
+        config_modifiers_init["ffn_hidden_size"] = args.ffn_hidden_size
     if args.use_targeted_variance_loss:
         config_modifiers_init["use_targeted_variance_loss"] = True
     if args.use_b2b_causal_conv1d:
