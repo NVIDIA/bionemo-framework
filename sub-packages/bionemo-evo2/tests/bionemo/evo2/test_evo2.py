@@ -782,3 +782,80 @@ def test_generate_speed(
     assert tokens_per_sec > expected_tokens_sec * 0.85, (
         f"Expected at least {expected_tokens_sec} tokens/sec, got {tokens_per_sec}"
     )
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "ckpt_name,model_tokenizer_provider,expected_gc_content",
+    [
+        ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [0.73, 0.28]),
+        ("evo2/1b-8k:1.0", get_model_and_tokenizer, [0.73, 0.28]),
+        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [0.73, 0.28]),
+        ("evo2/7b-8k:1.0", get_model_and_tokenizer, [0.73, 0.28]),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [0.73, 0.28]),
+    ],
+)
+def test_generate_gc_content_given_phylotag(
+    ckpt_name: str,
+    model_tokenizer_provider: Callable,
+    expected_gc_content: list[float],
+):
+    is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 40 and "7b" in ckpt_name):
+        pytest.skip(
+            f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
+        )
+    skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
+    if skip:
+        # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
+        pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
+    if "evo2_mamba" in ckpt_name and os.environ.get("BIONEMO_DATA_SOURCE") != "pbss":
+        # TODO: add evo2_mamba/7b-8k to NGC and remove this skip
+        pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
+    # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
+    vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
+        ckpt_name,
+        vortex_style_fp8=vortex_style_fp8,
+        fp32_residual_connection=False,
+        enable_flash_decode=True,
+        flash_decode=True,
+    )
+    # 16s ribosomal RNA primer sequence, should be identical across organisms.
+    shared_sequence = "AGAGTTTGATCCTGGCTCAGGAATGAACGCTGGCGGCAGGCCTAACACATGCAAGTCGAACGGCAGCA"
+    # Phylo tags where even the genus level GC content is highly divergent.
+    phylo_tags = [
+        # Streptomyces coelicolor has a highly GC-rich genome (eg see https://pubmed.ncbi.nlm.nih.gov/1563633/ for genus level GC content being high)
+        #  typical GC content is around 70%
+        "|D__BACTERIA;P__ACTINOBACTERIOTA;C__ACTINOMYCETIA;O__STREPTOMYCETALES;F__STREPTOMYCETACEAE;G__STREPTOMYCES;S__STREPTOMYCES COELICOLOR|",
+        # Clostridium botulinum has a highly AT-rich genome (eg https://pmc.ncbi.nlm.nih.gov/articles/PMC8806205/ for another species)
+        #  typical GC content is around 30%
+        "|D__BACTERIA;P__BACILLOTA;C__CLOSTRIDIA;O__CLOSTRIDIALES;F__CLOSTRIDIACEAE;G__CLOSTRIDIUM;S__CLOSTRIDIUM BOTULINUM|",
+    ]
+    prompts = [phylo_tag + shared_sequence for phylo_tag in phylo_tags]
+    from megatron.core.inference.common_inference_params import CommonInferenceParams
+
+    results = generate(
+        model=inference_wrapped_model,
+        max_batch_size=1,  # vortex only supports batch size 1
+        tokenizer=mcore_tokenizer,
+        prompts=prompts,
+        random_seed=42,
+        inference_params=CommonInferenceParams(
+            temperature=1.0,
+            top_k=1,
+            top_p=0.0,
+            return_log_probs=False,
+            num_tokens_to_generate=1500,
+        ),
+    )
+    for result, expected_gc in zip(results, expected_gc_content):
+        gen_seq = result.generated_text
+        gc_content = (gen_seq.count("G") + gen_seq.count("C")) / len(gen_seq)
+        if expected_gc > 0.5:
+            # High GC case, make sure we're at least 85% of the way there.
+            assert gc_content >= 0.52, f"Expected at least 85% of {expected_gc} GC content, got {gc_content}"
+        else:
+            # Low GC case, make sure we're at most 15% over the target.
+            assert gc_content <= 0.48, f"Expected at most 15% over {expected_gc} GC content, got {gc_content}"
