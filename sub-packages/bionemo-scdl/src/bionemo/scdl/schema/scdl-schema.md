@@ -6,6 +6,8 @@ Eric T. Dawson
 ## Version
 0.0.2
 
+**Implementation Status:** ✅ Fully implemented and validated against this specification
+
 ## Overview
 
 The SCDL schema defines the structure of a SCDL archive. This enables backwards compatibility,
@@ -45,7 +47,7 @@ The SCDL archive header uses network byte order (big-endian) throughout and cons
 
 **Core Header (Fixed Size: 16 bytes)**
 ```
-Offset | Size | Type    | Field       | Description
+Offset | Size (bytes) | Type    | Field       | Description
 -------|------|---------|-------------|------------------------------------------
 0x00   | 4    | char[4] | magic       | Magic number: 'SCDL' (0x5343444C)
 0x04   | 1    | uint8   | version_maj | Major version number
@@ -61,7 +63,7 @@ Offset | Size | Type    | Field       | Description
 Following the core header, each array is described by a variable-length descriptor:
 
 ```
-Offset | Size      | Type         | Field      | Description
+Offset | Size (bytes)      | Type         | Field      | Description
 -------|-----------|--------------|------------|----------------------------------
 0x00   | 4         | uint32       | name_len   | Length of array filename in bytes
 0x04   | name_len  | char[]       | name       | UTF-8 encoded array filename
@@ -86,17 +88,43 @@ var+17 | shape_dims*4 | uint32[]  | shape      | Shape array (if has_shape)
 - All string lengths must be > 0
 - Array count must match the number of array descriptors present
 - When has_shape = 0x01, shape_dims must be > 0
+- Array names must be unique within the archive
+- Feature index names must be unique within the archive
+- No name conflicts between arrays and feature indices
+- All strings must be valid UTF-8
+- Array lengths and shape dimensions must be non-negative
+- Shape dimensions must be positive when specified
 
 ### FeatureIndex Header
 
 Each FeatureIndex may optionally store a header, but it's nice if it does! This helps secure the archive and
 make sure it is more robust to failures.
 
-There is also a header specifically for the FeatureIndex
-- FeatureIndexInfo: Information about the feature index in the archive. This is stored as a list of FeatureIndexInfo.
-    - FeatureIndexVersion: The version of the feature index. This is stored as a single integer based on an enum.
-    - Feature Index Files: an array of strings containing the paths to the feature index files.
+**FeatureIndex Binary Format (Extension after Array Descriptors):**
+```
+Offset | Size (bytes)     | Type         | Field           | Description
+-------|-----------|--------------|-----------------|----------------------------------
+0x00   | 4         | uint32       | fi_count        | Number of feature indices
+```
+
+For each feature index:
+```
+Offset | Size (bytes)      | Type         | Field           | Description
+-------|-----------|--------------|-----------------|----------------------------------
+0x00   | 4         | uint32       | name_len        | Length of feature index name
+0x04   | name_len  | char[]       | name            | UTF-8 encoded feature index name
+var    | 8         | uint64       | length          | Number of entries in index
+var+8  | 4         | uint32       | dtype           | ArrayDType enum value
+var+12 | 4         | uint32       | files_count     | Number of index files
+var+16 | variable  | string[]     | index_files     | Array of file path strings
+var    | 1         | uint8        | has_shape       | Shape present flag (0x00 or 0x01)
+var+1  | 4         | uint32       | shape_dims      | Number of dimensions (if has_shape)
+var+5  | shape_dims*4 | uint32[]  | shape           | Shape array (if has_shape)
+```
+
+**Backwards Compatibility:** 
+Feature indices are stored after array descriptors as an optional extension. Older implementations that don't support feature indices will simply ignore the additional data, maintaining compatibility.
 
 ### Backend Header
 
-Each backend may optionally implement its own header.
+Each backend may optionally implement its own header. Currently, only the MEMMAP_V0 backend is supported with integer enum value 1.
