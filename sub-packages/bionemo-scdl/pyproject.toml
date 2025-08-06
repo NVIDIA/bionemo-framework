@@ -12,13 +12,19 @@ license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
     # external
-    'anndata>=0.11.0',
+    'anndata>=0.12.1',
+    "bionemo-core>=2.4.0",
     'numpy>=1.24.4',
     'pandas>=2.2.1',
     'pyarrow>=16.0.0',
     'scipy>=1.11.1',
     'torch>=2.2.1',
-    'pydantic[email]',
+    'pydantic[email]>=2.2.0',
+]
+
+[project.optional-dependencies]
+dev = [
+    'pytest>=8.4.1'
 ]
 
 [project.scripts]
