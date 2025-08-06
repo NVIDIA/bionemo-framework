@@ -462,9 +462,9 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Dropout probability for the attention layers.",
     )
     parser.add_argument(
-        "--use-b2b-causal-conv1d",
+        "--use-cuhyena",
         action="store_true",
-        help="Use back-to-back causal convolution CUDA kernel for hyena short conv layers for improved performance.",
+        help="Use cuHyena implementation for improved performance.",
     )
     parser.add_argument(
         "--save-top-k",
@@ -597,8 +597,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         config_modifiers_init["ffn_hidden_size"] = args.ffn_hidden_size
     if args.use_targeted_variance_loss:
         config_modifiers_init["use_targeted_variance_loss"] = True
-    if args.use_b2b_causal_conv1d:
-        config_modifiers_init["use_b2b_causal_conv1d"] = True
+    if args.use_cuhyena:
+        config_modifiers_init["use_cuhyena"] = True
     if args.hybrid_override_pattern:
         config_modifiers_init["hybrid_override_pattern"] = args.hybrid_override_pattern
     if args.num_layers:
