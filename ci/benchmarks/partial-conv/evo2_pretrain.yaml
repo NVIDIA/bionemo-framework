@@ -56,7 +56,7 @@ script: |-
   --enable-preemption \
   --ckpt-async-save \
   --use-megatron-comm-overlap-llama3-8k \
-  --use-b2b-causal-conv1d \
+  --use-cuhyena \
   --overlap-grad-reduce \
   --clip-grad=${clip_grad} \
   --eod-pad-in-loss-mask \
@@ -79,7 +79,7 @@ script: |-
   --limit-val-batches=20 \
   --log-every-n-steps=50 \
   --val-check-interval=500 \
-  --use-b2b-causal-conv1d \
+  --use-cuhyena \
   --create-tflops-callback \
   --create-tensorboard-logger \
   --result-dir=${tensorboard_dir} \
