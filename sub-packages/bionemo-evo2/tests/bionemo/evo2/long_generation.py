@@ -46,7 +46,7 @@ def parse_args():
         help="Prompt to generate text from Evo2. Single DNA prompt sequence.",
     )
     ap.add_argument(
-        "--ckpt-name", type=str, default="evo2/1b-8k-bf16:1.0", help="Name of checkpoint directory containing pre-trained Evo2 model."
+        "--ckpt-name", type=str, default="evo2/7b-8k:1.0", help="Name of checkpoint directory containing pre-trained Evo2 model."
     ) # todo make default to "evo2/7b-8k:1.0"
     ap.add_argument("--temperature", type=float, default=1.0, help="Temperature during sampling for generation.")
     ap.add_argument("--top-k", type=int, default=4, help="Top K during sampling for generation.")
