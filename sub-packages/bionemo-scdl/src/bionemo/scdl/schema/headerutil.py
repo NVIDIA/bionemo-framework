@@ -12,10 +12,10 @@ from typing import List, Union, Any, Tuple
 
 class Endianness(Enum):
     """Byte order specifications for binary data serialization."""
-    LITTLE = '<'  # Little-endian (most common on x86/x64)
-    BIG = '>'     # Big-endian (network byte order)
-    NATIVE = '='  # Native system byte order
-    NETWORK = '!' # Network byte order (same as big-endian)
+    NETWORK = '!' # Network byte order (same as big-endian). This is a good standard, used by Protobuf and other libraries.
+    # LITTLE = '<'  # Little-endian (most common on x86/x64)
+    # BIG = '>'     # Big-endian (network byte order)
+    # NATIVE = '='  # Native system byte order
 
 
 class HeaderSerializationError(Exception):
@@ -29,7 +29,7 @@ class BinaryHeaderCodec:
     
     This class provides a clean API for packing and unpacking various data types
     to/from binary format, with consistent endianness handling and comprehensive
-    error checking. Designed for creating cross-platform file headers.
+    error checking. Designed for creating cross-platform file headers in binary form.
     
     Args:
         endianness: Byte order for serialization (default: LITTLE)

@@ -12,8 +12,8 @@ import struct
 from pathlib import Path
 
 from .headerutil import BinaryHeaderCodec, Endianness, HeaderSerializationError
-from .version import SCDLVersion, CurrentSCDLVersion, SCDLBackends
-from .magic import magic_number
+from .version import SCDLVersion, CurrentSCDLVersion
+from .magic import SCDL_MAGIC_NUMBER
 
 
 class ArrayDType(IntEnum):
@@ -56,9 +56,6 @@ class Backend(IntEnum):
     Defines how array data is stored and accessed.
     """
     MEMMAP_V0 = 1
-    MEMMAP_V1 = 2
-    HDF5_V0 = 3
-    ZARR_V0 = 4
 
 class ArrayInfo:
     """
@@ -95,7 +92,13 @@ class ArrayInfo:
             
         Returns:
             Binary representation following SCDL schema
+            
+        Raises:
+            HeaderSerializationError: If validation fails
         """
+        # Validate before serialization (per schema requirements)
+        self._validate()
+        
         data = b''
         
         # name_len + name
@@ -117,6 +120,34 @@ class ArrayInfo:
             data += codec.pack_uint8(0)  # has_shape = false
         
         return data
+    
+    def _validate(self) -> None:
+        """
+        Validate ArrayInfo according to SCDL schema requirements.
+        
+        Raises:
+            HeaderSerializationError: If validation fails
+        """
+        # Schema requirement: All string lengths must be > 0
+        if not self.name or len(self.name.strip()) == 0:
+            raise HeaderSerializationError("Array name cannot be empty (schema requirement)")
+        
+        # Additional reasonable validations
+        if self.length < 0:
+            raise HeaderSerializationError(f"Array length cannot be negative: {self.length}")
+        
+        if self.shape is not None:
+            if len(self.shape) == 0:
+                raise HeaderSerializationError("Shape cannot be empty when specified")
+            for i, dim in enumerate(self.shape):
+                if dim <= 0:
+                    raise HeaderSerializationError(f"Shape dimension {i} must be positive: {dim}")
+        
+        # Validate UTF-8 encoding
+        try:
+            self.name.encode('utf-8')
+        except UnicodeEncodeError as e:
+            raise HeaderSerializationError(f"Array name contains invalid UTF-8: {e}")
     
     @classmethod
     def deserialize(cls, codec: BinaryHeaderCodec, data: bytes, offset: int = 0) -> Tuple['ArrayInfo', int]:
@@ -198,12 +229,14 @@ class FeatureIndexInfo:
     Information about a feature index in the SCDL archive.
     
     Feature indices provide fast lookups for specific features in the data.
+    As specified in the schema, each FeatureIndex may optionally store a header.
     """
     
     def __init__(self, 
                  name: str, 
                  length: int, 
                  dtype: ArrayDType, 
+                 index_files: Optional[List[str]] = None,
                  shape: Optional[Tuple[int, ...]] = None):
         """
         Initialize feature index information.
@@ -212,16 +245,187 @@ class FeatureIndexInfo:
             name: Name of the feature index
             length: Number of entries in the index
             dtype: Data type of index entries
+            index_files: List of paths to feature index files
             shape: Optional shape for multidimensional indices
         """
         self.name = name
         self.length = length
         self.dtype = dtype
+        self.index_files = index_files or []
         self.shape = shape
+    
+    def serialize(self, codec: BinaryHeaderCodec) -> bytes:
+        """
+        Serialize this FeatureIndexInfo to binary format.
+        
+        Args:
+            codec: Binary codec for serialization
+            
+        Returns:
+            Binary representation following SCDL schema
+            
+        Raises:
+            HeaderSerializationError: If validation fails
+        """
+        # Validate before serialization
+        self._validate()
+        
+        data = b''
+        
+        # name_len + name
+        data += codec.pack_string(self.name)
+        
+        # length (uint64)
+        data += codec.pack_uint64(self.length)
+        
+        # dtype (uint32 enum value)
+        data += codec.pack_uint32(int(self.dtype))
+        
+        # index_files_count + index_files
+        data += codec.pack_uint32(len(self.index_files))
+        for file_path in self.index_files:
+            data += codec.pack_string(file_path)
+        
+        # has_shape + optional shape data
+        if self.shape is not None:
+            data += codec.pack_uint8(1)  # has_shape = true
+            data += codec.pack_uint32(len(self.shape))  # shape_dims
+            for dim in self.shape:
+                data += codec.pack_uint32(dim)  # shape array
+        else:
+            data += codec.pack_uint8(0)  # has_shape = false
+        
+        return data
+    
+    @classmethod
+    def deserialize(cls, codec: BinaryHeaderCodec, data: bytes, offset: int = 0) -> Tuple['FeatureIndexInfo', int]:
+        """
+        Deserialize FeatureIndexInfo from binary data.
+        
+        Args:
+            codec: Binary codec for deserialization
+            data: Binary data containing serialized FeatureIndexInfo
+            offset: Starting offset in data
+            
+        Returns:
+            Tuple of (FeatureIndexInfo instance, bytes consumed)
+            
+        Raises:
+            HeaderSerializationError: If data is invalid
+        """
+        current_offset = offset
+        
+        # Read name
+        name, name_bytes = codec.unpack_string(data[current_offset:])
+        current_offset += name_bytes
+        
+        # Read length
+        length = codec.unpack_uint64(data[current_offset:current_offset + 8])
+        current_offset += 8
+        
+        # Read dtype
+        dtype_value = codec.unpack_uint32(data[current_offset:current_offset + 4])
+        current_offset += 4
+        
+        try:
+            dtype = ArrayDType(dtype_value)
+        except ValueError:
+            raise HeaderSerializationError(f"Invalid ArrayDType value in FeatureIndex: {dtype_value}")
+        
+        # Read index files
+        files_count = codec.unpack_uint32(data[current_offset:current_offset + 4])
+        current_offset += 4
+        
+        index_files = []
+        for _ in range(files_count):
+            file_path, file_bytes = codec.unpack_string(data[current_offset:])
+            index_files.append(file_path)
+            current_offset += file_bytes
+        
+        # Read optional shape
+        has_shape = codec.unpack_uint8(data[current_offset:current_offset + 1])
+        current_offset += 1
+        
+        shape = None
+        if has_shape:
+            shape_dims = codec.unpack_uint32(data[current_offset:current_offset + 4])
+            current_offset += 4
+            
+            shape = []
+            for _ in range(shape_dims):
+                dim = codec.unpack_uint32(data[current_offset:current_offset + 4])
+                shape.append(dim)
+                current_offset += 4
+            shape = tuple(shape)
+        
+        feature_index = cls(
+            name=name, 
+            length=length, 
+            dtype=dtype, 
+            index_files=index_files,
+            shape=shape
+        )
+        bytes_consumed = current_offset - offset
+        
+        return feature_index, bytes_consumed
+    
+    def _validate(self) -> None:
+        """
+        Validate FeatureIndexInfo according to SCDL schema requirements.
+        
+        Raises:
+            HeaderSerializationError: If validation fails
+        """
+        # Schema requirement: All string lengths must be > 0
+        if not self.name or len(self.name.strip()) == 0:
+            raise HeaderSerializationError("FeatureIndex name cannot be empty (schema requirement)")
+        
+        # Validate index files
+        for i, file_path in enumerate(self.index_files):
+            if not file_path or len(file_path.strip()) == 0:
+                raise HeaderSerializationError(f"FeatureIndex file path {i} cannot be empty")
+        
+        # Additional reasonable validations
+        if self.length < 0:
+            raise HeaderSerializationError(f"FeatureIndex length cannot be negative: {self.length}")
+        
+        if self.shape is not None:
+            if len(self.shape) == 0:
+                raise HeaderSerializationError("FeatureIndex shape cannot be empty when specified")
+            for i, dim in enumerate(self.shape):
+                if dim <= 0:
+                    raise HeaderSerializationError(f"FeatureIndex shape dimension {i} must be positive: {dim}")
+        
+        # Validate UTF-8 encoding
+        try:
+            self.name.encode('utf-8')
+            for file_path in self.index_files:
+                file_path.encode('utf-8')
+        except UnicodeEncodeError as e:
+            raise HeaderSerializationError(f"FeatureIndex contains invalid UTF-8: {e}")
+    
+    def calculate_size(self) -> int:
+        """Calculate the serialized size of this FeatureIndexInfo in bytes."""
+        # name_len (4) + name length + length (8) + dtype (4) + files_count (4)
+        size = 4 + len(self.name.encode('utf-8')) + 8 + 4 + 4
+        
+        # Add size for each file path
+        for file_path in self.index_files:
+            size += 4 + len(file_path.encode('utf-8'))  # len + content
+        
+        # has_shape (1)
+        size += 1
+        
+        if self.shape is not None:
+            # shape_dims (4) + shape array (4 * dimensions)
+            size += 4 + (4 * len(self.shape))
+        
+        return size
     
     def __str__(self) -> str:
         shape_str = f", shape={self.shape}" if self.shape else ""
-        return f"FeatureIndexInfo(name='{self.name}', length={self.length}, dtype={self.dtype.name}{shape_str})"
+        files_str = f", files={len(self.index_files)}"
+        return f"FeatureIndexInfo(name='{self.name}', length={self.length}, dtype={self.dtype.name}{files_str}{shape_str})"
     
     def __repr__(self) -> str:
         return self.__str__()
@@ -240,7 +444,8 @@ class SCDLHeader:
     def __init__(self, 
                  version: Optional[SCDLVersion] = None,
                  backend: Backend = Backend.MEMMAP_V0,
-                 arrays: Optional[List[ArrayInfo]] = None):
+                 arrays: Optional[List[ArrayInfo]] = None,
+                 feature_indices: Optional[List[FeatureIndexInfo]] = None):
         """
         Initialize SCDL header.
         
@@ -248,11 +453,13 @@ class SCDLHeader:
             version: SCDL schema version (defaults to current version)
             backend: Storage backend type
             arrays: List of arrays in the archive
+            feature_indices: Optional list of feature indices in the archive
         """
         self.version = version or CurrentSCDLVersion()
         self.endianness = Endianness.NETWORK  # Always network byte order per spec
         self.backend = backend
         self.arrays = arrays or []
+        self.feature_indices = feature_indices or []
         
         # Create codec with network byte order
         self._codec = BinaryHeaderCodec(self.endianness)
@@ -276,6 +483,25 @@ class SCDLHeader:
                 return True
         return False
     
+    def add_feature_index(self, feature_index: FeatureIndexInfo) -> None:
+        """Add a feature index to the header."""
+        self.feature_indices.append(feature_index)
+    
+    def get_feature_index(self, name: str) -> Optional[FeatureIndexInfo]:
+        """Get feature index info by name."""
+        for feature_index in self.feature_indices:
+            if feature_index.name == name:
+                return feature_index
+        return None
+    
+    def remove_feature_index(self, name: str) -> bool:
+        """Remove feature index by name. Returns True if found and removed."""
+        for i, feature_index in enumerate(self.feature_indices):
+            if feature_index.name == name:
+                del self.feature_indices[i]
+                return True
+        return False
+    
     def serialize(self) -> bytes:
         """
         Serialize the header to binary format following SCDL schema.
@@ -287,11 +513,14 @@ class SCDLHeader:
             HeaderSerializationError: If serialization fails
         """
         try:
+            # Validate header before serialization
+            self.validate()
+            
             data = b''
             
             # Core Header (16 bytes fixed)
             # Magic number (4 bytes)
-            data += magic_number
+            data += SCDL_MAGIC_NUMBER
             
             # Version (3 bytes: major, minor, point)
             data += self._codec.pack_uint8(self.version.major)
@@ -304,12 +533,21 @@ class SCDLHeader:
             # Backend (4 bytes)
             data += self._codec.pack_uint32(int(self.backend))
             
-            # Array count (4 bytes)
-            data += self._codec.pack_uint32(len(self.arrays))
+            # Array count (4 bytes) - schema requires this matches actual descriptors
+            array_count = len(self.arrays)
+            data += self._codec.pack_uint32(array_count)
             
             # Array descriptors (variable size)
             for array in self.arrays:
                 data += array.serialize(self._codec)
+            
+            # Feature indices (optional extension after arrays)
+            # feature_index_count (4 bytes)
+            data += self._codec.pack_uint32(len(self.feature_indices))
+            
+            # Feature index descriptors (variable size)
+            for feature_index in self.feature_indices:
+                data += feature_index.serialize(self._codec)
             
             return data
             
@@ -342,9 +580,9 @@ class SCDLHeader:
         try:
             # Validate magic number
             magic = data[offset:offset + 4]
-            if magic != magic_number:
+            if magic != SCDL_MAGIC_NUMBER:
                 raise HeaderSerializationError(
-                    f"Invalid magic number: {magic} != {magic_number}"
+                    f"Invalid magic number: {magic} != {SCDL_MAGIC_NUMBER}"
                 )
             offset += 4
             
@@ -393,7 +631,26 @@ class SCDLHeader:
                 arrays.append(array_info)
                 offset += bytes_consumed
             
-            header = cls(version=version, backend=backend, arrays=arrays)
+            # Read feature indices (optional, for backwards compatibility)
+            feature_indices = []
+            if offset < len(data):
+                # Check if we have enough data for feature index count
+                if offset + 4 <= len(data):
+                    feature_index_count = codec.unpack_uint32(data[offset:offset + 4])
+                    offset += 4
+                    
+                    # Read feature index descriptors
+                    for i in range(feature_index_count):
+                        if offset >= len(data):
+                            raise HeaderSerializationError(
+                                f"Unexpected end of data while reading feature index {i}"
+                            )
+                        
+                        feature_index, bytes_consumed = FeatureIndexInfo.deserialize(codec, data, offset)
+                        feature_indices.append(feature_index)
+                        offset += bytes_consumed
+            
+            header = cls(version=version, backend=backend, arrays=arrays, feature_indices=feature_indices)
             return header
             
         except HeaderSerializationError:
@@ -443,8 +700,16 @@ class SCDLHeader:
     def calculate_total_size(self) -> int:
         """Calculate the total serialized size of the header in bytes."""
         total_size = self.CORE_HEADER_SIZE
+        
+        # Array descriptors
         for array in self.arrays:
             total_size += array.calculate_size()
+        
+        # Feature index count (4 bytes) + feature index descriptors
+        total_size += 4
+        for feature_index in self.feature_indices:
+            total_size += feature_index.calculate_size()
+        
         return total_size
     
     def validate(self) -> None:
@@ -471,12 +736,29 @@ class SCDLHeader:
                 raise HeaderSerializationError("Empty array name found")
             if len(array.name.encode('utf-8')) > 1024:  # Reasonable limit
                 raise HeaderSerializationError(f"Array name too long: {array.name}")
+        
+        # Check feature index names are unique
+        feature_names = [fi.name for fi in self.feature_indices]
+        if len(feature_names) != len(set(feature_names)):
+            raise HeaderSerializationError("Duplicate feature index names found")
+        
+        # Check feature index names are valid
+        for feature_index in self.feature_indices:
+            if not feature_index.name or not feature_index.name.strip():
+                raise HeaderSerializationError("Empty feature index name found")
+            if len(feature_index.name.encode('utf-8')) > 1024:  # Reasonable limit
+                raise HeaderSerializationError(f"Feature index name too long: {feature_index.name}")
+        
+        # Check for name conflicts between arrays and feature indices
+        all_names = names + feature_names
+        if len(all_names) != len(set(all_names)):
+            raise HeaderSerializationError("Name conflicts between arrays and feature indices")
     
     def __str__(self) -> str:
         """Return a human-readable string representation of the header."""
         return (
             f"SCDLHeader(version={self.version}, backend={self.backend.name}, "
-            f"arrays={len(self.arrays)})"
+            f"arrays={len(self.arrays)}, feature_indices={len(self.feature_indices)})"
         )
     
     def __repr__(self) -> str:
@@ -511,6 +793,16 @@ class SCDLHeader:
                     'shape': array.shape
                 }
                 for array in self.arrays
+            ],
+            'feature_indices': [
+                {
+                    'name': fi.name,
+                    'length': fi.length,
+                    'dtype': fi.dtype.name,
+                    'index_files': fi.index_files,
+                    'shape': fi.shape
+                }
+                for fi in self.feature_indices
             ]
         }
         
@@ -539,6 +831,16 @@ class SCDLHeader:
                     'shape': list(array.shape) if array.shape else None
                 }
                 for array in self.arrays
+            ],
+            'feature_indices': [
+                {
+                    'name': fi.name,
+                    'length': fi.length,
+                    'dtype': fi.dtype.name,
+                    'index_files': fi.index_files,
+                    'shape': list(fi.shape) if fi.shape else None
+                }
+                for fi in self.feature_indices
             ]
         }
         
@@ -606,6 +908,20 @@ def validate_header_compatibility(header1: SCDLHeader, header2: SCDLHeader) -> b
     if names1.intersection(names2):
         return False
     
+    # Check for conflicting feature index names
+    fi_names1 = {fi.name for fi in header1.feature_indices}
+    fi_names2 = {fi.name for fi in header2.feature_indices}
+    
+    if fi_names1.intersection(fi_names2):
+        return False
+    
+    # Check for conflicts between arrays and feature indices across headers
+    all_names1 = names1.union(fi_names1)
+    all_names2 = names2.union(fi_names2)
+    
+    if all_names1.intersection(all_names2):
+        return False
+    
     return True
 
 
@@ -635,7 +951,8 @@ def merge_headers(header1: SCDLHeader, header2: SCDLHeader) -> SCDLHeader:
     merged_header = SCDLHeader(
         version=version,
         backend=header1.backend,
-        arrays=header1.arrays + header2.arrays
+        arrays=header1.arrays + header2.arrays,
+        feature_indices=header1.feature_indices + header2.feature_indices
     )
     
     return merged_header
@@ -664,7 +981,7 @@ class HeaderReader:
         if self._magic is None:
             with open(self.file_path, 'rb') as f:
                 self._magic = f.read(4)
-        return self._magic == magic_number
+        return self._magic == SCDL_MAGIC_NUMBER
     
     def get_version(self) -> SCDLVersion:
         """Get version information quickly."""
