@@ -38,6 +38,7 @@ from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
 )
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks import ModelTransform
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
@@ -45,8 +46,9 @@ from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils.exp_manager import TimingCallback
 
-# Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
+from bionemo.evo2.run.peft import Evo2LoRA
+from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
@@ -175,7 +177,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="TP communication backend to use. Defaults to 'nccl'.",
     )
     parser.add_argument("--align-param-gather", action="store_true", default=False)
-    # parser.add_argument("--straggler-detection", action="store_true", default=False)
     parser.add_argument(
         "--model-size",
         type=str,
@@ -355,7 +356,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="If set, the embeddings are initialized with a Normal(0, 1.0) distribution rather "
         "than the default Normal(0, 0.02). This may help avoid loss spiking during training. Consider using this with "
         "--no-weight-decay-embeddings to avoid shrinking the embeddings to 0 by skipping weight decay on these layers, "
-        "or with --use-targeted-variance-loss to maintain a 1.0 variance during training even with weight decay.",
+        "or with --use-targeted-variance-loss to maintain a 1.0 variance during training even with weight decay. This "
+        "also turns off shared weights between embeddings and outputs.",
     )
     parser.add_argument(
         "--no-weight-decay-embeddings",
@@ -442,6 +444,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Dropout probability for the hyena layers",
     )
     parser.add_argument(
+        "--ffn-hidden-size",
+        type=int,
+        default=None,
+        help="FFN hidden size for the hyena layers",
+    )
+    parser.add_argument(
         "--log-num-zeros-in-grad",
         action="store_true",
         default=False,
@@ -483,6 +491,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=True,
         help="Disable saving the last checkpoint.",
     )
+    parser.add_argument("--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False)
+    parser.add_argument("--lora-checkpoint-path", type=Path, default=None, help="LoRA checkpoint path")
     parser.add_argument(
         "--no-calculate-per-token-loss",
         action="store_true",
@@ -496,6 +506,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Skip checking for NaNs in gradients. Only use this for debugging purposes.",
     )
+
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
@@ -545,7 +556,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             tokenizer=tokenizer,
             eod_mask_loss=args.eod_pad_in_loss_mask,
         )
-
     if args.no_activation_checkpointing:
         activation_checkpointing_args = {
             "recompute_granularity": None,
@@ -579,6 +589,12 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "add_bias_output": args.add_bias_output,
         **activation_checkpointing_args,
     }
+    if args.spike_no_more_embedding_init:
+        config_modifiers_init["embedding_init_method_std"] = 1.0
+        # When using spike_no_more_embedding_init, we don't want to share embeddings and outputs.
+        config_modifiers_init["share_embeddings_and_output_weights"] = False
+    if args.ffn_hidden_size:
+        config_modifiers_init["ffn_hidden_size"] = args.ffn_hidden_size
     if args.use_targeted_variance_loss:
         config_modifiers_init["use_targeted_variance_loss"] = True
     if args.use_b2b_causal_conv1d:
@@ -593,17 +609,25 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         model_type = "mamba"
     else:
         raise ValueError(f"Invalid model size: {args.model_size}")
+
     # Create model based on selected model type
     if model_type == "hyena":
         if args.model_size not in HYENA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Hyena: {args.model_size}")
         model_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
-        model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer)
+        if args.no_weight_decay_embeddings:
+            # Override the default weight decay condition for Hyena with our bionemo version that also excludes
+            #  embeddings
+            model_config.hyena_no_weight_decay_cond_fn = hyena_no_weight_decay_cond_with_embeddings
+        # Lora adaptors configuration
+        lora_transform = None
+        if args.lora_finetune:
+            lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
+
+        model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
     else:  # mamba
         if args.no_weight_decay_embeddings:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
-        if args.spike_no_more_embedding_init:  # --spike-no-more-embedding-init
-            config_modifiers_init["spike_no_more_embedding_init"] = True
         config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
         if args.model_size not in MAMBA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
@@ -621,6 +645,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         TEVCallback(),
     ]
 
+    if args.lora_finetune:
+        callbacks.append(ModelTransform())
     if args.enable_preemption:
         callbacks.append(nl_callbacks.PreemptionCallback())
     if args.debug_ddp_parity_freq > 0:
