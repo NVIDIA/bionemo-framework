@@ -35,13 +35,11 @@ class SCDLVersion(Version):
 class CurrentSCDLVersion(SCDLVersion):
     """
     Current version of the SCDL schema.
+    Matches the version documented in scdl-schema.md: 0.0.2
     """
     major: int = 0
-    minor: int = 2
-    point: int = 0
+    minor: int = 0
+    point: int = 2
 
-class SCDLBackends(Enum):
-    """
-    Backends of the SCDL schema.
-    """
-    MEMMAP_V0 = 'memmap_v0'
+# Note: Backend enums are defined in header.py to maintain consistency
+# with binary serialization format which requires integer enum values
