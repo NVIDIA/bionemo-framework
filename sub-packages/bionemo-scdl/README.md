@@ -256,3 +256,30 @@ and data loading performance.
 ## LICENSE
 
 BioNeMo-SCDL has an Apache 2.0 license, as found in the LICENSE file.
+
+## Contributing
+
+Please follow the guidelines for contributions to the BioNeMo Framework.
+
+To contribute to SCDL, we recommend installing additional dependencies for development and 
+installing the SCDL package from source.
+
+```bash
+git clone https://github.com/NVIDIA/bionemo-framework.git
+cd bionemo-framework/sub-packages/bionemo-scdl
+pip install -e ".[dev]"
+```
+
+### Tests
+
+SCDL has its own tests. To run these tests, assuming you have pytest installed:
+
+```
+python -m pytest
+```
+
+To run a specific test:
+
+```bash
+python -m pytest tests/test_<test name>.py
+```
