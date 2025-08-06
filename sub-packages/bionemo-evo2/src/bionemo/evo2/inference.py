@@ -38,11 +38,14 @@ def getenv(var, default=None, *args, **kwargs):
         val = default
     else:
         log.info(f"Using env variable {var}={val}")
+    if type(default) is bool:
+        return str(val).lower() in ["y", "yes", "1", "t", "true"]
+    if type(default) is not type(None):
+        return type(default)(val)
     return val
 
-def prune_caches():
-    # Helps to cleanup memory before various runs
-    if int(getenv("EVO2_NO_PRUNE_CACHES", 0)) == 1:
+def prune_caches(): # Helps to cleanup memory before various runs
+    if getenv("EVO2_PRUNE_CACHES", True):
         return
     import gc
     gc.collect()
@@ -56,23 +59,26 @@ def detect_max_seq_len():
 
     mem_gb = torch.cuda.get_device_properties(0).total_memory // 1024**3
     gpus = torch.cuda.device_count()
-    if mem_gb > 120 or (mem_gb > 60 and gpus >= 2): # e.g. h200-x1, h100-x2
-        ret = 8192 # TODO
-    elif mem_gb > 30 and gpus >= 3: # e.g. l40-x3
-        ret = 8192 # TODO
+
+    if mem_gb > 120 and gpus >= 2: # e.g. h200-x2
+        ret = 100_000
+    elif mem_gb > 120: # e.g. h200-x1
+        ret = 20_000
+    elif mem_gb > 60 and gpus >= 2: # e.g. h100-x2
+        ret = 100_000
     else:
-        ret = 8192 # TODO
-    log.info(f"Will use max_seq_len={ret} {locals()}")
+        ret = 10_000
+    log.info(f"Guessed EVO2_MAX_SEQ_LEN={ret} {locals()}")
     return ret
 
 @lru_cache
 def detect_pipeline_parallel(ckpt_name):
-    gpus = torch.cuda.device_count()
-    mem_gb = torch.cuda.get_device_properties(0).total_memory // 1024**3
-
     env_pp = getenv("EVO2_PIPELINE_PARALLEL")
     if env_pp is not None:
         return int(env_pp)
+
+    gpus = torch.cuda.device_count()
+    mem_gb = torch.cuda.get_device_properties(0).total_memory // 1024**3
 
     from math import ceil
     min_gpus = ceil(90/mem_gb) if "40b" in ckpt_name else 1
@@ -85,7 +91,7 @@ def detect_pipeline_parallel(ckpt_name):
         ret = min_gpus # to speed up test start-up, avoid pp, if possible
     else:
         ret = gpus # use all GPUs in production: allows for longer sequences
-    log.info(f"Using pipeline_parallel={ret}, {locals()}")
+    log.info(f"Guessed EVO2_PIPELINE_PARALLEL={ret}, {locals()}")
     return ret
 
 def get_trainer(ckpt_name):
@@ -122,8 +128,13 @@ def get_trainer(ckpt_name):
     )
 
 def detect_pst(ckpt_name):
+    ret = getenv("EVO2_PST")
+    if ret is not None:
+        return int(ret)
+
     mem_gb = torch.cuda.get_device_properties(0).total_memory // 1024**3
     gpus = torch.cuda.device_count()
+
     ret = None
     if "40b" in ckpt_name:
         if gpus >= 2 and mem_gb > 120: # e.g. h200-x2
@@ -141,22 +152,22 @@ def detect_pst(ckpt_name):
     elif "7b" in ckpt_name:
         if gpus < 2 and mem_gb < 60:
             ret = 4096
-    log.info(f"Will use prompt_segmentation_threshold={ret} {locals()}")
+    log.info(f"Guessed EVO2_PST={ret} {locals()}")
     return ret
 
 def get_default_config(ckpt_name):
     # Below are parameters that need to be tuned based on GPU memory size.
     return {
         "params_dtype": torch.bfloat16,
-        "vortex_style_fp8": True,
-        "enable_flash_decode": True,
+        "vortex_style_fp8": getenv("EVO2_VORTEX_STYLE_FP8", True),
+        "enable_flash_decode": getenv("EVO2_FLASH_DECODE", True),
+        "fp32_residual_connection": getenv("EVO2_FP32_RESIDUAL_CONNECTION", False),
         "recompute_granularity": None,
         "recompute_num_layers": None,
         "recompute_method": None,
-        "fp32_residual_connection": False,
 
         # Affects KV cache size, can cause OOM easily, set to 1 to save memory (i.e. running 40b model)
-        "inference_max_requests": 1,
+        "inference_max_requests": getenv("EVO2_INFERENCE_MAX_REQUESTS", 1),
 
         # This mostly determines size of KV cache.
         "inference_max_seq_length": detect_max_seq_len(),
