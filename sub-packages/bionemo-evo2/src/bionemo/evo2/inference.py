@@ -52,7 +52,7 @@ def prune_caches(): # Helps to cleanup memory before various runs
     torch.cuda.empty_cache()
 
 @lru_cache
-def detect_max_seq_len():
+def detect_max_seq_len(ckpt_name):
     ret = getenv("EVO2_MAX_SEQ_LEN")
     if ret is not None:
         return int(ret)
@@ -60,14 +60,23 @@ def detect_max_seq_len():
     mem_gb = torch.cuda.get_device_properties(0).total_memory // 1024**3
     gpus = torch.cuda.device_count()
 
-    if mem_gb > 120 and gpus >= 2: # e.g. h200-x2
-        ret = 100_000
-    elif mem_gb > 120: # e.g. h200-x1
-        ret = 20_000
-    elif mem_gb > 60 and gpus >= 2: # e.g. h100-x2
-        ret = 100_000
+    # For both 40B and 7B, values are somewhat conservative and made to
+    # work for most cases; feel free to increase them via EVO2_MAX_SEQ_LEN
+    # as needed.
+    if "40b" in ckpt_name:
+        if mem_gb > 120 and gpus >= 2: # e.g. h200-x2
+            ret = 100_000
+        elif mem_gb > 120: # e.g. h200-x1
+            ret = 20_000
+        elif mem_gb > 60 and gpus >= 2: # e.g. h100-x2
+            ret = 100_000
+        else:
+            ret = 10_000
     else:
-        ret = 10_000
+        if mem_gb > 40: # e.g. l40
+            ret = 100_000
+        else:
+            ret = 20_000
     log.info(f"Guessed EVO2_MAX_SEQ_LEN={ret} {locals()}")
     return ret
 
@@ -170,12 +179,12 @@ def get_default_config(ckpt_name):
         "inference_max_requests": getenv("EVO2_INFERENCE_MAX_REQUESTS", 1),
 
         # This mostly determines size of KV cache.
-        "inference_max_seq_length": detect_max_seq_len(),
+        "inference_max_seq_length": detect_max_seq_len(ckpt_name),
 
         # This is used to split batch into mini-batches.
         # If use batch size = 1, set same as inference_max_seq_length to avoid
         # more complex code path.
-        "inference_batch_times_seqlen_threshold": detect_max_seq_len(),
+        "inference_batch_times_seqlen_threshold": detect_max_seq_len(ckpt_name),
 
         # Affects max memory usage during parallel hyena filters pass.
         "prompt_segmentation_threshold": detect_pst(ckpt_name),
