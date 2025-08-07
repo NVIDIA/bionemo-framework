@@ -211,6 +211,14 @@ COPY ./LICENSE /workspace/bionemo2/LICENSE
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
+# Install cuhyena wheel file - pip will automatically select the correct architecture (x86_64 / arm64)
+# Only install if JET_GITLAB_TOKEN is available
+RUN if [ -n "${JET_GITLAB_TOKEN}" ]; then \
+      pip install cuhyena==0.2.3+cuda12.9 --index-url https://__token__:${JET_GITLAB_TOKEN}@gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple; \
+    else \
+      echo "JET_GITLAB_TOKEN not available, skipping cuhyena installation"; \
+    fi
+
 RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   --mount=type=cache,target=/root/.cache <<EOF
