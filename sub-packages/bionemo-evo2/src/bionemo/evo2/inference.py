@@ -159,8 +159,8 @@ def detect_pst(ckpt_name):
         else: # e.g. l40-x2
             ret = 64
     elif "7b" in ckpt_name:
-        if gpus < 2 and mem_gb < 60:
-            ret = 4096
+        if mem_gb < 60:
+            ret = 2048
     log.info(f"Guessed EVO2_PST={ret} {locals()}")
     return ret
 
