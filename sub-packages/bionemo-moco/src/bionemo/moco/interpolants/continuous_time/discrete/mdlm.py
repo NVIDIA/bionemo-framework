@@ -284,6 +284,34 @@ class MDLM(Interpolant):
         else:
             return int(max(math.ceil(nsteps // num_tokens_unmask), 1))
 
+    def step_auto_regressive(
+        self,
+        logits: Tensor,
+        xt: Tensor,
+        logit_temperature: float = 1.0,
+    ):
+        """Auto-regressive sampling from MDLM.
+
+        This method samples from the predicted logits and replaces the next token in the sequence.
+        The next token is chosen based on the predicted logits and the current state of the sequence.
+        """
+        xt = xt.clone()
+        log_p_x0 = self._subs_parameterization(logits, xt)
+        # sample the code from the softmax prediction
+        probs = torch.softmax(log_p_x0 / logit_temperature, dim=-1)
+        preds = torch.distributions.Categorical(probs=probs).sample()
+
+        # do not predict on already predicted tokens
+        mask = xt == self.mask_index
+
+        next_idx = torch.where(mask)[1][0]
+        to_replace = torch.zeros_like(xt)
+        to_replace[:, next_idx] = 1
+        to_replace = (mask.float() * to_replace.float()).bool()
+
+        xt[to_replace] = preds[to_replace]
+        return xt
+
     def step_confidence(
         self,
         logits: Tensor,
@@ -344,10 +372,87 @@ class MDLM(Interpolant):
         # choose the predicted token with the highest confidence
         confidence_threshold, idx_mask = torch.topk(confidence, k=num_tokens_unmask, dim=-1)
         confidence_threshold = confidence_threshold[:, -1].unsqueeze(-1)
-
+        # Rather than take all tokens with confidence above the threshold, we use the topk indices to replace the chosen tokens
         # replace the chosen tokens
-        to_replace = confidence >= confidence_threshold
-        to_replace = (mask.float() * to_replace.float()).bool()
+        to_replace = torch.zeros_like(confidence)
+        to_replace.scatter_(1, idx_mask, 1)
+        to_replace = to_replace.bool() & mask.bool()
+        # to_replace = confidence >= confidence_threshold
+        # to_replace = (mask.float() * to_replace.float()).bool()
+        xt[to_replace] = preds[to_replace]
+        return xt
+
+    def step_confidence_margin(
+        self,
+        logits: Tensor,
+        xt: Tensor,
+        curr_step: int,
+        num_steps: int,
+        logit_temperature: float = 1.0,
+        randomness: float = 1.0,
+        confidence_temperature: float = 1.0,
+        num_tokens_unmask: int = 1,
+    ) -> Tensor:
+        """Kim et al., Train for the Worst, Plan for the Best: Understanding Token Ordering in Masked Diffusions, ICML, 2025.
+
+        This method is similar to step_confidence, but it uses the margin of the confidence scores to replace the tokens.
+        The margin is the difference between the confidence score and the next highest confidence score.
+        The tokens with the highest margin are replaced.
+
+        Args:
+            logits: Predicted logits
+            xt: Input sequence
+            curr_step: Current step
+            num_steps: Total number of steps
+            logit_temperature: Temperature for softmax over logits
+            randomness: Scale for Gumbel noise
+            confidence_temperature: Temperature for Gumbel confidence
+            num_tokens_unmask: number of tokens to unmask each step
+
+        Returns:
+            Updated input sequence xt unmasking num_tokens_unmask token each step.
+        """
+        if xt.ndim > 3:
+            raise NotImplementedError(
+                "step_confidence is implemented for Batch x Sequence x State Space shaped tensors."
+            )
+        if curr_step < 0 or num_steps < 1 or num_tokens_unmask < 1:
+            raise ValueError("Invalid input values for curr_step, num_steps, or num_tokens_unmask.")
+        xt = xt.clone()
+        log_p_x0 = self._subs_parameterization(logits, xt)
+        # sample the code from the softmax prediction
+        probs = torch.softmax(log_p_x0 / logit_temperature, dim=-1)
+        preds = torch.stack([torch.multinomial(prob, num_samples=2, replacement=False) for prob in probs])
+        confidence_first = probs.gather(-1, preds[:, :, 0].unsqueeze(-1)).squeeze(-1)
+        confidence_second = probs.gather(-1, preds[:, :, 1].unsqueeze(-1)).squeeze(-1)
+        confidence = confidence_first - confidence_second
+        preds = preds[:, :, 0]
+        # add Gumbel noise decreasing over the sampling process
+        ratio = curr_step / (num_steps - 1)
+        # Using manual definition of 0,1 Gumbel to pass in generator, manually specifying the device is faster than transfer
+        gumbel_sample = -torch.log(
+            -torch.log(torch.rand(xt.shape, device=logits.device, generator=self.rng_generator))
+        )
+        # gumbel_sample = self.gumbel_dist.sample(xt.shape).to(logits.device)
+        gumbel_noise = gumbel_sample * randomness * (1 - ratio)  # type: ignore
+        confidence = (
+            (torch.log(confidence) + gumbel_noise) / confidence_temperature
+        )  # stems from tau of https://pytorch.org/docs/stable/_modules/torch/nn/functional.html#gumbel_softmax
+
+        # do not predict on already predicted tokens
+        mask = xt == self.mask_index
+        confidence[~mask] = -torch.inf
+
+        # choose the predicted token with the highest confidence
+        confidence_threshold, idx_mask = torch.topk(confidence, k=num_tokens_unmask, dim=-1)
+        confidence_threshold = confidence_threshold[:, -1].unsqueeze(-1)
+        # Rather than take all tokens with confidence above the threshold, we use the topk indices to replace the chosen tokens
+        # replace the chosen tokens
+        to_replace = torch.zeros_like(confidence)
+        to_replace.scatter_(1, idx_mask, 1)
+        to_replace = to_replace.bool() & mask.bool()
+        # to_replace = confidence >= confidence_threshold
+        # to_replace = (mask.float() * to_replace.float()).bool()
         xt[to_replace] = preds[to_replace]
         return xt
 
