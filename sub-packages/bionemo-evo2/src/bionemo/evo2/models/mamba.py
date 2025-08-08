@@ -21,8 +21,10 @@ import megatron.core.models.mamba.mamba_model
 import torch
 import torch.nn.functional as F
 from megatron.core import parallel_state
+from megatron.core.inference.contexts.base_context import BaseInferenceContext
 from megatron.core.inference.model_inference_wrappers.gpt.gpt_inference_wrapper import GPTInferenceWrapper
 from megatron.core.inference.model_inference_wrappers.inference_wrapper_config import InferenceWrapperConfig
+from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.utils import WrappedTensor, deprecate_inference_params
 from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step
@@ -31,6 +33,7 @@ from nemo.collections.llm.gpt.model.ssm import (
     NemotronHConfigBase,
 )
 from nemo.lightning import get_vocab_size
+from torch import Tensor
 from typing_extensions import override
 
 from bionemo.evo2.utils.loss.embedding_variance import SquaredErrorTargetedVarianceLoss
@@ -155,19 +158,20 @@ class Evo2StyleMCoreMambaModel(megatron.core.models.mamba.mamba_model.MambaModel
                 var_target=embedding_init_method_std**2,
             )
 
-    @override
     def forward(
         self,
-        input_ids: torch.Tensor,
-        position_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        decoder_input: torch.Tensor | None = None,
-        labels: torch.Tensor | None = None,
-        inference_context=None,
+        input_ids: Tensor,
+        position_ids: Tensor,
+        attention_mask: Tensor,
+        decoder_input: Tensor | None = None,
+        labels: Tensor | None = None,
+        loss_mask: Tensor | None = None,
+        inference_context: BaseInferenceContext | None = None,
+        packed_seq_params: PackedSeqParams | None = None,
         runtime_gather_output: bool | None = None,
         *,
         inference_params=None,
-        loss_mask: torch.Tensor | None = None,
+        extra_block_kwargs=None,
     ):
         """Forward pass with custom loss calculation for uppercase/lowercase reweighting.
 
@@ -197,9 +201,12 @@ class Evo2StyleMCoreMambaModel(megatron.core.models.mamba.mamba_model.MambaModel
         rotary_pos_emb = None
         if self.position_embedding_type == "rope":
             rotary_seq_len = self.rotary_pos_emb.get_rotary_seq_len(
-                inference_context, self.decoder, decoder_input, self.config
+                inference_context, self.decoder, decoder_input, self.config, packed_seq_params
             )
-            rotary_pos_emb = self.rotary_pos_emb(rotary_seq_len)
+            rotary_pos_emb = self.rotary_pos_emb(
+                rotary_seq_len,
+                packed_seq=packed_seq_params is not None and packed_seq_params.qkv_format == "thd",
+            )
 
         # Wrap decoder_input to allow the decoder (MambaBlock) to delete the
         # reference held by this caller function, enabling early garbage collection

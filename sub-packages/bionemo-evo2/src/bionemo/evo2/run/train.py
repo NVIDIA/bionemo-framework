@@ -418,11 +418,23 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Grad clip value. Note that when using DDP this may need to be inflated.",
     )
     parser.add_argument(
+        "--position-embedding-type",
+        type=str,
+        default=None,
+        help="If provided, override the position embedding type in the config.",
+    )
+    parser.add_argument(
         "--seq-len-interpolation-factor",
         type=float,
         help="Adjusts the linear scaling of ROPE (Rotary Position Embedding) for context extension. "
         "Set this factor relative to your base context length e.g., for an original context length of 8192 and "
         "an extended context length of 524288, use 524288/8192 = 64.",
+    )
+    parser.add_argument(
+        "--rope-base",
+        type=int,
+        help="Base value for the ROPE scaling factor. This is used to adjust the linear scaling of ROPE when planning "
+        "the maximal context length to be used in the future.",
     )
     parser.add_argument(
         "--overlap-param-gather",
@@ -603,6 +615,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         config_modifiers_init["hybrid_override_pattern"] = args.hybrid_override_pattern
     if args.num_layers:
         config_modifiers_init["num_layers"] = args.num_layers
+    if args.position_embedding_type:
+        config_modifiers_init["position_embedding_type"] = args.position_embedding_type
     if args.model_size in HYENA_MODEL_OPTIONS:
         model_type = "hyena"
     elif args.model_size in MAMBA_MODEL_OPTIONS:
@@ -720,6 +734,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-PAT{model_config.hybrid_override_pattern}"
         f"-F32R{model_config.fp32_residual_connection}"
         f"-FCE{model_config.cross_entropy_loss_fusion}"
+        f"-PEM{model_config.position_embedding_type}"
         f"-AIC{average_in_collective}"
         f"-PTL{not args.no_calculate_per_token_loss}"
         f"-PEOD{args.eod_pad_in_loss_mask}"
@@ -740,7 +755,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     if model_type == "mamba":
         # Include this setting for mamba models.
         wandb_run_name += f"-LLW{args.mamba_lowercase_loss_weight}"
-
     wandb_config: Optional[WandbConfig] = (
         None
         if args.wandb_project is None
