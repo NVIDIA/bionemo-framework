@@ -17,6 +17,7 @@
 # limitations under the License.
 
 import argparse
+import logging
 from pathlib import Path
 from typing import List, Optional
 
@@ -46,6 +47,7 @@ from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils.exp_manager import TimingCallback
 
+from bionemo.evo2.models.gpt import GPT_MODEL_OPTIONS, Evo2GPTModel, gpt_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.run.peft import Evo2LoRA
 from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
@@ -54,6 +56,7 @@ from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
+logger = logging.getLogger(__name__)
 torch._dynamo.config.suppress_errors = True
 
 
@@ -180,7 +183,9 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--model-size",
         type=str,
-        choices=sorted(list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys())),
+        choices=sorted(
+            list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys()) + list(GPT_MODEL_OPTIONS.keys())
+        ),
         default="7b",
         help="Model size/configuration to use. Options depend on the selected model-type.",
     )
@@ -473,6 +478,11 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Number of best checkpoints to keep. Set to -1 to save all checkpoints.",
     )
     parser.add_argument(
+        "--old-context-len",
+        type=int,
+        help="Old context length for the GPT model. This is used to set the old context length for the GPT model when you supply a ckpt_dir.",
+    )
+    parser.add_argument(
         "--metric-to-monitor-for-checkpoints",
         type=str,
         default="val_loss",
@@ -586,9 +596,10 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "distribute_saved_activations": False if args.sequence_parallel else True,
         "cross_entropy_loss_fusion": args.cross_entropy_loss_fusion,
         "fp32_residual_connection": not args.no_fp32_residual_connection,
-        "add_bias_output": args.add_bias_output,
         **activation_checkpointing_args,
     }
+    if args.add_bias_output:
+        config_modifiers_init["add_bias_output"] = args.add_bias_output
     if args.spike_no_more_embedding_init:
         config_modifiers_init["embedding_init_method_std"] = 1.0
         # When using spike_no_more_embedding_init, we don't want to share embeddings and outputs.
@@ -607,6 +618,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         model_type = "hyena"
     elif args.model_size in MAMBA_MODEL_OPTIONS:
         model_type = "mamba"
+    elif args.model_size in GPT_MODEL_OPTIONS:
+        model_type = "gpt"
     else:
         raise ValueError(f"Invalid model size: {args.model_size}")
 
@@ -625,17 +638,45 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
 
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
-    else:  # mamba
+    elif model_type == "mamba":  # mamba
         if args.no_weight_decay_embeddings:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
         config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
         if args.model_size not in MAMBA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
-        add_bias_output = config_modifiers_init.pop("add_bias_output")
-        if add_bias_output:
-            raise ValueError("Bias output is not supported for Mamba models.")
         model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = MambaModel(model_config, tokenizer=data_module.tokenizer)
+    elif model_type == "gpt":
+        assert args.no_fp32_residual_connection, (
+            "GPT models do not support fp32 residual connection, please run with --no-fp32-residual-connection."
+        )
+        config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
+        if args.no_weight_decay_embeddings:
+            config_modifiers_init["hyena_no_weight_decay_cond_fn"] = gpt_no_weight_decay_cond_with_embeddings
+        if args.model_size not in GPT_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for GPT: {args.model_size}")
+        if args.ckpt_dir is None or args.old_context_len:
+            # Set the old context length based on the initial pre-training run seq_length
+            #  when you supply a ckpt_dir, assume that we will use whatever that value was set to previously
+            #  for rope extension.
+            old_context_len = args.old_context_len or args.seq_length  # set to the seq_length if not supplied
+        else:
+            if not args.old_context_len:
+                old_context_len = args.seq_length
+                logger.warning(
+                    "No old context length supplied, using the seq_length as the old context length. "
+                    "This is not recommended and if training at a different context length the RoPE scaling factors "
+                    "will be incorrect. Please supply the old context length when fine-tuning especially if you are "
+                    "extending the context length."
+                )
+            else:
+                old_context_len = args.old_context_len
+        config_modifiers_init["old_context_len"] = old_context_len
+        # Set scale factor to the ratio between the old context length and the new seq_length, or at least 1.0
+        config_modifiers_init["scale_factor"] = args.seq_length / max(old_context_len, args.seq_length)
+
+        model_config = GPT_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
+        model = Evo2GPTModel(model_config, tokenizer=data_module.tokenizer)
 
     # Setup callbacks.
     callbacks = [
@@ -658,7 +699,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         flop_meas_callback = FLOPsMeasurementCallback(
             model_config,
             data_module,
-            "hyena",
+            model_type,
         )
         callbacks.append(flop_meas_callback)
 
@@ -717,7 +758,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-GBS{global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
         f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
         f"-ACRNL{model_config.recompute_num_layers}"
-        f"-PAT{model_config.hybrid_override_pattern}"
+        f"-PAT{getattr(model_config, 'hybrid_override_pattern', 'none')}"
         f"-F32R{model_config.fp32_residual_connection}"
         f"-FCE{model_config.cross_entropy_loss_fusion}"
         f"-AIC{average_in_collective}"
@@ -737,9 +778,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
     )
-    if model_type == "mamba":
-        # Include this setting for mamba models.
-        wandb_run_name += f"-LLW{args.mamba_lowercase_loss_weight}"
+    if model_type in {"mamba", "gpt"}:
+        # Include this setting for mamba/GPT models.
+        wandb_run_name += f"-LLW{config_modifiers_init.get('lowercase_loss_reweighting')}"
 
     wandb_config: Optional[WandbConfig] = (
         None
