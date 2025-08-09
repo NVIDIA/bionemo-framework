@@ -1,0 +1,119 @@
+/* Import the CSS variables from your main stylesheet */
+.accordion-container {
+  max-width: 700px;
+  background-color: var(--gray-100);
+  border-radius: 12px;
+  border: 1px solid var(--silver);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  margin: 1rem 0;
+}
+
+.accordion-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.5rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.accordion-header:hover {
+  background-color: var(--gray-100);
+}
+
+.accordion-title {
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  color: var(--text-primary);
+  font-family: var(--font-heavy);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.accordion-arrow {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--nvgreen);
+  transition: transform 0.3s ease;
+  display: inline-block;
+}
+
+.accordion-arrow.open {
+  transform: rotate(90deg);
+}
+
+.accordion-content {
+  padding: 0;
+  background-color: var(--gray-100);
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.biology-topics {
+  padding: 1rem 1.5rem;
+}
+
+.topic-item {
+  margin-bottom: 0.75rem;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  font-family: var(--font-main);
+}
+
+.topic-item:last-child {
+  margin-bottom: 0;
+}
+
+.topic-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  /* color: var(--text-primary); */
+  /* font-family: var(--font-heavy); */
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.topic-description {
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  color: var(--text-secondary);
+  font-family: var(--font-main);
+  margin: 0;
+  margin-left: 0.5rem;
+}
+
+/* Mobile responsive */
+@media screen and (max-width: 768px) {
+  .accordion-container {
+    margin: 1rem;
+    max-width: none;
+  }
+
+  .accordion-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .accordion-title {
+    font-size: var(--font-size-sm);
+  }
+
+  .biology-topics {
+    padding: 0.75rem 1rem;
+  }
+
+  .topic-description {
+    margin-left: 0.25rem;
+  }
+}

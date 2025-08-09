@@ -1,0 +1,13 @@
+.chart-container-snv {
+  border: 1px solid var(--carrot-orange);
+  border-radius: 1rem;
+  padding: 2rem;
+
+  /* width: 100%; */
+  max-width: 700px;
+  margin: 2rem auto;
+  /* background-color: var(--gray-100);
+  border-radius: 12px;
+  border: 1px solid var(--silver);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); */
+}

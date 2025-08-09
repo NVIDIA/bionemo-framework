@@ -1,0 +1,55 @@
+.reference {
+  position: relative;
+  display: inline;
+  padding-bottom: var(--spacing-xl);
+}
+
+.marker {
+  color: var(--primary);
+  font-size: 0.85em;
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+.sidenote {
+  position: absolute;
+  /* pull in just one “medium” spacing from the edge of .docsBody */
+  right: calc(-1 * var(--spacing-xl));
+  right: 8rem; /*todo: make work for mobile*/
+  /* fluid but clamped width so it never grows too big or too small */
+  width: clamp(10rem, 15vw, 12rem);
+  font-size: 0.85em;
+  line-height: 1.5;
+  /* use your semantic text color */
+  color: var(--text-secondary);
+  padding-left: var(--spacing-md);
+  border-left: 1px solid var(--primary);
+  opacity: 1;
+  z-index: var(--z-top);
+  transition: opacity 0.2s ease;
+}
+
+.sidenote:hover {
+  opacity: 1;
+}
+
+/* Media query for responsive design */
+@media (max-width: 1024px) {
+  .sidenote {
+    position: static;
+    width: 100%;
+    right: 0;
+    margin: var(--spacing-sm) 0;
+    padding: var(--spacing-sm);
+    background-color: var(--bg-secondary);
+    border-left: 3px solid var(--primary);
+    border-radius: 4px;
+  }
+}
+
+@media (max-width: 1375px) {
+  .sidenote,
+  .marker {
+    display: none;
+  }
+}
