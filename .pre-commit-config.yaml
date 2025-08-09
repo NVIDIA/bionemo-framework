@@ -32,3 +32,20 @@ repos:
         additional_dependencies: ["click==8.1.7"]
         pass_filenames: false
         always_run: true
+  - repo: local
+    hooks:
+      - id: lint-xfail-fixme
+        name: Lint XFAIL and FIXME markers
+        entry: python internal/infra-bionemo/src/infra_bionemo/lint_xfail_fixme.py
+        language: python
+        files: \.(py|sh|dockerfile|yaml|yml)$
+        exclude: |
+            (?x)^(
+                \.|
+                __pycache__/|
+                build/|
+                dist/|
+                3rdparty/|
+                internal/
+            )
+        additional_dependencies: [ typing ]
