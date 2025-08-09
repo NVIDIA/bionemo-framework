@@ -6,6 +6,8 @@ on:
       - main
       - "pull-request/[0-9]+"
       - "dependabot/**"
+      - "jwilber/642-ci-push-to-gitlab-registry" # Add to trigger todo remove
+
   merge_group:
     types: [checks_requested]
   schedule:
@@ -114,7 +116,6 @@ jobs:
             type=registry,ref=svcbionemo023/bionemo-build-cache:main
           cache-to: ${{ steps.cache.outputs.cache-to }}
 
-
   run-tests:
     needs:
       - build-bionemo-image
@@ -180,7 +181,6 @@ jobs:
           chmod +x ./ci/scripts/run_pytest_slow.sh
           ./ci/scripts/run_pytest_slow.sh
 
-
   run-notebooks-docs:
     needs:
       - build-bionemo-image
@@ -231,3 +231,59 @@ jobs:
             echo "All test jobs have completed successfully or been skipped!"
             exit 0
           fi
+
+  push-to-gitlab-registry:
+    needs:
+      # todo: uncomment below (commented for faster test iteration)
+      # - verify-tests-status # run after everything else
+      - build-bionemo-image # need docke stuff from
+    runs-on: linux-amd64-cpu16
+    # todo: remove third debugging check
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/jwilber/642-ci-push-to-gitlab-registry'
+    steps:
+      - name: Debug information
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Run ID: ${{ github.run_id }}"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # todo, get access to repo and set up auth for below login
+      # - name: Login to GitLab Registry
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: gitlab-master.nvidia.com:5005
+      #     username: ${{ secrets.GITLAB_USERNAME }}
+      #     password: ${{ secrets.GITLAB_TOKEN }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need for git rev-parse --short HEAD below
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # todo: after solve authentication, push to gitlab registry with buildx imagetools create
+      - name: Pull Docker image and verify tags
+        run: |
+          # Get CPU architecture
+          CPU_ARCH=$(uname -m)
+          echo "CPU Architecture: $CPU_ARCH"
+
+          # Get commit SHA
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          echo "Commit SHA: $COMMIT_SHA"
+
+          # Pull the Docker image from Docker Hub
+          echo "Would pull: svcbionemo023/bionemo-framework:${{ github.run_id }}"
+
+          # Show what would be pushed (for debugging)
+          echo "Would tag as: gitlab-master.nvidia.com:5005/clara-discovery/bionemo/bionemo-inter:main--${CPU_ARCH}--cache"
+          echo "Would tag as: gitlab-master.nvidia.com:5005/clara-discovery/bionemo/bionemo-inter:main--${CPU_ARCH}--${COMMIT_SHA}"
