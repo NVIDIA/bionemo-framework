@@ -787,7 +787,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
         f"-PAO{args.use_precision_aware_optimizer}"
         f"-B16MG{args.bf16_main_grads}"
-        f"-EWD{args.no_weight_decay_embeddings}-SNI{args.spike_no_more_embedding_init}"
+        f"-EWD{args.no_weight_decay_embeddings}-EMBI{model_config.embedding_init_method_std}"
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
         f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
