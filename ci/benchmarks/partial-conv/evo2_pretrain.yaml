@@ -9,6 +9,7 @@ key_segments:
   wu_steps: False
   artefacts_url: False
   file_name_wheel: False
+  model_type: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -19,7 +20,6 @@ script_args:
   file_name_wheel: cuhyena-0.1-cp312-cp312-linux_x86_64.whl
   model: evo2
   variant: train
-  config_name: 1b
   precision: fp8
   gpus: 8
   nodes: 4
@@ -37,6 +37,11 @@ script_args:
   min_lr: 0.000015
   wu_steps: 5000
   wd: 0.1
+  products:
+    - model_type: hyena
+      config_name: 1b
+    - model_type: mamba
+      config_name: hybrid_mamba_8b
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
@@ -84,6 +89,6 @@ script: |-
   --create-tensorboard-logger \
   --result-dir=${tensorboard_dir} \
   --wandb-project=${wandb_project_name} \
-  --wandb-group=${model}_${variant}_${config_name}__${target}__slen${seq_len} \
+  --wandb-group=${model}_${variant}_${model_type}_${config_name}__${target}__slen${seq_len} \
   --wandb-job-type=${pipeline_label} \
   --disable-checkpointing;
