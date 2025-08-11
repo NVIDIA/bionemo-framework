@@ -7,6 +7,7 @@ key_segments:
   lr: False
   min_lr: False
   wu_steps: False
+  model_type: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -16,6 +17,7 @@ script_args:
   model: evo2
   variant: train
   config_name: 1b
+  model_type: hyena
   precision: fp8
   gpus: 8
   batch_size: 8
@@ -34,9 +36,23 @@ script_args:
     - nodes: 2
       pp: 1
       tp: 1
+      config_name: 1b
+      model_type: hyena
     - nodes: 1
       pp: 1
       tp: 1
+      config_name: 1b
+      model_type: hyena
+    - nodes: 2
+      pp: 1
+      tp: 1
+      config_name: hybrid_mamba_8b
+      model_type: mamba
+    - nodes: 1
+      pp: 1
+      tp: 1
+      config_name: hybrid_mamba_8b
+      model_type: mamba
     # FIXME, issue: https://github.com/NVIDIA/bionemo-framework/issues/814
     # - nodes: 2
     #   pp: 1
@@ -81,7 +97,7 @@ script: |-
   --create-tensorboard-logger \
   --result-dir=${tensorboard_dir} \
   --wandb-project=${wandb_project_name} \
-  --wandb-group=${model}_${variant}_${config_name}__${target}__slen${seq_len} \
+  --wandb-group=${model}_${variant}_${model_type}_${config_name}__${target}__slen${seq_len} \
   --wandb-job-type=${pipeline_label} \
   --wandb-run-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec_tp${tp}_pp_${pp} \
   --disable-checkpointing;
