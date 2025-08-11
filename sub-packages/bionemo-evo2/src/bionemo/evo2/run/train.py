@@ -365,6 +365,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "also turns off shared weights between embeddings and outputs.",
     )
     parser.add_argument(
+        "--embedding-init-std",
+        type=float,
+        help="Embedding init std. This can be used in place of --spike-no-more-embedding-init by setting the value "
+        "to 1.0. Use this or --spike-no-more-embedding-init, not both.",
+    )
+    parser.add_argument(
         "--no-weight-decay-embeddings",
         action="store_true",
         default=False,
@@ -600,9 +606,17 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     }
     if args.add_bias_output:
         config_modifiers_init["add_bias_output"] = args.add_bias_output
-    if args.spike_no_more_embedding_init:
-        config_modifiers_init["embedding_init_method_std"] = 1.0
-        # When using spike_no_more_embedding_init, we don't want to share embeddings and outputs.
+    if args.embedding_init_std is not None or args.spike_no_more_embedding_init:
+        if args.embedding_init_std is not None and not args.spike_no_more_embedding_init:
+            config_modifiers_init["embedding_init_method_std"] = args.embedding_init_std
+        elif args.spike_no_more_embedding_init and args.embedding_init_std is None:
+            config_modifiers_init["embedding_init_method_std"] = 1.0
+        else:
+            logger.warning(
+                "Both --spike-no-more-embedding-init and --embedding-init-std are set. Using --embedding-init-std"
+            )
+            config_modifiers_init["embedding_init_method_std"] = args.embedding_init_std
+        # When using different embedding init methods, we don't want to share embeddings and outputs.
         config_modifiers_init["share_embeddings_and_output_weights"] = False
     if args.ffn_hidden_size:
         config_modifiers_init["ffn_hidden_size"] = args.ffn_hidden_size
