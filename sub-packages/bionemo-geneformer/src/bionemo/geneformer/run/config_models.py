@@ -257,6 +257,8 @@ class ExposedGeneformerPretrainConfig(ExposedModelConfig[GeneformerConfig]):
     # Custom parameters for FineTuning
     initial_ckpt_path: Optional[str] = None
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=list)
+    # Allow YAML to set per-token loss calculation; forwarded to GeneformerConfig via exposed_to_internal_bionemo_model_config
+    calculate_per_token_loss: bool = False
 
     def model_class(self) -> Type[GeneformerConfig]:  # noqa: D102
         return GeneformerConfig

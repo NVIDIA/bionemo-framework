@@ -10,6 +10,7 @@ bionemo_model_config:
   hidden_size: 768
   ffn_hidden_size: 3072
   num_attention_heads: 12
+  calculate_per_token_loss: True  # Enable per-token loss calculation
 
   # 10M model
   # seq_length: 2048
@@ -70,7 +71,7 @@ data_config:
 
 # Training Configuration
 training_config:
-  max_steps: 35000
+  max_steps: 20000
   val_check_interval: 500  # Validate every 1000 steps
   limit_val_batches: 200    # Use more validation batches for better estimates
   log_every_n_steps: 50     # Log every 50 steps to reduce noise
@@ -84,6 +85,7 @@ parallel_config:
   pipeline_model_parallel_size: 1
   sequence_parallel: false
   num_devices: 2
+  average_in_collective: false 
 
 # Optimizer Configuration
 optim_config:
@@ -113,7 +115,7 @@ experiment_config:
 wandb_config:
   entity: "clara-discovery"
   project: "temporal_geneformer"
-  name: "next_cell_training_lina_dataset_gpus2_batch8_epochsampler_lr0.00005"
+  name: "next_cell_training_lina_dataset_gpus2_batch8_epochsampler_lr0.00005_pertokenloss_true"
   tags: ["temporal", "geneformer", "next-cell", "custom-splits"]
   # Required fields
   group: "temporal_geneformer_test_lina_dataset"
