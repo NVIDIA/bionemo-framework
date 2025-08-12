@@ -26,7 +26,7 @@ from megatron.core.inference.model_inference_wrappers.gpt.gpt_inference_wrapper 
 from megatron.core.inference.model_inference_wrappers.inference_wrapper_config import InferenceWrapperConfig
 from megatron.core.transformer.spec_utils import ModuleSpec
 from nemo.collections import llm
-from nemo.collections.llm.gpt.model.base import GPTModel, mtp_block_spec
+from nemo.collections.llm.gpt.model.base import GPTModel, get_packed_seq_params, mtp_block_spec
 from nemo.collections.llm.gpt.model.llama import Llama3Config, apply_rope_scaling
 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import make_upper_case, reweighted_cross_entropy
 from nemo.lightning import get_vocab_size
@@ -66,7 +66,17 @@ def evo2_gpt_forward_step(model, batch) -> torch.Tensor:
         "labels": batch["labels"],
         "loss_mask": batch["loss_mask"],
     }
-    forward_args["attention_mask"] = None
+    if "attention_mask" not in batch:
+        assert HAVE_TE, (
+            "The dataloader did not provide an attention mask, however Transformer Engine was not detected. \
+            This requires Transformer Engine's implementation of fused or flash attention."
+        )
+    else:
+        forward_args["attention_mask"] = batch["attention_mask"]
+
+    if "cu_seqlens" in batch:
+        forward_args["packed_seq_params"] = get_packed_seq_params(batch)
+
     return model(**forward_args)
 
 
