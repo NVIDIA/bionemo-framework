@@ -469,12 +469,13 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
         x_0_sampler: Callable[[int], Tensor],
         x_1_sampler: Callable[[int], Tensor],
         nsteps: int,
-        n_schedule_points: int = 100,
+        n_approx_entropy_points: int = 100,
         batch_size: int = 128,
         inclusive_end: bool = False,
-        min_t: Float = 0,
+        min_t: float = 0,
         direction: Union[TimeDirection, str] = TimeDirection.UNIFIED,
         device: Union[str, torch.device] = "cpu",
+        generator: Optional[torch.Generator] = None,
     ):
         """
         Inspired by the work from Dejan Stancevic, Florian Handke, & Luca Ambrogioni. (2025). 
@@ -503,7 +504,7 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
 
             nsteps (int): The final number of time steps for the inference schedule.
 
-            n_schedule_points (int): The number of points used to approximate the
+            n_approx_entropy_points (int): The number of points used to approximate the
                 cumulative entropy curve. Higher is more accurate but slower.
 
             batch_size (int): Batch size for calculating divergence at each time step.
@@ -516,44 +517,44 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
                 'DIFFUSION' for reverse (1->0).
 
             device (Union[str, torch.device]): The device for computation.
+            
+            generator (Optional[torch.Generator]): A PyTorch generator for reproducible
+                random number generation.
         """
         super().__init__(nsteps, inclusive_end, min_t=min_t, direction=direction, device=device)
         self.predictor = predictor
         self.x_0_sampler = x_0_sampler
         self.x_1_sampler = x_1_sampler
-        self.n_schedule_points = n_schedule_points
+        self.n_approx_entropy_points = n_approx_entropy_points
         self.batch_size = batch_size
+        self.generator = generator
 
-    def hutchinson_divergence(model: torch.nn.Module, t: Tensor, x: Tensor) -> Tensor:
+    def _hutchinson_divergence(self, t: Tensor, x: Tensor) -> Tensor:
         """
         Estimates the divergence of a vector field defined by a model using Hutchinson's method.
 
         Args:
-            model (torch.nn.Module): The neural network representing the vector field v(x, t).
-                                    It must accept a single tensor of shape [B, D+1]
-                                    where D is the dimension of x.
             t (Tensor): A tensor of time values, shape [B, 1].
             x (Tensor): A tensor of positions, shape [B, D].
 
         Returns:
             Tensor: The estimated divergence for each sample in the batch, shape [B].
         """
-        # Detach and set requires_grad=True to compute gradients with respect to x
+        # Gradients with respect to x
         x = x.detach().requires_grad_(True)
         
-        # Generate a random vector from the Rademacher distribution ({-1, 1})
-        epsilon = (torch.randint_like(x, 0, 2) * 2 - 1).to(x.dtype)
+        # random vector from the Rademacher distribution
+        if self.generator:
+            epsilon = (torch.randint_like(x, 0, 2, generator=self.generator) * 2 - 1).to(x.dtype)
+        else:
+            epsilon = (torch.randint_like(x, 0, 2) * 2 - 1).to(x.dtype)
         
-        # Trtansform input
-        model_input = torch.cat([x, t], dim=-1)
-        v = model(model_input)
+        v = self.predictor(t, x)
         
-        # Calculate the Jacobian-vector product (JVP)
-        # This computes (d(v)/d(x)) * epsilon without forming the full Jacobian
+        # Jacobian-vector product (JVP)
         jvp = torch.autograd.grad(outputs=v, inputs=x, grad_outputs=epsilon, create_graph=False)[0]
         
-        # The divergence is estimated by the dot product: (JVP^T * epsilon)
-        # which is equivalent to sum(jvp * epsilon) over the feature dimension.
+        # Divergence estimator
         divergence_est = (jvp * epsilon).view(jvp.shape[0], -1).sum(dim=-1)
         
         return divergence_est
@@ -564,10 +565,8 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
         x_0 = self.x_0_sampler(self.batch_size).to(self.device)
         x_1 = self.x_1_sampler(self.batch_size).to(self.device)
         
-        # Calculate one step
-        x_t = (1 - t_val) * x_0 + t_val * x_1
+        x_t = (1 - t_val) * x_0 + t_val * x_1 ## TODO: This can be modified in the future
         
-        # No need for torch.no_grad() here as it's handled in the main loop
         div = self._hutchinson_divergence(t_batch, x_t)
         return div.mean().item()
 
@@ -580,9 +579,9 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
         dev = device if device is not None else self.device
         n_final_steps = nsteps if nsteps is not None else self.nsteps
         
-        # Calculating entropic profile over {self.n_schedule_points}...
-        standard_time = torch.linspace(0, 1, self.n_schedule_points, device=dev)
-        entropy_rates = torch.empty(self.n_schedule_points, device=dev)
+        # Calculating entropic profile over evaluation points
+        standard_time = torch.linspace(0, 1, self.n_approx_entropy_points, device=dev)
+        entropy_rates = torch.empty(self.n_approx_entropy_points, device=dev)
         
         for i, t_val in enumerate(standard_time):
             entropy_rates[i] = self._calculate_entropy_rate(t_val.item())
@@ -594,22 +593,21 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
             cumulative_entropy = cumulative_entropy / cumulative_entropy[-1]
         
         num_interp_points = n_final_steps + 1 if not self.inclusive_end else n_final_steps
-
-        # Uniform_time is just a projection of the interpolated points
-        uniform_time = torch.linspace(0, 1, num_interp_points, device="cpu")
         
-        import numpy as np 
-        entropic_schedule_np = np.interp(
-            uniform_time.numpy(), cumulative_entropy.cpu().numpy(), standard_time.cpu().numpy()
+        uniform_time = torch.linspace(0, 1, num_interp_points, device=dev)
+        
+        # projection of cumulative entropy into a linear space for creating the schedule
+        import numpy as np
+        entropic_schedule = np.interp(
+            uniform_time.cpu().numpy(), cumulative_entropy.cpu().numpy(), standard_time.cpu().numpy()
         )
-        
-        # We only need a list of time steps
-        schedule = torch.from_numpy(entropic_schedule_np).to(dtype=torch.float32, device=dev)
+        schedule = torch.from_numpy(entropic_schedule).to(dtype=torch.float32, device=dev)
         
         if not self.inclusive_end:
             schedule = schedule[:-1]
 
         schedule = torch.clamp(schedule, min=self.min_t)
+        # Flipping the schedule at the end correctly handles the diffusion direction
         if self.direction == TimeDirection.DIFFUSION:
             schedule = 1.0 - schedule
 
