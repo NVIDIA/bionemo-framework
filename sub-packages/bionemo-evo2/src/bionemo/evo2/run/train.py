@@ -259,6 +259,14 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=1234, help="Set random seed for training.")
     parser.add_argument("--workers", type=int, default=8, help="Number of workers to use for data loading.")
     parser.add_argument(
+        "--finetune",
+        action="store_true",
+        default=False,
+        help="Enable fine-tuning mode. This automatically sets appropriate defaults: "
+        "lower learning rate (1e-5), smaller warmup (100 steps), gradient clipping (1.0), "
+        "and enables optimizer state restoration. Requires --ckpt-dir to be set.",
+    )
+    parser.add_argument(
         "--gc-interval",
         type=int,
         default=0,
@@ -510,7 +518,27 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
-    return parser.parse_args(args=args)
+    
+    args = parser.parse_args(args=args)
+    
+    # Apply fine-tuning defaults if --finetune is set
+    if args.finetune:
+        if not args.ckpt_dir:
+            parser.error("--finetune requires --ckpt-dir to be set")
+        
+        # Always restore optimizer state when fine-tuning
+        if not args.restore_optimizer_from_ckpt:
+            args.restore_optimizer_from_ckpt = True
+            print("Fine-tuning mode: Enabling optimizer state restoration")
+        
+    # Validate checkpoint directory exists if provided
+    if args.ckpt_dir:
+        from pathlib import Path
+        ckpt_path = Path(args.ckpt_dir)
+        if not ckpt_path.exists():
+            parser.error(f"Checkpoint directory does not exist: {args.ckpt_dir}")
+    
+    return args
 
 
 def train(args: argparse.Namespace) -> nl.Trainer:
