@@ -64,16 +64,18 @@ def detect_max_seq_len(ckpt_name):
     # work for most cases; feel free to increase them via EVO2_MAX_SEQ_LEN
     # as needed.
     if "40b" in ckpt_name:
-        if mem_gb > 120 and gpus >= 2: # e.g. h200-x2
+        if mem_gb > 120 and gpus >= 4:   # e.g. h200-x4
+            ret = 1_000_000
+        elif mem_gb > 120 and gpus >= 2: # e.g. h200-x2
             ret = 100_000
-        elif mem_gb > 120: # e.g. h200-x1
+        elif mem_gb > 120:               # e.g. h200-x1
             ret = 20_000
-        elif mem_gb > 60 and gpus >= 2: # e.g. h100-x2
-            ret = 100_000
+        elif mem_gb > 60 and gpus >= 2:  # e.g. h100-x2
+            ret = 20_000
         else:
             ret = 10_000
     else:
-        if mem_gb > 40: # e.g. l40
+        if mem_gb > 40:                  # e.g. l40
             ret = 100_000
         else:
             ret = 20_000
