@@ -33,7 +33,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Literal, Union, TypeVar
+from typing import Any, Dict, Literal, Union
 
 import numpy as np
 import torch
@@ -49,9 +49,8 @@ from bionemo.geneformer.data.singlecell.dataset import process_item
 logger = logging.getLogger(__name__)
 
 # TypeVar for Dataset typing
-T_co = TypeVar("T_co", covariant=True)
-
-
+ 
+ 
 class TemporalGeneformerDataset(Dataset):
     """Dataset for temporal next-cell prediction training.
 
@@ -88,6 +87,8 @@ class TemporalGeneformerDataset(Dataset):
         mask_prob: float = 0.15,
         mask_token_prob: float = 0.8,
         random_token_prob: float = 0.1,
+        prepend_cls_token: bool = True,
+        eos_token: int | None = None,
         neighbor_key: str = "next_cell_ids",
         seed: int = 42,
         only_cells_with_neighbors: bool = True,
@@ -95,6 +96,7 @@ class TemporalGeneformerDataset(Dataset):
         token_selection_policy: Literal["identity", "intersection", "union"] = "identity",
         normalize_gene_expression: bool = True,
         target_sum: int = 10000,
+        include_unrecognized_vocab_in_dataset: bool = False,
     ):
         """Initialize the temporal dataset for next-cell prediction.
 
@@ -116,18 +118,21 @@ class TemporalGeneformerDataset(Dataset):
         """
         self.data_path = Path(data_path)
         self.tokenizer = tokenizer
-        self.median_dict = median_dict
+        self.gene_medians = median_dict
         self.max_len = max_len
         self.mask_prob = mask_prob
         self.mask_token_prob = mask_token_prob
         self.random_token_prob = random_token_prob
+        self.prepend_cls_token = prepend_cls_token
         self.neighbor_key = neighbor_key
         self.seed = seed
+        self.eos_token = eos_token
         self.only_cells_with_neighbors = only_cells_with_neighbors
         self.no_neighbor_policy = no_neighbor_policy
         self.token_selection_policy = token_selection_policy
         self.normalize_gene_expression = normalize_gene_expression
         self.target_sum = target_sum
+        self.include_unrecognized_vocab_in_dataset = include_unrecognized_vocab_in_dataset
 
         # Validate parameters
         if random_token_prob + mask_token_prob > 1.0:
@@ -184,11 +189,10 @@ class TemporalGeneformerDataset(Dataset):
         Returns:
             Dictionary containing:
             - text: Combined sequence [CLS] + current + [SEP] + next
-            - attention_mask: Standard attention mask
-            - temporal_attention_mask: Custom mask preventing next-cell self-attention
+            - attention_mask: Standard padding mask
             - labels: Target labels for masked tokens
             - loss_mask: Mask indicating which tokens to compute loss on
-            - types: Token type IDs (0 for current, 1 for next)
+            - types: Token type IDs (all zeros to match baseline)
             - has_neighbor: Whether this sample has a real neighbor
         """
         # Handle both int and EpochIndex
@@ -246,7 +250,7 @@ class TemporalGeneformerDataset(Dataset):
 
             if len(gene_data) == 0:
                 raise ValueError(
-                    f"TemporalGeneformerDataset data provided is invalid; the gene expression data parsed for cell {cell_idx} is empty."
+                    f"TemporalGeneformerDataset data provided is invalid; the gene expression data parsed for cell {idx} is empty."
                 )
             return process_item(
                 gene_data,
@@ -261,46 +265,12 @@ class TemporalGeneformerDataset(Dataset):
                 random_token_prob=self.random_token_prob,
                 prepend_cls_token=self.prepend_cls_token,
                 eos_token=self.eos_token,
+                target_sum=self.target_sum,
+                normalize=self.normalize_gene_expression,
                 include_unrecognized_vocab_in_dataset=self.include_unrecognized_vocab_in_dataset,
             )
         else:
             raise NotImplementedError(f"Unknown no_neighbor_policy: {type}")
-
-    # def _handle_no_neighbor_case(self, cell_idx: int) -> Dict[str, torch.Tensor]:
-    #     """Handle cells that don't have neighbors based on the no_neighbor_policy.
-
-    #     Args:
-    #         cell_idx: Index of the cell without neighbors
-
-    #     Returns:
-    #         Processed sample based on the policy
-    #     """
-    #     if self.no_neighbor_policy == "identity":
-    #         # Use the same cell as both current and next (identity mapping)
-    #         current_cell_data = self._process_cell(cell_idx, apply_masking=False)
-    #         next_cell_data = self._process_cell(cell_idx, apply_masking=True)
-    #         return self._create_temporal_sequence(current_cell_data, next_cell_data)
-
-    #     elif self.no_neighbor_policy == "random":
-    #         # Sample a random cell as the "next" cell
-    #         random_idx = np.random.choice(self.valid_indices)
-    #         current_cell_data = self._process_cell(cell_idx, apply_masking=False)
-    #         next_cell_data = self._process_cell(random_idx, apply_masking=True)
-    #         return self._create_temporal_sequence(current_cell_data, next_cell_data)
-
-    #     elif self.no_neighbor_policy == "skip":
-    #         # This should not happen if only_cells_with_neighbors=True
-    #         # But we provide a fallback using identity
-    #         logger.warning(
-    #             f"Cell {cell_idx} has no neighbors but no_neighbor_policy is 'skip'. Using identity fallback."
-    #         )
-    #         # Use identity fallback: same cell as both current and next
-    #         current_cell_data = self._process_cell(cell_idx, apply_masking=False)
-    #         next_cell_data = self._process_cell(cell_idx, apply_masking=True)
-    #         return self._create_temporal_sequence(current_cell_data, next_cell_data)
-
-    #     else:
-    #         raise ValueError(f"Unknown no_neighbor_policy: {self.no_neighbor_policy}")
 
     def _apply_token_selection_policy(
         self, current_cell_data: Dict[str, Any], next_cell_data: Dict[str, Any], policy: str
@@ -394,7 +364,7 @@ class TemporalGeneformerDataset(Dataset):
             gene_data,
             self.normalize_gene_expression,
             self.tokenizer.vocab,
-            self.median_dict,
+            self.gene_medians,
             include_unrecognized_vocab_in_dataset=False,
         )
 
@@ -404,6 +374,7 @@ class TemporalGeneformerDataset(Dataset):
             gene_expression_cell = gene_expression_cell / gene_expression_cell.sum() * self.target_sum
             gene_expression_cell = gene_expression_cell / gene_expression_medians.astype(float)
             idxs = np.argsort(-gene_expression_cell)  # Descending order
+            gene_expression_cell = gene_expression_cell[idxs]
             token_ids = token_ids[idxs]
 
         # Return raw token_ids and masking flag for temporal sequence construction
@@ -456,8 +427,9 @@ class TemporalGeneformerDataset(Dataset):
         from bionemo.geneformer.data.singlecell.utils import sample_or_truncate
         from bionemo.llm.data import masking
 
-        # Calculate lengths for temporal concatenation (account for CLS and SEP)
-        available_length = self.max_len - 2  # Reserve space for CLS and SEP
+        # Calculate lengths for temporal concatenation accounting for optional CLS and EOS
+        tokens_reserved = (1 if self.prepend_cls_token else 0) + 1 + (1 if self.eos_token is not None else 0)  # SEP always present
+        available_length = self.max_len - tokens_reserved
         current_max = available_length // 2
         next_max = available_length - current_max
 
@@ -469,12 +441,21 @@ class TemporalGeneformerDataset(Dataset):
         current_tokens = torch.from_numpy(current_tokens)
         next_tokens = torch.from_numpy(next_tokens)
 
-        # Create CLS and SEP tokens
-        cls_token = torch.tensor([self.tokenizer.token_to_id(self.tokenizer.cls_token)])
+        # Create optional CLS and required SEP tokens
+        cls_token = (
+            torch.tensor([self.tokenizer.token_to_id(self.tokenizer.cls_token)])
+            if self.prepend_cls_token
+            else torch.empty(0, dtype=torch.long)
+        )
         sep_token = torch.tensor([self.sep_token_id])
+        eos_token_tensor = (
+            torch.tensor([self.eos_token], dtype=torch.long)
+            if self.eos_token is not None
+            else torch.empty(0, dtype=torch.long)
+        )
 
-        # Concatenate: [CLS] + current + [SEP] + next
-        combined_tokens = torch.cat([cls_token, current_tokens, sep_token, next_tokens])
+        # Concatenate: optional [CLS] + current + [SEP] + next + optional [EOS]
+        combined_tokens = torch.cat([cls_token, current_tokens, sep_token, next_tokens, eos_token_tensor])
 
         # Apply masking only to next cell portion
         current_len = len(cls_token) + len(current_tokens) + len(sep_token)
@@ -486,7 +467,8 @@ class TemporalGeneformerDataset(Dataset):
         if next_cell_data["should_mask"]:
             # Apply BERT masking only to next cell tokens
             next_start_idx = current_len
-            next_end_idx = len(combined_tokens)
+            # exclude EOS if present
+            next_end_idx = len(combined_tokens) - (1 if self.eos_token is not None else 0)
 
             # Extract next cell tokens for masking
             next_tokens_for_masking = combined_tokens[next_start_idx:next_end_idx]
@@ -517,16 +499,14 @@ class TemporalGeneformerDataset(Dataset):
         seq_len = len(combined_tokens)
         attention_mask = torch.ones(seq_len, dtype=torch.long)
 
-        # Create token type IDs (0 for current cell + SEP, 1 for next cell)
-        current_end = len(cls_token) + len(current_tokens) + len(sep_token)
+        # Create token type IDs (all zeros to match baseline behavior)
         types = torch.zeros_like(combined_tokens, dtype=torch.long)
-        # types[current_end:] = 1  # Next cell gets type 1
 
-        # Create temporal attention mask (only current tokens can attend)
+        # Optional temporal attention mask (not used in standard stack)
         temporal_attention_mask = self._create_1d_temporal_attention_mask(
-            current_len=len(cls_token) + len(current_tokens) + len(sep_token), 
-            next_len=len(next_tokens), 
-            total_len=seq_len
+            current_len=current_len,
+            next_len=len(next_tokens),
+            total_len=seq_len,
         )
 
         # attention_mask = (combined_tokens != self.pad_token_id).long()
@@ -547,7 +527,7 @@ class TemporalGeneformerDataset(Dataset):
 
         return {
             "text": combined_tokens,
-            "attention_mask": attention_mask,  # Use temporal mask as the main attention mask
+            "attention_mask": attention_mask,
             "labels": labels,
             "loss_mask": loss_mask,
             "types": types,

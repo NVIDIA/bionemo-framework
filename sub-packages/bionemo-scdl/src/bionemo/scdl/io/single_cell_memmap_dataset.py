@@ -1110,12 +1110,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             if self.fallback_to_identity:
                 return cell_index  # Return the cell itself
             else:
-                # NOTE: implement fallback policy here if needed
-                warnings.warn(
-                    f"Cell {cell_index} has no neighbors and fallback_to_identity=False. "
-                    f"Returning cell index itself anyway."
+                # Strict behavior: raise an error when fallback is disabled
+                raise ValueError(
+                    f"Cell {cell_index} has no neighbors and fallback_to_identity=False."
                 )
-                return cell_index  # Currently always return self if no neighbors
 
         # Sample neighbor based on strategy
         if self.neighbor_sampling_strategy == NeighborSamplingStrategy.RANDOM:

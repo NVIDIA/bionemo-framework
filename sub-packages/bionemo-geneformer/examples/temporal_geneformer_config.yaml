@@ -5,19 +5,21 @@
 # Model Configuration - Uses existing GeneformerConfig with checkpoint resumption
 bionemo_model_config:
   # Core model parameters (inherited from BioBertConfig)
-  seq_length: 2048
-  num_layers: 12
-  hidden_size: 768
-  ffn_hidden_size: 3072
-  num_attention_heads: 12
+  # seq_length: 2048
+  # num_layers: 12
+  # hidden_size: 768
+  # ffn_hidden_size: 3072
+  # num_attention_heads: 12
   calculate_per_token_loss: True  # Enable per-token loss calculation
 
   # 10M model
-  # seq_length: 2048
-  # num_layers: 6
-  # hidden_size: 256
-  # ffn_hidden_size: 512
-  # num_attention_heads: 4
+  seq_length: 2048
+  num_layers: 6
+  hidden_size: 256
+  ffn_hidden_size: 512
+  num_attention_heads: 4
+  attention_dropout: 0.0
+  hidden_dropout: 0.0
   
   # Required dtype fields
   params_dtype: "bf16-mixed"
@@ -62,7 +64,7 @@ data_config:
   
   # Neighbor handling
   only_cells_with_neighbors: true
-  no_neighbor_policy: "skip"  # "skip", "identity", or "random"
+  no_neighbor_policy: "identity"  # "skip", "identity", or "random"
   token_selection_policy: "identity"  # "identity", "intersection", or "union"
   
   # Gene expression normalization
@@ -115,7 +117,7 @@ experiment_config:
 wandb_config:
   entity: "clara-discovery"
   project: "temporal_geneformer"
-  name: "next_cell_training_lina_dataset_gpus2_batch8_epochsampler_lr0.00005_pertokenloss_true"
+  name: "next_cell_training_lina_dataset_gpus2_batch8_epochsampler_lr0.00005"
   tags: ["temporal", "geneformer", "next-cell", "custom-splits"]
   # Required fields
   group: "temporal_geneformer_test_lina_dataset"

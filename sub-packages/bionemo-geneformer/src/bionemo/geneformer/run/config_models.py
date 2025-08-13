@@ -17,13 +17,15 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import List, Optional, Type
 
+from numpy import true_divide
+
 from nemo.utils import logging
 from pydantic import field_serializer, field_validator
 from tokenizers import Tokenizer
 
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
-from bionemo.geneformer.data.singlecell.temporal.temporal_datamodule import TemporalGeneformerDataModule
+from bionemo.geneformer.data.singlecell.temporal.temporal_datamodule_2 import TemporalGeneformerDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.model.finetune_token_regressor import FineTuneSeqLenBioBertConfig
 from bionemo.llm.run.config_models import (
@@ -179,7 +181,7 @@ class TemporalGeneformerDataConfig(DataConfig[TemporalGeneformerDataModule]):
     neighbor_key: str = "next_cell_ids"
     num_dataset_workers: int = 0
     seed: int = 42
-    only_cells_with_neighbors: bool = True
+    only_cells_with_neighbors: bool = true_divide
     no_neighbor_policy: str = "skip"
     token_selection_policy: str = "identity"
     normalize_gene_expression: bool = True
@@ -239,9 +241,6 @@ class TemporalGeneformerDataConfig(DataConfig[TemporalGeneformerDataModule]):
             seed=self.seed,
             only_cells_with_neighbors=self.only_cells_with_neighbors,
             no_neighbor_policy=self.no_neighbor_policy,
-            token_selection_policy=self.token_selection_policy,
-            normalize_gene_expression=self.normalize_gene_expression,
-            target_sum=self.target_sum,
         )
         return data
 
@@ -259,6 +258,8 @@ class ExposedGeneformerPretrainConfig(ExposedModelConfig[GeneformerConfig]):
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=list)
     # Allow YAML to set per-token loss calculation; forwarded to GeneformerConfig via exposed_to_internal_bionemo_model_config
     calculate_per_token_loss: bool = False
+    # Allow YAML to control attention dropout explicitly (GeneformerConfig supports this field)
+    attention_dropout: float = 0.1
 
     def model_class(self) -> Type[GeneformerConfig]:  # noqa: D102
         return GeneformerConfig
