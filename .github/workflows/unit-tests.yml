@@ -65,7 +65,7 @@ jobs:
         with:
           enable-cache: true
       - run: |
-          uv tool install tach>=0.9.0 pre-commit --with pre-commit-uv --force-reinstall
+          uv tool install 'tach>=0.9.0' pre-commit --with pre-commit-uv --force-reinstall
           uv tool update-shell
       - run: ./ci/scripts/static_checks.sh
 
