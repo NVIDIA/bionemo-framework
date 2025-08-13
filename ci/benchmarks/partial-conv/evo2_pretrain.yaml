@@ -15,8 +15,8 @@ script_args:
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
   data_path: /data/evo2
-  artefacts_url: https://gitlab-master.nvidia.com/api/v4/projects/clara-discovery%2Fcuhyena/jobs/172596829/artifacts/dist/
-  file_name_wheel: cuhyena-0.1-cp312-cp312-linux_x86_64.whl
+  artefacts_url: https://__token__:${JET_GITLAB_TOKEN}@gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple
+  file_name_wheel: cuhyena==v0.2.3+cuda12.9
   model: evo2
   variant: train
   config_name: 1b
@@ -40,8 +40,7 @@ script_args:
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
-      curl --location --header "PRIVATE-TOKEN:$JET_GITLAB_TOKEN" "${artefacts_url}/${file_name_wheel}" --output ${file_name_wheel}
-      pip install ${file_name_wheel}
+      pip install ${file_name_wheel} --index-url ${artefacts_url}
       touch $INSTALL_FLAG
   fi
   # All ranks wait until install flag file appears
