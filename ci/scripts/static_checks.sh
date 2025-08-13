@@ -19,7 +19,7 @@ set -e
 
 echo "Running pre-commit checks"
 set +e
-pre-commit run --all-files --show-diff-on-failure --color always
+pre-commit run --all-files --show-diff-on-failure --color always --verbose
 E_PRE_COMMIT="$?"
 set -e
 
