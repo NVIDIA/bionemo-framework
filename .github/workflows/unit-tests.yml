@@ -67,6 +67,7 @@ jobs:
       - run: |
           uv tool install pre-commit --with pre-commit-uv --force-reinstall
           uv tool install tach>=0.9.0
+          uv tool update-shell
       - run: ./ci/scripts/static_checks.sh
 
   # With copy-pr-bot, we need to get the PR labels from the PR API rather than from the event metadata.
