@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       any_changed: ${{ steps.changed-files.outputs.any_changed }}
+      docs_changed: ${{ steps.changed-files.outputs.docs_any_changed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,10 +35,13 @@ jobs:
         with:
           base_sha: main
           files_yaml: |
-            - '3rdparty/**'
-            - 'sub-packages/**'
-            - 'docker_build_patches/**'
-            - 'requirements-*.txt'
+            framework:
+              - '3rdparty/**'
+              - 'sub-packages/**'
+              - 'docker_build_patches/**'
+              - 'requirements-*.txt'
+            docs:
+              - 'docs/**.ipynb'
       - name: List all changed files
         env:
           ALL_CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
@@ -47,6 +51,8 @@ jobs:
           done
 
   pre-commit:
+    env:
+      UV_SYSTEM_PYTHON: 1
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +63,13 @@ jobs:
         with:
           python-version: "3.13"
           cache: "pip"
-      - run: pip install -r requirements-dev.txt
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: |
+          uv pip install -r requirements-dev.txt
+          uv tool install pre-commit --with pre-commit-uv --force-reinstall
       - run: ./ci/scripts/static_checks.sh
 
   # With copy-pr-bot, we need to get the PR labels from the PR API rather than from the event metadata.
@@ -212,10 +224,12 @@ jobs:
     needs:
       - build-bionemo-image
       - get-pr-labels
+      - changed-files
     runs-on: linux-amd64-gpu-l4-latest-1
     if: |
       github.event_name == 'schedule' || github.event_name == 'merge_group' ||
-      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS')
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS') ||
+      needs.changed-files.outputs.docs_changed == 'true'
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
       credentials:
