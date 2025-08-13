@@ -51,8 +51,6 @@ jobs:
           done
 
   pre-commit:
-    env:
-      UV_SYSTEM_PYTHON: 1
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,8 +65,8 @@ jobs:
         with:
           enable-cache: true
       - run: |
-          uv pip install -r requirements-dev.txt
           uv tool install pre-commit --with pre-commit-uv --force-reinstall
+          uv tool install tach>=0.9.0
       - run: ./ci/scripts/static_checks.sh
 
   # With copy-pr-bot, we need to get the PR labels from the PR API rather than from the event metadata.
