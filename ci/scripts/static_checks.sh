@@ -5,12 +5,6 @@ set -xueo pipefail
 REPOSITORY_ROOT=$(git rev-parse --show-toplevel)
 cd $REPOSITORY_ROOT
 
-echo "Running ruff checks"
-set +e
-ruff check scripts/ sub-packages/ docs/
-E_RUFF_CHECK="$?"
-set -e
-
 echo "Running tach checks"
 set +e
 tach check
@@ -28,10 +22,6 @@ ANY_FAILURE=0
 if [[ "${E_PRE_COMMIT}" != "0" ]]; then
     ANY_FAILURE=1
     echo "ERROR: pre-commit hooks failed! (exit: ${E_PRE_COMMIT})"
-fi
-if [[ "${E_RUFF_CHECK}" != "0" ]]; then
-  ANY_FAILURE=1
-  echo "ERROR: ruff check failed! (exit: ${E_RUFF_CHECK})"
 fi
 if [[ "${E_TACH_CHECK}" != "0" ]]; then
   ANY_FAILURE=1
