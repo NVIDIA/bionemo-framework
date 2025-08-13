@@ -20,16 +20,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-- uses: step-security/changed-files@v46
-  id: changed-files
-  if: github.event_name != 'schedule'
-  with:
-    base_sha: main
-    files_yaml: |
-      - '3rdparty/**'
-      - 'sub-packages/**'
-      - 'docker_build_patches/**'
-      - 'requirements-*.txt'
+  changed-files:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    outputs:
+      any_changed: ${{ steps.changed-files.outputs.any_changed }}
+    steps:
+      - uses: step-security/changed-files@v46
+        id: changed-files
+        with:
+          base_sha: main
+          files_yaml: |
+            - '3rdparty/**'
+            - 'sub-packages/**'
+            - 'docker_build_patches/**'
+            - 'requirements-*.txt'
 
   pre-commit:
     runs-on: ubuntu-latest
