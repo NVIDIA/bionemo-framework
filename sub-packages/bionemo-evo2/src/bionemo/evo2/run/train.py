@@ -764,8 +764,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         wandb_config=wandb_config,
     )
 
+    checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
     if args.create_checkpoint_callback:
-        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
         checkpoint_callback = nl_callbacks.ModelCheckpoint(
             dirpath=checkpoint_path,
             save_last=args.save_last_checkpoint,
@@ -780,23 +780,23 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         )
         callbacks.append(checkpoint_callback)
 
-        auto_resume = nl.AutoResume(
-            resume_if_exists=True,
-            resume_ignore_no_checkpoint=True,
-            resume_past_end=False,
-            resume_from_directory=checkpoint_path,
-            restore_config=(
-                RestoreConfig(
-                    path=args.ckpt_dir,
-                    load_model_state=True,
-                    load_optim_state=args.restore_optimizer_from_ckpt,
-                )
-                if args.ckpt_dir
-                else None
-            ),
-        )
-    else:
-        auto_resume = None
+    auto_resume = nl.AutoResume(
+        resume_if_exists=True,
+        resume_ignore_no_checkpoint=False,
+        resume_past_end=False,
+        resume_from_directory=checkpoint_path,
+        restore_config=(
+            RestoreConfig(
+                path=args.ckpt_dir,
+                load_model_state=True,
+                load_optim_state=args.restore_optimizer_from_ckpt,
+            )
+            if args.ckpt_dir
+            else None
+        ),
+    )
+    # else:
+    #     auto_resume = None
 
     ddp: DistributedDataParallelConfig = DistributedDataParallelConfig(
         check_for_nan_in_grad=not args.no_check_for_nan_in_grad,
