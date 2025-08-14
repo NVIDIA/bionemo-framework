@@ -112,6 +112,9 @@ class ArrayDType(IntEnum):
     
     @property
     def numpy_dtype_string(self) -> str  # Get NumPy dtype string
+    
+    @classmethod
+    def from_numpy_dtype(cls, dtype) -> 'ArrayDType'  # Convert from NumPy dtype
 ```
 
 ### `Backend`
@@ -246,4 +249,19 @@ if reader.validate_magic():
     # Only load full header when needed
     if reader.get_array_count() > 0:
         full_header = reader.get_full_header()
+```
+
+### Converting NumPy Types
+
+```python
+import numpy as np
+from bionemo.scdl.schema.header import ArrayDType
+
+# Convert various numpy dtypes to ArrayDType enums
+array_dtype1 = ArrayDType.from_numpy_dtype(np.float32)        # Type class
+array_dtype2 = ArrayDType.from_numpy_dtype('float32')         # String
+array_dtype3 = ArrayDType.from_numpy_dtype(np.dtype('f4'))    # Dtype object
+
+# Use in ArrayInfo creation
+array = ArrayInfo("data.dat", 1000, array_dtype1)
 ```
