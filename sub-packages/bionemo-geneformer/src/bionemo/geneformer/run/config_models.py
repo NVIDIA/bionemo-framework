@@ -25,7 +25,7 @@ from tokenizers import Tokenizer
 
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
-from bionemo.geneformer.data.singlecell.temporal.temporal_datamodule_2 import TemporalGeneformerDataModule
+from bionemo.geneformer.data.singlecell.temporal.temporal_datamodule import TemporalGeneformerDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.model.finetune_token_regressor import FineTuneSeqLenBioBertConfig
 from bionemo.llm.run.config_models import (

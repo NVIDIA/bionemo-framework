@@ -81,7 +81,7 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
         persistent_workers: bool = False,
         seed: int = 42,
         only_cells_with_neighbors: bool = True,
-        no_neighbor_policy: Literal["skip", "identity", "random"] = "identity",
+        no_neighbor_policy: str = "identity",
         token_selection_policy: Literal["identity", "intersection", "union"] = "identity",
         normalize_gene_expression: bool = True,
         target_sum: int = 10000,
@@ -158,11 +158,9 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
                 random_token_prob=random_token_prob,
                 neighbor_key=neighbor_key,
                 seed=random_utils.get_seed_from_rng(rng),
-                only_cells_with_neighbors=only_cells_with_neighbors,
+                fallback_to_identity=not only_cells_with_neighbors,
                 no_neighbor_policy=no_neighbor_policy,
-                token_selection_policy=token_selection_policy,
-                normalize_gene_expression=normalize_gene_expression,
-                target_sum=target_sum,
+                only_cells_with_neighbors=only_cells_with_neighbors,
             )
             self._val_dataset_ori = TemporalGeneformerDataset(
                 data_path=self.data_path_val,
@@ -174,11 +172,9 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
                 random_token_prob=random_token_prob,
                 neighbor_key=neighbor_key,
                 seed=random_utils.get_seed_from_rng(rng),
-                only_cells_with_neighbors=only_cells_with_neighbors,
+                fallback_to_identity=not only_cells_with_neighbors,
                 no_neighbor_policy=no_neighbor_policy,
-                token_selection_policy=token_selection_policy,
-                normalize_gene_expression=normalize_gene_expression,
-                target_sum=target_sum,
+                only_cells_with_neighbors=only_cells_with_neighbors,
             )
             self._test_dataset_ori = TemporalGeneformerDataset(
                 data_path=self.data_path_test,
@@ -190,11 +186,9 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
                 random_token_prob=random_token_prob,
                 neighbor_key=neighbor_key,
                 seed=random_utils.get_seed_from_rng(rng),
-                only_cells_with_neighbors=only_cells_with_neighbors,
+                fallback_to_identity=not only_cells_with_neighbors,
                 no_neighbor_policy=no_neighbor_policy,
-                token_selection_policy=token_selection_policy,
-                normalize_gene_expression=normalize_gene_expression,
-                target_sum=target_sum,
+                only_cells_with_neighbors=only_cells_with_neighbors,
             )
             self._predict_dataset_ori = None
         else:
@@ -209,11 +203,9 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
                 random_token_prob=random_token_prob,
                 neighbor_key=neighbor_key,
                 seed=random_utils.get_seed_from_rng(rng),
-                only_cells_with_neighbors=only_cells_with_neighbors,
+                fallback_to_identity=not only_cells_with_neighbors,
                 no_neighbor_policy=no_neighbor_policy,
-                token_selection_policy=token_selection_policy,
-                normalize_gene_expression=normalize_gene_expression,
-                target_sum=target_sum,
+                only_cells_with_neighbors=only_cells_with_neighbors,
             )
             self._train_dataset_ori = None
             self._val_dataset_ori = None
@@ -226,6 +218,27 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
         logger.info(
             f"Enhanced features: no_neighbor_policy={no_neighbor_policy}, token_selection_policy={token_selection_policy}"
         )
+
+        # Explicitly indicate we're using the new temporal dataset implementation
+        logger.info("[TemporalDataModule] Using Redesigned TemporalGeneformerDataset")
+
+        # Report number of valid indices in each dataset split
+        if hasattr(self, "_train_dataset_ori") and self._train_dataset_ori is not None:
+            train_len = len(self._train_dataset_ori)
+            logger.info(f"[TemporalDataModule] train valid indices: {train_len}")
+            print(f"[TemporalDataModule] train valid indices: {train_len}")
+        if hasattr(self, "_val_dataset_ori") and self._val_dataset_ori is not None:
+            val_len = len(self._val_dataset_ori)
+            logger.info(f"[TemporalDataModule] val valid indices: {val_len}")
+            print(f"[TemporalDataModule] val valid indices: {val_len}")
+        if hasattr(self, "_test_dataset_ori") and self._test_dataset_ori is not None:
+            test_len = len(self._test_dataset_ori)
+            logger.info(f"[TemporalDataModule] test valid indices: {test_len}")
+            print(f"[TemporalDataModule] test valid indices: {test_len}")
+        if hasattr(self, "_predict_dataset_ori") and self._predict_dataset_ori is not None:
+            predict_len = len(self._predict_dataset_ori)
+            logger.info(f"[TemporalDataModule] predict valid indices: {predict_len}")
+            print(f"[TemporalDataModule] predict valid indices: {predict_len}")
 
     def setup(self, stage: Optional[str] = None):
         """Set up datasets for training, validation, and testing.
@@ -267,43 +280,6 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
             ),
             **kwargs,
         )
-
-    def _collate_fn(self, batch):
-        """Custom collate function for temporal batches.
-
-        Handles batching of temporal training samples where each sample contains:
-        - text: Combined sequence [CLS] + current + [SEP] + next
-        - attention_mask: 1D temporal attention mask (current tokens=1, next tokens=0)
-        - labels: Target labels for masked tokens (-100 for no loss)
-        - loss_mask: Boolean mask indicating which tokens to compute loss on
-        - types: Token type IDs (0 for current, 1 for next)
-        - is_random: Random token indicators
-        - has_neighbor: Boolean flag indicating if sample has real neighbor
-
-        Args:
-            batch: List of samples from the temporal dataset
-
-        Returns:
-            Batched data dictionary ready for next-cell training
-        """
-        # Standard collation for most fields
-        collated = {}
-
-        # Get all keys from the first sample
-        keys = batch[0].keys()
-
-        for key in keys:
-            if key in ["text", "attention_mask", "labels", "loss_mask", "types", "is_random"]:
-                # Stack tensor fields - these are the core training tensors
-                collated[key] = torch.stack([sample[key] for sample in batch])
-            elif key == "has_neighbor":
-                # Handle has_neighbor boolean flag
-                collated[key] = torch.stack([sample[key] for sample in batch])
-            else:
-                # Keep any other fields as lists (for debugging/metadata)
-                collated[key] = [sample[key] for sample in batch]
-
-        return collated
 
     @property
     def vocab_size(self):
