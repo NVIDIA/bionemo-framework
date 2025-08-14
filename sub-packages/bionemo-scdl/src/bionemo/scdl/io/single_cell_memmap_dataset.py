@@ -1136,32 +1136,42 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Args:
             other_mmap: The other SingleCellMemMapDataset to concatenate neighbor data from
             cumulative_rows_offset: The row offset to adjust neighbor indices
+            cumulative_neighbor_elements: The cumulative count of neighbor elements already in the dataset
             extend_copy_size: Buffer size for file operations
             destroy_on_copy: Whether to delete source files after copying
         """
         if not (other_mmap._has_neighbors and other_mmap._neighbor_indptr is not None):
             return
-            
-        # Create a temporary copy of the neighbor indices with adjusted offsets
-        temp_indices_path = f"{other_mmap.data_path}/{FileNames.NEIGHBOR_INDICES.value}_adjusted"
+        
+        # Create adjusted neighbor indices (add offset to make them global)
         adjusted_indices = np.memmap(
-            temp_indices_path,
+            f"{other_mmap.data_path}/{FileNames.NEIGHBOR_INDICES.value}_adjusted",
             dtype=self.dtypes[FileNames.NEIGHBOR_INDICES.value],
             mode="w+",
             shape=other_mmap._neighbor_indices.shape,
         )
-        # Adjust neighbor indices by the cumulative row offset
         adjusted_indices[:] = other_mmap._neighbor_indices[:] + cumulative_rows_offset
         adjusted_indices.flush()
         
-        # Extend neighbor files with the adjusted data
+        # Adjust indptr by cumulative neighbor count (skip first element which is always 0)
+        adjusted_indptr = np.memmap(
+            f"{other_mmap.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}_adjusted",
+            dtype=self.dtypes[FileNames.NEIGHBOR_INDICES_PTR.value],
+            mode="w+",
+            shape=(len(other_mmap._neighbor_indptr) - 1,),  # Skip the first 0
+        )
+        adjusted_indptr[:] = other_mmap._neighbor_indptr[1:] + cumulative_neighbor_elements
+        adjusted_indptr.flush()
+        
+        # Extend neighbor indices file
         extend_files(
             f"{self.data_path}/{FileNames.NEIGHBOR_INDICES.value}",
-            temp_indices_path,
+            f"{other_mmap.data_path}/{FileNames.NEIGHBOR_INDICES.value}_adjusted",
             buffer_size_b=extend_copy_size,
-            delete_file2_on_complete=True,  # Always delete the temporary file
+            delete_file2_on_complete=True,
         )
         
+        # Extend neighbor values file (no adjustment needed)
         extend_files(
             f"{self.data_path}/{FileNames.NEIGHBOR_VALUES.value}",
             f"{other_mmap.data_path}/{FileNames.NEIGHBOR_VALUES.value}",
@@ -1169,28 +1179,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             delete_file2_on_complete=destroy_on_copy,
         )
         
-        # Handle indptr: need to adjust by cumulative neighbor count and append (excluding first element)
-        # Note: We can't use len(self._neighbor_indices) because it's the old mmap before concatenation
-        # Instead, we need to use the cumulative count that's been tracked during concatenation
-        current_neighbor_count = cumulative_neighbor_elements
-        
-        # Create adjusted indptr (skip first element, adjust by current neighbor count)
-        temp_indptr_path = f"{other_mmap.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}_adjusted"
-        adjusted_indptr = np.memmap(
-            temp_indptr_path,
-            dtype=self.dtypes[FileNames.NEIGHBOR_INDICES_PTR.value],
-            mode="w+",
-            shape=(len(other_mmap._neighbor_indptr) - 1,),  # Skip first element
-        )
-        adjusted_indptr[:] = other_mmap._neighbor_indptr[1:] + current_neighbor_count
-        adjusted_indptr.flush()
-        
+        # Extend neighbor indptr file
+        # CRITICAL: No offset parameter! This was the bug causing systematic neighbor corruption
         extend_files(
             f"{self.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}",
-            temp_indptr_path,
+            f"{other_mmap.data_path}/{FileNames.NEIGHBOR_INDICES_PTR.value}_adjusted",
             buffer_size_b=extend_copy_size,
             delete_file2_on_complete=True,
-            offset=np.dtype(self.dtypes[FileNames.NEIGHBOR_INDICES_PTR.value]).itemsize,
         )
 
     def _initialize_neighbor_data_from_mmap(self, other_mmap, cumulative_rows_offset: int, extend_copy_size: int, destroy_on_copy: bool) -> None:
@@ -1440,12 +1435,18 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             # Use current cumulative_rows as the offset (where this dataset will start in the combined dataset)
             neighbor_offset = cumulative_rows
             
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Concat: self.load_neighbors={self.load_neighbors}, self._has_neighbors={self._has_neighbors}, mmap.load_neighbors={mmap.load_neighbors if hasattr(mmap, 'load_neighbors') else 'N/A'}, mmap._has_neighbors={mmap._has_neighbors if hasattr(mmap, '_has_neighbors') else 'N/A'}")
+            
             if self.load_neighbors and self._has_neighbors and mmap.load_neighbors and mmap._has_neighbors:
+                logger.info("Path A: Both have neighbors, calling _concatenate_neighbor_data")
                 self._concatenate_neighbor_data(mmap, neighbor_offset, cumulative_neighbor_elements, extend_copy_size, destroy_on_copy)
                 # Update cumulative neighbor statistics
                 cumulative_neighbor_elements += len(mmap._neighbor_indices) if mmap._neighbor_indices is not None else 0
                 cumulative_neighbor_rows += mmap.number_of_rows()
             elif self.load_neighbors and not self._has_neighbors and mmap.load_neighbors and mmap._has_neighbors:
+                logger.info("Path B: Self has no neighbors but mmap does, calling _initialize_neighbor_data_from_mmap")
                 # If self doesn't have neighbors but mmap does, copy mmap's neighbor data as starting point
                 self._initialize_neighbor_data_from_mmap(mmap, neighbor_offset, extend_copy_size, destroy_on_copy)
                 # Initialize cumulative neighbor statistics

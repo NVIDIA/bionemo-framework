@@ -163,13 +163,21 @@ class TemporalGeneformerDataset(Dataset):
         assert len(next_feature_ids) == 1
         next_gene_data, next_col_idxs = np.array(n_values), np.array(n_cols)
 
+        # Validate that feature IDs are identical since neighbors should be from the same dataset
+        if not np.array_equal(feature_ids[0], next_feature_ids[0]):
+            logging.warning(
+                f"Feature IDs mismatch between cell {cell_idx} and neighbor {neighbor_idx}. "
+                f"This suggests neighbors may come from different datasets, which shouldn't happen. "
+                f"Current features shape: {feature_ids[0].shape}, Neighbor features shape: {next_feature_ids[0].shape}"
+            )
+
         return process_item_ncp(
             cur_gene_data,
             cur_col_idxs,
             next_gene_data,
             next_col_idxs,
             feature_ids[0],
-            next_feature_ids[0] if getattr(self.scdl, "_has_neighbors", False) else feature_ids[0],
+            feature_ids[0],  # Should be identical to next_feature_ids[0] when neighbors are from same dataset
             self.tokenizer,
             gene_median=cast(dict, self.gene_medians),
             rng=rng,
