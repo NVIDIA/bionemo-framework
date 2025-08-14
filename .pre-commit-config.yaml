@@ -7,12 +7,21 @@ repos:
       - id: check-yaml
         exclude: "mkdocs.yml"
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.10
+    rev: v0.12.8
     hooks:
       - id: ruff
         # 1. Attempt to automatically fix any lint issues.
         args: ["--fix"]
       - id: ruff-format
+  - repo: https://github.com/executablebooks/mdformat
+    rev: 0.7.17             # Use the latest stable version
+    hooks:
+      - id: mdformat
+        additional_dependencies:
+        - mdformat-tables
+        - mdformat-gfm
+        - mdformat-black
+        - mdformat-frontmatter
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:

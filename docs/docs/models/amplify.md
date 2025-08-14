@@ -15,7 +15,7 @@ for this application and use case; see the [Chandar Lab website](https://chandar
 
 ### References
 
-[1] Protein Language Models: Is Scaling Necessary? Quentin Fournier, Robert M. Vernon, Almer van der Sloot, Benjamin
+\[1\] Protein Language Models: Is Scaling Necessary? Quentin Fournier, Robert M. Vernon, Almer van der Sloot, Benjamin
 Schulz, Sarath Chandar, Christopher James Langmead bioRxiv 2024.09.23.614603; doi:
 [https://doi.org/10.1101/2024.09.23.614603](https://doi.org/10.1101/2024.09.23.614603)
 
@@ -56,7 +56,7 @@ Schulz, Sarath Chandar, Christopher James Langmead bioRxiv 2024.09.23.614603; do
 - NVIDIA Ampere
 - NVIDIA Hopper
 
-**[Preferred/Supported] Operating System(s):**
+**\[Preferred/Supported\] Operating System(s):**
 
 - Linux
 
@@ -94,37 +94,39 @@ AMPLIFY is provided under the Apache 2.0 license.
 
 ??? Example "Example pre-training commands"
 
-    === "120M"
+````
+=== "120M"
 
-        ```
-        python /workspace/bionemo-framework/sub-packages/bionemo-amplify/src/bionemo/amplify/train_amplify.py \
-            ...
-            --num-nodes=2 \
-            --devices=8 \
-            --min-seq-length 512 \
-            --max-seq-length 512 \
-            --num-layers 24 \
-            --num-attention-heads 10 \
-            --hidden-size 640 \
-            --ffn-hidden-size 2560 \
-            --micro-batch-size 256
-        ```
+    ```
+    python /workspace/bionemo-framework/sub-packages/bionemo-amplify/src/bionemo/amplify/train_amplify.py \
+        ...
+        --num-nodes=2 \
+        --devices=8 \
+        --min-seq-length 512 \
+        --max-seq-length 512 \
+        --num-layers 24 \
+        --num-attention-heads 10 \
+        --hidden-size 640 \
+        --ffn-hidden-size 2560 \
+        --micro-batch-size 256
+    ```
 
-    === "350M"
+=== "350M"
 
-        ```
-        python /workspace/bionemo-framework/sub-packages/bionemo-amplify/src/bionemo/amplify/train_amplify.py \
-            ...
-            --num-nodes=4 \
-            --devices=8 \
-            --min-seq-length 512 \
-            --max-seq-length 512 \
-            --num-layers 32 \
-            --num-attention-heads 15 \
-            --hidden-size 960 \
-            --ffn-hidden-size 3840 \
-            --micro-batch-size 128
-        ```
+    ```
+    python /workspace/bionemo-framework/sub-packages/bionemo-amplify/src/bionemo/amplify/train_amplify.py \
+        ...
+        --num-nodes=4 \
+        --devices=8 \
+        --min-seq-length 512 \
+        --max-seq-length 512 \
+        --num-layers 32 \
+        --num-attention-heads 15 \
+        --hidden-size 960 \
+        --ffn-hidden-size 3840 \
+        --micro-batch-size 128
+    ```
+````
 
 | Model Size | GPUs             | Batch Size (per GPU) | Training Step Time (s) |
 | ---------- | ---------------- | -------------------- | ---------------------- |

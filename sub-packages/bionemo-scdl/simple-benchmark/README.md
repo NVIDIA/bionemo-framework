@@ -24,11 +24,13 @@ pip install torch pandas psutil tqdm bionemo-scdl
 ```
 
 **For baseline comparison** (optional):
+
 ```bash
 pip install anndata scipy
 ```
 
 **Note**: If you have the BioNeMo source code, you can install bionemo-scdl locally:
+
 ```bash
 cd /path/to/bionemo-framework
 pip install -e sub-packages/bionemo-scdl/
@@ -74,17 +76,17 @@ python scdl_speedtest.py --generate-baseline
 
 ## Command Line Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-i, --input` | Dataset path (.h5ad, directory with .h5ad files, or scdl directory) | Auto-download example |
-| `-o, --output` | Save report to file | Print to screen (stdout) |
-| `-s, --sampling-scheme` | Sampling method (shuffle/sequential/random) | shuffle |
-| `--batch-size` | Batch size used in the PyTorch DataLoader | 32 |
-| `--max-time` | Max benchmark runtime (seconds). If the dataset is smaller  | 30 |
-| `--warmup-time` | Warmup period (seconds). This runs the dataloader before measurement to better reflect average expected performance. | 2 |
-| `--csv` | Export detailed CSV files | False |
-| `--generate-baseline` | Compare SCDL vs AnnData performance | False |
-| `--num-epochs`| The number of epochs (passes through the training dataset). | 1 |
+| Option                  | Description                                                                                                          | Default                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| `-i, --input`           | Dataset path (.h5ad, directory with .h5ad files, or scdl directory)                                                  | Auto-download example    |
+| `-o, --output`          | Save report to file                                                                                                  | Print to screen (stdout) |
+| `-s, --sampling-scheme` | Sampling method (shuffle/sequential/random)                                                                          | shuffle                  |
+| `--batch-size`          | Batch size used in the PyTorch DataLoader                                                                            | 32                       |
+| `--max-time`            | Max benchmark runtime (seconds). If the dataset is smaller                                                           | 30                       |
+| `--warmup-time`         | Warmup period (seconds). This runs the dataloader before measurement to better reflect average expected performance. | 2                        |
+| `--csv`                 | Export detailed CSV files                                                                                            | False                    |
+| `--generate-baseline`   | Compare SCDL vs AnnData performance                                                                                  | False                    |
+| `--num-epochs`          | The number of epochs (passes through the training dataset).                                                          | 1                        |
 
 ## Sample Output
 
@@ -120,7 +122,7 @@ Anndata version: 0.11.4
 
 When using `--generate-baseline`, you get a comprehensive comparison:
 
-```
+````
 ================================================================================
 SCDL vs ANNDATA COMPARISON REPORT
 ================================================================================
@@ -154,7 +156,8 @@ SUMMARY:
   AnnData disk usage: 0.14 GB
   SCDL uses 1.4x more disk space
 ================================================================================```
-```
+````
+
 ## CSV Export
 
 When using `--csv`, the script generates:
@@ -165,7 +168,6 @@ When using `--csv`, the script generates:
 Perfect for analysis in Excel, Python, R, or other data tools.
 
 ## Troubleshooting
-
 
 ### Dataset Issues
 
@@ -180,7 +182,7 @@ Perfect for analysis in Excel, Python, R, or other data tools.
 - **Longer runs**: Increase `--max-time 120` for stable measurements
 - **Memory profiling**: Use `--csv` to get detailed memory usage per epoch
 - **Clearing the page cache**: With lazy loading, data may be stored in the page cache between runs. This is especially an issue with SCDL. Between runs, the page cache can be cleared with
-```sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'```
+  `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`
 
 ## Example Datasets
 
@@ -212,9 +214,9 @@ gcloud storage cp -R gs://arc-ctc-tahoe100/2025-02-25/* .
 
 This will download 19 total files (14 from the full set + 5 related to the tutorial).
 
-To process this data, an option is to run ```python scdl_speedtest.py --generate-baseline -i <path to h5ad>.```.
+To process this data, an option is to run `python scdl_speedtest.py --generate-baseline -i <path to h5ad>.`.
 This will automatically convert the files to the SCDL format. Alternatively, with bionemo-scdl installed,
-```convert_h5ad_to_scdl --data-path <path to h5ad> --save-path <SCDL path>```. This is a multi-hour process to run the
+`convert_h5ad_to_scdl --data-path <path to h5ad> --save-path <SCDL path>`. This is a multi-hour process to run the
 full conversion; however, running a single plate of the data should give you a good idea of expected SCDL performance
 on your system. The following command will run the speedtest on the first plate, as downloaded above:
 
