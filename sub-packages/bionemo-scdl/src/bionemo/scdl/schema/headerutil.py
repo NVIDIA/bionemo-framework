@@ -32,10 +32,10 @@ class BinaryHeaderCodec:
     error checking. Designed for creating cross-platform file headers in binary form.
     
     Args:
-        endianness: Byte order for serialization (default: LITTLE)
+        endianness: Byte order for serialization (default: NETWORK)
         
     Example:
-        >>> codec = BinaryHeaderCodec(Endianness.LITTLE)
+        >>> codec = BinaryHeaderCodec(Endianness.NETWORK)
         >>> data = codec.pack_uint32(42)
         >>> value = codec.unpack_uint32(data)
         >>> assert value == 42
@@ -460,8 +460,8 @@ class BinaryHeaderCodec:
 Example of how to use BinaryHeaderCodec for creating file headers:
 
 if __name__ == '__main__':
-    # Create a codec with little-endian byte order
-    codec = BinaryHeaderCodec(Endianness.LITTLE)
+    # Create a codec with network-endian byte order
+    codec = BinaryHeaderCodec(Endianness.NETWORK)
     
     # Example: Create a simple file header
     magic_number = 0x12345678
