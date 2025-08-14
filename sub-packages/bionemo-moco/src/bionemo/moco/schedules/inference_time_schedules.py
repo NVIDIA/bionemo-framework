@@ -612,3 +612,4 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
             schedule = 1.0 - schedule
 
         return schedule
+    
