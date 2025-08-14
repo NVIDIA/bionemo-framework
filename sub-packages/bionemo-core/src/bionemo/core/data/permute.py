@@ -14,8 +14,10 @@
 # limitations under the License.
 
 import warnings
+from functools import lru_cache
 
 
+@lru_cache(maxsize=102400)
 def permute(index: int, length: int, seed: int) -> int:
     """Index into a permuted array with constant space and time complexity.
 
