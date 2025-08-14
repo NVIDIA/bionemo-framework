@@ -708,6 +708,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
         self.data_path = stored_path
         self.mode = Mode.READ_APPEND
+        self.header_path = stored_path + "/" + "header.sch"
+        # Load header if present; keep None if missing or unreadable
+        if os.path.exists(self.header_path):
+            try:
+                self.header = SCDLHeader.load(self.header_path)
+            except Exception as e:
+                warnings.warn(f"Failed to load SCDL header at {self.header_path}: {e}")
+                self.header = None
+        else:
+            self.header = None
 
         # Metadata is required, so we must check if it exists and fail if not.
         if not os.path.exists(f"{self.data_path}/{FileNames.METADATA.value}"):
@@ -938,34 +948,78 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
     def _write_header(self):
         ## Write the SCDL header.
-        ## TODO: This remains not fully implemented
         arrays: List[ArrayInfo] = []
-        for name, matrix in [(FileNames.DATA.name, self.data), (FileNames.ROWPTR.name, self.row_index), (FileNames.COLPTR.name, self.col_index)]:
-            # Convert numpy dtype to ArrayDType enum
-            dtype_value = self.dtypes[FileNames.DATA.value]
-            if isinstance(dtype_value, str):
-                # If it's already a string, try to map it
-                try:
-                    array_dtype = ArrayDType.from_numpy_dtype(dtype_value)
-                except ValueError:
-                    # Default to float32 for unknown string dtypes
-                    array_dtype = ArrayDType.FLOAT32_ARRAY
-            else:
-                # If it's a numpy dtype object, convert it
+        # Use FileNames enums directly to ensure correct dtype lookup
+        for fname, matrix in [
+            (FileNames.DATA, self.data),
+            (FileNames.ROWPTR, self.row_index),
+            (FileNames.COLPTR, self.col_index),
+        ]:
+            # Convert numpy dtype to ArrayDType enum, defaulting reasonably on failures
+            dtype_value = self.dtypes.get(fname.value, self.dtypes[FileNames.DATA.value])
+            try:
                 array_dtype = ArrayDType.from_numpy_dtype(dtype_value)
-            
-            info = ArrayInfo(name,
-                             len(matrix),
-                             array_dtype,
-                             None)
+            except ValueError:
+                array_dtype = ArrayDType.FLOAT32_ARRAY
+
+            info = ArrayInfo(
+                fname.name,
+                len(matrix),
+                array_dtype,
+                None,
+            )
             arrays.append(info)
+
+        # Populate FeatureIndexInfo entries for the feature index directory
         indexes: List[FeatureIndexInfo] = []
+        try:
+            # Determine an appropriate dtype for the feature index entries.
+            # Default to STRING_ARRAY if we cannot determine more specific type.
+            feature_array_dtype = ArrayDType.STRING_ARRAY
+            # Attempt to infer dtype from first feature array, if present
+            if len(self._feature_index) > 0:
+                # Access the first available feature ndarray via lookup of row 0
+                # This returns list[np.ndarray] and a label; pick the first array if any
+                try:
+                    feature_values, _ = self._feature_index.lookup(0)
+                    if feature_values and hasattr(feature_values[0], "dtype"):
+                        feature_array_dtype = ArrayDType.from_numpy_dtype(feature_values[0].dtype)
+                except Exception:
+                    # Fall back to default if lookup not available yet
+                    pass
+
+            # Build the list of index files that constitute the feature index
+            features_rel_path = f"{FileNames.FEATURES.value}"
+            index_files: List[str] = [
+                f"{features_rel_path}/cumulative_sum_index.npy",
+                f"{features_rel_path}/labels.npy",
+                f"{features_rel_path}/version.npy",
+            ]
+            # Parquet files are named dataframe_000.parquet, etc.
+            num_frames = len(self._feature_index)
+            if num_frames > 0:
+                num_digits = len(str(num_frames))
+                for i in range(num_frames):
+                    index_files.append(f"{features_rel_path}/dataframe_{i:0{num_digits}d}.parquet")
+
+            fi_info = FeatureIndexInfo(
+                name=FileNames.FEATURES.value,
+                length=self._feature_index.number_of_rows(),
+                dtype=feature_array_dtype,
+                index_files=index_files,
+                shape=None,
+            )
+            indexes.append(fi_info)
+        except Exception:
+            # If any unexpected error occurs, fall back to no feature index entries
+            indexes = []
 
         header = self.header if self.header is not None else SCDLHeader(
             SCDLVersion(0, 0, 2),
             Backend.MEMMAP_V0,
             arrays,
-            indexes)
+            indexes,
+        )
         header.save(self.header_path)
 
 
