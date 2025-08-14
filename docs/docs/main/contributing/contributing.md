@@ -228,7 +228,7 @@ We recommend using the developer container for contributions.
 
 ```bash
 pip install -r dev-requirements.txt --user
-python ./scripts/license_check.py --modify --replace --license-header ./license_header -c sub-packages/ -c docs/ -c scripts/ -c ci/ -c internal/
+python ci/scripts/license_check.py --modify --replace --license-header ./license_header -c sub-packages/ -c docs/ -c scripts/ -c ci/ -c internal/
 ```
 
 #### Updating the secrets baseline file
