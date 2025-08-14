@@ -2,9 +2,11 @@
 
 !!! note
 
-    Prior to beginning this section, you must confirm that your computing platform meets or exceeds the prerequisites
-    outlined in the [Hardware and Software Prerequisites](./pre-reqs.md) page and that you have already pulled and
-    verified that you can run the BioNeMo container as outlined in the [Access and Startup](./access-startup.md) page.
+```
+Prior to beginning this section, you must confirm that your computing platform meets or exceeds the prerequisites
+outlined in the [Hardware and Software Prerequisites](./pre-reqs.md) page and that you have already pulled and
+verified that you can run the BioNeMo container as outlined in the [Access and Startup](./access-startup.md) page.
+```
 
 At this point, you have successfully launched and run the Docker container. This section will guide you through setting
 up your host machine environment, suggest Docker commands for various common workflows, and explain helpful `docker run`
@@ -56,36 +58,40 @@ Running this command will make these variables available for use in the `docker 
 
 !!! note "NGC Credentials Required for Data Download"
 
-    Some of the credentials in the above `.env` file are optional for specific workflows. However, if you intend to use
-    data hosted on the NGC platform (for example, model checkpoints and example training data), you _must_ define both
-    NGC_CLI_API_KEY and NGC_CLI_ORG at container run time. The easiest way to ensure these variables are set is to use
-    the `.env` file as shown here with your specific variable definitions.
+```
+Some of the credentials in the above `.env` file are optional for specific workflows. However, if you intend to use
+data hosted on the NGC platform (for example, model checkpoints and example training data), you _must_ define both
+NGC_CLI_API_KEY and NGC_CLI_ORG at container run time. The easiest way to ensure these variables are set is to use
+the `.env` file as shown here with your specific variable definitions.
+```
 
 Refer to the list below for an explanation of each of these variables:
 
 - `LOCAL_RESULTS_PATH` and `DOCKER_RESULTS_PATH`: Paths for storing results, with `LOCAL` referring to the path on the
-    local machine and `DOCKER` referring to the path inside the Docker container.
+  local machine and `DOCKER` referring to the path inside the Docker container.
 - `LOCAL_DATA_PATH` and `DOCKER_DATA_PATH`: Paths for storing data, again with `LOCAL` and `DOCKER` distinctions.
 - `LOCAL_MODELS_PATH` and `DOCKER_MODELS_PATH`: Paths for storing machine learning models, with the same local and
-    Docker differences.
+  Docker differences.
 - `JUPYTER_PORT`: The port number for a Jupyter Lab server. The default port is 8888.
--  `NGC_CLI_API_KEY`, `NGC_CLI_ORG`, `NGC_CLI_TEAM`, and `NGC_CLI_FORMAT_TYPE`: API key, organization, team, and format
-    type for the NVIDIA GPU Cloud (NGC) command-line interface (CLI).
+- `NGC_CLI_API_KEY`, `NGC_CLI_ORG`, `NGC_CLI_TEAM`, and `NGC_CLI_FORMAT_TYPE`: API key, organization, team, and format
+  type for the NVIDIA GPU Cloud (NGC) command-line interface (CLI).
 - `WANDB_API_KEY`: An API key for Weights and Biases (W&B), a platform for machine learning experiment tracking and
-    visualization.
+  visualization.
 
 ??? note "Weights and Biases Setup (WANDB_API_KEY, Optional)"
 
-    [Weights and Biases](https://wandb.ai/) (W&B) is a machine learning operations platform that provides tools and
-    services to help machine learning practitioners build, train, and deploy models more efficiently. BioNeMo
-    is built to work with W&B and requires only simple setup steps to start tracking your experiments. To set up W&B
-    inside your container, follow the steps below:
+```
+[Weights and Biases](https://wandb.ai/) (W&B) is a machine learning operations platform that provides tools and
+services to help machine learning practitioners build, train, and deploy models more efficiently. BioNeMo
+is built to work with W&B and requires only simple setup steps to start tracking your experiments. To set up W&B
+inside your container, follow the steps below:
 
-    1. Sign up for an account at [Weights and Biases](https://wandb.ai/).
-    2. Setup your [API Key](https://docs.wandb.ai/guides/track/public-api-guide#authentication) with W&B.
-    3. Set the `WANDB_API_KEY` variable in your `.env` in the same way as you set the previous environment variable
-        above.
-    4. Set the environment variable inside your container using the `-e` option, as shown in the next section.
+1. Sign up for an account at [Weights and Biases](https://wandb.ai/).
+2. Setup your [API Key](https://docs.wandb.ai/guides/track/public-api-guide#authentication) with W&B.
+3. Set the `WANDB_API_KEY` variable in your `.env` in the same way as you set the previous environment variable
+    above.
+4. Set the environment variable inside your container using the `-e` option, as shown in the next section.
+```
 
 ## Starting the BioNeMo Container for Common Workflows
 
@@ -122,16 +128,16 @@ docker run \
   /bin/bash
 ```
 
-* `--rm`: Removes the container when it exits.
-* `-it`: Allocates a pseudo-TTY and keeps the container running in the foreground.
-* `--gpus all`: Allocates all available GPUs on the host machine.
-* `--network host`: Allows the container to use the host's network stack, effectively sharing the host's network
-    namespace and allowing the container to access the host's network interfaces directly.
-* `--shm-size=4g`: Sets the size of the shared memory (/dev/shm) in the container to 4 gigabytes, which can be useful for applications that rely heavily on shared memory.
-* `-e <VARIABLE>`: Sets the environment variable inside the container, taking the value set on the host machine.
-* `-v <LOCAL DIRECTORY>:<DOCKER DIRECTORY>`: Mounts a volume from the host machine to the container.
-* `{{ docker_url }}:{{ docker_tag }}`: The path to the Docker image to use.
-* `/bin/bash`: The command to run inside the container, which starts a Bash shell.
+- `--rm`: Removes the container when it exits.
+- `-it`: Allocates a pseudo-TTY and keeps the container running in the foreground.
+- `--gpus all`: Allocates all available GPUs on the host machine.
+- `--network host`: Allows the container to use the host's network stack, effectively sharing the host's network
+  namespace and allowing the container to access the host's network interfaces directly.
+- `--shm-size=4g`: Sets the size of the shared memory (/dev/shm) in the container to 4 gigabytes, which can be useful for applications that rely heavily on shared memory.
+- `-e <VARIABLE>`: Sets the environment variable inside the container, taking the value set on the host machine.
+- `-v <LOCAL DIRECTORY>:<DOCKER DIRECTORY>`: Mounts a volume from the host machine to the container.
+- `{{ docker_url }}:{{ docker_tag }}`: The path to the Docker image to use.
+- `/bin/bash`: The command to run inside the container, which starts a Bash shell.
 
 ### Running a Model Training Script Inside the Container
 
@@ -154,8 +160,8 @@ docker run --rm -it --gpus all \
 
 Many of the Docker run options are identical to the shell example above, with the exception of the command being run:
 
-* `python $DOCKER_RESULTS_PATH/training.py --option1 --option2 --output=$DOCKER_RESULTS_PATH`: The command to run inside the
-container, which runs the `training.py` Python script with the specified command-line arguments.
+- `python $DOCKER_RESULTS_PATH/training.py --option1 --option2 --output=$DOCKER_RESULTS_PATH`: The command to run inside the
+  container, which runs the `training.py` Python script with the specified command-line arguments.
 
 ### Running Jupyter Lab Inside the Container
 
@@ -187,16 +193,16 @@ docker run --rm -d --gpus all \
 
 Refer to the guide below for an explanation of the recommended Jupyter Lab options:
 
-* `jupyter lab ...`: The command to run inside the container, which starts a Jupyter Lab server. The options are:
-	+ `--allow-root`: Allow the Jupyter Lab server to run as the root user.
-	+ `--ip=*`: Listen on all available network interfaces, which allows access from outside the container.
-	+ `--port=$JUPYTER_PORT`: Listen on port 8888.
-	+ `--no-browser`: Do not open a browser window automatically.
-	+ `--NotebookApp.token=''`: Set an empty token for the Jupyter Lab server (no authentication is required).
-	+ `--NotebookApp.allow_origin='*'`: Allow requests from any origin.
-	+ `--ContentsManager.allow_hidden=True`: Allow the contents manager to access hidden files and directories.
-	+ `--notebook-dir=$DOCKER_RESULTS_PATH`: Set the notebook directory to
-        `$DOCKER_RESULTS_PATH` inside the container.
+- `jupyter lab ...`: The command to run inside the container, which starts a Jupyter Lab server. The options are:
+  - `--allow-root`: Allow the Jupyter Lab server to run as the root user.
+  - `--ip=*`: Listen on all available network interfaces, which allows access from outside the container.
+  - `--port=$JUPYTER_PORT`: Listen on port 8888.
+  - `--no-browser`: Do not open a browser window automatically.
+  - `--NotebookApp.token=''`: Set an empty token for the Jupyter Lab server (no authentication is required).
+  - `--NotebookApp.allow_origin='*'`: Allow requests from any origin.
+  - `--ContentsManager.allow_hidden=True`: Allow the contents manager to access hidden files and directories.
+  - `--notebook-dir=$DOCKER_RESULTS_PATH`: Set the notebook directory to
+    `$DOCKER_RESULTS_PATH` inside the container.
 
 ## Common `docker run` Options
 
@@ -215,6 +221,7 @@ runs.
 ```
 docker run -v <host_directory>:<container_directory> <image_name>
 ```
+
 **Example:**
 
 ```
@@ -270,6 +277,6 @@ docker run -u $(id -u):$(id -g) \
 ```
 
 - `$(id -u)` is a command substitution that executes the id -u command and captures its output. `id -u` prints the
-    effective user ID of the current user.
+  effective user ID of the current user.
 - `$(id -g)` is another command substitution that executes the `id -g` command and captures its output. `id -g` prints
-    the effective group ID of the current user.
+  the effective group ID of the current user.

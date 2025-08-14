@@ -847,7 +847,7 @@ def _train_model_get_ckpt(
             max_steps=n_steps_train,
             # minimum learning rate is 1/100th of the initial learning rate, so eg lr=1e-3 -> min_lr=1e-5
             min_lr=lr / 100,
-            warmup_steps=int(math.ceil(n_steps_train * 0.05)),
+            warmup_steps=math.ceil(n_steps_train * 0.05),
             interval="step",
             frequency=1,
         ),

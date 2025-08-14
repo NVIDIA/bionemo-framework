@@ -1,11 +1,13 @@
 # bionemo-size-aware-batching
 
 To install, execute the following:
+
 ```bash
 pip install -e .
 ```
 
 To run unit tests, execute:
+
 ```bash
 pytest -v .
 ```
@@ -49,26 +51,28 @@ This usage can leverage the `create_buckets` function and follow the steps below
 Refer to the later sections for the API documentation and examples on how to achieve each of the steps above.
 
 ### utils Module
----------------
 
-*   [**collect_cuda_peak_alloc**](#utils.collect_cuda_peak_alloc): A function that
-    collects CUDA peak memory allocation statistics and features to be used for
-    memory usage prediction for a given workflow.
+______________________________________________________________________
 
-*   [**create_buckets**](#create_buckets): A function to create buckets for a
-    list of integers with pre-defined maximal width of ranges and minimal
-    bucket sizes.
+- [**collect_cuda_peak_alloc**](#utils.collect_cuda_peak_alloc): A function that
+  collects CUDA peak memory allocation statistics and features to be used for
+  memory usage prediction for a given workflow.
+
+- [**create_buckets**](#create_buckets): A function to create buckets for a
+  list of integers with pre-defined maximal width of ranges and minimal
+  bucket sizes.
 
 ### sampler Module
------------------
 
-* [**size_aware_batching**](#sampler.size_aware_batching): A generator that batches elements from an iterable while
-    ensuring that the total size of each batch does not exceed a specified maximum.
-* [**SizeAwareBatchSampler**](#sampler.SizeAwareBatchSampler): A class that batches elements of varying sizes while
-    ensuring that the total size of each batch does not exceed a specified maximum.
-* [**BucketBatchSampler**](#BucketBatchSampler): A class that groups elements of varying sizes based on predefined
-    bucket ranges, and create batches with elements from each bucket to ensure that each batch has elements with
-    homogeneous sizes.
+______________________________________________________________________
+
+- [**size_aware_batching**](#sampler.size_aware_batching): A generator that batches elements from an iterable while
+  ensuring that the total size of each batch does not exceed a specified maximum.
+- [**SizeAwareBatchSampler**](#sampler.SizeAwareBatchSampler): A class that batches elements of varying sizes while
+  ensuring that the total size of each batch does not exceed a specified maximum.
+- [**BucketBatchSampler**](#BucketBatchSampler): A class that groups elements of varying sizes based on predefined
+  bucket ranges, and create batches with elements from each bucket to ensure that each batch has elements with
+  homogeneous sizes.
 
 # API reference and examples
 
@@ -78,7 +82,7 @@ Refer to the later sections for the API documentation and examples on how to ach
 
 <a id="utils.collect_cuda_peak_alloc"></a>
 
-#### collect\_cuda\_peak\_alloc
+#### collect_cuda_peak_alloc
 
 ```python
 def collect_cuda_peak_alloc(
@@ -103,24 +107,21 @@ results.
 
 - `dataset` - An iterable containing the input data.
 - `work` - A function that takes a data point and returns its corresponding feature. This is where
-    the main computation happens and memory allocations are tracked.
+  the main computation happens and memory allocations are tracked.
 - `device` - The target Torch CUDA device.
 - `cleanup` - A function that is called after each iteration to perform any necessary cleanup.
 
-
 **Returns**:
 
-  A tuple containing the collected features and their corresponding memory usage statistics.
-
+A tuple containing the collected features and their corresponding memory usage statistics.
 
 **Raises**:
 
 - `ValueError` - If the provided device is not a CUDA device.
 
-  -------
+  ______________________________________________________________________
 
 **Examples**:
-
 
 ```python
 >>> import torch
@@ -169,7 +170,7 @@ results.
 
 <a id="utils.create_buckets"></a>
 
-#### create\_buckets
+#### create_buckets
 
 ```python
 def create_buckets(sizes: torch.Tensor, max_width: int,
@@ -179,9 +180,8 @@ def create_buckets(sizes: torch.Tensor, max_width: int,
 Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket count.
 
 It will return a named tuple containing the bucket boundaries and the actual bucket sizes.
-e.g. torch.tensor([0, 5, 7]), torch.tensor([3,2]): specifies 2 buckets: one with range 0<= sizes < 5, width=5 and 3 elements
-and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
-
+e.g. torch.tensor(\[0, 5, 7\]), torch.tensor(\[3,2\]): specifies 2 buckets: one with range 0\<= sizes \< 5, width=5 and 3 elements
+and the other one with range 5 \<= sizes \< 7, width=2 and 2 elements.
 
 **Arguments**:
 
@@ -190,19 +190,16 @@ and the other one with range 5 <= sizes < 7, width=2 and 2 elements.
 - `min_bucket_count` - The minimum count of a bucket, should be a positive integer.
   Bucket size may be smaller than min_bucket_count if its width reaches max_width.
 
-
 **Raises**:
 
 - `ValueError` - If the provided sizes is empty, or not integers.
 - `ValueError` - If max_width is not a positive integer or min_bucket_count is not a positive integer.
 
-
 **Returns**:
 
-  A named tuple containing bucket boundaries in ascending order and the number of elements in each bucket.
+A named tuple containing bucket boundaries in ascending order and the number of elements in each bucket.
 
-  ---------
-
+______________________________________________________________________
 
 **Examples**:
 
@@ -236,7 +233,7 @@ tensor([5, 5, 5, 5])
 
 <a id="sampler.size_aware_batching"></a>
 
-#### size\_aware\_batching
+#### size_aware_batching
 
 ```python
 def size_aware_batching(
@@ -268,35 +265,40 @@ This can be useful for both indexible data or non-indexible but iterable data.
 - `info_logger` - A function to log info. Defaults to None.
 - `warn_logger` - A function to log warnings. Defaults to None.
 
-
 **Yields**:
 
-  A generator that yields batches from `dataset`.
+A generator that yields batches from `dataset`.
 
-  -----------
-  Assumptions
-  1. Linear complexity. This function consumes the given Iterable of data (`dataset`) once,
-  by going over the data item one by one to build a batch and yield it as soon as the
-  addition of the next data item to the batch would exceed `max_total_size` or if the
-  batch is the last one (end of iteration)
-  2. Additive size measurement. For the general usage case of building mini-batches with
-  a threshold of the batch's memory consumption, it assumes that the size of the batch is
-  the sum of all elements in the batch (additive property).
-  3. Comparable type of `max_total_size` and `sizeof`'s return. `sizeof`'s return values
-  must be compared with `max_total_size` to threshold the size of batches
+______________________________________________________________________
 
+Assumptions
 
-  ------
-  Caveat
+1. Linear complexity. This function consumes the given Iterable of data (`dataset`) once,
+   by going over the data item one by one to build a batch and yield it as soon as the
+   addition of the next data item to the batch would exceed `max_total_size` or if the
+   batch is the last one (end of iteration)
+2. Additive size measurement. For the general usage case of building mini-batches with
+   a threshold of the batch's memory consumption, it assumes that the size of the batch is
+   the sum of all elements in the batch (additive property).
+3. Comparable type of `max_total_size` and `sizeof`'s return. `sizeof`'s return values
+   must be compared with `max_total_size` to threshold the size of batches
+
+______________________________________________________________________
+
+Caveat
+
 - `1` - The generated batch sizes may have large variance
+
   - how to workaround: filter the output of this generator using a batch size threshold
+
 - `2` - The number of batches may vary a lot across different epochs.
+
   - how to workaround: increase the number of steps that compose an epoch,
-  e.g., in the Lightning training/validation loop, which effectively increases the input
-  dataset size per epoch
+    e.g., in the Lightning training/validation loop, which effectively increases the input
+    dataset size per epoch
 
+  ______________________________________________________________________
 
-  -------
   Example
 
 ```python
@@ -336,10 +338,9 @@ The sampler uses a provided `sizeof` function to determine the size
 of each element in the dataset and ensures that the total size of
 each batch does not exceed the specified `max_total_size`.
 
----------
+______________________________________________________________________
 
 **Examples**:
-
 
 ```python
 >>> import torch
@@ -395,7 +396,6 @@ Initializes the SizeAwareBatchSampler.
 - `info_logger` - A function to log info. Defaults to None.
 - `warn_logger` - A function to log warnings. Defaults None.
 
-
 **Raises**:
 
 - `TypeError` - If sampler is not an instance of Sampler or Iterable, or if sizeof is not a callable, dictionary, or sequence container.
@@ -415,7 +415,7 @@ This function yields batches of indices that do not exceed the maximum total siz
 
 **Yields**:
 
-  A batch of indices that do not exceed the maximum total size.
+A batch of indices that do not exceed the maximum total size.
 
 <a id="sampler.BucketBatchSampler"></a>
 
@@ -432,8 +432,8 @@ Then, a base batch sampler is used for each bucket to create mini-batches.
 
 The bucket ranges are specified by `bucket_boundaries`, which will be first sorted internally and used to create
 `len(bucket_boundaries) - 1` left-closed right-open intervals.
-e.g. if bucket_boundaries tensor is [10, 5, 0, 16], it will be sorted as [0, 5, 10, 16] and 3 buckets will be created
-with ranges: [0, 5), [5, 10), [10, 16).
+e.g. if bucket_boundaries tensor is \[10, 5, 0, 16\], it will be sorted as \[0, 5, 10, 16\] and 3 buckets will be created
+with ranges: \[0, 5), \[5, 10), \[10, 16).
 
 The base batch sampler will be created by passing the element indices in each bucket as the data source, and
 `base_batch_sampler_shared_kwargs` and `base_batch_sampler_individual_kwargs`
@@ -450,7 +450,7 @@ This class is used to create homogeneous batches of data for training or evaluat
 
 Modified from https://github.com/rssrwn/semla-flow/blob/main/semlaflow/data/util.py
 
----------
+______________________________________________________________________
 
 **Examples**:
 
@@ -545,7 +545,6 @@ Initializes the BucketBatchSampler.
   Default to  {}.
 - `shuffle` - A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
 - `generator` - Generator used in sampling. Defaults to None.
-
 
 **Raises**:
 

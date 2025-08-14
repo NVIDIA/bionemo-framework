@@ -1,11 +1,13 @@
 # bionemo-webdatamodule
 
 To install, execute the following:
+
 ```bash
 pip install -e .
 ```
 
 To run unit tests, execute:
+
 ```bash
 pytest -v .
 ```
@@ -26,19 +28,21 @@ it creates the WebLoader object chaining up the `pipeline_prebatch_wld` workflow
 
 **Examples**:
 
-  --------
-  1. create the data module with input directory to webdataset tar files.
-  Depending on which of the downstream Lightning.Trainer methods are called,
-  e.g., `Trainer.fit()`, `Trainer.validate()`, `Trainer.test()` or
-  `Trainer.predict()`, only a subset of the train, val and test splits need to
-  be specified in the various input options to the data module:
+______________________________________________________________________
 
-  - `Trainer.fit()` requires the `train` and `val` splits
-  - `Trainer.validate()` requires the `val` split
-  - `Trainer.test()` requires the `test` splits
-  - `Trainer.predict()` requires the `test` splits
+1. create the data module with input directory to webdataset tar files.
+   Depending on which of the downstream Lightning.Trainer methods are called,
+   e.g., `Trainer.fit()`, `Trainer.validate()`, `Trainer.test()` or
+   `Trainer.predict()`, only a subset of the train, val and test splits need to
+   be specified in the various input options to the data module:
 
-  Here is an example of constructing the data module for `Trainer.fit()`:
+- `Trainer.fit()` requires the `train` and `val` splits
+- `Trainer.validate()` requires the `val` split
+- `Trainer.test()` requires the `test` splits
+- `Trainer.predict()` requires the `test` splits
+
+Here is an example of constructing the data module for `Trainer.fit()`:
+
 ```python
 >>> from bionemo.webdatamodule.datamodule import Split, WebDataModule
 >>>
@@ -162,7 +166,7 @@ Constructor.
   Kwargs:
 - `prefix_tars_wds` - name prefix of the input webdataset tar
   files. The input tar files are globbed by
-  "{dirs_tars_wds[split]}/{prefix_tars_wds}-*.tar"
+  "{dirs_tars_wds\[split\]}/{prefix_tars_wds}-\*.tar"
 - `pipeline_wds` - a dictionary of webdatast composable, i.e.,
   functor that maps a iterator to another iterator that
   transforms the data sample yield from the dataset object, for
@@ -194,7 +198,7 @@ Constructor.
 
 <a id="datamodule.WebDataModule.prepare_data"></a>
 
-#### prepare\_data
+#### prepare_data
 
 ```python
 def prepare_data() -> None
@@ -221,7 +225,7 @@ This is called on all Lightning-managed nodes in a multi-node training session.
 
 <a id="datamodule.WebDataModule.train_dataloader"></a>
 
-#### train\_dataloader
+#### train_dataloader
 
 ```python
 def train_dataloader() -> wds.WebLoader
@@ -231,7 +235,7 @@ Webdataset for the training data.
 
 <a id="datamodule.WebDataModule.val_dataloader"></a>
 
-#### val\_dataloader
+#### val_dataloader
 
 ```python
 def val_dataloader() -> wds.WebLoader
@@ -241,7 +245,7 @@ Webdataset for the validation data.
 
 <a id="datamodule.WebDataModule.test_dataloader"></a>
 
-#### test\_dataloader
+#### test_dataloader
 
 ```python
 def test_dataloader() -> wds.WebLoader
@@ -251,7 +255,7 @@ Webdataset for the test data.
 
 <a id="datamodule.WebDataModule.predict_dataloader"></a>
 
-#### predict\_dataloader
+#### predict_dataloader
 
 ```python
 def predict_dataloader() -> wds.WebLoader
@@ -287,9 +291,10 @@ WebLoader object chaining up the `pipeline_prebatch_wld` workflow.
 
 **Examples**:
 
-  --------
-  1. create the data module with a directory of pickle files and the file name
-  prefix thereof for different splits to used by `Lightning.Trainer.fit()`
+______________________________________________________________________
+
+1. create the data module with a directory of pickle files and the file name
+   prefix thereof for different splits to used by `Lightning.Trainer.fit()`
 
 ```python
 >>> from bionemo.core.data.datamodule import Split, PickledDataWDS
@@ -377,7 +382,7 @@ Constructor.
 
 <a id="datamodule.PickledDataWDS.prepare_data"></a>
 
-#### prepare\_data
+#### prepare_data
 
 ```python
 def prepare_data() -> None

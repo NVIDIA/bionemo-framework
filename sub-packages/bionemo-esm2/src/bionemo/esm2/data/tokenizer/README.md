@@ -4,6 +4,7 @@ This directory contains the output of
 
 ```python
 from transformers import AutoTokenizer
+
 AutoTokenizer.from_pretrained("facebook/esm2_t33_650M_UR50D").save_pretrained("...")
 ```
 

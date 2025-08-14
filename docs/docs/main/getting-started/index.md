@@ -3,6 +3,7 @@
 ## Repository structure
 
 ### High level overview
+
 This repository is structured as a meta-package that collects together many python packages. We designed in this way
 because this is how we expect our users to use bionemo, as a package that they themselves import and use in their
 own projects. By structuring code like this ourselves we ensure that bionemo developers follow similar patterns to our
@@ -10,33 +11,33 @@ end users.
 
 Each model is stored in its own `sub-packages`. Some examples of models include:
 
-* `sub-packages/bionemo-esm2`: ESM2 model
-* `sub-packages/bionemo-geneformer`: Geneformer
-* `sub-packages/bionemo-example_model`: A minimal example MNIST model that demonstrates how you can write a lightweight
-    megatron model that doesn't actually support any megatron parallelism, but should run fine as long as you only use
-    data parallelism to train.
+- `sub-packages/bionemo-esm2`: ESM2 model
+- `sub-packages/bionemo-geneformer`: Geneformer
+- `sub-packages/bionemo-example_model`: A minimal example MNIST model that demonstrates how you can write a lightweight
+  megatron model that doesn't actually support any megatron parallelism, but should run fine as long as you only use
+  data parallelism to train.
 
 There are also useful utility packages, for example:
 
-* `sub-packages/bionemo-scdl`: Single Cell Dataloader (SCDL) provides a dataset implementation that can be used by downstream
-    single-cell models in the bionemo package.
-* `sub-packages/bionemo-testing`: a suite of utilities that are useful in testing, think `torch.testing` or `np.testing`.
+- `sub-packages/bionemo-scdl`: Single Cell Dataloader (SCDL) provides a dataset implementation that can be used by downstream
+  single-cell models in the bionemo package.
+- `sub-packages/bionemo-testing`: a suite of utilities that are useful in testing, think `torch.testing` or `np.testing`.
 
 Finally some of the packages represent common functions and abstract base classes that expose APIs that are useful for
 interacting with `NeMo2`. Some examples of these include:
 
-* `sub-packages/bionemo-core`: mostly just high level APIs
-* `sub-packages/bionemo-llm`: ABCs for code that multiple large language models (eg BERT variants) share.
+- `sub-packages/bionemo-core`: mostly just high level APIs
+- `sub-packages/bionemo-llm`: ABCs for code that multiple large language models (eg BERT variants) share.
 
 Documentation source is stored in `docs/`
 
 The script for building a local docker container is `./launch.sh` which has some useful commands including:
 
-* `./launch.sh build` to build the container
-* `./launch.sh run` to get into a running container with reasonable settings for data/code mounts etc.
-
+- `./launch.sh build` to build the container
+- `./launch.sh run` to get into a running container with reasonable settings for data/code mounts etc.
 
 ### More detailed structure notes
+
 ```
 $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_experiment" -I __pycache__ -I "*.egg-info" -I lightning_logs -I results -I data -I MNIST* -I 3rdparty
 .
@@ -342,6 +343,7 @@ $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_expe
 ```
 
 ## Installation
+
 ### Initializing 3rd-party dependencies as git submodules
 
 For development, the NeMo and Megatron-LM dependencies are vendored in the bionemo-2 repository workspace as git

@@ -8,8 +8,8 @@ BioNeMo-SCDL provides an independent pytorch-compatible dataset class for single
 - Improved performance when loading large datasets. It allows for loading and fast iteration of large datasets.
 - Ability to use datasets that are much, much larger than memory. This is because the datasets are stored in a numpy memory-mapped format.
 - Additionally, conversion of large (significantly larger than memory) AnnData files into the SCDL format.
-- [Future] Full support for ragged arrays (i.e., datasets with different feature counts; currently only a subset of the API functionality is supported for ragged arrays).
-- [Future] Support for improved compression.
+- \[Future\] Full support for ragged arrays (i.e., datasets with different feature counts; currently only a subset of the API functionality is supported for ragged arrays).
+- \[Future\] Support for improved compression.
 
 BioNeMo-SCDL's API resembles that of AnnData, so code changes are minimal.
 In most places a simple swap from an attribute to a function is sufficient (i.e., swapping `data.n_obs` for `data.number_of_rows()`).
@@ -35,8 +35,9 @@ Download "https://datasets.cellxgene.cziscience.com/97e96fb1-8caf-4f08-9174-2730
 ```python
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 
-data = SingleCellMemMapDataset("97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad")
-
+data = SingleCellMemMapDataset(
+    "97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad"
+)
 ```
 
 This creates a `SingleCellMemMapDataset` that is stored at 97e_scmm in large, memory-mapped arrays
@@ -50,7 +51,6 @@ If the dataset is large, the AnnData file can be lazy-loaded and then read in ba
 ### Interrogating single cell datasets and exploring the API
 
 ```python
-
 data.number_of_rows()
 ## 25382
 
@@ -62,7 +62,6 @@ data.number_of_values()
 
 data.number_nonzero_values()
 ## 26947275
-
 ```
 
 ### Saving SCDL (Single Cell Dataloader) datasets to disk
@@ -76,9 +75,7 @@ state, at which point the current python process can exit, and the object can be
 loaded by another process later.
 
 ```python
-
 data.save()
-
 ```
 
 ### Loading SCDL datasets from a SCDL archive
@@ -98,21 +95,24 @@ SCDL implements the required functions of the PyTorch Dataset abstract class.
 
 A common use case for the single-cell dataloader is tokenizing data using a predefined vocabulary with a defined tokenizer function.
 
-``` python
+```python
 import numpy as np
+
 ds = SingleCellMemMapDataset("97e_scmm")
 index = 0
-values, feature_ids = ds.get_row(index, return_features=True, feature_vars=["feature_id"])
+values, feature_ids = ds.get_row(
+    index, return_features=True, feature_vars=["feature_id"]
+)
 assert (
-            len(feature_ids) == 1
-        )  # we expect feature_ids to be a list containing one np.array with the row's feature ids
+    len(feature_ids) == 1
+)  # we expect feature_ids to be a list containing one np.array with the row's feature ids
 gene_data, col_idxs = np.array(values[0]), np.array(values[1])
-tokenizer_function = lambda x,y,z : x
+tokenizer_function = lambda x, y, z: x
 tokenizer_function(
-            gene_data,
-            col_idxs,
-            feature_ids[0],
-        )
+    gene_data,
+    col_idxs,
+    feature_ids[0],
+)
 ```
 
 #### Loading directly with Pytorch-compatible Dataloaders
@@ -127,9 +127,11 @@ from torch.utils.data import DataLoader
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 
 ## Mock model: you can remove this and pass the batch to your own model in actual code.
-model = lambda x : x
+model = lambda x: x
 
-dataloader = DataLoader(data, batch_size=8, shuffle=True, collate_fn=collate_sparse_matrix_batch)
+dataloader = DataLoader(
+    data, batch_size=8, shuffle=True, collate_fn=collate_sparse_matrix_batch
+)
 n_epochs = 2
 for e in range(n_epochs):
     for batch in dataloader:
@@ -196,23 +198,26 @@ from scipy.sparse import csr_matrix
 # Assuming you define a function create_pseudotime_neighbors() to find k nearest neighbors in pseudotime space and store as sparse matrix
 
 # Create and store neighbor matrix
-neighbor_matrix = create_pseudotime_neighbors(adata.obs['pseudotime'])
-adata.obsp['next_cell_ids'] = neighbor_matrix
+neighbor_matrix = create_pseudotime_neighbors(adata.obs["pseudotime"])
+adata.obsp["next_cell_ids"] = neighbor_matrix
 ```
 
 #### Loading a Dataset with Neighbor Support
 
 ```python
-from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset, NeighborSamplingStrategy
+from bionemo.scdl.io.single_cell_memmap_dataset import (
+    SingleCellMemMapDataset,
+    NeighborSamplingStrategy,
+)
 
 # Load dataset with neighbor support
 data = SingleCellMemMapDataset(
     "dataset_path",
     "path/to/anndata.h5ad",
-    load_neighbors=True,                               # Enable neighbor functionality
-    neighbor_key='next_cell_ids',                      # Key in AnnData.obsp containing neighbor information
+    load_neighbors=True,  # Enable neighbor functionality
+    neighbor_key="next_cell_ids",  # Key in AnnData.obsp containing neighbor information
     neighbor_sampling_strategy=NeighborSamplingStrategy.RANDOM,  # Strategy for sampling neighbors
-    fallback_to_identity=True                          # Use cell itself as neighbor when no neighbors exist
+    fallback_to_identity=True,  # Use cell itself as neighbor when no neighbors exist
 )
 ```
 
@@ -229,7 +234,6 @@ neighbor_weights = data.get_neighbor_weights_for_cell(cell_index)
 
 # Sample a neighbor according to the configured strategy
 neighbor_index = data.sample_neighbor_index(cell_index)
-
 ```
 
 **Example Usage in Contrastive Learning:**
