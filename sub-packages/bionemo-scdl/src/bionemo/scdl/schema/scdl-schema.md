@@ -4,7 +4,7 @@ Eric T. Dawson
 1 August 2025
 
 ## Version
-0.0.2
+0.0.9
 
 **Implementation Status:** ✅ Fully implemented and validated against this specification
 
@@ -13,7 +13,7 @@ Eric T. Dawson
 The SCDL schema defines the structure of a SCDL archive. This enables backwards compatibility,
 clear versions and updates, and robust, safe loading of SCDL archives to and from disk.
 
-## SCDL Archive Structure (v0.0.2)
+## SCDL Archive Structure (v0.0.9)
 
 The SCDL archive is a directory containing a binary header file and a series of arrays.
 The header contains metadata about the file, such as the version, the endianness, and the arrays that are contained in the file.

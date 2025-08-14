@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import anndata as ad
+from bionemo.scdl.schema.header import ArrayInfo, ArrayDType, Backend, FeatureIndexInfo, SCDLHeader
+from bionemo.scdl.schema.version import SCDLVersion
 import numpy as np
 import pandas as pd
 import scipy
@@ -246,6 +248,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
+        self.header_path: str = data_path + "/" + "header.sch"
+        self.header: SCDLHeader = None
         self.mode: Mode = mode
         self.paginated_load_cutoff = paginated_load_cutoff
         self.load_block_row_size = load_block_row_size
@@ -932,6 +936,39 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
         self.save()
 
+    def _write_header(self):
+        ## Write the SCDL header.
+        ## TODO: This remains not fully implemented
+        arrays: List[ArrayInfo] = []
+        for name, matrix in [(FileNames.DATA.name, self.data), (FileNames.ROWPTR.name, self.row_index), (FileNames.COLPTR.name, self.col_index)]:
+            # Convert numpy dtype to ArrayDType enum
+            dtype_value = self.dtypes[FileNames.DATA.value]
+            if isinstance(dtype_value, str):
+                # If it's already a string, try to map it
+                try:
+                    array_dtype = ArrayDType.from_numpy_dtype(dtype_value)
+                except ValueError:
+                    # Default to float32 for unknown string dtypes
+                    array_dtype = ArrayDType.FLOAT32_ARRAY
+            else:
+                # If it's a numpy dtype object, convert it
+                array_dtype = ArrayDType.from_numpy_dtype(dtype_value)
+            
+            info = ArrayInfo(name,
+                             len(matrix),
+                             array_dtype,
+                             None)
+            arrays.append(info)
+        indexes: List[FeatureIndexInfo] = []
+
+        header = self.header if self.header is not None else SCDLHeader(
+            SCDLVersion(0, 0, 2),
+            Backend.MEMMAP_V0,
+            arrays,
+            indexes)
+        header.save(self.header_path)
+
+
     def save(self, output_path: Optional[str] = None) -> None:
         """Saves the class to a given output path.
 
@@ -942,6 +979,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Raises:
            NotImplementedError if output_path is not None.
         """
+        self._write_header()
         if f"{METADATA.NUM_ROWS.value}" not in self.metadata:
             self.metadata[f"{METADATA.NUM_ROWS.value}"] = self.number_of_rows()
 

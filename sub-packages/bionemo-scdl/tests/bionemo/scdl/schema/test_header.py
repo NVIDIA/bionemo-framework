@@ -68,6 +68,55 @@ class TestArrayDType:
         assert ArrayDType.FLOAT64_ARRAY.numpy_dtype_string == 'float64'
         assert ArrayDType.STRING_ARRAY.numpy_dtype_string == 'string'
         assert ArrayDType.FIXED_STRING_ARRAY.numpy_dtype_string == 'fixed_string'
+    
+    def test_from_numpy_dtype_strings(self):
+        """Test conversion from numpy dtype strings."""
+        assert ArrayDType.from_numpy_dtype('uint8') == ArrayDType.UINT8_ARRAY
+        assert ArrayDType.from_numpy_dtype('uint16') == ArrayDType.UINT16_ARRAY
+        assert ArrayDType.from_numpy_dtype('uint32') == ArrayDType.UINT32_ARRAY
+        assert ArrayDType.from_numpy_dtype('uint64') == ArrayDType.UINT64_ARRAY
+        assert ArrayDType.from_numpy_dtype('float16') == ArrayDType.FLOAT16_ARRAY
+        assert ArrayDType.from_numpy_dtype('float32') == ArrayDType.FLOAT32_ARRAY
+        assert ArrayDType.from_numpy_dtype('float64') == ArrayDType.FLOAT64_ARRAY
+    
+    def test_from_numpy_dtype_objects(self):
+        """Test conversion from numpy dtype objects."""
+        import numpy as np
+        
+        # Test numpy dtype instances
+        assert ArrayDType.from_numpy_dtype(np.dtype('float32')) == ArrayDType.FLOAT32_ARRAY
+        assert ArrayDType.from_numpy_dtype(np.dtype('float64')) == ArrayDType.FLOAT64_ARRAY
+        assert ArrayDType.from_numpy_dtype(np.dtype('uint32')) == ArrayDType.UINT32_ARRAY
+        assert ArrayDType.from_numpy_dtype(np.dtype('uint64')) == ArrayDType.UINT64_ARRAY
+        
+        # Test numpy type classes (this was the bug)
+        assert ArrayDType.from_numpy_dtype(np.float32) == ArrayDType.FLOAT32_ARRAY
+        assert ArrayDType.from_numpy_dtype(np.float64) == ArrayDType.FLOAT64_ARRAY
+        assert ArrayDType.from_numpy_dtype(np.uint32) == ArrayDType.UINT32_ARRAY
+        assert ArrayDType.from_numpy_dtype(np.uint64) == ArrayDType.UINT64_ARRAY
+        
+        # Test actual array dtypes (the original error case)
+        arr = np.array([1.0], dtype=np.float32)
+        assert ArrayDType.from_numpy_dtype(arr.dtype) == ArrayDType.FLOAT32_ARRAY
+    
+    def test_from_numpy_dtype_variations(self):
+        """Test conversion from various numpy dtype format variations."""
+        import numpy as np
+        
+        # Test endianness variations
+        assert ArrayDType.from_numpy_dtype(np.dtype('<f4')) == ArrayDType.FLOAT32_ARRAY
+        assert ArrayDType.from_numpy_dtype(np.dtype('>f4')) == ArrayDType.FLOAT32_ARRAY
+        assert ArrayDType.from_numpy_dtype(np.dtype('<f8')) == ArrayDType.FLOAT64_ARRAY
+        assert ArrayDType.from_numpy_dtype(np.dtype('<u4')) == ArrayDType.UINT32_ARRAY
+        assert ArrayDType.from_numpy_dtype(np.dtype('<u8')) == ArrayDType.UINT64_ARRAY
+    
+    def test_from_numpy_dtype_invalid(self):
+        """Test that invalid dtypes raise ValueError."""
+        with pytest.raises(ValueError, match="Unsupported numpy dtype"):
+            ArrayDType.from_numpy_dtype('invalid_dtype')
+        
+        with pytest.raises(ValueError, match="Unsupported numpy dtype"):
+            ArrayDType.from_numpy_dtype('complex128')
 
 
 class TestBackend:

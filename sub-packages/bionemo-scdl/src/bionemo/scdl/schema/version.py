@@ -7,18 +7,22 @@ class Version:
     """
     Generic version class (used throughout SCDL including for new backing implementations).
     """
-    major: int
-    minor: int
-    point: int
+    
+    def __init__(self, major: int = 0, minor: int = 0, point: int = 0):
+        """Initialize version with major, minor, and point values."""
+        self.major = major
+        self.minor = minor
+        self.point = point
 
 class SCDLVersion(Version):
     """
     Version of the SCDL schema. This is the version of the schema that is used to
     store the data in the archive.
     """
-    major: int = 0
-    minor: int = 0
-    point: int = 0
+    
+    def __init__(self, major: int = 0, minor: int = 0, point: int = 0):
+        """Initialize SCDL version with major, minor, and point values."""
+        super().__init__(major, minor, point)
 
     def __str__(self) -> str:
         return f"{self.major}.{self.minor}.{self.point}"
@@ -35,11 +39,15 @@ class SCDLVersion(Version):
 class CurrentSCDLVersion(SCDLVersion):
     """
     Current version of the SCDL schema.
-    Matches the version documented in scdl-schema.md: 0.0.2
     """
-    major: int = 0
-    minor: int = 0
-    point: int = 2
+    
+    def __init__(self):
+        """
+        Initialize with the current SCDL schema version: 0.0.9
+        """
+        super().__init__(major=0,
+                         minor=0,
+                         point=9)
 
 # Note: Backend enums are defined in header.py to maintain consistency
 # with binary serialization format which requires integer enum values
