@@ -14,10 +14,10 @@ evaluated for their inclusion.
 
 The code review process is progressive:
 
-1.  Review by your team
-2.  Review by domain experts (CODEOWNERS)
-3.  Approval by Approval-list users.
-4.  (Optional) Coverage Check approval by Approval-list users.
+1. Review by your team
+2. Review by domain experts (CODEOWNERS)
+3. Approval by Approval-list users.
+4. (Optional) Coverage Check approval by Approval-list users.
 
 ### 1. Team Review
 
@@ -192,7 +192,7 @@ a fruitful interaction across the team members.
   you're editing is reasonable. Fixing whitespace around the code
   you're working on should be a separate 'cleanup' patch.
 
-- Where possible, larger patches (\>500 LOC) should be split into
+- Where possible, larger patches (>500 LOC) should be split into
   multiple smaller patches that are consistent individually. Test
   your patches before submitting them to Gitlab via gitlab pipelines or locally.
   The more you test before submitting your patch for review, the better. It's also
@@ -437,7 +437,7 @@ a fruitful interaction across the team members.
 
   - Code line numbers limit is increased to 2200 lines.
   - Unit test coverage requirements are decreased to 65% coverage.
-  - Code line length of <=120 character spaces is acceptable.
+  - Code line length of \<=120 character spaces is acceptable.
   - Commit messages do not need have as verbose of an explanation.
     All other requirements pertaining to approver, contributor, and reviewer responsibility still apply.
 

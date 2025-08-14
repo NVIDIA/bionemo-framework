@@ -108,8 +108,7 @@ def extract_transcript_exons(gtf_path: str, only_longest_transcript: bool):
                 exon_id = (gene_id, transcript_id, exon_number)
                 if exon_id in exons:
                     del exons[exon_id]
-                    if transcript_id in transcripts:
-                        del transcripts[transcript_id]
+                    transcripts.pop(transcript_id, None)
                     if transcript_id in transcript2exon:
                         del transcript2exon[transcript_id]
                     skip_transcripts.add(transcript_id)

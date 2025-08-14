@@ -72,7 +72,7 @@ docker pull {{ docker_url }}:{{ docker_tag }}
 ```
 
 2. Run it as you would a normal Docker container. For
-example, to get basic shell access you can run the following command:
+   example, to get basic shell access you can run the following command:
 
 ```bash
 docker run --rm -it --gpus all \

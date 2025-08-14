@@ -343,10 +343,10 @@ def main(
                 max_steps=num_steps,
                 # minimum learning rate is 1/100th of the initial learning rate, so eg lr=1e-3 -> min_lr=1e-5
                 min_lr=lr / 100,
-                warmup_steps=int(math.ceil(num_steps * cosine_rampup_frac)),
+                warmup_steps=math.ceil(num_steps * cosine_rampup_frac),
                 interval="step",
                 monitor="val_loss",
-                constant_steps=int(math.ceil(num_steps * cosine_hold_frac)),
+                constant_steps=math.ceil(num_steps * cosine_hold_frac),
             ),
         ),
     )

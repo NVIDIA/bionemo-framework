@@ -2,7 +2,6 @@
 
 A simple, flexible framework for benchmarking any dataloader without requiring inheritance or modifications to your existing code.
 
-
 ## Quick Start
 
 ### 0. Use a virtual environment
@@ -22,38 +21,48 @@ pip install -e .
 ## Quick Start
 
 ### Download Data
+
 ```bash
 wget -O cellxgene_example_25k.h5ad "https://datasets.cellxgene.cziscience.com/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad"
 ```
 
 ### Run python code
+
 ```python
 import anndata as ad
 from anndata.experimental import AnnCollection, AnnLoader
 from bionemo.scspeedtest.benchmark import benchmark_single_dataloader, print_results
 import numpy as np
+
 filepath = "cellxgene_example_25k.h5ad"
 
-#create a dataloader factory. This returns anndata in a dense format.
-def anndata_factory(input_path, batch_size = 64):
+
+# create a dataloader factory. This returns anndata in a dense format.
+def anndata_factory(input_path, batch_size=64):
     def factory():
         dataset = ad.read_h5ad(input_path)
-        return AnnLoader(dataset, num_workers = 0,
-        collate_fn = lambda batch: np.vstack([x.X for x in batch]))
+        return AnnLoader(
+            dataset,
+            num_workers=0,
+            collate_fn=lambda batch: np.vstack([x.X for x in batch]),
+        )
+
     return factory
 
-#benchmark the dataloader
+
+# benchmark the dataloader
 result = benchmark_single_dataloader(
     dataloader_factory=anndata_factory(filepath),
     data_path=filepath,
     name="AnnLoader",
-    max_time_seconds = 10
+    max_time_seconds=10,
 )
 
 print_results(result)
 ```
 
 ### Output
+
 ```
 ============================================================
 Benchmark: AnnLoader
@@ -75,45 +84,63 @@ Your dataloader just needs to be **iterable** (support `for batch in dataloader`
 The framework supports two distinct patterns for benchmarking, each optimized for different scenarios:
 
 **Dataloader Factory**: Creates both dataset and dataloader
+
 ```python
 from torch.utils.data import DataLoader
 from bionemo.scspeedtest.benchmark import benchmark_dataloaders_with_configs
+
 
 def dataloader_factory():
     dataset = load_dataset()  # Load data each time
     return DataLoader(dataset, batch_size=32)
 
+
 result = benchmark_single_dataloader(
-    dataloader_factory=dataloader_factory,
-    data_path="/path/to/data",
-    name="MyBenchmark"
+    dataloader_factory=dataloader_factory, data_path="/path/to/data", name="MyBenchmark"
 )
 ```
+
 - **Use when**: Testing different datasets or when dataset loading is fast
 - **Measures**: Total instantiation time (dataset + dataloader combined)
 
 **Dataset Factory**: Loads dataset once, reused across multiple dataloader configs
+
 ```python
 from torch.utils.data import DataLoader
-from bionemo.scspeedtest.benchmark import benchmark_dataloaders_with_configs, print_comparison
+from bionemo.scspeedtest.benchmark import (
+    benchmark_dataloaders_with_configs,
+    print_comparison,
+)
+
 
 def dataset_factory():
     return load_dataset()  # Load once
 
+
 def dataloader_factory_32(dataset):  # Receives pre-loaded dataset
     return DataLoader(dataset, batch_size=32)
 
+
 def dataloader_factory_64(dataset):  # Receives pre-loaded dataset
     return DataLoader(dataset, batch_size=64)
+
 
 # Dataset reuse mode - loads dataset once, tests multiple configs
 results = benchmark_dataloaders_with_configs(
     shared_dataset_factory=dataset_factory,
     dataloader_configs=[
-        {"name": "Config1", "dataloader_factory": dataloader_factory_32, "data_path": "/path/to/data"},
-        {"name": "Config2", "dataloader_factory": dataloader_factory_64, "data_path": "/path/to/data"}
+        {
+            "name": "Config1",
+            "dataloader_factory": dataloader_factory_32,
+            "data_path": "/path/to/data",
+        },
+        {
+            "name": "Config2",
+            "dataloader_factory": dataloader_factory_64,
+            "data_path": "/path/to/data",
+        },
     ],
-    output_prefix="my_benchmark"
+    output_prefix="my_benchmark",
 )
 
 # Print comparisons
@@ -126,6 +153,7 @@ print_comparison(results)
 - **Memory consideration**: Dataset stays in memory throughout all tests
 
 **Benchmark your dataloader!**
+
 ```python
 from bionemo.scspeedtest import benchmark_single_dataloader
 
@@ -135,17 +163,21 @@ result = benchmark_single_dataloader(
     data_path="path/to/data",  # Required: for disk measurement
     name="My Dataloader",
     num_epochs=1,
-    max_batches=100,           # Optional: limit number of batches
-    max_time_seconds=30.0,     # Optional: limit runtime to 30 seconds
-    warmup_batches=5,          # Optional: warmup with 5 batches
-    warmup_time_seconds=2.0,   # Optional: warmup for 2 seconds
-    output_prefix="my_dataloader_benchmark"  # CSV filename prefix
+    max_batches=100,  # Optional: limit number of batches
+    max_time_seconds=30.0,  # Optional: limit runtime to 30 seconds
+    warmup_batches=5,  # Optional: warmup with 5 batches
+    warmup_time_seconds=2.0,  # Optional: warmup for 2 seconds
+    output_prefix="my_dataloader_benchmark",  # CSV filename prefix
 )
 
 # Print results
 print(f"Dataset instantiation time: {result.dataset_instantiation_time_seconds:.4f}s")
-print(f"Dataloader instantiation time: {result.dataloader_instantiation_time_seconds:.4f}s")
-print(f"Peak instantiation memory: {result.peak_memory_during_instan◊tiation_mb:.2f} MB")
+print(
+    f"Dataloader instantiation time: {result.dataloader_instantiation_time_seconds:.4f}s"
+)
+print(
+    f"Peak instantiation memory: {result.peak_memory_during_instan◊tiation_mb:.2f} MB"
+)
 print(f"Samples/second: {result.samples_per_second:.2f}")
 print(f"Peak memory usage: {result.peak_memory_mb:.2f} MB")
 print(f"Average memory usage: {result.avg_memory_mb:.2f} MB")
@@ -154,11 +186,10 @@ print(f"Disk usage (MB): {result.disk_size_mb:.2f}")
 
 ## Examples
 
-
 ### Comprehensive Examples
 
-
 See the examples directory for complete examples:
+
 ```bash
 # Full feature demonstration with dataset reuse
 python examples/comprehensive_benchmarking.py \
@@ -171,6 +202,7 @@ python examples/comprehensive_benchmarking.py \
 This demonstrates SCDL and AnnLoader dataloaders with a variety of sampling schemes, sequential sampling, and multi-worker settings. Shows both dataset reuse and independent loading patterns.
 
 # scDataset profiling
+
 ```bash
 python examples/scdataset_script.py \
     --fetch-factors 1 2 4 8 16 32 64 \
@@ -178,12 +210,12 @@ python examples/scdataset_script.py \
     --scdl-path /path/to/scdl/ \
     --adata-path /path/to/data.h5ad
 ```
+
 This is code for reproducing AnnDataset and SCDL results wrapped in the scDataset sampler.
 
 # A note on page cache
 
 SCDL saves pages it has seen to the page cache. This can lead to faster iteration after the first run. To avoid this, run the above commands with sudeo - this will enable a command to drop the caches to be executed between each run.
-
 
 ## Key Features
 
@@ -201,6 +233,7 @@ SCDL saves pages it has seen to the page cache. This can lead to faster iteratio
 ### What Gets Measured
 
 **Throughput & Performance:**
+
 - Samples per second (throughput)
 - Batches per second
 - Total iteration time per epoch
@@ -208,38 +241,45 @@ SCDL saves pages it has seen to the page cache. This can lead to faster iteratio
 - Instantiation Time
 
 **Memory Usage:**
+
 - Peak memory (MB) during benchmarking and instantiation
 - Average memory (MB) throughout execution
 - Memory baseline tracking for accurate delta measurements
 
 **Storage & Resources:**
+
 - Disk usage of data files (MB)
 - Support for multiple files/directories
 
 ### Output Formats
 
 **CSV Export:**
+
 - Detailed per-epoch breakdown with `{output_prefix}_detailed_breakdown.csv`
 - All configurations consolidated into single CSV file
 - Appends results from multiple benchmark runs
 - Perfect for analysis and comparison
 
 **Example Output Files:**
+
 - `my_benchmark_detailed_breakdown.csv` - Main results file
 - Contains all run data, epochs, memory, throughput metrics
 
-
 ### Troubleshooting
+
 **"TypeError: 'NoneType' object is not callable"**
+
 - Check that your factory functions return the dataloader, not None
 - Verify lambda functions in dataset reuse mode are correctly formed
 
 **High memory usage**
+
 - In dataset reuse mode, dataset stays in memory throughout all tests
 - Consider reloading the dataset for very large datasets if memory is limited
 
 **Slow benchmarking**
+
 - Use `max_time_seconds` or `max_batches` to limit test duration
 - Check if your dataloader factory is doing expensive operations repeatedly
 - **Clearing the page cache**: With lazy loading, data may be stored in the page cache between runs. This is especially an issue with SCDL. Between runs, the page cache can be cleared with
-```sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'```. If `benchmark_dataloader` or any of the example scripts are run with sudo, it will perform this between runs.
+  `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`. If `benchmark_dataloader` or any of the example scripts are run with sudo, it will perform this between runs.

@@ -136,10 +136,10 @@ class TestGeneformerStopAndGo(stop_and_go.StopAndGoHarness):
             lr_scheduler=CosineAnnealingScheduler(
                 max_steps=cls.num_steps,
                 min_lr=cls.lr / 100,
-                warmup_steps=int(math.ceil(cls.num_steps * 0.1)),
+                warmup_steps=math.ceil(cls.num_steps * 0.1),
                 interval="step",
                 monitor="reduced_train_loss",
-                constant_steps=int(math.ceil(cls.num_steps * 0.1)),
+                constant_steps=math.ceil(cls.num_steps * 0.1),
             ),
         )
         module = biobert_lightning_module(config=geneformer_config(), tokenizer=cls.tokenizer, optimizer=optim)

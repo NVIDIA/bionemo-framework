@@ -91,12 +91,12 @@ three things:
 
 - Configuration file, the YAML produced by the previous step
 - Model config type, in this case the pretraining config. This will validate the arguments in the config YAML against
-    those required for pretraining. Alternatively, things like fine-tuning with custom task heads may be specified here.
-    This allows for mixing/matching Data Modules with various tasks.
+  those required for pretraining. Alternatively, things like fine-tuning with custom task heads may be specified here.
+  This allows for mixing/matching Data Modules with various tasks.
 - Data Config type, this specifies how to parse, validate, and prepare the DataModule. This may change depending on task,
-for example, pretraining ESM2 uses a protein cluster oriented sampling method. In the case of inference or fine-tuning
-a pretrained model, a simple fasta file may be sufficient. There is a one-to-one relationship between DataConfig types
-and DataModule types.
+  for example, pretraining ESM2 uses a protein cluster oriented sampling method. In the case of inference or fine-tuning
+  a pretrained model, a simple fasta file may be sufficient. There is a one-to-one relationship between DataConfig types
+  and DataModule types.
 
 > ⚠️ **Warning:** This setup does NO configuration of Weights and Biases. Edit your config YAML and populate it with your WandB details.
 
@@ -192,11 +192,11 @@ three things:
 
 - Configuration file, the YAML produced by the previous step
 - Model config type, in this case the pretraining config. This will validate the arguments in the config YAML against
-    those required for pretraining. Alternatively, things like fine-tuning with custom task heads may be specified here.
-    This allows for mixing/matching Data Modules with various tasks.
+  those required for pretraining. Alternatively, things like fine-tuning with custom task heads may be specified here.
+  This allows for mixing/matching Data Modules with various tasks.
 - Data Config type, this specifies how to parse, validate, and prepare the DataModule. This may change depending on task,
-for example, while fine-tuning you may want to use a custom Dataset/DataModule that includes PERTURB-seq. In this case,
-the default pretraining DataConfig and DataModule will be insufficient. See ESM2 for additional example use cases.
+  for example, while fine-tuning you may want to use a custom Dataset/DataModule that includes PERTURB-seq. In this case,
+  the default pretraining DataConfig and DataModule will be insufficient. See ESM2 for additional example use cases.
 
 > ⚠️ **Warning:** This setup does NO configuration of Weights and Biases. Edit your config YAML and populate it with your WandB details.
 
@@ -215,7 +215,9 @@ mix with an existing recipe. In this case, you define a DataConfig object with t
 type, and then pass in the config type to the training recipe.
 
 #### Weights and Biases Tricks and Tips
+
 ##### Trainer/Global Step
+
 At some point you may encounter some funny plots inside the Weights and Biases charts having to do with `trainer/global_steps`. An oscillation pattern like this might be present.
 ![Trainer Global Step Oscillation](../assets/images/wandb_tips_tricks/trainer_global_step.png). This is actually due to an interaction between Pytorch Lightning and Weights and Biases.
 The issue is that during validation, the `validation_step` will be used as `trainer.global_step`. It will not impact model performance, accuracy, or the learning rate scheduler. Moreover, there is also another column called `global_step` that will reflect the accurate step counts over time.

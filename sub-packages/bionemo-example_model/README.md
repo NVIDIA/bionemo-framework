@@ -4,7 +4,6 @@ This is a minimalist package containing an example model that makes use of bione
 
 This tutorial demonstrates the creation of a simple MNIST model. This should be run in a BioNeMo container. The BioNeMo Framework container can run in a brev.dev launchable: [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU). It takes about 10 minutes to deploy this notebook as a Launchable. As of this writing, we are working on a free tier so a credit card may be required. You can reach out to your NVIDIA rep for credit. Notebooks and a shell interface can be launched by clicking `Open Notebook`. (Note: This links to the nightly release and may be out of sync with these docs.)
 
-
 For this tutorial, we will reuse elements from the BioNeMo example_model package.
 
 `Megatron`/`NeMo` modules and datasets are special derivatives of PyTorch modules and datasets that extend and accelerate the distributed training and inference capabilities of PyTorch.
@@ -16,8 +15,8 @@ Some distinctions of Megatron/NeMo are:
 - Megatron configuration classes (for example `megatron.core.transformer.TransformerConfig`) are extended with a `configure_model` method that defines how model weights are initialized and loaded in a way that is compliant with training via NeMo2.
 - Various modifications and extensions to common PyTorch classes, such as adding a `MegatronDataSampler` (and re-sampler such as `PRNGResampleDataset` or `MultiEpochDatasetResampler`) to your `LightningDataModule`.
 
-
 # Loss Functions
+
 First, we define a simple loss function in `bionemo.example_model.lightning.lightning_basic`. These should extend the `MegatronLossReduction` class. The output of forward and backward passes happen in parallel. There should be a forward function that calculates the loss defined. The reduce function is required.
 
 Loss functions used here are `MSELossReduction` and `ClassifierLossReduction`. These functions return a Tensor, which contain the losses for the microbatches, and a `SameSizeLossDict` containing the average loss. This is a Typed Dictionary that is the return type for a loss that is computed for the entire batch, where all microbatches are the same size.
@@ -26,14 +25,11 @@ Loss functions used here are `MSELossReduction` and `ClassifierLossReduction`. T
 
 Datasets used for model training must be compatible with Megatron datasets. To enable this, the output of a given index and epoch must be deterministic. However, we may wish to have a different ordering in every epoch. To enable this, the items in the dataset should be accessible by both the epoch and the index. This can be done by accessing elements of the dataset with `EpochIndex` from `bionemo.core.data.multi_epoch_dataset`. A simple way of doing this is to wrap a dataset with `IdentityMultiEpochDatasetWrapper` imported from `bionemo.core.data.multi_epoch_dataset`. In this example, in in `bionemo.example_model.lightning.lightning_basic`, we use a custom dataset `MNISTCustomDataset` that wraps the `__getitem__` method of the MNIST dataset such that it returns a dict instead of a Tuple or tensor. The `MNISTCustomDataset` returns elements of type `MnistItem`, which is a `TypedDict`.
 
-
 In the data module/data loader class, it is necessary to have a data_sampler attribute to shuffle the data and that allows the sampler to be used with Megatron. This is a nemo2 peculiarity. A `nemo.lightning.pytorch.plugins.MegatronDataSampler` is the best choice. It sets up the capability to utilize micro-batching and gradient accumulation. It is also the place where the global batch size is constructed.
 
 Also the sampler will not shuffle your data. So you need to wrap your dataset in a dataset shuffler that maps sequential IDs to random IDs in your dataset. This can be done with `MultiEpochDatasetResampler` from `bionemo.core.data.multi_epoch_dataset`.
 
-
 This is implemented in the `MNISTDataModule`. In the setup method of the dataloader, the train, test and validation sets are `MNISTCustomDataset` are wrapped in the `IdentityMultiEpochDatasetWrapper`. These are then wrapped in the `MultiEpochDatasetResampler`. More information about `MegatronCompatability` and how to set up more complicated datasets can be found in [`docs.user-guide.background.megatron_datasets.md`](https://docs.nvidia.com/bionemo-framework/latest/user-guide/background/megatron_datasets/).
-
 
 We also define a `train_dataloader`, `val_dataloader`, and `predict_dataloader` methods that return the corresponding dataloaders.
 
@@ -55,12 +51,14 @@ The following models are implemented in `bionemo.example_model.lightning.lightni
 # Model Configs
 
 The model config class is used to instantiate the model. These configs must have:
+
 1. A `configure_model` method which allows the Megatron strategy to lazily initialize the model after the parallel computing environment has been setup. These also handle loading starting weights for fine-tuning cases. Additionally these configs tell the trainer which loss you want to use with a matched model.
 2. A `get_loss_reduction_class` method that defines the loss function.
 
 The following configs are implemented in `bionemo.example_model.lightning.lightning_basic`.
 
 Here, a base generic config `ExampleGenericConfig` is defined.  `PretrainConfig` extends this class. This defines the model class and the loss class in:
+
 ```
 class PretrainConfig(ExampleGenericConfig["PretrainModel", "MSELossReduction"], iom.IOMixinWithGettersSetters):
 
@@ -89,6 +87,7 @@ Additionally, during these steps, we log the validation, testing, and training l
 Further `loss_reduction_class()`, `training_loss_reduction()`, `validation_loss_reduction(),` and` test_loss_reduction()` are defined based on what's in the config. Additionally,  `configure_model()` is defined based on the config.
 
 # Training the models
+
 In `bionemo.example_model.lightning.lightning_basic` a checkpoint_callback variable is defined. This enables .nemo file-like checkpointing.
 
 The remaining functions are defined in the training scripts: `pretrain_mnist.py`, `finetune_mnist.py`, and `predict_mnist.py`.
@@ -103,17 +102,19 @@ We can now proceed to training. The first pre-training scripts is `bionemo/examp
 
 Then, we train the model with the `BionemoLightningModule`, `MNISTDataModule`, trainer and nemo_logger.
 
-This script will print out the location of the final model: <pretrain_directory>
+This script will print out the location of the final model: \<pretrain_directory>
 
 Then we can run a finetuning-script:
+
 ```
 python src/bionemo/example_model/training_scripts/finetune_mnist.py ---pretrain_ckpt_dirpath <pretrain_directory>
 ```
 
 A nuance here is that in the config file, we specify the initial checkpoint path, along with which keys to skip. In the previous model checkpoint, we did not have a head labelled "digit_classifier", so we specify it as a head to be skipped.
-This script will print the location of the finetuned directory: <finetune_dir>.
+This script will print the location of the finetuned directory: \<finetune_dir>.
 
 Finally, we can run a classification task with
+
 ```
 
 python src/bionemo/example_model/training_scripts/predict_mnist.py  --finetune_dir <finetune_dir>.

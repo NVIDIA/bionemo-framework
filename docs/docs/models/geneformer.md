@@ -44,7 +44,7 @@ Geneformer generates a dense representation of a scRNA cell by learning co-expre
 - Hopper <br>
 - Volta <br>
 
-**[Preferred/Supported] Operating System(s):** <br>
+**\[Preferred/Supported\] Operating System(s):** <br>
 
 - Linux <br>
 
@@ -81,9 +81,11 @@ The 1% hold-out evaluation set was split further into a validation and test set.
 
 **Link:** Datasets downloaded from [CZ CELLxGENE Discover - Cellular Visualization Tool (cziscience.com)](https://cellxgene.cziscience.com/) <br>
 **Data Collection Method by dataset**
-- [Human] <br>
+
+- \[Human\] <br>
 
 **Labeling Method by dataset**
+
 - Hybrid: Automated, Human <br>
 
 **Properties (Quantity, Dataset Descriptions, Sensor(s)):**
@@ -107,21 +109,26 @@ Dataset was derived from a limited number of public sources where methods and pr
 Adamson et al 2016 PERTURB-seq dataset, accessed by Harvard dataverse.
 **Link:** [adamson.zip - Harvard Dataverse](https://dataverse.harvard.edu/file.xhtml?fileId=6154417) <br>
 **Data Collection Method by dataset**
+
 - Human <br>
 
 **Labeling Method by dataset**
+
 - Automated - Molecular Barcoding <br>
 
 **Properties (Quantity, Dataset Descriptions, Sensor(s)):** There are ~20k single cells, half of which represent unperturbed control samples, and the other half which contain an additional datatable containing the CRISPR knock-out targets for each cell.
 
 **Link:** [CZ CELLxGENE Discover - Cellular Visualization Tool (cziscience.com)](https://cellxgene.cziscience.com/) <br>
 **Data Collection Method by dataset**
+
 - Human <br>
 
 **Labeling Method by dataset**
+
 - Hybrid: Automated, Human <br>
 
 **Properties (Quantity, Dataset Descriptions, Sensor(s)):**
+
 - 240,000 single cells were chosen from the CZI CELLxGENE census such that they did not share a `dataset_id` with any cell in the training data described previously.
 
 ### Inference:
@@ -142,16 +149,18 @@ NVIDIA believes Trustworthy AI is a shared responsibility and we have establishe
 ## Training Diagnostics
 
 ### geneformer-10M
+
 <!-- WandB Logs: https://wandb.ai/clara-discovery/Geneformer-pretraining-jsjconfigs/runs/i8LWOctg?nw=nwuserjomitchell -->
+
 Training was performed on 8 servers with 8 A100 GPUs each for a total of 81485 steps using the CELLxGENE split with a per-GPU micro batch size 32 and global batch size of 2048. Training took a total of 4 days, 8 hours of wallclock time. As can be seen in the following images, training and validation curves both decreased fairly smoothly throughout the course of training.
 
 ![Training Loss Over Time for Geneformer 10M Model](../assets/images/geneformer/geneformer_10m_training_loss.png)
 ![Validation Loss Over Time for Geneformer 10M Model](../assets/images/geneformer/geneformer_10m_val_loss.png)
 
-
-
 ### geneformer-106M
+
 <!-- WandB Logs https://wandb.ai/clara-discovery/geneformer-pretraining-106m-16node-spike -->
+
 This checkpoint was trained for approximately 35,650 steps using the CELLxGENE split. Training was performed on 16 servers with 8 A100 GPUs each for a total of 35,650 steps using the CELLxGENE split with a per-GPU micro batch size 16 and global batch size of 2,048. Training took a total of 8 hours of wallclock time. As can be seen in the following image, training and validation curves both decreased fairly smoothly throughout the course of training.
 
 ![Training Loss Over Time for Geneformer 106M Model](../assets/images/geneformer/Geneformer_steven_106m_train.png)
@@ -167,24 +176,26 @@ The following describes the BERT MLM token loss. Like in the original BERT paper
 
 | Model Description      | Token Loss (lower is better) |
 | ---------------------- | ---------------------------- |
-| Baseline Geneformer    | 3.206*                      |
-| geneformer-10M-240530  | 3.18                        |
-| geneformer-106M-240530 | 2.89                        |
+| Baseline Geneformer    | 3.206\*                      |
+| geneformer-10M-240530  | 3.18                         |
+| geneformer-106M-240530 | 2.89                         |
 
 !!! bug "Baseline Geneformer was recently updated on HuggingFace making loss comparisons challenging."
 
-    [Geneformer](https://huggingface.co/ctheodoris/Geneformer) was recently updated on HuggingFace to a new version.
-    In a future release we will make checkpoint conversion scripts available so that the public model can be ran
-    directly. Some key differences follow:
+```
+[Geneformer](https://huggingface.co/ctheodoris/Geneformer) was recently updated on HuggingFace to a new version.
+In a future release we will make checkpoint conversion scripts available so that the public model can be ran
+directly. Some key differences follow:
 
-     * Trained on a much larger 95M cell dataset. Our current checkpoints were trained with 23M cells.
-     * The new 12 layer baseline Geneformer variant sits between our 10M and 106M parameter models in parameter count with
-      approximately 38M parameters.
-     * The model is trained with a 4096 context rather than a 2048 context. When forcing the model to make predictions
-      with a 2048 context, the MLM loss drops to *2.76*, which is probably unfair because this may be "out of domain" for
-      training. It is really hard to compare these loss numbers directly is the only take-home here.
-     * The model was trained on a set of 20,275 genes, rather than the older set of 25,426 genes. This would also be
-      expected to give a boost in loss since there are fewer tokens to choose from.
+ * Trained on a much larger 95M cell dataset. Our current checkpoints were trained with 23M cells.
+ * The new 12 layer baseline Geneformer variant sits between our 10M and 106M parameter models in parameter count with
+  approximately 38M parameters.
+ * The model is trained with a 4096 context rather than a 2048 context. When forcing the model to make predictions
+  with a 2048 context, the MLM loss drops to *2.76*, which is probably unfair because this may be "out of domain" for
+  training. It is really hard to compare these loss numbers directly is the only take-home here.
+ * The model was trained on a set of 20,275 genes, rather than the older set of 25,426 genes. This would also be
+  expected to give a boost in loss since there are fewer tokens to choose from.
+```
 
 #### Downstream Task Accuracy
 
@@ -196,7 +207,6 @@ Elmentaite et al. (2020), Developmental Cell. This dataset contains approximatel
 - geneformer-10M-240530 and geneformer-106M-240530 as described above.
 
 For more details see the example notebook titled Geneformer-celltype-classification-example.ipynb
-
 
 ![F1-Score Comparison Across Model Variants on Cell Type Classification Task](../assets/images/geneformer/f1-score-models-04-18-2025.png)
 ![Average Accuracy Comparison Across Model Variants on Cell Type Classification Task](../assets/images/geneformer/accuracy-models-04-18-2025.png)

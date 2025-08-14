@@ -224,10 +224,10 @@ def train(
         lr_scheduler = CosineAnnealingScheduler(
             max_steps=training_config.max_steps if optim_config.max_steps is None else optim_config.max_steps,
             min_lr=optim_config.lr / 100,
-            warmup_steps=int(math.ceil(training_config.max_steps * optim_config.cosine_rampup_frac)),
+            warmup_steps=math.ceil(training_config.max_steps * optim_config.cosine_rampup_frac),
             interval=optim_config.interval,
             monitor=optim_config.monitor,
-            constant_steps=int(math.ceil(training_config.max_steps * optim_config.cosine_hold_frac)),
+            constant_steps=math.ceil(training_config.max_steps * optim_config.cosine_hold_frac),
         )
     elif optim_config.lr_scheduler == "warmup_anneal":
         lr_scheduler = WarmupAnnealDecayHoldScheduler(

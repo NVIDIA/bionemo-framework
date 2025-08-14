@@ -1,20 +1,25 @@
 # Evo2 Data Preparation
+
 ## Data Preprocessing
 
 To streamline the process of preparing and building datasets for training Evo2 on DNA sequences, we provide a configurable preprocessing script (`preprocess.py`) that can preprocess and tokenize a collection of `.fasta` files and convert them into Megatron-compatible `IndexedDataset`.
 
-```python
+```bash
 preprocess_evo2 -c <CONFIG_PATH>
 ```
+
 or if you are running the script outside of the BioNeMo container or you haven't pip-installed `bionemo-evo2`, then you can run the script directly:
-```python
+
+```bash
 python sub-packages/bionemo-evo2/src/bionemo/evo2/data/preprocess.py -c <CONFIG_PATH>
 ```
 
 Configuration YAML parameters for the script can be found in `utils/config.py`:
+
 ```python
 class Evo2PreprocessingConfig(BaseModel):
     """Pydantic model class specifying the configuration schema for a preprocessed IndexedDataset (.bin, .idx)."""
+
     # Collection of FASTA files to preprocess and wrap into a single IndexedDataset.
     datapaths: list[Path] = []
     # Output directory for the preprocessed dataset .bin/.idx.
@@ -87,9 +92,11 @@ class Evo2PreprocessingConfig(BaseModel):
 ```
 
 Furthermore, the `taxonomy_data` field contains a map from sequence ID substrings to phylogenetic lineage data of the form:
+
 ```python
 class Evo2TaxonomyLineage(BaseModel):
     """Pydantic model class that defines the source lineage of a DNA sequence."""
+
     kingdom: None | str = None
     phylum: None | str = None
     clazz: None | str = None
@@ -98,14 +105,18 @@ class Evo2TaxonomyLineage(BaseModel):
     genus: None | str = None
     species: None | str = None
 ```
+
 which gets converted into a lineage string prior to tokenization as a prefix to the sequence:
+
 ```
 # (Example) Escherichia coli
 |d__Bacteria;p__Pseudomonadota;c__Gammaproteobacteria;o__Enterobacterales;f__Enterobacteriaceae;g__Escherichia;s__Escherichia coli|ATCGTACGTACATCTCTA...
 ```
+
 In the Evo2 model, this special "token" is masked out in the loss function, so the model will learn to not generate tokens of this form.
 
 ### Testing
+
 To test equivalence with the reference implementation we first downloaded source-of-truth preprocessed Megatron `IndexedDataset` containing promoters data:
 
 ```bash
@@ -155,6 +166,7 @@ Next we acquired the `.fasta` file that was used to generate this, and configure
 ```
 
 To run the preprocessing script, we ran the following command:
+
 ```bash
 $ python preprocess.py -c mmseqs_promotors_config.yaml
 ```
@@ -195,6 +207,7 @@ True
 Evo2 has also been trained on spliced DNA and mRNA sequences, where introns are removed leaving only the concatenated exons of the genome. Moreover, "stitched" variants of spliced transcripts have been introduced into Evo2's training dataset, which include 1024 bp of sequence from the promoter and 32 bp around each exon.
 
 To perform splicing or "stitched" splicing on sequences in a FASTA file given an associated gene transfer format (GTF) file, execute the following command:
+
 ```bash
 $ splice_evo2 --help
 usage: splice_evo2 [-h] --fasta-path FASTA_PATH --gtf-path GTF_PATH [--output-path OUTPUT_PATH] [--transcript-type {default,stitched}] [--stitched-promoter STITCHED_PROMOTER] [--stitched-intron STITCHED_INTRON] [--stitched-overlap] [--only-longest-transcript] [-v]
