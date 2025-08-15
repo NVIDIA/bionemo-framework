@@ -12,14 +12,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-"""
-SCDL Magic Number Definition
-
-This module defines the magic number for SCDL archives as specified in the schema.
-The magic number 'SCDL' (0x5343444C) identifies valid SCDL archive headers.
-"""
-
-# Magic number as specified in SCDL schema: 'SCDL' (0x5343444C)
-SCDL_MAGIC_NUMBER: bytes = b'SCDL'
-
