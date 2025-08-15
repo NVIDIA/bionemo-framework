@@ -22,4 +22,3 @@ class TimeDirection(Enum):
 
     UNIFIED = "unified"  # Noise(0) --> Data(1)
     DIFFUSION = "diffusion"  # Noise(1) --> Data(0)
-

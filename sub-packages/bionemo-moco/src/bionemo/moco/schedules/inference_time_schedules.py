@@ -15,7 +15,7 @@
 
 
 from abc import ABC, abstractmethod
-from typing import Optional, Union, Callable
+from typing import Callable, Optional, Union
 
 import torch
 from jaxtyping import Float
@@ -23,6 +23,7 @@ from torch import Tensor
 
 from bionemo.moco.interpolants.base_interpolant import string_to_enum
 from bionemo.moco.schedules.utils import TimeDirection
+
 
 class InferenceSchedule(ABC):
     """A base class for inference time schedules."""
@@ -457,12 +458,14 @@ class LogInferenceSchedule(ContinuousInferenceSchedule):
         if self.direction == TimeDirection.DIFFUSION:
             schedule = 1 - schedule
         return schedule
-    
+
+
 class EntropicInferenceSchedule(ContinuousInferenceSchedule):
+    """Generates an entropic time schedule.
+
+    It remapping time based on the remaps cumulative information gain provided by a predictor function.
     """
-    Generates an entropic time schedule by remapping time based on the
-    cumulative information gain provided by a predictor function.
-    """
+
     def __init__(
         self,
         predictor: Callable[[Tensor, Tensor], Tensor],
@@ -477,12 +480,12 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
         device: Union[str, torch.device] = "cpu",
         generator: Optional[torch.Generator] = None,
     ):
-        """
-        Inspired by the work from Dejan Stancevic, Florian Handke, & Luca Ambrogioni. (2025). 
+        """Inspired by the work from Dejan Stancevic, Florian Handke, & Luca Ambrogioni. (2025).
+
         Entropic Time Schedulers for Generative Diffusion Models.
         https://arxiv.org/abs/2504.13612
-        
-        This entropy rate is used to create an optimized, data-dependent time-stepping schedule for the generative process. 
+
+        This entropy rate is used to create an optimized, data-dependent time-stepping schedule for the generative process.
 
         Approach benefits:
         - Can improve inference performance
@@ -494,7 +497,7 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
         Args:
             predictor (Callable[[Tensor, Tensor], Tensor]): A callable (e.g., a function
                 or functools.partial) that takes a time tensor `t` and a data
-                tensor `x` and returns the predicted vector field `v`. 
+                tensor `x` and returns the predicted vector field `v`.
 
             x_0_sampler (Callable[[int], Tensor]): A function that takes a batch size
                 and returns a tensor of samples from the initial distribution p0.
@@ -517,7 +520,7 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
                 'DIFFUSION' for reverse (1->0).
 
             device (Union[str, torch.device]): The device for computation.
-            
+
             generator (Optional[torch.Generator]): A PyTorch generator for reproducible
                 random number generation.
         """
@@ -530,8 +533,7 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
         self.generator = generator
 
     def _hutchinson_divergence(self, t: Tensor, x: Tensor) -> Tensor:
-        """
-        Estimates the divergence of a vector field defined by a model using Hutchinson's method.
+        """Estimates the divergence of a vector field defined by a model using Hutchinson's method.
 
         Args:
             t (Tensor): A tensor of time values, shape [B, 1].
@@ -542,22 +544,21 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
         """
         # Gradients with respect to x
         x = x.detach().requires_grad_(True)
-        
+
         # random vector from the Rademacher distribution
         if self.generator:
             epsilon = (torch.randint(0, 2, x.shape, generator=self.generator, device=x.device) * 2 - 1).to(x.dtype)
         else:
             epsilon = (torch.randint_like(x, 0, 2) * 2 - 1).to(x.dtype)
 
-        
         v = self.predictor(t, x)
-        
+
         # Jacobian-vector product (JVP)
         jvp = torch.autograd.grad(outputs=v, inputs=x, grad_outputs=epsilon, create_graph=False)[0]
-        
+
         # Divergence estimator
         divergence_est = (jvp * epsilon).view(jvp.shape[0], -1).sum(dim=-1)
-        
+
         return divergence_est
 
     def _calculate_entropy_rate(self, t_val: float) -> float:
@@ -565,45 +566,44 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
         t_batch = torch.full((self.batch_size, 1), t_val, device=self.device)
         x_0 = self.x_0_sampler(self.batch_size).to(self.device)
         x_1 = self.x_1_sampler(self.batch_size).to(self.device)
-        
-        x_t = (1 - t_val) * x_0 + t_val * x_1 ## TODO: This can be modified in the future
-        
+
+        x_t = (1 - t_val) * x_0 + t_val * x_1  ## TODO: This can be modified in the future
+
         div = self._hutchinson_divergence(t_batch, x_t)
         return div.mean().item()
 
     def generate_schedule(
-        self, 
-        nsteps: Optional[int] = None, 
-        device: Optional[Union[str, torch.device]] = None
+        self, nsteps: Optional[int] = None, device: Optional[Union[str, torch.device]] = None
     ) -> Tensor:
         """Generates the entropic time schedule."""
         dev = device if device is not None else self.device
         n_final_steps = nsteps if nsteps is not None else self.nsteps
-        
+
         # Calculating entropic profile over evaluation points
         standard_time = torch.linspace(0, 1, self.n_approx_entropy_points, device=dev)
         entropy_rates = torch.empty(self.n_approx_entropy_points, device=dev)
-        
+
         for i, t_val in enumerate(standard_time):
             entropy_rates[i] = self._calculate_entropy_rate(t_val.item())
 
         entropy_rates = entropy_rates.clamp(min=0)
         cumulative_entropy = torch.cumsum(entropy_rates, dim=0)
-        
+
         if cumulative_entropy[-1] > 1e-6:
             cumulative_entropy = cumulative_entropy / cumulative_entropy[-1]
-        
+
         num_interp_points = n_final_steps + 1 if not self.inclusive_end else n_final_steps
-        
+
         uniform_time = torch.linspace(0, 1, num_interp_points, device=dev)
-        
+
         # projection of cumulative entropy into a linear space for creating the schedule
         import numpy as np
+
         entropic_schedule = np.interp(
             uniform_time.cpu().numpy(), cumulative_entropy.cpu().numpy(), standard_time.cpu().numpy()
         )
         schedule = torch.from_numpy(entropic_schedule).to(dtype=torch.float32, device=dev)
-        
+
         if not self.inclusive_end:
             schedule = schedule[:-1]
 
@@ -613,4 +613,3 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
             schedule = 1.0 - schedule
 
         return schedule
-    

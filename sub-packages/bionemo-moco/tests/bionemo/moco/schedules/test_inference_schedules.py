@@ -19,10 +19,10 @@ import torch
 
 from bionemo.moco.schedules.inference_time_schedules import (
     DiscreteLinearInferenceSchedule,
+    EntropicInferenceSchedule,
     LinearInferenceSchedule,
     LogInferenceSchedule,
     PowerInferenceSchedule,
-    EntropicInferenceSchedule,
 )
 from bionemo.moco.schedules.utils import TimeDirection
 
@@ -162,23 +162,32 @@ def test_uniform_dt_padding_dilation(timesteps, device, direction, padding, dila
         for i in range(padding):
             assert schedule[-1 * (i + 1)] == 0
 
+
 @pytest.mark.parametrize("timesteps", [10, 20])
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("direction", [TimeDirection.UNIFIED, TimeDirection.DIFFUSION])
 def test_entropic_schedule(timesteps, device, direction):
     """Test the EntropicInferenceSchedule for correctness.
-    Using a tractable predictor function to ensure the scheduler 
-    produces a non-uniform schedule with the correct properties (shape, device, direction, bounds)."""
+
+    Uses a tractable predictor function to ensure the scheduler
+    produces a non-uniform schedule with the correct properties (shape, device, direction, bounds).
+    """
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
 
     # Dummy dim for the scheduler
     dim = 2
-    # A simple time-dependent predictor. Divergence is D*(2t-1) 
-    # non-uniform entropy profile.
-    predictor = lambda t, x: (2 * t - 1) * x
-    x_0_sampler = lambda bs: torch.randn(bs, dim, device=device)
-    x_1_sampler = lambda bs: torch.randn(bs, dim, device=device)
+
+    # A simple time-dependent predictor. Divergence is D*(2t-1)
+    # creating a non-uniform entropy profile.
+    def predictor(t, x):
+        return (2 * t - 1) * x
+
+    def x_0_sampler(bs):
+        return torch.randn(bs, dim, device=device)
+
+    def x_1_sampler(bs):
+        return torch.randn(bs, dim, device=device)
 
     scheduler = EntropicInferenceSchedule(
         predictor=predictor,
@@ -214,18 +223,34 @@ def test_entropic_schedule(timesteps, device, direction):
     if timesteps > 5:
         assert len(torch.unique(diffs)) > 1
 
+
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_entropic_schedule_reproducibility(device):
-    """Checks that the the EntropicInferenceSchedule produce reproducible results when a torch.Generator with a fixed seed is provided."""
+    """Checks that the the EntropicInferenceSchedule produce reproducible results.
+
+    Uses a torch.Generator with a fixed seed is provided.
+    """
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
 
     timesteps = 10
     dim = 2
-    predictor = lambda t, x: t * torch.sin(x)
 
+    def predictor(t, x):
+        """A simple non-linear predictor function."""
+        return t * torch.sin(x)
+
+    def create_sampler(generator):
+        """A factory that returns a sampler function tied to a specific generator."""
+
+        def sampler_func(bs):
+            return torch.randn(bs, dim, device=device, generator=generator)
+
+        return sampler_func
+
+    # First run
     gen1 = torch.Generator(device=device).manual_seed(42)
-    sampler1 = lambda bs: torch.randn(bs, dim, device=device, generator=gen1)
+    sampler1 = create_sampler(gen1)
     scheduler1 = EntropicInferenceSchedule(
         predictor=predictor,
         x_0_sampler=sampler1,
@@ -236,9 +261,9 @@ def test_entropic_schedule_reproducibility(device):
     )
     schedule1 = scheduler1.generate_schedule()
 
-    # Run again with the same seed ---
+    # Run again with the same seed
     gen2 = torch.Generator(device=device).manual_seed(42)
-    sampler2 = lambda bs: torch.randn(bs, dim, device=device, generator=gen2)
+    sampler2 = create_sampler(gen2)
     scheduler2 = EntropicInferenceSchedule(
         predictor=predictor,
         x_0_sampler=sampler2,
@@ -248,10 +273,10 @@ def test_entropic_schedule_reproducibility(device):
         generator=gen2,
     )
     schedule2 = scheduler2.generate_schedule()
-    
+
     # Compare again with another seed
     gen3 = torch.Generator(device=device).manual_seed(99)
-    sampler3 = lambda bs: torch.randn(bs, dim, device=device, generator=gen3)
+    sampler3 = create_sampler(gen3)
     scheduler3 = EntropicInferenceSchedule(
         predictor=predictor,
         x_0_sampler=sampler3,
