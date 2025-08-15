@@ -76,7 +76,7 @@ script: |-
   --limit-val-batches=20 \
   --log-every-n-steps=50 \
   --val-check-interval=200 \
-  --use-cuhyena \
+  --use-subquadratic_ops \
   --create-tflops-callback \
   --create-tensorboard-logger \
   --result-dir=${tensorboard_dir} \
