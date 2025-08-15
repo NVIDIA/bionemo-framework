@@ -372,7 +372,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
-        # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
+        # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device..
         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
     inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
