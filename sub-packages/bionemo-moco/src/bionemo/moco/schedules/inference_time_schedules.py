@@ -545,9 +545,10 @@ class EntropicInferenceSchedule(ContinuousInferenceSchedule):
         
         # random vector from the Rademacher distribution
         if self.generator:
-            epsilon = (torch.randint_like(x, 0, 2, generator=self.generator) * 2 - 1).to(x.dtype)
+            epsilon = (torch.randint(0, 2, x.shape, generator=self.generator, device=x.device) * 2 - 1).to(x.dtype)
         else:
             epsilon = (torch.randint_like(x, 0, 2) * 2 - 1).to(x.dtype)
+
         
         v = self.predictor(t, x)
         

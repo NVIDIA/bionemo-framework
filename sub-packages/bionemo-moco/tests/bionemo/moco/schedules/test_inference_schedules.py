@@ -22,6 +22,7 @@ from bionemo.moco.schedules.inference_time_schedules import (
     LinearInferenceSchedule,
     LogInferenceSchedule,
     PowerInferenceSchedule,
+    EntropicInferenceSchedule,
 )
 from bionemo.moco.schedules.utils import TimeDirection
 
@@ -215,46 +216,46 @@ def test_entropic_schedule(timesteps, device, direction):
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_entropic_schedule_reproducibility(device):
-    """Checks that the the EntropicInferenceSchedule produce reproducible results when 
-    a torch.Generator with a fixed seed is provided."""
+    """Checks that the the EntropicInferenceSchedule produce reproducible results when a torch.Generator with a fixed seed is provided."""
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
 
     timesteps = 10
     dim = 2
-    predictor = lambda t, x: (2 * t - 1) * x
-    x_0_sampler = lambda bs: torch.randn(bs, dim, device=device)
-    x_1_sampler = lambda bs: torch.randn(bs, dim, device=device)
+    predictor = lambda t, x: t * torch.sin(x)
 
     gen1 = torch.Generator(device=device).manual_seed(42)
+    sampler1 = lambda bs: torch.randn(bs, dim, device=device, generator=gen1)
     scheduler1 = EntropicInferenceSchedule(
         predictor=predictor,
-        x_0_sampler=x_0_sampler,
-        x_1_sampler=x_1_sampler,
+        x_0_sampler=sampler1,
+        x_1_sampler=sampler1,
         nsteps=timesteps,
         device=device,
         generator=gen1,
     )
     schedule1 = scheduler1.generate_schedule()
 
-    # Run again with the same seed...
+    # Run again with the same seed ---
     gen2 = torch.Generator(device=device).manual_seed(42)
+    sampler2 = lambda bs: torch.randn(bs, dim, device=device, generator=gen2)
     scheduler2 = EntropicInferenceSchedule(
         predictor=predictor,
-        x_0_sampler=x_0_sampler,
-        x_1_sampler=x_1_sampler,
+        x_0_sampler=sampler2,
+        x_1_sampler=sampler2,
         nsteps=timesteps,
         device=device,
         generator=gen2,
     )
     schedule2 = scheduler2.generate_schedule()
-
+    
     # Compare again with another seed
     gen3 = torch.Generator(device=device).manual_seed(99)
+    sampler3 = lambda bs: torch.randn(bs, dim, device=device, generator=gen3)
     scheduler3 = EntropicInferenceSchedule(
         predictor=predictor,
-        x_0_sampler=x_0_sampler,
-        x_1_sampler=x_1_sampler,
+        x_0_sampler=sampler3,
+        x_1_sampler=sampler3,
         nsteps=timesteps,
         device=device,
         generator=gen3,
@@ -264,5 +265,5 @@ def test_entropic_schedule_reproducibility(device):
     # Schedules from identical seeds should be identical
     assert torch.allclose(schedule1, schedule2)
 
-    # Schedule from a different seed should be different
+    # Schedules from different seeds should be different
     assert not torch.allclose(schedule1, schedule3)
