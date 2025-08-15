@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from torch.utils.data import Dataset
 
-from bionemo.geneformer.data.singlecell.block_sampling import MapStyleScDataset, scDataset
+from bionemo.geneformer.data.block_sampling import MapStyleScDataset, scDataset
 
 
 class DummyDataset(Dataset):
