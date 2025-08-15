@@ -4,15 +4,15 @@ This guide provides comprehensive documentation for working with SCDL (Single Ce
 
 ## Table of Contents
 
-1. [Overview](#overview)
-2. [Quick Start](#quick-start)
-3. [Header Components](#header-components)
-4. [Working with Arrays](#working-with-arrays)
-5. [Working with Feature Indices](#working-with-feature-indices)
-6. [Header Management](#header-management)
-7. [Schema Compliance](#schema-compliance)
-8. [Best Practices](#best-practices)
-9. [Advanced Usage](#advanced-usage)
+01. [Overview](#overview)
+02. [Quick Start](#quick-start)
+03. [Header Components](#header-components)
+04. [Working with Arrays](#working-with-arrays)
+05. [Working with Feature Indices](#working-with-feature-indices)
+06. [Header Management](#header-management)
+07. [Schema Compliance](#schema-compliance)
+08. [Best Practices](#best-practices)
+09. [Advanced Usage](#advanced-usage)
 10. [Error Handling](#error-handling)
 11. [Examples](#examples)
 
@@ -25,6 +25,7 @@ The SCDL header system provides a robust, cross-platform way to manage metadata 
 - **Metadata**: Version, backend type, and structural information
 
 Key features:
+
 - **Binary format**: Non-human-readable for security and integrity
 - **Cross-platform**: Network byte order ensures consistency across systems
 - **Versioned**: Supports schema evolution and backwards compatibility
@@ -45,7 +46,7 @@ expression_array = ArrayInfo(
     name="gene_expression.dat",
     length=50000,  # 50k cells
     dtype=ArrayDType.FLOAT32_ARRAY,
-    shape=(50000, 25000)  # 50k cells × 25k genes
+    shape=(50000, 25000),  # 50k cells × 25k genes
 )
 header.add_array(expression_array)
 
@@ -75,8 +76,8 @@ The core header contains essential metadata:
 
 ```python
 header = SCDLHeader()
-print(f"Version: {header.version}")        # e.g., "0.0.2"
-print(f"Backend: {header.backend}")        # e.g., "MEMMAP_V0"
+print(f"Version: {header.version}")  # e.g., "0.0.2"
+print(f"Backend: {header.backend}")  # e.g., "MEMMAP_V0"
 print(f"Endianness: {header.endianness}")  # Always "NETWORK"
 ```
 
@@ -112,16 +113,16 @@ gene_index = FeatureIndexInfo(
     length=25000,
     dtype=ArrayDType.STRING_ARRAY,
     index_files=["gene_symbols.idx", "gene_ensembl.idx"],
-    shape=(25000,)
+    shape=(25000,),
 )
 header.add_feature_index(gene_index)
 
 # Create cell index
 cell_index = FeatureIndexInfo(
-    name="cell_index", 
+    name="cell_index",
     length=50000,
     dtype=ArrayDType.UINT64_ARRAY,
-    index_files=["cell_barcodes.idx"]
+    index_files=["cell_barcodes.idx"],
 )
 header.add_feature_index(cell_index)
 ```
@@ -136,17 +137,17 @@ Choose the appropriate data type for your arrays:
 from bionemo.scdl.schema.header import ArrayDType
 
 # Numeric data types
-ArrayDType.UINT8_ARRAY     # 0-255 integers (quality scores, flags)
-ArrayDType.UINT16_ARRAY    # 0-65535 integers (small counts)
-ArrayDType.UINT32_ARRAY    # 0-4B integers (large counts, IDs)
-ArrayDType.UINT64_ARRAY    # 0-18E integers (very large IDs)
-ArrayDType.FLOAT16_ARRAY   # Half precision (compressed data)
-ArrayDType.FLOAT32_ARRAY   # Single precision (standard expression)
-ArrayDType.FLOAT64_ARRAY   # Double precision (high accuracy)
+ArrayDType.UINT8_ARRAY  # 0-255 integers (quality scores, flags)
+ArrayDType.UINT16_ARRAY  # 0-65535 integers (small counts)
+ArrayDType.UINT32_ARRAY  # 0-4B integers (large counts, IDs)
+ArrayDType.UINT64_ARRAY  # 0-18E integers (very large IDs)
+ArrayDType.FLOAT16_ARRAY  # Half precision (compressed data)
+ArrayDType.FLOAT32_ARRAY  # Single precision (standard expression)
+ArrayDType.FLOAT64_ARRAY  # Double precision (high accuracy)
 
 # String data types
-ArrayDType.STRING_ARRAY         # Variable-length strings
-ArrayDType.FIXED_STRING_ARRAY   # Fixed-length strings
+ArrayDType.STRING_ARRAY  # Variable-length strings
+ArrayDType.FIXED_STRING_ARRAY  # Fixed-length strings
 ```
 
 ### Array Shapes
@@ -161,7 +162,9 @@ gene_names = ArrayInfo("genes.dat", 25000, ArrayDType.STRING_ARRAY, (25000,))
 expression = ArrayInfo("expr.dat", 1250000000, ArrayDType.FLOAT32_ARRAY, (50000, 25000))
 
 # 3D array (time series: timepoints × cells × genes)
-timeseries = ArrayInfo("time.dat", 750000000, ArrayDType.FLOAT32_ARRAY, (30, 50000, 500))
+timeseries = ArrayInfo(
+    "time.dat", 750000000, ArrayDType.FLOAT32_ARRAY, (30, 50000, 500)
+)
 
 # No shape specified (1D assumed)
 simple_array = ArrayInfo("simple.dat", 1000, ArrayDType.UINT32_ARRAY)
@@ -199,9 +202,7 @@ Feature indices provide fast lookups and can reference multiple index files:
 ```python
 # Simple feature index
 simple_index = FeatureIndexInfo(
-    name="cell_types",
-    length=50000,
-    dtype=ArrayDType.STRING_ARRAY
+    name="cell_types", length=50000, dtype=ArrayDType.STRING_ARRAY
 )
 
 # Complex feature index with multiple files
@@ -210,12 +211,12 @@ gene_index = FeatureIndexInfo(
     length=25000,
     dtype=ArrayDType.STRING_ARRAY,
     index_files=[
-        "gene_symbols.idx",    # Human-readable gene symbols
-        "gene_ensembl.idx",    # Ensembl gene IDs
-        "gene_entrez.idx",     # Entrez gene IDs
-        "gene_descriptions.idx" # Gene descriptions
+        "gene_symbols.idx",  # Human-readable gene symbols
+        "gene_ensembl.idx",  # Ensembl gene IDs
+        "gene_entrez.idx",  # Entrez gene IDs
+        "gene_descriptions.idx",  # Gene descriptions
     ],
-    shape=(25000, 4)  # 25k genes × 4 annotation types
+    shape=(25000, 4),  # 25k genes × 4 annotation types
 )
 
 # Spatial index for spatial transcriptomics
@@ -224,7 +225,7 @@ spatial_index = FeatureIndexInfo(
     length=10000,
     dtype=ArrayDType.FLOAT32_ARRAY,
     index_files=["coordinates.idx"],
-    shape=(10000, 2)  # X, Y coordinates
+    shape=(10000, 2),  # X, Y coordinates
 )
 ```
 
@@ -359,10 +360,10 @@ feature_indices = [
 ```python
 # Choose appropriate precision
 expression_data = ArrayInfo(
-    "expression.dat", 
+    "expression.dat",
     1000000,
     ArrayDType.FLOAT32_ARRAY,  # Usually sufficient for expression data
-    (1000, 1000)
+    (1000, 1000),
 )
 
 # Use smaller types when possible
@@ -370,7 +371,7 @@ cell_types = ArrayInfo(
     "cell_types.dat",
     1000,
     ArrayDType.UINT8_ARRAY,  # If you have < 256 cell types
-    (1000,)
+    (1000,),
 )
 
 # Use appropriate string types
@@ -378,7 +379,7 @@ gene_symbols = ArrayInfo(
     "gene_symbols.dat",
     25000,
     ArrayDType.STRING_ARRAY,  # Variable length gene names
-    (25000,)
+    (25000,),
 )
 ```
 
@@ -394,7 +395,7 @@ expression = ArrayInfo(
     "expression.dat",
     cells * genes,
     ArrayDType.FLOAT32_ARRAY,
-    (cells, genes)  # Documents the matrix structure
+    (cells, genes),  # Documents the matrix structure
 )
 ```
 
@@ -433,7 +434,7 @@ if reader.validate_magic():
     print(f"Valid SCDL archive")
     print(f"Version: {reader.get_version()}")
     print(f"Array count: {reader.get_array_count()}")
-    
+
     # Full header only when needed
     if reader.get_array_count() > 0:
         full_header = reader.get_full_header()
@@ -471,7 +472,9 @@ except RuntimeError:
     print("PyYAML not available")
 
 # String representation
-print(header)  # SCDLHeader(version=0.0.2, backend=MEMMAP_V0, arrays=3, feature_indices=1)
+print(
+    header
+)  # SCDLHeader(version=0.0.2, backend=MEMMAP_V0, arrays=3, feature_indices=1)
 ```
 
 ## Error Handling
@@ -514,7 +517,7 @@ except HeaderSerializationError as e:
 def create_robust_header(arrays_data, feature_indices_data=None):
     """Create a header with comprehensive error handling."""
     header = SCDLHeader()
-    
+
     # Add arrays with validation
     for array_data in arrays_data:
         try:
@@ -523,7 +526,7 @@ def create_robust_header(arrays_data, feature_indices_data=None):
             header.add_array(array)
         except HeaderSerializationError as e:
             print(f"Skipping invalid array {array_data.get('name', 'unknown')}: {e}")
-    
+
     # Add feature indices
     if feature_indices_data:
         for fi_data in feature_indices_data:
@@ -532,8 +535,10 @@ def create_robust_header(arrays_data, feature_indices_data=None):
                 fi._validate()  # Pre-validate
                 header.add_feature_index(fi)
             except HeaderSerializationError as e:
-                print(f"Skipping invalid feature index {fi_data.get('name', 'unknown')}: {e}")
-    
+                print(
+                    f"Skipping invalid feature index {fi_data.get('name', 'unknown')}: {e}"
+                )
+
     # Final validation
     try:
         header.validate()
@@ -548,7 +553,12 @@ def create_robust_header(arrays_data, feature_indices_data=None):
 ### Single-Cell RNA-seq Archive
 
 ```python
-from bionemo.scdl.schema.header import SCDLHeader, ArrayInfo, FeatureIndexInfo, ArrayDType
+from bionemo.scdl.schema.header import (
+    SCDLHeader,
+    ArrayInfo,
+    FeatureIndexInfo,
+    ArrayDType,
+)
 
 # Create header for scRNA-seq data
 header = SCDLHeader()
@@ -558,7 +568,7 @@ expression = ArrayInfo(
     name="expression_matrix.dat",
     length=1250000000,  # 50k cells × 25k genes
     dtype=ArrayDType.FLOAT32_ARRAY,
-    shape=(50000, 25000)
+    shape=(50000, 25000),
 )
 header.add_array(expression)
 
@@ -567,16 +577,13 @@ cell_metadata = ArrayInfo(
     name="cell_metadata.dat",
     length=50000,
     dtype=ArrayDType.STRING_ARRAY,  # JSON strings with metadata
-    shape=(50000,)
+    shape=(50000,),
 )
 header.add_array(cell_metadata)
 
 # Gene information
 gene_info = ArrayInfo(
-    name="gene_info.dat", 
-    length=25000,
-    dtype=ArrayDType.STRING_ARRAY,
-    shape=(25000,)
+    name="gene_info.dat", length=25000, dtype=ArrayDType.STRING_ARRAY, shape=(25000,)
 )
 header.add_array(gene_info)
 
@@ -586,7 +593,7 @@ gene_index = FeatureIndexInfo(
     length=25000,
     dtype=ArrayDType.STRING_ARRAY,
     index_files=["gene_symbols.idx", "gene_ensembl.idx"],
-    shape=(25000, 2)
+    shape=(25000, 2),
 )
 header.add_feature_index(gene_index)
 
@@ -595,13 +602,15 @@ cell_index = FeatureIndexInfo(
     name="cell_barcode_index",
     length=50000,
     dtype=ArrayDType.STRING_ARRAY,
-    index_files=["cell_barcodes.idx"]
+    index_files=["cell_barcodes.idx"],
 )
 header.add_feature_index(cell_index)
 
 # Save the complete header
 header.save("scrna_archive_header.bin")
-print(f"Created scRNA-seq header with {len(header.arrays)} arrays and {len(header.feature_indices)} indices")
+print(
+    f"Created scRNA-seq header with {len(header.arrays)} arrays and {len(header.feature_indices)} indices"
+)
 ```
 
 ### Spatial Transcriptomics Archive
@@ -613,9 +622,9 @@ header = SCDLHeader()
 # Expression data
 expression = ArrayInfo(
     name="spatial_expression.dat",
-    length=500000000,  # 10k spots × 20k genes  
+    length=500000000,  # 10k spots × 20k genes
     dtype=ArrayDType.FLOAT32_ARRAY,
-    shape=(10000, 20000)
+    shape=(10000, 20000),
 )
 header.add_array(expression)
 
@@ -624,7 +633,7 @@ coordinates = ArrayInfo(
     name="spot_coordinates.dat",
     length=20000,  # 10k spots × 2 coordinates
     dtype=ArrayDType.FLOAT32_ARRAY,
-    shape=(10000, 2)
+    shape=(10000, 2),
 )
 header.add_array(coordinates)
 
@@ -633,7 +642,7 @@ image_coords = ArrayInfo(
     name="image_coordinates.dat",
     length=20000,
     dtype=ArrayDType.UINT32_ARRAY,
-    shape=(10000, 2)  # Pixel coordinates
+    shape=(10000, 2),  # Pixel coordinates
 )
 header.add_array(image_coords)
 
@@ -643,7 +652,7 @@ spatial_index = FeatureIndexInfo(
     length=10000,
     dtype=ArrayDType.FLOAT32_ARRAY,
     index_files=["spatial_tree.idx"],  # Spatial tree for neighbor queries
-    shape=(10000, 2)
+    shape=(10000, 2),
 )
 header.add_feature_index(spatial_index)
 
@@ -660,8 +669,8 @@ header = SCDLHeader()
 rna_expr = ArrayInfo(
     name="rna_expression.dat",
     length=625000000,  # 25k cells × 25k genes
-    dtype=ArrayDType.FLOAT32_ARRAY, 
-    shape=(25000, 25000)
+    dtype=ArrayDType.FLOAT32_ARRAY,
+    shape=(25000, 25000),
 )
 header.add_array(rna_expr)
 
@@ -670,16 +679,16 @@ atac_peaks = ArrayInfo(
     name="atac_peaks.dat",
     length=1250000000,  # 25k cells × 50k peaks
     dtype=ArrayDType.FLOAT32_ARRAY,
-    shape=(25000, 50000)
+    shape=(25000, 50000),
 )
 header.add_array(atac_peaks)
 
 # Protein expression
 protein_expr = ArrayInfo(
-    name="protein_expression.dat", 
+    name="protein_expression.dat",
     length=2500000,  # 25k cells × 100 proteins
     dtype=ArrayDType.FLOAT32_ARRAY,
-    shape=(25000, 100)
+    shape=(25000, 100),
 )
 header.add_array(protein_expr)
 
@@ -688,24 +697,24 @@ cell_index = FeatureIndexInfo(
     name="cell_index",
     length=25000,
     dtype=ArrayDType.STRING_ARRAY,
-    index_files=["cell_barcodes.idx"]
+    index_files=["cell_barcodes.idx"],
 )
 header.add_feature_index(cell_index)
 
 # Modality-specific indices
 gene_index = FeatureIndexInfo(
-    name="gene_index", 
+    name="gene_index",
     length=25000,
     dtype=ArrayDType.STRING_ARRAY,
-    index_files=["gene_symbols.idx"]
+    index_files=["gene_symbols.idx"],
 )
 header.add_feature_index(gene_index)
 
 peak_index = FeatureIndexInfo(
     name="peak_index",
-    length=50000, 
+    length=50000,
     dtype=ArrayDType.STRING_ARRAY,
-    index_files=["peak_coordinates.idx"]
+    index_files=["peak_coordinates.idx"],
 )
 header.add_feature_index(peak_index)
 
@@ -713,13 +722,13 @@ protein_index = FeatureIndexInfo(
     name="protein_index",
     length=100,
     dtype=ArrayDType.STRING_ARRAY,
-    index_files=["protein_names.idx"]
+    index_files=["protein_names.idx"],
 )
 header.add_feature_index(protein_index)
 
 header.save("multimodal_archive_header.bin")
 ```
 
----
+______________________________________________________________________
 
 This guide provides comprehensive coverage of the SCDL header system. For additional questions or advanced use cases, refer to the source code documentation or the SCDL schema specification.

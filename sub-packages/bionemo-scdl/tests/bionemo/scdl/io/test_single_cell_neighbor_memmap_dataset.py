@@ -84,6 +84,7 @@ def compare_fn():
 
     return _compare
 
+
 # Test creating a dataset with neighbor support
 def test_create_dataset_with_neighbor_support(tmp_path):
     # Create a simple dataset with neighbor support

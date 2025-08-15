@@ -24,8 +24,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import anndata as ad
-from bionemo.scdl.schema.header import ArrayInfo, ArrayDType, Backend, FeatureIndexInfo, SCDLHeader
-from bionemo.scdl.schema.version import SCDLVersion
 import numpy as np
 import pandas as pd
 import scipy
@@ -33,6 +31,8 @@ import torch
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
+from bionemo.scdl.schema.header import ArrayDType, ArrayInfo, Backend, FeatureIndexInfo, SCDLHeader
+from bionemo.scdl.schema.version import SCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
 
 
@@ -1014,14 +1014,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             # If any unexpected error occurs, fall back to no feature index entries
             indexes = []
 
-        header = self.header if self.header is not None else SCDLHeader(
-            SCDLVersion(0, 0, 2),
-            Backend.MEMMAP_V0,
-            arrays,
-            indexes,
+        header = (
+            self.header
+            if self.header is not None
+            else SCDLHeader(
+                SCDLVersion(0, 0, 2),
+                Backend.MEMMAP_V0,
+                arrays,
+                indexes,
+            )
         )
         header.save(self.header_path)
-
 
     def save(self, output_path: Optional[str] = None) -> None:
         """Saves the class to a given output path.

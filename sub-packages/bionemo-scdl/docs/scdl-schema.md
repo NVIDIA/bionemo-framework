@@ -1,9 +1,10 @@
 # SCDL Schema
 
-Eric T. Dawson  
+Eric T. Dawson
 1 August 2025
 
 ## Version
+
 0.0.9
 
 **Implementation Status:** ✅ Fully implemented and validated against this specification
@@ -27,31 +28,36 @@ The header is a binary file that contains the metadata for the archive. It is st
 #### Header Fields
 
 - Magic Number: The magic number of the archive. This is stored as a 4 byte string. It is always 'SCDL'.
+
 - Version: The version of the SCDL schema. This is is stored as three 8-bit integers.
-    - Major version
-    - Minor version
-    - Point version
+
+  - Major version
+  - Minor version
+  - Point version
+
 - Endianness: The endianness of the archive. This is stored as a single integer based on an enum, but the value is always NETWORK (big endian).
+
 - Backend: The backend of the archive. This is stored as a single integer based on an enum.
 
-
 - Arrays: A list of arrays in the archive. This is stored as a list of arrays.
-    - Name: The name of the array. This is stored as a string.
-    - Length: The length of the array. This is stored as a single integer.
-    - Dtype: The dtype of the array. This is stored as a string based on an enum.
-    - [Optional] Shape: The shape of the array. This is stored as a list of integers.
+
+  - Name: The name of the array. This is stored as a string.
+  - Length: The length of the array. This is stored as a single integer.
+  - Dtype: The dtype of the array. This is stored as a string based on an enum.
+  - \[Optional\] Shape: The shape of the array. This is stored as a list of integers.
 
 #### Archive Header Spec:
 
 The SCDL archive header uses network byte order (big-endian) throughout and consists of the following fixed-width fields:
 
 **Core Header (Fixed Size: 16 bytes)**
+
 ```
 Offset | Size (bytes) | Type    | Field       | Description
 -------|------|---------|-------------|------------------------------------------
 0x00   | 4    | char[4] | magic       | Magic number: 'SCDL' (0x5343444C)
 0x04   | 1    | uint8   | version_maj | Major version number
-0x05   | 1    | uint8   | version_min | Minor version number  
+0x05   | 1    | uint8   | version_min | Minor version number
 0x06   | 1    | uint8   | version_pt  | Point version number
 0x07   | 1    | uint8   | endianness  | Endianness enum (always 0x01 = NETWORK)
 0x08   | 4    | uint32  | backend     | Backend type enum value
@@ -75,6 +81,7 @@ var+17 | shape_dims*4 | uint32[]  | shape      | Shape array (if has_shape)
 ```
 
 **Data Layout Notes:**
+
 - All multi-byte integers use network byte order (big-endian)
 - Strings are UTF-8 encoded without null termination
 - String lengths do not include null terminators
@@ -83,6 +90,7 @@ var+17 | shape_dims*4 | uint32[]  | shape      | Shape array (if has_shape)
 - Array data follows immediately after all array descriptors
 
 **Validation Rules:**
+
 - Magic number must exactly match 'SCDL' (0x5343444C)
 - Endianness field must be 0x01 (NETWORK byte order)
 - All string lengths must be > 0
@@ -101,6 +109,7 @@ Each FeatureIndex may optionally store a header, but it's nice if it does! This 
 make sure it is more robust to failures.
 
 **FeatureIndex Binary Format (Extension after Array Descriptors):**
+
 ```
 Offset | Size (bytes)     | Type         | Field           | Description
 -------|-----------|--------------|-----------------|----------------------------------
@@ -108,6 +117,7 @@ Offset | Size (bytes)     | Type         | Field           | Description
 ```
 
 For each feature index:
+
 ```
 Offset | Size (bytes)      | Type         | Field           | Description
 -------|-----------|--------------|-----------------|----------------------------------
@@ -122,7 +132,7 @@ var+1  | 4         | uint32       | shape_dims      | Number of dimensions (if h
 var+5  | shape_dims*4 | uint32[]  | shape           | Shape array (if has_shape)
 ```
 
-**Backwards Compatibility:** 
+**Backwards Compatibility:**
 Feature indices are stored after array descriptors as an optional extension. Older implementations that don't support feature indices will simply ignore the additional data, maintaining compatibility.
 
 ### Backend Header

@@ -248,5 +248,3 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
         load_block_row_size=3,
     )
     compare_fn(ds_regular, ds_lazy)
-
-

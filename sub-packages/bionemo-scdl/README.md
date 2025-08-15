@@ -265,7 +265,7 @@ BioNeMo-SCDL has an Apache 2.0 license, as found in the LICENSE file.
 
 Please follow the guidelines for contributions to the BioNeMo Framework.
 
-To contribute to SCDL, we recommend installing additional dependencies for development and 
+To contribute to SCDL, we recommend installing additional dependencies for development and
 installing the SCDL package from source.
 
 ```bash

@@ -1,11 +1,26 @@
-import os
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
 from pathlib import Path
 
 import pytest
 
 from bionemo.scdl.schema.header import SCDLHeader
-from bionemo.scdl.schema.version import CurrentSCDLVersion
 from bionemo.scdl.schema.magic import SCDL_MAGIC_NUMBER
+from bionemo.scdl.schema.version import CurrentSCDLVersion
 
 
 @pytest.mark.parametrize("header_filename", ["header.sch"])
@@ -42,5 +57,3 @@ def test_scdl_header_file_valid(test_directory: Path, header_filename: str):
     required = {"DATA", "COLPTR", "ROWPTR"}
     missing = required.difference(array_names)
     assert not missing, f"Required arrays missing from header: {missing} (present: {sorted(array_names)})"
-
-
