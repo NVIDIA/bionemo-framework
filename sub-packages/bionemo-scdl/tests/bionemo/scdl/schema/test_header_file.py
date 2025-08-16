@@ -22,7 +22,6 @@ from bionemo.scdl.schema.header import SCDLHeader
 from bionemo.scdl.schema.magic import SCDL_MAGIC_NUMBER
 from bionemo.scdl.schema.version import CurrentSCDLVersion
 
-import pytest
 
 @pytest.skip("Skipping test_header_file.py because test has not been updated.", allow_module_level=True)
 @pytest.mark.parametrize("header_filename", ["header.sch"])

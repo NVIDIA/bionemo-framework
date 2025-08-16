@@ -29,7 +29,6 @@ from bionemo.scdl.schema.headerutil import (
 )
 
 
-
 class TestBinaryHeaderCodecInitialization:
     """Test BinaryHeaderCodec initialization."""
 

@@ -40,6 +40,7 @@ from bionemo.scdl.schema.header import (
 from bionemo.scdl.schema.headerutil import Endianness, HeaderSerializationError
 from bionemo.scdl.schema.magic import SCDL_MAGIC_NUMBER
 from bionemo.scdl.schema.version import CurrentSCDLVersion, SCDLVersion
+
 from ._expected_version import EXPECTED_SCDL_VERSION
 
 

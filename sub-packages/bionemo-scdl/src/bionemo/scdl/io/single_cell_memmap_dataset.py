@@ -32,7 +32,7 @@ import torch
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
 from bionemo.scdl.schema.header import ArrayDType, ArrayInfo, Backend, FeatureIndexInfo, SCDLHeader
-from bionemo.scdl.schema.version import CurrentSCDLVersion, SCDLVersion
+from bionemo.scdl.schema.version import CurrentSCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
 
 
