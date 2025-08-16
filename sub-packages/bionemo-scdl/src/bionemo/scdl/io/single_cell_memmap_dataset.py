@@ -31,6 +31,8 @@ import torch
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
+from bionemo.scdl.schema.header import ArrayDType, ArrayInfo, Backend, FeatureIndexInfo, SCDLHeader
+from bionemo.scdl.schema.version import CurrentSCDLVersion, SCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
 
 
@@ -127,7 +129,7 @@ def _create_data_col_memmaps(
         f"{memmap_dir_path}/{FileNames.DATA.value}",
         dtype=dtypes[f"{FileNames.DATA.value}"],
         shape=(num_elements,),
-        mode=mode,
+        mode=mode.value,
     )
     # Records the column the data resides in at index [i]
     col_arr = np.memmap(
@@ -246,6 +248,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
+        self.header_path: Path = Path(data_path) / "header.sch"
+        self.header: SCDLHeader = None
         self.mode: Mode = mode
         self.paginated_load_cutoff = paginated_load_cutoff
         self.load_block_row_size = load_block_row_size
@@ -704,6 +708,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
         self.data_path = stored_path
         self.mode = Mode.READ_APPEND
+        self.header_path = Path(stored_path) / "header.sch"
+        # Load header if present; keep None if missing or unreadable
+        if os.path.exists(self.header_path):
+            try:
+                self.header = SCDLHeader.load(str(self.header_path))
+            except Exception as e:
+                warnings.warn(f"Failed to load SCDL header at {self.header_path}: {e}")
+                self.header = None
+        else:
+            self.header = None
 
         # Metadata is required, so we must check if it exists and fail if not.
         if not os.path.exists(f"{self.data_path}/{FileNames.METADATA.value}"):
@@ -932,6 +946,86 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
         self.save()
 
+    def _write_header(self):
+        ## Write the SCDL header.
+        arrays: List[ArrayInfo] = []
+        # Use FileNames enums directly to ensure correct dtype lookup
+        for fname, matrix in [
+            (FileNames.DATA, self.data),
+            (FileNames.ROWPTR, self.row_index),
+            (FileNames.COLPTR, self.col_index),
+        ]:
+            # Convert numpy dtype to ArrayDType enum, defaulting reasonably on failures
+            dtype_value = self.dtypes.get(fname.value, self.dtypes[FileNames.DATA.value])
+            try:
+                array_dtype = ArrayDType.from_numpy_dtype(dtype_value)
+            except ValueError:
+                array_dtype = ArrayDType.FLOAT32_ARRAY
+
+            info = ArrayInfo(
+                fname.name,
+                len(matrix),
+                array_dtype,
+                None,
+            )
+            arrays.append(info)
+
+        # Populate FeatureIndexInfo entries for the feature index directory
+        indexes: List[FeatureIndexInfo] = []
+        try:
+            # Determine an appropriate dtype for the feature index entries.
+            # Default to STRING_ARRAY if we cannot determine more specific type.
+            feature_array_dtype = ArrayDType.STRING_ARRAY
+            # Attempt to infer dtype from first feature array, if present
+            if len(self._feature_index) > 0:
+                # Access the first available feature ndarray via lookup of row 0
+                # This returns list[np.ndarray] and a label; pick the first array if any
+                try:
+                    feature_values, _ = self._feature_index.lookup(0)
+                    if feature_values and hasattr(feature_values[0], "dtype"):
+                        feature_array_dtype = ArrayDType.from_numpy_dtype(feature_values[0].dtype)
+                except Exception:
+                    # Fall back to default if lookup not available yet
+                    pass
+
+            # Build the list of index files that constitute the feature index
+            features_rel_path = f"{FileNames.FEATURES.value}"
+            index_files: List[str] = [
+                f"{features_rel_path}/cumulative_sum_index.npy",
+                f"{features_rel_path}/labels.npy",
+                f"{features_rel_path}/version.npy",
+            ]
+            # Parquet files are named dataframe_000.parquet, etc.
+            num_frames = len(self._feature_index)
+            if num_frames > 0:
+                num_digits = len(str(num_frames))
+                for i in range(num_frames):
+                    index_files.append(f"{features_rel_path}/dataframe_{i:0{num_digits}d}.parquet")
+
+            fi_info = FeatureIndexInfo(
+                name=FileNames.FEATURES.value,
+                length=self._feature_index.number_of_rows(),
+                dtype=feature_array_dtype,
+                index_files=index_files,
+                shape=None,
+            )
+            indexes.append(fi_info)
+        except Exception:
+            # If any unexpected error occurs, fall back to no feature index entries
+            indexes = []
+
+        header = (
+            self.header
+            if self.header is not None
+            else SCDLHeader(
+                CurrentSCDLVersion(),
+                Backend.MEMMAP_V0,
+                arrays,
+                indexes,
+            )
+        )
+        header.save(str(self.header_path))
+
     def save(self, output_path: Optional[str] = None) -> None:
         """Saves the class to a given output path.
 
@@ -942,6 +1036,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Raises:
            NotImplementedError if output_path is not None.
         """
+        self._write_header()
         if f"{METADATA.NUM_ROWS.value}" not in self.metadata:
             self.metadata[f"{METADATA.NUM_ROWS.value}"] = self.number_of_rows()
 
