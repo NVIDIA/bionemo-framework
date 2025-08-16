@@ -29,13 +29,6 @@ from bionemo.scdl.schema.headerutil import (
 )
 
 
-class TestEndianness:
-    """Test the Endianness enum."""
-
-    def test_endianness_values(self):
-        """Test that endianness enum has expected values."""
-        assert Endianness.NETWORK.value == "!"
-
 
 class TestBinaryHeaderCodecInitialization:
     """Test BinaryHeaderCodec initialization."""

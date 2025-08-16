@@ -32,7 +32,7 @@ import torch
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
 from bionemo.scdl.schema.header import ArrayDType, ArrayInfo, Backend, FeatureIndexInfo, SCDLHeader
-from bionemo.scdl.schema.version import SCDLVersion
+from bionemo.scdl.schema.version import CurrentSCDLVersion, SCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
 
 
@@ -129,7 +129,7 @@ def _create_data_col_memmaps(
         f"{memmap_dir_path}/{FileNames.DATA.value}",
         dtype=dtypes[f"{FileNames.DATA.value}"],
         shape=(num_elements,),
-        mode=mode,
+        mode=mode.value,
     )
     # Records the column the data resides in at index [i]
     col_arr = np.memmap(
@@ -248,7 +248,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
-        self.header_path: str = data_path + "/" + "header.sch"
+        self.header_path: Path = Path(data_path) / "header.sch"
         self.header: SCDLHeader = None
         self.mode: Mode = mode
         self.paginated_load_cutoff = paginated_load_cutoff
@@ -708,11 +708,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
         self.data_path = stored_path
         self.mode = Mode.READ_APPEND
-        self.header_path = stored_path + "/" + "header.sch"
+        self.header_path = Path(stored_path) / "header.sch"
         # Load header if present; keep None if missing or unreadable
         if os.path.exists(self.header_path):
             try:
-                self.header = SCDLHeader.load(self.header_path)
+                self.header = SCDLHeader.load(str(self.header_path))
             except Exception as e:
                 warnings.warn(f"Failed to load SCDL header at {self.header_path}: {e}")
                 self.header = None
@@ -1018,13 +1018,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             self.header
             if self.header is not None
             else SCDLHeader(
-                SCDLVersion(0, 0, 2),
+                CurrentSCDLVersion(),
                 Backend.MEMMAP_V0,
                 arrays,
                 indexes,
             )
         )
-        header.save(self.header_path)
+        header.save(str(self.header_path))
 
     def save(self, output_path: Optional[str] = None) -> None:
         """Saves the class to a given output path.

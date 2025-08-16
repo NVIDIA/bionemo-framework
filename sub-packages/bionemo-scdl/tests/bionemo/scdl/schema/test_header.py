@@ -40,6 +40,7 @@ from bionemo.scdl.schema.header import (
 from bionemo.scdl.schema.headerutil import Endianness, HeaderSerializationError
 from bionemo.scdl.schema.magic import SCDL_MAGIC_NUMBER
 from bionemo.scdl.schema.version import CurrentSCDLVersion, SCDLVersion
+from ._expected_version import EXPECTED_SCDL_VERSION
 
 
 class TestArrayDType:
@@ -327,9 +328,7 @@ class TestSCDLHeader:
     def test_basic_creation(self):
         """Test basic header creation."""
         header = SCDLHeader()
-        assert header.version.major == 0
-        assert header.version.minor == 0
-        assert header.version.point == 2  # Current version
+        assert header.version == EXPECTED_SCDL_VERSION
         assert header.endianness == Endianness.NETWORK
         assert header.backend == Backend.MEMMAP_V0
         assert len(header.arrays) == 0
@@ -627,9 +626,9 @@ class TestSCDLHeader:
         json_str = header.to_json()
         json_data = json.loads(json_str)
 
-        assert json_data["version"]["major"] == 0
-        assert json_data["version"]["minor"] == 0
-        assert json_data["version"]["point"] == 2
+        assert json_data["version"]["major"] == EXPECTED_SCDL_VERSION.major
+        assert json_data["version"]["minor"] == EXPECTED_SCDL_VERSION.minor
+        assert json_data["version"]["point"] == EXPECTED_SCDL_VERSION.point
         assert json_data["backend"] == "MEMMAP_V0"
         assert len(json_data["arrays"]) == 1
         assert json_data["arrays"][0]["name"] == "test.dat"
@@ -647,11 +646,9 @@ class TestSchemaCompliance:
 
     def test_current_version_matches_schema(self):
         """Test current version matches schema documentation."""
-        # Schema documents version 0.0.2
+        # Schema documents version 0.1.0
         current = CurrentSCDLVersion()
-        assert current.major == 0
-        assert current.minor == 0
-        assert current.point == 2
+        assert current == EXPECTED_SCDL_VERSION
 
     def test_endianness_specification(self):
         """Test endianness handling matches schema."""
@@ -676,9 +673,9 @@ class TestSchemaCompliance:
         assert serialized[0:4] == SCDL_MAGIC_NUMBER
 
         # Version at offsets 0x04, 0x05, 0x06 (3 bytes)
-        assert serialized[4] == 0  # major
-        assert serialized[5] == 0  # minor
-        assert serialized[6] == 2  # point
+        assert serialized[4] == EXPECTED_SCDL_VERSION.major  # major
+        assert serialized[5] == EXPECTED_SCDL_VERSION.minor  # minor
+        assert serialized[6] == EXPECTED_SCDL_VERSION.point  # point
 
         # Endianness at offset 0x07 (1 byte)
         assert serialized[7] == 1  # NETWORK
@@ -893,9 +890,7 @@ class TestHeaderReader:
 
             # Test version reading
             version = reader.get_version()
-            assert version.major == 0
-            assert version.minor == 0
-            assert version.point == 2
+            assert version == EXPECTED_SCDL_VERSION
 
             # Test backend reading
             backend = reader.get_backend()

@@ -89,8 +89,8 @@ class CurrentSCDLVersion(SCDLVersion):
     """Current version of the SCDL schema."""
 
     def __init__(self):
-        """Initialize with the current SCDL schema version: 0.0.9."""
-        super().__init__(major=0, minor=0, point=9)
+        """Initialize with the current SCDL schema version: 0.1.0."""
+        super().__init__(major=0, minor=1, point=0)
 
 
 # Note: Backend enums are defined in header.py to maintain consistency
