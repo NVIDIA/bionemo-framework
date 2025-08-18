@@ -248,7 +248,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
-        self.header_path: Path = Path(data_path) / "header.sch"
+        self.header_file_name: str = "header.sch"
         self.header: SCDLHeader = None
         self.mode: Mode = mode
         self.paginated_load_cutoff = paginated_load_cutoff
@@ -708,13 +708,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
         self.data_path = stored_path
         self.mode = Mode.READ_APPEND
-        self.header_path = Path(stored_path) / "header.sch"
+        # self.header_path = Path(stored_path) / self.header_file_name
         # Load header if present; keep None if missing or unreadable
-        if os.path.exists(self.header_path):
+        if os.path.exists(self.data_path / self.header_file_name):
             try:
-                self.header = SCDLHeader.load(str(self.header_path))
+                self.header = SCDLHeader.load(str(self.data_path / self.header_file_name))
             except Exception as e:
-                warnings.warn(f"Failed to load SCDL header at {self.header_path}: {e}")
+                warnings.warn(f"Failed to load SCDL header at {Path(self.data_path) / self.header_file_name}: {e}")
                 self.header = None
         else:
             self.header = None
@@ -1024,7 +1024,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 indexes,
             )
         )
-        header.save(str(self.header_path))
+        header.save(Path(self.data_path) / self.header_file_name)
 
     def save(self, output_path: Optional[str] = None) -> None:
         """Saves the class to a given output path.
