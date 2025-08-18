@@ -17,52 +17,47 @@ script_args:
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
   data_base_path: /data/evo2
-  restore_from_checkpoint_path: /data/nemo2_evo2_1b_8k
+  restore_from_checkpoint_path: checkpoints/nemo2_evo2_1b_8k
   nodes: [1]
   model: evo2
   model_size: 1b
-  precision: [bf16-mixed]
-  num_workers: 8
+  num_workers: 1
   limit_val_batches: 20
   dataset_config: training_data_config.yaml
   dataset_dir: preprocessed_data
-  val_check_interval: 50
+  val_check_interval: 5
   seq_length: 8192
-  warmup_steps: 100
-  activation_checkpoint_layers: 5
+  warmup_steps: 10
+  activation_checkpoint_layers: 2
+  lr: 0.000015
+  min_lr: 0.0000149
+  accumulate_grad_batches: 4
+  max_steps: 10
+  gpus: 1
+  clip_grad: 250
+  weight_decay: 0.001
+  attention_dropout: 0.01
+  hidden_dropout: 0.01
+  stop_steps: 200
+  batch_size: 2
   products:
     - variant: finetune
       lora_enabled: false
-      gpus: 8
-      task: continued_pretraining
-      max_steps: 3000
-      stop_steps: 300
-      experiment_name: dna-finetune
-      batch_size: 8
-      lr: 1e-5
-      min_lr: 1e-6
-      accumulate_grad_batches: 2
+      task: finetune_from_ckpt
+      experiment_name: evo2-finetune
     - variant: lora_finetune
       lora_enabled: true
-      gpus: 4
-      task: lora_continued_pretraining
-      max_steps: 2000
-      stop_steps: 200
-      experiment_name: dna-lora-finetune
-      batch_size: 16
-      lr: 5e-4
-      min_lr: 5e-5
-      accumulate_grad_batches: 1
+      task: lora_finetune_from_ckpt
+      experiment_name: evo2-lora-finetune
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY train_${model} \
     -d ${data_base_path}/${dataset_config} \
     --dataset-dir=${data_base_path}/${dataset_dir} \
-    --ckpt-dir=${restore_from_checkpoint_path} \
-    --finetune \
+    --ckpt-dir=${data_base_path}/${restore_from_checkpoint_path} \
     ${ if lora_enabled then "--lora-finetune" else "" } \
     --model-size=${model_size} \
     --max-steps=${max_steps} \
-    --experiment-name=${experiment_name}_${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+    --experiment-name=${experiment_name}_${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s \
     --lr=${lr} \
     --min-lr=${min_lr} \
     --warmup-steps=${warmup_steps} \
@@ -71,6 +66,12 @@ script: |-
     --grad-acc-batches=${accumulate_grad_batches} \
     --limit-val-batches=${limit_val_batches} \
     --seq-length=${seq_length} \
+    --clip-grad=${clip_grad} \
+    --wd=${weight_decay} \
+    --attention-dropout=${attention_dropout} \
+    --hidden-dropout=${hidden_dropout} \
+    --num-layers 4 \
+    --hybrid-override-pattern SDH* \
     --devices=${gpus} \
     --num-nodes=${nodes} \
     --val-check-interval=${val_check_interval} \
