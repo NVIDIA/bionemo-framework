@@ -45,7 +45,7 @@ def getenv(var, default=None, *args, **kwargs):
     return val
 
 def prune_caches(): # Helps to cleanup memory before various runs
-    if getenv("EVO2_PRUNE_CACHES", True):
+    if not getenv("EVO2_PRUNE_CACHES", True):
         return
     import gc
     gc.collect()
