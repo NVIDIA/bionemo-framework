@@ -4,6 +4,3 @@
 [submodule "3rdparty/NeMo"]
 	path = 3rdparty/NeMo
 	url = https://github.com/antonvnv/NeMo.git
-[submodule "3rdparty/NeMo-Run"]
-	path = 3rdparty/NeMo-Run
-	url = https://github.com/antonvnv/NeMo-Run.git
