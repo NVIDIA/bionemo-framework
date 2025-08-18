@@ -271,7 +271,7 @@ installing the SCDL package from source.
 ```bash
 git clone https://github.com/NVIDIA/bionemo-framework.git
 cd bionemo-framework/sub-packages/bionemo-scdl
-pip install -e ".[dev]"
+pip install -e ".[test]"
 ```
 
 ### Tests
