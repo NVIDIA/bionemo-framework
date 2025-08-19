@@ -36,7 +36,7 @@
 - Evo2 Mamba by @jstjohn in https://github.com/NVIDIA/bionemo-framework/pull/888
 - Adding inference CDS length tests by @jstjohn in https://github.com/NVIDIA/bionemo-framework/pull/991
 - Fix PIL CVE by @trvachov in https://github.com/NVIDIA/bionemo-framework/pull/992
-- \[BIONEMO-2334\] Patch TE to fix Evo2 stop and go training by @balvisio in https://github.com/NVIDIA/bionemo-framework/pull/987
+- (BIONEMO-2334) Patch TE to fix Evo2 stop and go training by @balvisio in https://github.com/NVIDIA/bionemo-framework/pull/987
 - Fix bug in evo2-mamba train and add test by @jstjohn in https://github.com/NVIDIA/bionemo-framework/pull/994
 - Fix esm2 lora inference by @yzhang123 in https://github.com/NVIDIA/bionemo-framework/pull/996
 - Reset parameters for the ESM-2 contact head on HF export by @pstjohn in https://github.com/NVIDIA/bionemo-framework/pull/983
