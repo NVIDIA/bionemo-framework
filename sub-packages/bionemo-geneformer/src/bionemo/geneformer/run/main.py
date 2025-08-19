@@ -23,6 +23,7 @@ from bionemo.geneformer.run.config_models import (
     ExposedFineTuneSeqLenBioBertConfig,
     ExposedGeneformerPretrainConfig,
     GeneformerPretrainingDataConfig,
+    TemporalGeneformerDataConfig,
 )
 from bionemo.llm.run.config_models import MainConfig
 from bionemo.llm.train import NsysConfig, train
@@ -135,6 +136,9 @@ def main():  # noqa: D103
 
         if data_config_cls is None:
             data_config_cls = GeneformerPretrainingDataConfig
+        elif data_config_cls == "TemporalGeneformerDataConfig":
+            # Hardcoded path for temporal geneformer training
+            data_config_cls = TemporalGeneformerDataConfig
         elif isinstance(data_config_cls, str):
             data_config_cls = string_to_class(data_config_cls)
         return MainConfig[model_config_cls, data_config_cls](**config_dict)
