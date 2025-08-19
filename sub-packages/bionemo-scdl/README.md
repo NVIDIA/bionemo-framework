@@ -163,7 +163,7 @@ convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
 
 ## Runtimes with SCDL
 
-The runtime is examined on the Tahoe 100M dataset,  which containes over 100 million rows. On this dataset, there is either a 12x or 53x speed up depending on the machine used.
+The runtime is examined on the Tahoe 100M dataset, which containes over 100 million rows. On this dataset, there is either a 12x or 53x speed up depending on the machine used.
 
 ![Throughput](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/pbinder/scdl_add_to_edawson/sub-packages/bionemo-scdl/assets/tahoe_throughput.png)
 
