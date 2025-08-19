@@ -15,7 +15,7 @@ for this application and use case; see the [Chandar Lab website](https://chandar
 
 ### References
 
-\[1\] Protein Language Models: Is Scaling Necessary? Quentin Fournier, Robert M. Vernon, Almer van der Sloot, Benjamin
+[1] Protein Language Models: Is Scaling Necessary? Quentin Fournier, Robert M. Vernon, Almer van der Sloot, Benjamin
 Schulz, Sarath Chandar, Christopher James Langmead bioRxiv 2024.09.23.614603; doi:
 [https://doi.org/10.1101/2024.09.23.614603](https://doi.org/10.1101/2024.09.23.614603)
 
@@ -56,7 +56,7 @@ Schulz, Sarath Chandar, Christopher James Langmead bioRxiv 2024.09.23.614603; do
 - NVIDIA Ampere
 - NVIDIA Hopper
 
-**\[Preferred/Supported\] Operating System(s):**
+**[Preferred/Supported] Operating System(s):**
 
 - Linux
 

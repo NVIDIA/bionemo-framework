@@ -15,17 +15,17 @@ These models are ready for commercial use.
 ### Third-Party Community Consideration
 
 This model is not owned or developed by NVIDIA. This model has been developed and built to a third-party's requirements
-for this application and use case \[1\]; see link to [Non-NVIDIA Model Card for ESM-2 3B model](https://huggingface.co/facebook/esm2_t36_3B_UR50D) and [Non-NVIDIA Model Card for ESM-2 650M model](https://huggingface.co/facebook/esm2_t33_650M_UR50D)
+for this application and use case [1]; see link to [Non-NVIDIA Model Card for ESM-2 3B model](https://huggingface.co/facebook/esm2_t36_3B_UR50D) and [Non-NVIDIA Model Card for ESM-2 650M model](https://huggingface.co/facebook/esm2_t33_650M_UR50D)
 
 ### References
 
-\[1\] Lin, Z., Akin, H., Rao, R., Hie, B., Zhu, Z., Lu, W., Smetanin, N., Verkuil, R., Kabeli, O., Shmueli, Y. and dos
+[1] Lin, Z., Akin, H., Rao, R., Hie, B., Zhu, Z., Lu, W., Smetanin, N., Verkuil, R., Kabeli, O., Shmueli, Y. and dos
 Santos Costa, A., 2023. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science,
 379(6637), pp.1123-1130.
 
-\[2\] "UniProt: the universal protein knowledgebase in 2021." Nucleic acids research 49, no. D1 (2021): D480-D489.
+[2] "UniProt: the universal protein knowledgebase in 2021." Nucleic acids research 49, no. D1 (2021): D480-D489.
 
-\[3\] Devlin, J., Chang, M.W., Lee, K. and Toutanova, K., 2018. BERT: Pre-training of deep bidirectional transformers for
+[3] Devlin, J., Chang, M.W., Lee, K. and Toutanova, K., 2018. BERT: Pre-training of deep bidirectional transformers for
 language understanding. arXiv preprint arXiv:1810.04805.
 
 ### Model Architecture
@@ -65,7 +65,7 @@ acid.
 - NVIDIA Hopper
 - NVIDIA Volta
 
-**\[Preferred/Supported\] Operating System(s)**
+**[Preferred/Supported] Operating System(s)**
 
 - Linux
 
