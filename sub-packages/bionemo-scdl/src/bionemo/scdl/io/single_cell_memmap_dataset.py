@@ -54,6 +54,7 @@ class FileNames(str, Enum):
     NEIGHBOR_INDICES = "neighbor_indices.npy"
     NEIGHBOR_INDICES_PTR = "neighbor_indptr.npy"
     NEIGHBOR_VALUES = "neighbor_values.npy"
+    HEADER = "header.sch"
 
 
 class Mode(str, Enum):
@@ -248,7 +249,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
-        self.header_file_name: str = "header.sch"
         self.header: SCDLHeader = None
         self.mode: Mode = mode
         self.paginated_load_cutoff = paginated_load_cutoff
@@ -308,6 +308,30 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     self._init_arrs(num_elements=num_elements, num_rows=num_rows)
                 case _:
                     raise ValueError("An np.memmap path, an h5ad path, or the number of elements and rows is required")
+
+    def _path_in_archive(self, filename: str | Path) -> str:
+        """Returns the full path to a file within the archive, joining self.data_path and the filename.
+
+        Args:
+            filename: The filename or Path object to resolve within the archive.
+
+        Returns:
+            The full path as a string.
+        """
+        if isinstance(filename, Path):
+            filename = str(filename)
+        return os.path.join(self.data_path, filename)
+
+    @property
+    def header_path(self) -> str:
+        """Returns the full path to the header file in the archive.
+
+        Example:
+            >>> ds = SingleCellMemMapDataset(data_path="my_data")
+            >>> ds.header_path
+            'my_data/scdl_header.json'
+        """
+        return self._path_in_archive(FileNames.HEADER.value)
 
     def _init_neighbor_args(self, neighbor_key, neighbor_sampling_strategy, fallback_to_identity):
         # Neighbor tracking
@@ -686,7 +710,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
     def _load_mmap_file_if_exists(self, file_path, dtype):
         if os.path.exists(file_path):
-            return np.memmap(file_path, dtype=dtype, mode=self.mode)
+            return np.memmap(file_path, dtype=dtype, mode=self.mode.value)
         else:
             raise FileNotFoundError(f"The mmap file at {file_path} is missing")
 
@@ -708,15 +732,15 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
         self.data_path = stored_path
         self.mode = Mode.READ_APPEND
-        # self.header_path = Path(stored_path) / self.header_file_name
         # Load header if present; keep None if missing or unreadable
-        if os.path.exists(self.data_path / self.header_file_name):
+        if os.path.exists(self.header_path):
             try:
-                self.header = SCDLHeader.load(str(self.data_path / self.header_file_name))
+                self.header = SCDLHeader.load(str(self.header_path))
             except Exception as e:
-                warnings.warn(f"Failed to load SCDL header at {Path(self.data_path) / self.header_file_name}: {e}")
+                warnings.warn(f"Failed to load SCDL header at {self.header_path}: {e}")
                 self.header = None
         else:
+            warnings.warn(f"SCDL header missing at {self.header_path}; continuing without header.")
             self.header = None
 
         # Metadata is required, so we must check if it exists and fail if not.
@@ -812,7 +836,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
 
         vars = adata.var
-        adata.file.close()
+        file_handle = getattr(adata, "file", None)
+        if file_handle is not None:
+            try:
+                file_handle.close()
+            except Exception:
+                pass
 
         return vars, num_rows
 
@@ -882,7 +911,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             shape=(n_elements,),
         )
         vars = adata.var
-        adata.file.close()
+        file_handle = getattr(adata, "file", None)
+        if file_handle is not None:
+            try:
+                file_handle.close()
+            except Exception:
+                pass
 
         return vars, num_rows
 
@@ -1024,7 +1058,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 indexes,
             )
         )
-        header.save(Path(self.data_path) / self.header_file_name)
+        header.save(self.header_path)
 
     def save(self, output_path: Optional[str] = None) -> None:
         """Saves the class to a given output path.
