@@ -41,6 +41,7 @@ script_args:
   stop_steps: 200
   batch_size: 2
   variant: finetune
+  precision: fp8
   products:
     - variant: finetune
       lora_enabled: false
