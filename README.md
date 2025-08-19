@@ -82,7 +82,7 @@ We distribute a [development container](https://devcontainers.github.io/) config
 (`.devcontainer/devcontainer.json`) that simplifies the process of local testing and development. Opening the
 bionemo-framework folder with VSCode should prompt you to re-open the folder inside the devcontainer environment.
 
-> \[!NOTE\]
+> [!NOTE]
 > The first time you launch the devcontainer, it may take a long time to build the image. Building the image locally
 > (using the command shown above) will ensure that most of the layers are present in the local docker cache.
 

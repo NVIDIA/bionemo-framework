@@ -1,1 +1,4 @@
 number = true        # options: {false, true}
+exclude = [
+    "docs/docs/index.md",	# Exclude highly formatted index page
+]

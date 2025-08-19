@@ -44,7 +44,7 @@ Geneformer generates a dense representation of a scRNA cell by learning co-expre
 - Hopper <br>
 - Volta <br>
 
-**\[Preferred/Supported\] Operating System(s):** <br>
+**[Preferred/Supported] Operating System(s):** <br>
 
 - Linux <br>
 
@@ -82,7 +82,7 @@ The 1% hold-out evaluation set was split further into a validation and test set.
 **Link:** Datasets downloaded from [CZ CELLxGENE Discover - Cellular Visualization Tool (cziscience.com)](https://cellxgene.cziscience.com/) <br>
 **Data Collection Method by dataset**
 
-- \[Human\] <br>
+- [Human] <br>
 
 **Labeling Method by dataset**
 
