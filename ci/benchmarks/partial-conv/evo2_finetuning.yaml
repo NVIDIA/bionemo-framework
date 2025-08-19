@@ -40,6 +40,7 @@ script_args:
   hidden_dropout: 0.01
   stop_steps: 200
   batch_size: 2
+  variant: finetune
   products:
     - variant: finetune
       lora_enabled: false
