@@ -199,14 +199,25 @@ def load(
     else:
         raise ValueError(f"Source '{source}' not supported.")
 
+    # Pooch will keep checking hashes and unpacking archives for each call,
+    # which is very time-consuming for large checkpoints, Instead, we make it
+    # do it only once by marking the resource as fully checked.
+    fname = f"{resource.sha256}-{filename}"
+    checked = (cache_dir / fname).with_suffix(".checked")
+    if checked.exists():
+        path = checked.read_text()
+        logger.debug(f"Using cached {path=} from {checked=}")
+        return path
+
     download = pooch.retrieve(
         url=str(url),
-        fname=f"{resource.sha256}-{filename}",
+        fname=fname,
         known_hash=resource.sha256,
         path=cache_dir,
         downloader=download_fn,
         processor=processor,
     )
+    checked.write_text(download)
     return Path(download)
 
 
