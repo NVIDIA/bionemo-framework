@@ -169,26 +169,26 @@
 
 ### New Features
 
-- \[Documentation\] Updated, executable ESM-2nv notebooks demonstrating: Data preprocessing and model training with custom datasets, Fine-tuning on FLIP data, Inference on OAS sequences, Pre-training from scratch and continuing training
-- \[Documentation\] New notebook demonstrating Zero-Shot Protein Design Using ESM-2nv. Thank you to @awlange from A-Alpha Bio for contributing the original version of this recipe!
+- [Documentation] Updated, executable ESM-2nv notebooks demonstrating: Data preprocessing and model training with custom datasets, Fine-tuning on FLIP data, Inference on OAS sequences, Pre-training from scratch and continuing training
+- [Documentation] New notebook demonstrating Zero-Shot Protein Design Using ESM-2nv. Thank you to @awlange from A-Alpha Bio for contributing the original version of this recipe!
 
 ### Bug fixes and Improvements
 
-- \[Geneformer\] Fixed bug in preprocessing due to a relocation of dependent artifacts.
-- \[Geneformer\] Fixes bug in finetuning to use the newer preprocessing constructor.
+- [Geneformer] Fixed bug in preprocessing due to a relocation of dependent artifacts.
+- [Geneformer] Fixes bug in finetuning to use the newer preprocessing constructor.
 
 ## BioNeMo Framework v1.8
 
 ### New Features
 
-- \[Documentation\] Updated, executable MolMIM notebooks demonstrating: Training on custom data, Inference and downstream prediction, ZINC15 dataset preprocesing, and CMA-ES optimization
-- \[Dependencies\] Upgraded the framework to [NeMo v1.23](https://github.com/NVIDIA/NeMo/tree/v1.23.0), which updates PyTorch to version 2.2.0a0+81ea7a4 and CUDA to version 12.3.
+- [Documentation] Updated, executable MolMIM notebooks demonstrating: Training on custom data, Inference and downstream prediction, ZINC15 dataset preprocesing, and CMA-ES optimization
+- [Dependencies] Upgraded the framework to [NeMo v1.23](https://github.com/NVIDIA/NeMo/tree/v1.23.0), which updates PyTorch to version 2.2.0a0+81ea7a4 and CUDA to version 12.3.
 
 ### Bug fixes and Improvements
 
-- \[ESM2\] Fixed a bug in gradient accumulation in encoder fine-tuning
-- \[MegaMolBART\] Make MegaMolBART encoder finetuning respect random seed set by user
-- \[MegaMolBART\] Finetuning with val_check_interval=1 bug fix
+- [ESM2] Fixed a bug in gradient accumulation in encoder fine-tuning
+- [MegaMolBART] Make MegaMolBART encoder finetuning respect random seed set by user
+- [MegaMolBART] Finetuning with val_check_interval=1 bug fix
 
 ### Known Issues
 
@@ -204,8 +204,8 @@
 
 ### New Features
 
-- \[EquiDock\] Remove steric clashes as a post-processing step after equidock inference.
-- \[Documentation\] Updated Getting Started section which sequentially describes prerequisites, BioNeMo Framework access, startup instructions, and next steps.
+- [EquiDock] Remove steric clashes as a post-processing step after equidock inference.
+- [Documentation] Updated Getting Started section which sequentially describes prerequisites, BioNeMo Framework access, startup instructions, and next steps.
 
 ### Known Issues
 
@@ -215,11 +215,11 @@
 
 ### New Features
 
-- \[Model Fine-tuning\] `model.freeze_layers` fine-tuning config parameter added to freeze a specified number of layers. Thank you to github user [@nehap25](https://github.com/nehap25)!
-- \[ESM2\] Loading pre-trained ESM-2 weights and continue pre-training on the MLM objective on a custom FASTA dataset is now supported.
-- \[OpenFold\] MLPerf feature 3.2 bug (mha_fused_gemm) fix has merged.
-- \[OpenFold\] MLPerf feature 3.10 integrated into bionemo framework.
-- \[DiffDock\] Updated data loading module for DiffDock model training, changing from sqlite3 backend to webdataset.
+- [Model Fine-tuning] `model.freeze_layers` fine-tuning config parameter added to freeze a specified number of layers. Thank you to github user [@nehap25](https://github.com/nehap25)!
+- [ESM2] Loading pre-trained ESM-2 weights and continue pre-training on the MLM objective on a custom FASTA dataset is now supported.
+- [OpenFold] MLPerf feature 3.2 bug (mha_fused_gemm) fix has merged.
+- [OpenFold] MLPerf feature 3.10 integrated into bionemo framework.
+- [DiffDock] Updated data loading module for DiffDock model training, changing from sqlite3 backend to webdataset.
 
 ## BioNeMo Framework v1.5
 

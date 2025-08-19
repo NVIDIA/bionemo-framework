@@ -210,7 +210,7 @@ Below we explain some common `docker run` options and how to use them as part of
 
 ### Mounting Volumes with the `-v` Option
 
-The `-v`  allows you to mount a host machine's directory as a volume inside the
+The `-v` allows you to mount a host machine's directory as a volume inside the
 container. This enables data persistence even after the container is deleted or restarted. In the context of machine
 learning workflows, leveraging the `-v` option is essential for maintaining a local cache of datasets, model weights, and
 results on the host machine such that they can persist after the container terminates and be reused across container

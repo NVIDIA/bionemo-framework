@@ -8,8 +8,8 @@ BioNeMo-SCDL provides an independent pytorch-compatible dataset class for single
 - Improved performance when loading large datasets. It allows for loading and fast iteration of large datasets.
 - Ability to use datasets that are much, much larger than memory. This is because the datasets are stored in a numpy memory-mapped format.
 - Additionally, conversion of large (significantly larger than memory) AnnData files into the SCDL format.
-- \[Future\] Full support for ragged arrays (i.e., datasets with different feature counts; currently only a subset of the API functionality is supported for ragged arrays).
-- \[Future\] Support for improved compression.
+- [Future] Full support for ragged arrays (i.e., datasets with different feature counts; currently only a subset of the API functionality is supported for ragged arrays).
+- [Future] Support for improved compression.
 
 BioNeMo-SCDL's API resembles that of AnnData, so code changes are minimal.
 In most places a simple swap from an attribute to a function is sufficient (i.e., swapping `data.n_obs` for `data.number_of_rows()`).

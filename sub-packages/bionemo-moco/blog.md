@@ -8,7 +8,7 @@ By abstracting away the complexities of the generative model theory, MoCo empowe
 
 The development of MoCo was motivated by the widespread adoption of diffusion and flow matching techniques across various biological generative models, including protein design (folding, sequence generation, structure generation), molecule generation, and DNA and antibody design. Despite their popularity, a significant obstacle has been the rapid increase of custom and unique implementations, which can lead to inconsistencies in accuracy and reproducibility. Moreover, the lack of standardization makes it challenging to take algorithmic components from one model and adapt them to new applications, hindering the progress of research and innovation.
 
-Inspired by the challenges in digital biology, $\\text{\\color{#76b900}{bionemo-moco}}$  provides a unified toolkit that can be easily integrated with any standard PyTorch representation, including graphs, images, text, and others outside the direct biological realm. While BioNeMo will leverage MoCo to accelerate advances in digital biology, MoCo’s versatility and modularity make it a valuable resource for any domain seeking to harness the power of generative models.
+Inspired by the challenges in digital biology, $\\text{\\color{#76b900}{bionemo-moco}}$ provides a unified toolkit that can be easily integrated with any standard PyTorch representation, including graphs, images, text, and others outside the direct biological realm. While BioNeMo will leverage MoCo to accelerate advances in digital biology, MoCo’s versatility and modularity make it a valuable resource for any domain seeking to harness the power of generative models.
 
 $\\text{\\color{#76b900}{bionemo-moco}}$ is available as part of the free, open-source NVIDIA BioNeMo framework, enabling researchers and developers to harness its full potential without restrictions. It can also be installed via `pip install bionemo-moco==0.0.1`. To jumpstart your work, MoCo's initial release includes built-in support for six popular generative interpolant-based frameworks, each with a variety of sampling algorithms:
 
@@ -142,11 +142,11 @@ for t in schedule:
 return sample
 ```
 
-### How easy is $\\text{\\color{#76b900}{bionemo-moco}}$  to use?
+### How easy is $\\text{\\color{#76b900}{bionemo-moco}}$ to use?
 
 As we have shown it is relatively simple to think of a Diffusion model as the underlying architecture along with an interpolant controlling the input and output manipulations.
 
-We have built $\\text{\\color{#76b900}{  bionemo-moco}}$ around this abstraction to make integration with custom models on any data as easy as possible.
+We have built $\\text{\\color{#76b900}{ bionemo-moco}}$ around this abstraction to make integration with custom models on any data as easy as possible.
 
 Below is a snippet taken from our continuous interpolant example. Here we see that if you can provide a dataloader and architecture, MoCo provides the two steps for training as well as the update step function to generate samples.
 
@@ -216,7 +216,7 @@ cfm.general_step(
 
 #### New to building generative modeling
 
-If you have recently begun exploring how to build generative models, $\\text{\\color{#76b900}{  bionemo-moco}}$ serves as an easy to use abstraction to enable quick prototyping and fast learning. While it helps to know exactly what is going on in your model, it may be useful to have a light weight and tested toolkit to quickly get you started. $\\text{\\color{#76b900}{  bionemo-moco}}$ is designed to accelerate the ease of use for generative model training and inference.
+If you have recently begun exploring how to build generative models, $\\text{\\color{#76b900}{ bionemo-moco}}$ serves as an easy to use abstraction to enable quick prototyping and fast learning. While it helps to know exactly what is going on in your model, it may be useful to have a light weight and tested toolkit to quickly get you started. $\\text{\\color{#76b900}{ bionemo-moco}}$ is designed to accelerate the ease of use for generative model training and inference.
 
 #### Looking to improve generative models from an architecture perspective
 
@@ -224,11 +224,11 @@ One major benefit of using MoCo is that it takes care of the "generative" part (
 
 #### Generative modeling expert but want to try out new sampling algorithms
 
-If you have been working with generative models you have probably had to convert equations from a recent paper into code to try out for your model. While not impossible, in many cases the original code base is not as well documented as you may like or may not even be public. With <span class="bionemo-color ">  bionemo-moco}}$ we have enabled desirable sampling functions like DDIM, various low temperature SDE solvers, and discrete sampling algorithms all accessible from a simple API. We emphasize that you do not even have to train your model with <span class="bionemo-color ">  bionemo-moco}}$ to do this as we show later in Use Case #3. In many cases these new sampling algorithms can be quite useful and come at no additional cost as shown in Use Case #1.
+If you have been working with generative models you have probably had to convert equations from a recent paper into code to try out for your model. While not impossible, in many cases the original code base is not as well documented as you may like or may not even be public. With <span class="bionemo-color "> bionemo-moco}}$ we have enabled desirable sampling functions like DDIM, various low temperature SDE solvers, and discrete sampling algorithms all accessible from a simple API. We emphasize that you do not even have to train your model with <span class="bionemo-color "> bionemo-moco}}$ to do this as we show later in Use Case #3. In many cases these new sampling algorithms can be quite useful and come at no additional cost as shown in Use Case #1.
 
 #### Theoretical Researcher working on new Diffusion, Flow Matching, or other generative modeling frameworks.
 
-If you are more interested in building a new framework of generative models, $\\text{\\color{#76b900}{bionemo-moco}}$  gives an easy to use API with seamless integration into the bionemo-fw community. Furthermore your new framework can be quickly merged and made accessible to all $\\text{\\color{#76b900}{ bionemo-moco}}$ users. This fast dispersion and sharing of information is what we are excited about and will work to continually update $\\text{\\color{#76b900}{ bionemo-moco}}$ with the latest and greatest algorithms. We encourage you to build your new algorithms in $\\text{\\color{#76b900}{ bionemo-moco}}$ to facilitate better reproducibility and reusability as your new interpolant may prove quite useful for generative tasks you may have not initially set out to improve.
+If you are more interested in building a new framework of generative models, $\\text{\\color{#76b900}{bionemo-moco}}$ gives an easy to use API with seamless integration into the bionemo-fw community. Furthermore your new framework can be quickly merged and made accessible to all $\\text{\\color{#76b900}{ bionemo-moco}}$ users. This fast dispersion and sharing of information is what we are excited about and will work to continually update $\\text{\\color{#76b900}{ bionemo-moco}}$ with the latest and greatest algorithms. We encourage you to build your new algorithms in $\\text{\\color{#76b900}{ bionemo-moco}}$ to facilitate better reproducibility and reusability as your new interpolant may prove quite useful for generative tasks you may have not initially set out to improve.
 
 ## $\\text{\\color{#76b900}{ 3. Three Real Use Cases}}$
 
