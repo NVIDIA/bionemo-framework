@@ -1,5 +1,46 @@
 # Release Notes
 
+## BioNeMo Framework v2.7
+
+### Updates & Improvements
+
+- Adds a header to SCDL archives, providing improved provenance tracking and supporting future releases. Also adds tracking of the AnnData API coverage in SCDL tests.
+  This header stores metadata about the archive and its composite arrays, including a version, the array lengths and data types, and information about the RowFeatureIndexes. This adds the features necessary to fix https://github.com/NVIDIA/bionemo-framework/issues/999 as well as implement simple bit-packing of the rowptr, colptr, and data arrays. It also should make SCDL more secure, enable strict compatibility checking, and open the door to more performance improvements. https://github.com/NVIDIA/bionemo-framework/pull/1030
+
+## BioNeMo Framework v2.6.3
+
+### Updates & Improvements
+
+- Fixes numerous issues with Evo2 model:
+  1. Inference/Generation issues resolved. https://github.com/NVIDIA/bionemo-framework/issues/890
+  2. FP8 training resumption issues resolved. https://github.com/NVIDIA/bionemo-framework/issues/973
+  3. Bug in inference script that concerns checkpoint loading is fixed. https://github.com/NVIDIA/bionemo-framework/pull/950
+- ESM2 LoRA model inference issue resolved. https://github.com/NVIDIA/bionemo-framework/pull/996
+- Added experimental evo2-mamba model. https://github.com/NVIDIA/bionemo-framework/pull/888
+- Updated base Docker image to [nvidia-pytorch 25.06-py3](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags)
+- NCCL issue in ESM2 pretraing resolved. https://github.com/NVIDIA/bionemo-framework/issues/970
+
+## What's Changed
+
+- Fix test_train_evo2_stops test by @balvisio in https://github.com/NVIDIA/bionemo-framework/pull/965
+- Enable test_train_evo2_stop_at_max_steps_and_continue. by @balvisio in https://github.com/NVIDIA/bionemo-framework/pull/966
+- automated benchmarks: esm2 650M training analogous to bionemo-recipes by @dorotat-nv in https://github.com/NVIDIA/bionemo-framework/pull/975
+- Fix database path in esm2_pretrain_recipes by @pstjohn in https://github.com/NVIDIA/bionemo-framework/pull/978
+- Add fp8 stop and go test for evo2 by @jwilber in https://github.com/NVIDIA/bionemo-framework/pull/974
+- Update Docs Banner for GitHub Pages-hosted Docs by @tshimko-nv in https://github.com/NVIDIA/bionemo-framework/pull/981
+- Add release notes for v2.6.2 (25.06) by @trvachov in https://github.com/NVIDIA/bionemo-framework/pull/971
+- Evo2 Generation fixes and necessary base dependency and container updates. Large change. by @jwilber in https://github.com/NVIDIA/bionemo-framework/pull/949
+- Point NeMo submodule back to main repo by @trvachov in https://github.com/NVIDIA/bionemo-framework/pull/984
+- Use new b2b kernels in evo2 jet tests by @jwilber in https://github.com/NVIDIA/bionemo-framework/pull/985
+- change where dtype is found in checkpoint export by @pstjohn in https://github.com/NVIDIA/bionemo-framework/pull/989
+- Evo2 Mamba by @jstjohn in https://github.com/NVIDIA/bionemo-framework/pull/888
+- Adding inference CDS length tests by @jstjohn in https://github.com/NVIDIA/bionemo-framework/pull/991
+- Fix PIL CVE by @trvachov in https://github.com/NVIDIA/bionemo-framework/pull/992
+- \[BIONEMO-2334\] Patch TE to fix Evo2 stop and go training by @balvisio in https://github.com/NVIDIA/bionemo-framework/pull/987
+- Fix bug in evo2-mamba train and add test by @jstjohn in https://github.com/NVIDIA/bionemo-framework/pull/994
+- Fix esm2 lora inference by @yzhang123 in https://github.com/NVIDIA/bionemo-framework/pull/996
+- Reset parameters for the ESM-2 contact head on HF export by @pstjohn in https://github.com/NVIDIA/bionemo-framework/pull/983
+
 ## BioNeMo Framework v2.6.2
 
 ### Updates & Improvements
