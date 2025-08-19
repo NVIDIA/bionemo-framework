@@ -44,7 +44,7 @@ The header is a binary file that contains the metadata for the archive. It is st
   - Name: The name of the array. This is stored as a string.
   - Length: The length of the array. This is stored as a single integer.
   - Dtype: The dtype of the array. This is stored as a string based on an enum.
-  - \[Optional\] Shape: The shape of the array. This is stored as a list of integers.
+  - (Optional) Shape: The shape of the array. This is stored as a list of integers.
 
 #### Archive Header Spec:
 
