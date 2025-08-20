@@ -7,6 +7,22 @@
 - Adds a header to SCDL archives, providing improved provenance tracking and supporting future releases. Also adds tracking of the AnnData API coverage in SCDL tests.
   This header stores metadata about the archive and its composite arrays, including a version, the array lengths and data types, and information about the RowFeatureIndexes. This adds the features necessary to fix https://github.com/NVIDIA/bionemo-framework/issues/999 as well as implement simple bit-packing of the rowptr, colptr, and data arrays. It also should make SCDL more secure, enable strict compatibility checking, and open the door to more performance improvements. https://github.com/NVIDIA/bionemo-framework/pull/1030
 
+- Spike-no-more support for potentially improved training stability: https://github.com/NVIDIA/bionemo-framework/pull/1011
+
+- Improvements in tag masking in Evo2 loss https://github.com/NVIDIA/bionemo-framework/pull/1008
+
+- Flash decode support in inference https://github.com/NVIDIA/bionemo-framework/pull/1000
+
+- Evo2 Lora feature by @gabenavarro https://github.com/NVIDIA/bionemo-framework/pull/980
+
+- Added partial-conv benchmark for Evo 2 finetune (from checkpoint) and Evo 2 LoRA finetuning https://github.com/NVIDIA/bionemo-framework/pull/1028
+
+## Known Issues
+
+- Users have reported issues in the predict script at sequence lengths over 8192 https://github.com/NVIDIA/bionemo-framework/issues/910 and https://github.com/NVIDIA/bionemo-framework/issues/1048 for example.
+- PR in progress to update Rotary Embedding and sequence length defaults to support incorrect checkpoint conversion https://github.com/NVIDIA/NeMo/pull/14514
+- PR in progress to fix 2x memory usage issue during generation https://github.com/NVIDIA/NeMo/pull/14515
+
 ## BioNeMo Framework v2.6.3
 
 ### Updates & Improvements
