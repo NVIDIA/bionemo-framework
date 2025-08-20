@@ -365,7 +365,7 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
 def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
     assert len(sequences) > 0
     gb_available = torch.cuda.mem_get_info()[0] / 1024**3
-    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+    if (gb_available < 20 and "1b" in ckpt_name) or (gb_available < 40 and "7b" in ckpt_name):
         pytest.skip(
             f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
         )
@@ -429,7 +429,7 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     gb_available = torch.cuda.mem_get_info()[0] / 1024**3
-    if (gb_available < 38 and flash_decode) or (gb_available < 50 and flash_decode and "7b" in ckpt_name):
+    if (gb_available < 20 and flash_decode) or (gb_available < 40 and flash_decode and "7b" in ckpt_name):
         pytest.skip(
             f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
         )
@@ -544,7 +544,7 @@ def test_batch_generate(
     assert len(sequences) > 0
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     gb_available = torch.cuda.mem_get_info()[0] / 1024**3
-    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+    if (gb_available < 20 and "1b" in ckpt_name) or (gb_available < 40 and "7b" in ckpt_name):
         pytest.skip(
             f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
         )
@@ -615,7 +615,7 @@ def test_batch_generate_coding_sequences(
 ):
     assert len(coding_sequences) > 0
     gb_available = torch.cuda.mem_get_info()[0] / 1024**3
-    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+    if (gb_available < 20 and "1b" in ckpt_name) or (gb_available < 40 and "7b" in ckpt_name):
         pytest.skip(
             f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
         )
@@ -724,7 +724,7 @@ def test_generate_speed(
 ):
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     gb_available = torch.cuda.mem_get_info()[0] / 1024**3
-    if (gb_available < 38 and "1b" in ckpt_name) or (gb_available < 50 and "7b" in ckpt_name):
+    if (gb_available < 20 and "1b" in ckpt_name) or (gb_available < 40 and "7b" in ckpt_name):
         pytest.skip(
             f"Inference API requires more than 38GB of memory for 1b models, or 50GB for 7b models. {gb_available=}"
         )
