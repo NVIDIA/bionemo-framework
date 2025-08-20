@@ -20,7 +20,8 @@ import gc
 import pytest
 import torch
 
-from bionemo.testing.test_tools import get_device_and_memory_usage
+from bionemo.testing.torch import get_device_and_memory_allocated
+
 
 def pytest_sessionstart(session):
     """Called at the start of the test session."""
@@ -29,10 +30,9 @@ def pytest_sessionstart(session):
         print(
             f"""
             sub-packages/bionemo-evo2/tests/bionemoe/evo2: Starting test session
-            {get_device_and_memory_usage()}
+            {get_device_and_memory_allocated()}
             """
         )
-        
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -43,19 +43,10 @@ def pytest_sessionfinish(session, exitstatus):
         print(
             f"""
             sub-packages/bionemo-evo2/tests/bionemoe/evo2: Test session complete
-            current_device={torch.cuda.current_device()}
-            current device name: {torch.cuda.get_device_name(torch.cuda.current_device())}
-            gb_available={torch.cuda.mem_get_info()[0] / 1024**3}
-            Peak GPU memory: {peak_memory / 1024**3:.3f} GB
-            Final GPU memory: {final_memory / 1024**3:.3f} GB
+            {get_device_and_memory_allocated()}
             """
         )
  
- 
-
-     
- 
-        
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
