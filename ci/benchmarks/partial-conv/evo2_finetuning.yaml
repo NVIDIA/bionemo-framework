@@ -11,6 +11,18 @@ key_segments:
   experiment_name: False
   workspace: False
   restore_from_checkpoint_path: False
+  activation_checkpoint_layers: False
+  lora_enabled: False
+  lr: False
+  min_lr: False
+  warmup_steps: False
+  accumulate_grad_batches: False
+  clip_grad: False
+  weight_decay: False
+  attention_dropout: False
+  hidden_dropout: False
+  precision: False
+  seq_length: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
