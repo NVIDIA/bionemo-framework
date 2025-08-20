@@ -72,9 +72,10 @@ def get_device_and_memory_allocated() -> str:
         current device index: {current_device_index}
         current device uuid: {props.uuid}
         current device name: {props.name}
-        memory available: {torch.cuda.mem_get_info()[0] / 1024**3:.3f} GB
-        memory allocated: {torch.cuda.memory_allocated() / 1024**3:.3f} GB
-        max memory allocated: {torch.cuda.max_memory_allocated() / 1024**3:.3f} GB
+        memory, total on device: {torch.cuda.mem_get_info()[1] / 1024**3:.3f} GB
+        memory, available on device: {torch.cuda.mem_get_info()[0] / 1024**3:.3f} GB        
+        memory allocated for tensors etc: {torch.cuda.memory_allocated() / 1024**3:.3f} GB
+        max memory reserved for tensors etc: {torch.cuda.max_memory_allocated() / 1024**3:.3f} GB
         """
     )
     return message

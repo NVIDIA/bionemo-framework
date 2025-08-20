@@ -38,8 +38,6 @@ def pytest_sessionstart(session):
 def pytest_sessionfinish(session, exitstatus):
     """Called at the end of the test session."""
     if torch.cuda.is_available():
-        peak_memory = torch.cuda.max_memory_allocated()
-        final_memory = torch.cuda.memory_allocated()
         print(
             f"""
             sub-packages/bionemo-evo2/tests/bionemoe/evo2: Test session complete
