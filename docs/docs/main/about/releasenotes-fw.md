@@ -17,7 +17,7 @@
 
 - Added partial-conv benchmark for Evo 2 finetune (from checkpoint) and Evo 2 LoRA finetuning https://github.com/NVIDIA/bionemo-framework/pull/1028
 
-## Known Issues
+### Known Issues
 
 - Users have reported issues in the predict script at sequence lengths over 8192 https://github.com/NVIDIA/bionemo-framework/issues/910 and https://github.com/NVIDIA/bionemo-framework/issues/1048 for example.
 - PR in progress to update Rotary Embedding and sequence length defaults to support incorrect checkpoint conversion https://github.com/NVIDIA/NeMo/pull/14514
@@ -36,7 +36,7 @@
 - Updated base Docker image to [nvidia-pytorch 25.06-py3](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags)
 - NCCL issue in ESM2 pretraing resolved. https://github.com/NVIDIA/bionemo-framework/issues/970
 
-## What's Changed
+### What's Changed
 
 - Fix test_train_evo2_stops test by @balvisio in https://github.com/NVIDIA/bionemo-framework/pull/965
 - Enable test_train_evo2_stop_at_max_steps_and_continue. by @balvisio in https://github.com/NVIDIA/bionemo-framework/pull/966
