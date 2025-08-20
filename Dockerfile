@@ -213,8 +213,8 @@ COPY ./sub-packages /workspace/bionemo2/sub-packages
 
 # Install subquadratic_ops wheel file - pip will automatically select the correct architecture (x86_64 / arm64)
 # Only install if JET_GITLAB_TOKEN is available
-RUN if [ -n "${{JET_GITLAB_TOKEN}}" ]; then \
-      pip install subquadratic-ops==v0.0.1+cuda12.9 --index-url https://__token__:${{JET_GITLAB_TOKEN}}@gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple; \
+RUN if [ -n "${JET_GITLAB_TOKEN}" ]; then \
+      pip install subquadratic-ops==v0.0.1+cuda12.9 --index-url https://__token__:${JET_GITLAB_TOKEN}@gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple; \
     else \
       echo "JET_GITLAB_TOKEN not available, skipping subquadratic-ops installation"; \
     fi
