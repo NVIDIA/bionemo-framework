@@ -1,6 +1,6 @@
 # Release Notes
 
-## BioNeMo Framework v2.7
+## BioNeMo Framework v2.7rc1
 
 ### Updates & Improvements
 
