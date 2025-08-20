@@ -16,7 +16,7 @@ script_args:
   workspace: /workspace/bionemo2
   data_path: /data/evo2
   artefacts_url: https://__token__:${JET_GITLAB_TOKEN}@gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple
-  file_name_wheel: cuhyena==v0.2.3+cuda12.9
+  file_name_wheel: subquadratic-ops
   model: evo2
   variant: train
   config_name: 1b
@@ -55,7 +55,7 @@ script: |-
   --enable-preemption \
   --ckpt-async-save \
   --use-megatron-comm-overlap-llama3-8k \
-  --use-b2b-causal-conv1d \
+  --use-subquadratic_ops \
   --overlap-grad-reduce \
   --clip-grad=${clip_grad} \
   --eod-pad-in-loss-mask \
@@ -78,7 +78,7 @@ script: |-
   --limit-val-batches=20 \
   --log-every-n-steps=50 \
   --val-check-interval=500 \
-  --use-b2b-causal-conv1d \
+  --use-subquadratic_ops \
   --create-tflops-callback \
   --create-tensorboard-logger \
   --result-dir=${tensorboard_dir} \

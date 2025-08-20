@@ -94,37 +94,39 @@ AMPLIFY is provided under the Apache 2.0 license.
 
 ??? Example "Example pre-training commands"
 
-    === "120M"
+````
+=== "120M"
 
-        ```
-        python /workspace/bionemo-framework/sub-packages/bionemo-amplify/src/bionemo/amplify/train_amplify.py \
-            ...
-            --num-nodes=2 \
-            --devices=8 \
-            --min-seq-length 512 \
-            --max-seq-length 512 \
-            --num-layers 24 \
-            --num-attention-heads 10 \
-            --hidden-size 640 \
-            --ffn-hidden-size 2560 \
-            --micro-batch-size 256
-        ```
+    ```
+    python /workspace/bionemo-framework/sub-packages/bionemo-amplify/src/bionemo/amplify/train_amplify.py \
+        ...
+        --num-nodes=2 \
+        --devices=8 \
+        --min-seq-length 512 \
+        --max-seq-length 512 \
+        --num-layers 24 \
+        --num-attention-heads 10 \
+        --hidden-size 640 \
+        --ffn-hidden-size 2560 \
+        --micro-batch-size 256
+    ```
 
-    === "350M"
+=== "350M"
 
-        ```
-        python /workspace/bionemo-framework/sub-packages/bionemo-amplify/src/bionemo/amplify/train_amplify.py \
-            ...
-            --num-nodes=4 \
-            --devices=8 \
-            --min-seq-length 512 \
-            --max-seq-length 512 \
-            --num-layers 32 \
-            --num-attention-heads 15 \
-            --hidden-size 960 \
-            --ffn-hidden-size 3840 \
-            --micro-batch-size 128
-        ```
+    ```
+    python /workspace/bionemo-framework/sub-packages/bionemo-amplify/src/bionemo/amplify/train_amplify.py \
+        ...
+        --num-nodes=4 \
+        --devices=8 \
+        --min-seq-length 512 \
+        --max-seq-length 512 \
+        --num-layers 32 \
+        --num-attention-heads 15 \
+        --hidden-size 960 \
+        --ffn-hidden-size 3840 \
+        --micro-batch-size 128
+    ```
+````
 
 | Model Size | GPUs             | Batch Size (per GPU) | Training Step Time (s) |
 | ---------- | ---------------- | -------------------- | ---------------------- |

@@ -21,7 +21,6 @@ The `bionemo-framework` is organized into independently installable namespace pa
 `sub-packages/` directory. Please refer to [PEP 420 – Implicit Namespace Packages](https://peps.python.org/pep-0420/)
 for details.
 
-
 ## Documentation Resources
 
 - **Official Documentation:** For user guides, API references, and troubleshooting, visit our [official documentation](https://docs.nvidia.com/bionemo-framework/latest/).
@@ -62,7 +61,6 @@ git submodule update --init --recursive
 
 Different branches of the repo can have different pinned versions of these third-party submodules. Ensure submodules are automatically updated after switching branches or pulling updates by configuring git with:
 
-
 ```bash
 git config submodule.recurse true
 ```
@@ -72,13 +70,11 @@ You will have to run the full `git submodule update --init --recursive` command 
 
 #### Build the Docker Image Locally
 
-
 With a locally cloned repository and initialized submodules, build the BioNeMo container using:
 
 ```bash
 docker buildx build . -t my-container-tag
 ```
-
 
 #### VSCode Devcontainer for Interactive Debugging
 

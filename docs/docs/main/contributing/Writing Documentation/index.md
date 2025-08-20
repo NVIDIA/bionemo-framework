@@ -17,7 +17,7 @@ When writing documentation, keep the following principles in mind:
 
 1. **Clarity**: Use clear and concise language to convey your message. Avoid ambiguity and jargon that may confuse readers.
 2. **Accuracy**: Ensure that your documentation is accurate and up-to-date. Verify facts, details, and code snippets
-    before publishing.
+   before publishing.
 3. **Completeness**: Provide all necessary information to understand the code, including context, syntax, and examples.
 4. **Consistency**: Use a consistent tone, voice, and style throughout the documentation.
 5. **Accessibility**: Make your documentation easy to read and understand by using headings, bullet points, and short paragraphs.
