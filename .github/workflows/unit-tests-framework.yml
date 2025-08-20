@@ -221,7 +221,6 @@ jobs:
     needs:
       - build-bionemo-image
       - get-pr-labels
-      - changed-files
     runs-on: linux-amd64-gpu-l4-latest-1
     if: |
       github.event_name == 'schedule' || github.event_name == 'merge_group' ||
