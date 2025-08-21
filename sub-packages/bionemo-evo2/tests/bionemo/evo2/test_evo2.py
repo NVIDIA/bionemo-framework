@@ -63,7 +63,6 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, flash_decod
         model_size = "1b"
         seq_len_cap = 6000
         memory_needed_by_test = 17  # max reserved rounded up, for stand-alone test
-
     elif "7b" in ckpt_name:
         model_size = "7b"
         seq_len_cap = 4000
@@ -84,7 +83,6 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, flash_decod
                 ]
             )
         )
-
     return seq_len_cap
 
 
