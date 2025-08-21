@@ -222,7 +222,7 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
         gold_standard_no_fp8_tensor = torch.load(gold_standard_no_fp8).to(device=outputs.device, dtype=outputs.dtype)
         is_fp8_supported, compute_capability, device_info = check_fp8_support(device.index)
 
-        if is_fp8_supported and compute_capability == "9.0" and False:
+        if is_fp8_supported and compute_capability == "9.0":
             # Most rigurous assertion for output equivalence currently works on devices that are new enough to
             #  support FP8.
             logger.info(
