@@ -1,0 +1,136 @@
+name: "BioNeMo Recipes CI"
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+      - "dependabot/**"
+  merge_group:
+    types: [checks_requested]
+  schedule:
+    - cron: "0 7 * * *" # Runs at 7 AM UTC daily (12 AM MST)
+
+defaults:
+  run:
+    shell: bash -x -e -u -o pipefail {0}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changed-dirs:
+    runs-on: ubuntu-latest
+    outputs:
+      any_changed: ${{ steps.changed-files.outputs.any_changed }}
+      all_changed_files: ${{ steps.changed-files.outputs.all_changed_files }}
+      dirs: ${{ steps.set-dirs.outputs.dirs }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: step-security/changed-files@v46
+        with:
+          json: true
+          matrix: true
+          base_sha: main
+          dir_names: true
+          dir_names_max_depth: 2
+          files: |
+            models/**
+            recipes/**
+            .github/workflows/unit-tests-recipes.yml
+
+      - id: set-dirs
+        run: |
+          # Get all recipe and model directories
+          ALL_DIRS=$(ls -d recipes/*/ models/*/ 2>/dev/null | jq -R -s -c 'split("\n")[:-1] | map(rtrimstr("/"))')
+          CHANGED_FILES='${{ steps.changed-files.outputs.all_changed_files }}'
+          # Filter directories to only those that have changed files
+          # Then assign Docker images based on directory path:
+          # - Default image: nvcr.io/nvidia/pytorch:25.06-py3 (for most models and recipes)
+          # - Custom AMPLIFY golden value image: svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025
+          DIRS=$(echo "$ALL_DIRS" | jq -c --argjson changed "$CHANGED_FILES" '
+            map(select(. as $dir | $changed | index($dir) != null)) |
+            map({
+              dir: .,
+              image: (
+                if . == "models/amplify" then
+                  "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
+                else
+                  "nvcr.io/nvidia/pytorch:25.06-py3"
+                end
+              )
+            })
+          ')
+          echo "dirs=$DIRS" >> $GITHUB_OUTPUT
+      - name: Show output
+        run: |
+          echo '${{ toJSON(steps.changed-files.outputs) }}'
+        shell:
+          bash
+
+  model-tests:
+    needs: changed-dirs
+    runs-on: linux-amd64-gpu-l4-latest-1
+    container:
+      image: ${{ matrix.model.image }}
+    strategy:
+      matrix:
+        model:
+          - path: "models/amplify"
+            image: "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
+          - path: "models/esm2"
+            image: "nvcr.io/nvidia/pytorch:25.06-py3"
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: '${{ matrix.model.path }}'
+          sparse-checkout-cone-mode: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.model.path }}
+        run: uv pip install --system --break-system-packages -e .
+
+      - name: Run tests
+        working-directory: ${{ matrix.model.path }}
+        run: pytest -v .
+
+  recipe-tests:
+    needs: changed-dirs
+    runs-on: linux-amd64-gpu-l4-latest-1
+    container:
+      image: ${{ matrix.recipe.image }}
+    strategy:
+      matrix:
+        recipe: ${{ fromJson(needs.changed-dirs.outputs.dirs) }}
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: '${{ matrix.recipe.dir }}'
+          sparse-checkout-cone-mode: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.recipe.dir }}
+        run: uv pip install --system --break-system-packages -r requirements.txt
+
+      - name: Run tests
+        working-directory: ${{ matrix.recipe.dir }}
+        run: pytest -v .

@@ -1,0 +1,9 @@
+datasets
+git+https://gitlab-master.nvidia.com/clara-discovery/nvfsdp-mirror.git@nightly
+hydra-core
+safetensors
+torch
+tqdm
+transformer_engine
+transformers
+wandb

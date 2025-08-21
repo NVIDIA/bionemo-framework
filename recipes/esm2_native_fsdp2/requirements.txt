@@ -1,0 +1,7 @@
+datasets
+hydra-core
+torch
+tqdm
+flash-attn
+transformers
+wandb

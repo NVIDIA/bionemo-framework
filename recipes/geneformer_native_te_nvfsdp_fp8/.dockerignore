@@ -1,0 +1,13 @@
+bionemo/checkpoints
+Dockerfile
+README.md
+checkpoint_export/
+outputs/
+.ruff_cache
+__pycache__
+.pytest_cache
+.ruff.toml
+.dockerignore
+wandb
+.**
+*.sqsh
