@@ -50,7 +50,7 @@ class RowFeatureIndex:
 
     Attributes:
         _cumulative_sum_index: Pointer that deliniates which entries
-        correspondto a given row. For examples if the array is [-1, 200, 201],
+        correspond to a given row. For examples if the array is [-1, 200, 201],
         rows 0 to 199 correspond to _feature_arr[0] and 200 corresponds to
         _feature_arr[1]
         _feature_arr: list of feature dictionaries for each dataset
