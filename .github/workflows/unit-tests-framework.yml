@@ -35,6 +35,7 @@ jobs:
         with:
           base_sha: main
           files: |
+            **
             !models/**
             !recipes/**
             !**.md
@@ -100,7 +101,7 @@ jobs:
       - get-pr-labels
       - changed-files
     runs-on: linux-amd64-cpu16
-    # We want this to run
+    # We want this to run on schedule events even if no files have changed
     if: ${{ github.event_name == 'schedule' || (!contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'SKIP_CI') && needs.changed-files.outputs.any_changed == 'true') }}
     steps:
       - name: Login to Docker Hub
