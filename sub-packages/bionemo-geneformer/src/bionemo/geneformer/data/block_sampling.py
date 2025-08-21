@@ -145,8 +145,11 @@ class MapStyleScDataset(Dataset):
             _sorted_order = np.argsort(shuffled_ids)
             _sorted_idxs = np.sort(shuffled_ids)
 
-            # Sort for I/O locality as we use blocked fetches.
-            sorted_data = self.dataset[_sorted_idxs]
+            # Turn it back into a list so torch does the right things.
+            if hasattr(self.dataset, '__getitems__'):
+                sorted_data = self.dataset.__getitems__(_sorted_idxs.tolist())
+            else:
+                sorted_data = [self.dataset[idx] for idx in _sorted_idxs.tolist()]
 
             # Reverse the sorting to return the args in the original state.
             data = np.array(sorted_data)[np.argsort(_sorted_order)]
@@ -361,7 +364,6 @@ class scDataset(IterableDataset):
                     # Other workers get the base number of fetches
                     start = worker_info.id * per_worker + remainder
                     end = start + per_worker
-
                 fetches = fetches[start:end]
 
             if self.sort_before_fetch:
@@ -374,7 +376,7 @@ class scDataset(IterableDataset):
                 if self.fetch_callback is not None:
                     data = self.fetch_callback(self.collection, fetch_ids)
                 else:
-                    data = self.collection[fetch_ids]
+                    data = list(self.collection[i] for i in fetch_ids)
 
                 if not isinstance(data, np.ndarray):
                     data = np.array(data)
@@ -382,7 +384,6 @@ class scDataset(IterableDataset):
                 # Call fetch transform if provided
                 if self.fetch_transform is not None:
                     data = self.fetch_transform(data)
-
                 if self.shuffle_before_yield:
                     # Shuffle the indices
                     if bionemo_permute:
@@ -408,7 +409,6 @@ class scDataset(IterableDataset):
                     # Call batch transform if provided
                     if self.batch_transform is not None:
                         batch_data = self.batch_transform(batch_data)
-
                     yield batch_data
 
         else:  # Not shuffling indices before fetching
