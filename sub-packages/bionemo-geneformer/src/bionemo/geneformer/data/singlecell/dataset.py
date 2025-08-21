@@ -119,6 +119,8 @@ class SingleCellDataset(Dataset):
 
     def __getitem__(self, index: EpochIndex) -> types.BertSample:
         """Performs a lookup and the required transformation for the model."""
+        if not isinstance(index, EpochIndex):
+            index = EpochIndex(idx=index, epoch=0)
         rng = np.random.default_rng([self._seed, index.epoch, index.idx])
         values, feature_ids = self.scdl.get_row(index.idx, return_features=True, feature_vars=["feature_id"])
         assert (
@@ -145,7 +147,6 @@ class SingleCellDataset(Dataset):
             include_unrecognized_vocab_in_dataset=self.include_unrecognized_vocab_in_dataset,
         )
 
-
 def _gather_medians(
     gene_names: np.ndarray,
     gene_data: np.ndarray,
@@ -155,16 +156,12 @@ def _gather_medians(
     include_unrecognized_vocab_in_dataset: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Filter out genes that are not in the provided tokenizer vocab, and tokenize the gene names."""
-    genes, tokens, medians = [], [], []
-    for tok, gene in zip(gene_names, gene_data):
-        if tok in vocab:
-            tokens.append(vocab[tok])
-            genes.append(gene)
-            if normalize:
-                med = gene_median[tok]  # If not in the dictionary we default to no normalization (1)
-                medians.append(med)
-        elif include_unrecognized_vocab_in_dataset:
-            raise ValueError(f"Provided gene identifier, {str(tok)}, is not in the tokenizer vocab.")
+    tok_genes = filter(
+        lambda x: x[0] is not None, 
+        ((vocab.get(tok), gene, gene_median.get(tok, 1.0)) for tok, gene in zip(gene_names, gene_data))
+    )
+
+    tokens, genes, medians = zip(*tok_genes)
     return np.asarray(genes), np.asarray(tokens), np.asarray(medians)
 
 
