@@ -44,7 +44,7 @@ def pytest_sessionfinish(session, exitstatus):
             {get_device_and_memory_allocated()}
             """
         )
- 
+
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
