@@ -24,5 +24,3 @@ def test_get_device_and_memory_allocated():
     assert "memory, available on device" in message
     assert "memory allocated for tensors etc" in message
     assert "max memory reserved for tensors etc" in message
-
-
