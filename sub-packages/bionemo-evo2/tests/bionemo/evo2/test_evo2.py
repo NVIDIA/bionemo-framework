@@ -16,7 +16,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from calendar import c
 import logging
 import os
 import time
@@ -49,9 +48,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
 
 
-def determine_memory_requirement_and_skip_if_not_met(
-    ckpt_name: str, flash_decode: bool | None = None
-) -> int:
+def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, flash_decode: bool | None = None) -> int:
     """Determine the memory requirement for a given checkpoint and flash decode condition.
     ckpt_name : str
         the name of the checkpoint to test
@@ -61,31 +58,33 @@ def determine_memory_requirement_and_skip_if_not_met(
         The input sequence length cap, for the model sin the checkpoint, given certain memory requirements.
         If the memory requirement is not met, the test is skipped.
     """
-    
+
     if "1b" in ckpt_name:
         model_size = "1b"
         seq_len_cap = 6000
         memory_needed_by_test = 17  # max reserved rounded up, for stand-alone test
-    
+
     elif "7b" in ckpt_name:
         model_size = "7b"
         seq_len_cap = 4000
         memory_needed_by_test = 32  # max reserved rounded up, for stand-alone test
     else:
         raise ValueError(f"{ckpt_name=} is not supported for testing")
-    
-    skip_condition_flash = (flash_decode is None or flash_decode)
+
+    skip_condition_flash = flash_decode is None or flash_decode
     gb_available = torch.cuda.mem_get_info()[0] / 1024**3
     skip_condition = gb_available < memory_needed_by_test and skip_condition_flash
 
     if skip_condition:
         pytest.skip(
-            ", ".join([
-                f"Inference API requires at least {memory_needed_by_test}GB of available memory for {model_size} models",
-                f"{gb_available=}"
-            ])
+            ", ".join(
+                [
+                    f"Inference API requires at least {memory_needed_by_test}GB of available memory for {model_size} models",
+                    f"{gb_available=}",
+                ]
+            )
         )
-    
+
     return seq_len_cap
 
 
@@ -275,7 +274,6 @@ def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_19
 
         # Run cosine similarity between the two vectors.
         logit_similarity = torch.nn.functional.cosine_similarity(output_vector, gold_standard_no_fp8_vector, dim=-1)
-        import pdb; pdb.set_trace()
         assert torch.mean(torch.abs(logit_similarity - torch.ones_like(logit_similarity))) < 9.9e-3
 
 
@@ -408,7 +406,7 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
 def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
     assert len(sequences) > 0
     seq_len_cap = determine_memory_requirement_and_skip_if_not_met(ckpt_name)
-    
+
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
@@ -467,11 +465,10 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
     assert len(sequences) > 0
     seq_len_cap = determine_memory_requirement_and_skip_if_not_met(ckpt_name, flash_decode)
-    
+
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
-    
-    
+
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
     if skip:
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
@@ -518,7 +515,9 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
             forward_kwargs = {}
         matchrates = []
         for seq in sequences:
-            seq = seq[:seq_len_cap]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
+            seq = seq[
+                :seq_len_cap
+            ]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
             with torch.no_grad():
                 device = torch.cuda.current_device()
                 # tokens = torch.tensor([tokenizer.tokenize(seq)], device=device)
@@ -582,7 +581,7 @@ def test_batch_generate(
 ):
     assert len(sequences) > 0
     determine_memory_requirement_and_skip_if_not_met(ckpt_name)
-    
+
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
@@ -651,7 +650,7 @@ def test_batch_generate_coding_sequences(
 ):
     assert len(coding_sequences) > 0
     determine_memory_requirement_and_skip_if_not_met(ckpt_name)
-    
+
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
@@ -757,7 +756,7 @@ def test_generate_speed(
 ):
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     determine_memory_requirement_and_skip_if_not_met(ckpt_name)
-    
+
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
