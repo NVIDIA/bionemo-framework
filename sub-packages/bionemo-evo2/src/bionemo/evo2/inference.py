@@ -190,6 +190,10 @@ def get_default_config(ckpt_name):
 
         # Affects max memory usage during parallel hyena filters pass.
         "prompt_segmentation_threshold": detect_pst(ckpt_name),
+
+        # Affects inference accuracy and speed
+        "unfused_rmsnorm": getenv("EVO2_UNFUSED_RMSNORM", True),
+        "plain_row_linear": getenv("EVO2_PLAIN_ROW_LINEAR", True),
     }
 
 @torch.inference_mode
