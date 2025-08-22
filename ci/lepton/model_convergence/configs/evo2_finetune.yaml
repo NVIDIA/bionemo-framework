@@ -1,6 +1,6 @@
 # Lepton Job Configuration
-job_name: evo2-training
-resource_shape: gpu.2xh200
+job_name: evo2-finetune
+resource_shape: gpu.1xh200
 node_group_name: nv-int-multiteam-nebius-h200-01
 
 container:
@@ -8,21 +8,25 @@ container:
   registry_auth: lepton-nvidia-cvai-bnmo-trng
 
 environment_variables:
-  - name: JWILBER_WANDB_API_KEY
-    value: JWILBER_WANDB_API_KEY
+  - name: MVLE_WANDB_API_KEY
+    value: MVLE_WANDB_API_KEY
 
 script: |
   #!/bin/bash
+  export DATA_PATH=/data/data/evo2
+  
+  wandb login $MVLE_WANDB_API_KEY
+
   torchrun \
       --nnodes 1 \
       --nproc_per_node 1 \
       --node_rank 0 \
-      --master_addr 29400 \
+      --master_addr localhost \
       --master_port 29400 \
       /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
-      -d data/evo2/training_data_config.yaml \
-      --dataset-dir data/evo2/preprocessed_data \
-      --result-dir pretraining_demo \
+      -d $DATA_PATH/training_data_config.yaml \
+      --dataset-dir $DATA_PATH/preprocessed_data \
+      --result-dir $DATA_PATH/pretraining_demo \
       --experiment-name evo2 \
       --model-size 1b \
       --devices 1 \
@@ -34,7 +38,7 @@ script: |
       --warmup-steps 10 \
       --grad-acc-batches 4 \
       --max-steps 10 \
-      --ckpt-dir data/evo2/checkpoints/nemo2_evo2_1b_8k \
+      --ckpt-dir $DATA_PATH/nemo2_evo2_1b_8k \
       --clip-grad 250 \
       --wd 0.001 \
       --attention-dropout 0.01 \
