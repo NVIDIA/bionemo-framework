@@ -15,11 +15,12 @@
 
 import pytest
 import torch
-from amplify.amplify_hf import EncoderBlock
-from amplify.rotary import apply_rotary_emb, precompute_freqs_cis
 from transformer_engine.pytorch import TransformerLayer
 from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
 from transformers import AutoConfig
+
+from amplify.amplify_hf import EncoderBlock
+from amplify.rotary import apply_rotary_emb, precompute_freqs_cis
 
 
 class ForwardHook:

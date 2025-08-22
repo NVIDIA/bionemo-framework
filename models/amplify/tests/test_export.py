@@ -15,8 +15,9 @@
 
 
 def test_export_hf_checkpoint(tmp_path):
-    from amplify.export import export_hf_checkpoint
     from transformers import AutoModel, AutoModelForMaskedLM, AutoTokenizer
+
+    from amplify.export import export_hf_checkpoint
 
     export_hf_checkpoint("AMPLIFY_120M", tmp_path)
 

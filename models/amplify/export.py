@@ -17,8 +17,9 @@ import gc
 from pathlib import Path
 
 import torch
-from amplify.export import export_hf_checkpoint
 from transformers import AutoModelForMaskedLM
+
+from amplify.export import export_hf_checkpoint
 
 
 AMPLIFY_TAGS = ["AMPLIFY_120M", "AMPLIFY_350M"]

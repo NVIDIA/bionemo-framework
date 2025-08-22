@@ -15,16 +15,17 @@
 
 from unittest.mock import MagicMock
 
-import amplify.amplify_hf as amp_hf
-import amplify.amplify_te as amp_te
 import pytest
 import torch
 import torch.nn as nn
 import transformer_engine
 import transformer_engine.pytorch
-from amplify.state_dict_convert import convert_amplify_hf_to_te
 from conftest import requires_fp8
 from transformer_engine.common.recipe import DelayedScaling, Format
+
+import amplify.amplify_hf as amp_hf
+import amplify.amplify_te as amp_te
+from amplify.state_dict_convert import convert_amplify_hf_to_te
 
 
 def test_amplify_hf_model(config, input_data):

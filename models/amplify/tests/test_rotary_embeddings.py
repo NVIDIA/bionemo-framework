@@ -14,12 +14,13 @@
 # limitations under the License.
 
 import torch
-from amplify.rotary import apply_rotary_emb, precompute_freqs_cis
 from transformer_engine.pytorch.attention.rope import (
     RotaryPositionEmbedding,
     apply_rotary_pos_emb,
 )
 from transformers import AutoConfig
+
+from amplify.rotary import apply_rotary_emb, precompute_freqs_cis
 
 
 def test_apply_rotary_pos_emb():
