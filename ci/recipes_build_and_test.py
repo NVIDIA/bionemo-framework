@@ -169,6 +169,8 @@ class CIManager:
                 continue
 
             for subdir in parent_path.iterdir():
+                if subdir.name.startswith("."):
+                    continue
                 if subdir.is_dir() and (subdir / "Dockerfile").exists():
                     build_dirs.append(subdir)
                 elif subdir.is_dir():
