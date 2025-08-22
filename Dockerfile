@@ -320,7 +320,6 @@ FROM dev AS development
 
 WORKDIR /workspace/bionemo2
 COPY --from=bionemo2-base /workspace/bionemo2/ .
-COPY ./internal ./internal
 # because of the `rm -rf ./3rdparty` in bionemo2-base
 COPY ./3rdparty ./3rdparty
 
@@ -334,7 +333,6 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 RUN <<EOF
 set -eo pipefail
 find . -name __pycache__ -type d -print | xargs rm -rf
-uv pip install --no-build-isolation --editable ./internal/infra-bionemo
 for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
     uv pip install --no-deps --no-build-isolation --editable $sub
 done
