@@ -1,4 +1,3 @@
---extra-index-url https://test.pypi.org/simple/ # TODO: Remove this once megatron-fsdp is public
 datasets
 megatron-fsdp==0.1.0rc0
 hydra-core

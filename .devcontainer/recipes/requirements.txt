@@ -1,4 +1,3 @@
---extra-index-url https://test.pypi.org/simple/ # TODO: Remove this once megatron-fsdp is public
 accelerate
 datasets
 deepspeed
