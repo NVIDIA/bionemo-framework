@@ -4,18 +4,26 @@ resource_shape: gpu.1xh200
 node_group_name: nv-int-multiteam-nebius-h200-01
 
 container:
-  image: nvcr.io/nvidian/cvai_bnmo_trng/bionemo:2.6.2-release
+  image: nvcr.io/nvidia/clara/bionemo-framework:nightly
   registry_auth: lepton-nvidia-cvai-bnmo-trng
 
 environment_variables:
-  - name: MVLE_WANDB_API_KEY
+  - name: WANDB_API_KEY
     value: MVLE_WANDB_API_KEY
+  
+mounts:
+  - path: /BioNeMo
+    mount_path: /data
+    from: node-nfs:lepton-shared-fs
+  - path: /BioNeMo/jwilber/bionemo-dev/bionemo-framework/sub-packages/bionemo-evo2
+    mount_path: /workspace/bionemo2/sub-packages/bionemo-evo2
+    from: node-nfs:lepton-shared-fs
 
 script: |
   #!/bin/bash
   export DATA_PATH=/data/data/evo2
   
-  wandb login $MVLE_WANDB_API_KEY
+  wandb login $WANDB_API_KEY
 
   torchrun \
       --nnodes 1 \

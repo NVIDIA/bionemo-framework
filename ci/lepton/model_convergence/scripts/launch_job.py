@@ -57,11 +57,12 @@ exit "$RC"
 
 
 # todo: move to constants file?
-mount = {
-    "path": "/BioNeMo",
-    "mount_path": "/data",
-    "from": "node-nfs:lepton-shared-fs",
-}
+# mvle - moved to yaml file
+# mount = {
+#     "path": "/BioNeMo",
+#     "mount_path": "/data",
+#     "from": "node-nfs:lepton-shared-fs",
+# }
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="")
@@ -116,7 +117,7 @@ def main(cfg: DictConfig):
         parallelism=1,
         envs=env_vars,
         image_pull_secrets=[cfg.container.registry_auth],
-        mounts=[Mount(**mount)],
+        mounts=[Mount(**mount) for mount in cfg.mounts],
     )
 
     # Create job object
