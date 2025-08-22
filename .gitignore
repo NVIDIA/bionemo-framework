@@ -194,3 +194,16 @@ coverage.xml
 Thumbs.db
 
 .python_history
+
+# Any training results
+results/
+job_output/
+wandb/
+
+# Any model checkpoints
+*.safetensors
+checkpoint_export/
+checkpoints/
+
+# Hydra outputs
+outputs/
