@@ -21,7 +21,7 @@
 #   training loss curves from NeMo.
 ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.06-py3
 
-FROM rust:1.86.0 AS rust-env
+FROM rust:1.89.0 AS rust-env
 
 RUN rustup set profile minimal && \
   rustup install 1.82.0 && \
