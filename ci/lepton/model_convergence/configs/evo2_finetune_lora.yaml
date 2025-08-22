@@ -1,5 +1,8 @@
+# #########################################################
 # Lepton Job Configuration
-job_name: evo2-finetune-job-jw-2
+# If used in script: below, these must be referenced as $var (no brackets)
+# #########################################################
+job_name: evo2-finetune-lora-job-jw
 resource_shape: gpu.1xh200
 node_group_name: nv-int-multiteam-nebius-h200-01
 
@@ -14,17 +17,20 @@ environment_variables:
   - name: PYTHONPATH
     value: /workspace/bionemo2/sub-packages/bionemo-evo2/src
 
-# mounts:
-#   - path: /BioNeMo
-#     mount_path: /data
-#     from: node-nfs:lepton-shared-fs
-#   - path: /BioNeMo/jwilber/bionemo-dev/bionemo-framework/sub-packages/bionemo-evo2
-#     mount_path: /workspace/bionemo2/sub-packages/bionemo-evo2
-#     from: node-nfs:lepton-shared-fs
+mounts:
+  - path: /BioNeMo
+    mount_path: /data
+    from_: node-nfs:lepton-shared-fs
+  - path: /BioNeMo/jwilber/bionemo-dev/bionemo-framework/sub-packages/bionemo-evo2
+    mount_path: /workspace/bionemo2/sub-packages/bionemo-evo2
+    from_: node-nfs:lepton-shared-fs
 
-# script args
+# #########################################################
+# Script-specific arguments
+# If used in script: below, these must be referenced as ${var} (use brackets)
+# #########################################################
 data_dir: /data/data/evo2
-wandb_project_name: evo2-finetune-job-jw-2
+wandb_project_name: evo2-finetune-lora-job-jw
 
 script: |
   #!/bin/bash
@@ -55,6 +61,7 @@ script: |
   --clip-grad 250 \
   --wd 0.001 \
   --attention-dropout 0.01 \
+  --lora-finetune \
   --hidden-dropout 0.01 \
   --val-check-interval 5 \
   --num-layers 4 --hybrid-override-pattern SDH* --activation-checkpoint-recompute-num-layers 2 \

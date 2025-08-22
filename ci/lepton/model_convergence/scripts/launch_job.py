@@ -2,7 +2,7 @@
 """
 Lepton Job submission script with Hydra configuration
 
-Demo: python evo2_with_hydra.py --config-name "recipe_config" job_name="hydra-test-esm2-13"
+Demo: python launch_job.py --config-name "evo2_finetune_lora" job_name="evo2-finetune-lora-job"
 """
 
 import hydra
@@ -12,6 +12,31 @@ from leptonai.api.v1.types.affinity import LeptonResourceAffinity
 from leptonai.api.v1.types.common import Metadata
 from leptonai.api.v1.types.deployment import EnvVar, EnvValue, LeptonContainer, Mount, MountOptions
 from leptonai.api.v1.types.job import LeptonJob, LeptonJobUserSpec
+
+
+def construct_mount(path: str, mount_path: str, from_: str = "node-nfs:lepton-shared-fs") -> Mount:
+    """Construct a Mount object for a given path, mount_path, and source."""
+    # note, the from_="node-nfs:lepton-shared-fs" is not yet documented in the API docs
+    mount = {
+        "path": path,
+        "mount_path": mount_path,
+        "from": from_,
+    }
+    return Mount(**mount)
+
+
+def construct_env_var(env_var) -> EnvVar:
+    """Construct an EnvVar object from a config entry, supporting both secrets and literals."""
+    if 'value_from' in env_var:
+        return EnvVar(
+            name=env_var.name,
+            value_from=EnvValue(secret_name_ref=env_var.value_from),
+        )
+    else:
+        return EnvVar(
+            name=env_var.name,
+            value=env_var.value,
+        )
 
 
 def wrap_with_wandb_copy(script: str) -> str:
@@ -56,15 +81,6 @@ exit "$RC"
 """
 
 
-# todo: move to constants file?
-# mvle - moved to yaml file
-# mount = {
-#     "path": "/BioNeMo",
-#     "mount_path": "/data",
-#     "from": "node-nfs:lepton-shared-fs",
-# }
-
-
 @hydra.main(version_base=None, config_path="../configs", config_name="")
 def main(cfg: DictConfig):
 
@@ -92,15 +108,16 @@ def main(cfg: DictConfig):
     # Create command
     command = ["bash", "-c", wrap_with_wandb_copy(cfg.script)]
 
-    # Build environment variables
+    # Build environment variables, if in config
     env_vars = []
-    for env_var in cfg.environment_variables:
-        env_vars.append(
-            EnvVar(
-                name=env_var.name,
-                value_from=EnvValue(secret_name_ref=env_var.value),
-            )
-        )
+    if hasattr(cfg, "environment_variables") and cfg.environment_variables:
+        for env_var in cfg.environment_variables:
+            env_vars.append(construct_env_var(env_var))
+
+    # Build mounts, if in config
+    mounts = []
+    if hasattr(cfg, "mounts") and cfg.mounts:
+        mounts = [construct_mount(path=m.path, mount_path=m.mount_path, from_=m.from_) for m in cfg.mounts]
 
     # Create job specification
     job_spec = LeptonJobUserSpec(
@@ -117,7 +134,7 @@ def main(cfg: DictConfig):
         parallelism=1,
         envs=env_vars,
         image_pull_secrets=[cfg.container.registry_auth],
-        mounts=[Mount(**mount) for mount in cfg.mounts],
+        mounts=mounts,
     )
 
     # Create job object
@@ -134,4 +151,3 @@ def main(cfg: DictConfig):
 
 if __name__ == "__main__":
     main()
-
