@@ -4,6 +4,6 @@ hydra-core
 safetensors
 torch
 tqdm
-# transformer_engine  # Add when we're not deriving from pytorch base container
+transformer_engine
 transformers
 wandb

@@ -92,18 +92,15 @@ jobs:
           sparse-checkout: '${{ matrix.recipe.dir }}'
           sparse-checkout-cone-mode: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-
       - name: Install dependencies
         working-directory: ${{ matrix.recipe.dir }}
         #
         run: |
           if [ -f pyproject.toml ] || [ -f setup.py ]; then
-            uv pip install --system --break-system-packages -e .
+            PIP_CONSTRAINT= pip install -e .
             echo "Installed ${{ matrix.recipe.dir }} as editable package"
           elif [ -f requirements.txt ]; then
-            uv pip install --system --break-system-packages -r requirements.txt
+            PIP_CONSTRAINT= pip install -r requirements.txt
             echo "Installed ${{ matrix.recipe.dir }} from requirements.txt"
           else
             echo "No pyproject.toml, setup.py, or requirements.txt found in ${{ matrix.recipe.dir }}"

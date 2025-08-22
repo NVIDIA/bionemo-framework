@@ -3,6 +3,6 @@ megatron-fsdp==0.1.0rc0
 hydra-core
 torch
 tqdm
-# transformer_engine  # Add when we're not deriving from pytorch base container
+transformer_engine
 transformers
 wandb
