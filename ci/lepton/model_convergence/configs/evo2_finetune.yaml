@@ -1,0 +1,46 @@
+# Lepton Job Configuration
+job_name: evo2-training
+resource_shape: gpu.2xh200
+node_group_name: nv-int-multiteam-nebius-h200-01
+
+container:
+  image: nvcr.io/nvidian/cvai_bnmo_trng/bionemo:2.6.2-release
+  registry_auth: lepton-nvidia-cvai-bnmo-trng
+
+environment_variables:
+  - name: JWILBER_WANDB_API_KEY
+    value: JWILBER_WANDB_API_KEY
+
+script: |
+  #!/bin/bash
+  torchrun \
+      --nnodes 1 \
+      --nproc_per_node 1 \
+      --node_rank 0 \
+      --master_addr 29400 \
+      --master_port 29400 \
+      /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
+      -d data/evo2/training_data_config.yaml \
+      --dataset-dir data/evo2/preprocessed_data \
+      --result-dir pretraining_demo \
+      --experiment-name evo2 \
+      --model-size 1b \
+      --devices 1 \
+      --num-nodes 1 \
+      --seq-length 8192 \
+      --micro-batch-size 2 \
+      --lr 0.000015 \
+      --min-lr 0.0000149 \
+      --warmup-steps 10 \
+      --grad-acc-batches 4 \
+      --max-steps 10 \
+      --ckpt-dir data/evo2/checkpoints/nemo2_evo2_1b_8k \
+      --clip-grad 250 \
+      --wd 0.001 \
+      --attention-dropout 0.01 \
+      --hidden-dropout 0.01 \
+      --val-check-interval 5 \
+      --num-layers 4 --hybrid-override-pattern SDH* --activation-checkpoint-recompute-num-layers 2 \
+      --create-tensorboard-logger \
+      --ckpt-async-save
+
