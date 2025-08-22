@@ -1,0 +1,42 @@
+name: Launch Lepton Job
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_name:
+        description: "Select a Hydra config (in /ci/lepton/model_convergence/configs, no .yaml)"
+        required: true
+        type: choice
+        options:
+          - evo2_config
+          - L1_15B_perf_test
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    env:
+      LEPTON_API_TOKEN: ${{ secrets.LEPTON_API_TOKEN }}
+      LEPTON_API_ENDPOINT: ${{ secrets.LEPTON_API_ENDPOINT }} # optional
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          if [ -f "ci/lepton/model_convergence/requirements.txt" ]; then
+            pip install -r ci/lepton/model_convergence/requirements.txt
+          else
+            pip install hydra-core omegaconf leptonai
+          fi
+
+      - name: Run launcher
+        working-directory: ${{ github.workspace }}
+        run: |
+          python ci/lepton/model_convergence/scripts/launch_job.py \
+            --config-name "${{ inputs.config_name }}"
+
