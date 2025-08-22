@@ -183,7 +183,7 @@ def main(cfg: DictConfig) -> None:
         batch_size=cfg.model.micro_batch_size,
         num_workers=cfg.training.num_workers,
         use_fp8=cfg.training.use_fp8,
-        tokenizer_path=getattr(cfg.data, "tokenizer_path", "/workspace/bionemo/tokenizer_auto"),
+        tokenizer_path=getattr(cfg.data, "tokenizer_path", "tokenizer_auto"),
     )
 
     if cfg.training.use_fp8:

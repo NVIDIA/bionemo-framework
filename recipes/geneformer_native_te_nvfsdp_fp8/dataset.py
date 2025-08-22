@@ -47,7 +47,7 @@ def create_dataloader(
     batch_size: int,
     num_workers: int,
     use_fp8: bool = False,
-    tokenizer_path: str = "/workspace/bionemo/tokenizer_auto",
+    tokenizer_path: str = "tokenizer_auto",
 ) -> Tuple[Iterator[Dict[str, torch.Tensor]], int]:
     """Create a dataloader for the geneformer dataset.
 

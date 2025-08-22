@@ -51,4 +51,4 @@ training:
 
 # Data configuration
 data:
-  path: "/workspace/bionemo/genecorpus_500_samples.parquet"  # A sanity dataset saved to the repo that holds 500 samples.
+  path: "genecorpus_500_samples.parquet"  # A sanity dataset saved to the repo that holds 500 samples.
