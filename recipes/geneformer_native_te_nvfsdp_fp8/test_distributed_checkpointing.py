@@ -797,6 +797,7 @@ def test_safetensors_multiprocess_roundtrip_nvfsdp():
 
 
 @pytest.mark.slow
+@requires_multi_gpu
 def test_safetensors_unsharded_weights_consistency():
     """Test that unsharded weights from multiprocess training match single-process training.
 
