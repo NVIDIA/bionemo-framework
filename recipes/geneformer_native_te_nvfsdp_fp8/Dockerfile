@@ -3,8 +3,7 @@ FROM nvcr.io/nvidia/pytorch:25.06-py3
 
 RUN apt-get update && apt-get install -y git
 
-RUN --mount=type=secret,id=netrc,target=/root/.netrc \
-    --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=/requirements.txt \
     pip install -r /requirements.txt
 

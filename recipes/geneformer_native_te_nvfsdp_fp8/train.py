@@ -53,7 +53,7 @@ import torch
 import torch.distributed as dist
 import transformer_engine.pytorch as te
 import wandb
-from nvfsdp import fully_shard
+from megatron_fsdp.fully_shard import fully_shard
 from omegaconf import DictConfig
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
@@ -137,8 +137,8 @@ def main(cfg: DictConfig) -> None:
 
     device_mesh = init_device_mesh(
         "cuda",
-        mesh_shape=(dist_config.world_size, 1, 1),
-        mesh_dim_names=("fsdp", "cp", "tp"),
+        mesh_shape=(dist_config.world_size, 1),
+        mesh_dim_names=("fsdp", "tp"),
     )
 
     optimizer = AdamW(model.parameters(), **cfg.training.optimizer_kwargs)
@@ -157,9 +157,8 @@ def main(cfg: DictConfig) -> None:
                 torch.nn.LayerNorm,
             ],
             device_mesh=device_mesh,
-            dp_mesh_dim_name="fsdp",
-            cp_mesh_dim_name="cp",
-            tp_mesh_dim_name="tp",
+            dp_shard_dim="fsdp",
+            tp_dim="tp",
             **cfg.training.fully_shard_kwargs,
         )
     else:

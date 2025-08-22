@@ -3,11 +3,6 @@
     "build": {
         "dockerfile": "../Dockerfile",
         "context": "..",
-        "options": [
-            "--secret",
-            "id=netrc,src=${localEnv:HOME}/.netrc",
-            "--no-cache"
-        ],
     },
     "runArgs": [
         "--gpus",

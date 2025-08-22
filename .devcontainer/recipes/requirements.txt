@@ -1,0 +1,11 @@
+accelerate @ git+https://github.com/pstjohn/accelerate.git@pstjohn/te-mxfp8-recipe
+datasets
+deepspeed
+hydra-core
+torch
+torchmetrics
+tqdm
+transformer_engine
+transformers
+typer
+wandb

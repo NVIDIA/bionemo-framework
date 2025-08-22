@@ -51,10 +51,9 @@ jobs:
           # Get all recipe and model directories
           ALL_DIRS=$(ls -d recipes/*/ models/*/ 2>/dev/null | jq -R -s -c 'split("\n")[:-1] | map(rtrimstr("/"))')
           CHANGED_FILES='${{ steps.changed-files.outputs.all_changed_files }}'
-          # Filter directories to only those that have changed files
-          # Then assign Docker images based on directory path:
-          # - Default image: nvcr.io/nvidia/pytorch:25.06-py3 (for most models and recipes)
-          # - Custom AMPLIFY golden value image: svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025
+          # Filter directories to only those that have changed files. Then assign a Docker image to each.
+          # Currently, AMPLIFY is the only folder that needs a custom base image, since we have to support both TE and
+          # xformers-based models for golden value testing. The rest of the models use the default pytorch image.
           DIRS=$(echo "$ALL_DIRS" | jq -c --argjson changed "$CHANGED_FILES" '
             map(select(. as $dir | $changed | index($dir) != null)) |
             map({
@@ -72,40 +71,9 @@ jobs:
       - name: Show output
         run: |
           echo '${{ toJSON(steps.changed-files.outputs) }}'
+          echo '${{ toJSON(steps.set-dirs.outputs) }}'
         shell:
           bash
-
-  model-tests:
-    needs: changed-dirs
-    runs-on: linux-amd64-gpu-l4-latest-1
-    container:
-      image: ${{ matrix.model.image }}
-    strategy:
-      matrix:
-        model:
-          - path: "models/amplify"
-            image: "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
-          - path: "models/esm2"
-            image: "nvcr.io/nvidia/pytorch:25.06-py3"
-      fail-fast: false
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          sparse-checkout: '${{ matrix.model.path }}'
-          sparse-checkout-cone-mode: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.model.path }}
-        run: uv pip install --system --break-system-packages -e .
-
-      - name: Run tests
-        working-directory: ${{ matrix.model.path }}
-        run: pytest -v .
 
   recipe-tests:
     needs: changed-dirs
@@ -129,7 +97,18 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.recipe.dir }}
-        run: uv pip install --system --break-system-packages -r requirements.txt
+        #
+        run: |
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+            uv pip install --system --break-system-packages -e .
+            echo "Installed ${{ matrix.recipe.dir }} as editable package"
+          elif [ -f requirements.txt ]; then
+            uv pip install --system --break-system-packages -r requirements.txt
+            echo "Installed ${{ matrix.recipe.dir }} from requirements.txt"
+          else
+            echo "No pyproject.toml, setup.py, or requirements.txt found in ${{ matrix.recipe.dir }}"
+            exit 1
+          fi
 
       - name: Run tests
         working-directory: ${{ matrix.recipe.dir }}

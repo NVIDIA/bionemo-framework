@@ -1,5 +1,6 @@
+--extra-index-url https://test.pypi.org/simple/ # TODO: Remove this once megatron-fsdp is public
 datasets
-git+https://gitlab-master.nvidia.com/clara-discovery/nvfsdp-mirror.git@nightly
+megatron-fsdp==0.1.0rc0
 hydra-core
 torch
 tqdm

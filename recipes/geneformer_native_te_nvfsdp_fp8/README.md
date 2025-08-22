@@ -192,7 +192,7 @@ This folder contains its own [Dockerfile](Dockerfile) and [requirements](require
 If you want to create your own container, you should run the following BUILD command:
 
 ```bash
-docker build --secret id=netrc,src=$HOME/.netrc -t <imagename> .
+docker build -t <imagename> .
 ```
 
 where `.` is expected to be a folder containing the `Dockerfile`.

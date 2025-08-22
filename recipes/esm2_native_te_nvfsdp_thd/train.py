@@ -23,7 +23,7 @@ import torch
 import torch.distributed as dist
 import transformer_engine.pytorch
 import wandb
-from nvfsdp import fully_shard
+from megatron_fsdp.fully_shard import fully_shard
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
@@ -83,7 +83,7 @@ def get_linear_schedule_with_warmup(
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity.yaml", version_base="1.2")
 def main(args: DictConfig):
-    """Train ESM-2 with TE layers using nvFSDP.
+    """Train ESM-2 with TE layers using megatron-fsdp with sequence packing.
 
     Model names are valid ESM-2 model sizes, e.g.:
     - "esm2_t6_8M_UR50D"
@@ -92,7 +92,7 @@ def main(args: DictConfig):
     """
     # Initialize distributed training and create a device mesh for FSDP.
     # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
-    # to work correctly with nvFSDP.
+    # to work correctly with megatron-fsdp.
     dist.init_process_group(backend="nccl")
     dist_config = DistributedConfig()
     torch.cuda.set_device(dist_config.local_rank)
@@ -128,7 +128,7 @@ def main(args: DictConfig):
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
 
-    # Wrap model in nvFSDP if we're using it, otherwise wrap with DDP.
+    # Wrap model in megatron-fsdp if we're using it, otherwise wrap with DDP.
     if args.use_fsdp:
         model, optimizer = fully_shard(
             module=model,

@@ -2,8 +2,7 @@
 # FROM nvcr.io/nvidia/pytorch:25.06-py3
 FROM gitlab-master.nvidia.com:5005/dl/transformerengine/transformerengine:te_ci-pytorch-py3-devel
 
-RUN --mount=type=secret,id=netrc,target=/root/.netrc \
-    --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=/requirements.txt \
     PIP_CONSTRAINT= pip install -r /requirements.txt
 

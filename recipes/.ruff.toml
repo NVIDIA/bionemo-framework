@@ -46,7 +46,6 @@ exclude = [
     "dist",
     "node_modules",
     "venv",
-    "packages/nvFSDP/",
 ]
 
 # Ignore import violations in all `__init__.py` files.
