@@ -67,7 +67,7 @@ class TestTrainingScript(unittest.TestCase):
                 "torch",
                 "torch.distributed",
                 "transformer_engine.pytorch",
-                "nvfsdp",
+                "megatron_fsdp",
                 "transformers",
                 "dataset",
                 "modeling_bert_te",

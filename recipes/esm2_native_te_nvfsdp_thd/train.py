@@ -98,8 +98,8 @@ def main(args: DictConfig):
     torch.cuda.set_device(dist_config.local_rank)
     device_mesh = init_device_mesh(
         "cuda",
-        mesh_shape=(dist_config.world_size, 1, 1),
-        mesh_dim_names=("fsdp", "cp", "tp"),
+        mesh_shape=(dist_config.world_size, 1),
+        mesh_dim_names=("fsdp", "tp"),
     )
     device = torch.device(f"cuda:{dist_config.local_rank}")
     logger.info("Initialized distributed training: %s", dist_config)
@@ -139,9 +139,8 @@ def main(args: DictConfig):
                 transformer_engine.pytorch.LayerNormLinear,
             ],
             device_mesh=device_mesh,
-            dp_mesh_dim_name="fsdp",
-            cp_mesh_dim_name="cp",
-            tp_mesh_dim_name="tp",
+            dp_shard_dim="fsdp",
+            tp_dim="tp",
             **args.fully_shard_kwargs,
         )
 
