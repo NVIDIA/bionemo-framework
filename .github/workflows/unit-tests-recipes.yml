@@ -75,7 +75,7 @@ jobs:
         shell:
           bash
 
-  recipe-tests:
+  unit-tests:
     needs: changed-dirs
     runs-on: linux-amd64-gpu-l4-latest-1
     container:
