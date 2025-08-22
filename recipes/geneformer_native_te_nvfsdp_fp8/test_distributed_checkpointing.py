@@ -40,6 +40,11 @@ import torch
 os.environ["WANDB_DISABLED"] = "true"
 os.environ["WANDB_MODE"] = "disabled"
 
+requires_multi_gpu = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+    reason="Test requires at least 2 GPUs",
+)
+
 
 @pytest.mark.slow
 def test_checkpoint_save_and_load_single_process_nvfsdp():
@@ -129,7 +134,7 @@ def test_checkpoint_save_and_load_single_process_nvfsdp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-@pytest.mark.needs_two_processes
+@requires_multi_gpu
 @pytest.mark.slow
 def test_checkpoint_save_and_load_two_processes_nvfsdp():
     """Test checkpoint save/resume functionality for nvFSDP with two processes.
@@ -304,7 +309,7 @@ def test_checkpoint_save_and_load_one_processes_ddp():
 
 
 @pytest.mark.slow
-@pytest.mark.needs_two_processes
+@requires_multi_gpu
 def test_checkpoint_save_and_load_two_processes_ddp():
     """Test checkpoint save/resume functionality for DDP with two processes.
 
@@ -555,7 +560,7 @@ def test_safetensors_save_load_roundtrip_nvfsdp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-@pytest.mark.needs_two_processes
+@requires_multi_gpu
 @pytest.mark.slow
 def test_distributed_safetensors_multiprocess_nvfsdp():
     """Test safetensors export functionality for nvFSDP with multiple processes.
@@ -672,7 +677,7 @@ def test_distributed_safetensors_multiprocess_nvfsdp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-@pytest.mark.needs_two_processes
+@requires_multi_gpu
 @pytest.mark.slow
 def test_safetensors_multiprocess_roundtrip_nvfsdp():
     """Test safetensors save/load round-trip functionality for nvFSDP with multiple processes.
@@ -952,7 +957,7 @@ def test_safetensors_unsharded_weights_consistency():
 
 
 @pytest.mark.slow
-@pytest.mark.needs_two_processes
+@requires_multi_gpu
 def test_distributed_safetensors_multiprocess_ddp():
     """Test safetensors export functionality for vanilla DDP with multiple processes.
 
@@ -1068,7 +1073,7 @@ def test_distributed_safetensors_multiprocess_ddp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-@pytest.mark.needs_two_processes
+@requires_multi_gpu
 @pytest.mark.slow
 def test_safetensors_multiprocess_roundtrip_ddp():
     """Test safetensors save/load round-trip functionality for vanilla DDP with multiple processes.
@@ -1188,7 +1193,7 @@ def test_safetensors_multiprocess_roundtrip_ddp():
 
 
 @pytest.mark.slow
-@pytest.mark.needs_two_processes
+@requires_multi_gpu
 def test_safetensors_unsharded_weights_consistency_ddp():
     """Test that unsharded weights from multiprocess DDP training match single-process training.
 
