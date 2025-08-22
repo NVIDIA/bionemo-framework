@@ -1,0 +1,83 @@
+# Lepton Job Configuration
+job_name: evo2-training
+resource_shape: gpu.2xh200
+node_group_name: nv-int-multiteam-nebius-h200-01
+
+container:
+  image: nvcr.io/nvidian/cvai_bnmo_trng/bionemo:2.6.2-release
+  registry_auth: lepton-nvidia-cvai-bnmo-trng
+
+environment_variables:
+  - name: JWILBER_WANDB_API_KEY
+    value: JWILBER_WANDB_API_KEY
+
+script: |
+  #!/bin/bash
+  export wandb_project_name="lepton_evo2"
+  export workspace="/workspace/bionemo2"
+  export data_path="/data/evo2"
+  export config_name=1b
+  export precision=fp8
+  export gpus=2
+  export nodes=1
+  export batch_size=16
+  export max_steps=100
+  export stop_steps=100
+  export pp=1
+  export cp=1
+  export tp=1
+  export seq_len=8192
+  export acc_grad=1
+  export clip_grad=250
+  export seed=3735928559
+  export lr=0.00015
+  export min_lr=0.000015
+  export wu_steps=10
+  export wd=0.1
+  export MASTER_ADDR=localhost
+  export NODE_RANK=0
+
+  wandb login $JWILBER_WANDB_API_KEY
+
+  torchrun \
+      --nnodes $nodes \
+      --nproc_per_node $gpus \
+      --node_rank $NODE_RANK \
+      --master_addr $MASTER_ADDR \
+      --master_port 29400 \
+      /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
+      --mock-data \
+      --grad-acc-batches $acc_grad \
+      --fp8 \
+      --fp8-wgrad \
+      --activation-checkpoint-recompute-num-layers 5 \
+      --enable-preemption \
+      --ckpt-async-save \
+      --use-megatron-comm-overlap-llama3-8k \
+      --overlap-grad-reduce \
+      --clip-grad=$clip_grad \
+      --eod-pad-in-loss-mask \
+      --seq-length=$seq_len \
+      --seed $seed \
+      --lr=$lr \
+      --wd=$wd \
+      --min-lr=$min_lr \
+      --warmup-steps=$wu_steps \
+      --tensor-parallel-size=$tp \
+      --context-parallel-size=$cp \
+      --pipeline-model-parallel-size=$pp \
+      --workers 8 \
+      --num-nodes=$nodes \
+      --devices=$gpus \
+      --micro-batch-size $batch_size \
+      --model-size=$config_name \
+      --max-steps=$max_steps \
+      --early-stop-on-step $stop_steps \
+      --limit-val-batches=20 \
+      --log-every-n-steps=50 \
+      --val-check-interval=500 \
+      --create-tflops-callback \
+      --create-tensorboard-logger \
+      --wandb-project=$wandb_project_name \
+      --wandb-group=evo2_train_slen$seq_len \
+      --disable-checkpointing
