@@ -636,6 +636,18 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Enable CUDA memory cleanup before validation to prevent initialization errors.",
     )
+    parser.add_argument(
+        "--lora-alpha",
+        type=int,
+        default=None,
+        help="Alpha parameter for LoRA fine-tuning.",
+    )
+    parser.add_argument(
+        "--lora-dim",
+        type=int,
+        default=None,
+        help="Dim parameter for LoRA fine-tuning.",
+    )
 
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
@@ -801,7 +813,16 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         # Lora adaptors configuration
         lora_transform = None
         if args.lora_finetune:
-            lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
+            lora_kwargs = {
+                k: v
+                for k, v in {
+                    "alpha": args.lora_alpha,
+                    "dim": args.lora_dim,
+                }.items()
+                if v is not None
+            }
+
+            lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path, **lora_kwargs)
 
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
     elif model_type == "mamba":  # mamba
