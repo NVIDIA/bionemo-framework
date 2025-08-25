@@ -4,7 +4,7 @@ repo_url: https://github.com/NVIDIA/bionemo-framework
 repo_name: NVIDIA/bionemo-framework
 
 theme:
-  name: "material"
+  name: material
   custom_dir: overrides
   features:
     - content.code.annotate
@@ -21,14 +21,14 @@ theme:
   favicon: assets/images/favicon.png
   language: en
   palette:
-    - media: "(prefers-color-scheme: light)"
+    - media: '(prefers-color-scheme: light)'
       scheme: light
       primary: custom
       accent: lime
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
+    - media: '(prefers-color-scheme: dark)'
       scheme: dark
       primary: custom
       accent: lime
@@ -58,12 +58,12 @@ plugins:
   - mike:
       # These fields are all optional; the defaults are as below...
       alias_type: copy
-      redirect_template: null
-      deploy_prefix: ""
-      canonical_version: "latest"
+      redirect_template:
+      deploy_prefix: ''
+      canonical_version: latest
       version_selector: true
-      css_dir: "assets/css"
-      javascript_dir: "assets/js"
+      css_dir: assets/css
+      javascript_dir: assets/js
   - mkdocstrings:
       handlers:
         python:
@@ -71,7 +71,7 @@ plugins:
             - ../sub-packages/*/src
   - mkdocs-jupyter:
       theme: auto
-      highlight_extra_classes: "jupyter-notebook"
+      highlight_extra_classes: jupyter-notebook
       remove_tag_config:
         remove_input_tags:
           - hide-code
@@ -91,7 +91,7 @@ plugins:
           - remove-output
           - remove_output
   - include_dir_to_nav:
-      file_pattern: '.*\.(md|ipynb)$'
+      file_pattern: .*\.(md|ipynb)$
   - literate-nav:
       nav_file: SUMMARY.md
   - site-urls
@@ -103,8 +103,8 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.snippets:
       check_paths: true
-      restrict_base_path: False
-      base_path: "."
+      restrict_base_path: false
+      base_path: .
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg

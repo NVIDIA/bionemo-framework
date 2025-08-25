@@ -4,7 +4,7 @@ on:
   pull_request_review:
 
 env:
-  TIER2_REVIEWERS: "jstjohn,trvachov,pstjohn"
+  TIER2_REVIEWERS: jstjohn,trvachov,pstjohn
 
 jobs:
   check_approval:
@@ -67,7 +67,7 @@ jobs:
 
   has_approval:
     needs: check_approval
-    if : ${{ needs.check_approval.outputs.status == 'passed' }}
+    if: ${{ needs.check_approval.outputs.status == 'passed' }}
     runs-on: ubuntu-latest
     steps:
       - name: Approved

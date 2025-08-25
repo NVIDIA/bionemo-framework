@@ -2,8 +2,8 @@ scope: partial-conv
 time_limit: 14400
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
-  data_path: False
-  num_workers: False
+  data_path: false
+  num_workers: false
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.

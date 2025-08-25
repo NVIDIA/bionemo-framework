@@ -1,7 +1,7 @@
 name: Bug Report
 description: Create a detailed bug report to help us resolve the issue
-title: "[BUG] <Title> "
-labels: ["bug", "triage"]
+title: '[BUG] <Title> '
+labels: [bug, triage]
 assignees: []
 
 body:

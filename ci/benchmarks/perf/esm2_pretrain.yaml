@@ -2,8 +2,8 @@ scope: perf
 time_limit: 1800
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
-  data_path: False
-  dfpnl: False
+  data_path: false
+  dfpnl: false
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -18,28 +18,28 @@ script_args:
   stop_steps: 200
   gpus: 8
   acc_grad: 1
-  dfpnl: ""
+  dfpnl: ''
   products:
     - nodes: 1
       batch_size: 16
       pp: 1
       tp: 1
-      dfpnl: ""
+      dfpnl: ''
     - nodes: 2
       batch_size: 16
       pp: 2
       tp: 1
-      dfpnl: "--decoder-first-pipeline-num-layers=17"
+      dfpnl: --decoder-first-pipeline-num-layers=17
     - nodes: 2
       batch_size: 16
       pp: 1
       tp: 2
-      dfpnl: ""
+      dfpnl: ''
     - nodes: 2
       batch_size: 16
       pp: 1
       tp: 1
-      dfpnl: ""
+      dfpnl: ''
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
     --train-cluster-path=${data_path}/train_clusters.parquet \
