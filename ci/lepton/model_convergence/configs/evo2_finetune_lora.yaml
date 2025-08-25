@@ -1,0 +1,70 @@
+# #########################################################
+# Lepton Job Configuration
+# If used in script: below, these must be referenced as $var (no brackets)
+# #########################################################
+job_name: evo2-finetune-lora-job-jw
+resource_shape: gpu.1xh200
+node_group_name: nv-int-multiteam-nebius-h200-01
+
+container:
+  image: nvcr.io/nvidia/clara/bionemo-framework:nightly
+  registry_auth: lepton-nvidia-cvai-bnmo-trng
+
+# environment variables can be secrets (in which case use name: value_from), or literals (in which case use name: value)
+environment_variables:
+  - name: WANDB_API_KEY
+    value_from: JWILBER_WANDB_API_KEY
+  - name: PYTHONPATH
+    value: /workspace/bionemo2/sub-packages/bionemo-evo2/src
+
+mounts:
+  - path: /BioNeMo
+    mount_path: /data
+    from_: node-nfs:lepton-shared-fs
+  - path: /BioNeMo/jwilber/bionemo-dev/bionemo-framework/sub-packages/bionemo-evo2
+    mount_path: /workspace/bionemo2/sub-packages/bionemo-evo2
+    from_: node-nfs:lepton-shared-fs
+
+# #########################################################
+# Script-specific arguments
+# If used in script: below, these must be referenced as ${var} (use brackets)
+# #########################################################
+data_dir: /data/data/evo2
+wandb_project_name: evo2-finetune-lora-job-jw
+
+script: |
+  #!/bin/bash
+  wandb login $WANDB_API_KEY
+
+  torchrun \
+  --nnodes 1 \
+  --nproc_per_node 1 \
+  --node_rank 0 \
+  --master_addr localhost \
+  --master_port 29400 \
+  /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
+  -d ${data_dir}/model_convergence_training_data_config.yaml \
+  --dataset-dir ${data_dir}/preprocessed_data \
+  --result-dir pretraining_demo \
+  --experiment-name evo2 \
+  --model-size 1b \
+  --devices 1 \
+  --num-nodes 1 \
+  --seq-length 8192 \
+  --micro-batch-size 2 \
+  --lr 0.000015 \
+  --min-lr 0.0000149 \
+  --warmup-steps 10 \
+  --grad-acc-batches 4 \
+  --max-steps 10 \
+  --ckpt-dir ${data_dir}/checkpoints/nemo2_evo2_1b_8k \
+  --clip-grad 250 \
+  --wd 0.001 \
+  --attention-dropout 0.01 \
+  --lora-finetune \
+  --hidden-dropout 0.01 \
+  --val-check-interval 5 \
+  --num-layers 4 --hybrid-override-pattern SDH* --activation-checkpoint-recompute-num-layers 2 \
+  --create-tensorboard-logger \
+  --ckpt-async-save \
+  --wandb-project=${wandb_project_name} \

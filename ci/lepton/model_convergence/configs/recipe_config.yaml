@@ -1,0 +1,40 @@
+# job name may only have hypens, no underscores
+job_name: bionemo-recipe-esm2-t33-650M-UR50D
+resource_shape: gpu.2xh200
+node_group_name: nv-int-multiteam-nebius-h200-01
+
+container:
+  image: nvcr.io/nvidian/cvai_bnmo_trng/bionemo:esm2-native-te-nvfsdp-0725
+  registry_auth: lepton-nvidia-cvai-bnmo-trng
+
+environment_variables:
+  - name: WANDB_API_KEY
+    value: JWILBER_WANDB_API_KEY
+
+# script specific variables
+# these must be wrapped with ${var}
+model_name: esm2_t33_650M_UR50D
+num_train_steps: 15
+
+# Note, in this script:
+# lepton-specific vars must be $var
+# script-specific vars must be ${var}
+script: |
+  #!/bin/bash
+  # Download the environment setup script from Lepton's GitHub repository, make it executable, and source it to initialize the environment variables.
+  wget -O init.sh https://raw.githubusercontent.com/leptonai/scripts/main/lepton_env_to_pytorch.sh
+  chmod +x init.sh
+  source init.sh
+
+  GPUS_PER_NODE=$(nvidia-smi -L | wc -l)
+
+  torchrun \
+    --rdzv_id $LEPTON_JOB_NAME \
+    --rdzv_backend c10d \
+    --rdzv_endpoint $MASTER_ADDR:$MASTER_PORT \
+    --nproc-per-node $GPUS_PER_NODE \
+    --nnodes $NNODES \
+    --node-rank $NODE_RANK \
+    train.py --config-name L1_15B_perf_test \
+    model_name=${model_name} \
+    num_train_steps=${num_train_steps}
