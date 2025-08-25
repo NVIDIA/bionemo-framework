@@ -61,8 +61,6 @@ bionemo-scdl = { workspace = true }
 bionemo-size-aware-batching = { workspace = true }
 bionemo-testing = { workspace = true }
 bionemo-webdatamodule = { workspace = true }
-# in internal/
-infra-bionemo = { workspace = true }
 
 [tool.uv]
 dev-dependencies = [
@@ -103,7 +101,6 @@ select = [
 "__init__.py" = ["D104", "E402", "F401", "F403", "F811"]
 "test_*.py" = ["D"]
 "conftest.py" = ["D"]
-"scripts/*.py" = ["D"]
 "**/*.ipynb" = ["D"]
 
 [tool.ruff.lint.isort]
@@ -125,7 +122,7 @@ addopts = [
 markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.pyright]
-include = ["./internal/", "./scripts/", "./sub-packages/"]
+include = ["./sub-packages/"]
 exclude = ["*/tests/"]
 executionEnvironments = [
     { "root" = ".", pythonVersion = "3.10", extraPaths = [
@@ -147,7 +144,5 @@ executionEnvironments = [
         './sub-packages/bionemo-size-aware-batching/src',
         './sub-packages/bionemo-testing/src',
         './sub-packages/bionemo-webdatamodule/src',
-        # internal
-        './internal/infra-bionemo/src',
     ] },
 ]

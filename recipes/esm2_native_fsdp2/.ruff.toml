@@ -1,0 +1,4 @@
+extend = "../.ruff.toml"
+
+[lint.per-file-ignores]
+"modeling_esm.py" = ["N", "D", "C901"]
