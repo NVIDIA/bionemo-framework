@@ -189,6 +189,7 @@ def test_golden_values_top_k_logits_and_cosine_similarity(seq_len: int):
         logit_similarity = torch.nn.functional.cosine_similarity(output_vector, gold_standard_no_fp8_vector, dim=-1)
         assert torch.mean(torch.abs(logit_similarity - torch.ones_like(logit_similarity))) < 0.03
 
+
 @pytest.mark.skip(reason="test fails on main, not due to #1058")
 @pytest.mark.slow
 def test_golden_values_top_k_logits_and_cosine_similarity_7b(seq_len: int = 8_192):
@@ -735,7 +736,10 @@ def test_batch_generate_coding_sequences(
         f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
 
-@pytest.mark.skip(reason="skip the test for now, and decide what to do after getting Anton's changes sorted and merged.")
+
+@pytest.mark.skip(
+    reason="skip the test for now, and decide what to do after getting Anton's changes sorted and merged."
+)
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "ckpt_name,model_tokenizer_provider,expected_tokens_sec",
