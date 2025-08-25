@@ -21,7 +21,6 @@ concurrency:
 
 jobs:
   changed-files:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     outputs:
       any_changed: ${{ steps.changed-files.outputs.any_changed }}
@@ -40,6 +39,7 @@ jobs:
             !recipes/**
             !**.md
             !.github/**
+            !.gitignore
             .github/workflows/unit-tests-framework.yml
 
       - name: Show output
