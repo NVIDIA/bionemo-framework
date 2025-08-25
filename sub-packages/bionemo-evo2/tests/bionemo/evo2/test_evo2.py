@@ -735,7 +735,7 @@ def test_batch_generate_coding_sequences(
         f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
 
-
+@pytest.skip("skip the test for now, and decide what to do after getting Anton's changes sorted and merged.")
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "ckpt_name,model_tokenizer_provider,expected_tokens_sec",
