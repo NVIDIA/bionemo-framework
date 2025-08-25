@@ -19,7 +19,7 @@ environment_variables:
 
 mounts:
   - path: /BioNeMo
-    mount_path: /data
+    mount_path: /BioNeMo
     from_: node-nfs:lepton-shared-fs
   - path: /BioNeMo/jwilber/bionemo-dev/bionemo-framework/sub-packages/bionemo-evo2
     mount_path: /workspace/bionemo2/sub-packages/bionemo-evo2
@@ -28,8 +28,9 @@ mounts:
 # #########################################################
 # Script-specific arguments
 # If used in script: below, these must be referenced as ${var} (use brackets)
+# They can be whatever you want, but should be referenced in the script
 # #########################################################
-data_dir: /data/data/evo2
+data_dir: /BioNeMo/data/evo2
 wandb_project_name: evo2-finetune-lora-job-jw
 
 script: |
@@ -56,7 +57,7 @@ script: |
   --min-lr 0.0000149 \
   --warmup-steps 10 \
   --grad-acc-batches 4 \
-  --max-steps 10 \
+  --max-steps 20 \
   --ckpt-dir ${data_dir}/checkpoints/nemo2_evo2_1b_8k \
   --clip-grad 250 \
   --wd 0.001 \

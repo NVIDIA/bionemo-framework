@@ -14,6 +14,7 @@ from leptonai.api.v1.types.deployment import EnvVar, EnvValue, LeptonContainer, 
 from leptonai.api.v1.types.job import LeptonJob, LeptonJobUserSpec
 
 
+# todo: make utils file? also, add cfg checks to make sure these are used in the config before calling
 def construct_mount(path: str, mount_path: str, from_: str = "node-nfs:lepton-shared-fs") -> Mount:
     """Construct a Mount object for a given path, mount_path, and source."""
     # note, the from_="node-nfs:lepton-shared-fs" is not yet documented in the API docs
@@ -42,6 +43,10 @@ def construct_env_var(env_var) -> EnvVar:
 def wrap_with_wandb_copy(script: str) -> str:
     return f"""set -euo pipefail
 
+# enforce WANDB_DIR to a controlled scratch location
+export WANDB_DIR="/tmp/wandb"
+mkdir -p "$WANDB_DIR"
+
 # run user script; capture exit code
 set +e
 (
@@ -50,12 +55,15 @@ set +e
 RC=$?
 set -e
 
-# target dir: /data/model_convergence_tests/job_logs/<job_name>
-JOB_DIR="/data/model_convergence_tests/job_logs/${{LEPTON_JOB_NAME:-unknown-job}}"
+# target dir: /BioNeMo/model_convergence_tests/job_logs/<job_name>
+JOB_DIR="/BioNeMo/model_convergence_tests/job_logs/${{LEPTON_JOB_NAME:-unknown-job}}"
 mkdir -p "$JOB_DIR"
 
-# resolve wandb latest run dir
-WB_DIR="${{WANDB_DIR:-wandb}}"
+# W&B dir (forced by env)
+WB_DIR="${{WANDB_DIR:-/tmp/wandb}}"
+echo "DEBUG: WANDB_DIR='$WB_DIR'"
+
+# resolve latest run dir
 RUN_DIR=""
 if [ -L "$WB_DIR/latest-run" ]; then
   RUN_DIR=$(readlink -f "$WB_DIR/latest-run" || true)
@@ -64,18 +72,14 @@ elif [ -f "$WB_DIR/latest-run" ]; then
   [ -n "${{RID:-}}" ] && RUN_DIR="$WB_DIR/run-$RID"
 fi
 
-# copy the two files if present (directly under $JOB_DIR; no wandb subdir)
+echo "DEBUG: resolved RUN_DIR='$RUN_DIR'"
+
 LOGS_FOUND=0
 if [ -n "$RUN_DIR" ] && [ -d "$RUN_DIR/files" ]; then
   cp -f "$RUN_DIR/files/wandb-summary.json"  "$JOB_DIR/" 2>/dev/null && LOGS_FOUND=1 || true
   cp -f "$RUN_DIR/files/wandb-metadata.json" "$JOB_DIR/" 2>/dev/null && LOGS_FOUND=1 || true
 fi
 
-if [ "$LOGS_FOUND" -eq 1 ]; then
-  echo "wandb logs found and saved to $JOB_DIR"
-else
-  echo "wandb logs not found; nothing saved to $JOB_DIR"
-fi
 
 exit "$RC"
 """
