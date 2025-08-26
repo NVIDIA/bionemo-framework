@@ -16,6 +16,14 @@ environment_variables:
     value_from: JWILBER_WANDB_API_KEY
   - name: PYTHONPATH
     value: /workspace/bionemo2/sub-packages/bionemo-evo2/src
+  - name: KRATOS_SSA_URL
+    value_from: KRATOS_SSA_URL
+  - name: KRATOS_SSA_CLIENT_ID
+    value_from: KRATOS_SSA_CLIENT_ID
+  - name: KRATOS_SSA_SECRET
+    value_from: KRATOS_SSA_SECRET
+  - name: LEP_LOGIN_CREDENTIALS
+    value_from: LEP_LOGIN_CREDENTIALS
 
 mounts:
   - path: /BioNeMo
@@ -32,6 +40,26 @@ mounts:
 # #########################################################
 data_dir: /BioNeMo/data/evo2
 wandb_project_name: evo2-finetune-lora-job-jw
+result_dir: pretraining_demo
+experiment_name: evo2
+model_size: 1b
+devices: 1
+num_nodes: 1
+seq_length: 8192
+micro_batch_size: 2
+lr: 0.000015
+min_lr: 0.0000149
+warmup_steps: 10
+grad_acc_batches: 4
+ckpt_dir: ${data_dir}/checkpoints/nemo2_evo2_1b_8k
+clip_grad: 250
+weight_decay: 0.001
+attention_dropout: 0.01
+hidden_dropout: 0.01
+val_check_interval: 5
+num_layers: 4
+hybrid_override_pattern: SDH*
+activation_checkpoint_recompute_num_layers: 2
 
 script: |
   #!/bin/bash
@@ -46,26 +74,27 @@ script: |
   /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
   -d ${data_dir}/model_convergence_training_data_config.yaml \
   --dataset-dir ${data_dir}/preprocessed_data \
-  --result-dir pretraining_demo \
-  --experiment-name evo2 \
-  --model-size 1b \
-  --devices 1 \
-  --num-nodes 1 \
-  --seq-length 8192 \
-  --micro-batch-size 2 \
-  --lr 0.000015 \
-  --min-lr 0.0000149 \
-  --warmup-steps 10 \
-  --grad-acc-batches 4 \
+  --result-dir ${result_dir} \
+  --experiment-name ${experiment_name} \
+  --model-size ${model_size} \
+  --devices ${devices} \
+  --num-nodes ${num_nodes} \
+  --seq-length ${seq_length} \
+  --micro-batch-size ${micro_batch_size} \
+  --lr ${lr} \
+  --min-lr ${min_lr} \
+  --warmup-steps ${warmup_steps} \
+  --grad-acc-batches ${grad_acc_batches} \
   --max-steps 20 \
-  --ckpt-dir ${data_dir}/checkpoints/nemo2_evo2_1b_8k \
-  --clip-grad 250 \
-  --wd 0.001 \
-  --attention-dropout 0.01 \
+  --ckpt-dir ${ckpt_dir} \
+  --clip-grad ${clip_grad} \
+  --wd ${weight_decay} \
+  --attention-dropout ${attention_dropout} \
   --lora-finetune \
-  --hidden-dropout 0.01 \
-  --val-check-interval 5 \
-  --num-layers 4 --hybrid-override-pattern SDH* --activation-checkpoint-recompute-num-layers 2 \
+  --hidden-dropout ${hidden_dropout} \
+  --val-check-interval ${val_check_interval} \
+  --num-layers ${num_layers} --hybrid-override-pattern ${hybrid_override_pattern} --activation-checkpoint-recompute-num-layers ${activation_checkpoint_recompute_num_layers} \
   --create-tensorboard-logger \
   --ckpt-async-save \
   --wandb-project=${wandb_project_name} \
+  --create-tflops-callback

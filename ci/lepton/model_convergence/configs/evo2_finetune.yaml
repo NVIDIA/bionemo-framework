@@ -16,10 +16,19 @@ environment_variables:
     value_from: JWILBER_WANDB_API_KEY
   - name: PYTHONPATH
     value: /workspace/bionemo2/sub-packages/bionemo-evo2/src
+  - name: KRATOS_SSA_URL
+    value_from: KRATOS_SSA_URL
+  - name: KRATOS_SSA_CLIENT_ID
+    value_from: KRATOS_SSA_CLIENT_ID
+  - name: KRATOS_SSA_SECRET
+    value_from: KRATOS_SSA_SECRET
 
 mounts:
   - path: /BioNeMo
     mount_path: /BioNeMo
+    from_: node-nfs:lepton-shared-fs
+  - path: /BioNeMo/jwilber/bionemo-dev/bionemo-framework/sub-packages/bionemo-evo2
+    mount_path: /workspace/bionemo2/sub-packages/bionemo-evo2
     from_: node-nfs:lepton-shared-fs
 
 # #########################################################
@@ -86,4 +95,6 @@ script: |
   --hybrid-override-pattern ${hybrid_override_pattern} \
   --activation-checkpoint-recompute-num-layers ${activation_checkpoint_recompute_num_layers} \
   --create-tensorboard-logger \
-  --ckpt-async-save
+  --ckpt-async-save \
+  --wandb-project=${wandb_project_name} \
+  --create-tflops-callback

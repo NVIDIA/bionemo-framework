@@ -40,14 +40,13 @@ def construct_env_var(env_var) -> EnvVar:
         )
 
 
-def wrap_with_wandb_copy(script: str) -> str:
+def wrap_with_wandb_copy(script: str, result_dir: str = "pretraining_demo", experiment_name: str = "evo2") -> str:
     return f"""set -euo pipefail
 
-# enforce WANDB_DIR to a controlled scratch location
-export WANDB_DIR="/tmp/wandb"
-mkdir -p "$WANDB_DIR"
+# Get job name
+JOB_NAME="${{LEPTON_JOB_NAME:-unknown-job}}"
 
-# run user script; capture exit code
+# Run the training script
 set +e
 (
 {script}
@@ -55,31 +54,178 @@ set +e
 RC=$?
 set -e
 
-# target dir: /BioNeMo/model_convergence_tests/job_logs/<job_name>
-JOB_DIR="/BioNeMo/model_convergence_tests/job_logs/${{LEPTON_JOB_NAME:-unknown-job}}"
+# Authenticate to Lepton
+echo "Authenticating to Lepton..."
+pip install -q leptonai >/dev/null 2>&1 || pip install leptonai
+lep login -c "$LEP_LOGIN_CREDENTIALS" || true
+
+echo "Job name: $JOB_NAME"
+lep job list || true
+
+echo "Getting lepton job details (JSON)"
+JOB_INFO="$(
+  lep job get --id "$JOB_NAME" 2>/dev/null \
+  | awk '
+    BEGIN {{ json=""; depth=0; started=0 }}
+    {{
+      for (i=1; i<=length($0); i++) {{
+        ch = substr($0, i, 1)
+        if (ch == "{{") {{ depth++; started=1 }}
+        if (started)      json = json ch
+        if (ch == "}}") {{
+          depth--
+          if (started && depth == 0) {{ print json; exit }}
+        }}
+      }}
+    }}' \
+  | jq -c '
+    {{
+      metadata: {{
+        id: .metadata.id,
+        name: .metadata.name,
+        created_at: .metadata.created_at,
+        created_by: .metadata.created_by,
+        owner: .metadata.owner,
+        visibility: .metadata.visibility
+      }},
+      spec: {{
+        resource_shape: .spec.resource_shape,
+        affinity: {{
+          allowed_dedicated_node_groups: .spec.affinity.allowed_dedicated_node_groups,
+          allowed_nodes_in_node_group: .spec.affinity.allowed_nodes_in_node_group
+        }},
+        container_image: .spec.container.image,
+        completions: .spec.completions,
+        parallelism: .spec.parallelism,
+        envs: .spec.envs,
+        mounts: .spec.mounts,
+        image_registry_auth: .spec.image_pull_secrets,
+        ttl_seconds_after_finished: .spec.ttl_seconds_after_finished,
+        log_enable_collection: .spec.log.enable_collection
+      }},
+      status: {{
+        job_name: .status.job_name,
+        state: .status.state,
+        ready: .status.ready,
+        active: .status.active,
+        failed: .status.failed,
+        succeeded: .status.succeeded,
+        creation_time: .status.creation_time,
+        completion_time: .status.completion_time
+      }}
+    }}
+  ' 2>/dev/null
+)"
+echo "jared JOB_INFO: $JOB_INFO"
+
+# Normalize to valid JSON or default to {{}}
+JOB_INFO_JSON="$(printf '%s' "$JOB_INFO" | jq -c . 2>/dev/null || echo '{{}}')"
+
+# Optionally fetch logs (safe to skip if not needed for W&B copy)
+echo "Fetching lepton job logs (optional)"
+lep log get --job "$JOB_NAME" || true
+
+# Copy W&B files from known location based on result_dir and experiment_name
+JOB_DIR="/BioNeMo/model_convergence_tests/job_logs/$JOB_NAME"
 mkdir -p "$JOB_DIR"
 
-# W&B dir (forced by env)
-WB_DIR="${{WANDB_DIR:-/tmp/wandb}}"
-echo "DEBUG: WANDB_DIR='$WB_DIR'"
-
-# resolve latest run dir
-RUN_DIR=""
-if [ -L "$WB_DIR/latest-run" ]; then
-  RUN_DIR=$(readlink -f "$WB_DIR/latest-run" || true)
-elif [ -f "$WB_DIR/latest-run" ]; then
-  RID=$(cat "$WB_DIR/latest-run" || true)
-  [ -n "${{RID:-}}" ] && RUN_DIR="$WB_DIR/run-$RID"
+WANDB_BASE_DIR="{result_dir}/{experiment_name}/wandb"
+WANDB_FOUND=0
+if [ -d "$WANDB_BASE_DIR" ]; then
+    LATEST_RUN=$(ls -td "$WANDB_BASE_DIR"/run-* 2>/dev/null | head -n1)
+    if [ -n "$LATEST_RUN" ] && [ -d "$LATEST_RUN/files" ]; then
+        if [ -f "$LATEST_RUN/files/wandb-summary.json" ]; then
+            cp -v "$LATEST_RUN/files/wandb-summary.json" "$JOB_DIR/wandb-summary.json"
+            WANDB_FOUND=1
+        fi
+        if [ -f "$LATEST_RUN/files/wandb-metadata.json" ]; then
+            cp -v "$LATEST_RUN/files/wandb-metadata.json" "$JOB_DIR/wandb-metadata.json"
+        fi
+    fi
 fi
 
-echo "DEBUG: resolved RUN_DIR='$RUN_DIR'"
+if [ $WANDB_FOUND -eq 1 ] && [ -f "$JOB_DIR/wandb-summary.json" ]; then
+    echo "Combining W&B JSON files and uploading to Kratos..."
 
-LOGS_FOUND=0
-if [ -n "$RUN_DIR" ] && [ -d "$RUN_DIR/files" ]; then
-  cp -f "$RUN_DIR/files/wandb-summary.json"  "$JOB_DIR/" 2>/dev/null && LOGS_FOUND=1 || true
-  cp -f "$RUN_DIR/files/wandb-metadata.json" "$JOB_DIR/" 2>/dev/null && LOGS_FOUND=1 || true
+    METADATA_JSON=$(cat "$JOB_DIR/wandb-metadata.json" 2>/dev/null || echo '{{}}')
+    SUMMARY_JSON=$(cat "$JOB_DIR/wandb-summary.json" 2>/dev/null || echo '{{}}')
+
+    COMBINED_JSON=$(jq -n \
+        --arg m "$METADATA_JSON" \
+        --arg s "$SUMMARY_JSON" \
+        --argjson job_info "$JOB_INFO_JSON" \
+        '
+        . + {{
+          job_name: env.LEPTON_JOB_NAME,
+          metadata: ($m | fromjson? // {{}}),
+          summary:  ($s | fromjson? // {{}}),
+          job_info: $job_info
+        }}
+        ')
+
+    echo "$COMBINED_JSON" > "$JOB_DIR/wandb-combined.json"
+    echo "Combined W&B JSON saved to: $JOB_DIR/wandb-combined.json"
+
+    TELEMETRY_URL="https://prod.analytics.nvidiagrid.net"
+    COLLECTOR_ID="bionemo-convergence-lepton-logs-kratos.telemetry.lepton-poc-v001.prod"
+    SOURCE="bionemo-wandb-logs"
+    TYPE="wandb-training-metrics"
+    SUBJECT="$JOB_NAME"
+
+    UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "$(date +%s)-$-$RANDOM")
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
+
+    echo "Sending telemetry event to Kratos..."
+
+    if [ -z "${{KRATOS_SSA_CLIENT_ID:-}}" ] || [ -z "${{KRATOS_SSA_SECRET:-}}" ] || [ -z "${{KRATOS_SSA_URL:-}}" ]; then
+        echo "Warning: Kratos credentials not found. Skipping telemetry upload."
+    else
+        ENCODED_CREDS=$(echo -n "${{KRATOS_SSA_CLIENT_ID}}:${{KRATOS_SSA_SECRET}}" | base64 | tr -d '\\n')
+        TOKEN_RESPONSE=$(curl -sS --request POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -H "Authorization: Basic $ENCODED_CREDS" \
+            "https://${{KRATOS_SSA_URL}}/token?grant_type=client_credentials&scope=telemetry-write" 2>&1)
+        ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token' 2>/dev/null)
+
+        if [ -n "$ACCESS_TOKEN" ] && [ "$ACCESS_TOKEN" != "null" ]; then
+            JSON_PAYLOAD=$(jq -n \
+                --arg id "$UUID" \
+                --arg time "$TIMESTAMP" \
+                --arg source "$SOURCE" \
+                --arg type "$TYPE" \
+                --arg subject "$SUBJECT" \
+                --argjson data "$COMBINED_JSON" \
+                '{{
+                  "specversion": "1.0",
+                  "id": $id,
+                  "time": $time,
+                  "source": $source,
+                  "type": $type,
+                  "subject": $subject,
+                  "data": $data
+                }}')
+
+            RESPONSE=$(curl -sS --request POST \
+                -H "Content-Type: application/cloudevents+json" \
+                -H "Authorization: Bearer ${{ACCESS_TOKEN}}" \
+                "${{TELEMETRY_URL}}/api/v2/topic/${{COLLECTOR_ID}}" \
+                --data "$JSON_PAYLOAD" 2>&1)
+
+            if [ $? -eq 0 ]; then
+                echo "✓ Event sent successfully to Kratos (ID: $UUID)"
+                [ -n "$RESPONSE" ] && echo "Response: $RESPONSE"
+            else
+                echo "Failed to send event to Kratos"
+                echo "Response: $RESPONSE"
+            fi
+        else
+            echo "Error: Failed to get Kratos access token"
+            echo "Token response: $TOKEN_RESPONSE"
+        fi
+    fi
+else
+    echo "Skipping Kratos upload - W&B files not found"
 fi
-
 
 exit "$RC"
 """
@@ -109,8 +255,17 @@ def main(cfg: DictConfig):
     for node in node_ids:
         valid_node_ids.add(node.metadata.id_)
 
-    # Create command
-    command = ["bash", "-c", wrap_with_wandb_copy(cfg.script)]
+    # Extract result_dir and experiment_name from config
+    # Use the same defaults as in the training script
+    result_dir = cfg.get('result_dir', 'pretraining_demo')
+    experiment_name = cfg.get('experiment_name', 'evo2')
+
+    print(f"Using result_dir: {result_dir}")
+    print(f"Using experiment_name: {experiment_name}")
+    print(f"W&B files will be searched in: {result_dir}/{experiment_name}/wandb/")
+
+    # Create command with the extracted parameters
+    command = ["bash", "-c", wrap_with_wandb_copy(cfg.script, result_dir=result_dir, experiment_name=experiment_name)]
 
     # Build environment variables, if in config
     env_vars = []

@@ -10,11 +10,19 @@ container:
 environment_variables:
   - name: WANDB_API_KEY
     value: JWILBER_WANDB_API_KEY
+  - name: KRATOS_SSA_URL
+    value_from: KRATOS_SSA_URL
+  - name: KRATOS_SSA_CLIENT_ID
+    value_from: KRATOS_SSA_CLIENT_ID
+  - name: KRATOS_SSA_SECRET
+    value_from: KRATOS_SSA_SECRET
 
 # script specific variables
 # these must be wrapped with ${var}
 model_name: esm2_t33_650M_UR50D
 num_train_steps: 15
+result_dir: wandb_output
+experiment_name: esm2_t33_650M_UR50D
 
 # Note, in this script:
 # lepton-specific vars must be $var
