@@ -13,12 +13,13 @@ dependencies = [
     "fiddle",
     "hydra-core",
     "lightning",
-    "megatron-core",
-    "nemo_toolkit[lightning]==2.3.1",
+    "megatron-core@git+https://github.com/NVIDIA/Megatron-LM.git", # Currently at ToT until mfsdp is in a release.
+    "megatron-fsdp",
+    "nemo_toolkit[lightning]",                                     # tested with 2.3.1
     "omegaconf",
     "pytest",
     "torch",
-    # "transformer_engine[pytorch]",
+    "transformer_engine[pytorch]",
     "transformers",
 ]
 
