@@ -2,13 +2,13 @@ scope: partial-conv
 time_limit: 14400
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
-  data_path: False
-  clip_grad: False
-  lr: False
-  min_lr: False
-  wu_steps: False
-  artefacts_url: False
-  file_name_wheel: False
+  data_path: false
+  clip_grad: false
+  lr: false
+  min_lr: false
+  wu_steps: false
+  artefacts_url: false
+  file_name_wheel: false
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.

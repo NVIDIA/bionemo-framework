@@ -2,19 +2,19 @@ scope: partial-conv
 time_limit: 14400
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
-  train_data_path: False
-  valid_data_path: False
-  data_base_path: False
-  num_workers: False
-  limit_val_batches: False
-  limit_test_batches: False
-  val_check_interval: False
-  dataset_class: False
-  task_type: False
-  config_class: False
-  experiment_name: False
-  workspace: False
-  restore_from_checkpoint_path: False
+  train_data_path: false
+  valid_data_path: false
+  data_base_path: false
+  num_workers: false
+  limit_val_batches: false
+  limit_test_batches: false
+  val_check_interval: false
+  dataset_class: false
+  task_type: false
+  config_class: false
+  experiment_name: false
+  workspace: false
+  restore_from_checkpoint_path: false
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.

@@ -1,15 +1,15 @@
-name: "BioNeMo Framework CI"
+name: BioNeMo Framework CI
 
 on:
   push:
     branches:
       - main
-      - "pull-request/[0-9]+"
-      - "dependabot/**"
+      - pull-request/[0-9]+
+      - dependabot/**
   merge_group:
     types: [checks_requested]
   schedule:
-    - cron: "0 7 * * *" # Runs at 7 AM UTC daily (12 AM MST)
+    - cron: 0 7 * * *   # Runs at 7 AM UTC daily (12 AM MST)
 
 defaults:
   run:
@@ -45,8 +45,7 @@ jobs:
       - name: Show output
         run: |
           echo '${{ toJSON(steps.changed-files.outputs) }}'
-        shell:
-          bash
+        shell: bash
 
 
   pre-commit:
@@ -57,7 +56,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: '3.13'
       - name: Setup UV
         uses: astral-sh/setup-uv@v6
         with:
@@ -113,7 +112,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: "recursive"
+          submodules: recursive
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

@@ -2,11 +2,11 @@ scope: perf
 time_limit: 1800
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
-  num_layers: False
-  att_head: False
-  h_size: False
-  ffn_h_size: False
-  stop_steps: False
+  num_layers: false
+  att_head: false
+  h_size: false
+  ffn_h_size: false
+  stop_steps: false
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
