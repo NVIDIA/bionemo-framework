@@ -6,7 +6,7 @@
 [![Latest Tag](https://img.shields.io/github/v/tag/NVIDIA/bionemo-framework?label=latest-version)](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags)
 [![codecov](https://codecov.io/gh/NVIDIA/bionemo-framework/branch/main/graph/badge.svg?token=XqhegdZRqB)](https://codecov.io/gh/NVIDIA/bionemo-framework)
 
-NVIDIA BioNeMo Framework is a is a comprehensive suite of programming tools, libraries, and models designed for computational drug discovery.
+NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for computational drug discovery.
 It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing
 domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources for the
 fastest performance on the market. You can access BioNeMo Framework as a free community resource here in this repository
