@@ -1,0 +1,4 @@
+extend = "../.ruff.toml"
+[lint]
+per-file-ignores = { "tokenizer_auto" = ["ALL"] }
+ignore = ["RUF","D","N","E","PLW","PERF","C","F"]
