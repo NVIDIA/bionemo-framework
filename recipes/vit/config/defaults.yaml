@@ -1,0 +1,123 @@
+model:
+  vit:
+    img_size: 224
+    patch_size: 16
+    in_chans: 3
+    num_classes: 100000
+    global_pool: "token"
+    embed_dim: 768
+    depth: 12
+    num_heads: 12
+    mlp_ratio: 4.0
+    qkv_bias: true
+    qk_norm: false
+    scale_attn_norm: false
+    scale_mlp_norm: false
+    proj_bias: true
+    init_values: null
+    class_token: true
+    pos_embed: true
+    no_embed_class: false
+    reg_tokens: 0
+    pre_norm: false
+    final_norm: true
+    fc_norm: null
+    pool_include_prefix: false
+    drop_rate: 0.0
+    pos_drop_rate: 0.0
+    patch_drop_rate: 0.0
+    proj_drop_rate: 0.0
+    attn_drop_rate: 0.0
+    drop_path_rate: 0.0
+    weight_init: "timm"
+    init_variance_rescale: false
+  transformer_engine: false
+  channels_last: false
+
+optimizer:
+  lr: 1e-4
+  betas: [0.9, 0.98]
+  eps: 1e-8
+  weight_decay: 0.01
+
+distributed:
+  dp_inter: 1
+  dp_shard: 1
+  cp: 1
+  tp: 1
+
+fsdp:
+  init_model_with_meta_device: true
+  zero_dp_strategy: "optim_grads_params"
+  fsdp_unit_modules:
+    - vit.Block
+    - vit.PatchEmbed
+    - torch.nn.LayerNorm
+    - torch.nn.Linear
+  use_hybrid_fsdp: true
+  outer_dp_sharding_strategy: "optim"
+  grad_reduce_in_fp32: false
+  preserve_fp32_weights: true
+
+training:
+  steps: 500
+  val_interval: 25
+  log_interval: 5
+  checkpoint:
+    path: null
+    resume_from_metric: null
+
+dataset:
+  num_workers: 0
+  train:
+    root: null
+    class_map: null
+    label_map: null
+    class_filter: null
+    batch_size: 1
+    shuffle: false
+    transform_kwargs:
+      img_size: 224
+      scale: null
+      ratio: null
+      train_crop_mode: null
+      hflip: 0.5
+      vflip: 0.
+      color_jitter: 0.4
+      color_jitter_prob: null
+      grayscale_prob: 0.
+      gaussian_blur_prob: 0.
+      interpolation: 'random'
+      re_prob: 0.
+      re_mode: 'const'
+      re_count: 1
+      re_num_splits: 0
+      normalize: True
+      separate: False
+      patch_size: 16
+      patchify: False
+  val:
+    root: null
+    class_map: null
+    label_map: null
+    class_filter: null
+    batch_size: 1
+    shuffle: false
+    transform_kwargs:
+      img_size: 224
+      crop_pct: null
+      crop_mode: null
+      crop_border_pixels: null
+      interpolation: "bilinear"
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+      normalize: true
+      patch_size: 16
+      patchify: false
+
+random:
+  seed: 42
+
+profiling:
+  torch_memory_profile: false
+  wandb: false
