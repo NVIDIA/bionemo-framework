@@ -32,7 +32,7 @@ from metrics import compute_metrics
 logger = logging.getLogger(__name__)
 
 
-@hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
+@hydra.main(config_path="hydra_config", config_name="L0_sanity.yaml", version_base="1.2")
 def main(args: DictConfig):
     """Entrypoint."""
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
@@ -44,11 +44,7 @@ def main(args: DictConfig):
         torch_dtype=torch.bfloat16,
     )
 
-    train_dataset, eval_dataset, data_collator = create_datasets_and_collator(
-        pretained_model=args.model_tag,
-        max_length=config.max_length,
-        data_size=args.data_size,
-    )
+    train_dataset, eval_dataset, data_collator = create_datasets_and_collator(max_length=config.max_length)
 
     training_args = TrainingArguments(**args.trainer)
 
