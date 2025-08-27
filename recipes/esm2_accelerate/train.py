@@ -38,19 +38,7 @@ def main(args: DictConfig):
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     config.max_seq_length = args.max_seq_length
     config.micro_batch_size = args.trainer.per_device_train_batch_size
-
-    # TODO: Remove the local import when the HF model is updated.
-    if args.model_tag.startswith("nvidia"):
-        from modeling_esm_te import NVEsmForMaskedLM
-
-        model = NVEsmForMaskedLM.from_pretrained(args.model_tag, torch_dtype=torch.bfloat16)
-
-    else:
-        model = AutoModelForMaskedLM.from_config(
-            config,
-            trust_remote_code=True,
-            torch_dtype=torch.bfloat16,
-        )
+    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True, torch_dtype=torch.bfloat16)
 
     train_dataset, eval_dataset, data_collator = create_datasets_and_collator(max_length=config.max_length)
 
