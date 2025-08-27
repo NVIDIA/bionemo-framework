@@ -22,7 +22,7 @@ from torch.distributed.device_mesh import _mesh_resources
 
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
-from train_nvfsdp import main as main_nvfsdp
+from train_mfsdp import main as main_mfsdp
 
 
 # Get the recipe directory
@@ -45,7 +45,7 @@ def mock_distributed_config(monkeypatch):
     except AssertionError:
         pass
 
-    # For nvFSDP, clear mesh resources to avoid issues re-running in the same process.
+    # For MFSDP, clear mesh resources to avoid issues re-running in the same process.
     _mesh_resources.mesh_stack.clear()
     _mesh_resources.child_to_root_mapping.clear()
     _mesh_resources.root_to_flatten_mapping.clear()
@@ -53,14 +53,14 @@ def mock_distributed_config(monkeypatch):
     _mesh_resources.mesh_dim_group_options.clear()
 
 
-def test_main_invocation_nvfsdp(mock_distributed_config, tmp_path):
+def test_main_invocation_mfsdp(mock_distributed_config, tmp_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
     with initialize_config_dir(config_dir=str(recipe_dir / "hydra_config"), version_base="1.2"):
         sanity_config = compose(config_name="L0_sanity", overrides=[f"+wandb_init_args.dir={tmp_path}"])
 
-    main_nvfsdp(sanity_config)
+    main_mfsdp(sanity_config)
 
 
 def test_main_invocation_ddp(mock_distributed_config, tmp_path):
@@ -83,7 +83,7 @@ def test_main_invocation_fsdp2(mock_distributed_config, tmp_path):
     main_fsdp2(sanity_config)
 
 
-def test_main_invocation_nvfsdp_eager(mock_distributed_config, tmp_path):
+def test_main_invocation_mfsdp_eager(mock_distributed_config, tmp_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
@@ -93,7 +93,7 @@ def test_main_invocation_nvfsdp_eager(mock_distributed_config, tmp_path):
             overrides=[f"+wandb_init_args.dir={tmp_path}", "model_name=facebook/esm2_t6_8M_UR50D"],
         )
 
-    main_nvfsdp(sanity_config)
+    main_mfsdp(sanity_config)
 
 
 def test_main_invocation_ddp_eager(mock_distributed_config, tmp_path):
