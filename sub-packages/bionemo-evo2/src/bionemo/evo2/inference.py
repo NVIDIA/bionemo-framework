@@ -167,10 +167,13 @@ def detect_pst(ckpt_name):
     return ret
 
 def get_default_config(ckpt_name):
+    # So far all models we have tests for were trained with Savanna code base,
+    # and use vortex-style inference, except for bf16 variants.
+    vortex_style_fp8 = "bf16" not in ckpt_name
     # Below are parameters that need to be tuned based on GPU memory size.
     return {
         "params_dtype": torch.bfloat16,
-        "vortex_style_fp8": getenv("EVO2_VORTEX_STYLE_FP8", True),
+        "vortex_style_fp8": getenv("EVO2_VORTEX_STYLE_FP8", vortex_style_fp8),
         "enable_flash_decode": getenv("EVO2_FLASH_DECODE", True),
         "fp32_residual_connection": getenv("EVO2_FP32_RESIDUAL_CONNECTION", False),
         "recompute_granularity": None,
@@ -192,8 +195,8 @@ def get_default_config(ckpt_name):
         "prompt_segmentation_threshold": detect_pst(ckpt_name),
 
         # Affects inference accuracy and speed
-        "unfused_rmsnorm": getenv("EVO2_UNFUSED_RMSNORM", True),
-        "plain_row_linear": getenv("EVO2_PLAIN_ROW_LINEAR", True),
+        "unfused_rmsnorm": getenv("EVO2_UNFUSED_RMSNORM", vortex_style_fp8),
+        "plain_row_linear": getenv("EVO2_PLAIN_ROW_LINEAR", vortex_style_fp8),
     }
 
 @torch.inference_mode
