@@ -21,10 +21,12 @@ from dataclasses import dataclass, field
 import hydra
 import torch
 import torch.distributed as dist
+import transformer_engine.pytorch
+import transformers
 import wandb
+from megatron_fsdp.fully_shard import fully_shard
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import fully_shard
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
@@ -108,23 +110,14 @@ def main(args: DictConfig):
     # Create an empty ESM-2 model with a masked language model head.
     if "facebook" in args.model_name:
         config = AutoConfig.from_pretrained(args.model_name, dtype=torch.bfloat16)
-        # import transformers.models.esm.modeling_esm  # needed for meta init
-        # with torch.device("meta"):
         model = AutoModelForMaskedLM.from_config(config, attn_implementation="flash_attention_2")
         del model.esm.contact_head
-        transformer_stack = model.esm.encoder.layer
 
     else:
         config = AutoConfig.from_pretrained(args.model_name, trust_remote_code=True, dtype=torch.bfloat16)
         config.max_seq_length = args.max_seq_length
         config.micro_batch_size = args.micro_batch_size
-        # with torch.device("meta"):
         model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
-        transformer_stack = model.esm.encoder.layers
-
-    for layer in transformer_stack:
-        fully_shard(layer, mesh=device_mesh["fsdp"])
-    fully_shard(model, mesh=device_mesh["fsdp"])
 
     # Log model and number of parameters on main process.
     if dist_config.is_main_process():
@@ -133,13 +126,26 @@ def main(args: DictConfig):
 
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
-    scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    model.to(device=device)
-    # model.to_empty(device=f"cuda:{dist_config.local_rank}")
-    # for module in model.modules():
-    #     if hasattr(module, "reset_parameters"):
-    #         module.reset_parameters()
+    # Wrap model in megatron-fsdp
+    model, optimizer = fully_shard(
+        module=model,
+        optimizer=optimizer,
+        fsdp_unit_modules=[
+            transformer_engine.pytorch.TransformerLayer,
+            transformer_engine.pytorch.LayerNorm,
+            transformer_engine.pytorch.LayerNormLinear,
+            transformers.models.esm.modeling_esm.EsmLayer,
+        ],
+        device_mesh=device_mesh,
+        dp_shard_dim="fsdp",
+        tp_dim="tp",
+        **args.fully_shard_kwargs,
+    )
+
+    # This is important; the LR scheduler modifies optimizer.step(), so this needs to get created
+    # after the optimizer gets wrapped in FSDP. Here we use a warmup and linear decay scheduler.
+    scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     # Training loop.
     model.train()
