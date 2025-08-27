@@ -20,7 +20,7 @@ import os
 import shutil
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDatasetCore
 from bionemo.scdl.index.row_feature_index import RowFeatureIndex
@@ -38,7 +38,14 @@ logger.setLevel(logging.INFO)
 logging.basicConfig(format="%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] - %(message)s")
 
 
-def _create_single_cell_memmap_dataset_from_h5ad(h5ad_path: str, base_directory_path: str) -> SingleCellMemMapDataset:
+def _create_single_cell_memmap_dataset_from_h5ad(
+    h5ad_path: str, 
+    base_directory_path: str,
+    load_neighbors: bool = False,
+    neighbor_key: str = "next_cell_ids",
+    neighbor_sampling_strategy: str = "random",
+    fallback_to_identity: bool = True,
+) -> SingleCellMemMapDataset:
     """The SingleCellMemMapDataset is loaded from h5ad_path.
 
     The data is stored in the base_data_path directory.
@@ -46,11 +53,32 @@ def _create_single_cell_memmap_dataset_from_h5ad(h5ad_path: str, base_directory_
     Args:
         h5ad_path: the path to the dataset
         base_directory_path: the base directory path where the dataset will be stored
+        load_neighbors: Whether to load and utilize neighbor information from h5ad files
+        neighbor_key: The key in AnnData's .obsp containing neighbor information
+        neighbor_sampling_strategy: Strategy for sampling neighbors ('random' or 'first')
+        fallback_to_identity: If a cell has no neighbors, whether to use the cell itself as neighbor
     Returns:
         The created SingleCellMemMapDataset
     """
     fname = Path(h5ad_path).stem
-    obj = SingleCellMemMapDataset(data_path=Path(base_directory_path) / fname, h5ad_path=h5ad_path)
+    
+    if load_neighbors:
+        # Use neighbor-aware constructor when neighbors are enabled
+        obj = SingleCellMemMapDataset(
+            data_path=str(Path(base_directory_path) / fname), 
+            h5ad_path=h5ad_path,
+            load_neighbors=load_neighbors,
+            neighbor_key=neighbor_key,
+            neighbor_sampling_strategy=neighbor_sampling_strategy,
+            fallback_to_identity=fallback_to_identity,
+        )
+    else:
+        # Use original constructor when neighbors are disabled (backward compatibility)
+        obj = SingleCellMemMapDataset(
+            data_path=str(Path(base_directory_path) / fname), 
+            h5ad_path=h5ad_path
+        )
+    
     return obj
 
 
@@ -82,19 +110,40 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         lengths
         False: not ragged; all SingleCellMemMapDataset have same column dimemsion
         True: ragged; scmmap column dimemsions vary
+        load_neighbors: Whether to load and utilize neighbor information from h5ad files
+        neighbor_key: The key in AnnData's .obsp containing neighbor information
+        neighbor_sampling_strategy: Strategy for sampling neighbors
+        fallback_to_identity: If a cell has no neighbors, whether to use the cell itself
     """
 
-    def __init__(self, data_path: str) -> None:
+    def __init__(
+        self, 
+        data_path: str,
+        load_neighbors: bool = False,
+        neighbor_key: str = "next_cell_ids",
+        neighbor_sampling_strategy: str = "random",
+        fallback_to_identity: bool = True,
+    ) -> None:
         """Instantiate the class.
 
         Args:
             data_path: Where the class will be stored.
+            load_neighbors: Whether to load and utilize neighbor information from h5ad files
+            neighbor_key: The key in AnnData's .obsp containing neighbor information
+            neighbor_sampling_strategy: Strategy for sampling neighbors ('random' or 'first')
+            fallback_to_identity: If a cell has no neighbors, whether to use the cell itself as neighbor
         """
         self.data_path: str = data_path
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.metadata: Dict[str, int] = {}
         self._feature_index: RowFeatureIndex = RowFeatureIndex()
         self.fname_to_mmap: Dict[str, SingleCellMemMapDataset] = {}
+
+        # Neighbor configuration
+        self.load_neighbors = load_neighbors
+        self.neighbor_key = neighbor_key
+        self.neighbor_sampling_strategy = neighbor_sampling_strategy
+        self.fallback_to_identity = fallback_to_identity
 
         Path(self.data_path).mkdir(parents=True, exist_ok=True)
 
@@ -120,9 +169,24 @@ class SingleCellCollection(SingleCellRowDatasetCore):
             h5ad_path: the path to AnnData archive
         """
         mmap_path = Path(self.data_path) / Path(h5ad_path).stem
-        self.fname_to_mmap[mmap_path] = _create_single_cell_memmap_dataset_from_h5ad(
-            h5ad_path=h5ad_path, base_directory_path=self.data_path
-        )
+        
+        if self.load_neighbors:
+            # Use neighbor-aware loading when neighbors are enabled
+            self.fname_to_mmap[mmap_path] = _create_single_cell_memmap_dataset_from_h5ad(
+                h5ad_path=h5ad_path, 
+                base_directory_path=self.data_path,
+                load_neighbors=self.load_neighbors,
+                neighbor_key=self.neighbor_key,
+                neighbor_sampling_strategy=self.neighbor_sampling_strategy,
+                fallback_to_identity=self.fallback_to_identity,
+            )
+        else:
+            # Use original loading when neighbors are disabled (backward compatibility)
+            self.fname_to_mmap[mmap_path] = _create_single_cell_memmap_dataset_from_h5ad(
+                h5ad_path=h5ad_path, 
+                base_directory_path=self.data_path
+            )
+            
         self._feature_index.concat(self.fname_to_mmap[mmap_path]._feature_index)
 
     def load_h5ad_multi(self, directory_path: str, max_workers: int = 5, use_processes: bool = False) -> None:
@@ -144,7 +208,24 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         mmap_paths = [Path(self.data_path) / Path(ann_datapath).stem for ann_datapath in ann_data_paths]
         queue = AsyncWorkQueue(max_workers=max_workers, use_processes=use_processes)
         for ann in ann_data_paths:
-            queue.submit_task(_create_single_cell_memmap_dataset_from_h5ad, ann, base_directory_path=self.data_path)
+            if self.load_neighbors:
+                # Use neighbor-aware loading when neighbors are enabled
+                queue.submit_task(
+                    _create_single_cell_memmap_dataset_from_h5ad, 
+                    ann, 
+                    base_directory_path=self.data_path,
+                    load_neighbors=self.load_neighbors,
+                    neighbor_key=self.neighbor_key,
+                    neighbor_sampling_strategy=self.neighbor_sampling_strategy,
+                    fallback_to_identity=self.fallback_to_identity,
+                )
+            else:
+                # Use original loading when neighbors are disabled (backward compatibility)
+                queue.submit_task(
+                    _create_single_cell_memmap_dataset_from_h5ad, 
+                    ann, 
+                    base_directory_path=self.data_path
+                )
         queue.wait()
         mmaps = queue.get_task_results()
 
@@ -212,6 +293,87 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         """
         return self.number_of_rows(), self.number_of_variables()
 
+    def validate_neighbor_consistency(self) -> None:
+        """Validates that all datasets in the collection have consistent neighbor configuration.
+        
+        Raises:
+            ValueError: If neighbor configurations are inconsistent across datasets
+        """
+        if not self.load_neighbors:
+            return  # No validation needed if neighbors are disabled
+            
+        neighbor_keys = set()
+        has_neighbors_flags = []
+        
+        for mmap_path, dataset in self.fname_to_mmap.items():
+            if dataset.load_neighbors != self.load_neighbors:
+                raise ValueError(
+                    f"Dataset {mmap_path} has load_neighbors={dataset.load_neighbors} "
+                    f"but collection expects load_neighbors={self.load_neighbors}"
+                )
+                
+            if dataset.load_neighbors:
+                neighbor_keys.add(dataset.neighbor_key)
+                has_neighbors_flags.append(dataset._has_neighbors)
+                
+        if len(neighbor_keys) > 1:
+            raise ValueError(
+                f"Inconsistent neighbor keys across datasets: {neighbor_keys}. "
+                f"All datasets must use the same neighbor key."
+            )
+            
+        if self.load_neighbors and any(has_neighbors_flags) and not all(has_neighbors_flags):
+            missing_neighbors = [
+                str(mmap_path) for mmap_path, dataset in self.fname_to_mmap.items() 
+                if dataset.load_neighbors and not dataset._has_neighbors
+            ]
+            raise ValueError(
+                f"Some datasets are missing neighbor data: {missing_neighbors}. "
+                f"All datasets must have consistent neighbor data when load_neighbors=True."
+            )
+
+    def get_collection_neighbor_stats(self) -> Dict[str, Any]:
+        """Returns aggregated neighbor statistics across all datasets in the collection.
+        
+        Returns:
+            Dictionary with collection-wide neighbor statistics
+        """
+        if not self.load_neighbors:
+            return {"load_neighbors": False, "datasets_with_neighbors": 0, "total_datasets": len(self.fname_to_mmap)}
+            
+        total_datasets = len(self.fname_to_mmap)
+        datasets_with_neighbors = 0
+        total_connections = 0
+        min_neighbors_per_cell = float('inf')
+        max_neighbors_per_cell = 0
+        total_cells = 0
+        total_cells_with_neighbors = 0
+        
+        for dataset in self.fname_to_mmap.values():
+            if dataset._has_neighbors:
+                datasets_with_neighbors += 1
+                stats = dataset.get_neighbor_stats()
+                total_connections += stats.get("total_connections", 0)
+                min_neighbors_per_cell = min(min_neighbors_per_cell, stats.get("min_neighbors_per_cell", 0))
+                max_neighbors_per_cell = max(max_neighbors_per_cell, stats.get("max_neighbors_per_cell", 0))
+                total_cells += dataset.number_of_rows()
+                total_cells_with_neighbors += (dataset.number_of_rows() - stats.get("cells_with_no_neighbors", 0))
+        
+        if min_neighbors_per_cell == float('inf'):
+            min_neighbors_per_cell = 0
+            
+        return {
+            "load_neighbors": True,
+            "total_datasets": total_datasets,
+            "datasets_with_neighbors": datasets_with_neighbors,
+            "total_connections": total_connections,
+            "min_neighbors_per_cell": min_neighbors_per_cell,
+            "max_neighbors_per_cell": max_neighbors_per_cell,
+            "avg_neighbors_per_cell": total_connections / total_cells if total_cells > 0 else 0,
+            "cells_with_neighbors": total_cells_with_neighbors,
+            "total_cells": total_cells,
+        }
+
     def flatten(
         self,
         output_path: str,
@@ -222,7 +384,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
 
         This is done by concatenating all of the SingleCellMemMapDatasets together. This can be used
         to create a single dataset from h5ad files that are in a directory:
-                coll = SingleCellCollection(temp_dir)
+                coll = SingleCellCollection(temp_dir, load_neighbors=True)
                 coll.load_h5ad_multi(data_path)
                 coll.flatten(output_path, destroy_on_copy=True)
         Then, there would be one SingleCellMemMapDataset dataset in output_path. read in with
@@ -234,6 +396,10 @@ class SingleCellCollection(SingleCellRowDatasetCore):
             extend_copy_size: how much to copy in memory at once
 
         """
+        # Validate neighbor consistency before flattening (only if neighbors are enabled)
+        if self.load_neighbors:
+            self.validate_neighbor_consistency()
+        
         output = next(iter(self.fname_to_mmap.values()))
 
         single_cell_list = list(self.fname_to_mmap.values())[1:]
