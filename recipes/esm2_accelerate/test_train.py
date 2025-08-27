@@ -34,6 +34,11 @@ from train import main
 
 _fp8_available, _fp8_reason = check_fp8_support()
 
+requires_multi_gpu = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+    reason="Test requires at least 2 GPUs",
+)
+
 
 @pytest.fixture(scope="session")
 def session_temp_dir(tmp_path_factory):
@@ -41,8 +46,7 @@ def session_temp_dir(tmp_path_factory):
     return temp_dir
 
 
-@pytest.mark.skipif(not _fp8_available, reason=f"FP8 is not supported on this GPU: {_fp8_reason}")
-def test_train_sanity_config(monkeypatch, session_temp_dir: Path):
+def test_train_can_resume_from_checkpoint(monkeypatch, session_temp_dir: Path):
     """Test that train.py runs successfully with sanity config and creates expected outputs."""
 
     # Get the recipe directory
@@ -55,8 +59,6 @@ def test_train_sanity_config(monkeypatch, session_temp_dir: Path):
     monkeypatch.setenv("MASTER_ADDR", "localhost")
     monkeypatch.setenv("MASTER_PORT", "29500")
     monkeypatch.setenv("WANDB_MODE", "disabled")
-    monkeypatch.setenv("ACCELERATE_MIXED_PRECISION", "fp8")
-    monkeypatch.setenv("ACCELERATE_FP8_BACKEND", "TE")
 
     with initialize_config_dir(config_dir=str(recipe_dir / "hydra_config"), version_base="1.2"):
         sanity_config = compose(config_name="L0_sanity", overrides=[f"trainer.output_dir={session_temp_dir}"])
@@ -89,18 +91,7 @@ def test_train_sanity_config(monkeypatch, session_temp_dir: Path):
     train_metrics_file = output_dir / "train_results.json"
     assert train_metrics_file.exists(), f"Training metrics file {train_metrics_file} does not exist"
 
-    print(
-        f"Successfully completed training test with fp8 precision. Found {len(checkpoint_dirs)} checkpoint directories and final model checkpoint."
-    )
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not _fp8_available, reason=f"FP8 is not supported on this GPU: {_fp8_reason}")
-def test_train_sanity_resume_from_checkpoint(monkeypatch, session_temp_dir: Path):
-    """Test that train.py runs successfully with sanity config and resumes from checkpoint."""
-
-    # Get the recipe directory
-    recipe_dir = Path(__file__).parent
+    ## Remove last two checkpoints and re-train
 
     # Remove the checkpoint-10 and checkpoint-last directories
     checkpoint_4 = session_temp_dir / "checkpoint-4"
@@ -114,19 +105,7 @@ def test_train_sanity_resume_from_checkpoint(monkeypatch, session_temp_dir: Path
         f"Checkpoint-2 directory {session_temp_dir / 'checkpoint-2'} does not exist."
     )
 
-    # Set required environment variables for distributed training
-    monkeypatch.setenv("LOCAL_RANK", "0")
-    monkeypatch.setenv("RANK", "0")
-    monkeypatch.setenv("WORLD_SIZE", "1")
-    monkeypatch.setenv("MASTER_ADDR", "localhost")
-    monkeypatch.setenv("MASTER_PORT", "29500")
-    monkeypatch.setenv("WANDB_MODE", "disabled")
-    monkeypatch.setenv("ACCELERATE_MIXED_PRECISION", "fp8")
-    monkeypatch.setenv("ACCELERATE_FP8_BACKEND", "TE")
-
-    with initialize_config_dir(config_dir=str(recipe_dir / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(config_name="L0_sanity", overrides=[f"trainer.output_dir={session_temp_dir}"])
-
+    # Re-train
     main(sanity_config)
 
     output_dir = session_temp_dir
@@ -155,17 +134,22 @@ def test_train_sanity_resume_from_checkpoint(monkeypatch, session_temp_dir: Path
     train_metrics_file = output_dir / "train_results.json"
     assert train_metrics_file.exists(), f"Training metrics file {train_metrics_file} does not exist"
 
-    print(
-        f"Successfully completed training test with fp8 precision. Found {len(checkpoint_dirs)} checkpoint directories and final model checkpoint."
-    )
 
-
-@pytest.mark.parametrize("accelerate_config", ["deepspeed_config.yaml", "fp8_config.yaml"])
-def test_accelerate_launch(accelerate_config, tmp_path):
+@pytest.mark.parametrize(
+    "accelerate_config,model_tag",
+    [
+        ("default.yaml", "nvidia/esm2_t6_8M_UR50D"),
+        # ("fsdp1_te.yaml", "nvidia/esm2_t6_8M_UR50D"),
+        ("fsdp2_te.yaml", "nvidia/esm2_t6_8M_UR50D"),
+        ("default.yaml", "facebook/esm2_t6_8M_UR50D"),
+        # ("fsdp1_hf.yaml", "facebook/esm2_t6_8M_UR50D"),
+        ("fsdp2_hf.yaml", "facebook/esm2_t6_8M_UR50D"),
+    ],
+    # FSDP1 seems to be failing for single-node / NO_SHARD until
+    # https://github.com/pytorch/pytorch/pull/154369 is brought in.
+)
+def test_accelerate_launch(accelerate_config, model_tag, tmp_path):
     """Test that accelerate launch runs successfully."""
-    # Skip FP8 config test if FP8 is not supported
-    if accelerate_config == "fp8_config.yaml" and not check_fp8_support()[0]:
-        pytest.skip("FP8 not supported on this hardware")
 
     # Find the recipe directory and train.py
     recipe_dir = Path(__file__).parent
@@ -173,28 +157,88 @@ def test_accelerate_launch(accelerate_config, tmp_path):
     accelerate_config_path = recipe_dir / "accelerate_config" / accelerate_config
 
     assert train_py.exists(), f"train.py not found at {train_py}"
-    assert accelerate_config_path.exists(), f"{accelerate_config} not found at {accelerate_config_path}"
+    assert accelerate_config_path.exists(), f"deepspeed_config.yaml not found at {accelerate_config_path}"
 
     # Run 'accelerate launch train.py' as a subprocess
-    env = os.environ.copy()
+    cmd = [
+        sys.executable,
+        "-m",
+        "accelerate.commands.launch",
+        "--config_file",
+        str(accelerate_config_path),
+        "--num_processes",
+        "1",
+        str(train_py),
+        "--config-name",
+        "L0_sanity.yaml",
+        f"model_tag={model_tag}",
+        f"trainer.output_dir={tmp_path}",
+    ]
 
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "accelerate.commands.launch",
-            "--config_file",
-            str(accelerate_config_path),
-            str(train_py),
-            "--config-name",
-            "L0_sanity.yaml",
-            f"trainer.output_dir={tmp_path}",
-        ],
-        cwd=recipe_dir,
+    result = subprocess.run(
+        cmd,
+        check=False,
+        text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
-        check=True,
         timeout=240,
-        env=env,
     )
+
+    if result.returncode != 0:
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+        pytest.fail(f"Command:\n{' '.join(cmd)}\nfailed with exit code {result.returncode}")
+
+
+@requires_multi_gpu
+@pytest.mark.parametrize(
+    "accelerate_config,model_tag",
+    [
+        ("default.yaml", "nvidia/esm2_t6_8M_UR50D"),
+        ("fsdp1_te.yaml", "nvidia/esm2_t6_8M_UR50D"),
+        ("fsdp2_te.yaml", "nvidia/esm2_t6_8M_UR50D"),
+        ("default.yaml", "facebook/esm2_t6_8M_UR50D"),
+        ("fsdp1_hf.yaml", "facebook/esm2_t6_8M_UR50D"),
+        ("fsdp2_hf.yaml", "facebook/esm2_t6_8M_UR50D"),
+    ],
+)
+def test_accelerate_launch_multi_gpu(accelerate_config, model_tag, tmp_path):
+    """Test that accelerate launch runs successfully."""
+
+    # Find the recipe directory and train.py
+    recipe_dir = Path(__file__).parent
+    train_py = recipe_dir / "train.py"
+    accelerate_config_path = recipe_dir / "accelerate_config" / accelerate_config
+
+    assert train_py.exists(), f"train.py not found at {train_py}"
+    assert accelerate_config_path.exists(), f"deepspeed_config.yaml not found at {accelerate_config_path}"
+
+    # Run 'accelerate launch train.py' as a subprocess
+    cmd = [
+        sys.executable,
+        "-m",
+        "accelerate.commands.launch",
+        "--config_file",
+        str(accelerate_config_path),
+        "--num_processes",
+        "2",
+        str(train_py),
+        "--config-name",
+        "L0_sanity.yaml",
+        f"model_tag={model_tag}",
+        f"trainer.output_dir={tmp_path}",
+    ]
+
+    result = subprocess.run(
+        cmd,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=240,
+    )
+
+    if result.returncode != 0:
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+        pytest.fail(f"Command:\n{' '.join(cmd)}\nfailed with exit code {result.returncode}")

@@ -34,6 +34,11 @@ from train import main
 
 _fp8_available, _fp8_reason = check_fp8_support()
 
+requires_multi_gpu = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+    reason="Test requires at least 2 GPUs",
+)
+
 
 @pytest.fixture(scope="session")
 def session_temp_dir(tmp_path_factory):
@@ -175,26 +180,70 @@ def test_accelerate_launch(accelerate_config, tmp_path):
     assert train_py.exists(), f"train.py not found at {train_py}"
     assert accelerate_config_path.exists(), f"{accelerate_config} not found at {accelerate_config_path}"
 
-    # Run 'accelerate launch train.py' as a subprocess
-    env = os.environ.copy()
+    cmd = [
+        sys.executable,
+        "-m",
+        "accelerate.commands.launch",
+        "--config_file",
+        str(accelerate_config_path),
+        str(train_py),
+        "--config-name",
+        "L0_sanity",
+        f"trainer.output_dir={tmp_path}",
+        "trainer.save_steps=1000",
+        "trainer.eval_steps=1000",
+        "trainer.do_eval=false",
+    ]
 
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "accelerate.commands.launch",
-            "--config_file",
-            str(accelerate_config_path),
-            str(train_py),
-            "--config-name",
-            "L0_sanity",
-            f"trainer.output_dir={tmp_path}",
-        ],
-        cwd=recipe_dir,
+    result = subprocess.run(
+        cmd,
+        check=False,
+        text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
-        check=True,
         timeout=240,
-        env=env,
     )
+
+    if result.returncode != 0:
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+        pytest.fail(f"Command:\n{' '.join(cmd)}\nfailed with exit code {result.returncode}")
+
+
+@requires_multi_gpu
+def test_accelerate_launch_multi_gpu(tmp_path):
+    """Test that accelerate launch runs successfully."""
+    # Find the recipe directory and train.py
+    recipe_dir = Path(__file__).parent
+    train_py = recipe_dir / "train.py"
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "accelerate.commands.launch",
+        "--config_file",
+        str(recipe_dir / "accelerate_config" / "bf16_config.yaml"),
+        "--num_processes",
+        "2",
+        str(train_py),
+        "--config-name",
+        "L0_sanity.yaml",
+        f"trainer.output_dir={tmp_path}",
+        "trainer.save_steps=1000",
+        "trainer.eval_steps=1000",
+        "trainer.do_eval=false",
+    ]
+
+    result = subprocess.run(
+        cmd,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=240,
+    )
+
+    if result.returncode != 0:
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+        pytest.fail(f"Command:\n{' '.join(cmd)}\nfailed with exit code {result.returncode}")

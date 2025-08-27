@@ -50,8 +50,8 @@ def create_datasets_and_collator(max_length=1024):
     # using a local dataset. If you're reading this and scaling up the dataset to a larger size,
     # look into `set_transform` and other streaming options from the `datasets` library.
     data_path = Path(__file__).parent / "train.parquet"
-    dataset = load_dataset("parquet", data_files=data_path.as_posix(), split="train")
-    eval_dataset = load_dataset("parquet", data_files=data_path.as_posix(), split="train").take(100)
+    train_dataset = load_dataset("parquet", data_files=data_path.as_posix(), split="train")
+    eval_dataset = train_dataset.select(range(10))
 
     def tokenize_function(examples):
         """Tokenize the protein sequences."""
@@ -63,10 +63,14 @@ def create_datasets_and_collator(max_length=1024):
             return_tensors="pt",
         )
 
+    for dataset in [train_dataset, eval_dataset]:
+        dataset.set_transform(tokenize_function, output_all_columns=True)
+        dataset.remove_columns(["sequence", "id"])
+
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm_probability=0.15,
         pad_to_multiple_of=max_length,
     )
 
-    return dataset, eval_dataset, data_collator
+    return train_dataset, eval_dataset, data_collator

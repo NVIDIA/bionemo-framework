@@ -36,13 +36,21 @@ logger = logging.getLogger(__name__)
 def main(args: DictConfig):
     """Entrypoint."""
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
-    config.max_length = args.max_seq_length
+    config.max_seq_length = args.max_seq_length
+    config.micro_batch_size = args.trainer.per_device_train_batch_size
 
-    model = AutoModelForMaskedLM.from_config(
-        config,
-        trust_remote_code=True,
-        torch_dtype=torch.bfloat16,
-    )
+    # TODO: Remove the local import when the HF model is updated.
+    if args.model_tag.startswith("nvidia"):
+        from modeling_esm_te import NVEsmForMaskedLM
+
+        model = NVEsmForMaskedLM.from_pretrained(args.model_tag, torch_dtype=torch.bfloat16)
+
+    else:
+        model = AutoModelForMaskedLM.from_config(
+            config,
+            trust_remote_code=True,
+            torch_dtype=torch.bfloat16,
+        )
 
     train_dataset, eval_dataset, data_collator = create_datasets_and_collator(max_length=config.max_length)
 
@@ -74,8 +82,6 @@ def main(args: DictConfig):
 
     if training_args.do_eval:
         trainer.evaluate()
-
-    torch.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":

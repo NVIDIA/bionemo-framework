@@ -1,17 +1,7 @@
 compute_environment: LOCAL_MACHINE
 debug: false
-deepspeed_config:
-  gradient_clipping: 1.0
-  gradient_accumulation_steps: 1
-  offload_optimizer_device: none
-  offload_param_device: none
-  zero3_init_flag: false
-  zero_stage: 1
-  deepspeed_multinode_launcher: standard
-distributed_type: DEEPSPEED
+distributed_type: MULTI_GPU
 downcast_bf16: 'no'
-dynamo_config:
-  dynamo_backend: INDUCTOR
 enable_cpu_affinity: false
 machine_rank: 0
 main_training_function: main
@@ -24,3 +14,4 @@ tpu_env: []
 tpu_use_cluster: false
 tpu_use_sudo: false
 use_cpu: false
+dynamo_config: "NO"
