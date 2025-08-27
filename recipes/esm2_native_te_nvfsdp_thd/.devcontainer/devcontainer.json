@@ -1,0 +1,36 @@
+{
+    "name": "Geneformer HF Environment",
+    "build": {
+        "dockerfile": "../Dockerfile",
+        "context": "..",
+    },
+    "runArgs": [
+        "--gpus",
+        "all",
+        "--network",
+        "host",
+        "--ipc=host",
+        "--ulimit",
+        "memlock=-1",
+        "--ulimit",
+        "stack=67108864"
+    ],
+    "mounts": [
+        "source=${localWorkspaceFolder},target=/workspace/bionemo,type=bind",
+    ],
+    "workspaceFolder": "/workspace/bionemo",
+    "remoteUser": "root",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-toolsai.jupyter"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/usr/bin/python3",
+                "editor.formatOnSave": true
+            }
+        }
+    }
+}
