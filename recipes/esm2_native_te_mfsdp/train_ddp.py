@@ -69,8 +69,8 @@ def main(args: DictConfig) -> float | None:
     torch.cuda.set_device(dist_config.local_rank)
     device_mesh = init_device_mesh(
         "cuda",
-        mesh_shape=(dist_config.world_size, 1, 1),
-        mesh_dim_names=("fsdp", "cp", "tp"),
+        mesh_shape=(dist_config.world_size,),
+        mesh_dim_names=("ddp",),
     )
     device = torch.device(f"cuda:{dist_config.local_rank}")
     logger.info("Initialized distributed training: %s", dist_config)
@@ -104,7 +104,7 @@ def main(args: DictConfig) -> float | None:
         model,
         device_ids=[dist_config.local_rank],
         output_device=dist_config.local_rank,
-        device_mesh=device_mesh["fsdp"],
+        device_mesh=device_mesh["ddp"],
     )
 
     # Training loop.
