@@ -64,7 +64,7 @@ EOF
 ## Drop this when pytorch images ship the fixed commit.
 ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
 
-COPY ./patches/te.patch /tmp/te.patch
+COPY ./docker_build_patches/te.patch /tmp/te.patch
 RUN git clone --recurse-submodules https://github.com/NVIDIA/TransformerEngine.git /tmp/TransformerEngine && \
     cd /tmp/TransformerEngine && \
     git checkout --recurse-submodules ${TE_TAG} && \
@@ -320,7 +320,6 @@ FROM dev AS development
 
 WORKDIR /workspace/bionemo2
 COPY --from=bionemo2-base /workspace/bionemo2/ .
-COPY ./internal ./internal
 # because of the `rm -rf ./3rdparty` in bionemo2-base
 COPY ./3rdparty ./3rdparty
 
@@ -334,7 +333,6 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 RUN <<EOF
 set -eo pipefail
 find . -name __pycache__ -type d -print | xargs rm -rf
-uv pip install --no-build-isolation --editable ./internal/infra-bionemo
 for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
     uv pip install --no-deps --no-build-isolation --editable $sub
 done
@@ -354,7 +352,6 @@ FROM bionemo2-base AS release
 RUN mkdir -p /workspace/bionemo2/.cache/
 
 COPY VERSION .
-COPY ./scripts ./scripts
 COPY ./README.md ./
 # Copy over folders so that the image can run tests in a self-contained fashion.
 COPY ./ci/scripts ./ci/scripts

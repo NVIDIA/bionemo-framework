@@ -111,7 +111,7 @@ def parse_args():
     )
     ap.add_argument(
         "--log-prob-collapse-option",
-        choices=["sum", "mean"],
+        choices=["sum", "mean", "per_token"],
         default="mean",
         help="How to collapse the log probabilities across the sequence dimension.",
     )
@@ -160,7 +160,7 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, HyenaModel):
         self,
         *args,
         output_log_prob_seqs: bool = False,
-        log_prob_collapse_option: Literal["sum", "mean"] = "mean",
+        log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
         **kwargs,
     ):
         """Initialize the predictor with our needs around computing log probabilities."""
@@ -195,10 +195,14 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, HyenaModel):
                 2,  # along the vocab dimension...
                 input_ids.unsqueeze(-1),  # using the token ids to index.
             ).squeeze(-1)
-            log_prob_seqs = torch.sum(logprobs * batch["loss_mask"][:, 1:].float(), dim=-1)
-            if self.log_prob_collapse_option == "mean":
-                log_prob_seqs = log_prob_seqs / (batch["loss_mask"][:, 1:].float().sum(dim=-1) + 1e-8)
-            return {"log_probs_seqs": log_prob_seqs.cpu(), "seq_idx": batch["seq_idx"].cpu()}
+            log_prob_per_token = logprobs * batch["loss_mask"][:, 1:].float()
+            if self.log_prob_collapse_option == "per_token":
+                return {"log_probs_seqs": log_prob_per_token.cpu(), "seq_idx": batch["seq_idx"].cpu()}
+            else:
+                log_prob_seqs = torch.sum(log_prob_per_token, dim=1)
+                if self.log_prob_collapse_option == "mean":
+                    log_prob_seqs = log_prob_seqs / (batch["loss_mask"][:, 1:].float().sum(dim=-1) + 1e-8)
+                return {"log_probs_seqs": log_prob_seqs.cpu(), "seq_idx": batch["seq_idx"].cpu()}
         else:
             # If the user wants to match back to logits, then they will need to do the offsetting logic themselves.
             return {
@@ -504,7 +508,7 @@ class MambaPredictor(MambaModel, LightningPassthroughPredictionMixin):
         config,
         tokenizer=None,
         output_log_prob_seqs: bool = False,
-        log_prob_collapse_option: Literal["sum", "mean"] = "mean",
+        log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
     ):
         """Initialize the MambaPredictor, which wraps the mamba model for prediction handling model parallelism.
 

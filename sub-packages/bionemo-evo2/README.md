@@ -266,7 +266,7 @@ predict_evo2 \
   --output-dir <PATH_TO_OUTPUT_FILE> \
   --model-size 1b \
   --tensor-parallel-size 1 \
-  ----pipeline-model-parallel-size 1 \
+  --pipeline-model-parallel-size 1 \
   --context-parallel-size 1 \
   --output-log-prob-seqs
 ```
