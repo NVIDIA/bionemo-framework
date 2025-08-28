@@ -6,10 +6,13 @@
         "dockerfile": "Dockerfile"
     },
     "mounts": [
-        "source=${localEnv:HOME}/.cache,target=/home/ubuntu/.cache,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.devcontainer_cache,target=/home/ubuntu/.cache,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.netrc,target=/home/ubuntu/.netrc,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.ssh,target=/home/ubuntu/.ssh,readonly,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.netrc,target=/home/ubuntu/.netrc,readonly,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.bash_history_devcontainer,target=/home/ubuntu/.bash_history,type=bind,consistency=cached"
     ],
+    "initializeCommand": ".devcontainer/recipes/initializeCommand.sh",
     "postCreateCommand": ".devcontainer/recipes/postCreateCommand.sh",
     "remoteUser": "ubuntu",
     "runArgs": [
