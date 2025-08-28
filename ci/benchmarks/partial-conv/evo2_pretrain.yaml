@@ -9,7 +9,6 @@ key_segments:
   wu_steps: False
   artefacts_url: False
   file_name_wheel: False
-  model_type: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -60,7 +59,6 @@ script: |-
   --enable-preemption \
   --ckpt-async-save \
   --use-megatron-comm-overlap-llama3-8k \
-  --use-subquadratic_ops \
   --overlap-grad-reduce \
   --clip-grad=${clip_grad} \
   --eod-pad-in-loss-mask \
