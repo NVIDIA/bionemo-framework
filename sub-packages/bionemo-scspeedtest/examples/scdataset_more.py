@@ -16,10 +16,6 @@
 
 #!/usr/bin/env python3
 
-
-# Import AnnData support
-# from arrayloaders.io.dask_loader import DaskDataset
-
 import argparse
 from datetime import datetime
 from typing import Sequence, Union
@@ -150,7 +146,7 @@ def create_scdl_scdataset_factory(
     return factory
 
 
-def comprehensive_benchmarking_example(
+def multiworker_example(
     num_epochs=1,
     num_runs=1,
     adata_path=None,
@@ -190,14 +186,10 @@ def comprehensive_benchmarking_example(
     print(f"All results will be saved to: scdataset_benchmark_{timestamp}_detailed_breakdown.csv")
     print()
 
-    # Parameters
-    # warmup_time_seconds = 30
-    # max_time_seconds = 120
-
     print(f"Benchmarking {num_runs} run(s) each")
     print()
     # =============================================================================
-    # Part1 2: SCDL Dataset with Multiple DataLoader Configurations
+    # Part 1: SCDL Dataset with Multiple DataLoader Configurations
     # =============================================================================
 
     # First run SCDL Regular as baseline
@@ -240,7 +232,7 @@ def comprehensive_benchmarking_example(
                     }
                 )
     # =============================================================================
-    # Part2: AnnData Dataset with ScDataset Configurations
+    # Part 2: AnnData Dataset with ScDataset Configurations
     # =============================================================================
     anndata_configurations = []
     for num_workers in num_workers_list:
@@ -359,7 +351,7 @@ if __name__ == "__main__":
 
     print("BioNeMo Benchmarking Framework - ScDataset Test")
     print("=" * 80)
-    comprehensive_benchmarking_example(
+    multiworker_example(
         num_epochs=args.num_epochs,
         num_runs=args.num_runs,
         adata_path=args.adata_path,

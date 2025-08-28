@@ -16,10 +16,6 @@
 
 #!/usr/bin/env python3
 
-
-# Import AnnData support
-# from arrayloaders.io.dask_loader import DaskDataset
-
 import argparse
 from datetime import datetime
 
@@ -76,7 +72,7 @@ def create_scdataset_annloader_factory(batch_size=64, shuffle=True, block_size=1
     return factory
 
 
-def comprehensive_benchmarking_example(
+def anndataX_benchmarking_example(
     num_epochs=1,
     num_runs=1,
     adata_path=None,
@@ -111,14 +107,10 @@ def comprehensive_benchmarking_example(
     print(f"All results will be saved to: scdataset_benchmark_{timestamp}_detailed_breakdown.csv")
     print()
 
-    # Parameters
-    # warmup_time_seconds = 30
-    # max_time_seconds = 120
-
     print(f"Benchmarking {num_runs} run(s) each")
     print()
     # =============================================================================
-    # Part1: AnnData Dataset with ScDataset Configurations
+    # Part1: AnnData Dataset with .X backing with ScDataset Configurations
     # =============================================================================
     anndata_configurations = []
     for fetch_factor in fetch_factors:
@@ -197,7 +189,7 @@ if __name__ == "__main__":
 
     print("BioNeMo Benchmarking Framework - ScDataset Test")
     print("=" * 80)
-    comprehensive_benchmarking_example(
+    anndataX_benchmarking_example(
         num_epochs=args.num_epochs,
         num_runs=args.num_runs,
         adata_path=args.adata_path,
