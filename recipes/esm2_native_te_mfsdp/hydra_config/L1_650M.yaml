@@ -6,7 +6,6 @@ defaults:
 model_name: esm2_t33_650M_UR50D
 micro_batch_size: 16
 num_train_steps: 200
-use_fsdp: true
 
 # WandB config
 wandb_init_args:
