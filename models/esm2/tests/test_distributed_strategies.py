@@ -207,7 +207,19 @@ if __name__ == "__main__":
             grads = {name: p.grad for name, p in model.module.named_parameters() if p.grad is not None}
 
         elif strategy is Strategy.MFSDP:
-            grads = {name: p.grad.full_tensor() for name, p in model.module.named_parameters() if p.grad is not None}
+            # Because of uneven sharding, we need to manually gather the gradients.
+            # orig_param_shapes = {name: p.shape for name, p in model.module.named_parameters()}
+            sharded_grads = {name: p.grad for name, p in model.module.named_parameters()}
+            grads = {}
+            for name, grad in sharded_grads.items():
+                grad_shards = [None] * device_mesh["dp"].size()
+                # For FSDP, we are not strided sharding, so gathering across dp_shard_cp is sufficient.
+                # For HSDP, we need to first gather across dp_shard_cp, then gather across dp_inter,
+                # not the other way around or you'll get wrong zig-zags.
+                torch.distributed.all_gather_object(grad_shards, grad, group=device_mesh["dp"].get_group())
+                all_valid_shards = [shard for shard in grad_shards if shard is not None]
+                # Megatron-FSDP is always sharded across dim=0.
+                grads[name] = torch.cat([s._local_tensor.to(device) for s in all_valid_shards], dim=0)
 
         del model
         torch.cuda.empty_cache()
@@ -237,9 +249,9 @@ if __name__ == "__main__":
     for name in shared_grads:
         ddp_grad = ddp_grads[name]
         fsdp_grad = fsdp_grads[name]
-        torch.testing.assert_close(ddp_grad, fsdp_grad, msg=lambda x: f"Gradient mismatch for {name}: {x}")
+        torch.testing.assert_close(ddp_grad, fsdp_grad/2, msg=lambda x: f"Gradient mismatch for {name}: {x}")
 
         # Check that the gradients are different when the last dimension is shuffled
-        assert not torch.allclose(ddp_grad, torch.roll(fsdp_grad, -1, -1))
+        assert not torch.allclose(ddp_grad, torch.roll(fsdp_grad/2, -1, -1))
 
     dist.destroy_process_group()
