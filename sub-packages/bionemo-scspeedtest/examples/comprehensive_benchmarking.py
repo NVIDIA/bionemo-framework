@@ -53,11 +53,11 @@ Key Benefits of Dataset Reload:
 
 import os
 from datetime import datetime
-
+import torch
 import anndata
 from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
-
+import numpy as np
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 from bionemo.scspeedtest import benchmark_dataloaders_with_configs, print_comparison
@@ -97,7 +97,18 @@ def create_anndata_dataset_factory(data_path, backed="r"):
 # =============================================================================
 # DATALOADER FACTORY FUNCTIONS (Receive pre-loaded dataset)
 # =============================================================================
+def custom_collate(batch):
+    def to_tensor(x):
+        if hasattr(x, "toarray"):
+            # Handle scipy sparse slices
+            return torch.tensor(x.toarray().ravel(), dtype=torch.float32)
+        elif hasattr(x, "X"):  # Catch AnnData view-style wrapper
+            return torch.tensor(np.asarray(x.X).ravel(), dtype=torch.float32)
+        else:
+            return torch.tensor(np.asarray(x).ravel(), dtype=torch.float32)
 
+    batch_tensor = [to_tensor(x) for x in batch]
+    return torch.stack(batch_tensor)
 
 def create_annloader_factory(batch_size=64, shuffle=True, num_workers=0):
     """Create a dataloader factory that wraps a pre-loaded AnnData dataset.
@@ -113,7 +124,11 @@ def create_annloader_factory(batch_size=64, shuffle=True, num_workers=0):
     """
 
     def factory(dataset):
-        return AnnLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, drop_last=True)
+        if num_workers > 0: 
+            collate_fn = custom_collate
+        else: 
+            collate_fn = None
+        return AnnLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
 
     return factory
 
