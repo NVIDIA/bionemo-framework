@@ -22,13 +22,10 @@
 
 import argparse
 from datetime import datetime
-from typing import Sequence, Union
 
-import numpy as np
 import torch
 from comprehensive_benchmarking import (
     create_anndata_dataset_factory,
-    create_annloader_factory,
 )
 
 # Optional import for scDataset
@@ -123,7 +120,7 @@ def comprehensive_benchmarking_example(
     # =============================================================================
     # Part1: AnnData Dataset with ScDataset Configurations
     # =============================================================================
-    anndata_configurations = [    ]
+    anndata_configurations = []
     for fetch_factor in fetch_factors:
         for block_size in block_sizes:
             anndata_configurations.append(

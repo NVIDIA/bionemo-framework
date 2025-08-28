@@ -29,7 +29,6 @@ import torch
 from comprehensive_benchmarking import (
     create_anndata_dataset_factory,
     create_annloader_factory,
-    create_scdl_dataset_and_loader_factory,
     custom_collate,
 )
 
@@ -196,54 +195,14 @@ def comprehensive_benchmarking_example(
 
     print(f"Benchmarking {num_runs} run(s) each")
     print()
-    # =============================================================================
-    # Part1 2: SCDL Dataset with Multiple DataLoader Configurations
-    # =============================================================================
-
     # First run SCDL Regular as baseline
-    print("Running SCDL Regular baseline...")
-    scdl_configurations = []
-    for num_workers in num_workers_list:
-        scdl_configurations.append(
-            {
-                "name": f"Baseline SCDL_{num_workers}",
-                "dataloader_factory": create_scdl_dataset_and_loader_factory(
-                    batch_size=64, shuffle=True, data_path=scdl_path, num_workers=num_workers
-                ),
-                "num_epochs": num_epochs,
-                "max_time_seconds": max_time_seconds,
-                "warmup_time_seconds": warmup_time_seconds,
-                "data_path": scdl_path,
-                "num_runs": num_runs,
-                "num_workers": num_workers,
-            }
-        )
-        for fetch_factor in fetch_factors:
-            for block_size in block_sizes:
-                scdl_configurations.append(
-                    {
-                        "name": f"ScDataset_{block_size}_{fetch_factor}_{num_workers}",
-                        "dataloader_factory": create_scdl_scdataset_factory(
-                            batch_size=64,
-                            shuffle=True,
-                            data_path=scdl_path,
-                            num_workers=num_workers,
-                            block_size=block_size,
-                            fetch_factor=fetch_factor,
-                        ),
-                        "num_epochs": num_epochs,
-                        "max_time_seconds": max_time_seconds,
-                        "warmup_time_seconds": warmup_time_seconds,
-                        "data_path": scdl_path,
-                        "num_runs": 1,
-                        "num_workers": num_workers,
-                    }
-                )
     # =============================================================================
     # Part2: AnnData Dataset with ScDataset Configurations
     # =============================================================================
     anndata_configurations = []
     for num_workers in num_workers_list:
+        if num_workers == 0:
+            continue
         anndata_configurations.append(
             {
                 "name": f"AnnLoader_Baseline_{num_workers}",
@@ -256,31 +215,6 @@ def comprehensive_benchmarking_example(
                 "num_workers": num_workers,
             }
         )
-        for fetch_factor in fetch_factors:
-            for block_size in block_sizes:
-                anndata_configurations.append(
-                    {
-                        "name": f"ScDataset_AnnData_{block_size}_{fetch_factor}_{num_workers}",
-                        "dataloader_factory": create_scdataset_annloader_factory(
-                            batch_size=64,
-                            shuffle=True,
-                            block_size=block_size,
-                            fetch_factor=fetch_factor,
-                            num_workers=num_workers,
-                        ),
-                        "num_epochs": num_epochs,
-                        "max_time_seconds": max_time_seconds,
-                        "warmup_time_seconds": warmup_time_seconds,
-                        "data_path": adata_path,
-                        "num_runs": num_runs,
-                        "num_workers": num_workers,
-                    }
-                )
-    benchmark_dataloaders_with_configs(
-        dataloader_configs=scdl_configurations,
-        shared_dataset_factory=None,  # Each config creates its own dataset
-        output_prefix=f"scdataset_benchmark_{timestamp}",
-    )
     benchmark_dataloaders_with_configs(
         dataloader_configs=anndata_configurations,
         shared_dataset_factory=create_anndata_dataset_factory(adata_path),
@@ -336,7 +270,7 @@ if __name__ == "__main__":
         "--num-workers",
         nargs="+",
         type=int,
-        default=[0, 1, 2, 4, 8, 16, 32],
+        default=[4, 8, 16],
         help="List of block sizes to test. Default: %(default)s",
     )
 

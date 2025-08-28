@@ -53,11 +53,13 @@ Key Benefits of Dataset Reload:
 
 import os
 from datetime import datetime
-import torch
+
 import anndata
+import numpy as np
+import torch
 from anndata.experimental import AnnCollection, AnnLoader
 from torch.utils.data import DataLoader
-import numpy as np
+
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 from bionemo.scspeedtest import benchmark_dataloaders_with_configs, print_comparison
@@ -98,6 +100,18 @@ def create_anndata_dataset_factory(data_path, backed="r"):
 # DATALOADER FACTORY FUNCTIONS (Receive pre-loaded dataset)
 # =============================================================================
 def custom_collate(batch):
+    """Custom collate function for handling batch data.
+
+    Converts batch elements to tensors, handling scipy sparse matrices
+    and AnnData view-style wrappers.
+
+    Args:
+        batch: Batch of data to collate
+
+    Returns:
+        Collated tensor data
+    """
+
     def to_tensor(x):
         if hasattr(x, "toarray"):
             # Handle scipy sparse slices
@@ -109,6 +123,7 @@ def custom_collate(batch):
 
     batch_tensor = [to_tensor(x) for x in batch]
     return torch.stack(batch_tensor)
+
 
 def create_annloader_factory(batch_size=64, shuffle=True, num_workers=0):
     """Create a dataloader factory that wraps a pre-loaded AnnData dataset.
@@ -124,11 +139,18 @@ def create_annloader_factory(batch_size=64, shuffle=True, num_workers=0):
     """
 
     def factory(dataset):
-        if num_workers > 0: 
+        if num_workers > 0:
             collate_fn = custom_collate
-        else: 
+        else:
             collate_fn = None
-        return AnnLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, drop_last=True, collate_fn=collate_fn)
+        return AnnLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            drop_last=True,
+            collate_fn=collate_fn,
+        )
 
     return factory
 

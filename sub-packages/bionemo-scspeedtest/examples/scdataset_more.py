@@ -244,6 +244,8 @@ def comprehensive_benchmarking_example(
     # =============================================================================
     anndata_configurations = []
     for num_workers in num_workers_list:
+        if num_workers == 32:
+            continue
         anndata_configurations.append(
             {
                 "name": f"AnnLoader_Baseline_{num_workers}",
@@ -336,7 +338,7 @@ if __name__ == "__main__":
         "--num-workers",
         nargs="+",
         type=int,
-        default=[0, 1, 2, 4, 8, 16, 32],
+        default=[32, 64, 128],
         help="List of block sizes to test. Default: %(default)s",
     )
 
