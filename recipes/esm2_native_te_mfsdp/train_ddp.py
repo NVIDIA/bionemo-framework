@@ -50,13 +50,16 @@ class DistributedConfig:
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity.yaml", version_base="1.2")
-def main(args: DictConfig):
+def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using nvFSDP.
 
     Model names are valid ESM-2 model sizes, e.g.:
     - "esm2_t6_8M_UR50D"
     - "esm2_t36_3B_UR50D"
     - "esm2_t48_15B_UR50D"
+
+    Returns:
+        float: The loss value for the final batch.
     """
     # Initialize distributed training and create a device mesh for FSDP.
     # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
@@ -118,6 +121,7 @@ def main(args: DictConfig):
 
     # Training loop.
     previous_step_time = time.perf_counter()
+    loss_value = None
     for step in range(args.num_train_steps):
         # Get batch.
         batch = next(train_iterator)
@@ -141,6 +145,7 @@ def main(args: DictConfig):
 
         # Log metrics to logger and wandb on main process.
         if dist_config.is_main_process():
+            loss_value = loss.detach().item()
             current_time = time.perf_counter()
             step_time = current_time - previous_step_time
             previous_step_time = current_time
@@ -149,13 +154,13 @@ def main(args: DictConfig):
             logger.info(
                 "Step %d loss: %f, grad_norm: %f, lr: %f",
                 step,
-                loss.detach().item(),
+                loss_value,
                 total_norm,
                 current_lr,
             )
             wandb.log(
                 {
-                    "train/loss": loss.item(),
+                    "train/loss": loss_value,
                     "train/global_step": step,
                     "train/learning_rate": current_lr,
                     "train/grad_norm": total_norm,
@@ -172,6 +177,8 @@ def main(args: DictConfig):
         wandb.finish()
 
     dist.destroy_process_group()
+
+    return loss_value
 
 
 if __name__ == "__main__":

@@ -26,11 +26,14 @@ from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForMaskedLM
 
+# This import seems to be needed with meta device init and AutoModel.from_config
+from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
+
 from dataset import create_dataloader
+from scheduler import get_linear_schedule_with_warmup
 
 
 logger = logging.getLogger(__name__)
@@ -50,43 +53,17 @@ class DistributedConfig:
         return self.rank == 0
 
 
-def get_linear_schedule_with_warmup(
-    optimizer,
-    num_warmup_steps=2_000,
-    num_training_steps=500_000,
-    last_epoch=-1,
-):
-    """Linear warmup and decay scheduler for ESM-2 pretraining.
-
-    The description from Lin 2022 is: The learning rate is warmed up over the first 2,000 steps
-    to a peak value of 4e-4 (1.6e-4 for the 15B parameter model), and then linearly decayed to
-    one tenth of its peak value over the 90% of training duration. We've found internally that a
-    longer warmup helps convergence for larger models (3B+) with bf16 precision.
-    """
-    decay_steps = int(num_training_steps * 0.9)
-
-    def lr_lambda(current_step: int):
-        if current_step < num_warmup_steps:
-            # Warmup phase: linearly increase learning rate
-            return float(current_step) / float(max(1, num_warmup_steps))
-        # Decay phase: linearly decay to one tenth of peak over 90% of training
-        elif current_step > decay_steps:
-            return 0.1  # one tenth of peak learning rate after decay period
-        else:
-            # Linear decay from 1.0 to 0.1 over decay_steps-num_warmup_steps
-            return 1.0 - 0.9 * (current_step - num_warmup_steps) / float(max(1, decay_steps - num_warmup_steps))
-
-    return LambdaLR(optimizer, lr_lambda, last_epoch)
-
-
 @hydra.main(config_path="hydra_config", config_name="L0_sanity.yaml", version_base="1.2")
-def main(args: DictConfig):
+def main(args: DictConfig) -> float | None:  # noqa: C901
     """Train ESM-2 with TE layers using megatron-fsdp.
 
     Model names are valid ESM-2 model sizes, e.g.:
     - "esm2_t6_8M_UR50D"
     - "esm2_t36_3B_UR50D"
     - "esm2_t48_15B_UR50D"
+
+    Returns:
+        float: The loss value for the final batch.
     """
     # Initialize distributed training and create a device mesh for FSDP.
     # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
@@ -99,7 +76,7 @@ def main(args: DictConfig):
         mesh_shape=(dist_config.world_size, 1, 1),
         mesh_dim_names=("fsdp", "cp", "tp"),
     )
-    device = torch.device(f"cuda:{dist_config.local_rank}")
+    device = torch.device(f"cuda:{torch.cuda.current_device()}")
     logger.info("Initialized distributed training: %s", dist_config)
 
     if dist_config.is_main_process():
@@ -108,9 +85,8 @@ def main(args: DictConfig):
     # Create an empty ESM-2 model with a masked language model head.
     if "facebook" in args.model_name:
         config = AutoConfig.from_pretrained(args.model_name, dtype=torch.bfloat16)
-        # import transformers.models.esm.modeling_esm  # needed for meta init
-        # with torch.device("meta"):
-        model = AutoModelForMaskedLM.from_config(config, attn_implementation="flash_attention_2")
+        with torch.device("meta"):
+            model = AutoModelForMaskedLM.from_config(config, attn_implementation="flash_attention_2")
         del model.esm.contact_head
         transformer_stack = model.esm.encoder.layer
 
@@ -118,8 +94,8 @@ def main(args: DictConfig):
         config = AutoConfig.from_pretrained(args.model_name, trust_remote_code=True, dtype=torch.bfloat16)
         config.max_seq_length = args.max_seq_length
         config.micro_batch_size = args.micro_batch_size
-        # with torch.device("meta"):
-        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+        with torch.device("meta"):
+            model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
         transformer_stack = model.esm.encoder.layers
 
     for layer in transformer_stack:
@@ -135,11 +111,10 @@ def main(args: DictConfig):
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    model.to(device=device)
-    # model.to_empty(device=f"cuda:{dist_config.local_rank}")
-    # for module in model.modules():
-    #     if hasattr(module, "reset_parameters"):
-    #         module.reset_parameters()
+    model.to_empty(device=device)
+    for module in model.modules():
+        if hasattr(module, "reset_parameters"):
+            module.reset_parameters()
 
     # Training loop.
     model.train()
@@ -155,6 +130,7 @@ def main(args: DictConfig):
 
     # Training loop.
     previous_step_time = time.perf_counter()
+    loss_value = None
     for step in range(args.num_train_steps):
         # Get batch.
         batch = next(train_iterator)
@@ -178,6 +154,7 @@ def main(args: DictConfig):
 
         # Log metrics to logger and wandb on main process.
         if dist_config.is_main_process():
+            loss_value = loss.detach().item()
             current_time = time.perf_counter()
             step_time = current_time - previous_step_time
             previous_step_time = current_time
@@ -186,13 +163,13 @@ def main(args: DictConfig):
             logger.info(
                 "Step %d loss: %f, grad_norm: %f, lr: %f",
                 step,
-                loss.detach().item(),
+                loss_value,
                 total_norm,
                 current_lr,
             )
             wandb.log(
                 {
-                    "train/loss": loss.item(),
+                    "train/loss": loss_value,
                     "train/global_step": step,
                     "train/learning_rate": current_lr,
                     "train/grad_norm": total_norm,
@@ -209,6 +186,8 @@ def main(args: DictConfig):
         wandb.finish()
 
     dist.destroy_process_group()
+
+    return loss_value
 
 
 if __name__ == "__main__":
