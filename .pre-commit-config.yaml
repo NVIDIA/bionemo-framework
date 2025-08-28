@@ -26,6 +26,7 @@ repos:
     rev: 0.7.22             # Use the latest stable version
     hooks:
       - id: mdformat
+        language_version: python3.9
         additional_dependencies:
         - mdformat-tables
         - mdformat-gfm
