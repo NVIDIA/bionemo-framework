@@ -94,4 +94,5 @@ script: |-
     --create-tensorboard-logger \
     --activation-checkpoint-recompute-num-layers=${activation_checkpoint_layers} \
     --disable-checkpointing \
-    --early-stop-on-step=${stop_steps};
+    --early-stop-on-step=${stop_steps} \
+    --garbage-collect-at-inference;

@@ -43,19 +43,6 @@ class TEVCallback(Callback):
     - Data Parallelism: Only logs on rank 0 of each model parallel group
     """
 
-    def on_validation_start(self, trainer, pl_module) -> None:
-        """Clean up CUDA memory before validation to prevent initialization errors."""
-        if torch.cuda.is_available():
-            try:
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-                current_device = torch.cuda.current_device()
-                torch.cuda.set_device(current_device)
-                torch.cuda.synchronize()
-                import gc
-                gc.collect()
-            except Exception as e:
-                print(f"Warning: CUDA cleanup failed: {e}")
 
     @torch.no_grad()
     def on_before_optimizer_step(self, trainer, pl_module, optimizer) -> None:

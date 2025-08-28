@@ -48,6 +48,7 @@ from nemo.utils.exp_manager import TimingCallback
 
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.run.peft import Evo2LoRA
+from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
 from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
@@ -506,6 +507,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Skip checking for NaNs in gradients. Only use this for debugging purposes.",
     )
+    parser.add_argument(
+        "--garbage-collect-at-inference",
+        action="store_true",
+        default=False,
+        help="Enable CUDA memory cleanup before validation to prevent initialization errors.",
+    )
 
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
@@ -644,6 +651,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         TimingCallback(),
         TEVCallback(),
     ]
+    
+    if args.garbage_collect_at_inference:
+        callbacks.append(GarbageCollectAtInferenceTime())
 
     if args.lora_finetune:
         callbacks.append(ModelTransform())
