@@ -227,7 +227,7 @@ def test_accelerate_launch_multi_gpu(tmp_path):
         "2",
         str(train_py),
         "--config-name",
-        "L0_sanity.yaml",
+        "L0_sanity",
         f"trainer.output_dir={tmp_path}",
         "trainer.save_steps=1000",
         "trainer.eval_steps=1000",
