@@ -486,7 +486,14 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--old-context-len",
         type=int,
-        help="Old context length for the GPT model. This is used to set the old context length for the GPT model when you supply a ckpt_dir.",
+        help="Old context length for the GPT model. This is used to set the old context length for the GPT model "
+        "when you supply a ckpt_dir.",
+    )
+    parser.add_argument(
+        "--scale-factor",
+        type=float,
+        help="Scale factor override. If set, will use this value for the scale factor instead of the default value "
+        "which is computed as the ratio between the old context length and the new seq_length.",
     )
     parser.add_argument(
         "--rope-base",
@@ -694,7 +701,12 @@ def train(args: argparse.Namespace) -> nl.Trainer:
                 old_context_len = args.old_context_len
         config_modifiers_init["old_context_len"] = old_context_len
         # Set scale factor to the ratio between the old context length and the new seq_length, or at least 1.0
-        config_modifiers_init["scale_factor"] = args.seq_length / max(old_context_len, args.seq_length)
+        if args.scale_factor:
+            # Use the user supplied scale factor if they know what they are doing, otherwise just use the default
+            #  which is a ratio between the old context length and the new seq_length.
+            config_modifiers_init["scale_factor"] = args.scale_factor
+        else:
+            config_modifiers_init["scale_factor"] = args.seq_length / max(old_context_len, args.seq_length)
 
         model_config = GPT_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = Evo2GPTModel(model_config, tokenizer=data_module.tokenizer)
