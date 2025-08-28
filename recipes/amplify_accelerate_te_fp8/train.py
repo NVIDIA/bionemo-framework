@@ -45,7 +45,7 @@ def main(args: DictConfig):
     )
 
     train_dataset, eval_dataset, data_collator = create_datasets_and_collator(
-        pretained_model=args.model_tag,
+        pretrained_model=args.model_tag,
         max_length=config.max_length,
         data_size=args.data_size,
     )

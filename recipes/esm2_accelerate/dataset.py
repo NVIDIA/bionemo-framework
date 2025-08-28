@@ -41,8 +41,7 @@ def create_datasets_and_collator(tokenizer_name: str, max_length: int = 1024):
         max_length: The maximum length of the protein sequences.
 
     Returns:
-        A dataloader that just infinitely loops over the dataset.
-        The number of batches in the dataloader.
+        Tuple of (train_dataset, eval_dataset, data_collator).
     """
     # We copy this parquet file to the container to avoid external dependencies, modify if you're
     # using a local dataset. If you're reading this and scaling up the dataset to a larger size,
