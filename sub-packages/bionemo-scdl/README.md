@@ -163,13 +163,9 @@ convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
 
 ## Runtimes with SCDL
 
-The runtime and memory usage are examined on a CellXGene Dataset with ~1.5 million rows and a size of 24 GB. On this dataset, there is a 4.9x memory speed up.
+The runtime is examined on the Tahoe 100M dataset, which containes over 100 million rows. On this dataset, there is either a 12x or 53x speed up depending on the machine used.
 
-![Throughput Image](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/sub-packages/bionemo-scdl/assets/throughput.png)
-
-Additionally, the peak memory usage when iterating over the datasets with the SCDL dataloader is only 36.5 MB, since the whole dataset is never loaded into memory due to the numpy memomory-mapped backing.
-
-![Memory Image](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/sub-packages/bionemo-scdl/assets/disk_space.png)
+![Throughput](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/pbinder/scdl_add_to_edawson/sub-packages/bionemo-scdl/assets/tahoe_throughput.png)
 
 ### Using Neighbor Information in Single Cell Datasets
 
@@ -260,3 +256,30 @@ and data loading performance.
 ## LICENSE
 
 BioNeMo-SCDL has an Apache 2.0 license, as found in the LICENSE file.
+
+## Contributing
+
+Please follow the guidelines for contributions to the BioNeMo Framework.
+
+To contribute to SCDL, we recommend installing additional dependencies for development and
+installing the SCDL package from source.
+
+```bash
+git clone https://github.com/NVIDIA/bionemo-framework.git
+cd bionemo-framework/sub-packages/bionemo-scdl
+pip install -e ".[test]"
+```
+
+### Tests
+
+SCDL has its own tests. To run these tests, assuming you have pytest installed:
+
+```
+python -m pytest
+```
+
+To run a specific test:
+
+```bash
+python -m pytest tests/test_<test name>.py
+```
