@@ -28,6 +28,12 @@ from train_fsdp2 import main as main_fsdp2
 from train_mfsdp import main as main_mfsdp
 
 
+random.seed(42)
+torch.manual_seed(42)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(42)
+
+
 requires_multi_gpu = pytest.mark.skipif(
     not torch.cuda.is_available() or torch.cuda.device_count() < 2,
     reason="Test requires at least 2 GPUs",
