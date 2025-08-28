@@ -43,7 +43,6 @@ class TEVCallback(Callback):
     - Data Parallelism: Only logs on rank 0 of each model parallel group
     """
 
-
     @torch.no_grad()
     def on_before_optimizer_step(self, trainer, pl_module, optimizer) -> None:
         """Called before each optimizer step during training.

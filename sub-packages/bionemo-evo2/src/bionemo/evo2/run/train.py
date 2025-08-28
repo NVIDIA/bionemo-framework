@@ -651,7 +651,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         TimingCallback(),
         TEVCallback(),
     ]
-    
+
     if args.garbage_collect_at_inference:
         callbacks.append(GarbageCollectAtInferenceTime())
 
