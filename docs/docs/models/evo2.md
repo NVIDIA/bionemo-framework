@@ -216,6 +216,7 @@ Performance evaluation across multiple Evo 2 model variants was conducted by com
 ## Training diagnostics
 
 ### 7b training equivalence with NV model variant
+
 For this test we demonstrate that our NV model variant has similar architecture, but uses gelus activations in the hyena
 layers as was originally intended, as well as convolutional bias in the short hyena convolutions as well as the medium
 and long layers. These changes result in a model that has similar training dynamics early in the process, but may
@@ -226,6 +227,7 @@ As a baseline we compared to the original training run of Evo2 7b in the Savanna
 ![7b training with savanna reaches 1.075 loss in 28k steps](../assets/images/evo2/evo2_savanna_7b_28ksteps.png)
 
 ### 1b training equivalence (same setup)
+
 We trained a 1b model with the same configuration as was used by savanna. We achieve a largely similar training curve
 for the first 6950 steps.
 ![7b training with bionemo reaches 1.2 loss in 6,950 steps](../assets/images/evo2/evo2_bionemo_1b_6950steps.png)

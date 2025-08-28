@@ -15,9 +15,7 @@ These models are ready for commercial use.
 ### Third-Party Community Consideration
 
 This model is not owned or developed by NVIDIA. This model has been developed and built to a third-party's requirements
-for this application and use case [1]; see link to [Non-NVIDIA Model Card for ESM-2 3B model](
-    https://huggingface.co/facebook/esm2_t36_3B_UR50D) and [Non-NVIDIA Model Card for ESM-2 650M model](
-        https://huggingface.co/facebook/esm2_t33_650M_UR50D)
+for this application and use case [1]; see link to [Non-NVIDIA Model Card for ESM-2 3B model](https://huggingface.co/facebook/esm2_t36_3B_UR50D) and [Non-NVIDIA Model Card for ESM-2 650M model](https://huggingface.co/facebook/esm2_t33_650M_UR50D)
 
 ### References
 
@@ -59,22 +57,22 @@ acid.
 
 **Runtime Engine(s)**
 
-* BioNeMo, NeMo, Megatron, TransformerEngine
+- BioNeMo, NeMo, Megatron, TransformerEngine
 
 **Supported Hardware Microarchitecture Compatibility**
 
-* NVIDIA Ampere
-* NVIDIA Hopper
-* NVIDIA Volta
+- NVIDIA Ampere
+- NVIDIA Hopper
+- NVIDIA Volta
 
 **[Preferred/Supported] Operating System(s)**
 
-* Linux
+- Linux
 
 ### Model Versions
 
-* [esm2/650m:2.0](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/models/esm2nv650m)
-* [esm2/3b:2.0](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/models/esm2nv3b)
+- [esm2/650m:2.0](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/models/esm2nv650m)
+- [esm2/3b:2.0](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/models/esm2nv3b)
 
 ## Training & Evaluation
 
@@ -91,9 +89,9 @@ Dataset](../../datasets/uniprot.md).
 
 **Test Hardware**
 
-* NVIDIA Ampere
-* NVIDIA Hopper
-* NVIDIA Volta
+- NVIDIA Ampere
+- NVIDIA Hopper
+- NVIDIA Volta
 
 ## License
 
@@ -107,15 +105,17 @@ A validation set of 328,360 UniRef50 representative sequences were randomly sele
 Dataset](../../datasets/uniprot.md)). This validation set was used to ensure that the output of BioNeMo-converted
 checkpoints is consistent with their outputs when evaluated with the HuggingFace Transformers library.
 
-| Checkpoint | HuggingFace | BioNeMo2 | Lin *et al.* 2023                    |
-| ---------- | ----------- | -------- | ---------------------                |
-| 650M       |  7.001      |  7.002   | 6.95 :material-information-outline:  |
-| 3B         |  6.003      |  6.004   | 6.49 :material-information-outline:  |
+| Checkpoint | HuggingFace | BioNeMo2 | Lin *et al.* 2023                   |
+| ---------- | ----------- | -------- | ----------------------------------- |
+| 650M       | 7.001       | 7.002    | 6.95 :material-information-outline: |
+| 3B         | 6.003       | 6.004    | 6.49 :material-information-outline: |
 
 !!! info "Different Validation Sets"
 
-    The HuggingFace and converted BioNeMo2 checkpoints were evaluated on a newly curated validation set. Perplexities
-    from Lin *et al.* 2023 are reported for comparison, but the original train/test splits are not available.
+```
+The HuggingFace and converted BioNeMo2 checkpoints were evaluated on a newly curated validation set. Perplexities
+from Lin *et al.* 2023 are reported for comparison, but the original train/test splits are not available.
+```
 
 ### Training Performance
 
@@ -133,7 +133,7 @@ at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46
 
 Training ESM-2 at the 650M, 3B, and 15B model variants show improved performance with the BioNeMo2 framework over the
 pure-PyTorch baseline. These experiments were conducted on 16x NVIDIA A100 or 16x NVIDIA H100 GPUs split across two
-nodes. <sup>*</sup>*Note:* 15B model variants were trained on 64 GPUs with the BioNeMo2 framework.
+nodes. <sup>\*</sup>*Note:* 15B model variants were trained on 64 GPUs with the BioNeMo2 framework.
 
 #### Device Scaling
 

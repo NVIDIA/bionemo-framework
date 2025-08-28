@@ -61,3 +61,19 @@ def recursive_assert_approx_equal(x, y, atol=1e-4, rtol=1e-4):
             recursive_assert_approx_equal(x[key], y[key], atol=atol, rtol=rtol)
     else:
         assert x == y
+
+
+def get_device_and_memory_allocated() -> str:
+    """Get the current device index, name, and memory usage."""
+    current_device_index = torch.cuda.current_device()
+    props = torch.cuda.get_device_properties(current_device_index)
+    message = f"""
+        current device index: {current_device_index}
+        current device uuid: {props.uuid}
+        current device name: {props.name}
+        memory, total on device: {torch.cuda.mem_get_info()[1] / 1024**3:.3f} GB
+        memory, available on device: {torch.cuda.mem_get_info()[0] / 1024**3:.3f} GB
+        memory allocated for tensors etc: {torch.cuda.memory_allocated() / 1024**3:.3f} GB
+        max memory reserved for tensors etc: {torch.cuda.max_memory_allocated() / 1024**3:.3f} GB
+        """
+    return message

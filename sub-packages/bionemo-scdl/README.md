@@ -35,8 +35,9 @@ Download "https://datasets.cellxgene.cziscience.com/97e96fb1-8caf-4f08-9174-2730
 ```python
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 
-data = SingleCellMemMapDataset("97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad")
-
+data = SingleCellMemMapDataset(
+    "97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad"
+)
 ```
 
 This creates a `SingleCellMemMapDataset` that is stored at 97e_scmm in large, memory-mapped arrays
@@ -50,7 +51,6 @@ If the dataset is large, the AnnData file can be lazy-loaded and then read in ba
 ### Interrogating single cell datasets and exploring the API
 
 ```python
-
 data.number_of_rows()
 ## 25382
 
@@ -62,7 +62,6 @@ data.number_of_values()
 
 data.number_nonzero_values()
 ## 26947275
-
 ```
 
 ### Saving SCDL (Single Cell Dataloader) datasets to disk
@@ -76,9 +75,7 @@ state, at which point the current python process can exit, and the object can be
 loaded by another process later.
 
 ```python
-
 data.save()
-
 ```
 
 ### Loading SCDL datasets from a SCDL archive
@@ -98,21 +95,24 @@ SCDL implements the required functions of the PyTorch Dataset abstract class.
 
 A common use case for the single-cell dataloader is tokenizing data using a predefined vocabulary with a defined tokenizer function.
 
-``` python
+```python
 import numpy as np
+
 ds = SingleCellMemMapDataset("97e_scmm")
 index = 0
-values, feature_ids = ds.get_row(index, return_features=True, feature_vars=["feature_id"])
+values, feature_ids = ds.get_row(
+    index, return_features=True, feature_vars=["feature_id"]
+)
 assert (
-            len(feature_ids) == 1
-        )  # we expect feature_ids to be a list containing one np.array with the row's feature ids
+    len(feature_ids) == 1
+)  # we expect feature_ids to be a list containing one np.array with the row's feature ids
 gene_data, col_idxs = np.array(values[0]), np.array(values[1])
-tokenizer_function = lambda x,y,z : x
+tokenizer_function = lambda x, y, z: x
 tokenizer_function(
-            gene_data,
-            col_idxs,
-            feature_ids[0],
-        )
+    gene_data,
+    col_idxs,
+    feature_ids[0],
+)
 ```
 
 #### Loading directly with Pytorch-compatible Dataloaders
@@ -127,9 +127,11 @@ from torch.utils.data import DataLoader
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
 
 ## Mock model: you can remove this and pass the batch to your own model in actual code.
-model = lambda x : x
+model = lambda x: x
 
-dataloader = DataLoader(data, batch_size=8, shuffle=True, collate_fn=collate_sparse_matrix_batch)
+dataloader = DataLoader(
+    data, batch_size=8, shuffle=True, collate_fn=collate_sparse_matrix_batch
+)
 n_epochs = 2
 for e in range(n_epochs):
     for batch in dataloader:
@@ -161,13 +163,9 @@ convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
 
 ## Runtimes with SCDL
 
-The runtime and memory usage are examined on a CellXGene Dataset with ~1.5 million rows and a size of 24 GB. On this dataset, there is a 4.9x memory speed up.
+The runtime is examined on the Tahoe 100M dataset, which containes over 100 million rows. On this dataset, there is either a 12x or 53x speed up depending on the machine used.
 
-![Throughput Image](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/sub-packages/bionemo-scdl/assets/throughput.png)
-
-Additionally, the peak memory usage when iterating over the datasets with the SCDL dataloader is only 36.5 MB, since the whole dataset is never loaded into memory due to the numpy memomory-mapped backing.
-
-![Memory Image](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/sub-packages/bionemo-scdl/assets/disk_space.png)
+![Throughput](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/pbinder/scdl_add_to_edawson/sub-packages/bionemo-scdl/assets/tahoe_throughput.png)
 
 ### Using Neighbor Information in Single Cell Datasets
 
@@ -196,23 +194,26 @@ from scipy.sparse import csr_matrix
 # Assuming you define a function create_pseudotime_neighbors() to find k nearest neighbors in pseudotime space and store as sparse matrix
 
 # Create and store neighbor matrix
-neighbor_matrix = create_pseudotime_neighbors(adata.obs['pseudotime'])
-adata.obsp['next_cell_ids'] = neighbor_matrix
+neighbor_matrix = create_pseudotime_neighbors(adata.obs["pseudotime"])
+adata.obsp["next_cell_ids"] = neighbor_matrix
 ```
 
 #### Loading a Dataset with Neighbor Support
 
 ```python
-from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset, NeighborSamplingStrategy
+from bionemo.scdl.io.single_cell_memmap_dataset import (
+    SingleCellMemMapDataset,
+    NeighborSamplingStrategy,
+)
 
 # Load dataset with neighbor support
 data = SingleCellMemMapDataset(
     "dataset_path",
     "path/to/anndata.h5ad",
-    load_neighbors=True,                               # Enable neighbor functionality
-    neighbor_key='next_cell_ids',                      # Key in AnnData.obsp containing neighbor information
+    load_neighbors=True,  # Enable neighbor functionality
+    neighbor_key="next_cell_ids",  # Key in AnnData.obsp containing neighbor information
     neighbor_sampling_strategy=NeighborSamplingStrategy.RANDOM,  # Strategy for sampling neighbors
-    fallback_to_identity=True                          # Use cell itself as neighbor when no neighbors exist
+    fallback_to_identity=True,  # Use cell itself as neighbor when no neighbors exist
 )
 ```
 
@@ -229,7 +230,6 @@ neighbor_weights = data.get_neighbor_weights_for_cell(cell_index)
 
 # Sample a neighbor according to the configured strategy
 neighbor_index = data.sample_neighbor_index(cell_index)
-
 ```
 
 **Example Usage in Contrastive Learning:**
@@ -256,3 +256,30 @@ and data loading performance.
 ## LICENSE
 
 BioNeMo-SCDL has an Apache 2.0 license, as found in the LICENSE file.
+
+## Contributing
+
+Please follow the guidelines for contributions to the BioNeMo Framework.
+
+To contribute to SCDL, we recommend installing additional dependencies for development and
+installing the SCDL package from source.
+
+```bash
+git clone https://github.com/NVIDIA/bionemo-framework.git
+cd bionemo-framework/sub-packages/bionemo-scdl
+pip install -e ".[test]"
+```
+
+### Tests
+
+SCDL has its own tests. To run these tests, assuming you have pytest installed:
+
+```
+python -m pytest
+```
+
+To run a specific test:
+
+```bash
+python -m pytest tests/test_<test name>.py
+```

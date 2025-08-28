@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ruff: noqa: D101, D102, D103, D107
 
 import pickle
 import random
@@ -67,7 +66,7 @@ def gen_test_data(tmp_path_factory, gen_pickle_files, request):
     dir_tars_tmp = tmp_path_factory.mktemp("webdatamodule").as_posix()
     dir_tars = {split: f"{dir_tars_tmp}{str(split).split('.')[-1]}" for split in Split}
     prefix_tar = "tensor"
-    n_samples = {split: n_samples_per_split for split in Split}
+    n_samples = dict.fromkeys(Split, n_samples_per_split)
     # generate the tars
     pickles_to_tars(
         dir_pickles,
