@@ -32,7 +32,7 @@ from metrics import compute_metrics
 logger = logging.getLogger(__name__)
 
 
-@hydra.main(config_path="hydra_config", config_name="L0_sanity.yaml", version_base="1.2")
+@hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig):
     """Entrypoint."""
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)

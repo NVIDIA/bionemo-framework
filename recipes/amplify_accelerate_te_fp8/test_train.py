@@ -187,7 +187,7 @@ def test_accelerate_launch(accelerate_config, tmp_path):
             str(accelerate_config_path),
             str(train_py),
             "--config-name",
-            "L0_sanity.yaml",
+            "L0_sanity",
             f"trainer.output_dir={tmp_path}",
         ],
         cwd=recipe_dir,

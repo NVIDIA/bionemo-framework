@@ -81,7 +81,7 @@ def get_linear_schedule_with_warmup(
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
 
-@hydra.main(config_path="hydra_config", config_name="L0_sanity.yaml", version_base="1.2")
+@hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig):
     """Train ESM-2 with TE layers using megatron-fsdp with sequence packing.
 

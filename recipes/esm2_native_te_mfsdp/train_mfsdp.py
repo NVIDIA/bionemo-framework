@@ -52,7 +52,7 @@ class DistributedConfig:
         return self.rank == 0
 
 
-@hydra.main(config_path="hydra_config", config_name="L0_sanity.yaml", version_base="1.2")
+@hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using nvFSDP.
 

@@ -1,6 +1,6 @@
 # ESM-2 training with megatron-fsdp and custom pytorch training loop
 
-Vuild the docker image with the following command:
+Build the docker image with the following command:
 
 ```bash
 docker build -t my_image .

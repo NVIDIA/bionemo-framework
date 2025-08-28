@@ -190,7 +190,7 @@ def test_multi_gpu_train_te_ddp(tmp_path):
             f"{random.randint(20000, 40000)}",
             "train_ddp.py",
             "--config-name",
-            "L0_sanity.yaml",
+            "L0_sanity",
             "num_train_steps=4",
         ]
     )
@@ -208,7 +208,7 @@ def test_multi_gpu_train_te_mfsdp_no_meta_device(tmp_path):
             f"{random.randint(20000, 40000)}",
             "train_mfsdp.py",
             "--config-name",
-            "L0_sanity.yaml",
+            "L0_sanity",
             "fully_shard_kwargs.init_model_with_meta_device=false",
             "num_train_steps=4",
         ]
@@ -227,7 +227,7 @@ def test_multi_gpu_train_eager_mfsdp(tmp_path):
             f"{random.randint(20000, 40000)}",
             "train_mfsdp.py",
             "--config-name",
-            "L0_sanity.yaml",
+            "L0_sanity",
             "model_name=facebook/esm2_t6_8M_UR50D",
             "num_train_steps=4",
         ]
@@ -246,7 +246,7 @@ def test_multi_gpu_train_te_fsdp2(tmp_path):
             f"{random.randint(20000, 40000)}",
             "train_fsdp2.py",
             "--config-name",
-            "L0_sanity.yaml",
+            "L0_sanity",
             "num_train_steps=4",
         ]
     )
