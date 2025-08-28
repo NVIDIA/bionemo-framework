@@ -489,6 +489,11 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Old context length for the GPT model. This is used to set the old context length for the GPT model when you supply a ckpt_dir.",
     )
     parser.add_argument(
+        "--rope-base",
+        type=int,
+        help="RoPE base override. If set, will use this value for the RoPE base instead of the default value",
+    )
+    parser.add_argument(
         "--metric-to-monitor-for-checkpoints",
         type=str,
         default="val_loss",
@@ -604,6 +609,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "fp32_residual_connection": not args.no_fp32_residual_connection,
         **activation_checkpointing_args,
     }
+    if args.rope_base:
+        config_modifiers_init["rotary_base"] = args.rope_base
     if args.add_bias_output:
         config_modifiers_init["add_bias_output"] = args.add_bias_output
     if args.embedding_init_std is not None or args.spike_no_more_embedding_init:
