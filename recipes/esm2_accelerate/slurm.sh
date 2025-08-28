@@ -11,7 +11,7 @@ ulimit -c 0
 export GPUS_PER_NODE=8
 export CMD="TRITON_CACHE_DIR=/tmp/triton_cache \
     accelerate launch \
-    --config_file accelerate_config/deepspeed_config.yaml \
+    --config_file accelerate_config/fsdp2_te.yaml \
     --machine_rank "\$SLURM_NODEID" \
     --num_machines "$SLURM_NNODES" \
     --main_process_ip "\$SLURM_SRUN_COMM_HOST" \

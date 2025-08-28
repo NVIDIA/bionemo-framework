@@ -79,7 +79,8 @@ def main(args: DictConfig):
     if training_args.do_eval:
         trainer.evaluate()
 
-    torch.distributed.destroy_process_group()
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":

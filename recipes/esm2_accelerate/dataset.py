@@ -13,16 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Create the dataset -- here, we just use a simple parquet file with some raw protein sequences
+# stored in the repo itself to avoid external dependencies.
+
 from pathlib import Path
 
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
-
-
-# Create the dataset -- here, we just use a simple parquet file with some raw protein sequences
-# stored in the repo itself to avoid external dependencies.
-tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
 
 
 def infinite_dataloader(dataloader, sampler):
@@ -35,11 +33,11 @@ def infinite_dataloader(dataloader, sampler):
         epoch += 1  # Increment epoch counter after completing one full pass
 
 
-def create_datasets_and_collator(max_length=1024):
+def create_datasets_and_collator(tokenizer_name: str, max_length: int = 1024):
     """Create a dataloader for the dataset.
 
     Args:
-        batch_size: The batch size.
+        tokenizer_name: The name of the tokenizer to pull from the HuggingFace Hub.
         max_length: The maximum length of the protein sequences.
 
     Returns:
@@ -53,6 +51,8 @@ def create_datasets_and_collator(max_length=1024):
     train_dataset = load_dataset("parquet", data_files=data_path.as_posix(), split="train")
     eval_dataset = train_dataset.select(range(10))
 
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+
     def tokenize_function(examples):
         """Tokenize the protein sequences."""
         return tokenizer(
@@ -64,8 +64,7 @@ def create_datasets_and_collator(max_length=1024):
         )
 
     for dataset in [train_dataset, eval_dataset]:
-        dataset.set_transform(tokenize_function, output_all_columns=True)
-        dataset.remove_columns(["sequence", "id"])
+        dataset.set_transform(tokenize_function)
 
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
