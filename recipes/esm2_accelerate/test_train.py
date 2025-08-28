@@ -40,13 +40,7 @@ requires_multi_gpu = pytest.mark.skipif(
 )
 
 
-@pytest.fixture(scope="session")
-def session_temp_dir(tmp_path_factory):
-    temp_dir = tmp_path_factory.mktemp("my-session-tempdir")
-    return temp_dir
-
-
-def test_train_can_resume_from_checkpoint(monkeypatch, session_temp_dir: Path):
+def test_train_can_resume_from_checkpoint(monkeypatch, tmp_path: Path):
     """Test that train.py runs successfully with sanity config and creates expected outputs."""
 
     # Get the recipe directory
@@ -61,11 +55,11 @@ def test_train_can_resume_from_checkpoint(monkeypatch, session_temp_dir: Path):
     monkeypatch.setenv("WANDB_MODE", "disabled")
 
     with initialize_config_dir(config_dir=str(recipe_dir / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(config_name="L0_sanity", overrides=[f"trainer.output_dir={session_temp_dir}"])
+        sanity_config = compose(config_name="L0_sanity", overrides=[f"trainer.output_dir={tmp_path}"])
 
     main(sanity_config)
 
-    output_dir = session_temp_dir
+    output_dir = tmp_path
 
     # Check that the output directory exists
     assert output_dir.exists(), f"Output directory {output_dir} does not exist"
@@ -94,24 +88,17 @@ def test_train_can_resume_from_checkpoint(monkeypatch, session_temp_dir: Path):
     ## Remove last two checkpoints and re-train
 
     # Remove the checkpoint-10 and checkpoint-last directories
-    checkpoint_4 = session_temp_dir / "checkpoint-4"
-    checkpoint_last = session_temp_dir / "checkpoint-last"
+    checkpoint_4 = tmp_path / "checkpoint-4"
+    checkpoint_last = tmp_path / "checkpoint-last"
     if checkpoint_4.exists():
         shutil.rmtree(checkpoint_4)
     if checkpoint_last.exists():
         shutil.rmtree(checkpoint_last)
 
-    assert (session_temp_dir / "checkpoint-2").exists(), (
-        f"Checkpoint-2 directory {session_temp_dir / 'checkpoint-2'} does not exist."
-    )
+    assert (tmp_path / "checkpoint-2").exists(), f"Checkpoint-2 directory {tmp_path / 'checkpoint-2'} does not exist."
 
     # Re-train
     main(sanity_config)
-
-    output_dir = session_temp_dir
-
-    # Check that the output directory exists
-    assert output_dir.exists(), f"Output directory {output_dir} does not exist"
 
     # Check for checkpoint directories
     checkpoint_dirs = [d for d in output_dir.iterdir() if d.is_dir() and re.match(r"checkpoint-\d+", d.name)]
@@ -195,8 +182,8 @@ def test_accelerate_launch(accelerate_config, model_tag, tmp_path):
     "accelerate_config,model_tag",
     [
         ("default.yaml", "nvidia/esm2_t6_8M_UR50D"),
-        # Currently failing for some reason with device types not matching, oddly a local modeling_esm_te import seems
-        # to fix it.
+        # TODO: (BIONEMO-2699) Currently failing for some reason with device types not matching, oddly a local
+        # modeling_esm_te import seems to fix it.
         # ("fsdp1_te.yaml", "nvidia/esm2_t6_8M_UR50D"),
         ("fsdp2_te.yaml", "nvidia/esm2_t6_8M_UR50D"),
         ("default.yaml", "facebook/esm2_t6_8M_UR50D"),
