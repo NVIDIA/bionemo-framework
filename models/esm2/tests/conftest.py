@@ -34,8 +34,7 @@ def tokenizer():
     return AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
 
 
-@pytest.fixture
-def input_data(tokenizer):
+def get_input_data(tokenizer):
     torch.manual_seed(42)
 
     test_proteins = [
@@ -87,3 +86,8 @@ def input_data(tokenizer):
 
     batch = next(iter(dataloader))
     return batch
+
+
+@pytest.fixture
+def input_data(tokenizer):
+    return get_input_data(tokenizer)
