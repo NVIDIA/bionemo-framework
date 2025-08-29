@@ -9,12 +9,11 @@ num_train_steps: ???
 wandb_init_args:
   name: ???
 
-# FSDP config
-use_fsdp: true
+# nvFSDP config
 fully_shard_kwargs:
   zero_dp_strategy: "optim_grads_params"
   calculate_per_token_loss: false
-  init_model_with_meta_device: true
+  init_model_with_meta_device: false
   check_for_nan_in_grad: true
   grad_reduce_in_fp32: false
   preserve_fp32_weights: true

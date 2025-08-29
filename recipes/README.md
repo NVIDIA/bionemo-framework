@@ -135,9 +135,7 @@ import torch
 from torch.distributed import init_process_group, destroy_process_group
 
 
-@hydra.main(
-    config_path="hydra_config", config_name="L0_sanity.yaml", version_base="1.2"
-)
+@hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig):
     """Main training entrypoint."""
 
@@ -306,7 +304,7 @@ def test_accelerate_launch(accelerate_config, tmp_path):
             str(accelerate_config_path),
             "train.py",
             "--config-name",
-            "L0_sanity.yaml",
+            "L0_sanity",
             f"trainer.output_dir={tmp_path}",
         ],
         cwd=recipe_dir,

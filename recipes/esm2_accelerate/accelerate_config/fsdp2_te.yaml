@@ -1,8 +1,14 @@
 compute_environment: LOCAL_MACHINE
 debug: false
-distributed_type: MULTI_GPU
+distributed_type: FSDP
 downcast_bf16: 'no'
 enable_cpu_affinity: false
+fsdp_config:
+  fsdp_auto_wrap_policy: TRANSFORMER_BASED_WRAP
+  fsdp_transformer_layer_cls_to_wrap: TransformerLayer
+  fsdp_cpu_ram_efficient_loading: false
+  fsdp_state_dict_type: SHARDED_STATE_DICT
+  fsdp_version: 2
 machine_rank: 0
 main_training_function: main
 mixed_precision: bf16
@@ -14,5 +20,3 @@ tpu_env: []
 tpu_use_cluster: false
 tpu_use_sudo: false
 use_cpu: false
-dynamo_config:
-  dynamo_backend: "NO"
