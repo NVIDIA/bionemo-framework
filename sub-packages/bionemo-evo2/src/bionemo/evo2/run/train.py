@@ -53,8 +53,13 @@ from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
+import lightning.pytorch as pl
+from lightning.pytorch.loggers import TensorBoardLogger
+from lightning.pytorch.profilers import PyTorchProfiler, SimpleProfiler
+from torch.profiler import ProfilerActivity, schedule, profile, record_function
 
 torch._dynamo.config.suppress_errors = True
+
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
@@ -806,6 +811,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         align_param_gather=args.align_param_gather,
         average_in_collective=average_in_collective,
     )
+    
+    #import torch
+    
     # Initialize Megatron Strategy and Trainer.
     strategy = nl.MegatronStrategy(
         ddp=ddp,
@@ -820,6 +828,50 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         save_ckpt_format=args.ckpt_format,
         ckpt_load_strictness="log_all",  # or rebasing to https://github.com/NVIDIA/NeMo/pull/11988/files#diff-7667eae242a8ef776bff78cd08e79bc81df4896a450f0a781f6ed317a3dfb7ffR139
     )
+    # profiler_kwargs = {}
+    # logger = TensorBoardLogger("tb_logs", name="evo1_v0")
+    # lit_prof = PyTorchProfiler(
+    #     on_trace_ready=torch.profiler.tensorboard_trace_handler("tb_logs/profiler0"),
+    #     trace_memory=True,
+    #     schedule=torch.profiler.schedule(skip_first=8, wait=1, warmup=1, active=4)
+        
+    # )
+    # prof = pl.profilers.PyTorchProfiler(
+    #     dirpath="/workspace/bionemo2/results/torch_profiler", 
+    #     filename="evo2_apple_20250828_trace",
+    #     activities= [torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+    #     schedule=torch.profiler.schedule(wait=2, warmup=2, active=2, repeat=1),
+    #     profile_memory=True,
+    #     with_stack=True,
+    #     with_flops=True,
+    #     with_modules=True,
+    #     group_by_input_shapes=True, 
+    #     emit_nvtx=False, 
+    #     export_to_chrome=True, 
+    #     row_limit=20, 
+    #     sort_by_key=None, 
+    #     record_module_names=True, 
+    #     table_kwargs=None, 
+    #     **profiler_kwargs,
+    # )
+    # lit_prof = PyTorchProfiler(
+    #     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    #     schedule=schedule(wait=1, warmup=1, active=3, repeat=1),
+    #     record_shapes=True,
+    #     profile_memory=True,
+    #     with_stack=True,
+    #     on_trace_ready=lambda p: print(
+    #         p.key_averages().table(sort_by="cuda_time_total", row_limit=10)
+    #     )
+    # )
+    # lit_prof = PyTorchProfiler(
+    #     activities=[ProfilerActivity.CUDA],
+    #     record_shapes=True,      # capture input shapes
+    #     profile_memory=True,     # track memory allocations
+    #     record_module_names=False,
+    # )
+    #lit_prof = SimpleProfiler()
+    
     trainer = nl.Trainer(
         devices=args.devices,
         num_nodes=args.num_nodes,
@@ -883,6 +935,34 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     opt.connect(model)
     # Start training
     trainer.fit(model, data_module)
+    
+    dataloader = data_module.train_dataloader()
+    
+    import pdb; pdb.set_trace()
+    for batch_idx, batch in enumerate(dataloader):
+        print(f"{batch_idx=}")
+        
+        forward_args = {
+            "input_ids": batch["tokens"],
+            "position_ids": batch["position_ids"],
+            "labels": batch["labels"],
+        }
+        forward_args["attention_mask"] = None
+        import pdb; pdb.set_trace()
+        print(
+            f"{batch_idx=}: torch.cuda.is_available()={torch.cuda.is_available()}"
+        )
+        print(
+            f"{batch_idx=}: torch.version.cuda={torch.version.cuda}"
+        )   
+        print(f"{batch_idx=}: llm.HyenaModel.forward(self,**forward_args)")
+        y = model.forward(**forward_args)
+        print(f"{batch_idx=}: {y=}")
+        import pdb; pdb.set_trace()
+        if batch_idx == 0:
+            break
+    
+    
     return trainer
 
 
