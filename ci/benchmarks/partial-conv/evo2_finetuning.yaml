@@ -32,7 +32,7 @@ script_args:
   restore_from_checkpoint_path: checkpoints/nemo2_evo2_1b_8k
   nodes: [1]
   model: evo2
-  model_size: 1b
+  config_name: 1b
   num_workers: 1
   limit_val_batches: 20
   dataset_config: training_data_config.yaml
@@ -69,7 +69,7 @@ script: |-
     --dataset-dir=${data_base_path}/${dataset_dir} \
     --ckpt-dir=${data_base_path}/${restore_from_checkpoint_path} \
     ${lora_enabled} \
-    --model-size=${model_size} \
+    --model-size=${config_name} \
     --max-steps=${max_steps} \
     --experiment-name=${experiment_name}_${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s \
     --lr=${lr} \
@@ -90,7 +90,7 @@ script: |-
     --num-nodes=${nodes} \
     --val-check-interval=${val_check_interval} \
     --wandb-project=${wandb_project_name} \
-    --wandb-group=${model}_${variant}_${model_size}_${task}_${target} \
+    --wandb-group=${model}_${variant}_${config_name}_${task}_${target} \
     --create-tensorboard-logger \
     --activation-checkpoint-recompute-num-layers=${activation_checkpoint_layers} \
     --disable-checkpointing \
