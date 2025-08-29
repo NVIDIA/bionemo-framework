@@ -28,7 +28,6 @@ from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
-from eden_dataloader import EdenDataModule, EdenDataset
 from nemo.collections.llm.gpt.data import MockDataModule, PreTrainingDataModule
 from nemo.collections.llm.gpt.data.megatron.hyena.config import parse_dataset_config
 from nemo.collections.llm.gpt.data.megatron.hyena.evo2_dataset import (
