@@ -446,9 +446,9 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
     assert len(matchrates) == len(expected_matchpercents)
     matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-    assert all(
-        m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)
-    ), f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
+    assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
+        f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -538,9 +538,9 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         assert len(matchrates) == len(expected_matchpercents)
         matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
         matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-        assert all(
-            m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)
-        ), f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
+        assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
+            f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
+        )
 
 
 def mid_point_split(*, seq, num_tokens: int | None = None, fraction: float = 0.5):
@@ -626,9 +626,9 @@ def test_batch_generate(
     assert len(match_percents) == len(expected_matchpercents)
     matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-    assert all(
-        mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)
-    ), f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -732,9 +732,9 @@ def test_batch_generate_coding_sequences(
         pcl is None or ((pcl - len(pmpt) > 96 * 3 or len(tgt) < 96 * 3) and pcl >= 0.9 * ocl)
         for pcl, ocl, (pmpt, tgt) in zip(cds_lengths, original_cds_lengths, seq_prompts)
     ), f"Expected at least 70% of {original_cds_lengths=}, got {cds_lengths=}"
-    assert all(
-        mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)
-    ), f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    )
 
 
 @pytest.mark.skip(
@@ -810,6 +810,6 @@ def test_generate_speed(
     )
     dt = (time.perf_counter_ns() - t0) / 1e9  # seconds
     tokens_per_sec = (len(results[0].generated_text) + 1) / dt  # +1 for the prompt
-    assert (
-        tokens_per_sec > expected_tokens_sec * 0.85
-    ), f"Expected at least {expected_tokens_sec} tokens/sec, got {tokens_per_sec}"
+    assert tokens_per_sec > expected_tokens_sec * 0.85, (
+        f"Expected at least {expected_tokens_sec} tokens/sec, got {tokens_per_sec}"
+    )
