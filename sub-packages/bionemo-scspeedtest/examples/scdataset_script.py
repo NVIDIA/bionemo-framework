@@ -20,6 +20,9 @@ Usage:
     python scdataset_script.py \
         --adata-path /path/to/data.h5ad \
         --scdl-path /path/to/scdl/
+
+The results will be saved to scdataset_benchmark_{timestamp}_detailed_breakdown.csv
+
 """
 
 import argparse
@@ -213,7 +216,7 @@ def comprehensive_benchmarking_example(
         for block_size in block_sizes:
             scdl_configurations.append(
                 {
-                    "name": f"ScDataset_{block_size}_{fetch_factor}",
+                    "name": f"ScDataset_{block_size}_block_size_{fetch_factor}_fetch_factor",
                     "dataloader_factory": create_scdl_scdataset_factory(
                         batch_size=64,
                         shuffle=True,
@@ -247,7 +250,7 @@ def comprehensive_benchmarking_example(
         for block_size in block_sizes:
             anndata_configurations.append(
                 {
-                    "name": f"ScDataset_AnnData_{block_size}_{fetch_factor}",
+                    "name": f"ScDataset_AnnData_{block_size}_block_size_{fetch_factor}_fetch_factor",
                     "dataloader_factory": create_scdataset_annloader_factory(
                         batch_size=64, shuffle=True, block_size=block_size, fetch_factor=fetch_factor, num_workers=0
                     ),

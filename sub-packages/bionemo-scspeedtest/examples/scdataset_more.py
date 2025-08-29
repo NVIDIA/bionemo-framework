@@ -19,6 +19,7 @@ Usage:
     python scdataset_more.py \
         --adata-path /path/to/data.h5ad \
         --scdl-path /path/to/scdl/
+The results will be saved to scdataset_multiworker_benchmark_{timestamp}_detailed_breakdown.csv
 """
 
 import argparse
@@ -203,7 +204,7 @@ def multiworker_example(
     for num_workers in num_workers_list:
         scdl_configurations.append(
             {
-                "name": f"Baseline SCDL_{num_workers}",
+                "name": f"Baseline SCDL_{num_workers}_workers",
                 "dataloader_factory": create_scdl_dataset_and_loader_factory(
                     batch_size=64, shuffle=True, data_path=scdl_path, num_workers=num_workers
                 ),
@@ -219,7 +220,7 @@ def multiworker_example(
             for block_size in block_sizes:
                 scdl_configurations.append(
                     {
-                        "name": f"ScDataset_{block_size}_{fetch_factor}_{num_workers}",
+                        "name": f"ScDataset_{block_size}_block_size_{fetch_factor}_fetch_factor_{num_workers}_workers",
                         "dataloader_factory": create_scdl_scdataset_factory(
                             batch_size=64,
                             shuffle=True,
@@ -245,7 +246,7 @@ def multiworker_example(
             continue
         anndata_configurations.append(
             {
-                "name": f"AnnLoader_Baseline_{num_workers}",
+                "name": f"AnnLoader_Baseline_{num_workers}_workers",
                 "dataloader_factory": create_annloader_factory(batch_size=64, shuffle=True, num_workers=num_workers),
                 "num_epochs": num_epochs,
                 "max_time_seconds": max_time_seconds,
@@ -259,7 +260,7 @@ def multiworker_example(
             for block_size in block_sizes:
                 anndata_configurations.append(
                     {
-                        "name": f"ScDataset_AnnData_{block_size}_{fetch_factor}_{num_workers}",
+                        "name": f"ScDataset_AnnData_{block_size}_block_size_{fetch_factor}_fetch_factor_{num_workers}_workers",
                         "dataloader_factory": create_scdataset_annloader_factory(
                             batch_size=64,
                             shuffle=True,
@@ -278,16 +279,16 @@ def multiworker_example(
     benchmark_dataloaders_with_configs(
         dataloader_configs=scdl_configurations,
         shared_dataset_factory=None,  # Each config creates its own dataset
-        output_prefix=f"scdataset_benchmark_{timestamp}",
+        output_prefix=f"scdataset_multiworker_benchmark_{timestamp}",
     )
     benchmark_dataloaders_with_configs(
         dataloader_configs=anndata_configurations,
         shared_dataset_factory=create_anndata_dataset_factory(adata_path),
-        output_prefix=f"scdataset_benchmark_{timestamp}",  # Same file as SCDL results
+        output_prefix=f"scdataset_multiworker_benchmark_{timestamp}",  # Same file as SCDL results
     )
 
     print("Benchmarking completed!")
-    print(f"All results saved to: scdataset_benchmark_{timestamp}_detailed_breakdown.csv")
+    print(f"All results saved to: scdataset_multiworker_benchmark_{timestamp}_detailed_breakdown.csv")
     print()
 
 
@@ -335,7 +336,7 @@ if __name__ == "__main__":
         "--num-workers",
         nargs="+",
         type=int,
-        default=[32, 64, 128],
+        default=[4, 8, 16, 32, 64],
         help="List of block sizes to test. Default: %(default)s",
     )
 

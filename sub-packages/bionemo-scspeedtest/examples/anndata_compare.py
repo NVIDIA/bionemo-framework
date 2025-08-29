@@ -20,7 +20,9 @@ r"""This script benchmarks the performance of the scDataset wrapper for the AnnL
 
 Usage:
     python anndata_compare.py \
-        --adata-path /path/to/data.h5ad \
+        --adata-path /path/to/data.h5ad
+
+The results will be saved to scdataset_anndata_X_benchmark_{timestamp}_detailed_breakdown.csv
 """
 
 import argparse
@@ -111,7 +113,7 @@ def anndataX_benchmarking_example(
 
     # Create timestamped prefix for all results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    print(f"All results will be saved to: scdataset_benchmark_{timestamp}_detailed_breakdown.csv")
+    print(f"All results will be saved to: scdataset_anndata_X_benchmark_{timestamp}_detailed_breakdown.csv")
     print()
 
     print(f"Benchmarking {num_runs} run(s) each")
@@ -124,7 +126,7 @@ def anndataX_benchmarking_example(
         for block_size in block_sizes:
             anndata_configurations.append(
                 {
-                    "name": f"ScDataset_AnnData_X_{block_size}_{fetch_factor}",
+                    "name": f"ScDataset_AnnData_X_{block_size}_block_size_{fetch_factor}_fetch_factor",
                     "dataloader_factory": create_scdataset_annloader_factory(
                         batch_size=64, shuffle=True, block_size=block_size, fetch_factor=fetch_factor, num_workers=0
                     ),
@@ -138,10 +140,10 @@ def anndataX_benchmarking_example(
     benchmark_dataloaders_with_configs(
         dataloader_configs=anndata_configurations,
         shared_dataset_factory=create_anndata_dataset_factory(adata_path),
-        output_prefix=f"scdataset_benchmark_{timestamp}",  # Same file as SCDL results
+        output_prefix=f"scdataset_anndata_X_benchmark_{timestamp}",  # Same file as SCDL results
     )
     print("Benchmarking completed!")
-    print(f"All results saved to: scdataset_benchmark_{timestamp}_detailed_breakdown.csv")
+    print(f"All results saved to: scdataset_anndata_X_benchmark_{timestamp}_detailed_breakdown.csv")
     print()
 
 
