@@ -45,17 +45,13 @@ script_args:
     - model_type: mamba
       config_name: hybrid_mamba_8b
 script: |-
-  INSTALL_FLAG="/tmp/install_done_{{ '${SLURMD_NODENAME}' }}"
-
-  # Same idea for SLURM_LOCALID — emit a literal $SLURM_LOCALID:
-  if [ "{{ '$SLURM_LOCALID' }}" = "0" ]; then
-      # artefacts_url already has the token resolved by the templater
-      pip install "${file_name_wheel}" --index-url "${artefacts_url}"
-      touch "$INSTALL_FLAG"
+  INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
+  if [ "$SLURM_LOCALID" = "0" ]; then
+      pip install ${file_name_wheel} --index-url ${artefacts_url}
+      touch $INSTALL_FLAG
   fi
-
   # All ranks wait until install flag file appears
-  while [ ! -f "$INSTALL_FLAG" ]; do
+  while [ ! -f $INSTALL_FLAG ]; do
       sleep 1
   done
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
