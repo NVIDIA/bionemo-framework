@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 
 def extract_sample_id(sequence_id: str) -> str:
-    """Extract sample ID from sequence ID format: BCR__EXT-LON042-1__CT1-1"""
+    """Extract sample ID from sequence ID format: BCR__EXT-SAMPLE1__CT1-1"""
     parts = sequence_id.split("__")[1].split("-")[1:]
     return ".".join(parts)
 
