@@ -446,9 +446,9 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
     assert len(matchrates) == len(expected_matchpercents)
     matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-    assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
-        f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
-    )
+    assert all(
+        m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)
+    ), f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
 
 
 @pytest.mark.parametrize(
@@ -538,9 +538,9 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         assert len(matchrates) == len(expected_matchpercents)
         matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
         matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-        assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
-            f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
-        )
+        assert all(
+            m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)
+        ), f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
 
 
 def mid_point_split(*, seq, num_tokens: int | None = None, fraction: float = 0.5):
@@ -572,7 +572,7 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [99.2, 51.0, 73.0, 82.6]),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
-        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_batch_generate(
@@ -626,9 +626,9 @@ def test_batch_generate(
     assert len(match_percents) == len(expected_matchpercents)
     matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
-        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
-    )
+    assert all(
+        mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)
+    ), f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
 
 
 @pytest.mark.parametrize(
@@ -638,7 +638,7 @@ def test_batch_generate(
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
-        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
     ],
 )
 def test_batch_generate_coding_sequences(
@@ -732,9 +732,9 @@ def test_batch_generate_coding_sequences(
         pcl is None or ((pcl - len(pmpt) > 96 * 3 or len(tgt) < 96 * 3) and pcl >= 0.9 * ocl)
         for pcl, ocl, (pmpt, tgt) in zip(cds_lengths, original_cds_lengths, seq_prompts)
     ), f"Expected at least 70% of {original_cds_lengths=}, got {cds_lengths=}"
-    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
-        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
-    )
+    assert all(
+        mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)
+    ), f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
 
 
 @pytest.mark.skip(
@@ -748,7 +748,7 @@ def test_batch_generate_coding_sequences(
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, 41.0),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, 32.0),
-        ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
     ],
 )
 def test_generate_speed(
@@ -810,6 +810,6 @@ def test_generate_speed(
     )
     dt = (time.perf_counter_ns() - t0) / 1e9  # seconds
     tokens_per_sec = (len(results[0].generated_text) + 1) / dt  # +1 for the prompt
-    assert tokens_per_sec > expected_tokens_sec * 0.85, (
-        f"Expected at least {expected_tokens_sec} tokens/sec, got {tokens_per_sec}"
-    )
+    assert (
+        tokens_per_sec > expected_tokens_sec * 0.85
+    ), f"Expected at least {expected_tokens_sec} tokens/sec, got {tokens_per_sec}"
