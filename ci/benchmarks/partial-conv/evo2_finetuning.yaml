@@ -30,7 +30,7 @@ script_args:
   workspace: /workspace/bionemo2
   data_base_path: /data/evo2
   restore_from_checkpoint_path: checkpoints/nemo2_evo2_1b_8k
-  nodes: [1]
+  nodes: 1
   model: evo2
   config_name: 1b
   num_workers: 1
@@ -44,13 +44,13 @@ script_args:
   lr: 0.000015
   min_lr: 0.0000149
   accumulate_grad_batches: 4
-  max_steps: 10
+  max_steps: 1000
   gpus: 1
   clip_grad: 250
   weight_decay: 0.001
   attention_dropout: 0.01
   hidden_dropout: 0.01
-  stop_steps: 200
+  stop_steps: 100
   batch_size: 2
   variant: finetune
   precision: fp8
@@ -85,7 +85,7 @@ script: |-
     --attention-dropout=${attention_dropout} \
     --hidden-dropout=${hidden_dropout} \
     --num-layers 4 \
-    --hybrid-override-pattern SDH* \
+    --hybrid-override-pattern 'SDH*' \
     --devices=${gpus} \
     --num-nodes=${nodes} \
     --val-check-interval=${val_check_interval} \
