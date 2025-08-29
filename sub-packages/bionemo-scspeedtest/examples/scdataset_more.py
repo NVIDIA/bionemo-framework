@@ -13,8 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+r"""This script benchmarks the performance of the scDataset wrapper for the SCDL and the AnnLoader with different numbers of workers.
 
-#!/usr/bin/env python3
+Usage:
+    python scdataset_more.py \
+        --adata-path /path/to/data.h5ad \
+        --scdl-path /path/to/scdl/
+"""
 
 import argparse
 from datetime import datetime

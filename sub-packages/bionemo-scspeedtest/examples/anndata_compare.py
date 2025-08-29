@@ -16,6 +16,13 @@
 
 #!/usr/bin/env python3
 
+r"""This script benchmarks the performance of the scDataset wrapper for the AnnLoader when only using the .X attribute of the AnnData object.
+
+Usage:
+    python anndata_compare.py \
+        --adata-path /path/to/data.h5ad \
+"""
+
 import argparse
 from datetime import datetime
 

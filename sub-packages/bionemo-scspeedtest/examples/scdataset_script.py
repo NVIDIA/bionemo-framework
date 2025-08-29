@@ -14,11 +14,13 @@
 # limitations under the License.
 
 
-#!/usr/bin/env python3
+r"""This script replicates the benchmarking example from the scDataset documentation.
 
-
-# Import AnnData support
-# from arrayloaders.io.dask_loader import DaskDataset
+Usage:
+    python scdataset_script.py \
+        --adata-path /path/to/data.h5ad \
+        --scdl-path /path/to/scdl/
+"""
 
 import argparse
 from datetime import datetime
