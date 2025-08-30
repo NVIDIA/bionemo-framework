@@ -223,7 +223,10 @@ class NVLlamaModel(NVLlamaPreTrainedModel, LlamaModel):
         #   are passed to the Decoder Layer.
         #
         # When using the TE/NVDecoderLayer we ignore the 'position_embeddings' passed by in the model.forward().
-        self.decoder_rotary_emb = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
+        self.decoder_rotary_emb = RotaryPositionEmbedding(
+            config.hidden_size // config.num_attention_heads,
+            rotary_base=config.rope_theta,
+        )
         self.te_rope_emb = self.decoder_rotary_emb(max_seq_len=config.max_position_embeddings).cuda()
 
         # For the rotary_emb we just do a NoOp since we don't use its outputs.

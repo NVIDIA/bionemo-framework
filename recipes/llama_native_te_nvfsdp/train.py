@@ -94,18 +94,18 @@ def main(args: DictConfig):
     dist.init_process_group(backend="nccl")
     dist_config = DistributedConfig()
     torch.cuda.set_device(dist_config.local_rank)
-    # device_mesh = init_device_mesh(
-    #     "cuda",
-    #     mesh_shape=(dist_config.world_size, 1),
-    #     mesh_dim_names=("fsdp", "tp"),
-    # )
+    device_mesh = init_device_mesh(
+        "cuda",
+        mesh_shape=(dist_config.world_size, 1),
+        mesh_dim_names=("fsdp", "tp"),
+    )
     device = torch.device(f"cuda:{dist_config.local_rank}")
     logger.info("Initialized distributed training: %s", dist_config)
 
-    # if dist_config.is_main_process():
-    #     wandb.init(**args.wandb_init_args, config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True))
+    if dist_config.is_main_process():
+        wandb.init(**args.wandb_init_args, config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True))
 
-    # Create a pretrained LLama3 model with a masked language model head.
+    # Create a pretrained LLama model with a masked language model head.
     config = AutoConfig.from_pretrained(
         f"{args.model_name}", trust_remote_code=True, torch_dtype=torch.bfloat16
     )
@@ -127,102 +127,102 @@ def main(args: DictConfig):
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
 
     # # Wrap model in megatron-fsdp if we're using it, otherwise wrap with DDP.
-    # if args.use_fsdp:
-    #     model, optimizer = fully_shard(
-    #         module=model,
-    #         optimizer=optimizer,
-    #         fsdp_unit_modules=[
-    #             transformer_engine.pytorch.TransformerLayer,
-    #             transformer_engine.pytorch.LayerNorm,
-    #             transformer_engine.pytorch.LayerNormLinear,
-    #         ],
-    #         device_mesh=device_mesh,
-    #         dp_shard_dim="fsdp",
-    #         tp_dim="tp",
-    #         **args.fully_shard_kwargs,
-    #     )
+    if args.use_fsdp:
+        model, optimizer = fully_shard(
+            module=model,
+            optimizer=optimizer,
+            fsdp_unit_modules=[
+                transformer_engine.pytorch.TransformerLayer,
+                transformer_engine.pytorch.LayerNorm,
+                transformer_engine.pytorch.LayerNormLinear,
+            ],
+            device_mesh=device_mesh,
+            dp_shard_dim="fsdp",
+            tp_dim="tp",
+            **args.fully_shard_kwargs,
+        )
 
-    # else:
-    #     model = model.to(device=device)
-    #     model = torch.nn.parallel.DistributedDataParallel(
-    #         model,
-    #         device_ids=[dist_config.local_rank],
-    #         output_device=dist_config.local_rank,
-    #         device_mesh=device_mesh["fsdp"],
-    #     )
+    else:
+        model = model.to(device=device)
+        model = torch.nn.parallel.DistributedDataParallel(
+            model,
+            device_ids=[dist_config.local_rank],
+            output_device=dist_config.local_rank,
+            device_mesh=device_mesh["fsdp"],
+        )
 
     # This is important; the LR scheduler modifies optimizer.step(), so this needs to get created
     # after the optimizer gets wrapped in FSDP. Here we use a warmup and linear decay scheduler.
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     # Training loop.
-    # model.train()
-    # if dist_config.is_main_process():
-    #     progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
+    model.train()
+    if dist_config.is_main_process():
+        progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
 
-    # # Create a dataloader that just infinitely loops over the dataset.
-    # train_iterator, epoch_len = create_dataloader(
-    #     args.data_path,
-    #     args.micro_batch_size,
-    #     max_length=args.max_seq_length,
-    # )
+    # Create a dataloader that just infinitely loops over the dataset.
+    train_iterator, epoch_len = create_dataloader(
+        args.data_path,
+        args.micro_batch_size,
+        max_length=args.max_seq_length,
+    )
 
-    # # Training loop.
-    # previous_step_time = time.perf_counter()
-    # for step in range(args.num_train_steps):
-    #     # Get batch.
-    #     batch = next(train_iterator)
-    #     batch = {k: v.to(device) for k, v in batch.items()}
+    # Training loop.
+    previous_step_time = time.perf_counter()
+    for step in range(args.num_train_steps):
+        # Get batch.
+        batch = next(train_iterator)
+        batch = {k: v.to(device) for k, v in batch.items()}
 
-    #     # Forward pass with mixed precision.
-    #     with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-    #         outputs = model(**batch)
+        # Forward pass with mixed precision.
+        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+            outputs = model(**batch)
 
-    #     # Backward pass.
-    #     loss = outputs.loss
-    #     loss.backward()
+        # Backward pass.
+        loss = outputs.loss
+        loss.backward()
 
-    #     # Compute and clip gradient norms.
-    #     total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+        # Compute and clip gradient norms.
+        total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
-    #     # Step optimizer.
-    #     optimizer.step()
-    #     scheduler.step()
-    #     optimizer.zero_grad()
+        # Step optimizer.
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
 
-    #     # Log metrics to logger and wandb on main process.
-    #     if dist_config.is_main_process():
-    #         current_time = time.perf_counter()
-    #         step_time = current_time - previous_step_time
-    #         previous_step_time = current_time
+        # Log metrics to logger and wandb on main process.
+        if dist_config.is_main_process():
+            current_time = time.perf_counter()
+            step_time = current_time - previous_step_time
+            previous_step_time = current_time
 
-    #         current_lr = optimizer.param_groups[0]["lr"]
-    #         logger.info(
-    #             "Step %d loss: %f, grad_norm: %f, lr: %f",
-    #             step,
-    #             loss.detach().item(),
-    #             total_norm,
-    #             current_lr,
-    #         )
-    #         wandb.log(
-    #             {
-    #                 "train/loss": loss.item(),
-    #                 "train/global_step": step,
-    #                 "train/learning_rate": current_lr,
-    #                 "train/grad_norm": total_norm,
-    #                 "train/epoch": step / epoch_len,
-    #                 "train/step_time": step_time,
-    #             }
-    #         )
+            current_lr = optimizer.param_groups[0]["lr"]
+            logger.info(
+                "Step %d loss: %f, grad_norm: %f, lr: %f",
+                step,
+                loss.detach().item(),
+                total_norm,
+                current_lr,
+            )
+            wandb.log(
+                {
+                    "train/loss": loss.item(),
+                    "train/global_step": step,
+                    "train/learning_rate": current_lr,
+                    "train/grad_norm": total_norm,
+                    "train/epoch": step / epoch_len,
+                    "train/step_time": step_time,
+                }
+            )
 
-    #         progress_bar.update(1)
-    #         progress_bar.set_postfix({"loss": loss.item()})
+            progress_bar.update(1)
+            progress_bar.set_postfix({"loss": loss.item()})
 
-    # # Clean up distributed training
-    # if dist_config.is_main_process():
-    #     wandb.finish()
+    # Clean up distributed training
+    if dist_config.is_main_process():
+        wandb.finish()
 
-    # dist.destroy_process_group()
+    dist.destroy_process_group()
 
     ###################
     ##################

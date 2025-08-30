@@ -500,24 +500,33 @@ print(model)
 
 
 config = AutoConfig.from_pretrained(
-    f"meta-llama/Llama-2-7b-hf", trust_remote_code=True, torch_dtype=torch.bfloat16
+    hyperparams.model_name, trust_remote_code=True, torch_dtype=torch.bfloat16
 )
 # config.max_seq_length = args.max_seq_length
 # config.micro_batch_size = args.micro_batch_size
-from recipes.llama3_native_te_accelerate.model import NVLlamaForCausalLM
+from recipes.llama_native_te_accelerate.model import NVLlamaForCausalLM
 
-model1 = NVLlamaForCausalLM.from_pretrained(f"meta-llama/Llama-2-7b-hf", config=config, trust_remote_code=True)
+model1 = NVLlamaForCausalLM.from_pretrained(hyperparams.model_name, config=config, trust_remote_code=True)
 
 state_dict1 = model.state_dict()
 state_dict2 = model1.state_dict()
 
 # Compare layers
-for name, param1 in state_dict1.items():
-    if name not in state_dict2:
-        print(f"Layer {name} missing in model2")
-        continue
-    
-    param2 = state_dict2[name]
-    if not torch.equal(param1, param2):
-        diff = torch.abs(param1 - param2).sum().item()
-        print(f"Layer {name} differs (sum abs diff = {diff:.4f})")
+# for name, param1 in state_dict1.items():
+#     if name not in state_dict2:
+#         print(f"Layer {name} missing in model2")
+#         continue
+
+#     param2 = state_dict2[name]
+#     if not torch.equal(param1, param2):
+#         diff = torch.abs(param1 - param2).sum().item()
+#         print(f"Layer {name} differs (sum abs diff = {diff:.4f})")
+
+# model.eval()
+# tokenizer = AutoTokenizer.from_pretrained(hyperparams.model_name)
+# model_inputs = tokenizer(["The secret to baking a good cake is a "], return_tensors="pt")
+# model_inputs.to(torch.device("cuda:0"))
+
+# generated_ids = model.generate(**model_inputs, max_length=100)
+# print(generated_ids)
+# print(tokenizer.batch_decode(generated_ids)[0])
