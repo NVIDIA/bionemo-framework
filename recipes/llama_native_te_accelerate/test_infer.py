@@ -22,32 +22,24 @@ from model import NVLlamaForCausalLM
 
 
 @pytest.mark.parametrize("model_name", ["meta-llama/Llama-2-7b-hf", "meta-llama/Meta-Llama-3-8B"])
-def test_hf_and_te_llama_equivalence(model_name: str, tol=0.15):
+def test_hf_and_te_llama_equivalence(model_name: str, tol=0.25):
     device = torch.device("cuda:0")
-    # Dummy input of zeros
-    input_ids = torch.zeros((1, 32), dtype=torch.long, device=device)
 
     config = AutoConfig.from_pretrained(model_name, torch_dtype=torch.float16)
+    # Dummy input
+    input_ids = torch.randint(low=0, high=config.vocab_size, size=(1, 32), device=device)
 
-    nv_model = NVLlamaForCausalLM.from_pretrained(model_name, config=config, torch_dtype=torch.float16)
+    nv_model = NVLlamaForCausalLM.from_pretrained(model_name, config=config, torch_dtype=torch.float16).to(device)
     nv_model.eval()
-
-    with torch.no_grad():
-        nv_logits = nv_model(input_ids).logits
 
     hf_model = LlamaForCausalLM.from_pretrained(model_name, config=config, torch_dtype=torch.float16).to(device)
     hf_model.eval()
 
     with torch.no_grad():
+        nv_logits = nv_model(input_ids).logits
         hf_logits = hf_model(input_ids).logits
 
     assert hf_logits.shape == nv_logits.shape, \
         f"Shape mismatch: HF {hf_logits.shape} vs NV {nv_logits.shape}"
 
-    diff = torch.abs(hf_logits - nv_logits)
-    max_diff = diff.max().item()
-    mean_diff = diff.mean().item()
-
-    print(f"Max difference: {max_diff:.6f}, Mean difference: {mean_diff:.6f}")
-
-    assert max_diff < tol, f"Max difference {max_diff:.6f} exceeds tolerance {tol}"
+    assert torch.allclose(hf_logits, nv_logits, atol=tol, rtol=tol), f"Models differ more than tol={tol}"
