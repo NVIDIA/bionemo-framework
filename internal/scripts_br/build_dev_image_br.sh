@@ -30,3 +30,9 @@ DOCKER_BUILDKIT=1 docker buildx build \
   --label com.nvidia.bionemo.created_at=${DATE} \
   -f ./Dockerfile \
   .
+
+
+# ----------------------
+# (-1) post-amble
+# --------------------------
+printf "${MESSAGE_TEMPLATE}" "end script"
