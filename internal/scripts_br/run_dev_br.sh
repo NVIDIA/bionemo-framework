@@ -21,6 +21,11 @@ source .env
 # --------------------------------
 # (1) user paramerters
 # -----------------------------------------------------
+GPU_ARG='--gpus "\"device=0,1,2,3,4,5,6,7\""'
+LOCAL_RESULTS_PATH="/home/scratch.broland_sw_1/data_for_projects/evo2/results"
+LOCAL_DATA_PATH="./data"
+LOCAL_MODELS_PATH="./models"
+
 COMMIT_AT_START=$(git rev-parse --short HEAD)
 BRANCH_AT_START=$(git rev-parse --abbrev-ref HEAD)
 IMAGE_REPO='nvcr.io/nvidian/cvai_bnmo_trng/bionemo'
@@ -28,12 +33,13 @@ IMAGE_TAG='dev-br_bnm2533_fix_evo2_tests_a-20250825T162355-28586e55'
 IMAGE_NAME="${IMAGE_REPO}:${IMAGE_TAG}"
 
 DOCKER_REPO_PATH="/workspace/bionemo2"
+DOCKER_RESULTS_PATH="/workspace/bionemo2/results"
 
 # -----------------------------------------------------
 # (2) santity checks
 # ----------------------------------------------------
 LOCAL_REPO_PATH="$(realpath $(pwd))"
-if [[ "$(basename ${LOCAL_REPO_PATH})" != "bionemo-framework" ]]; then
+if [[ "$(basename ${LOCAL_REPO_PATH})" != *"bionemo-framework"* ]]; then
     echo "ERROR: must run this script from the bionemo repository root!"
     exit 1
 fi
@@ -41,10 +47,11 @@ fi
 # -----------------------------------------------------
 # (3) make expected directories as user, not as docker
 # ----------------------------------------------------
-expected_local_dirs=("${LOCAL_RESULTS_PATH}" "${LOCAL_DATA_PATH}" "${LOCAL_MODELS_PATH}")
+expected_local_dirs=("${LOCAL_RESULTS_PATH}" "${LOCAL_DATA_PATH}" "${LOCAL_MODELS_PATH}" "./htmlcov")
 for expected_local_dir in "${expected_local_dirs[@]}"; do
     printf "${MESSAGE_TEMPLATE}" "expected_local_dir=${expected_local_dir}"
     mkdir -p "${expected_local_dir}"
+    chmod -R a+rw "${expected_local_dir}"
 done
 
 # -----------------------------------------------------
@@ -58,15 +65,6 @@ done
 
 printf "${MESSAGE_TEMPLATE}" "create DOCKER_RUN_COMMAND"
 
-
-DOCKER_VERSION=$(docker version | grep -i version | head -1 | awk '{print $2}')
-DOCKER_VERSION_WITH_GPU_SUPPORT='19.03.0'
-if [ "$DOCKER_VERSION_WITH_GPU_SUPPORT" == "$(echo -e "$DOCKER_VERSION\n$DOCKER_VERSION_WITH_GPU_SUPPORT" | sort -V | head -1)" ]; then
-    PARAM_RUNTIME="--gpus all"
-else
-    PARAM_RUNTIME="--runtime=nvidia"
-fi
-
 read -r -d '' SECRETS<<EOF
     -e WANDB_API_KEY=$WANDB_API_KEY
 EOF
@@ -75,7 +73,7 @@ read -r -d '' DOCKER_RUN_OPTIONS <<EOF
     --rm \\
     -it \\
     --network host \\
-    ${PARAM_RUNTIME} \\
+    ${GPU_ARG} \\
     -p ${JUPYTER_PORT}:8888 \\
     --shm-size=4g \\
     -e TMPDIR=/tmp/ \\
