@@ -630,7 +630,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         lora_transform = None
         if args.lora_finetune:
             lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
-
+        print("********************train: init llm.HyenaModel*******")
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
     else:  # mamba
         if args.no_weight_decay_embeddings:
@@ -855,6 +855,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         ),
         val_check_interval=args.val_check_interval,
         enable_checkpointing=args.create_checkpoint_callback,
+        enable_progress_bar=True,
     )
 
     # Logger setup
@@ -892,15 +893,18 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=model_config.hyena_no_weight_decay_cond_fn)
     opt.connect(model)
     # Start training
+    print("*******************train: before trainer.fit")
     trainer.fit(model, data_module)
+    print("*******************train: after trainer.fit")
     return trainer
 
 
 def main():
     """Parsing args and running evo2 training."""
     args = parse_args()
+    print("*******************main: before train")
     train(args=args)
-
+    print("*******************main: after train")
 
 if __name__ == "__main__":
     main()
