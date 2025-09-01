@@ -7,11 +7,14 @@ Demo: python launch_job.py --config-name "evo2_finetune_lora" job_name="evo2-fin
 
 import hydra
 from omegaconf import DictConfig
+from typing import Dict
 from leptonai.api.v2.client import APIClient
 from leptonai.api.v1.types.affinity import LeptonResourceAffinity
 from leptonai.api.v1.types.common import Metadata
 from leptonai.api.v1.types.deployment import EnvVar, EnvValue, LeptonContainer, Mount, MountOptions
 from leptonai.api.v1.types.job import LeptonJob, LeptonJobUserSpec
+from omegaconf import OmegaConf
+from omegaconf import DictConfig as HydraDictConfig, ListConfig
 
 
 # todo: make utils file? also, add cfg checks to make sure these are used in the config before calling
@@ -40,7 +43,24 @@ def construct_env_var(env_var) -> EnvVar:
         )
 
 
-def wrap_with_wandb_copy(script: str, result_dir: str = "pretraining_demo", experiment_name: str = "evo2") -> str:
+import json
+from typing import Dict
+
+
+def wrap_with_wandb_copy(
+    script: str,
+    result_dir: str = "pretraining_demo",
+    experiment_name: str = "evo2",
+    dashboard_info: Dict[str, str] = None,
+) -> str:
+    if isinstance(dashboard_info, (HydraDictConfig, ListConfig)):
+        dashboard_info = OmegaConf.to_container(dashboard_info, resolve=True)
+    if dashboard_info is None:
+        dashboard_info = {}
+
+    # serialize after conversion
+    dashboard_json = json.dumps(dashboard_info, separators=(",", ":"))
+
     return f"""set -euo pipefail
 
 # Get job name
@@ -60,7 +80,6 @@ pip install -q leptonai >/dev/null 2>&1 || pip install leptonai
 lep login -c "$LEP_LOGIN_CREDENTIALS" || true
 
 echo "Job name: $JOB_NAME"
-lep job list || true
 
 echo "Getting lepton job details (JSON)"
 JOB_INFO="$(
@@ -116,14 +135,12 @@ JOB_INFO="$(
     }}
   ' 2>/dev/null
 )"
-echo "jared JOB_INFO: $JOB_INFO"
 
 # Normalize to valid JSON or default to {{}}
 JOB_INFO_JSON="$(printf '%s' "$JOB_INFO" | jq -c . 2>/dev/null || echo '{{}}')"
 
-# Optionally fetch logs (safe to skip if not needed for W&B copy)
-echo "Fetching lepton job logs (optional)"
-lep log get --job "$JOB_NAME" || true
+# Stash dashboard info JSON (provided from Python)
+DASHBOARD_INFO_JSON='{dashboard_json}'
 
 # Copy W&B files from known location based on result_dir and experiment_name
 JOB_DIR="/BioNeMo/model_convergence_tests/job_logs/$JOB_NAME"
@@ -154,12 +171,14 @@ if [ $WANDB_FOUND -eq 1 ] && [ -f "$JOB_DIR/wandb-summary.json" ]; then
         --arg m "$METADATA_JSON" \
         --arg s "$SUMMARY_JSON" \
         --argjson job_info "$JOB_INFO_JSON" \
+        --argjson dashboard_info "$DASHBOARD_INFO_JSON" \
         '
         . + {{
           job_name: env.LEPTON_JOB_NAME,
           metadata: ($m | fromjson? // {{}}),
           summary:  ($s | fromjson? // {{}}),
-          job_info: $job_info
+          job_info: $job_info,
+          dashboard_info: $dashboard_info
         }}
         ')
 
@@ -195,7 +214,7 @@ if [ $WANDB_FOUND -eq 1 ] && [ -f "$JOB_DIR/wandb-summary.json" ]; then
                 --arg type "$TYPE" \
                 --arg subject "$SUBJECT" \
                 --argjson data "$COMBINED_JSON" \
-                '{{
+                '{{ 
                   "specversion": "1.0",
                   "id": $id,
                   "time": $time,
@@ -265,7 +284,16 @@ def main(cfg: DictConfig):
     print(f"W&B files will be searched in: {result_dir}/{experiment_name}/wandb/")
 
     # Create command with the extracted parameters
-    command = ["bash", "-c", wrap_with_wandb_copy(cfg.script, result_dir=result_dir, experiment_name=experiment_name)]
+    command = [
+        "bash",
+        "-c",
+        wrap_with_wandb_copy(
+            cfg.script,
+            result_dir=result_dir,
+            experiment_name=experiment_name,
+            dashboard_info=cfg.dashboard_info,
+        ),
+    ]
 
     # Build environment variables, if in config
     env_vars = []
@@ -302,7 +330,10 @@ def main(cfg: DictConfig):
     try:
         launched_job = client.job.create(job)
         if launched_job.status:
-            print(f"Initial Status: {launched_job.status.state}")
+            print("Batch Job Launched\n")
+            print(
+                f"View at https://dashboard.dgxc-lepton.nvidia.com/workspace/vfco61g2/compute/jobs/detail/{launched_job.metadata.id_}/replicas/list"
+            )
     except Exception as e:
         print(f"ERROR submitting job: {e}")
         return

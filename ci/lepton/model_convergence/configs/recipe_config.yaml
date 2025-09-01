@@ -1,3 +1,7 @@
+# #########################################################
+# Lepton Job Configuration
+# If used in script: below, these must be referenced as $var (no brackets)
+# #########################################################
 # job name may only have hypens, no underscores
 job_name: bionemo-recipe-esm2-t33-650M-UR50D
 resource_shape: gpu.2xh200
@@ -16,6 +20,8 @@ environment_variables:
     value_from: KRATOS_SSA_CLIENT_ID
   - name: KRATOS_SSA_SECRET
     value_from: KRATOS_SSA_SECRET
+  - name: LEP_LOGIN_CREDENTIALS
+    value_from: LEP_LOGIN_CREDENTIALS
 
 # script specific variables
 # these must be wrapped with ${var}
@@ -24,6 +30,26 @@ num_train_steps: 15
 result_dir: wandb_output
 experiment_name: esm2_t33_650M_UR50D
 
+# #########################################################
+# Dashboard Information
+# This is data with log details we need for the dashboard dropdowns.
+# For example, for recipe
+# #########################################################
+dashboard_info:
+  # model is the core model name; e.g. evo2, esm2, geneformer, etc.
+  model: esm2
+  # variant is the type of training; e.g. train, finetune, finetune_lora
+  variant: recipe
+  # config is the model size, optionally suffixed with -recipes, etc.
+  config: 650M
+  # repo is the repo name; e.g. bionemo2 or recipes.
+  repo: recipes
+
+# #########################################################
+# Script-specific arguments
+# If used in script: below, these must be referenced as ${var} (use brackets)
+# They can be whatever you want, but should be referenced in the script
+# #########################################################
 # Note, in this script:
 # lepton-specific vars must be $var
 # script-specific vars must be ${var}

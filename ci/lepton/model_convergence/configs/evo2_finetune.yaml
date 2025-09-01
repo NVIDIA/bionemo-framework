@@ -22,6 +22,8 @@ environment_variables:
     value_from: KRATOS_SSA_CLIENT_ID
   - name: KRATOS_SSA_SECRET
     value_from: KRATOS_SSA_SECRET
+  - name: LEP_LOGIN_CREDENTIALS
+    value_from: LEP_LOGIN_CREDENTIALS
 
 mounts:
   - path: /BioNeMo
@@ -30,6 +32,21 @@ mounts:
   - path: /BioNeMo/jwilber/bionemo-dev/bionemo-framework/sub-packages/bionemo-evo2
     mount_path: /workspace/bionemo2/sub-packages/bionemo-evo2
     from_: node-nfs:lepton-shared-fs
+
+# #########################################################
+# Dashboard Information
+# This is data with log details we need for the dashboard dropdowns.
+# For example, for
+# #########################################################
+dashboard_info:
+  # model is the core model name; e.g. evo2, esm2, geneformer, etc.
+  model: evo2
+  # variant is the type of training; e.g. train, finetune, finetune_lora
+  variant: finetune
+  # config is the model size, optionally suffixed with -recipes, etc.
+  config: 1b
+  # repo is the repo name; e.g. bionemo2 or recipes.
+  repo: bionemo2
 
 # #########################################################
 # Script-specific arguments

@@ -34,6 +34,21 @@ mounts:
     from_: node-nfs:lepton-shared-fs
 
 # #########################################################
+# Dashboard Information
+# This is data with log details we need for the dashboard dropdowns.
+# For example, for
+# #########################################################
+dashboard_info:
+  # model is the core model name; e.g. evo2, esm2, geneformer, etc.
+  model: evo2
+  # variant is the type of training; e.g. train, finetune, finetune_lora
+  variant: finetune_lora
+  # config is the model size
+  config: 1b
+  # repo is the repo name; e.g. bionemo2 or recipes.
+  repo: bionemo2
+
+# #########################################################
 # Script-specific arguments
 # If used in script: below, these must be referenced as ${var} (use brackets)
 # They can be whatever you want, but should be referenced in the script
@@ -60,6 +75,7 @@ val_check_interval: 5
 num_layers: 4
 hybrid_override_pattern: SDH*
 activation_checkpoint_recompute_num_layers: 2
+max_steps: 20
 
 script: |
   #!/bin/bash
@@ -85,7 +101,7 @@ script: |
   --min-lr ${min_lr} \
   --warmup-steps ${warmup_steps} \
   --grad-acc-batches ${grad_acc_batches} \
-  --max-steps 20 \
+  --max-steps ${max_steps} \
   --ckpt-dir ${ckpt_dir} \
   --clip-grad ${clip_grad} \
   --wd ${weight_decay} \
