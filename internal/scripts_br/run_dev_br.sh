@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+
+# ------------------------------------------------------------------------
+# (0) preamble
+# ------------------------------------------------------------------------
+MESSAGE_TEMPLATE='********run_dev_br.sh: %s\n'
+DATE_OF_SCRIPT=$(date +'%Y%m%dT%H%M%S')
+SCRIPT_DIR="$(dirname "$(realpath "$BASH_SOURCE")")"
+printf "${MESSAGE_TEMPLATE}" "SCRIPT_DIR=${SCRIPT_DIR}"
+printf "${MESSAGE_TEMPLATE}" "hostname=$(hostname)"
+printf "${MESSAGE_TEMPLATE}" "whoami=$(whoami)"
+printf "${MESSAGE_TEMPLATE}" "uid=$(id -u)"
+printf "${MESSAGE_TEMPLATE}" "gid=$(id -g)"
+
+
+#set -euo pipefail
+
+source .env
+
+
+# -----------------------------------------------------
+# (1) user paramerters
+# -----------------------------------------------------
+USER_IN_CTR=root                    # if profiling, run as root
+HOME_IN_CTR=/opt/${USER_IN_CTR}
+
+#GPU_ARG='--gpus "\"device=0,1,2,3,4,5,6,7\""'
+GPU_ARG='--gpus all'
+LOCAL_RESULTS_PATH="/home/scratch.broland_sw_1/data_for_projects/evo2/results/bionemo2_results"
+LOCAL_DATA_PATH="./data"
+LOCAL_MODELS_PATH="./models"
+
+COMMIT_AT_START=$(git rev-parse --short HEAD)
+BRANCH_AT_START=$(git rev-parse --abbrev-ref HEAD)
+IMAGE_REPO='nvcr.io/nvidian/cvai_bnmo_trng/bionemo'
+IMAGE_TAG='dev-br_bnm2532_dlsim_val_in_fw_a-20250831T164028-a29272f1'
+IMAGE_NAME="${IMAGE_REPO}:${IMAGE_TAG}"
+
+DOCKER_REPO_PATH="/workspace/bionemo2"
+DOCKER_RESULTS_PATH="/workspace/bionemo2/results"
+DOCKER_MODELS_PATH="/workspace/bionemo2/models"
+DOCKER_DATA_PATH="/workspace/bionemo2/data"
+
+# -----------------------------------------------------
+# (2) santity checks
+# ----------------------------------------------------
+LOCAL_REPO_PATH="$(realpath $(pwd))"
+if [[ "$(basename ${LOCAL_REPO_PATH})" != *"bionemo-framework"* ]]; then
+    echo "ERROR: must run this script from the bionemo repository root!"
+    exit 1
+fi
+
+# ---------------------------------------------------------------------
+# (3) make expected directories in external filesystem as user, not as docker
+# ----------------------------------------------------
+expected_local_dirs=("${LOCAL_RESULTS_PATH}" "${LOCAL_DATA_PATH}" "${LOCAL_MODELS_PATH}" "./htmlcov")
+for expected_local_dir in "${expected_local_dirs[@]}"; do
+    printf "${MESSAGE_TEMPLATE}" "expected_local_dir=${expected_local_dir}"
+    mkdir -p "${expected_local_dir}"
+    chmod -R a+rw "${expected_local_dir}"
+done
+
+# ---------------------------------------------------------------------
+# (4) delete external directories with state
+# ----------------------------------------------------
+sudo rm -rf ${LOCAL_RESULTS_PATH}/evo2
+
+# -----------------------------------------------------
+# (5) assemble docker run command
+# ----------------------------------------------------
+
+printf "${MESSAGE_TEMPLATE}" "create DOCKER_RUN_COMMAND"
+
+read -r -d '' DOCKER_RUN_OPTIONS_FOR_PROFILING <<EOF
+    --user ${USER_IN_CTR} \\
+    --cap-add=SYS_ADMIN \\
+    --cap-add=SYS_PTRACE \\
+    --cap-add=PERFMON \\
+    --security-opt seccomp=unconfined \\
+    --privileged
+EOF
+
+read -r -d '' SECRETS<<EOF
+    -e WANDB_API_KEY=$WANDB_API_KEY
+EOF
+
+read -r -d '' DOCKER_RUN_OPTIONS <<EOF
+    -u $(id -u):$(id -g) \\
+    --rm \\
+    -it \\
+    ${DOCKER_RUN_OPTIONS_FOR_PROFILING} \\
+    --network host \\
+    ${GPU_ARG} \\
+    -p ${JUPYTER_PORT}:8888 \\
+    --shm-size=64g \\
+    -e TMPDIR=/tmp/ \\
+    -e BRANCH_AT_START=${BRANCH_AT_START} \\
+    -e COMMIT_AT_START=${COMMIT_AT_START} \\
+    -e NUMBA_CACHE_DIR=/tmp/ \\
+    -e HOME=${DOCKER_REPO_PATH} \\
+    -v ${HOME}/.bash_aliases:${HOME_IN_CTR}/.bash_aliases \\
+    -w ${DOCKER_REPO_PATH} \\
+    -v ${LOCAL_RESULTS_PATH}:${DOCKER_RESULTS_PATH} \\
+    -v ${LOCAL_DATA_PATH}:${DOCKER_DATA_PATH} \\
+    -v ${LOCAL_MODELS_PATH}:${DOCKER_MODELS_PATH} \\
+    -v /etc/passwd:/etc/passwd:ro \\
+    -v /etc/group:/etc/group:ro \\
+    -v /etc/shadow:/etc/shadow:ro \\
+    -v ${HOME}/.ssh:${DOCKER_REPO_PATH}/.ssh:ro \\
+    -v ${LOCAL_REPO_PATH}/htmlcov:/${DOCKER_REPO_PATH}/htmlcov \\
+    -v ${LOCAL_REPO_PATH}:${DOCKER_REPO_PATH} \\
+    -e NGC_CLI_ORG \\
+    -e NGC_CLI_TEAM \\
+    -e NGC_CLI_FORMAT_TYPE \\
+    -e NGC_CLI_API_KEY \\
+    -e AWS_ENDPOINT_URL \\
+    -e AWS_REGION \\
+    -e AWS_ACCESS_KEY_ID \\
+    -e AWS_SECRET_ACCESS_KEY
+EOF
+read -r -d '' DOCKER_RUN_WITHOUT_SECRETS <<EOF
+docker run \\
+    ${DOCKER_RUN_OPTIONS} \\
+    ${IMAGE_NAME} \\
+    bash --rcfile ${HOME_IN_CTR}/.bash_aliases
+EOF
+
+read -r -d '' DOCKER_RUN_WITH_SECRETS <<EOF
+docker run \\
+    ${DOCKER_RUN_OPTIONS} \\
+    ${SECRETS} \\
+    ${IMAGE_NAME} \\
+    bash --rcfile ${HOME_IN_CTR}/.bash_aliases
+EOF
+
+# -----------------------------------------------------
+# (5) run docker run command
+# ----------------------------------------------------
+printf "${MESSAGE_TEMPLATE}" "DOCKER_RUN_WITHOUT_SECRETS=${DOCKER_RUN_WITHOUT_SECRETS}"
+eval "$DOCKER_RUN_WITH_SECRETS"
+
+# -----------------------------------------------------
+# (-1) summarize
+# ----------------------------------------------------
+
+printf "${MESSAGE_TEMPLATE}" "run_dev_br.sh: end script----"
