@@ -55,6 +55,8 @@ from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
+from bionemo.evo2.utils.logging.bnm_module_hook_manager import BNM_MODULE_HOOK_HANDLES
+
 torch._dynamo.config.suppress_errors = True
 
 
@@ -894,7 +896,11 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     opt.connect(model)
     # Start training
     print("*******************train: before trainer.fit")
+    print(f"*************type(model.modules)={type(model.modules())}*********")
     trainer.fit(model, data_module)
+    for h in BNM_MODULE_HOOK_HANDLES:
+        h.remove()
+    print(f"*************type(model.module)={type(model.module)}*********")
     print("*******************train: after trainer.fit")
     return trainer
 

@@ -7,15 +7,21 @@ MESSAGE_TEMPLATE='********run_evo2_train.sh: %s\n'
 DATE_OF_SCRIPT=$(date +'%Y%m%dT%H%M')
 WHOAMI="$(whoami)"
 SCRIPT_DIR="$(dirname "$(realpath "$BASH_SOURCE")")"
+LIT_VERSION=$(pip show lightning | grep Version)
+TORCH_VERSION=$(pip show torch | grep Version)
+PYTHON_VERSION=$(python --version | grep Python)
 printf "${MESSAGE_TEMPLATE}" "begin"
 printf "${MESSAGE_TEMPLATE}" "DATE_OF_SCRIPT=${DATE_OF_SCRIPT}"
 printf "${MESSAGE_TEMPLATE}" "WHOAMI=${WHOAMI}"
+printf "${MESSAGE_TEMPLATE}" "LIT_VERSION=${LIT_VERSION}"
+printf "${MESSAGE_TEMPLATE}" "TORCH_VERSION=${TORCH_VERSION}"
+printf "${MESSAGE_TEMPLATE}" "PYTHON_VERSION=${PYTHON_VERSION}"
 
 # ----------------------------------------
 # (1) set some user parameters
 # ----------------------------------------
 RESULTS_DIR="./results"  # i.e. /workspace/bionemo2/results
-RESULTS_THIS_APP_DIR="${RESULTS_DIR}/run_evo2_train"
+RESULTS_THIS_APP_DIR="${RESULTS_DIR}/run_evo2_train_to_profile"
 
 RUN_LABEL_PREFIX="bionemo_evo2_train"
 PYTHON_SCRIPT_PATH=sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py
@@ -29,7 +35,7 @@ TRAIN_ARGS_ARRAY=(
     "--model-size"
     "test"
     "--max-steps"
-    "40" 
+    "1" 
     "--context-parallel-size"
     "1"
     "--devices"
@@ -66,12 +72,13 @@ RUN_LABEL=$(IFS='_'; echo "${run_label_arr[*]}")
 printf "${MESSAGE_TEMPLATE}" "RUN_LABEL=${RUN_LABEL}"
 
 RESULTS_THIS_APP_THIS_RUN_DIR="${RESULTS_THIS_APP_DIR}/${RUN_LABEL}"
+export RESULTS_THIS_APP_THIS_RUN_DIR=${RESULTS_THIS_APP_THIS_RUN_DIR}
+
 mkdir -p ${RESULTS_THIS_APP_THIS_RUN_DIR}
 chmod a+rw ${RESULTS_THIS_APP_THIS_RUN_DIR}
 
 LOG_FILE="${RESULTS_THIS_APP_THIS_RUN_DIR}/${RUN_LABEL}.log"
-
-
+export BNM_MODULE_HOOK_MANAGER_RESULTS_DIR=${RESULTS_THIS_APP_THIS_RUN_DIR}
 # ----------------------------------------
 # (5) create python training script comman
 # ---------------------------------------
@@ -85,5 +92,10 @@ eval "${PY_COMMAND}"
 # ----------------------------------------
 # (-1) post-amble
 # ----------------------------------------
+printf "${MESSAGE_TEMPLATE}" "script summary:"
 printf "${MESSAGE_TEMPLATE}" "LOG_FILE=${LOG_FILE}"
+printf "${MESSAGE_TEMPLATE}" "LIT_VERSION=${LIT_VERSION}"
+printf "${MESSAGE_TEMPLATE}" "TORCH_VERSION=${TORCH_VERSION}"
+printf "${MESSAGE_TEMPLATE}" "PYTHON_VERSION=${PYTHON_VERSION}"
+
 printf "${MESSAGE_TEMPLATE}" "end with success"
