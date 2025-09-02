@@ -20,22 +20,30 @@ import gc
 import pytest
 import torch
 
+from bionemo.testing.torch import get_device_and_memory_allocated
+
 
 def pytest_sessionstart(session):
     """Called at the start of the test session."""
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
-        print(f"Starting test session. Initial GPU memory: {torch.cuda.memory_allocated() / 1024**3:.3f} GB")
+        print(
+            f"""
+            sub-packages/bionemo-evo2/tests/bionemoe/evo2: Starting test session
+            {get_device_and_memory_allocated()}
+            """
+        )
 
 
 def pytest_sessionfinish(session, exitstatus):
     """Called at the end of the test session."""
     if torch.cuda.is_available():
-        peak_memory = torch.cuda.max_memory_allocated()
-        final_memory = torch.cuda.memory_allocated()
-        print("\nTest session complete:")
-        print(f"  Peak GPU memory: {peak_memory / 1024**3:.3f} GB")
-        print(f"  Final GPU memory: {final_memory / 1024**3:.3f} GB")
+        print(
+            f"""
+            sub-packages/bionemo-evo2/tests/bionemoe/evo2: Test session complete
+            {get_device_and_memory_allocated()}
+            """
+        )
 
 
 @pytest.fixture(autouse=True)

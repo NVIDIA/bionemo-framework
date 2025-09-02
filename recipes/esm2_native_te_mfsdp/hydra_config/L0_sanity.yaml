@@ -1,0 +1,19 @@
+defaults:
+  - defaults
+
+# Training config
+model_name: nvidia/esm2_t6_8M_UR50D
+micro_batch_size: 2
+num_train_steps: 250
+
+# WandB config
+wandb_init_args:
+  name: "esm2_t6_8M_UR50D_nvfsdp_sanity"
+  mode: "offline"
+
+# Learning rate scheduler config
+lr_scheduler_kwargs:
+  num_warmup_steps: 0
+
+adamw_kwargs:
+  lr: 1e-2
