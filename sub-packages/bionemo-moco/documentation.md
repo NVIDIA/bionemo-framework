@@ -87,7 +87,7 @@ Generates a specified number of samples from the time distribution.
 **Arguments**:
 
 - `shape` _Tuple_ - The shape of the samples to generate.
-- `mask` _Optional\[Tensor\], optional_ - A tensor indicating which samples should be masked. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - A tensor indicating which samples should be masked. Defaults to None.
 - `device` _str, optional_ - The device on which to generate the samples. Defaults to "cpu".
 
 **Returns**:
@@ -188,7 +188,7 @@ Generates a specified number of samples.
 
 - `shape` _Tuple_ - The shape of the samples to generate.
 - `device` _str_ - cpu or gpu.
-- `mask` _Optional\[Tensor\]_ - An optional mask to apply to the samples. Defaults to None.
+- `mask` _Optional[Tensor]_ - An optional mask to apply to the samples. Defaults to None.
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
 **Returns**:
@@ -210,7 +210,7 @@ class DiscreteCustomPrior(DiscretePriorDistribution)
 A subclass representing a discrete custom prior distribution.
 
 This class allows for the creation of a prior distribution with a custom
-probability mass function defined by the `prior_dist` tensor. For example if my data has 4 classes and I want \[.3, .2, .4, .1\] as the probabilities of the 4 classes.
+probability mass function defined by the `prior_dist` tensor. For example if my data has 4 classes and I want [.3, .2, .4, .1] as the probabilities of the 4 classes.
 
 <a id="mocodistributionspriordiscretecustomDiscreteCustomPrior__init__"></a>
 
@@ -287,9 +287,9 @@ Discrete Masked prior distribution.
 
 Theres 3 ways I can think of defining the problem that are hard to mesh together.
 
-1. \[..., M, ....\] inclusive anywhere --> exisiting LLM tokenizer where the mask has a specific location not at the end
-2. \[......, M\] inclusive on end --> mask_dim = None with inclusive set to True default stick on the end
-3. \[.....\] + \[M\] exclusive --> the number of classes representes the number of data classes and one wishes to add a separate MASK dimension.
+1. [..., M, ....] inclusive anywhere --> exisiting LLM tokenizer where the mask has a specific location not at the end
+2. [......, M] inclusive on end --> mask_dim = None with inclusive set to True default stick on the end
+3. [.....] + [M] exclusive --> the number of classes representes the number of data classes and one wishes to add a separate MASK dimension.
 
 - Note the pad_sample function is provided to help add this extra external dimension.
 
@@ -318,7 +318,7 @@ Generates a specified number of samples.
 
 - `shape` _Tuple_ - The shape of the samples to generate.
 - `device` _str_ - cpu or gpu.
-- `mask` _Optional\[Tensor\]_ - An optional mask to apply to the samples. Defaults to None.
+- `mask` _Optional[Tensor]_ - An optional mask to apply to the samples. Defaults to None.
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
 **Returns**:
@@ -391,11 +391,11 @@ Linear Harmonic prior distribution.
 
 **Arguments**:
 
-- `length` _Optional\[int\]_ - The number of points in a batch.
+- `length` _Optional[int]_ - The number of points in a batch.
 - `distance` _Float_ - RMS distance between adjacent points in the line graph.
 - `center` _bool_ - Whether to center the samples around the mean. Defaults to False.
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 <a id="mocodistributionspriorcontinuousharmonicLinearHarmonicPriorsample"></a>
 
@@ -414,7 +414,7 @@ Generates a specified number of samples from the Harmonic prior distribution.
 
 - `shape` _Tuple_ - The shape of the samples to generate.
 - `device` _str_ - cpu or gpu.
-- `mask` _Optional\[Tensor\]_ - An optional mask to apply to the samples. Defaults to None.
+- `mask` _Optional[Tensor]_ - An optional mask to apply to the samples. Defaults to None.
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
 **Returns**:
@@ -476,7 +476,7 @@ Generates a specified number of samples from the Gaussian prior distribution.
 
 - `shape` _Tuple_ - The shape of the samples to generate.
 - `device` _str_ - cpu or gpu.
-- `mask` _Optional\[Tensor\]_ - An optional mask to apply to the samples. Defaults to None.
+- `mask` _Optional[Tensor]_ - An optional mask to apply to the samples. Defaults to None.
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
 **Returns**:
@@ -528,9 +528,9 @@ An abstract base class representing a time distribution.
 **Arguments**:
 
 - `discrete_time` _Bool_ - Whether the time is discrete.
-- `nsteps` _Optional\[int\]_ - Number of nsteps for discretization.
-- `min_t` _Optional\[Float\]_ - Min continuous time.
-- `max_t` _Optional\[Float\]_ - Max continuous time.
+- `nsteps` _Optional[int]_ - Number of nsteps for discretization.
+- `min_t` _Optional[Float]_ - Min continuous time.
+- `max_t` _Optional[Float]_ - Max continuous time.
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
 <a id="mocodistributionstimedistributionTimeDistribution__init__"></a>
@@ -656,7 +656,7 @@ Initializes a UniformTimeDistribution object.
 - `min_t` _Float_ - The minimum time value.
 - `max_t` _Float_ - The maximum time value.
 - `discrete_time` _Bool_ - Whether the time is discrete.
-- `nsteps` _Optional\[int\]_ - Number of nsteps for discretization.
+- `nsteps` _Optional[int]_ - Number of nsteps for discretization.
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
 <a id="mocodistributionstimeuniformUniformTimeDistributionsample"></a>
@@ -710,7 +710,7 @@ Initializes a UniformTimeDistribution object.
 - `min_t` _Float_ - The minimum time value.
 - `max_t` _Float_ - The maximum time value.
 - `discrete_time` _Bool_ - Whether the time is discrete.
-- `nsteps` _Optional\[int\]_ - Number of nsteps for discretization.
+- `nsteps` _Optional[int]_ - Number of nsteps for discretization.
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
 <a id="mocodistributionstimeuniformSymmetricUniformTimeDistributionsample"></a>
@@ -772,7 +772,7 @@ Initializes a BetaTimeDistribution object.
 - `min_t` _Float_ - The minimum time value.
 - `max_t` _Float_ - The maximum time value.
 - `discrete_time` _Bool_ - Whether the time is discrete.
-- `nsteps` _Optional\[int\]_ - Number of nsteps for discretization.
+- `nsteps` _Optional[int]_ - Number of nsteps for discretization.
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
 <a id="mocodistributionstimelogit_normalLogitNormalTimeDistributionsample"></a>
@@ -838,7 +838,7 @@ Initializes a BetaTimeDistribution object.
 - `min_t` _Float_ - The minimum time value.
 - `max_t` _Float_ - The maximum time value.
 - `discrete_time` _Bool_ - Whether the time is discrete.
-- `nsteps` _Optional\[int\]_ - Number of nsteps for discretization.
+- `nsteps` _Optional[int]_ - Number of nsteps for discretization.
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
 <a id="mocodistributionstimebetaBetaTimeDistributionsample"></a>
@@ -880,7 +880,7 @@ Convert a float time value to a time index.
 
 **Arguments**:
 
-- `time` _torch.Tensor_ - A tensor of float time values in the range \[0, 1\].
+- `time` _torch.Tensor_ - A tensor of float time values in the range [0, 1].
 - `num_time_steps` _int_ - The number of discrete time steps.
 
 **Returns**:
@@ -949,8 +949,8 @@ Public wrapper to generate the time schedule as a tensor.
 **Arguments**:
 
 - `t` _Tensor_ - The input tensor representing the time steps, with values ranging from 0 to 1.
-- `device` _Optional\[str\]_ - The device to place the schedule on. Defaults to "cpu".
-- `synchronize` _optional\[TimeDirection\]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction,
+- `device` _Optional[str]_ - The device to place the schedule on. Defaults to "cpu".
+- `synchronize` _optional[TimeDirection]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction,
   this parameter allows to flip the direction to match the specified one. Defaults to None.
 
 **Returns**:
@@ -1031,7 +1031,7 @@ beta = d/dt log(alpha\*\*2) = 2 * 1/alpha * d/dt(alpha)
 
 **Arguments**:
 
-- `t` _Union\[float, Tensor\]_ - t in \[0, 1\]
+- `t` _Union[float, Tensor]_ - t in [0, 1]
 
 **Returns**:
 
@@ -1093,8 +1093,8 @@ A cosine SNR schedule.
 
 **Arguments**:
 
-- `nu` _Optional\[Float\]_ - Hyperparameter for the cosine schedule exponent (default is 1.0).
-- `s` _Optional\[Float\]_ - Hyperparameter for the cosine schedule shift (default is 0.008).
+- `nu` _Optional[Float]_ - Hyperparameter for the cosine schedule exponent (default is 1.0).
+- `s` _Optional[Float]_ - Hyperparameter for the cosine schedule shift (default is 0.008).
 
 <a id="mocoschedulesnoisecontinuous_snr_transformsCosineSNRTransform__init__"></a>
 
@@ -1198,9 +1198,9 @@ Generate the noise schedule as a tensor.
 
 **Arguments**:
 
-- `nsteps` _Optional\[int\]_ - Number of time steps. If None, uses the value from initialization.
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
-- `synchronize` _Optional\[str\]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction,
+- `nsteps` _Optional[int]_ - Number of time steps. If None, uses the value from initialization.
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
+- `synchronize` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction,
   this parameter allows to flip the direction to match the specified one (default is None).
 
 <a id="mocoschedulesnoisediscrete_noise_schedulesDiscreteNoiseSchedulecalculate_derivative"></a>
@@ -1218,9 +1218,9 @@ Calculate the time derivative of the schedule.
 
 **Arguments**:
 
-- `nsteps` _Optional\[int\]_ - Number of time steps. If None, uses the value from initialization.
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
-- `synchronize` _Optional\[str\]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction,
+- `nsteps` _Optional[int]_ - Number of time steps. If None, uses the value from initialization.
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
+- `synchronize` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction,
   this parameter allows to flip the direction to match the specified one (default is None).
 
 **Returns**:
@@ -1254,8 +1254,8 @@ Initialize the CosineNoiseSchedule.
 **Arguments**:
 
 - `nsteps` _int_ - Number of discrete steps.
-- `nu` _Optional\[Float\]_ - Hyperparameter for the cosine schedule exponent (default is 1.0).
-- `s` _Optional\[Float\]_ - Hyperparameter for the cosine schedule shift (default is 0.008).
+- `nu` _Optional[Float]_ - Hyperparameter for the cosine schedule exponent (default is 1.0).
+- `s` _Optional[Float]_ - Hyperparameter for the cosine schedule shift (default is 0.008).
 
 <a id="mocoschedulesnoisediscrete_noise_schedulesDiscreteLinearNoiseSchedule"></a>
 
@@ -1279,9 +1279,9 @@ Initialize the CosineNoiseSchedule.
 
 **Arguments**:
 
-- `nsteps` _Optional\[int\]_ - Number of time steps. If None, uses the value from initialization.
-- `beta_start` _Optional\[int\]_ - starting beta value. Defaults to 1e-4.
-- `beta_end` _Optional\[int\]_ - end beta value. Defaults to 0.02.
+- `nsteps` _Optional[int]_ - Number of time steps. If None, uses the value from initialization.
+- `beta_start` _Optional[int]_ - starting beta value. Defaults to 1e-4.
+- `beta_end` _Optional[int]_ - end beta value. Defaults to 0.02.
 
 <a id="mocoschedulesnoise"></a>
 
@@ -1332,8 +1332,8 @@ Calculate the sigma for the given time steps.
 **Arguments**:
 
 - `t` _Tensor_ - The input tensor representing the time steps, with values ranging from 0 to 1.
-- `device` _Optional\[str\]_ - The device to place the schedule on. Defaults to "cpu".
-- `synchronize` _optional\[TimeDirection\]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction,
+- `device` _Optional[str]_ - The device to place the schedule on. Defaults to "cpu".
+- `synchronize` _optional[TimeDirection]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction,
   this parameter allows to flip the direction to match the specified one. Defaults to None.
 
 **Returns**:
@@ -1399,7 +1399,7 @@ Compute the derivative of sigma with respect to time.
 **Arguments**:
 
 - `t` _Tensor_ - The input tensor representing the time steps.
-- `device` _Optional\[str\]_ - The device to place the schedule on. Defaults to "cpu".
+- `device` _Optional[str]_ - The device to place the schedule on. Defaults to "cpu".
 
 **Returns**:
 
@@ -1454,7 +1454,7 @@ Compute the derivative of sigma with respect to time.
 **Arguments**:
 
 - `t` _Tensor_ - The input tensor representing the time steps.
-- `device` _Optional\[str\]_ - The device to place the schedule on. Defaults to "cpu".
+- `device` _Optional[str]_ - The device to place the schedule on. Defaults to "cpu".
 
 **Returns**:
 
@@ -1525,8 +1525,8 @@ Initialize the InferenceSchedule.
 - `min_t` _Float_ - minimum time value defaults to 0.
 - `padding` _Float_ - padding time value defaults to 0.
 - `dilation` _Float_ - dilation time value defaults to 0 ie the number of replicates.
-- `direction` _Optional\[str\]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `direction` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 <a id="mocoschedulesinference_time_schedulesInferenceSchedulegenerate_schedule"></a>
 
@@ -1543,8 +1543,8 @@ Generate the time schedule as a tensor.
 
 **Arguments**:
 
-- `nsteps` _Optioanl\[int\]_ - Number of time steps. If None, uses the value from initialization.
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `nsteps` _Optioanl[int]_ - Number of time steps. If None, uses the value from initialization.
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 <a id="mocoschedulesinference_time_schedulesInferenceSchedulepad_time"></a>
 
@@ -1562,7 +1562,7 @@ Creates a tensor of shape (n_samples,) filled with a scalar time value.
 
 - `n_samples` _int_ - The desired dimension of the output tensor.
 - `scalar_time` _Float_ - The scalar time value to fill the tensor with.
-  device (Optional\[Union\[str, torch.device\]\], optional):
+  device (Optional\[Union[str, torch.device]\], optional):
   The device to place the tensor on. Defaults to None, which uses the default device.
 
 **Returns**:
@@ -1602,8 +1602,8 @@ Initialize the ContinuousInferenceSchedule.
 - `min_t` _Float_ - minimum time value defaults to 0.
 - `padding` _Float_ - padding time value defaults to 0.
 - `dilation` _Float_ - dilation time value defaults to 0 ie the number of replicates.
-- `direction` _Optional\[str\]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `direction` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 <a id="mocoschedulesinference_time_schedulesContinuousInferenceSchedulediscretize"></a>
 
@@ -1619,9 +1619,9 @@ Discretize the time schedule into a list of time deltas.
 
 **Arguments**:
 
-- `nsteps` _Optioanl\[int\]_ - Number of time steps. If None, uses the value from initialization.
-- `schedule` _Optional\[Tensor\]_ - Time scheudle if None will generate it with generate_schedule.
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `nsteps` _Optioanl[int]_ - Number of time steps. If None, uses the value from initialization.
+- `schedule` _Optional[Tensor]_ - Time scheudle if None will generate it with generate_schedule.
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 **Returns**:
 
@@ -1650,8 +1650,8 @@ Discretize the time schedule into a list of time deltas.
 
 **Arguments**:
 
-- `nsteps` _Optioanl\[int\]_ - Number of time steps. If None, uses the value from initialization.
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `nsteps` _Optioanl[int]_ - Number of time steps. If None, uses the value from initialization.
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 **Returns**:
 
@@ -1688,8 +1688,8 @@ Initialize the DiscreteLinearInferenceSchedule.
 - `min_t` _Float_ - minimum time value defaults to 0.
 - `padding` _Float_ - padding time value defaults to 0.
 - `dilation` _Float_ - dilation time value defaults to 0 ie the number of replicates.
-- `direction` _Optional\[str\]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `direction` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 <a id="mocoschedulesinference_time_schedulesDiscreteLinearInferenceSchedulegenerate_schedule"></a>
 
@@ -1705,8 +1705,8 @@ Generate the linear time schedule as a tensor.
 
 **Arguments**:
 
-- `nsteps` _Optional\[int\]_ - Number of time steps. If None uses the value from initialization.
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `nsteps` _Optional[int]_ - Number of time steps. If None uses the value from initialization.
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 **Returns**:
 
@@ -1746,8 +1746,8 @@ Initialize the LinearInferenceSchedule.
 - `min_t` _Float_ - minimum time value defaults to 0.
 - `padding` _Float_ - padding time value defaults to 0.
 - `dilation` _Float_ - dilation time value defaults to 0 ie the number of replicates.
-- `direction` _Optional\[str\]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `direction` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 <a id="mocoschedulesinference_time_schedulesLinearInferenceSchedulegenerate_schedule"></a>
 
@@ -1763,8 +1763,8 @@ Generate the linear time schedule as a tensor.
 
 **Arguments**:
 
-- `nsteps` _Optional\[int\]_ - Number of time steps. If None uses the value from initialization.
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `nsteps` _Optional[int]_ - Number of time steps. If None uses the value from initialization.
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 **Returns**:
 
@@ -1805,8 +1805,8 @@ Initialize the PowerInferenceSchedule.
 - `padding` _Float_ - padding time value defaults to 0.
 - `dilation` _Float_ - dilation time value defaults to 0 ie the number of replicates.
 - `exponent` _Float_ - Power parameter defaults to 1.0.
-- `direction` _Optional\[str\]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `direction` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 <a id="mocoschedulesinference_time_schedulesPowerInferenceSchedulegenerate_schedule"></a>
 
@@ -1822,8 +1822,8 @@ Generate the power time schedule as a tensor.
 
 **Arguments**:
 
-- `nsteps` _Optional\[int\]_ - Number of time steps. If None uses the value from initialization.
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `nsteps` _Optional[int]_ - Number of time steps. If None uses the value from initialization.
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 **Returns**:
 
@@ -1881,8 +1881,8 @@ tensor(\[0.0000, 0.0455, 0.0889, 0.1303, 0.1699, 0.2077, 0.2439, 0.2783, 0.3113,
 - `padding` _Float_ - padding time value defaults to 0.
 - `dilation` _Float_ - dilation time value defaults to 0 ie the number of replicates.
 - `exponent` _Float_ - log space exponent parameter defaults to -2.0. The lower number the more aggressive the acceleration of 0 to 0.9 will be thus having more steps from 0.9 to 1.0.
-- `direction` _Optional\[str\]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `direction` _Optional[str]_ - TimeDirection to synchronize the schedule with. If the schedule is defined with a different direction, this parameter allows to flip the direction to match the specified one (default is None).
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 <a id="mocoschedulesinference_time_schedulesLogInferenceSchedulegenerate_schedule"></a>
 
@@ -1898,8 +1898,8 @@ Generate the log time schedule as a tensor.
 
 **Arguments**:
 
-- `nsteps` _Optional\[int\]_ - Number of time steps. If None uses the value from initialization.
-- `device` _Optional\[str\]_ - Device to place the schedule on (default is "cpu").
+- `nsteps` _Optional[int]_ - Number of time steps. If None uses the value from initialization.
+- `device` _Optional[str]_ - Device to place the schedule on (default is "cpu").
 
 <a id="mocointerpolantscontinuous_timediscrete"></a>
 
@@ -1982,7 +1982,7 @@ Initialize the Masked Discrete Language Model (MDLM) interpolant.
 - `prior_distribution` _DiscreteMaskedPrior_ - The prior distribution over the discrete token space, including masked tokens.
 - `noise_schedule` _ContinuousExpNoiseTransform_ - The noise schedule defining the noise intensity as a function of time.
 - `device` _str, optional_ - The device to use for computations. Defaults to "cpu".
-- `rng_generator` _Optional\[torch.Generator\], optional_ - The random number generator for reproducibility. Defaults to None.
+- `rng_generator` _Optional[torch.Generator], optional_ - The random number generator for reproducibility. Defaults to None.
 
 <a id="mocointerpolantscontinuous_timediscretemdlmMDLMinterpolate"></a>
 
@@ -2048,7 +2048,7 @@ certain times in the diffusion process.
 - `target` _Tensor_ - The target output for the model prediction, with shape batch x node.
 - `xt` _Tensor_ - The current state of the discrete sequence, with shape batch x node.
 - `time` _Tensor_ - The time at which the loss is calculated.
-- `mask` _Optional\[Tensor\], optional_ - The mask for the data point. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
 - `use_weight` _bool, optional_ - Whether to use the MDLM time weight for the loss. Defaults to True.
 - `global_mean` _bool, optional_ - All token losses are summed and divided by total token count. Examples with more tokens (longer sequences) implicitly contribute more to the loss. Defaults to False.
 
@@ -2206,8 +2206,8 @@ Self Path Planning (P2) Sampling from Peng et al. https://arxiv.org/html/2502.03
 - `logit_temperature` _float_ - Temperature for logits (default: 1.0).
 - `randomness` _float_ - Introduced randomness level (default: 1.0).
 - `confidence_temperature` _float_ - Temperature for confidence scoring (default: 1.0).
-- `score_type` _Literal\["confidence", "random"\]_ - Sampling score type (default: "confidence").
-- `fix_mask` _Optional\[Tensor\]_ - inital mask where True when not a mask tokens (default: None).
+- `score_type` _Literal["confidence", "random"]_ - Sampling score type (default: "confidence").
+- `fix_mask` _Optional[Tensor]_ - inital mask where True when not a mask tokens (default: None).
 
 **Returns**:
 
@@ -2235,12 +2235,12 @@ Generates a mask for the lowest scoring elements up to a specified cutoff length
 
 **Example**:
 
-> > > scores = torch.tensor(\[\[0.9, 0.8, 0.1, 0.05\], \[0.7, 0.4, 0.3, 0.2\]\])
+> > > scores = torch.tensor(\[[0.9, 0.8, 0.1, 0.05], [0.7, 0.4, 0.3, 0.2]\])
 > > > cutoff_len = 2
 > > > mask = topk_lowest_masking(scores, cutoff_len)
 > > > print(mask)
-> > > tensor(\[\[False, False, True, True\],
-> > > \[False, True, True, False\]\])
+> > > tensor(\[[False, False, True, True],
+> > > [False, True, True, False]\])
 
 <a id="mocointerpolantscontinuous_timediscretemdlmMDLMstochastic_sample_from_categorical"></a>
 
@@ -2344,7 +2344,7 @@ If `use_weight` is True, the loss is weighted by 1/(1-t) defined in equation 24 
 - `logits` _Tensor_ - The predicted output from the model, with shape batch x node x class.
 - `target` _Tensor_ - The target output for the model prediction, with shape batch x node.
 - `time` _Tensor_ - The time at which the loss is calculated.
-- `mask` _Optional\[Tensor\], optional_ - The mask for the data point. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
 - `use_weight` _bool, optional_ - Whether to use the DFM time weight for the loss. Defaults to True.
 
 **Returns**:
@@ -2494,8 +2494,8 @@ Initialize the OTSampler class.
 **Arguments**:
 
 - `method` _str_ - Choose which optimal transport solver you would like to use. Currently only support exact OT solvers (pot.emd).
-- `device` _Union\[str, torch.device\], optional_ - The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
-- `num_threads` _Union\[int, str\], optional_ - Number of threads to use for OT solver. If "max", uses the maximum number of threads. Default is 1.
+- `device` _Union[str, torch.device], optional_ - The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
+- `num_threads` _Union[int, str], optional_ - Number of threads to use for OT solver. If "max", uses the maximum number of threads. Default is 1.
 
 **Raises**:
 
@@ -2559,7 +2559,7 @@ Compute the OT matrix between a source and a target minibatch.
 
 - `x0` _Tensor_ - shape (bs, \*dim), noise from source minibatch.
 - `x1` _Tensor_ - shape (bs, \*dim), data from source minibatch.
-- `mask` _Optional\[Tensor\], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 
 **Returns**:
 
@@ -2588,7 +2588,7 @@ minibatch and draw source and target samples from pi $(x,z) \\sim \\pi$.
 
 - `x0` _Tensor_ - shape (bs, \*dim), noise from source minibatch.
 - `x1` _Tensor_ - shape (bs, \*dim), data from source minibatch.
-- `mask` _Optional\[Tensor\], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 - `replace` _bool_ - sampling w/ or w/o replacement from the OT plan, default to False.
 - `sort` _str_ - Optional Literal string to sort either x1 or x0 based on the input.
 
@@ -2628,8 +2628,8 @@ Initialize the OTSampler class.
 **Arguments**:
 
 - `method` _str_ - Choose which optimal transport solver you would like to use. Currently only support exact OT solvers (pot.emd).
-- `device` _Union\[str, torch.device\], optional_ - The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
-- `num_threads` _Union\[int, str\], optional_ - Number of threads to use for OT solver. If "max", uses the maximum number of threads. Default is 1.
+- `device` _Union[str, torch.device], optional_ - The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
+- `num_threads` _Union[int, str], optional_ - Number of threads to use for OT solver. If "max", uses the maximum number of threads. Default is 1.
 
 **Raises**:
 
@@ -2712,7 +2712,7 @@ Compute the OT matrix between a source and a target minibatch.
 
 - `x0` _Tensor_ - shape (bs, \*dim), noise from source minibatch.
 - `x1` _Tensor_ - shape (bs, \*dim), data from source minibatch.
-- `mask` _Optional\[Tensor\], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 
 **Returns**:
 
@@ -2742,7 +2742,7 @@ minibatch and draw source and target samples from pi $(x,z) \\sim \\pi$.
 
 - `x0` _Tensor_ - shape (bs, \*dim), noise from source minibatch.
 - `x1` _Tensor_ - shape (bs, \*dim), data from source minibatch.
-- `mask` _Optional\[Tensor\], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 - `replace` _bool_ - sampling w/ or w/o replacement from the OT plan, default to False.
 - `sort` _str_ - Optional Literal string to sort either x1 or x0 based on the input.
 
@@ -2839,7 +2839,7 @@ minibatch and draw source and target samples from pi $(x,z) \\sim \\pi$.
 
 - `x0` _Tensor_ - shape (bs, \*dim), noise from source minibatch.
 - `x1` _Tensor_ - shape (bs, \*dim), data from source minibatch.
-- `mask` _Optional\[Tensor\], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 - `replace` _bool_ - sampling w/ or w/o replacement from the OT plan, default to False.
 - `align_noise_to_data` _bool_ - Direction of alignment default is True meaning it augments Noise to reduce error to Data.
 
@@ -2865,8 +2865,8 @@ class AugmentationType(Enum)
 
 An enumeration representing the type ofOptimal Transport that can be used in Continuous Flow Matching.
 
-- **EXACT_OT**: Standard mini batch optimal transport defined in  https://arxiv.org/pdf/2302.00482.
-- **EQUIVARIANT_OT**: Adding roto/translation optimization to mini batch OT see https://arxiv.org/pdf/2306.15030  https://arxiv.org/pdf/2312.07168 4.2.
+- **EXACT_OT**: Standard mini batch optimal transport defined in https://arxiv.org/pdf/2302.00482.
+- **EQUIVARIANT_OT**: Adding roto/translation optimization to mini batch OT see https://arxiv.org/pdf/2306.15030 https://arxiv.org/pdf/2312.07168 4.2.
 - **KABSCH**: Simple Kabsch alignment between each data and noise point, No permuation # https://arxiv.org/pdf/2410.22388 Sec 3.2
 
 These prediction types can be used to train neural networks for specific tasks, such as denoising, image synthesis, or time-series forecasting.
@@ -3064,7 +3064,7 @@ Do one step integration.
 - `xt` _Tensor_ - The current data point.
 - `t` _Tensor_ - The current time step.
 - `dt` _Tensor_ - The time step increment.
-- `mask` _Optional\[Tensor\], optional_ - An optional mask to apply to the data. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - An optional mask to apply to the data. Defaults to None.
 - `center` _bool_ - Whether to center the data. Defaults to False.
 - `temperature` _Float_ - The temperature parameter for low temperature sampling. Defaults to 1.0.
 
@@ -3110,7 +3110,7 @@ def step_ddim(model_out: Tensor,
 
 Do one step of DDIM sampling.
 
-From the ddpm equations alpha_bar = alpha**2 and  1 - alpha**2 = sigma\*\*2
+From the ddpm equations alpha_bar = alpha**2 and 1 - alpha**2 = sigma\*\*2
 
 **Arguments**:
 
@@ -3118,7 +3118,7 @@ From the ddpm equations alpha_bar = alpha**2 and  1 - alpha**2 = sigma\*\*2
 - `t` _Tensor_ - current time step
 - `xt` _Tensor_ - current data point
 - `dt` _Tensor_ - The time step increment.
-- `mask` _Optional\[Tensor\], optional_ - mask for the data point. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - mask for the data point. Defaults to None.
 - `eta` _Float, optional_ - DDIM sampling parameter. Defaults to 0.0.
 - `center` _Bool, optional_ - whether to center the data point. Defaults to False.
 
@@ -3191,8 +3191,8 @@ Calculates the loss given the model prediction, target, and time.
 - `model_pred` _Tensor_ - The predicted output from the model.
 - `target` _Tensor_ - The target output for the model prediction.
 - `t` _Tensor_ - The time at which the loss is calculated.
-- `dt` _Optional\[Float\], optional_ - The time step increment. Defaults to 0.001.
-- `mask` _Optional\[Tensor\], optional_ - The mask for the data point. Defaults to None.
+- `dt` _Optional[Float], optional_ - The time step increment. Defaults to 0.001.
+- `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
 - `weight_type` _str, optional_ - The type of weight to use for the loss. Can be "ones", "data_to_noise", or "variational_objective". Defaults to "ones".
 
 **Returns**:
@@ -3225,10 +3225,10 @@ and https://github.com/generatebio/chroma/blob/929407c605013613941803c6113adefdc
 - `xt` _Tensor_ - The current data point.
 - `t` _Tensor_ - The current time step.
 - `dt` _Tensor_ - The time step increment.
-- `mask` _Optional\[Tensor\], optional_ - An optional mask to apply to the data. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - An optional mask to apply to the data. Defaults to None.
 - `center` _bool, optional_ - Whether to center the data. Defaults to False.
 - `temperature` _Float, optional_ - The temperature parameter for low temperature sampling. Defaults to 1.0.
-- `equilibrium_rate` _Float, optional_ - The rate of Langevin equilibration.  Scales the amount of Langevin dynamics per unit time. Best values are in the range \[1.0, 5.0\]. Defaults to 0.0.
+- `equilibrium_rate` _Float, optional_ - The rate of Langevin equilibration. Scales the amount of Langevin dynamics per unit time. Best values are in the range [1.0, 5.0]. Defaults to 0.0.
 
 **Notes**:
 
@@ -3260,7 +3260,7 @@ and https://github.com/generatebio/chroma/blob/929407c605013613941803c6113adefdc
 - `xt` _Tensor_ - The current data point.
 - `t` _Tensor_ - The current time step.
 - `dt` _Tensor_ - The time step increment.
-- `mask` _Optional\[Tensor\], optional_ - An optional mask to apply to the data. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - An optional mask to apply to the data. Defaults to None.
 - `center` _bool, optional_ - Whether to center the data. Defaults to False.
 - `temperature` _Float, optional_ - The temperature parameter for low temperature sampling. Defaults to 1.0.
 
@@ -3344,10 +3344,10 @@ Initializes the Continuous Flow Matching interpolant.
 - `prior_distribution` _PriorDistribution_ - The prior distribution of the variable, used as the starting point for the diffusion process.
 - `prediction_type` _PredictionType, optional_ - The type of prediction, either "flow" or another type. Defaults to PredictionType.DATA.
 - `sigma` _Float, optional_ - The standard deviation of the Gaussian noise added to the interpolated data. Defaults to 0.
-- `augmentation_type` _Optional\[Union\[AugmentationType, str\]\], optional_ - The type of optimal transport, if applicable. Defaults to None.
+- `augmentation_type` _Optional\[Union[AugmentationType, str]\], optional_ - The type of optimal transport, if applicable. Defaults to None.
 - `augmentation_num_threads` - Number of threads to use for OT solver. If "max", uses the maximum number of threads. Default is 1.
 - `data_scale` _Float, optional_ - The scale factor for the data. Defaults to 1.0.
-- `device` _Union\[str, torch.device\], optional_ - The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
+- `device` _Union[str, torch.device], optional_ - The device on which to run the interpolant, either "cpu" or a CUDA device (e.g. "cuda:0"). Defaults to "cpu".
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 - `eps` - Small float to prevent divide by zero
 
@@ -3368,7 +3368,7 @@ Sample and apply the optimal transport plan between batched (and masked) x0 and 
 
 - `x0` _Tensor_ - shape (bs, \*dim), noise from source minibatch.
 - `x1` _Tensor_ - shape (bs, \*dim), data from source minibatch.
-- `mask` _Optional\[Tensor\], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 - `**kwargs` - Additional keyword arguments to be passed to self.augmentation_sampler.apply_augmentation or handled within this method.
 
 **Returns**:
@@ -3448,7 +3448,7 @@ Get the target vector field at time t.
 
 - `noise` _Tensor_ - noise from prior(), shape (batchsize, nodes, features)
 - `data` _Tensor_ - target, shape (batchsize, nodes, features)
-- `mask` _Optional\[Tensor\], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - mask to apply to the output, shape (batchsize, nodes), if not provided no mask is applied. Defaults to None.
 
 **Returns**:
 
@@ -3472,7 +3472,7 @@ Process the model output based on the prediction type to calculate vecotr field.
 - `model_output` _Tensor_ - The output of the model.
 - `xt` _Tensor_ - The input sample.
 - `t` _Tensor_ - The time step.
-- `mask` _Optional\[Tensor\], optional_ - An optional mask to apply to the model output. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - An optional mask to apply to the model output. Defaults to None.
 
 **Returns**:
 
@@ -3500,7 +3500,7 @@ Process the model output based on the prediction type to generate clean data.
 - `model_output` _Tensor_ - The output of the model.
 - `xt` _Tensor_ - The input sample.
 - `t` _Tensor_ - The time step.
-- `mask` _Optional\[Tensor\], optional_ - An optional mask to apply to the model output. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - An optional mask to apply to the model output. Defaults to None.
 
 **Returns**:
 
@@ -3531,7 +3531,7 @@ Perform a single ODE step integration using Euler method.
 - `xt` _Tensor_ - The current intermediate state.
 - `dt` _Tensor_ - The time step size.
 - `t` _Tensor, optional_ - The current time. Defaults to None.
-- `mask` _Optional\[Tensor\], optional_ - A mask to apply to the model output. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - A mask to apply to the model output. Defaults to None.
 - `center` _Bool, optional_ - Whether to center the output. Defaults to False.
 
 **Returns**:
@@ -3564,7 +3564,7 @@ def step_score_stochastic(model_out: Tensor,
 
 Perform a single SDE step integration using a score-based Langevin update.
 
-d x_t = \[v(x_t, t) + g(t) * s(x_t, t) * score_temperature\] dt + \\sqrt{2 * g(t) * noise_temperature} dw_t.
+d x_t = [v(x_t, t) + g(t) * s(x_t, t) * score_temperature] dt + \\sqrt{2 * g(t) * noise_temperature} dw_t.
 
 **Arguments**:
 
@@ -3572,7 +3572,7 @@ d x_t = \[v(x_t, t) + g(t) * s(x_t, t) * score_temperature\] dt + \\sqrt{2 * g(t
 - `xt` _Tensor_ - The current intermediate state.
 - `dt` _Tensor_ - The time step size.
 - `t` _Tensor, optional_ - The current time. Defaults to None.
-- `mask` _Optional\[Tensor\], optional_ - A mask to apply to the model output. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - A mask to apply to the model output. Defaults to None.
 - `gt_mode` _str, optional_ - The mode for the gt function. Defaults to "tan".
 - `gt_p` _Float, optional_ - The parameter for the gt function. Defaults to 1.0.
 - `gt_clamp` - (Float, optional): Upper limit of gt term. Defaults to None.
@@ -3613,9 +3613,9 @@ This functions supports any cominbation of prediction_type and target_type in {D
 
 - `model_pred` _Tensor_ - The predicted output from the model.
 - `target` _Tensor_ - The target output for the model prediction.
-- `t` _Optional\[Tensor\], optional_ - The time for the model prediction. Defaults to None.
-- `xt` _Optional\[Tensor\], optional_ - The interpolated data. Defaults to None.
-- `mask` _Optional\[Tensor\], optional_ - The mask for the data point. Defaults to None.
+- `t` _Optional[Tensor], optional_ - The time for the model prediction. Defaults to None.
+- `xt` _Optional[Tensor], optional_ - The interpolated data. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
 - `target_type` _PredictionType, optional_ - The type of the target output. Defaults to PredictionType.DATA.
 
 **Returns**:
@@ -3644,13 +3644,13 @@ with scale_ref = 1
 
 **Arguments**:
 
-- `x_t` - Noisy sample, shape \[\*, dim\]
-- `v` - Vector field, shape \[\*, dim\]
-- `t` - Interpolation time, shape \[\*\] (must be \< 1)
+- `x_t` - Noisy sample, shape [\*, dim]
+- `v` - Vector field, shape [\*, dim]
+- `t` - Interpolation time, shape [\*] (must be < 1)
 
 **Returns**:
 
-Score of intermediate density, shape \[\*, dim\].
+Score of intermediate density, shape [\*, dim].
 
 <a id="mocointerpolantscontinuous_timecontinuouscontinuous_flow_matchingContinuousFlowMatcherget_gt"></a>
 
@@ -3668,7 +3668,7 @@ From Geffner et al. Computes gt for different modes.
 
 **Arguments**:
 
-- `t` - times where we'll evaluate, covers \[0, 1), shape \[nsteps\]
+- `t` - times where we'll evaluate, covers \[0, 1), shape [nsteps]
 - `mode` - "us" or "tan"
 - `param` - parameterized transformation
 - `clamp_val` - value to clamp gt, no clamping if None
@@ -3839,7 +3839,7 @@ This step involves:
 - `model_out` _Tensor_ - The output of the model at the current time step, which is used to compute the predicted q-posterior logits.
 - `t` _Tensor_ - The current time step, which is used to index into the transition matrices and compute the predicted q-posterior logits.
 - `xt` _Tensor_ - The current discrete state at time `t`, which is used to compute the predicted q-posterior logits and sample the next state.
-- `mask` _Optional\[Tensor\], optional_ - An optional mask to apply to the next state, which can be used to mask out certain tokens or regions. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - An optional mask to apply to the next state, which can be used to mask out certain tokens or regions. Defaults to None.
 - `temperature` _Float, optional_ - The temperature to use for the Gumbel-Softmax trick, which controls the randomness of the sampling process. Defaults to 1.0.
 - `model_out_is_logits` _bool, optional_ - A flag indicating whether the model output is already in logits form. If True, the output is assumed to be logits; otherwise, it is converted to logits. Defaults to True.
 
@@ -3872,7 +3872,7 @@ calculated and added to the total loss.
 - `target` _Tensor_ - The target output for the model prediction, with shape batch x node.
 - `xt` _Tensor_ - The current data point.
 - `time` _Tensor_ - The time at which the loss is calculated.
-- `mask` _Optional\[Tensor\], optional_ - The mask for the data point. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
 - `vb_scale` _Float, optional_ - The scale factor for the variational lower bound loss. Defaults to 0.0.
 
 **Returns**:
@@ -4171,7 +4171,7 @@ Do one step integration.
 - `model_out` _Tensor_ - The output of the model.
 - `t` _Tensor_ - The current time step.
 - `xt` _Tensor_ - The current data point.
-- `mask` _Optional\[Tensor\], optional_ - An optional mask to apply to the data. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - An optional mask to apply to the data. Defaults to None.
 - `center` _bool, optional_ - Whether to center the data. Defaults to False.
 - `temperature` _Float, optional_ - The temperature parameter for low temperature sampling. Defaults to 1.0.
 
@@ -4179,8 +4179,8 @@ Do one step integration.
 
 The temperature parameter controls the level of randomness in the sampling process. A temperature of 1.0 corresponds to standard diffusion sampling, while lower temperatures (e.g. 0.5, 0.2) result in less random and more deterministic samples. This can be useful for tasks that require more control over the generation process.
 
-Note for discrete time we sample from \[T-1, ..., 1, 0\] for T steps so we sample t = 0 hence the mask.
-For continuous time we start from \[1, 1 -dt, ..., dt\] for T steps where s = t - 1 when t = 0 i.e dt is then 0
+Note for discrete time we sample from [T-1, ..., 1, 0] for T steps so we sample t = 0 hence the mask.
+For continuous time we start from [1, 1 -dt, ..., dt] for T steps where s = t - 1 when t = 0 i.e dt is then 0
 
 <a id="mocointerpolantsdiscrete_timecontinuousddpmDDPMstep_noise"></a>
 
@@ -4202,7 +4202,7 @@ Do one step integration.
 - `model_out` _Tensor_ - The output of the model.
 - `t` _Tensor_ - The current time step.
 - `xt` _Tensor_ - The current data point.
-- `mask` _Optional\[Tensor\], optional_ - An optional mask to apply to the data. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - An optional mask to apply to the data. Defaults to None.
 - `center` _bool, optional_ - Whether to center the data. Defaults to False.
 - `temperature` _Float, optional_ - The temperature parameter for low temperature sampling. Defaults to 1.0.
 
@@ -4213,8 +4213,8 @@ A temperature of 1.0 corresponds to standard diffusion sampling, while lower tem
 result in less random and more deterministic samples. This can be useful for tasks
 that require more control over the generation process.
 
-Note for discrete time we sample from \[T-1, ..., 1, 0\] for T steps so we sample t = 0 hence the mask.
-For continuous time we start from \[1, 1 -dt, ..., dt\] for T steps where s = t - 1 when t = 0 i.e dt is then 0
+Note for discrete time we sample from [T-1, ..., 1, 0] for T steps so we sample t = 0 hence the mask.
+For continuous time we start from [1, 1 -dt, ..., dt] for T steps where s = t - 1 when t = 0 i.e dt is then 0
 
 <a id="mocointerpolantsdiscrete_timecontinuousddpmDDPMscore"></a>
 
@@ -4256,7 +4256,7 @@ Do one step of DDIM sampling.
 - `model_out` _Tensor_ - output of the model
 - `t` _Tensor_ - current time step
 - `xt` _Tensor_ - current data point
-- `mask` _Optional\[Tensor\], optional_ - mask for the data point. Defaults to None.
+- `mask` _Optional[Tensor], optional_ - mask for the data point. Defaults to None.
 - `eta` _Float, optional_ - DDIM sampling parameter. Defaults to 0.0.
 - `center` _Bool, optional_ - whether to center the data point. Defaults to False.
 
@@ -4325,8 +4325,8 @@ to noise prediction. noise_to_data is provided for a similar reason for complete
 - `model_pred` _Tensor_ - The predicted output from the model.
 - `target` _Tensor_ - The target output for the model prediction.
 - `t` _Tensor_ - The time at which the loss is calculated.
-- `mask` _Optional\[Tensor\], optional_ - The mask for the data point. Defaults to None.
-- `weight_type` _Literal\["ones", "data_to_noise", "noise_to_data"\]_ - The type of weight to use for the loss. Defaults to "ones".
+- `mask` _Optional[Tensor], optional_ - The mask for the data point. Defaults to None.
+- `weight_type` _Literal["ones", "data_to_noise", "noise_to_data"]_ - The type of weight to use for the loss. Defaults to "ones".
 
 **Returns**:
 
@@ -4354,7 +4354,7 @@ def safe_index(tensor: Tensor, index: Tensor, device: Optional[torch.device])
 
 Safely indexes a tensor using a given index and returns the result on a specified device.
 
-Note can implement forcing with  return tensor\[index.to(tensor.device)\].to(device) but has costly migration.
+Note can implement forcing with return tensor[index.to(tensor.device)].to(device) but has costly migration.
 
 **Arguments**:
 
@@ -4387,8 +4387,8 @@ Converts a string to an enum value of the specified type. If the input is alread
 
 **Arguments**:
 
-- `value` _Union\[str, E\]_ - The string to convert or an existing enum instance.
-- `enum_type` _Type\[E\]_ - The enum type to convert to.
+- `value` _Union[str, E]_ - The string to convert or an existing enum instance.
+- `enum_type` _Type[E]_ - The enum type to convert to.
 
 **Returns**:
 
@@ -4423,9 +4423,9 @@ Pads the dimensions of the source tensor to match the dimensions of the target t
 
 **Example**:
 
-> > > source = torch.tensor(\[1, 2, 3\])  # shape: (3,)
-> > > target = torch.tensor(\[\[1, 2\], \[4, 5\], \[7, 8\]\])  # shape: (3, 2)
-> > > padded_source = pad_like(source, target)  # shape: (3, 1)
+> > > source = torch.tensor([1, 2, 3]) # shape: (3,)
+> > > target = torch.tensor(\[[1, 2], [4, 5], [7, 8]\]) # shape: (3, 2)
+> > > padded_source = pad_like(source, target) # shape: (3, 1)
 
 <a id="mocointerpolantsbase_interpolantPredictionType"></a>
 
@@ -4476,7 +4476,7 @@ Initializes the Interpolant class.
 
 - `time_distribution` _TimeDistribution_ - The distribution of time steps.
 - `prior_distribution` _PriorDistribution_ - The prior distribution of the variable.
-- `device` _Union\[str, torch.device\], optional_ - The device on which to operate. Defaults to "cpu".
+- `device` _Union[str, torch.device], optional_ - The device on which to operate. Defaults to "cpu".
 - `rng_generator` - An optional :class:`torch.Generator` for reproducible sampling. Defaults to None.
 
 <a id="mocointerpolantsbase_interpolantInterpolantinterpolate"></a>

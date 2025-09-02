@@ -180,8 +180,8 @@ def create_buckets(sizes: torch.Tensor, max_width: int,
 Create buckets for a list of integers with pre-defined maximal width of interval and minimal bucket count.
 
 It will return a named tuple containing the bucket boundaries and the actual bucket sizes.
-e.g. torch.tensor(\[0, 5, 7\]), torch.tensor(\[3,2\]): specifies 2 buckets: one with range 0\<= sizes \< 5, width=5 and 3 elements
-and the other one with range 5 \<= sizes \< 7, width=2 and 2 elements.
+e.g. torch.tensor([0, 5, 7]), torch.tensor([3,2]): specifies 2 buckets: one with range 0\<= sizes < 5, width=5 and 3 elements
+and the other one with range 5 \<= sizes < 7, width=2 and 2 elements.
 
 **Arguments**:
 
@@ -432,7 +432,7 @@ Then, a base batch sampler is used for each bucket to create mini-batches.
 
 The bucket ranges are specified by `bucket_boundaries`, which will be first sorted internally and used to create
 `len(bucket_boundaries) - 1` left-closed right-open intervals.
-e.g. if bucket_boundaries tensor is \[10, 5, 0, 16\], it will be sorted as \[0, 5, 10, 16\] and 3 buckets will be created
+e.g. if bucket_boundaries tensor is [10, 5, 0, 16], it will be sorted as [0, 5, 10, 16] and 3 buckets will be created
 with ranges: \[0, 5), \[5, 10), \[10, 16).
 
 The base batch sampler will be created by passing the element indices in each bucket as the data source, and
@@ -537,12 +537,12 @@ Initializes the BucketBatchSampler.
 - `base_batch_sampler_class` - Base batch sampler class type, which will be used for each bucket, and initialized with the bucket element indices,
   `base_batch_sampler_shared_kwargs` and the corresponding `base_batch_sampler_individual_kwargs`.
 - `base_batch_sampler_shared_kwargs` - Shared keyword argument dictionary used to initialize all base batch samplers for all buckets.
-  Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to  {}.
+  Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_individual_kwargs`. Default to {}.
 - `base_batch_sampler_individual_kwargs` - Keyword argument dictionary used to initialize
   each bucket batch sampler with the corresponding key value pairs.
   Length of each value in this dict must be equal to len(bucket_boundaries) - 1 (the number of buckets).
   Sufficient and valid arguments should be provided for `base_batch_sampler_class` with `base_batch_sampler_shared_kwargs`.
-  Default to  {}.
+  Default to {}.
 - `shuffle` - A boolean indicating whether to shuffle the dataset and buckets. Defaults to True.
 - `generator` - Generator used in sampling. Defaults to None.
 

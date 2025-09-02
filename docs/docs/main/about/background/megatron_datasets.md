@@ -13,10 +13,10 @@ would apply different random masks or different data augmentation strategies eac
 provides some utilities that make multi-epoch training easier, while obeying the determinism requirements of
 megatron.
 
-The \[MultiEpochDatasetResampler\]\[bionemo.core.data.multi_epoch_dataset.MultiEpochDatasetResampler\] class simplifies the
+The [MultiEpochDatasetResampler][bionemo.core.data.multi_epoch_dataset.MultiEpochDatasetResampler] class simplifies the
 process of multi-epoch training, where the data should both be re-shuffled each epoch with different random effects
 applied each time the data is seen. To be compatible with this resampler, the provided dataset class's `__getitem__`
-method should accept a \[EpochIndex\]\[bionemo.core.data.multi_epoch_dataset.EpochIndex\] tuple that contains both an epoch
+method should accept a [EpochIndex][bionemo.core.data.multi_epoch_dataset.EpochIndex] tuple that contains both an epoch
 and index value. Random effects can then be performed by setting the torch random seed based on the epoch value:
 
 ```python
@@ -37,9 +37,9 @@ details.
 ```
 
 For deterministic datasets that still want to train for multiple epochs with epoch-level shuffling, the
-\[IdentityMultiEpochDatasetWrapper\]\[bionemo.core.data.multi_epoch_dataset.IdentityMultiEpochDatasetWrapper\] class can
+[IdentityMultiEpochDatasetWrapper][bionemo.core.data.multi_epoch_dataset.IdentityMultiEpochDatasetWrapper] class can
 simplify this process by wrapping a dataset that accepts integer indices and passes along the
-\[EpochIndex\]\[bionemo.core.data.multi_epoch_dataset.EpochIndex\] index values from the resampled dataset.
+[EpochIndex][bionemo.core.data.multi_epoch_dataset.EpochIndex] index values from the resampled dataset.
 
 ```python
 class MyDeterministicDataset:
@@ -53,7 +53,7 @@ for sample in MultiEpochDatasetResampler(dataset, num_epochs=3, shuffle=True):
 
 ## Training Resumption
 
-To ensure identical behavior with and without job interruption, BioNeMo provides \[MegatronDataModule\]\[bionemo.llm.data.datamodule.MegatronDataModule\] to save and load state dict for training resumption, and provides \[WrappedDataLoader\]\[nemo.lightning.data.WrappedDataLoader\] to add a `mode` attribute to \[DataLoader\]\[torch.utils.data.DataLoader\].
+To ensure identical behavior with and without job interruption, BioNeMo provides [MegatronDataModule][bionemo.llm.data.datamodule.MegatronDataModule] to save and load state dict for training resumption, and provides [WrappedDataLoader][nemo.lightning.data.WrappedDataLoader] to add a `mode` attribute to [DataLoader][torch.utils.data.DataLoader].
 
 ```python
 class MyDataModule(MegatronDataModule):
@@ -100,7 +100,7 @@ WARNING: 'train' is the default value of `mode` in `WrappedDataLoader`. If not s
 ## Testing Datasets for Megatron Compatibility
 
 BioNeMo also provides utility functions for test suites to validate that datasets conform to the megatron data model.
-The \[assert_dataset_compatible_with_megatron\]\[bionemo.testing.data_utils.assert_dataset_compatible_with_megatron\]
+The [assert_dataset_compatible_with_megatron][bionemo.testing.data_utils.assert_dataset_compatible_with_megatron]
 function calls the dataset with identical indices and ensures the outputs are identical, while also checking to see if
 `torch.manual_seed` was used.
 

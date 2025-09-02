@@ -89,7 +89,7 @@ Evo is able to perform zero-shot function prediction for genes. Evo also can per
 
 - NVIDIA Hopper
 
-**\[Preferred/Supported\] Operating System(s):**
+**[Preferred/Supported] Operating System(s):**
 
 - Linux
 
@@ -134,7 +134,7 @@ _NCBI Eukaryotic reference genomes_
 Link: [Mash: fast genome and metagenome distance estimation using MinHash](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-016-0997-x)
 Data Collection Method: Automatic/Sensors/Human
 Labeling Method by dataset: Automatic
-All available eukaryotic reference genomes were downloaded from NCBI on 05/32/2024, excluding atypical genomes, metagenome-assembled genomes, and genomes from large multi-isolate projects. This resulted in 16,704 genomes including an estimated ~10.7 trillion nucleotides. Only contigs that were annotated as 'Primary Assembly', 'non-nuclear', or 'aGasCar1.hap1' (an aberrant annotation that applied only to GCA_027917425.1) were retained. Mash sketch was run on each individual genome with the flag "-s 10000" and the mash distance was calculated between all genomes as an estimate for their pairwise 1-ANI (average nucleotide identity). All genomes with a mash distance \< 0.01 were joined with edges in a graph, and clusters were identified by finding connected components. One representative genome per cluster was chosen, prioritizing genomes with a higher assembly level and genomes with longer total sequence length. This clustering resulted in 15,148 candidate genomes. Genomes were further filtered by removing ambiguous nucleotides at the termini of each contig, by removing regions annotated as "centromere" in an available GFF file, and by removing contigs that were less than 10 kb in total length. Finally, contigs that were composed of more than 5% ambiguous nucleotides were removed. This final filtered set included 15,032 genomes and 6.98 trillion nucleotides.
+All available eukaryotic reference genomes were downloaded from NCBI on 05/32/2024, excluding atypical genomes, metagenome-assembled genomes, and genomes from large multi-isolate projects. This resulted in 16,704 genomes including an estimated ~10.7 trillion nucleotides. Only contigs that were annotated as 'Primary Assembly', 'non-nuclear', or 'aGasCar1.hap1' (an aberrant annotation that applied only to GCA_027917425.1) were retained. Mash sketch was run on each individual genome with the flag "-s 10000" and the mash distance was calculated between all genomes as an estimate for their pairwise 1-ANI (average nucleotide identity). All genomes with a mash distance < 0.01 were joined with edges in a graph, and clusters were identified by finding connected components. One representative genome per cluster was chosen, prioritizing genomes with a higher assembly level and genomes with longer total sequence length. This clustering resulted in 15,148 candidate genomes. Genomes were further filtered by removing ambiguous nucleotides at the termini of each contig, by removing regions annotated as "centromere" in an available GFF file, and by removing contigs that were less than 10 kb in total length. Finally, contigs that were composed of more than 5% ambiguous nucleotides were removed. This final filtered set included 15,032 genomes and 6.98 trillion nucleotides.
 
 _Bridge Metagenomic Data_
 Link: [Bridge RNAs direct programmable recombination of target and donor DNA](https://www.nature.com/articles/s41586-024-07552-4)

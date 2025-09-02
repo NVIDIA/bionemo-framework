@@ -410,7 +410,7 @@ a fruitful interaction across the team members.
   that will allow other platforms to continue working.
 
 - Don't write commit messages that are vague or wouldn't make sense to
-  partners that read the logs. For example, do not write "\[topic\]
+  partners that read the logs. For example, do not write "[topic]
   Bugfix" as your header in the commit message. Keep links to videos
   out of the commit message. Again, partners are going to see these
   logs and it does not make sense to link to something they will not

@@ -48,6 +48,7 @@ from nemo.utils.exp_manager import TimingCallback
 
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.run.peft import Evo2LoRA
+from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
 from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
@@ -462,9 +463,9 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Dropout probability for the attention layers.",
     )
     parser.add_argument(
-        "--use-b2b-causal-conv1d",
+        "--use-subquadratic_ops",
         action="store_true",
-        help="Use back-to-back causal convolution CUDA kernel for hyena short conv layers for improved performance.",
+        help="Use subquadratic_ops for improved performance.",
     )
     parser.add_argument(
         "--save-top-k",
@@ -505,6 +506,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Skip checking for NaNs in gradients. Only use this for debugging purposes.",
+    )
+    parser.add_argument(
+        "--garbage-collect-at-inference",
+        action="store_true",
+        default=False,
+        help="Enable CUDA memory cleanup before validation to prevent initialization errors.",
     )
 
     recompute_group = parser.add_mutually_exclusive_group(required=False)
@@ -597,8 +604,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         config_modifiers_init["ffn_hidden_size"] = args.ffn_hidden_size
     if args.use_targeted_variance_loss:
         config_modifiers_init["use_targeted_variance_loss"] = True
-    if args.use_b2b_causal_conv1d:
-        config_modifiers_init["use_b2b_causal_conv1d"] = True
+    if args.use_subquadratic_ops:
+        config_modifiers_init["use_subquadratic_ops"] = True
     if args.hybrid_override_pattern:
         config_modifiers_init["hybrid_override_pattern"] = args.hybrid_override_pattern
     if args.num_layers:
@@ -644,6 +651,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         TimingCallback(),
         TEVCallback(),
     ]
+
+    if args.garbage_collect_at_inference:
+        callbacks.append(GarbageCollectAtInferenceTime())
 
     if args.lora_finetune:
         callbacks.append(ModelTransform())

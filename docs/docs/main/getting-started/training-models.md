@@ -25,7 +25,7 @@ bionemo-esm2-train
 
 ### Running
 
-First off, we have a utility function for downloading full/test data and model checkpoints called `download_bionemo_data` that our following examples currently use. This will download the object if it is not already on your local system,  and then return the path either way. For example if you run this twice in a row, you should expect the second time you run it to return the path almost instantly.
+First off, we have a utility function for downloading full/test data and model checkpoints called `download_bionemo_data` that our following examples currently use. This will download the object if it is not already on your local system, and then return the path either way. For example if you run this twice in a row, you should expect the second time you run it to return the path almost instantly.
 
 **NOTE**: NVIDIA employees should use `pbss` rather than `ngc` for the data source.
 

@@ -166,7 +166,7 @@ Constructor.
   Kwargs:
 - `prefix_tars_wds` - name prefix of the input webdataset tar
   files. The input tar files are globbed by
-  "{dirs_tars_wds\[split\]}/{prefix_tars_wds}-\*.tar"
+  "{dirs_tars_wds[split]}/{prefix_tars_wds}-\*.tar"
 - `pipeline_wds` - a dictionary of webdatast composable, i.e.,
   functor that maps a iterator to another iterator that
   transforms the data sample yield from the dataset object, for

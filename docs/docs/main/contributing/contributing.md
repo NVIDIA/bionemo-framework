@@ -12,7 +12,7 @@ sufficient code review before being merged.
 ## Developer Certificate of Origin (DCO)
 
 We require that all contributors "sign-off" on their commits (not GPG signing, just adding the `-s | --signoff`
-argument, or follow the instructions below for auto-signing). This sign-off certifies that you adhere to the  Developer
+argument, or follow the instructions below for auto-signing). This sign-off certifies that you adhere to the Developer
 Certificate of Origin (DCO) ([full text](https://developercertificate.org/)); in short that the contribution is your
 original work, or you have rights to submit it under the same license or a compatible license.
 
@@ -171,7 +171,7 @@ For both internal and external developers, the next step is opening a PR:
      Note that versioned releases of TensorRT OSS are posted to `release/` branches of the upstream repo.
    - Creation of a PR creation kicks off the code review process.
    - At least one TensorRT engineer will be assigned for the review.
-   - While under review, mark your PRs as work-in-progress by prefixing the PR title with \[WIP\].
+   - While under review, mark your PRs as work-in-progress by prefixing the PR title with [WIP].
 2. Once ready, CI can be started by a developer with permissions when they add a `/build-ci` comment. This must pass
    prior to merging.
 

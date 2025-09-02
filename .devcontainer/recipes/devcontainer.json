@@ -1,0 +1,32 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
+{
+    "name": "BioNeMo Recipes Dev Container",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "mounts": [
+        "source=${localEnv:HOME}/.cache,target=/home/ubuntu/.cache,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.netrc,target=/home/ubuntu/.netrc,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.bash_history_devcontainer,target=/home/ubuntu/.bash_history,type=bind,consistency=cached"
+    ],
+    "postCreateCommand": ".devcontainer/recipes/postCreateCommand.sh",
+    "remoteUser": "ubuntu",
+    "runArgs": [
+        "--gpus=all",
+        "--shm-size=4g"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "charliermarsh.ruff",
+                "redhat.vscode-yaml",
+                "ms-toolsai.jupyter",
+                "eamodio.gitlens",
+                "tamasfe.even-better-toml",
+                "streetsidesoftware.code-spell-checker"
+            ]
+        }
+    }
+}

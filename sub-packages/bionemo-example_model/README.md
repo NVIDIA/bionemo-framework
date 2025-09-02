@@ -57,7 +57,7 @@ The model config class is used to instantiate the model. These configs must have
 
 The following configs are implemented in `bionemo.example_model.lightning.lightning_basic`.
 
-Here, a base generic config `ExampleGenericConfig` is defined.  `PretrainConfig` extends this class. This defines the model class and the loss class in:
+Here, a base generic config `ExampleGenericConfig` is defined. `PretrainConfig` extends this class. This defines the model class and the loss class in:
 
 ```
 class PretrainConfig(ExampleGenericConfig["PretrainModel", "MSELossReduction"], iom.IOMixinWithGettersSetters):
@@ -84,7 +84,7 @@ In this example, `training_step`, `validation_step`, and `predict_step` define t
 
 Additionally, during these steps, we log the validation, testing, and training loss. This is done similarly to https://lightning.ai/docs/torchmetrics/stable/pages/lightning.html. These logs can then be exported to wandb, or other metric viewers. For more complicated tracking, it may be necessary to use pytorch callbacks: https://lightning.ai/docs/pytorch/stable/extensions/callbacks.html.
 
-Further `loss_reduction_class()`, `training_loss_reduction()`, `validation_loss_reduction(),` and` test_loss_reduction()` are defined based on what's in the config. Additionally,  `configure_model()` is defined based on the config.
+Further `loss_reduction_class()`, `training_loss_reduction()`, `validation_loss_reduction(),` and` test_loss_reduction()` are defined based on what's in the config. Additionally, `configure_model()` is defined based on the config.
 
 # Training the models
 

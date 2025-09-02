@@ -1,5 +1,5 @@
 {
-	"name": "BioNeMo2 Development Container",
+	"name": "BioNeMo2 Framework Dev Container",
 	"runArgs": [
 		"--gpus=all",
 		"--shm-size=4g"
@@ -23,8 +23,8 @@
 		"TMPDIR": "/tmp",
 		"NUMBA_CACHE_DIR": "/tmp/"
 	},
-	"postCreateCommand": "./.devcontainer/postCreateCommand.sh",
-	"initializeCommand": "./.devcontainer/initializeCommand.sh",
+	"postCreateCommand": "./.devcontainer/framework/postCreateCommand.sh",
+	"initializeCommand": "./.devcontainer/framework/initializeCommand.sh",
 	"remoteUser": "ubuntu",
 	"customizations": {
 		"vscode": {
@@ -55,8 +55,7 @@
 				"python.defaultInterpreterPath": "/usr/bin/python",
 				"python.testing.pytestEnabled": true,
 				"python.testing.pytestArgs": [
-					"sub-packages/",
-					"scripts/"
+					"sub-packages/"
 				],
 				"python.analysis.typeCheckingMode": "standard"
 			}

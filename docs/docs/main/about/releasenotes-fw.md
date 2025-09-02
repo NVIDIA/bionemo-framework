@@ -1,5 +1,62 @@
 # Release Notes
 
+## BioNeMo Framework v2.7rc1
+
+### Updates & Improvements
+
+- Adds a header to SCDL archives, providing improved provenance tracking and supporting future releases. Also adds tracking of the AnnData API coverage in SCDL tests.
+  This header stores metadata about the archive and its composite arrays, including a version, the array lengths and data types, and information about the RowFeatureIndexes. This adds the features necessary to fix https://github.com/NVIDIA/bionemo-framework/issues/999 as well as implement simple bit-packing of the rowptr, colptr, and data arrays. It also should make SCDL more secure, enable strict compatibility checking, and open the door to more performance improvements. https://github.com/NVIDIA/bionemo-framework/pull/1030
+
+- Spike-no-more support for potentially improved training stability: https://github.com/NVIDIA/bionemo-framework/pull/1011
+
+- Improvements in tag masking in Evo2 loss https://github.com/NVIDIA/bionemo-framework/pull/1008
+
+- Flash decode support in inference https://github.com/NVIDIA/bionemo-framework/pull/1000
+
+- Evo2 Lora feature by @gabenavarro https://github.com/NVIDIA/bionemo-framework/pull/980
+
+- Added partial-conv benchmark for Evo 2 finetune (from checkpoint) and Evo 2 LoRA finetuning https://github.com/NVIDIA/bionemo-framework/pull/1028
+
+### Known Issues
+
+- Users have reported issues in the predict script at sequence lengths over 8192 https://github.com/NVIDIA/bionemo-framework/issues/910 and https://github.com/NVIDIA/bionemo-framework/issues/1048 for example.
+- PR in progress to update Rotary Embedding and sequence length defaults to support incorrect checkpoint conversion https://github.com/NVIDIA/NeMo/pull/14514
+- PR in progress to fix 2x memory usage issue during generation https://github.com/NVIDIA/NeMo/pull/14515
+
+## BioNeMo Framework v2.6.3
+
+### Updates & Improvements
+
+- Fixes numerous issues with Evo2 model:
+  1. Inference/Generation issues resolved. https://github.com/NVIDIA/bionemo-framework/issues/890
+  2. FP8 training resumption issues resolved. https://github.com/NVIDIA/bionemo-framework/issues/973
+  3. Bug in inference script that concerns checkpoint loading is fixed. https://github.com/NVIDIA/bionemo-framework/pull/950
+- ESM2 LoRA model inference issue resolved. https://github.com/NVIDIA/bionemo-framework/pull/996
+- Added experimental evo2-mamba model. https://github.com/NVIDIA/bionemo-framework/pull/888
+- Updated base Docker image to [nvidia-pytorch 25.06-py3](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags)
+- NCCL issue in ESM2 pretraing resolved. https://github.com/NVIDIA/bionemo-framework/issues/970
+
+### What's Changed
+
+- Fix test_train_evo2_stops test by @balvisio in https://github.com/NVIDIA/bionemo-framework/pull/965
+- Enable test_train_evo2_stop_at_max_steps_and_continue. by @balvisio in https://github.com/NVIDIA/bionemo-framework/pull/966
+- automated benchmarks: esm2 650M training analogous to bionemo-recipes by @dorotat-nv in https://github.com/NVIDIA/bionemo-framework/pull/975
+- Fix database path in esm2_pretrain_recipes by @pstjohn in https://github.com/NVIDIA/bionemo-framework/pull/978
+- Add fp8 stop and go test for evo2 by @jwilber in https://github.com/NVIDIA/bionemo-framework/pull/974
+- Update Docs Banner for GitHub Pages-hosted Docs by @tshimko-nv in https://github.com/NVIDIA/bionemo-framework/pull/981
+- Add release notes for v2.6.2 (25.06) by @trvachov in https://github.com/NVIDIA/bionemo-framework/pull/971
+- Evo2 Generation fixes and necessary base dependency and container updates. Large change. by @jwilber in https://github.com/NVIDIA/bionemo-framework/pull/949
+- Point NeMo submodule back to main repo by @trvachov in https://github.com/NVIDIA/bionemo-framework/pull/984
+- Use new b2b kernels in evo2 jet tests by @jwilber in https://github.com/NVIDIA/bionemo-framework/pull/985
+- change where dtype is found in checkpoint export by @pstjohn in https://github.com/NVIDIA/bionemo-framework/pull/989
+- Evo2 Mamba by @jstjohn in https://github.com/NVIDIA/bionemo-framework/pull/888
+- Adding inference CDS length tests by @jstjohn in https://github.com/NVIDIA/bionemo-framework/pull/991
+- Fix PIL CVE by @trvachov in https://github.com/NVIDIA/bionemo-framework/pull/992
+- (BIONEMO-2334) Patch TE to fix Evo2 stop and go training by @balvisio in https://github.com/NVIDIA/bionemo-framework/pull/987
+- Fix bug in evo2-mamba train and add test by @jstjohn in https://github.com/NVIDIA/bionemo-framework/pull/994
+- Fix esm2 lora inference by @yzhang123 in https://github.com/NVIDIA/bionemo-framework/pull/996
+- Reset parameters for the ESM-2 contact head on HF export by @pstjohn in https://github.com/NVIDIA/bionemo-framework/pull/983
+
 ## BioNeMo Framework v2.6.2
 
 ### Updates & Improvements
@@ -169,26 +226,26 @@
 
 ### New Features
 
-- \[Documentation\] Updated, executable ESM-2nv notebooks demonstrating: Data preprocessing and model training with custom datasets, Fine-tuning on FLIP data, Inference on OAS sequences, Pre-training from scratch and continuing training
-- \[Documentation\] New notebook demonstrating Zero-Shot Protein Design Using ESM-2nv. Thank you to @awlange from A-Alpha Bio for contributing the original version of this recipe!
+- [Documentation] Updated, executable ESM-2nv notebooks demonstrating: Data preprocessing and model training with custom datasets, Fine-tuning on FLIP data, Inference on OAS sequences, Pre-training from scratch and continuing training
+- [Documentation] New notebook demonstrating Zero-Shot Protein Design Using ESM-2nv. Thank you to @awlange from A-Alpha Bio for contributing the original version of this recipe!
 
 ### Bug fixes and Improvements
 
-- \[Geneformer\] Fixed bug in preprocessing due to a relocation of dependent artifacts.
-- \[Geneformer\] Fixes bug in finetuning to use the newer preprocessing constructor.
+- [Geneformer] Fixed bug in preprocessing due to a relocation of dependent artifacts.
+- [Geneformer] Fixes bug in finetuning to use the newer preprocessing constructor.
 
 ## BioNeMo Framework v1.8
 
 ### New Features
 
-- \[Documentation\] Updated, executable MolMIM notebooks demonstrating: Training on custom data, Inference and downstream prediction, ZINC15 dataset preprocesing, and CMA-ES optimization
-- \[Dependencies\] Upgraded the framework to [NeMo v1.23](https://github.com/NVIDIA/NeMo/tree/v1.23.0), which updates PyTorch to version 2.2.0a0+81ea7a4 and CUDA to version 12.3.
+- [Documentation] Updated, executable MolMIM notebooks demonstrating: Training on custom data, Inference and downstream prediction, ZINC15 dataset preprocesing, and CMA-ES optimization
+- [Dependencies] Upgraded the framework to [NeMo v1.23](https://github.com/NVIDIA/NeMo/tree/v1.23.0), which updates PyTorch to version 2.2.0a0+81ea7a4 and CUDA to version 12.3.
 
 ### Bug fixes and Improvements
 
-- \[ESM2\] Fixed a bug in gradient accumulation in encoder fine-tuning
-- \[MegaMolBART\] Make MegaMolBART encoder finetuning respect random seed set by user
-- \[MegaMolBART\] Finetuning with val_check_interval=1 bug fix
+- [ESM2] Fixed a bug in gradient accumulation in encoder fine-tuning
+- [MegaMolBART] Make MegaMolBART encoder finetuning respect random seed set by user
+- [MegaMolBART] Finetuning with val_check_interval=1 bug fix
 
 ### Known Issues
 
@@ -204,8 +261,8 @@
 
 ### New Features
 
-- \[EquiDock\] Remove steric clashes as a post-processing step after equidock inference.
-- \[Documentation\] Updated Getting Started section which sequentially describes prerequisites, BioNeMo Framework access, startup instructions, and next steps.
+- [EquiDock] Remove steric clashes as a post-processing step after equidock inference.
+- [Documentation] Updated Getting Started section which sequentially describes prerequisites, BioNeMo Framework access, startup instructions, and next steps.
 
 ### Known Issues
 
@@ -215,11 +272,11 @@
 
 ### New Features
 
-- \[Model Fine-tuning\] `model.freeze_layers` fine-tuning config parameter added to freeze a specified number of layers. Thank you to github user [@nehap25](https://github.com/nehap25)!
-- \[ESM2\] Loading pre-trained ESM-2 weights and continue pre-training on the MLM objective on a custom FASTA dataset is now supported.
-- \[OpenFold\] MLPerf feature 3.2 bug (mha_fused_gemm) fix has merged.
-- \[OpenFold\] MLPerf feature 3.10 integrated into bionemo framework.
-- \[DiffDock\] Updated data loading module for DiffDock model training, changing from sqlite3 backend to webdataset.
+- [Model Fine-tuning] `model.freeze_layers` fine-tuning config parameter added to freeze a specified number of layers. Thank you to github user [@nehap25](https://github.com/nehap25)!
+- [ESM2] Loading pre-trained ESM-2 weights and continue pre-training on the MLM objective on a custom FASTA dataset is now supported.
+- [OpenFold] MLPerf feature 3.2 bug (mha_fused_gemm) fix has merged.
+- [OpenFold] MLPerf feature 3.10 integrated into bionemo framework.
+- [DiffDock] Updated data loading module for DiffDock model training, changing from sqlite3 backend to webdataset.
 
 ## BioNeMo Framework v1.5
 

@@ -20,7 +20,7 @@ Configure CI behavior by applying the relevant labels:
 - [INCLUDE_NOTEBOOKS_TESTS](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#include_notebooks_tests) - Execute notebook validation tests in pytest
 - [INCLUDE_SLOW_TESTS](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/user-guide/contributing/contributing.md#include_slow_tests) - Execute tests labelled as slow in pytest for extensive testing
 
-> \[!NOTE\]
+> [!NOTE]
 > By default, the notebooks validation tests are skipped unless explicitly enabled.
 
 #### Authorizing CI Runs
