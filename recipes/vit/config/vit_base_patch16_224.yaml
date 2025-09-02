@@ -7,7 +7,7 @@ model:
     img_size: 224
     patch_size: 16
     in_chans: 3
-    num_classes: 100000
+    num_classes: ${dataset.num_classes}
     global_pool: "map"
     embed_dim: 768
     depth: 12
@@ -66,6 +66,7 @@ training:
     resume_from_metric: "-"   # + = Highest Metric (Score), - = Lowest Metric (Loss)
 
 dataset:
+  num_classes: 100000
   num_workers: 4
   train:
     root: "./data/super-tiny-imagenet-5/train"
