@@ -66,15 +66,9 @@ def test_ddp_vs_fsdp_single_gpu(strategy, backend):
 
 
 @requires_multi_gpu
-@pytest.mark.parametrize("strategy", ["fsdp2", "mfsdp"])
+@pytest.mark.parametrize("strategy", ["fsdp2", pytest.param("mfsdp", marks=pytest.mark.xfail(reason="BIONEMO-2726"))])
 @pytest.mark.parametrize("backend", ["te", "eager"])
 def test_ddp_vs_fsdp_multi_gpu(strategy, backend):
-    if strategy == "mfsdp":
-        pytest.skip(
-            "MFSDP multi-gpu tests are currently failing because tensors are not always evenly sharded, leaving p.grad "
-            "to be None on some ranks (BIONEMO-2726)"
-        )
-
     cmd = [
         "torchrun",
         "--nproc_per_node=2",
@@ -213,7 +207,18 @@ if __name__ == "__main__":
             grads = {name: p.grad for name, p in model.module.named_parameters() if p.grad is not None}
 
         elif strategy is Strategy.MFSDP:
-            grads = {name: p.grad.full_tensor() for name, p in model.module.named_parameters() if p.grad is not None}
+            # Because of uneven sharding, we need to manually gather the gradients.
+            sharded_grads = [(name, p.grad) for name, p in model.module.named_parameters()]
+            grads = {}
+            for name, grad in sharded_grads:
+                grad_shards = [None] * device_mesh["dp"].size()
+                # For FSDP, we are not strided sharding, so gathering across dp_shard_cp is sufficient.
+                # For HSDP, we need to first gather across dp_shard_cp, then gather across dp_inter,
+                # not the other way around or you'll get wrong zig-zags.
+                torch.distributed.all_gather_object(grad_shards, grad, group=device_mesh["dp"].get_group())
+                all_valid_shards = [shard for shard in grad_shards if shard is not None]
+                # Megatron-FSDP is always sharded across dim=0.
+                grads[name] = torch.cat([s.to_local().to(device) for s in all_valid_shards], dim=0)
 
         del model
         torch.cuda.empty_cache()
