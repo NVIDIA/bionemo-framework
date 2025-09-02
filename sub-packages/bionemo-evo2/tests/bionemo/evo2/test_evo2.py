@@ -327,8 +327,8 @@ def get_trainer(pipeline_parallel=1):
         ),
     )
 
-
-def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, **kwargs):
+# here: pass arg through to inference_batch_times_seqlen_threshold and inference_max_seq_length
+def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, seq_len_max: int = 8192, **kwargs):
     """
     Load a model and tokenizer from a checkpoint directory or name. If you supply a Path argument then we assume that
     the path is already a checkpoint directory, otherwise we load the checkpoint from NGC or PBSS depending on
@@ -347,8 +347,8 @@ def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, **kwargs):
         path=ckpt_dir,
         trainer=trainer,
         params_dtype=torch.bfloat16,
-        inference_batch_times_seqlen_threshold=8192,  # TODO
-        inference_max_seq_length=8192,  # TODO
+        inference_batch_times_seqlen_threshold=seq_len_max,
+        inference_max_seq_length=seq_len_max,
         recompute_granularity=None,
         recompute_num_layers=None,
         recompute_method=None,
@@ -357,13 +357,13 @@ def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, **kwargs):
     return inference_wrapped_model, mcore_tokenizer
 
 
-def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False, **kwargs):
-    return get_model_and_tokenizer_raw(ckpt_name, vortex_style_fp8=vortex_style_fp8, **kwargs)
+def get_model_and_tokenizer(ckpt_name, vortex_style_fp8=False, seq_len_max: int = 8192, **kwargs):
+    return get_model_and_tokenizer_raw(ckpt_name, vortex_style_fp8=vortex_style_fp8, seq_len_max=seq_len_max, **kwargs)
 
 
-def get_model_and_tokenizer_ignore_vortex(ckpt_name, vortex_style_fp8=False, **kwargs):
+def get_model_and_tokenizer_ignore_vortex(ckpt_name, vortex_style_fp8=False, seq_len_max: int = 8192, **kwargs):
     # Capture and remove the vortex_style_fp8 argument for mamba models.
-    return get_model_and_tokenizer_raw(ckpt_name, **kwargs)
+    return get_model_and_tokenizer_raw(ckpt_name, seq_len_max=seq_len_max, **kwargs)
 
 
 def calc_matchrate(*, tokenizer, in_seq, logits):
@@ -582,6 +582,7 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
 def test_batch_generate(
     sequences: list[str], ckpt_name: str, model_tokenizer_provider: Callable, expected_matchpercents: list[float]
 ):
+
     assert len(sequences) > 0
     seq_len_cap = determine_memory_requirement_and_skip_if_not_met(ckpt_name)
 
@@ -595,14 +596,16 @@ def test_batch_generate(
         pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(ckpt_name, vortex_style_fp8=vortex_style_fp8)
+    
+    # max_seqn_len = num_tokens + max ([len(sq[0]) for sq in seq_prompts]), pass to VV, an
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(ckpt_name, vortex_style_fp8=vortex_style_fp8, seq_len_max=8192)
+    
 
     match_percents = []
     num_tokens = 500
-    seq_prompts = [mid_point_split(seq=seq[:seq_len_cap], num_tokens=num_tokens) for seq in sequences]
+    seq_prompts = [mid_point_split(seq=seq, num_tokens=num_tokens) for seq in sequences]
     from megatron.core.inference.common_inference_params import CommonInferenceParams
 
-    #import pdb; pdb.set_trace()
     results = generate(
         model=inference_wrapped_model,
         max_batch_size=1,  # vortex only supports batch size 1
@@ -628,7 +631,7 @@ def test_batch_generate(
             f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=} expected: {expected_matchpercents[i]}"
         )
         match_percents.append(match_percent)
-
+    import pdb; pdb.set_trace()
     # assert len(match_percents) == len(expected_matchpercents)
     # matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
     # matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
