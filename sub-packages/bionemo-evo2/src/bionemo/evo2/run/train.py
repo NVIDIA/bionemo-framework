@@ -53,6 +53,7 @@ from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
+from bionemo.evo2.models.hyena_model_with_custom_metrics import HyenaModelWithCustomMetrics
 
 
 torch._dynamo.config.suppress_errors = True
@@ -631,7 +632,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         if args.lora_finetune:
             lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
 
-        model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
+        #model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
+        model = HyenaModelWithCustomMetrics(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
     else:  # mamba
         if args.no_weight_decay_embeddings:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
