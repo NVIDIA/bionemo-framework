@@ -39,14 +39,18 @@ class BnmModuleHookManager():
         """
         print(f"BnmModuleHookManager,configure_hooks,type(self.module)={type(root_module)}")
         self.root_module = root_module
+        import pdb; pdb.set_trace()
         self.level_max = os.getenv("BNM_MODULE_HOOK_MANAGER_LEVEL_MAX", level_max)  # str or None or int
         if isinstance(self.level_max, str):
             self.level_max = int(self.level_max)
   
         self.results_dir = os.getenv("BNM_MODULE_HOOK_MANAGER_RESULTS_DIR", results_dir) # str or None
-        self.bnm_module_hook_output_filename = None if self.results_dir is None else os.path.join(str(self.results_dir), f"bnm_module_hook_output_lvl{level_max}.txt")
+        self.bnm_module_hook_output_filename = None 
+        if self.results_dir is not None:
+            self.bnm_module_hook_output_filename = os.path.join(
+                str(self.results_dir), f"bnm_module_hook_output_lvl{self.level_max}.txt"
+            )
     
-        
         self.forward_pre_hook_types = forward_pre_hook_types
         self.forward_hook_types = forward_hook_types
         
@@ -65,7 +69,7 @@ class BnmModuleHookManager():
             func=self.configure_hooks_for_submodule,
             module=root_module,
             level=0,
-            level_max=level_max,
+            level_max=self.level_max,
         )
    
     def configure_hooks_for_submodule(self, module: nn.Module, level: int | None = None):
