@@ -6,9 +6,11 @@ from bionemo.evo2.utils.logging.bnm_module_hook_manager import BnmModuleHookMana
 class HyenaModelWithCustomMetrics(llm.HyenaModel):
     
     def configure_model(self, vp_stage: Optional[int] = None) -> None:
-        """Add additional configuration for HyenaModel(GPTModel), after GPTModel.configure_model().
+        """Add additional configuration for HyenaModel(GPTModel), 
+        after GPTModel.configure_model().
         
-        When this method is called, self.module is the HyenaModel(LanguageModule(MegatronModel))
+        When this method is called, self.module is the 
+        HyenaModel(LanguageModule(MegatronModel))                 
         
         """
         super(llm.HyenaModel, self).configure_model(vp_stage=vp_stage)
