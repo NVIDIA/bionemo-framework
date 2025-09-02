@@ -3,4 +3,4 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /workspace/bionemo
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
-    PIP_CONTRAINT= pip install -e .
+    PIP_CONSTRAINT= pip install -e .
