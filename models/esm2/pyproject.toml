@@ -19,7 +19,7 @@ dependencies = [
     "pytest",
     "torch",
     # "transformer_engine[pytorch]",
-    "transformers",
+    "transformers<4.56", # TODO: fix me, currently failing with a modelopt import from nemo.
 ]
 
 
