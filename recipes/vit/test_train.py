@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 from copy import deepcopy
 from pathlib import Path
 
@@ -43,12 +42,12 @@ def test_train(monkeypatch, tmp_path):
         vit_config = compose(
             config_name="vit_base_patch16_224",
             overrides=[
-                f"++training.steps=25",
-                f"++training.val_interval=10",
-                f"++training.log_interval=1",
+                "++training.steps=25",
+                "++training.val_interval=10",
+                "++training.log_interval=1",
                 f"++training.checkpoint.path={Path(tmp_path) / 'ckpt'}",
-                f"++profiling.torch_memory_profile=false",
-                f"++profiling.wandb=false",
+                "++profiling.torch_memory_profile=false",
+                "++profiling.wandb=false",
             ],
         )
         vit_resume_config = deepcopy(vit_config)
@@ -87,12 +86,12 @@ def test_train_te(monkeypatch, tmp_path):
         vit_config = compose(
             config_name="vit_te_base_patch16_224",
             overrides=[
-                f"++training.steps=25",
-                f"++training.val_interval=10",
-                f"++training.log_interval=1",
+                "++training.steps=25",
+                "++training.val_interval=10",
+                "++training.log_interval=1",
                 f"++training.checkpoint.path={Path(tmp_path) / 'ckpt'}",
-                f"++profiling.torch_memory_profile=false",
-                f"++profiling.wandb=false",
+                "++profiling.torch_memory_profile=false",
+                "++profiling.wandb=false",
             ],
         )
         vit_resume_config = deepcopy(vit_config)

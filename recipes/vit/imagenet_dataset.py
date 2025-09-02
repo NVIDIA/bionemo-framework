@@ -51,8 +51,7 @@ def natural_key(string_):
 
 
 def load_class_map(map_or_filename: str):
-    """
-    Parse a TSV or PKL file that contains a list of class IDs. Then create a class-to-index mapping
+    """Parse a TSV or PKL file that contains a list of class IDs. Then create a class-to-index mapping
     where the enumerated index will represent the class index when computing the cross-entropy loss.
 
     Args:
@@ -82,8 +81,7 @@ def load_class_map(map_or_filename: str):
 
 
 def load_image_labels(map_or_filename: str):
-    """
-    Parse a TSV or PKL file that maps image filenames to class IDs.
+    """Parse a TSV or PKL file that maps image filenames to class IDs.
 
     Args:
         map_or_filename (str): Path to a TSV or PKL file that maps image filenames to class IDs.
@@ -115,8 +113,7 @@ def find_images_and_targets(
     sort: bool = True,
     class_filter: Optional[List[Any]] = None,
 ):
-    """
-    Walk folder recursively to discover images and map them to classes by folder names.
+    """Walk folder recursively to discover images and map them to classes by folder names.
 
     Args:
         folder: root of folder to recursively search
@@ -147,12 +144,12 @@ def find_images_and_targets(
     if class_to_idx is None:
         # building class index
         unique_labels = set(labels)
-        sorted_labels = list(sorted(unique_labels, key=natural_key))
+        sorted_labels = sorted(unique_labels, key=natural_key)
         class_to_idx = {c: idx for idx, c in enumerate(sorted_labels)}
     images_and_targets = [
-        (f, class_to_idx[l])
-        for f, l in zip(filenames, labels)
-        if l in class_to_idx and (class_filter is None or l in class_filter)
+        (files, class_to_idx[labels])
+        for files, labels in zip(filenames, labels)
+        if labels in class_to_idx and (class_filter is None or labels in class_filter)
     ]
     if sort:
         images_and_targets = sorted(images_and_targets, key=lambda k: natural_key(k[0]))
@@ -214,15 +211,11 @@ class ImageNetReader:
         return self._filename(index, basename=basename, absolute=absolute)
 
     def filenames(self, basename=False, absolute=False):
-        return [
-            self._filename(index, basename=basename, absolute=absolute)
-            for index in range(len(self))
-        ]
+        return [self._filename(index, basename=basename, absolute=absolute) for index in range(len(self))]
 
 
 class ImageNetDataset(Dataset):
-    """
-    ImageDataset class for loading image datasets from a root directory.
+    """ImageDataset class for loading image datasets from a root directory.
 
     Expects the following directory structure:
 
@@ -281,9 +274,7 @@ class ImageNetDataset(Dataset):
         try:
             img = img.read() if self.load_bytes else Image.open(img)
         except Exception as e:
-            _logger.warning(
-                f"Skipped sample (index {index}, file {self.reader.filename(index)}). {str(e)}"
-            )
+            _logger.warning(f"Skipped sample (index {index}, file {self.reader.filename(index)}). {e!s}")
             self._consecutive_errors += 1
             if self._consecutive_errors < 50:
                 return self.__getitem__((index + 1) % len(self.reader))
