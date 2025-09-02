@@ -138,7 +138,12 @@ class NVEsmEncoder(nn.Module):
         self.emb_layer_norm_after = transformer_engine.pytorch.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         if config.position_embedding_type == "rotary":
             self.rotary_embeddings = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
-            self.te_rope_emb = self.rotary_embeddings(max_seq_len=config.max_position_embeddings).cuda()
+            # Keep on CPU, pin for faster non_blocking H2D; don't persist in state_dict.
+            self.register_buffer(
+                "te_rope_emb",
+                self.rotary_embeddings(max_seq_len=config.max_position_embeddings).cpu().pin_memory(),
+                persistent=False,
+            )
         else:
             self.te_rope_emb = None
 
@@ -157,6 +162,20 @@ class NVEsmEncoder(nn.Module):
         """
         all_hidden_states = () if output_hidden_states else None
 
+        if self.te_rope_emb is not None:
+            te_rope_emb = self.te_rope_emb.to(
+                device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
+            )
+            seq_len = hidden_states.shape[1]
+            if te_rope_emb.size(0) < seq_len:
+                raise RuntimeError(
+                    f"ROPE length {te_rope_emb.size(0)} < input seq length {seq_len}. "
+                    f"Increase max_position_embeddings."
+                )
+            te_rope_emb = te_rope_emb[:seq_len]
+        else:
+            te_rope_emb = None
+
         for layer_module in self.layers:
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
@@ -164,7 +183,7 @@ class NVEsmEncoder(nn.Module):
             hidden_states = layer_module(
                 hidden_states,
                 attention_mask,
-                rotary_pos_emb=self.te_rope_emb,
+                rotary_pos_emb=te_rope_emb,
             )
 
         hidden_states = self.emb_layer_norm_after(hidden_states)
