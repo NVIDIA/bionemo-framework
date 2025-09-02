@@ -21,12 +21,15 @@ import os
 import time
 from pathlib import Path
 from typing import Any, Callable, Literal
+import inspect
 
+import pandas as pd
 import numpy as np
 import pytest
 import torch
 from megatron.core.transformer.enums import AttnBackend
 from megatron.core.transformer.module import Float16Module
+from megatron.core.inference.common_inference_params import CommonInferenceParams
 from nemo.collections import llm
 from nemo.collections.llm.gpt.model.hyena import HyenaInferenceContext
 from nemo.collections.llm.inference import generate
@@ -48,7 +51,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
 
 
-def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, flash_decode: bool | None = None) -> int:
+def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, flash_decode: bool | None = None, test_name: str | None = None) -> int:
     """Determine the memory requirement for a given checkpoint and flash decode condition.
     ckpt_name : str
         the name of the checkpoint to test
@@ -59,16 +62,33 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, flash_decod
         If the memory requirement is not met, the test is skipped.
     """
 
+    # memory_needed_by_test: max reserved rounded up + 1, for stand-alone test
+    memory_needed_df = pd.DataFrame(
+        [
+            {"test_name": "test_forward", "model_size": "1b", "seq_len_cap": 6000, "memory_needed_by_test": 18},  # checked in isolation
+            {"test_name": "test_forward", "model_size": "7b", "seq_len_cap": 4000, "memory_needed_by_test": 33},  # checked in isolation
+            {"test_name": "test_forward_manual", "model_size": "1b", "seq_len_cap": 6000, "memory_needed_by_test": 6},  # checked in isolation
+            {"test_name": "test_forward_manual", "model_size": "7b", "seq_len_cap": 4000, "memory_needed_by_test": 19},  # checked in isolation
+            {"test_name": "test_batch_generate", "model_size": "1b", "seq_len_cap": -1, "memory_needed_by_test": 16},  # checked in isolation
+            {"test_name": "test_batch_generate", "model_size": "7b", "seq_len_cap": -1, "memory_needed_by_test": 43},  # checked in isolation
+            {"test_name": "test_batch_generate_coding_sequences", "model_size": "1b", "seq_len_cap": -1, "memory_needed_by_test": 6},  # checked in isolation
+            {"test_name": "test_batch_generate_coding_sequences", "model_size": "7b", "seq_len_cap": -1, "memory_needed_by_test": 21},  # checked in isolation
+            {"test_name": "test_generate_speed", "model_size": "1b", "seq_len_cap": -1, "memory_needed_by_test": -1}, # skipped for now until Anton's changes
+            {"test_name": "test_generate_speed", "model_size": "7b", "seq_len_cap": -1, "memory_needed_by_test": -1}, # skipped for now until Anton's changes
+        ],
+        columns=["test_name", "model_size", "seq_len_cap", "memory_needed_by_test"],
+    )
+    memory_needed_df_wi_index = memory_needed_df.set_index(["test_name", "model_size"])
+
     if "1b" in ckpt_name:
         model_size = "1b"
-        seq_len_cap = 6000
-        memory_needed_by_test = 17  # max reserved rounded up, for stand-alone test
     elif "7b" in ckpt_name:
         model_size = "7b"
-        seq_len_cap = 4000
-        memory_needed_by_test = 32  # max reserved rounded up, for stand-alone test
     else:
         raise ValueError(f"{ckpt_name=} is not supported for testing")
+
+    seq_len_cap = memory_needed_df_wi_index.loc[(test_name, model_size), "seq_len_cap"]
+    memory_needed_by_test = memory_needed_df_wi_index.loc[(test_name, model_size), "memory_needed_by_test"]
 
     skip_condition_flash = flash_decode is None or flash_decode
     gb_available = torch.cuda.mem_get_info()[0] / 1024**3
@@ -392,6 +412,7 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
     else:
         raise NotImplementedError
 
+
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
@@ -403,7 +424,7 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
 )
 def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
     assert len(sequences) > 0
-    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(ckpt_name)
+    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(ckpt_name, test_name=inspect.currentframe().f_code.co_name)
 
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -462,7 +483,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 )
 def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
     assert len(sequences) > 0
-    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(ckpt_name, flash_decode)
+    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(ckpt_name, flash_decode, test_name=inspect.currentframe().f_code.co_name)
 
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -563,28 +584,23 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
 
     return (matches / min_length) * 100
 
+
 @pytest.mark.parametrize(
     "ckpt_name,model_tokenizer_provider,expected_matchpercents",
     [
+        ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
+        ("evo2/1b-8k:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
+        ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [99.2, 51.0, 73.0, 82.6]),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
     ],
 )
-# @pytest.mark.parametrize(
-#     "ckpt_name,model_tokenizer_provider,expected_matchpercents",
-#     [
-#         ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
-#         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
-#         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [99.2, 51.0, 73.0, 82.6]),
-#         ("evo2/7b-8k:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
-#         ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
-#     ],
-# )
 def test_batch_generate(
     sequences: list[str], ckpt_name: str, model_tokenizer_provider: Callable, expected_matchpercents: list[float]
 ):
 
     assert len(sequences) > 0
-    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(ckpt_name)
+    _ = determine_memory_requirement_and_skip_if_not_met(ckpt_name, test_name=inspect.currentframe().f_code.co_name)
 
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -597,15 +613,15 @@ def test_batch_generate(
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
     
-    # max_seqn_len = num_tokens + max ([len(sq[0]) for sq in seq_prompts]), pass to VV, an
-    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(ckpt_name, vortex_style_fp8=vortex_style_fp8, seq_len_max=8192)
-    
-
-    match_percents = []
     num_tokens = 500
     seq_prompts = [mid_point_split(seq=seq, num_tokens=num_tokens) for seq in sequences]
-    from megatron.core.inference.common_inference_params import CommonInferenceParams
-
+    seq_len_max = num_tokens + max ([len(sq[0]) for sq in seq_prompts]) 
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
+        ckpt_name, 
+        vortex_style_fp8=vortex_style_fp8, 
+        seq_len_max=seq_len_max,
+    )
+    
     results = generate(
         model=inference_wrapped_model,
         max_batch_size=1,  # vortex only supports batch size 1
@@ -621,7 +637,7 @@ def test_batch_generate(
         ),
     )
 
-    import pdb; pdb.set_trace()
+    match_percents = []
     for i, (result, (prompt, target)) in enumerate(zip(results, seq_prompts)):
         gen_seq = result.generated_text
         logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {gen_seq=}")
@@ -631,13 +647,13 @@ def test_batch_generate(
             f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=} expected: {expected_matchpercents[i]}"
         )
         match_percents.append(match_percent)
-    import pdb; pdb.set_trace()
-    # assert len(match_percents) == len(expected_matchpercents)
-    # matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
-    # matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-    # assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
-    #     f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
-    # )
+
+    assert len(match_percents) == len(expected_matchpercents)
+    matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
+    matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -657,7 +673,7 @@ def test_batch_generate_coding_sequences(
     expected_matchpercents: list[float],
 ):
     assert len(coding_sequences) > 0
-    determine_memory_requirement_and_skip_if_not_met(ckpt_name)
+    determine_memory_requirement_and_skip_if_not_met(ckpt_name, test_name=inspect.currentframe().f_code.co_name)
 
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -669,16 +685,17 @@ def test_batch_generate_coding_sequences(
         pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
-        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True
-    )
+    
 
     match_percents: list[float] = []
     cds_lengths: list[int | None] = []
     original_cds_lengths: list[int] = [len(seq) for seq in coding_sequences]
     seq_prompts = [mid_point_split(seq=seq, num_tokens=None, fraction=0.3) for seq in coding_sequences]
     num_tokens = max(len(sq[1]) for sq in seq_prompts) + 15
-    from megatron.core.inference.common_inference_params import CommonInferenceParams
+
+    inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
+        ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True
+    )
 
     _ = generate(
         model=inference_wrapped_model,
@@ -766,7 +783,7 @@ def test_generate_speed(
     expected_tokens_sec: float,
 ):
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
-    determine_memory_requirement_and_skip_if_not_met(ckpt_name)
+    determine_memory_requirement_and_skip_if_not_met(ckpt_name, test_name=inspect.currentframe().f_code.co_name)
 
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
     if skip:
@@ -784,8 +801,6 @@ def test_generate_speed(
         enable_flash_decode=True,
         flash_decode=True,
     )
-
-    from megatron.core.inference.common_inference_params import CommonInferenceParams
 
     # warm up the model with a single call before timing. This should take care of compilation etc.
     _ = generate(
