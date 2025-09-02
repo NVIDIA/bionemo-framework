@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 import math
 import warnings
 from enum import Enum
@@ -27,7 +26,6 @@ from typing import (
     Literal,
     Optional,
     OrderedDict,
-    Set,
     Tuple,
     Type,
     Union,
@@ -36,7 +34,6 @@ from typing import (
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from transformer_engine.pytorch import TransformerLayer
 
 
@@ -66,9 +63,7 @@ class LayerScale(nn.Module):
         self.gamma = nn.Parameter(self.init_values * torch.ones(dim))
 
     def reset_parameters(self):
-        """
-        Reset model parameters. Required method for Megatron-FSDP meta device initialization.
-        """
+        """Reset model parameters. Required method for Megatron-FSDP meta device initialization."""
         self.gamma.data.fill_(self.init_values)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -103,9 +98,7 @@ class Mlp(nn.Module):
         self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
         self.act = act_layer()
         self.drop1 = nn.Dropout(drop_probs[0])
-        self.norm = (
-            norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
-        )
+        self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
         self.fc2 = linear_layer(hidden_features, out_features, bias=bias[1])
         self.drop2 = nn.Dropout(drop_probs[1])
 
@@ -119,9 +112,7 @@ class Mlp(nn.Module):
         return x
 
 
-def drop_path(
-    x, drop_prob: float = 0.0, training: bool = False, scale_by_keep: bool = True
-):
+def drop_path(x, drop_prob: float = 0.0, training: bool = False, scale_by_keep: bool = True):
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
 
     This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
@@ -134,9 +125,7 @@ def drop_path(
     if drop_prob == 0.0 or not training:
         return x
     keep_prob = 1 - drop_prob
-    shape = (x.shape[0],) + (1,) * (
-        x.ndim - 1
-    )  # work with diff dim tensors, not just 2D ConvNets
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
     random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
     if keep_prob > 0.0 and scale_by_keep:
         random_tensor.div_(keep_prob)
@@ -186,9 +175,7 @@ class Attention(nn.Module):
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
         if qk_norm or scale_norm:
-            assert norm_layer is not None, (
-                "norm_layer must be provided if qk_norm or scale_norm is True"
-            )
+            assert norm_layer is not None, "norm_layer must be provided if qk_norm or scale_norm is True"
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         self.scale = self.head_dim**-0.5
@@ -208,11 +195,7 @@ class Attention(nn.Module):
         attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         B, N, C = x.shape
-        qkv = (
-            self.qkv(x)
-            .reshape(B, N, 3, self.num_heads, self.head_dim)
-            .permute(2, 0, 3, 1, 4)
-        )
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
 
@@ -305,9 +288,7 @@ class Block(nn.Module):
             proj_drop=proj_drop,
             norm_layer=norm_layer,
         )
-        self.ls1 = (
-            LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
-        )
+        self.ls1 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.norm2 = norm_layer(dim)
@@ -319,14 +300,10 @@ class Block(nn.Module):
             bias=proj_bias,
             drop=proj_drop,
         )
-        self.ls2 = (
-            LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
-        )
+        self.ls2 = LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
-    def forward(
-        self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x), attn_mask=attn_mask)))
         x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
         return x
@@ -387,9 +364,7 @@ class ResPostBlock(nn.Module):
             nn.init.constant_(self.norm1.weight, self.init_values)
             nn.init.constant_(self.norm2.weight, self.init_values)
 
-    def forward(
-        self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         x = x + self.drop_path1(self.norm1(self.attn(x, attn_mask=attn_mask)))
         x = x + self.drop_path2(self.norm2(self.mlp(x)))
         return x
@@ -451,16 +426,10 @@ class ParallelScalingBlock(nn.Module):
         self.mlp_act = act_layer()
         self.mlp_out_proj = nn.Linear(mlp_hidden_dim, dim, bias=proj_bias)
 
-        self.ls = (
-            LayerScale(dim, init_values=init_values)
-            if init_values is not None
-            else nn.Identity()
-        )
+        self.ls = LayerScale(dim, init_values=init_values) if init_values is not None else nn.Identity()
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
-    def forward(
-        self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         B, N, C = x.shape
 
         # Combined MLP fc1 & qkv projections
@@ -468,9 +437,7 @@ class ParallelScalingBlock(nn.Module):
         if self.mlp_bias is not None:
             # Concat constant zero-bias for qkv w/ trainable mlp_bias.
             # Appears faster than adding to x_mlp separately
-            y = F.linear(
-                y, self.in_proj.weight, torch.cat((self.qkv_bias, self.mlp_bias))
-            )
+            y = F.linear(y, self.in_proj.weight, torch.cat((self.qkv_bias, self.mlp_bias)))
         else:
             y = self.in_proj(y)
         x_mlp, q, k, v = torch.split(y, self.in_split, dim=-1)
@@ -560,15 +527,11 @@ class ParallelThingsBlock(nn.Module):
                             ),
                             (
                                 "ls",
-                                LayerScale(dim, init_values=init_values)
-                                if init_values
-                                else nn.Identity(),
+                                LayerScale(dim, init_values=init_values) if init_values else nn.Identity(),
                             ),
                             (
                                 "drop_path",
-                                DropPath(drop_path)
-                                if drop_path > 0.0
-                                else nn.Identity(),
+                                DropPath(drop_path) if drop_path > 0.0 else nn.Identity(),
                             ),
                         ]
                     )
@@ -592,24 +555,18 @@ class ParallelThingsBlock(nn.Module):
                             ),
                             (
                                 "ls",
-                                LayerScale(dim, init_values=init_values)
-                                if init_values
-                                else nn.Identity(),
+                                LayerScale(dim, init_values=init_values) if init_values else nn.Identity(),
                             ),
                             (
                                 "drop_path",
-                                DropPath(drop_path)
-                                if drop_path > 0.0
-                                else nn.Identity(),
+                                DropPath(drop_path) if drop_path > 0.0 else nn.Identity(),
                             ),
                         ]
                     )
                 )
             )
 
-    def forward(
-        self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         if attn_mask is not None:
             attn_out = []
             for attn in self.attns:
@@ -672,9 +629,7 @@ class PatchEmbed(nn.Module):
             self.output_fmt = Format.NCHW
         self.strict_img_size = strict_img_size
 
-        self.proj = nn.Conv2d(
-            in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias
-        )
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias)
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
 
     def _init_img_size(self, img_size: Union[int, Tuple[int, int]]):
@@ -696,12 +651,8 @@ class PatchEmbed(nn.Module):
         B, C, H, W = x.shape
         if self.img_size is not None:
             if self.strict_img_size:
-                assert H == self.img_size[0], (
-                    f"Input height ({H}) doesn't match model ({self.img_size[0]})."
-                )
-                assert W == self.img_size[1], (
-                    f"Input width ({W}) doesn't match model ({self.img_size[1]})."
-                )
+                assert H == self.img_size[0], f"Input height ({H}) doesn't match model ({self.img_size[0]})."
+                assert W == self.img_size[1], f"Input width ({W}) doesn't match model ({self.img_size[1]})."
         x = self.proj(x)
         if self.flatten:
             x = x.flatten(2).transpose(1, 2)  # NCHW -> NLC
@@ -743,16 +694,14 @@ def patch_dropout_forward(
     D = x.shape[2]
     # Randomly drop patches / tiles with probability prob.
     num_keep = max(1, int(L * (1.0 - prob)))
-    keep_indices = torch.argsort(torch.randn(B, L, device=x.device), dim=-1)[
-        :, :num_keep
-    ]
+    keep_indices = torch.argsort(torch.randn(B, L, device=x.device), dim=-1)[:, :num_keep]
 
     if ordered:
         # NOTE does not need to maintain patch order in typical transformer use,
         # but possibly useful for debug / visualization
         keep_indices = keep_indices.sort(dim=-1)[0]
 
-    x = x.gather(1, keep_indices.unsqueeze(-1).expand((-1, -1) + x.shape[2:]))
+    x = x.gather(1, keep_indices.unsqueeze(-1).expand((-1, -1, *x.shape[2:])))
 
     if x.shape[1] < L:
         # If the number of patches is not the same as the original sequence length,
@@ -782,15 +731,11 @@ class PatchDropout(nn.Module):
         super().__init__()
         assert 0 <= prob < 1.0
         self.prob = prob
-        self.num_prefix_tokens = (
-            num_prefix_tokens  # exclude CLS token (or other prefix tokens)
-        )
+        self.num_prefix_tokens = num_prefix_tokens  # exclude CLS token (or other prefix tokens)
         self.ordered = ordered
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        output, _ = patch_dropout_forward(
-            x, self.prob, self.num_prefix_tokens, self.ordered, self.training
-        )
+        output, _ = patch_dropout_forward(x, self.prob, self.num_prefix_tokens, self.ordered, self.training)
         return output
 
 
@@ -811,12 +756,12 @@ def _trunc_normal_(tensor, mean, std, a, b):
     # Values are generated by using a truncated uniform distribution and
     # then using the inverse CDF for the normal distribution.
     # Get upper and lower cdf values
-    l = norm_cdf((a - mean) / std)
-    u = norm_cdf((b - mean) / std)
+    lower_cdf = norm_cdf((a - mean) / std)
+    upper_cdf = norm_cdf((b - mean) / std)
 
     # Uniformly fill tensor with values from [l, u], then translate to
     # [2l-1, 2u-1].
-    tensor.uniform_(2 * l - 1, 2 * u - 1)
+    tensor.uniform_(2 * lower_cdf - 1, 2 * upper_cdf - 1)
 
     # Use inverse cdf transform for normal distribution to get truncated
     # standard normal
@@ -942,9 +887,7 @@ class AttentionPoolLatent(nn.Module):
         self.proj = nn.Linear(embed_dim, embed_dim)
         self.proj_drop = nn.Dropout(drop)
 
-        self.norm = (
-            norm_layer(out_features) if norm_layer is not None else nn.Identity()
-        )
+        self.norm = norm_layer(out_features) if norm_layer is not None else nn.Identity()
         self.mlp = Mlp(embed_dim, int(embed_dim * mlp_ratio), act_layer=act_layer)
 
         self.init_weights()
@@ -955,9 +898,7 @@ class AttentionPoolLatent(nn.Module):
         trunc_normal_tf_(self.latent, std=self.latent_dim**-0.5)
 
     def reset_parameters(self):
-        """
-        Reset model parameters. Required method for Megatron-FSDP meta device initialization.
-        """
+        """Reset model parameters. Required method for Megatron-FSDP meta device initialization."""
         self.init_weights()
 
     def forward(self, x, attn_mask: Optional[torch.Tensor] = None):
@@ -968,17 +909,9 @@ class AttentionPoolLatent(nn.Module):
             x = x + self.pos_embed.unsqueeze(0).to(x.dtype)
 
         q_latent = self.latent.expand(B, -1, -1)
-        q = (
-            self.q(q_latent)
-            .reshape(B, self.latent_len, self.num_heads, self.head_dim)
-            .transpose(1, 2)
-        )
+        q = self.q(q_latent).reshape(B, self.latent_len, self.num_heads, self.head_dim).transpose(1, 2)
 
-        kv = (
-            self.kv(x)
-            .reshape(B, N, 2, self.num_heads, self.head_dim)
-            .permute(2, 0, 3, 1, 4)
-        )
+        kv = self.kv(x).reshape(B, N, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         k, v = kv.unbind(0)
 
         q, k = self.q_norm(q), self.k_norm(k)
@@ -1031,17 +964,13 @@ def feature_take_indices(
 
     if isinstance(indices, int):
         # convert int -> last n indices
-        assert 0 < indices <= num_features, (
-            f"last-n ({indices}) is out of range (1 to {num_features})"
-        )
+        assert 0 < indices <= num_features, f"last-n ({indices}) is out of range (1 to {num_features})"
         take_indices = [num_features - indices + i for i in range(indices)]
     else:
         take_indices: List[int] = []
         for i in indices:
             idx = num_features + i if i < 0 else i
-            assert 0 <= idx < num_features, (
-                f"feature index {idx} is out of range (0 to {num_features - 1})"
-            )
+            assert 0 <= idx < num_features, f"feature index {idx} is out of range (0 to {num_features - 1})"
             take_indices.append(idx)
 
     if not torch.jit.is_scripting() and as_set:
@@ -1142,9 +1071,7 @@ def init_weights_vit_timm(module: nn.Module, name: str = "") -> None:
         module.init_weights()
 
 
-def init_weights_vit_jax(
-    module: nn.Module, name: str = "", head_bias: float = 0.0
-) -> None:
+def init_weights_vit_jax(module: nn.Module, name: str = "", head_bias: float = 0.0) -> None:
     """ViT weight initialization, matching JAX (Flax) impl.
 
     Args:
@@ -1159,9 +1086,7 @@ def init_weights_vit_jax(
         else:
             nn.init.xavier_uniform_(module.weight)
             if module.bias is not None:
-                nn.init.normal_(
-                    module.bias, std=1e-6
-                ) if "mlp" in name else nn.init.zeros_(module.bias)
+                nn.init.normal_(module.bias, std=1e-6) if "mlp" in name else nn.init.zeros_(module.bias)
     elif isinstance(module, nn.Conv2d):
         lecun_normal_(module.weight)
         if module.bias is not None:
@@ -1180,9 +1105,7 @@ def init_weights_vit_moco(module: nn.Module, name: str = "") -> None:
     if isinstance(module, nn.Linear):
         if "qkv" in name:
             # treat the weights of Q, K, V separately
-            val = math.sqrt(
-                6.0 / float(module.weight.shape[0] // 3 + module.weight.shape[1])
-            )
+            val = math.sqrt(6.0 / float(module.weight.shape[0] // 3 + module.weight.shape[1]))
             nn.init.uniform_(module.weight, -val, val)
         else:
             nn.init.xavier_uniform_(module.weight)
@@ -1202,9 +1125,7 @@ def get_init_weights_vit(mode: str = "jax", head_bias: float = 0.0) -> Callable:
 
 
 class PosEmbed(nn.Module):
-    """
-    Module that applies the position embedding in the ViT.
-    """
+    """Module that applies the position embedding in the ViT."""
 
     def __init__(
         self,
@@ -1221,12 +1142,8 @@ class PosEmbed(nn.Module):
         self.pos_drop = nn.Dropout(p=pos_drop_rate)
         self.no_embed_class = no_embed_class
         self.num_prefix_tokens = num_prefix_tokens
-        self.cls_token = (
-            nn.Parameter(torch.zeros(1, 1, embed_dim)) if cls_token else None
-        )
-        self.reg_token = (
-            nn.Parameter(torch.zeros(1, reg_tokens, embed_dim)) if reg_tokens else None
-        )
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if cls_token else None
+        self.reg_token = nn.Parameter(torch.zeros(1, reg_tokens, embed_dim)) if reg_tokens else None
 
     def init_weights(self):
         trunc_normal_(self.pos_embed, std=0.02)
@@ -1236,9 +1153,7 @@ class PosEmbed(nn.Module):
             nn.init.normal_(self.reg_token, std=1e-6)
 
     def reset_parameters(self):
-        """
-        Reset model parameters. Required method for Megatron-FSDP meta device initialization.
-        """
+        """Reset model parameters. Required method for Megatron-FSDP meta device initialization."""
         self.init_weights()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -1254,12 +1169,12 @@ class PosEmbed(nn.Module):
             # position embedding does not overlap with class token, add then concat
             x = x + self.pos_embed
             if to_cat:
-                x = torch.cat(to_cat + [x], dim=1)
+                x = torch.cat([*to_cat, x], dim=1)
         else:
             # original timm, JAX, and deit vit impl
             # pos_embed has entry for class token, concat then add
             if to_cat:
-                x = torch.cat(to_cat + [x], dim=1)
+                x = torch.cat([*to_cat, x], dim=1)
             x = x + self.pos_embed
 
         return self.pos_drop(x)
@@ -1352,15 +1267,11 @@ class VisionTransformer(nn.Module):
         super().__init__()
         assert global_pool in ("", "avg", "avgmax", "max", "token", "map")
         assert class_token or global_pool != "token"
-        use_fc_norm = (
-            global_pool in ("avg", "avgmax", "max") if fc_norm is None else fc_norm
-        )
+        use_fc_norm = global_pool in ("avg", "avgmax", "max") if fc_norm is None else fc_norm
 
         self.num_classes = num_classes
         self.global_pool = global_pool
-        self.num_features = self.head_hidden_size = self.embed_dim = (
-            embed_dim  # for consistency with other models
-        )
+        self.num_features = self.head_hidden_size = self.embed_dim = embed_dim  # for consistency with other models
         self.num_prefix_tokens = 1 if class_token else 0
         self.num_prefix_tokens += reg_tokens
         self.num_reg_tokens = reg_tokens
@@ -1380,14 +1291,8 @@ class VisionTransformer(nn.Module):
             **embed_args,
         )
         num_patches = self.patch_embed.num_patches
-        reduction = (
-            self.patch_embed.feat_ratio()
-            if hasattr(self.patch_embed, "feat_ratio")
-            else patch_size
-        )
-        embed_len = (
-            num_patches if no_embed_class else num_patches + self.num_prefix_tokens
-        )
+        reduction = self.patch_embed.feat_ratio() if hasattr(self.patch_embed, "feat_ratio") else patch_size
+        embed_len = num_patches if no_embed_class else num_patches + self.num_prefix_tokens
         self.pos_embed = (
             PosEmbed(
                 embed_dim=embed_dim,
@@ -1410,9 +1315,7 @@ class VisionTransformer(nn.Module):
             self.patch_drop = nn.Identity()
         self.norm_pre = norm_layer(embed_dim) if pre_norm else nn.Identity()
 
-        dpr = [
-            x.item() for x in torch.linspace(0, drop_path_rate, depth, device="cpu")
-        ]  # stochastic depth decay rule
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth, device="cpu")]  # stochastic depth decay rule
 
         self.block_fn = block_fn
         if block_fn == TransformerLayer:
@@ -1463,12 +1366,9 @@ class VisionTransformer(nn.Module):
                 ]
             )
         self.feature_info = [
-            {"module": f"blocks.{i}", "num_chs": embed_dim, "reduction": reduction}
-            for i in range(depth)
+            {"module": f"blocks.{i}", "num_chs": embed_dim, "reduction": reduction} for i in range(depth)
         ]
-        self.norm = (
-            norm_layer(embed_dim) if final_norm and not use_fc_norm else nn.Identity()
-        )
+        self.norm = norm_layer(embed_dim) if final_norm and not use_fc_norm else nn.Identity()
 
         # Classifier Head
         if global_pool == "map":
@@ -1481,13 +1381,9 @@ class VisionTransformer(nn.Module):
             )
         else:
             self.attn_pool = None
-        self.fc_norm = (
-            norm_layer(embed_dim) if final_norm and use_fc_norm else nn.Identity()
-        )
+        self.fc_norm = norm_layer(embed_dim) if final_norm and use_fc_norm else nn.Identity()
         self.head_drop = nn.Dropout(drop_rate)
-        self.head = (
-            nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-        )
+        self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
         if weight_init is not None:
             self.init_weights(weight_init)
@@ -1521,9 +1417,7 @@ class VisionTransformer(nn.Module):
         named_apply(get_init_weights_vit(mode, head_bias), self)
 
     def reset_parameters(self):
-        """
-        Reset model parameters. Required method for Megatron-FSDP meta device initialization.
-        """
+        """Reset model parameters. Required method for Megatron-FSDP meta device initialization."""
         self.init_weights()
 
     @torch.jit.ignore
@@ -1531,9 +1425,7 @@ class VisionTransformer(nn.Module):
         """Get the classifier head."""
         return self.head
 
-    def reset_classifier(
-        self, num_classes: int, global_pool: Optional[str] = None
-    ) -> None:
+    def reset_classifier(self, num_classes: int, global_pool: Optional[str] = None) -> None:
         """Reset the classifier head.
 
         Args:
@@ -1544,15 +1436,11 @@ class VisionTransformer(nn.Module):
         if global_pool is not None:
             assert global_pool in ("", "avg", "avgmax", "max", "token", "map")
             if global_pool == "map" and self.attn_pool is None:
-                assert False, (
-                    "Cannot currently add attention pooling in reset_classifier()."
-                )
+                assert False, "Cannot currently add attention pooling in reset_classifier()."
             elif global_pool != "map" and self.attn_pool is not None:
                 self.attn_pool = None  # remove attention pooling
             self.global_pool = global_pool
-        self.head = (
-            nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-        )
+        self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
     def forward_intermediates(
         self,
@@ -1565,9 +1453,7 @@ class VisionTransformer(nn.Module):
         intermediates_only: bool = False,
         output_dict: bool = False,
         attn_mask: Optional[torch.Tensor] = None,
-    ) -> Union[
-        List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]], Dict[str, Any]
-    ]:
+    ) -> Union[List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]], Dict[str, Any]]:
         """Forward features that returns intermediates.
 
         Args:
@@ -1585,9 +1471,7 @@ class VisionTransformer(nn.Module):
             A tuple with (final_features, intermediates), a list of intermediate features, or a dictionary containing
             'image_features' and 'image_intermediates' (and optionally 'image_intermediates_prefix')
         """
-        assert output_fmt in ("NCHW", "NLC"), (
-            "Output format must be one of NCHW or NLC."
-        )
+        assert output_fmt in ("NCHW", "NLC"), "Output format must be one of NCHW or NLC."
         reshape = output_fmt == "NCHW"
         intermediates = []
         take_indices, max_index = feature_take_indices(len(self.blocks), indices)
@@ -1599,9 +1483,7 @@ class VisionTransformer(nn.Module):
         x = self.patch_drop(x)
         x = self.norm_pre(x)
 
-        if (
-            torch.jit.is_scripting() or not stop_early
-        ):  # can't slice blocks in torchscript
+        if torch.jit.is_scripting() or not stop_early:  # can't slice blocks in torchscript
             blocks = self.blocks
         else:
             blocks = self.blocks[: max_index + 1]
@@ -1624,10 +1506,7 @@ class VisionTransformer(nn.Module):
 
         if reshape:
             # reshape to BCHW output format
-            intermediates = [
-                y.reshape(B, height, width, -1).permute(0, 3, 1, 2).contiguous()
-                for y in intermediates
-            ]
+            intermediates = [y.reshape(B, height, width, -1).permute(0, 3, 1, 2).contiguous() for y in intermediates]
 
         # For dictionary output, handle prefix tokens separately
         if output_dict:
@@ -1645,11 +1524,7 @@ class VisionTransformer(nn.Module):
             return result_dict
 
         # For non-dictionary output, maintain the original behavior
-        if (
-            not torch.jit.is_scripting()
-            and return_prefix_tokens
-            and prefix_tokens is not None
-        ):
+        if not torch.jit.is_scripting() and return_prefix_tokens and prefix_tokens is not None:
             # return_prefix not support in torchscript due to poor type handling
             intermediates = list(zip(intermediates, prefix_tokens))
 
@@ -1685,9 +1560,7 @@ class VisionTransformer(nn.Module):
             self.reset_classifier(0, "")
         return take_indices
 
-    def forward_features(
-        self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    def forward_features(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Forward pass through feature layers (embeddings, transformer blocks, post-transformer norm)."""
         x = self.patch_embed(x)
         x = self.pos_embed(x)
@@ -1743,9 +1616,7 @@ class VisionTransformer(nn.Module):
         x = self.head_drop(x)
         return x if pre_logits else self.head(x)
 
-    def forward(
-        self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         x = self.forward_features(x, attn_mask=attn_mask)
         x = self.forward_head(x)
         return x

@@ -71,8 +71,7 @@ class MaybeToTensor(transforms.ToTensor):
         super().__init__()
 
     def __call__(self, pic) -> torch.Tensor:
-        """
-        Args:
+        """Args:
             pic (PIL Image or numpy.ndarray): Image to be converted to tensor.
 
         Returns:
@@ -93,8 +92,7 @@ class MaybePILToTensor:
         super().__init__()
 
     def __call__(self, pic):
-        """
-        Note: A deep copy of the underlying array is performed.
+        """Note: A deep copy of the underlying array is performed.
 
         Args:
             pic (PIL Image): Image to be converted to tensor.
@@ -185,17 +183,15 @@ class ResizeKeepRatio:
         random_aspect_prob=0.0,
         random_aspect_range=(0.9, 1.11),
     ):
-        """
-
-        Args:
-            size:
-            longest:
-            interpolation:
-            random_scale_prob:
-            random_scale_range:
-            random_scale_area:
-            random_aspect_prob:
-            random_aspect_range:
+        """Args:
+        size:
+        longest:
+        interpolation:
+        random_scale_prob:
+        random_scale_range:
+        random_scale_area:
+        random_aspect_prob:
+        random_aspect_range:
         """
         if isinstance(size, (list, tuple)):
             self.size = tuple(size)
@@ -228,9 +224,7 @@ class ResizeKeepRatio:
         target_h, target_w = target_size
         ratio_h = img_h / target_h
         ratio_w = img_w / target_w
-        ratio = max(ratio_h, ratio_w) * longest + min(ratio_h, ratio_w) * (
-            1.0 - longest
-        )
+        ratio = max(ratio_h, ratio_w) * longest + min(ratio_h, ratio_w) * (1.0 - longest)
 
         if random_scale_prob > 0 and random.random() < random_scale_prob:
             ratio_factor = random.uniform(random_scale_range[0], random_scale_range[1])
@@ -260,8 +254,7 @@ class ResizeKeepRatio:
         return size
 
     def __call__(self, img):
-        """
-        Args:
+        """Args:
             img (PIL Image): Image to be cropped and resized.
 
         Returns:
@@ -286,9 +279,7 @@ class ResizeKeepRatio:
 
     def __repr__(self):
         if isinstance(self.interpolation, (tuple, list)):
-            interpolate_str = " ".join(
-                [interp_mode_to_str(x) for x in self.interpolation]
-            )
+            interpolate_str = " ".join([interp_mode_to_str(x) for x in self.interpolation])
         else:
             interpolate_str = interp_mode_to_str(self.interpolation)
         format_string = self.__class__.__name__ + "(size={0}".format(self.size)
@@ -297,7 +288,9 @@ class ResizeKeepRatio:
         format_string += f", random_scale_prob={self.random_scale_prob:.3f}"
         format_string += f", random_scale_range=({self.random_scale_range[0]:.3f}, {self.random_aspect_range[1]:.3f})"
         format_string += f", random_aspect_prob={self.random_aspect_prob:.3f}"
-        format_string += f", random_aspect_range=({self.random_aspect_range[0]:.3f}, {self.random_aspect_range[1]:.3f}))"
+        format_string += (
+            f", random_aspect_range=({self.random_aspect_range[0]:.3f}, {self.random_aspect_range[1]:.3f}))"
+        )
         return format_string
 
 
@@ -371,8 +364,8 @@ class RandomResizedCropAndInterpolation:
             log_ratio = (math.log(ratio[0]), math.log(ratio[1]))
             aspect_ratio = math.exp(random.uniform(*log_ratio))
 
-            target_w = int(round(math.sqrt(target_area * aspect_ratio)))
-            target_h = int(round(math.sqrt(target_area / aspect_ratio)))
+            target_w = round(math.sqrt(target_area * aspect_ratio))
+            target_h = round(math.sqrt(target_area / aspect_ratio))
             if target_w <= img_w and target_h <= img_h:
                 i = random.randint(0, img_h - target_h)
                 j = random.randint(0, img_w - target_w)
@@ -382,10 +375,10 @@ class RandomResizedCropAndInterpolation:
         in_ratio = img_w / img_h
         if in_ratio < min(ratio):
             target_w = img_w
-            target_h = int(round(target_w / min(ratio)))
+            target_h = round(target_w / min(ratio))
         elif in_ratio > max(ratio):
             target_h = img_h
-            target_w = int(round(target_h * max(ratio)))
+            target_w = round(target_h * max(ratio))
         else:  # whole image
             target_w = img_w
             target_h = img_h
@@ -394,8 +387,7 @@ class RandomResizedCropAndInterpolation:
         return i, j, target_h, target_w
 
     def __call__(self, img):
-        """
-        Args:
+        """Args:
             img (PIL Image): Image to be cropped and resized.
 
         Returns:
@@ -410,9 +402,7 @@ class RandomResizedCropAndInterpolation:
 
     def __repr__(self):
         if isinstance(self.interpolation, (tuple, list)):
-            interpolate_str = " ".join(
-                [interp_mode_to_str(x) for x in self.interpolation]
-            )
+            interpolate_str = " ".join([interp_mode_to_str(x) for x in self.interpolation])
         else:
             interpolate_str = interp_mode_to_str(self.interpolation)
         format_string = self.__class__.__name__ + "(size={0}".format(self.size)
@@ -459,8 +449,8 @@ def center_crop_or_pad(
         if crop_width == image_width and crop_height == image_height:
             return img
 
-    crop_top = int(round((image_height - crop_height) / 2.0))
-    crop_left = int(round((image_width - crop_width) / 2.0))
+    crop_top = round((image_height - crop_height) / 2.0)
+    crop_left = round((image_width - crop_width) / 2.0)
     return F.crop(img, crop_top, crop_left, crop_height, crop_width)
 
 
@@ -488,16 +478,13 @@ class CenterCropOrPad(torch.nn.Module):
         self.padding_mode = padding_mode
 
     def forward(self, img):
-        """
-        Args:
+        """Args:
             img (PIL Image or Tensor): Image to be cropped.
 
         Returns:
             PIL Image or Tensor: Cropped image.
         """
-        return center_crop_or_pad(
-            img, self.size, fill=self.fill, padding_mode=self.padding_mode
-        )
+        return center_crop_or_pad(img, self.size, fill=self.fill, padding_mode=self.padding_mode)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(size={self.size})"
@@ -554,8 +541,7 @@ class RandomCropOrPad(torch.nn.Module):
         return top, left
 
     def forward(self, img):
-        """
-        Args:
+        """Args:
             img (PIL Image or Tensor): Image to be cropped.
 
         Returns:
@@ -595,6 +581,7 @@ class RandomErasing:
 
         This variant of RandomErasing is intended to be applied to either a batch
         or single image tensor after it has been normalized by dataset mean and std.
+
     Args:
          probability: Probability that the Random Erasing operation will be performed.
          min_area: Minimum percentage of erased area wrt input image area.
@@ -644,19 +631,13 @@ class RandomErasing:
         if random.random() > self.probability:
             return
         area = img_h * img_w
-        count = (
-            self.min_count
-            if self.min_count == self.max_count
-            else random.randint(self.min_count, self.max_count)
-        )
+        count = self.min_count if self.min_count == self.max_count else random.randint(self.min_count, self.max_count)
         for _ in range(count):
             for attempt in range(10):
-                target_area = (
-                    random.uniform(self.min_area, self.max_area) * area / count
-                )
+                target_area = random.uniform(self.min_area, self.max_area) * area / count
                 aspect_ratio = math.exp(random.uniform(*self.log_aspect_ratio))
-                h = int(round(math.sqrt(target_area * aspect_ratio)))
-                w = int(round(math.sqrt(target_area / aspect_ratio)))
+                h = round(math.sqrt(target_area * aspect_ratio))
+                w = round(math.sqrt(target_area / aspect_ratio))
                 if w < img_w and h < img_h:
                     top = random.randint(0, img_h - h)
                     left = random.randint(0, img_w - w)
@@ -709,11 +690,7 @@ def patchify_image(
     # Reshape image to patches
     patches = img.view(c, nh, ph, nw, pw).permute(1, 3, 2, 4, 0)
     # [nh, nw, ph, pw, c] -> [nh * nw, ph * pw * c] or [nh * nw, ph, pw, c]
-    patches = (
-        patches.reshape(-1, ph * pw * c)
-        if flatten_patches
-        else patches.reshape(-1, ph, pw, c)
-    )
+    patches = patches.reshape(-1, ph * pw * c) if flatten_patches else patches.reshape(-1, ph, pw, c)
 
     if include_info:
         # Create coordinate indices
@@ -730,18 +707,13 @@ def patchify_image(
 class Patchify(torch.nn.Module):
     """Transform an image into patches with corresponding coordinates and type indicators."""
 
-    def __init__(
-        self, patch_size: Union[int, Tuple[int, int]], flatten_patches: bool = True
-    ):
+    def __init__(self, patch_size: Union[int, Tuple[int, int]], flatten_patches: bool = True):
         super().__init__()
-        self.patch_size = (
-            patch_size if isinstance(patch_size, tuple) else (patch_size, patch_size)
-        )
+        self.patch_size = patch_size if isinstance(patch_size, tuple) else (patch_size, patch_size)
         self.flatten_patches = flatten_patches
 
     def forward(self, img):
-        """
-        Args:
+        """Args:
             img: A PIL Image or tensor of shape [C, H, W]
 
         Returns:
@@ -755,9 +727,7 @@ class Patchify(torch.nn.Module):
             # Convert PIL Image to tensor [C, H, W]
             img = transforms.functional.to_tensor(img)
 
-        patches, coord, valid = patchify_image(
-            img, self.patch_size, flatten_patches=self.flatten_patches
-        )
+        patches, coord, valid = patchify_image(img, self.patch_size, flatten_patches=self.flatten_patches)
 
         return {
             "patches": patches,
@@ -1005,9 +975,7 @@ def transforms_imagenet_eval(
         # squash mode scales each edge to 1/pct of target, then crops
         # aspect ratio is not preserved, no img lost if crop_pct == 1.0
         tfl += [
-            transforms.Resize(
-                scale_size, interpolation=str_to_interp_mode(interpolation)
-            ),
+            transforms.Resize(scale_size, interpolation=str_to_interp_mode(interpolation)),
             transforms.CenterCrop(img_size),
         ]
     elif crop_mode == "border":
@@ -1023,11 +991,7 @@ def transforms_imagenet_eval(
         # aspect ratio is preserved, crops center within image, no borders are added, image is lost
         if scale_size[0] == scale_size[1]:
             # simple case, use torchvision built-in Resize w/ shortest edge mode (scalar size arg)
-            tfl += [
-                transforms.Resize(
-                    scale_size[0], interpolation=str_to_interp_mode(interpolation)
-                )
-            ]
+            tfl += [transforms.Resize(scale_size[0], interpolation=str_to_interp_mode(interpolation))]
         else:
             # resize the shortest edge to matching target dim for non-square target
             tfl += [ResizeKeepRatio(scale_size)]

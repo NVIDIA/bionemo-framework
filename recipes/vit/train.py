@@ -24,6 +24,7 @@ import hydra
 import torch
 import wandb
 from hydra.core.hydra_config import HydraConfig
+from megatron_fsdp import fully_shard
 from omegaconf import OmegaConf
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -32,7 +33,6 @@ from tqdm import tqdm
 
 from imagenet_dataset import ImageNetDataset, infinite_dataloader
 from imagenet_utils import transforms_imagenet_eval, transforms_imagenet_train
-from megatron_fsdp import fully_shard
 from vit import VisionTransformer
 
 
@@ -41,9 +41,7 @@ _logger = logging.getLogger(__name__)
 
 @hydra.main(version_base="1.2", config_path="config", config_name="vit_base_patch16_224")
 def main(cfg) -> None:
-    """
-    Distributed Setup
-    """
+    """Distributed Setup"""
     # Initialize distributed training environment.
     torch.distributed.init_process_group()
 
@@ -101,15 +99,14 @@ def main(cfg) -> None:
     """
     with (
         # Meta Device Initialization
-        torch.device("meta")
-        if cfg.fsdp.init_model_with_meta_device
-        else nullcontext()
+        torch.device("meta") if cfg.fsdp.init_model_with_meta_device else nullcontext()
     ):
         vit_kwargs = dict(cfg.model.vit)
         if cfg.fsdp.init_model_with_meta_device:
             vit_kwargs["weight_init"] = None
         if cfg.model.transformer_engine:
             from transformer_engine.pytorch import TransformerLayer
+
             vit_kwargs["block_fn"] = TransformerLayer
             vit_kwargs["micro_batch_size"] = cfg.dataset.train.batch_size
             vit_kwargs["tp_group"] = device_mesh["tp"].get_group()
@@ -404,6 +401,7 @@ def main(cfg) -> None:
     # TODO(@cspades): Migrate to the new Torch profiler!
     if cfg.profiling.torch_memory_profile:
         from pickle import dump
+
         with open(
             # Path will only exist when using @hydra.main()!
             Path(HydraConfig.get().runtime.output_dir) / "torch_memory_profiler_snapshot.pickle",
