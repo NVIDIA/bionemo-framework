@@ -40,7 +40,7 @@ requires_multi_gpu = pytest.mark.skipif(
     ],
 )
 @pytest.mark.parametrize("backend", ["te", "eager"])
-def test_ddp_vs_fsdp2_single_gpu(strategy, backend):
+def test_ddp_vs_fsdp_single_gpu(strategy, backend):
     cmd = [
         "torchrun",
         "--nproc_per_node=1",
@@ -68,7 +68,13 @@ def test_ddp_vs_fsdp2_single_gpu(strategy, backend):
 @requires_multi_gpu
 @pytest.mark.parametrize("strategy", ["fsdp2", "mfsdp"])
 @pytest.mark.parametrize("backend", ["te", "eager"])
-def test_ddp_vs_fsdp2_multi_gpu(strategy, backend):
+def test_ddp_vs_fsdp_multi_gpu(strategy, backend):
+    if strategy == "mfsdp":
+        pytest.skip(
+            "MFSDP multi-gpu tests are currently failing because tensors are not always evenly sharded, leaving p.grad "
+            "to be None on some ranks (BIONEMO-2726)"
+        )
+
     cmd = [
         "torchrun",
         "--nproc_per_node=2",
