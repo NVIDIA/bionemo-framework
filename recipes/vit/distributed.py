@@ -20,12 +20,20 @@ import torch
 
 
 @contextmanager
-def initialize_distributed(cfg):
+def initialize_distributed(
+    dp_outer: int = 1,
+    dp_shard: int = 1,
+    cp: int = 1,
+    tp: int = 1,
+):
     """
     Setup the DeviceMesh for distributed training.
 
     Args:
-        cfg: Hydra config.
+        dp_outer: The size of the data parallelism outer dimension.
+        dp_shard: The size of the data parallelism shard dimension.
+        cp: The size of the context parallelism dimension.
+        tp: The size of the tensor parallelism dimension.
 
     Yields:
         device_mesh: The DeviceMesh.
@@ -45,30 +53,30 @@ def initialize_distributed(cfg):
     # TODO(@cspades): Will add TE-backed context parallelism (CP) in the future, just need to
     # modify the ViT model to shard the sequence dimension after tokenization. For now, we
     # setup the CP dimension for demonstrating how to use DeviceMesh and CP with Megatron-FSDP.
-    if cfg.distributed.dp_inter * cfg.distributed.dp_shard * cfg.distributed.cp != torch.distributed.get_world_size():
+    if dp_outer * dp_shard * cp != torch.distributed.get_world_size():
         raise ValueError(
-            f"Invalid parallelism sizes: dp_inter({cfg.distributed.dp_inter}) * dp_shard({cfg.distributed.dp_shard}) * cp({cfg.distributed.cp}) * tp(1) != world_size({torch.distributed.get_world_size()})"
+            f"Invalid parallelism sizes: dp_outer({dp_outer}) * dp_shard({dp_shard}) * cp({cp}) * tp({tp}) != world_size({torch.distributed.get_world_size()})"
         )
     device_mesh = torch.distributed.device_mesh.init_device_mesh(
         "cuda",
         mesh_shape=(
-            cfg.distributed.dp_inter,
-            cfg.distributed.dp_shard,
-            cfg.distributed.cp,
-            1,  # Needed to use TransformerEngine layers with Megatron-FSDP. "TP is always 1."
+            dp_outer,
+            dp_shard,
+            cp,
+            tp,  # Needed to use TransformerEngine layers with Megatron-FSDP.
         ),
-        mesh_dim_names=("dp_inter", "dp_shard", "cp", "tp"),
+        mesh_dim_names=("dp_outer", "dp_shard", "cp", "tp"),
     )
 
     # Sub-meshes (possibly) required for Megatron-FSDP.
     # WARNING: These have a tendency to be deleted by Torch. Save references
     # or pass them to all classes or functions that use them.
     # DP: Only relevant when using HSDP, where we need the flattened DP group for data parallelism. (Otherwise, just pass dp_shard.)
-    device_mesh[("dp_inter", "dp_shard")]._flatten("dp")
+    device_mesh[("dp_outer", "dp_shard")]._flatten("dp")
     # DP-Shard-CP: Only required if using CP. Otherwise, just pass dp_shard to FSDP.
     device_mesh[("dp_shard", "cp")]._flatten("dp_cp_shard")
     # HSDP (DP-CP): Only required if using HSDP. Otherwise, don't pass hybrid_fsdp_group to Megatron-FSDP.
-    device_mesh[("dp_inter", "dp_shard", "cp")]._flatten("hsdp")
+    device_mesh[("dp_outer", "dp_shard", "cp")]._flatten("hsdp")
 
     # Yield DeviceMesh.
     yield device_mesh

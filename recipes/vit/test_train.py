@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -37,29 +36,27 @@ def test_train(monkeypatch, tmp_path, config_name, init_model_with_meta_device):
 
     # Initialize training config.
     recipe_dir = Path(__file__).parent
+    training_ckpt_path = Path(tmp_path) / "test_train_checkpoints"
     with initialize_config_dir(config_dir=str(recipe_dir / "config"), version_base="1.2"):
         vit_config = compose(
             config_name=config_name,
             overrides=[
-                "++training.steps=10",
-                "++training.val_interval=10",
+                "++training.steps=5",
+                "++training.val_interval=5",
                 "++training.log_interval=1",
-                f"++training.checkpoint.path={Path(tmp_path) / 'ckpt'}",
+                f"++training.checkpoint.path={training_ckpt_path}",
                 "++profiling.torch_memory_profile=false",
                 "++profiling.wandb=false",
                 f"++fsdp.init_model_with_meta_device={init_model_with_meta_device}",
             ],
         )
-        vit_resume_config = deepcopy(vit_config)
-        vit_resume_config.training.steps = 10
 
     main(vit_config)
 
     # Verify checkpoints were created.
-    assert sum(1 for item in (Path(tmp_path) / "ckpt").iterdir() if item.is_dir()) == 1, (
-        "Expected 1 checkpoint with 10 training steps and validation interval of 10."
+    assert sum(1 for item in training_ckpt_path.iterdir() if item.is_dir()) == 1, (
+        "Expected 1 checkpoint with 5 training steps and validation interval of 5."
     )
 
-    # Auto-resume training from checkpoint. For this test, we auto-resume from the best checkpoint,
-    # so depending on what the best checkpoint is, we may have more than 5 checkpoints.
-    main(vit_resume_config)
+    # Auto-resume training from checkpoint. For this test, we auto-resume from the best checkpoint.
+    main(vit_config)

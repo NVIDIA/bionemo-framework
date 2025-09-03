@@ -31,12 +31,14 @@ def main(cfg) -> None:
     """
     Inference script for ViT. Non-distributed inference.
     """
-    with initialize_distributed(cfg) as device_mesh:
+    with initialize_distributed(**cfg.distributed) as device_mesh:
         # Init ViT.
         model = build_vit_model(cfg, device_mesh).cuda()
 
-        # Load model checkpoint trained using Megatron-FSDP.
-        load_torch_checkpoint(model, cfg.inference.checkpoint.path, megatron_fsdp=True)
+        # Load torch.save (non-distributed) model checkpoint trained using (or not using) Megatron-FSDP.
+        load_torch_checkpoint(
+            cfg.inference.checkpoint.path, model, megatron_fsdp=cfg.inference.checkpoint.megatron_fsdp
+        )
         logger.info(f"Model: {model}")
 
         # Mock input.

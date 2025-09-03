@@ -45,7 +45,7 @@ def main(cfg) -> None:
     """Train a ViT model on ImageNet using Megatron-FSDP and TransformerEngine (TE)."""
 
     # Initialize distributed environment.
-    with initialize_distributed(cfg) as device_mesh:
+    with initialize_distributed(**cfg.distributed) as device_mesh:
         """
         Profiling
         """
@@ -92,7 +92,7 @@ def main(cfg) -> None:
             # Always required to use Megatron-FSDP. What we shard on.
             dp_shard_dim="dp_cp_shard",
             # Required if using HSDP. The second / intermediate set of data-parallel process groups.
-            dp_inter_dim="dp_inter",
+            dp_inter_dim="dp_outer",
             # Required if using TP, either from TransformerEngine (TP=1) / Megatron or DTensor-based TP.
             tp_dim="tp",
             # Required if using HSDP. Created by flattening everything we shard on, e.g. DP-CP.
@@ -142,9 +142,9 @@ def main(cfg) -> None:
             sampler=train_sampler,
             num_workers=cfg.dataset.num_workers,
             # IMPORTANT: persistent_workers=True is required for Megatron-FSDP and
-            # Torch DCP, because CUDA/NCCL and Dataloader kill each others workers!
+            # Torch DCP, because CUDA/NCCL and Dataloader kill each others' workers!
             # Alternatively, you can set num_workers=0.
-            persistent_workers=True,
+            persistent_workers=(cfg.dataset.num_workers > 0),
         )
         if torch.distributed.get_rank() == 0:
             _logger.info(f"Training Dataset Size: {len(imagenet_train_ds)}")
@@ -171,9 +171,9 @@ def main(cfg) -> None:
             sampler=val_sampler,
             num_workers=cfg.dataset.num_workers,
             # IMPORTANT: persistent_workers=True is required for Megatron-FSDP and
-            # Torch DCP, because CUDA/NCCL and Dataloader kill each others workers!
+            # Torch DCP, because CUDA/NCCL and Dataloader kill each others' workers!
             # Alternatively, you can set num_workers=0.
-            persistent_workers=True,
+            persistent_workers=(cfg.dataset.num_workers > 0),
         )
         if torch.distributed.get_rank() == 0:
             _logger.info(f"Validation Dataset Size: {len(imagenet_val_ds)}")
@@ -211,6 +211,7 @@ def main(cfg) -> None:
 
             # Set training mode.
             model.train()
+            optimizer.zero_grad()
 
             # Match model input shape.
             if cfg.model.channels_last:

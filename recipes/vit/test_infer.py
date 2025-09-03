@@ -45,11 +45,15 @@ def test_infer(monkeypatch, tmp_path, config_name):
             config_name=config_name,
             overrides=[
                 f"++inference.checkpoint.path={test_ckpt_path}",
+                # Using a torch.save mock checkpoint for inference.
+                "++inference.checkpoint.format=torch",
+                # Using a non-Megatron-FSDP mock checkpoint for inference.
+                "++inference.checkpoint.megatron_fsdp=false",
             ],
         )
 
     # Write a test checkpoint.
-    with initialize_distributed(vit_config) as device_mesh:
+    with initialize_distributed(**vit_config.distributed) as device_mesh:
         # Init ViT.
         model = build_vit_model(vit_config, device_mesh).cuda()
         # Write checkpoint.
