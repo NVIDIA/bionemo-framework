@@ -30,10 +30,18 @@ jobs:
           fetch-depth: 0
           submodules: "recursive"
 
+      - name: Get merge-base commit
+        id: merge-base
+        run: |
+          # Get the merge-base between current branch and main
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          echo "merge-base=$MERGE_BASE" >> $GITHUB_OUTPUT
+          echo "Merge-base commit: $MERGE_BASE"
+
       - uses: step-security/changed-files@v46
         id: changed-files
         with:
-          base_sha: main
+          base_sha: ${{ steps.merge-base.outputs.merge-base }}
           files: |
             **
             !models/**
