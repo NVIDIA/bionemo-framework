@@ -86,14 +86,12 @@ def parse_args():
     )
     ap.add_argument(
         "--fp8",
-        type=bool,
         action="store_true",
         default=False,
         help="Whether to use vortex style FP8. Defaults to False.",
     )
     ap.add_argument(
         "--flash-decode",
-        type=bool,
         action="store_true",
         default=False,
         help="Whether to use flash decode. Defaults to True.",
