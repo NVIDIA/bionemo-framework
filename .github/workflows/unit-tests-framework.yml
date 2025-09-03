@@ -239,8 +239,6 @@ jobs:
       - name: Run notebook tests
         env:
           BIONEMO_DATA_SOURCE: ngc
-          # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
-          FAST_CI_MODE: true
         run: |
           chmod +x ./ci/scripts/run_pytest_notebooks.sh
           ./ci/scripts/run_pytest_notebooks.sh
