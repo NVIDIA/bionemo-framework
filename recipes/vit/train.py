@@ -172,12 +172,9 @@ def setup_device_mesh(cfg):
     # TODO(@cspades): Will add TE-backed context parallelism (CP) in the future, just need to
     # modify the ViT model to shard the sequence dimension after tokenization. For now, we
     # setup the CP dimension for demonstrating how to use DeviceMesh and CP with Megatron-FSDP.
-    if (
-        cfg.distributed.dp_inter * cfg.distributed.dp_shard * cfg.distributed.cp * cfg.distributed.tp
-        != torch.distributed.get_world_size()
-    ):
+    if cfg.distributed.dp_inter * cfg.distributed.dp_shard * cfg.distributed.cp != torch.distributed.get_world_size():
         raise ValueError(
-            f"Invalid parallelism sizes: dp_inter({cfg.distributed.dp_inter}) * dp_shard({cfg.distributed.dp_shard}) * cp({cfg.distributed.cp}) * tp({cfg.distributed.tp}) != world_size({torch.distributed.get_world_size()})"
+            f"Invalid parallelism sizes: dp_inter({cfg.distributed.dp_inter}) * dp_shard({cfg.distributed.dp_shard}) * cp({cfg.distributed.cp}) * tp(1) != world_size({torch.distributed.get_world_size()})"
         )
     device_mesh = torch.distributed.device_mesh.init_device_mesh(
         "cuda",
@@ -185,7 +182,7 @@ def setup_device_mesh(cfg):
             cfg.distributed.dp_inter,
             cfg.distributed.dp_shard,
             cfg.distributed.cp,
-            cfg.distributed.tp,
+            1,  # Needed to use TransformerEngine layers with Megatron-FSDP. "TP is always 1."
         ),
         mesh_dim_names=("dp_inter", "dp_shard", "cp", "tp"),
     )
