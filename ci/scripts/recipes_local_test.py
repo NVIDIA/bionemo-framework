@@ -48,7 +48,7 @@ CUSTOM_CONTAINERS = {
     "models/amplify": "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025",
 }
 # DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:25.06-py3"
-DEFAULT_CONTAINER = "nvcr.io/nvidian/cvai_bnmo_trng/bionemo:pytorch25.06-py3-squashed"
+DEFAULT_CONTAINER = "svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed"
 
 
 def get_git_root() -> str:
