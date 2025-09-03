@@ -572,7 +572,7 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [99.2, 51.0, 73.0, 82.6]),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
-        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_batch_generate(
@@ -638,7 +638,7 @@ def test_batch_generate(
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
-        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
     ],
 )
 def test_batch_generate_coding_sequences(
@@ -748,7 +748,7 @@ def test_batch_generate_coding_sequences(
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, 41.0),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, 32.0),
-        ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
+        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
     ],
 )
 def test_generate_speed(

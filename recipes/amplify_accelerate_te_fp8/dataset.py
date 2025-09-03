@@ -26,14 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 def create_datasets_and_collator(
-    pretained_model: str | os.PathLike,
+    pretrained_model: str | os.PathLike,
     max_length: int,
     data_size: Literal["full", "sanity", "parquet"],
 ) -> tuple[Dataset, Dataset, DataCollatorForLanguageModeling]:
     """Create the datasets and the data collator.
 
     Args:
-        pretained_model: The path or tag of the pre-trained model to load the tokenizer from.
+        pretrained_model: The path or tag of the pre-trained model to load the tokenizer from.
         max_length: The maximum length of the sequences.
         data_size: The size of the dataset to load. If "full", use and pre-process the full UR100P
             CSV dataset. This takes a long time without a cached dataset. If "small", use and
@@ -43,7 +43,7 @@ def create_datasets_and_collator(
     Returns:
         A tuple containing the train dataset, the eval dataset, and the data collator.
     """
-    tokenizer = AutoTokenizer.from_pretrained(pretained_model)
+    tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
 
     def tokenize(examples):
         """Tokenize the examples."""
@@ -84,8 +84,7 @@ def create_datasets_and_collator(
     train_dataset = train_dataset.shuffle(seed=42)
 
     for dataset in [train_dataset, eval_dataset]:
-        dataset.set_transform(tokenize, output_all_columns=True)
-        dataset.remove_columns(["sequence", "name"])
+        dataset.set_transform(tokenize)
 
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
