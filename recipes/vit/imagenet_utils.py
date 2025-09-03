@@ -12,6 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Derived from code written by Ross Wightman (@rwightman / Copyright 2020)
+and modified for demonstrative use by NVIDIA (@cspades).
+"""
 
 import logging
 import math
@@ -46,6 +50,8 @@ _logger = logging.getLogger(__name__)
 
 
 class ToNumpy:
+    """Convert a PIL Image to a numpy array."""
+
     def __call__(self, pil_img):
         np_img = np.array(pil_img, dtype=np.uint8)
         if np_img.ndim < 3:
@@ -55,7 +61,7 @@ class ToNumpy:
 
 
 class ToTensor:
-    """ToTensor with no rescaling of values"""
+    """ToTensor with no rescaling of values."""
 
     def __init__(self, dtype=torch.float32):
         self.dtype = dtype
@@ -149,10 +155,14 @@ else:
 
 
 def str_to_pil_interp(mode_str):
+    """Convert a string to a PIL interpolation mode."""
+
     return _str_to_pil_interpolation[mode_str]
 
 
 def str_to_interp_mode(mode_str):
+    """Convert a string to a PyTorch interpolation mode if Torchvision InterpolationMode is available, otherwise a PIL interpolation mode."""
+
     if has_interpolation_mode:
         return _str_to_torch_interpolation[mode_str]
     else:
@@ -160,6 +170,8 @@ def str_to_interp_mode(mode_str):
 
 
 def interp_mode_to_str(mode):
+    """Convert a PyTorch interpolation mode to a string if Torchvision InterpolationMode is available, otherwise a PIL interpolation mode."""
+
     if has_interpolation_mode:
         return _torch_interpolation_to_str[mode]
     else:
@@ -563,6 +575,8 @@ class RandomCropOrPad(torch.nn.Module):
 
 
 def _get_pixels(per_pixel, rand_color, patch_size, dtype=torch.float32, device="cuda"):
+    """Return a tensor of pixels for the given patch size, dtype, and device."""
+
     # NOTE I've seen CUDA illegal memory access errors being caused by the normal_()
     # paths, flip the order so normal is run on CPU if this becomes a problem
     # Issue has been fixed in master https://github.com/pytorch/pytorch/issues/19508
@@ -675,6 +689,8 @@ def patchify_image(
     include_info: bool = True,
     flatten_patches: bool = True,
 ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """Patchify an image into patches with corresponding coordinates and type indicators."""
+
     c, h, w = img.shape
     ph, pw = patch_size
 
@@ -737,6 +753,8 @@ class Patchify(torch.nn.Module):
 
 
 class TrimBorder(torch.nn.Module):
+    """Trim a border of specified # pixels around edge of original image."""
+
     def __init__(
         self,
         border_size: int,
