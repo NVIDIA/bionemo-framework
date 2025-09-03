@@ -110,8 +110,19 @@ jobs:
     steps:
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ci script dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformdirs
 
       - name: Run tests
         env:
