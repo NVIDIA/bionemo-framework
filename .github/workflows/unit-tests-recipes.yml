@@ -81,22 +81,7 @@ jobs:
             fi
           fi
 
-          # Assign Docker images to the selected directories
-          # Currently, AMPLIFY is the only folder that needs a custom base image, since we have to support both TE and
-          # xformers-based models for golden value testing. The rest of the models use the default pytorch image.
-          DIRS_WITH_IMAGES=$(echo "$DIRS" | jq -c '
-            map({
-              dir: .,
-              image: (
-                if . == "models/amplify" then
-                  "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
-                else
-                  "nvcr.io/nvidia/pytorch:25.06-py3"
-                end
-              )
-            })
-          ')
-          echo "dirs=$DIRS_WITH_IMAGES" >> $GITHUB_OUTPUT
+          echo "dirs=$DIRS" >> $GITHUB_OUTPUT
       - name: Show output
         run: |
           echo '${{ toJSON(steps.changed-files.outputs) }}'
@@ -107,40 +92,15 @@ jobs:
     needs: changed-dirs
     runs-on: linux-amd64-gpu-l4-latest-1
     if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
-    container:
-      image: ${{ matrix.recipe.image }}
-    strategy:
-      matrix:
-        recipe: ${{ fromJson(needs.changed-dirs.outputs.dirs) }}
-      fail-fast: false
 
     steps:
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          sparse-checkout: "${{ matrix.recipe.dir }}"
-          sparse-checkout-cone-mode: false
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.recipe.dir }}
-        #
-        run: |
-          if [ -f pyproject.toml ] || [ -f setup.py ]; then
-            PIP_CONSTRAINT= pip install -e .
-            echo "Installed ${{ matrix.recipe.dir }} as editable package"
-          elif [ -f requirements.txt ]; then
-            PIP_CONSTRAINT= pip install -r requirements.txt
-            echo "Installed ${{ matrix.recipe.dir }} from requirements.txt"
-          else
-            echo "No pyproject.toml, setup.py, or requirements.txt found in ${{ matrix.recipe.dir }}"
-            exit 1
-          fi
 
       - name: Run tests
-        working-directory: ${{ matrix.recipe.dir }}
-        run: pytest -v .
+        run: ./ci/recipes_local_test.py ${{ fromJson(needs.changed-dirs.outputs.dirs) }}
 
   verify-recipe-tests:
     # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.
