@@ -468,18 +468,11 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
         raise NotImplementedError
 
 
-# @pytest.mark.parametrize(
-#     "ckpt_name,expected_matchpercents",
-#     [
-#         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
-#         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
-#         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-#         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
-#     ],
-# )
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents",
     [
+        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
+        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
     ],
@@ -538,20 +531,13 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents,flash_decode",
     [
+        # Try flash decode with one and not the other to verify that both paths work.
+        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
+        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
     ],
 )
-# @pytest.mark.parametrize(
-#     "ckpt_name,expected_matchpercents,flash_decode",
-#     [
-#         # Try flash decode with one and not the other to verify that both paths work.
-#         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
-#         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
-#         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
-#         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
-#     ],
-# )
 def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
     assert len(sequences) > 0
     seq_len_cap = determine_memory_requirement_and_skip_if_not_met(
@@ -665,7 +651,7 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [96.8, 29.7, 76.6, 71.6]),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [99.2, 51.0, 73.0, 82.6]),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
-        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [97.60, 89.63, 80.03, 84.57]),
     ],
 )
 def test_batch_generate(
@@ -845,7 +831,7 @@ def test_batch_generate_coding_sequences(
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, 41.0),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, 39.73),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, 32.0),
-        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, 32.0),
     ],
 )
 def test_generate_speed(
