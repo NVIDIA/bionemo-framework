@@ -23,6 +23,10 @@ import textwrap
 from pathlib import Path
 from typing import List, Optional
 
+from platformdirs import user_cache_dir
+
+
+PIP_CACHE_DIR = user_cache_dir(appname="bionemo-pip-cache", appauthor="nvidia")
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -36,12 +40,15 @@ DOCKER_RUN_ARGS = [
     "memlock=-1",
     "--ulimit",
     "stack=67108864",
+    "-v",
+    f"{PIP_CACHE_DIR}:/workspace/.cache/pip",
 ]
 
 CUSTOM_CONTAINERS = {
     "models/amplify": "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025",
 }
-DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:25.06-py3"
+# DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:25.06-py3"
+DEFAULT_CONTAINER = "nvcr.io/nvidian/cvai_bnmo_trng/bionemo:pytorch25.06-py3-squashed"
 
 
 def get_git_root() -> str:
@@ -89,15 +96,14 @@ def run_tests_in_docker(work_dir: str) -> bool:
         set -e  # Exit on any error
 
         echo "Checking for dependency files..."
-
         # Install dependencies based on available files
         if [ -f pyproject.toml ] || [ -f setup.py ]; then
             echo "Installing package in editable mode..."
-            PIP_CONSTRAINT= pip install -e .
+            PIP_CACHE_DIR=/workspace/.cache/pip PIP_CONSTRAINT= pip install -e .
             echo "Installed package as editable package"
         elif [ -f requirements.txt ]; then
             echo "Installing from requirements.txt..."
-            PIP_CONSTRAINT= pip install -r requirements.txt
+            PIP_CACHE_DIR=/workspace/.cache/pip PIP_CONSTRAINT= pip install -r requirements.txt
             echo "Installed from requirements.txt"
         else
             echo "No pyproject.toml, setup.py, or requirements.txt found"
@@ -105,7 +111,7 @@ def run_tests_in_docker(work_dir: str) -> bool:
         fi
 
         echo "Running tests..."
-        pytest -v .
+        python -m pytest -v .
         """)
 
     relative_path = Path(work_dir).relative_to(git_root).as_posix()
@@ -164,6 +170,8 @@ def main():
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    logger.info(f"Caching pip installations to: {PIP_CACHE_DIR}")
 
     # Get directories to test
     test_dirs = get_test_directories(args.directories)

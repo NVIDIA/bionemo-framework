@@ -35,13 +35,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Get merge-base commit
+        id: merge-base
+        run: |
+          # Get the merge-base between current branch and main
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          echo "merge-base=$MERGE_BASE" >> $GITHUB_OUTPUT
+          echo "Merge-base commit: $MERGE_BASE"
+
       - name: Get changed files
         id: changed-files
         uses: step-security/changed-files@v46
         with:
           json: true
           matrix: true
-          base_sha: main
+          base_sha: ${{ steps.merge-base.outputs.merge-base }}
           dir_names: true
           dir_names_max_depth: 2
           files: |
@@ -84,6 +92,12 @@ jobs:
           echo "dirs=$DIRS" >> $GITHUB_OUTPUT
       - name: Show output
         run: |
+          echo "=== Changed Files Analysis ==="
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "Merge-base commit: ${{ steps.merge-base.outputs.merge-base }}"
+          echo "Changed files compared to merge-base:"
+          echo '${{ steps.changed-files.outputs.all_changed_files }}' | jq -r '.[]' | sed 's/^/  - /'
+          echo "Total changed files: $(echo '${{ steps.changed-files.outputs.all_changed_files }}' | jq '. | length')"
           echo '${{ toJSON(steps.changed-files.outputs) }}'
           echo '${{ toJSON(steps.set-dirs.outputs) }}'
         shell: bash
