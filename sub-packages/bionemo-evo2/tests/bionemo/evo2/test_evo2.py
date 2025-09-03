@@ -51,14 +51,16 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
 
 
-def determine_memory_requirement_and_skip_if_not_met(
-    ckpt_name: str, flash_decode: bool | None = None, test_name: str | None = None
-) -> int:
-    """Determine the memory requirement for a given checkpoint and flash decode condition.
-    ckpt_name : str
-        the name of the checkpoint to test
-    flash_decode: bool | None
-        whether to test with flash decode
+def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: str | None = None) -> int:
+    """Determine the memory requirement for a given checkpoint and test_name.
+
+    The memory requirement recorded is not discriminated for flash_decode True or Fals
+
+    Args:
+        ckpt_name: str
+            the name of the checkpoint to test
+        flash_decode: bool | None
+            whether to test with flash decode
     Returns:
         The input sequence length cap, for the model sin the checkpoint, given certain memory requirements.
         If the memory requirement is not met, the test is skipped.
@@ -142,10 +144,9 @@ def determine_memory_requirement_and_skip_if_not_met(
     seq_len_cap = memory_needed_df_wi_index.loc[(test_name, model_size), "seq_len_cap"]
     memory_needed_by_test = memory_needed_df_wi_index.loc[(test_name, model_size), "memory_needed_by_test"]
 
-    skip_condition_flash = flash_decode is None or flash_decode
+    # skip_condition_flash = flash_decode is None or flash_decode
     gb_available = torch.cuda.mem_get_info()[0] / 1024**3
-    skip_condition = gb_available < memory_needed_by_test and skip_condition_flash
-
+    skip_condition = gb_available < memory_needed_by_test
     if skip_condition:
         pytest.skip(
             ", ".join(
@@ -539,7 +540,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
     assert len(sequences) > 0
     seq_len_cap = determine_memory_requirement_and_skip_if_not_met(
-        ckpt_name, flash_decode, test_name=inspect.currentframe().f_code.co_name
+        ckpt_name, test_name=inspect.currentframe().f_code.co_name
     )
 
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
