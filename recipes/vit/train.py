@@ -16,6 +16,7 @@
 import logging
 import math
 import os
+import tarfile
 import time
 from contextlib import nullcontext
 from pathlib import Path
@@ -193,6 +194,11 @@ def main(cfg) -> None:
     """
     Dataset
     """
+    # Check if the mock training + validation dataset exists. If not, untar the dataset.
+    if not Path(cfg.dataset.train.root).exists():
+        with tarfile.open(Path(cfg.dataset.train.root).parent.with_suffix(".tar.gz"), "r:gz") as tar:
+            tar.extractall(Path(cfg.dataset.train.root).parent.parent)
+
     # Training
     imagenet_train_ds = ImageNetDataset(
         root=cfg.dataset.train.root,

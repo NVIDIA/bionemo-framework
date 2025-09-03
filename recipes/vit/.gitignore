@@ -1,5 +1,3 @@
-*.tar*
-*.zip
 checkpoints/
 wandb/
 outputs/
