@@ -39,7 +39,7 @@ model:
   channels_last: false
 
 distributed:
-  dp_inter: 1
+  dp_outer: 1
   dp_shard: 1
   cp: 1
 
@@ -66,7 +66,12 @@ training:
 
 inference:
   checkpoint:
-    path: "./checkpoints/vit/torch_ckpt_test.pt"
+    path: null
+    # Load a DCP->Torch converted checkpoint for inference without Megatron-FSDP.
+    # Otherwise, set this to "torch_dcp" if using Megatron-FSDP for inference.
+    # If the checkpoint was not trained with Megatron-FSDP, then set megatron_fsdp to false.
+    format: "torch"
+    megatron_fsdp: true
 
 dataset:
   num_classes: 100000

@@ -64,7 +64,14 @@ from typing import (
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformer_engine.pytorch import TransformerLayer
+
+
+try:
+    from transformer_engine.pytorch import TransformerLayer
+
+    _TE_INSTALLED = True
+except ImportError:
+    _TE_INSTALLED = False
 
 
 def build_vit_model(cfg, device_mesh=None, meta_init=False):
@@ -85,7 +92,7 @@ def build_vit_model(cfg, device_mesh=None, meta_init=False):
         vit_kwargs = dict(cfg.model.vit)
         if meta_init:
             vit_kwargs["weight_init"] = None
-        if cfg.model.transformer_engine:
+        if cfg.model.transformer_engine and _TE_INSTALLED:
             assert device_mesh is not None, "[build_model] device_mesh is required when using TransformerEngine."
             vit_kwargs["block_fn"] = TransformerLayer
             vit_kwargs["micro_batch_size"] = cfg.dataset.train.batch_size
@@ -1385,7 +1392,7 @@ class VisionTransformer(nn.Module):
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth, device="cpu")]  # stochastic depth decay rule
 
         self.block_fn = block_fn
-        if block_fn == TransformerLayer:
+        if _TE_INSTALLED and block_fn == TransformerLayer:
             self.blocks = nn.Sequential(
                 *[
                     TransformerLayer(
@@ -1464,7 +1471,7 @@ class VisionTransformer(nn.Module):
             param.div_(math.sqrt(2.0 * _layer_id))
 
         for layer_id, layer in enumerate(self.blocks):
-            if self.block_fn == TransformerLayer:
+            if _TE_INSTALLED and self.block_fn == TransformerLayer:
                 rescale(layer.self_attention.proj.weight.data, layer_id + 1)
                 rescale(layer.layernorm_mlp.fc2_weight.data, layer_id + 1)
             else:

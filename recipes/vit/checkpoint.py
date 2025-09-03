@@ -24,7 +24,7 @@ import torch.distributed.checkpoint
 _logger = logging.getLogger(__name__)
 
 
-def load_torch_checkpoint(model, checkpoint_path, megatron_fsdp=False):
+def load_torch_checkpoint(checkpoint_path, model, megatron_fsdp=False):
     """Load a Torch checkpoint from checkpoint_path into an unsharded model.
     Used for converting existing TIMM or Torch checkpoints into a freshly initialized
     model prior to sharding with Megatron-FSDP.
@@ -34,19 +34,18 @@ def load_torch_checkpoint(model, checkpoint_path, megatron_fsdp=False):
 
     Docs: https://docs.pytorch.org/tutorials/beginner/saving_loading_models.html
     """
-    # Load model checkpoint. Remove the "module." prefix from the keys from Megatron-FSDP,
-    # which is the main discrepancy between Megatron-FSDP and normal checkpoints.
-    # Must load with weights_only=False if you have an optimizer state in your checkpoint.
-    model_checkpoint = {
-        (k.strip("module.") if megatron_fsdp else k): v
-        for k, v in torch.load(checkpoint_path, weights_only=False)["model"].items()
-    }
+    # Load model checkpoint. Must load with weights_only=False
+    # if you have an optimizer state in your checkpoint.
+    checkpoint = torch.load(checkpoint_path, weights_only=False)
+    # Remove the "module." prefix from the keys of checkpoints
+    # derived from Megatron-FSDP.
+    model_checkpoint = {(k.removeprefix("module.") if megatron_fsdp else k): v for k, v in checkpoint["model"].items()}
     # Warn about Megatron-FSDP checkpoints.
     first_key = next(iter(model_checkpoint))
     if first_key.startswith("module.") and not megatron_fsdp:
         _logger.warning(
             f"Checkpoint state dictionary keys ({first_key}) may be prefixed "
-            "with 'modele.' if converted from a Megatron-FSDP DCP checkpoint."
+            "with 'module.' if converted from a Megatron-FSDP DCP checkpoint."
             "Set megatron_fsdp=True to automatically strip the prefix."
         )
     # Load with strict=False because the checkpoint may have
@@ -66,8 +65,10 @@ def load_dcp_checkpoint(checkpoint_path, model=None, optimizer=None):
     if optimizer is not None:
         state_dict["optimizer"] = optimizer.state_dict()
     torch.distributed.checkpoint.load(state_dict, checkpoint_id=checkpoint_path)
-    model.load_state_dict(state_dict["model"])
-    optimizer.load_state_dict(state_dict["optimizer"])
+    if model is not None:
+        model.load_state_dict(state_dict["model"])
+    if optimizer is not None:
+        optimizer.load_state_dict(state_dict["optimizer"])
 
 
 def load_auto_resume_checkpoint(cfg, model, optimizer):

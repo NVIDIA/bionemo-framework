@@ -41,7 +41,7 @@ optimizer:
   weight_decay: 0.01
 
 distributed:
-  dp_inter: 1
+  dp_outer: 1
   dp_shard: 1
   cp: 1
 
@@ -69,6 +69,8 @@ training:
 inference:
   checkpoint:
     path: null
+    format: null
+    megatron_fsdp: null
 
 dataset:
   num_classes: 100000
