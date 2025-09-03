@@ -54,7 +54,8 @@ logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
 def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: str | None = None) -> int:
     """Determine the memory requirement for a given checkpoint and test_name.
 
-    The memory requirement recorded is not discriminated for flash_decode True or Fals
+    The memory requirement recorded is not discriminated for flash_decode True or False.  The memory requirement
+    recorded depend on checkpoint name only through model size.
 
     Args:
         ckpt_name: str
