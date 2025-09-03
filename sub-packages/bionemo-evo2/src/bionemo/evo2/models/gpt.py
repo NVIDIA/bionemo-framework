@@ -81,16 +81,13 @@ def evo2_gpt_forward_step(model, batch) -> torch.Tensor:
 
 
 class Evo2GPTModel(GPTModel):
-    """Mamba model that extends GPTModel for integration with NeMo.
-
-    Note that the loss calculation is handled by CustomMCoreMambaModel instead.
-    """
+    """GPT model that extends GPTModel for integration with NeMo."""
 
     @override
     def get_inference_wrapper(
         self, params_dtype, inference_batch_times_seqlen_threshold, inference_max_seq_length=8192
     ) -> GPTInferenceWrapper:
-        """Gets the inference wrapper for the Mamba model."""
+        """Gets the inference wrapper for the GPT model."""
         model = self
         while model is not None:
             if getattr(model, "module", None) is not None:
@@ -133,7 +130,7 @@ class Evo2GPTModel(GPTModel):
         runtime_gather_output: bool | None = None,
         loss_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Forward pass that delegates to CustomMCoreMambaModel, which handles loss calculation."""
+        """Forward pass that delegates to GPTModel, which handles loss calculation."""
         extra_kwargs = {"packed_seq_params": packed_seq_params} if packed_seq_params is not None else {}
         output_tensor = self.module(
             input_ids,
@@ -147,21 +144,17 @@ class Evo2GPTModel(GPTModel):
             loss_mask=loss_mask,  # Pass loss_mask to the Megatron module
             **extra_kwargs,
         )
-
-        # Return whatever CustomMCoreMambaModel.forward returns
-        # (logits during inference, loss during training)
         return output_tensor
 
 
-# Custom MCoreMambaModel with reweighted loss calculation
 class Evo2StyleMCoreGPTModel(megatron.core.models.gpt.gpt_model.GPTModel):
-    """Custom version of MCoreMambaModel that implements reweighted loss calculation.
+    """Custom version of GPTModel that implements reweighted loss calculation.
 
     Note that this is similar to the HyenaModel for uppercase/lowercase handling.
     """
 
     def __init__(self, *args, **kwargs):
-        """Initializes `Evo2StyleMCoreMambaModel` with unique parameters for the Evo2 variant of `MCoreMambaModel`."""
+        """Initializes `Evo2StyleMCoreGPTModel` with unique parameters for the Evo2 variant of `GPTModel`."""
         super().__init__(*args, **kwargs)
         if self.config.use_targeted_variance_loss:
             if not hasattr(self.config, "embedding_init_method_std"):
@@ -205,9 +198,9 @@ class Evo2StyleMCoreGPTModel(megatron.core.models.gpt.gpt_model.GPTModel):
 
 
 def gpt_no_weight_decay_cond(name, param, exclude_embeddings: bool = False):
-    """Condition for no weight decay for Mamba parameters.
+    """Condition for no weight decay for GPT parameters.
 
-    Note that this follows the same pattern as in the original Mamba implementation.
+    Note that this follows the same pattern as in the original GPT implementation.
     """
     # Mamba-specific parameters that should not have weight decay
     if ("embedding" in name and exclude_embeddings) or getattr(param, "_no_weight_decay", False):
@@ -222,16 +215,16 @@ def gpt_no_weight_decay_cond(name, param, exclude_embeddings: bool = False):
 
 
 def gpt_no_weight_decay_cond_with_embeddings(name, param):
-    """Condition for no weight decay for Mamba parameters with embeddings.
+    """Condition for no weight decay for GPT parameters with embeddings.
 
-    Note that this follows the same pattern as in the original Mamba implementation but also skips WD on embeddings.
+    Note that this follows the same pattern as in the original GPT implementation but also skips WD on embeddings.
     """
     return gpt_no_weight_decay_cond(name, param, exclude_embeddings=True)
 
 
 @dataclass
 class LLama31ConfigEvoLoss3B(llm.Llama3Config8B):
-    """Config for 8B hybrid Mamba model."""
+    """Config for 8B hybrid GPT model."""
 
     # RoPE/context length related block:
     rotary_base: int = 500_000
