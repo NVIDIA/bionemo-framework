@@ -12,6 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Derived from code written by Ross Wightman (@rwightman / Copyright 2020)
+and modified for demonstrative use by NVIDIA (@cspades).
+"""
 
 import logging
 import os
@@ -42,11 +46,20 @@ def infinite_dataloader(dataloader, sampler):
 
 
 def get_img_extensions(as_set=False):
+    """Helper function to get a tuple or set of image extension strings."""
     return deepcopy(_IMG_EXTENSIONS_SET if as_set else IMG_EXTENSIONS)
 
 
 def natural_key(string_):
-    """See http://www.codinghorror.com/blog/archives/001018.html"""
+    """
+    Convert a string to a natural key.
+
+    Args:
+        string_ (str): The string to convert to a natural key.
+
+    Returns:
+        A list of strings and integers that can be used to sort a list of strings in a natural way.
+    """
     return [int(s) if s.isdigit() else s for s in re.split(r"(\d+)", string_.lower())]
 
 
@@ -157,6 +170,17 @@ def find_images_and_targets(
 
 
 class ImageNetReader:
+    """
+    ImageNetReader class for loading image data from a directory given:
+
+    - class_map: a dictionary mapping class IDs to class labels.
+    - label_map: a dictionary mapping image filenames to class IDs.
+
+    The chain of these two mappings will send image paths to class labels.
+
+    Image filenames and labels can then be read by the __getitem__ method.
+    """
+
     def __init__(
         self,
         root: str,
@@ -164,6 +188,15 @@ class ImageNetReader:
         label_map: Optional[str | dict] = None,
         class_filter: Optional[List[Any]] = None,
     ):
+        """
+        Initialize the ImageNetReader.
+
+        Args:
+            root (str): The root directory of the dataset.
+            class_map (Optional[str | dict]): A dictionary mapping class IDs to class labels.
+            label_map (Optional[str | dict]): A dictionary mapping image filenames to class IDs.
+            class_filter (Optional[List[Any]]): A list of class IDs to filter, i.e. only include images with these class IDs.
+        """
         super().__init__()
 
         self.root = root

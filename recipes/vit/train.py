@@ -40,9 +40,126 @@ from vit import VisionTransformer
 _logger = logging.getLogger(__name__)
 
 
-@hydra.main(version_base="1.2", config_path="config", config_name="vit_base_patch16_224")
-def main(cfg) -> None:
-    """Distributed Setup"""
+def load_checkpoint(model, optimizer, checkpoint_path):
+    """Load a Torch DCP checkpoint from checkpoint_path into model and optimizer.
+
+    Docs: https://docs.pytorch.org/docs/stable/distributed.checkpoint.html
+    """
+    # Load model and optimizer checkpoints.
+    state_dict = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+    }
+    torch.distributed.checkpoint.load(state_dict, checkpoint_id=checkpoint_path)
+    model.load_state_dict(state_dict["model"])
+    optimizer.load_state_dict(state_dict["optimizer"])
+
+
+def load_auto_resume_checkpoint(cfg, model, optimizer):
+    """Auto-resume training from the latest checkpoint.
+
+    Checkpoint directories should adhere to the simple format: step_<step_idx>_loss_<loss_value>
+    If cfg.training.checkpoint.resume_from_metric is '+' or '-', then the loss_value is utilized
+    for determining the optimal checkpoint to resume from. Otherwise, the latest checkpoint by
+    modification time is chosen for resumption.
+
+    Args:
+        cfg: Hydra config.
+        model: Model to load checkpoints into.
+        optimizer: Optimizer to load checkpoints into.
+
+    Returns:
+        The latest step index to resume from.
+    """
+    # Auto-Resume: Load latest model and optimizer checkpoints.
+    latest_step_idx = 0
+    if cfg.training.checkpoint.path and Path(cfg.training.checkpoint.path).exists():
+        # Get latest checkpoint sub-directory, which should ONLY contain Torch DCP checkpoint sub-directories.
+        subdirs = [x.absolute() for x in Path(cfg.training.checkpoint.path).iterdir() if x.is_dir()]
+        if len(subdirs) > 0:
+            # We expect a checkpoint named as: step_<step_idx>_loss_<loss_value>.
+            # Get the latest step, the directory with the most recent modification time.
+            opt_metric_coeff = 1 if cfg.training.checkpoint.resume_from_metric == "+" else -1
+            latest_subdir = max(
+                subdirs,
+                key=lambda x: (
+                    opt_metric_coeff * float(x.name.split("_")[3])
+                    if cfg.training.checkpoint.resume_from_metric
+                    else 0,
+                    x.stat().st_mtime,
+                ),
+            )
+            # Track latest step to continue training from.
+            latest_step_idx = int(latest_subdir.name.split("_")[1])
+            # Load model and optimizer checkpoints.
+            load_checkpoint(model, optimizer, latest_subdir)
+            if torch.distributed.get_rank() == 0:
+                _logger.info(f"Loaded latest model and optimizer checkpoints from: {latest_subdir}")
+
+    # Return the auto-resumed step index for training progression.
+    return latest_step_idx
+
+
+def save_checkpoint(model, optimizer, checkpoint_path):
+    """Save a Torch DCP checkpoint of the model and optimizer to checkpoint_path.
+
+    Docs: https://docs.pytorch.org/docs/stable/distributed.checkpoint.html
+    """
+    # Save model and optimizer checkpoints.
+    state_dict = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+    }
+    torch.distributed.checkpoint.save(state_dict, checkpoint_id=checkpoint_path)
+
+
+def save_auto_resumable_checkpoint(cfg, model, optimizer, step_idx, loss_value):
+    """Save an auto-resumable checkpoint of the model and optimizer at step_idx.
+
+    Checkpoint directories should adhere to the simple format: step_<step_idx>_loss_<loss_value>.
+    This is used for auto-resumption of training.
+
+    Args:
+        cfg: Hydra config.
+        model: Model to save checkpoints of.
+        optimizer: Optimizer to save checkpoints of.
+        step_idx: Step index to save checkpoint at.
+        loss_value: Loss value to save checkpoint at.
+    """
+
+    # Save validated checkpoint.
+    if cfg.training.checkpoint.path:
+        # Create checkpoint sub-directory.
+        ckpt_dir = Path(cfg.training.checkpoint.path) / f"step_{step_idx}_loss_{loss_value:.3f}"
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+        # Save model and optimizer checkpoints.
+        save_checkpoint(model, optimizer, ckpt_dir)
+        # Relax checkpoint permissions, which may be helpful when saving checkpoints in a container owned by root.
+        mode = 0o777
+        for dirpath, _, filenames in os.walk(ckpt_dir):
+            # Change current directory perms.
+            os.chmod(dirpath, mode)
+            for filename in filenames:
+                # Change file perms.
+                file_path = Path(dirpath) / filename
+                os.chmod(file_path, mode)
+        if torch.distributed.get_rank() == 0:
+            _logger.info(f"Saved validated checkpoint to: {ckpt_dir}")
+
+
+def setup_device_mesh(cfg):
+    """
+    Setup the DeviceMesh for distributed training.
+
+    Args:
+        cfg: Hydra config.
+
+    Returns:
+        device_mesh: The DeviceMesh.
+
+    Raises:
+        ValueError: If the parallelism sizes are invalid.
+    """
     # Initialize distributed training environment.
     torch.distributed.init_process_group()
 
@@ -52,6 +169,9 @@ def main(cfg) -> None:
     torch.cuda.set_device(local_rank)
 
     # Initialize DeviceMesh. Validate parallelism sizes.
+    # TODO(@cspades): Will add TE-backed context parallelism (CP) in the future, just need to
+    # modify the ViT model to shard the sequence dimension after tokenization. For now, we
+    # setup the CP dimension for demonstrating how to use DeviceMesh and CP with Megatron-FSDP.
     if (
         cfg.distributed.dp_inter * cfg.distributed.dp_shard * cfg.distributed.cp * cfg.distributed.tp
         != torch.distributed.get_world_size()
@@ -79,6 +199,24 @@ def main(cfg) -> None:
     device_mesh[("dp_shard", "cp")]._flatten("dp_cp_shard")
     # HSDP (DP-CP): Only required if using HSDP. Otherwise, don't pass hybrid_fsdp_group to Megatron-FSDP.
     device_mesh[("dp_inter", "dp_shard", "cp")]._flatten("hsdp")
+
+    # Return the DeviceMesh.
+    return device_mesh
+
+
+@hydra.main(version_base="1.2", config_path="config", config_name="vit_base_patch16_224")
+def main(cfg) -> None:
+    """
+    Train a ViT model on ImageNet using Megatron-FSDP and TransformerEngine (TE).
+
+    Args:
+        cfg: Hydra config.
+    """
+
+    """
+    Distributed Setup
+    """
+    device_mesh = setup_device_mesh(cfg)
 
     """
     Profiling
@@ -161,35 +299,7 @@ def main(cfg) -> None:
     )
 
     # Auto-Resume: Load latest model and optimizer checkpoints.
-    latest_step_idx = 0
-    if cfg.training.checkpoint.path and Path(cfg.training.checkpoint.path).exists():
-        # Get latest checkpoint sub-directory, which should ONLY contain Torch DCP checkpoint sub-directories.
-        subdirs = [x.absolute() for x in Path(cfg.training.checkpoint.path).iterdir() if x.is_dir()]
-        if len(subdirs) > 0:
-            # We expect a checkpoint named as: step_<step_idx>_loss_<loss_value>.
-            # Get the latest step, the directory with the most recent modification time.
-            opt_metric_coeff = 1 if cfg.training.checkpoint.resume_from_metric == "+" else -1
-            latest_subdir = max(
-                subdirs,
-                key=lambda x: (
-                    opt_metric_coeff * float(x.name.split("_")[3])
-                    if cfg.training.checkpoint.resume_from_metric
-                    else 0,
-                    x.stat().st_mtime,
-                ),
-            )
-            # Track latest step to continue training from.
-            latest_step_idx = int(latest_subdir.name.split("_")[1])
-            # Load model and optimizer checkpoints.
-            state_dict = {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-            }
-            torch.distributed.checkpoint.load(state_dict, checkpoint_id=latest_subdir)
-            model.load_state_dict(state_dict["model"])
-            optimizer.load_state_dict(state_dict["optimizer"])
-            if torch.distributed.get_rank() == 0:
-                _logger.info(f"Loaded latest model and optimizer checkpoints from: {latest_subdir}")
+    latest_step_idx = load_auto_resume_checkpoint(cfg, model, optimizer)
 
     """
     Dataset
@@ -278,9 +388,11 @@ def main(cfg) -> None:
     global_batch_size = cfg.dataset.train.batch_size * device_mesh["dp"].size()
     steps_per_epoch = math.ceil(dataset_size / global_batch_size)
     for batch_idx, (input, target) in enumerate(
-        infinite_dataloader(train_dataloader, train_sampler), start=latest_step_idx
-    ):
         # Skip to latest step.
+        infinite_dataloader(train_dataloader, train_sampler),
+        start=latest_step_idx,
+    ):
+        # Measure data load time.
         data_load_time = time.perf_counter() - t_start
 
         # Set training mode.
@@ -337,27 +449,7 @@ def main(cfg) -> None:
                     wandb.log({"val/loss": normalized_loss})
 
             # Save validated checkpoint.
-            if cfg.training.checkpoint.path:
-                # Create checkpoint sub-directory.
-                ckpt_dir = Path(cfg.training.checkpoint.path) / f"step_{batch_idx}_loss_{normalized_loss:.3f}"
-                ckpt_dir.mkdir(parents=True, exist_ok=True)
-                # Save model and optimizer checkpoints.
-                state_dict = {
-                    "model": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                }
-                torch.distributed.checkpoint.save(state_dict, checkpoint_id=ckpt_dir)
-                # Relax checkpoint permissions, which may be helpful when saving checkpoints in a container owned by root.
-                mode = 0o777
-                for dirpath, _, filenames in os.walk(ckpt_dir):
-                    # Change current directory perms.
-                    os.chmod(dirpath, mode)
-                    for filename in filenames:
-                        # Change file perms.
-                        file_path = Path(dirpath) / filename
-                        os.chmod(file_path, mode)
-                if torch.distributed.get_rank() == 0:
-                    _logger.info(f"Saved validated checkpoint to: {ckpt_dir}")
+            save_auto_resumable_checkpoint(cfg, model, optimizer, batch_idx, normalized_loss)
 
         # Log metrics to logger and wandb on main process.
         if torch.distributed.get_rank() == 0 and batch_idx % cfg.training.log_interval == 0:

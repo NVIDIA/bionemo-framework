@@ -12,6 +12,35 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+Vision Transformer (ViT) in PyTorch
+
+A PyTorch implement of Vision Transformers as described in:
+
+'An Image Is Worth 16 x 16 Words: Transformers for Image Recognition at Scale'
+    - https://arxiv.org/abs/2010.11929
+
+`How to train your ViT? Data, Augmentation, and Regularization in Vision Transformers`
+    - https://arxiv.org/abs/2106.10270
+
+`FlexiViT: One Model for All Patch Sizes`
+    - https://arxiv.org/abs/2212.08013
+
+The official jax code is released and available at
+  * https://github.com/google-research/vision_transformer
+  * https://github.com/google-research/big_vision
+
+Acknowledgments:
+  * The paper authors for releasing code and weights, thanks!
+  * Class token impl based on Phil Wang's https://github.com/lucidrains/vit-pytorch
+  * Simple transformer style inspired by Andrej Karpathy's https://github.com/karpathy/minGPT
+  * Bert reference code checks against Huggingface Transformers and Tensorflow Bert
+
+Hacked together by / Copyright 2020, Ross Wightman
+
+Derived from code written by Ross Wightman (@rwightman)
+and modified for demonstrative use by NVIDIA (@cspades).
+"""
 
 import math
 import warnings
@@ -1011,6 +1040,8 @@ def named_apply(
     depth_first: bool = True,
     include_root: bool = False,
 ) -> nn.Module:
+    """Recursively apply a function to all sub-modules in a module."""
+
     if not depth_first and include_root:
         fn(module=module, name=name)
     for child_name, child_module in module.named_children():
@@ -1028,6 +1059,8 @@ def named_apply(
 
 
 def variance_scaling_(tensor, scale=1.0, mode="fan_in", distribution="normal"):
+    """Initialize a tensor with a variance scaling initialization."""
+
     fan_in, fan_out = torch.nn.init._calculate_fan_in_and_fan_out(tensor)
     if mode == "fan_in":
         denom = fan_in
@@ -1053,6 +1086,8 @@ def variance_scaling_(tensor, scale=1.0, mode="fan_in", distribution="normal"):
 
 
 def lecun_normal_(tensor):
+    """Initialize a tensor with a LeCun normal initialization."""
+
     variance_scaling_(tensor, mode="fan_in", distribution="truncated_normal")
 
 

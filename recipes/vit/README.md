@@ -1,6 +1,6 @@
-# `BioNeMo-Vision`: Training a `VisionTransformer` (ViT) with `Megatron-FSDP`
+# `BioNeMo-Vision`: Training a `VisionTransformer` (ViT) with `Megatron-FSDP` and `TransformerEngine`
 
-_Adapted ViT model code from huggingface/pytorch-image-models (TImM), which you can check out here: https://github.com/huggingface/pytorch-image-models_
+_Adapted ViT model code from huggingface/pytorch-image-models (TImM) written by Ross Wightman (@rwightman / Copyright 2020), which you can check out here: https://github.com/huggingface/pytorch-image-models_
 
 ### Pre-Requisites
 
