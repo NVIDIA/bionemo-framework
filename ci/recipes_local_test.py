@@ -29,7 +29,6 @@ logger.setLevel(logging.DEBUG)
 
 DOCKER_RUN_ARGS = [
     "--rm",
-    "-it",
     "--gpus",
     "all",
     "--ipc=host",
