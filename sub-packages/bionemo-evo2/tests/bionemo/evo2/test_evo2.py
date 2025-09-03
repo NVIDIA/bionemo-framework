@@ -16,20 +16,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import logging
 import os
 import time
 from pathlib import Path
 from typing import Any, Callable, Literal
-import inspect
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import pytest
 import torch
+from megatron.core.inference.common_inference_params import CommonInferenceParams
 from megatron.core.transformer.enums import AttnBackend
 from megatron.core.transformer.module import Float16Module
-from megatron.core.inference.common_inference_params import CommonInferenceParams
 from nemo.collections import llm
 from nemo.collections.llm.gpt.model.hyena import HyenaInferenceContext
 from nemo.collections.llm.inference import generate
@@ -51,7 +51,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
 
 
-def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, flash_decode: bool | None = None, test_name: str | None = None) -> int:
+def determine_memory_requirement_and_skip_if_not_met(
+    ckpt_name: str, flash_decode: bool | None = None, test_name: str | None = None
+) -> int:
     """Determine the memory requirement for a given checkpoint and flash decode condition.
     ckpt_name : str
         the name of the checkpoint to test
@@ -65,16 +67,66 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, flash_decod
     # memory_needed_by_test: max reserved rounded up + 1, for stand-alone test
     memory_needed_df = pd.DataFrame(
         [
-            {"test_name": "test_forward", "model_size": "1b", "seq_len_cap": 6000, "memory_needed_by_test": 18},  # checked in isolation
-            {"test_name": "test_forward", "model_size": "7b", "seq_len_cap": 4000, "memory_needed_by_test": 33},  # checked in isolation
-            {"test_name": "test_forward_manual", "model_size": "1b", "seq_len_cap": 6000, "memory_needed_by_test": 6},  # checked in isolation
-            {"test_name": "test_forward_manual", "model_size": "7b", "seq_len_cap": 4000, "memory_needed_by_test": 19},  # checked in isolation
-            {"test_name": "test_batch_generate", "model_size": "1b", "seq_len_cap": -1, "memory_needed_by_test": 16},  # checked in isolation
-            {"test_name": "test_batch_generate", "model_size": "7b", "seq_len_cap": -1, "memory_needed_by_test": 43},  # checked in isolation
-            {"test_name": "test_batch_generate_coding_sequences", "model_size": "1b", "seq_len_cap": -1, "memory_needed_by_test": 6},  # checked in isolation
-            {"test_name": "test_batch_generate_coding_sequences", "model_size": "7b", "seq_len_cap": -1, "memory_needed_by_test": 21},  # checked in isolation
-            {"test_name": "test_generate_speed", "model_size": "1b", "seq_len_cap": -1, "memory_needed_by_test": -1}, # skipped for now until Anton's changes
-            {"test_name": "test_generate_speed", "model_size": "7b", "seq_len_cap": -1, "memory_needed_by_test": -1}, # skipped for now until Anton's changes
+            {
+                "test_name": "test_forward",
+                "model_size": "1b",
+                "seq_len_cap": 6000,
+                "memory_needed_by_test": 18,
+            },  # checked in isolation
+            {
+                "test_name": "test_forward",
+                "model_size": "7b",
+                "seq_len_cap": 4000,
+                "memory_needed_by_test": 33,
+            },  # checked in isolation
+            {
+                "test_name": "test_forward_manual",
+                "model_size": "1b",
+                "seq_len_cap": 6000,
+                "memory_needed_by_test": 6,
+            },  # checked in isolation
+            {
+                "test_name": "test_forward_manual",
+                "model_size": "7b",
+                "seq_len_cap": 4000,
+                "memory_needed_by_test": 21,
+            },  # checked in isolation
+            {
+                "test_name": "test_batch_generate",
+                "model_size": "1b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": 16,
+            },  # checked in isolation
+            {
+                "test_name": "test_batch_generate",
+                "model_size": "7b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": 43,
+            },  # checked in isolation
+            {
+                "test_name": "test_batch_generate_coding_sequences",
+                "model_size": "1b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": 6,
+            },  # checked in isolation
+            {
+                "test_name": "test_batch_generate_coding_sequences",
+                "model_size": "7b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": 21,
+            },  # checked in isolation
+            {
+                "test_name": "test_generate_speed",
+                "model_size": "1b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": -1,
+            },  # skipped for now until Anton's changes
+            {
+                "test_name": "test_generate_speed",
+                "model_size": "7b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": -1,
+            },  # skipped for now until Anton's changes
         ],
         columns=["test_name", "model_size", "seq_len_cap", "memory_needed_by_test"],
     )
@@ -347,6 +399,7 @@ def get_trainer(pipeline_parallel=1):
         ),
     )
 
+
 # here: pass arg through to inference_batch_times_seqlen_threshold and inference_max_seq_length
 def get_model_and_tokenizer_raw(ckpt_dir_or_name: Path | str, seq_len_max: int = 8192, **kwargs):
     """
@@ -424,7 +477,9 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
 )
 def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
     assert len(sequences) > 0
-    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(ckpt_name, test_name=inspect.currentframe().f_code.co_name)
+    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(
+        ckpt_name, test_name=inspect.currentframe().f_code.co_name
+    )
 
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -483,7 +538,9 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
 )
 def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
     assert len(sequences) > 0
-    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(ckpt_name, flash_decode, test_name=inspect.currentframe().f_code.co_name)
+    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(
+        ckpt_name, flash_decode, test_name=inspect.currentframe().f_code.co_name
+    )
 
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
@@ -598,7 +655,6 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
 def test_batch_generate(
     sequences: list[str], ckpt_name: str, model_tokenizer_provider: Callable, expected_matchpercents: list[float]
 ):
-
     assert len(sequences) > 0
     _ = determine_memory_requirement_and_skip_if_not_met(ckpt_name, test_name=inspect.currentframe().f_code.co_name)
 
@@ -612,16 +668,16 @@ def test_batch_generate(
         pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-    
+
     num_tokens = 500
     seq_prompts = [mid_point_split(seq=seq, num_tokens=num_tokens) for seq in sequences]
-    seq_len_max = num_tokens + max ([len(sq[0]) for sq in seq_prompts]) 
+    seq_len_max = num_tokens + max([len(sq[0]) for sq in seq_prompts])
     inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
-        ckpt_name, 
-        vortex_style_fp8=vortex_style_fp8, 
+        ckpt_name,
+        vortex_style_fp8=vortex_style_fp8,
         seq_len_max=seq_len_max,
     )
-    
+
     results = generate(
         model=inference_wrapped_model,
         max_batch_size=1,  # vortex only supports batch size 1
@@ -685,7 +741,6 @@ def test_batch_generate_coding_sequences(
         pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-    
 
     match_percents: list[float] = []
     cds_lengths: list[int | None] = []
