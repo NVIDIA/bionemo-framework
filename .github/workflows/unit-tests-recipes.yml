@@ -100,7 +100,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run tests
-        run: ./ci/recipes_local_test.py ${{ fromJson(needs.changed-dirs.outputs.dirs) }}
+        env:
+          DIRS_JSON: ${{ needs.changed-dirs.outputs.dirs }}
+        run: |
+          # Convert JSON array to space-separated arguments
+          DIRS_ARGS=$(echo "$DIRS_JSON" | jq -r '.[]' | tr '\n' ' ')
+          ./ci/recipes_local_test.py $DIRS_ARGS
 
   verify-recipe-tests:
     # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.
