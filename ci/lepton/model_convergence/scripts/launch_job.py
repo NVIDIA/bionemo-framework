@@ -6,8 +6,12 @@ Demo: python launch_job.py --config-name "evo2_finetune_lora" job_name="evo2-fin
 """
 
 import hydra
+import json
+
 from omegaconf import DictConfig
 from typing import Dict
+from types import SimpleNamespace
+
 from leptonai.api.v2.client import APIClient
 from leptonai.api.v1.types.affinity import LeptonResourceAffinity
 from leptonai.api.v1.types.common import Metadata
@@ -15,6 +19,18 @@ from leptonai.api.v1.types.deployment import EnvVar, EnvValue, LeptonContainer, 
 from leptonai.api.v1.types.job import LeptonJob, LeptonJobUserSpec
 from omegaconf import OmegaConf
 from omegaconf import DictConfig as HydraDictConfig, ListConfig
+
+# todo: move to some defaults file
+default_mounts = [
+    {"path": "/BioNeMo", "mount_path": "/BioNeMo", "from_": "node-nfs:lepton-shared-fs"},
+]
+
+default_env_vars = [
+    {"name": "KRATOS_SSA_URL", "value_from": "KRATOS_SSA_URL"},
+    {"name": "KRATOS_SSA_CLIENT_ID", "value_from": "KRATOS_SSA_CLIENT_ID"},
+    {"name": "KRATOS_SSA_SECRET", "value_from": "KRATOS_SSA_SECRET"},
+    {"name": "LEP_LOGIN_CREDENTIALS", "value_from": "LEP_LOGIN_CREDENTIALS"},
+]
 
 
 # todo: make utils file? also, add cfg checks to make sure these are used in the config before calling
@@ -31,7 +47,7 @@ def construct_mount(path: str, mount_path: str, from_: str = "node-nfs:lepton-sh
 
 def construct_env_var(env_var) -> EnvVar:
     """Construct an EnvVar object from a config entry, supporting both secrets and literals."""
-    if 'value_from' in env_var:
+    if hasattr(env_var, 'value_from') and env_var.value_from is not None:
         return EnvVar(
             name=env_var.name,
             value_from=EnvValue(secret_name_ref=env_var.value_from),
@@ -43,8 +59,12 @@ def construct_env_var(env_var) -> EnvVar:
         )
 
 
-import json
-from typing import Dict
+bionemo_mount = construct_mount(
+    path=default_mounts[0]['path'], mount_path=default_mounts[0]['mount_path'], from_=default_mounts[0]['from_']
+)
+
+bionemo_env_vars = [construct_env_var(SimpleNamespace(**env_var)) for env_var in default_env_vars]
+print('bionemo_env_vars', bionemo_env_vars)
 
 
 def wrap_with_wandb_copy(
@@ -305,6 +325,9 @@ def main(cfg: DictConfig):
     mounts = []
     if hasattr(cfg, "mounts") and cfg.mounts:
         mounts = [construct_mount(path=m.path, mount_path=m.mount_path, from_=m.from_) for m in cfg.mounts]
+
+    print('env_vars', env_vars)
+    print('mounts', mounts)
 
     # Create job specification
     job_spec = LeptonJobUserSpec(
