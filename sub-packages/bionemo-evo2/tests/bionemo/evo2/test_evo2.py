@@ -60,8 +60,8 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: 
     Args:
         ckpt_name: str
             the name of the checkpoint to test
-        flash_decode: bool | None
-            whether to test with flash decode
+        test_name: str | None
+            the name of the test that is to be run.
     Returns:
         The input sequence length cap, for the model sin the checkpoint, given certain memory requirements.
         If the memory requirement is not met, the test is skipped.
@@ -468,7 +468,6 @@ def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
         raise NotImplementedError
 
 
-
 # @pytest.mark.parametrize(
 #     "ckpt_name,expected_matchpercents",
 #     [
@@ -534,6 +533,7 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
     assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
         f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
+
 
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents,flash_decode",
