@@ -46,6 +46,58 @@ The TIMM-derived model code for the ViT can be found in [`vit.py`](vit.py), and 
 
 Various configuration options common in computer vision modeling can be found in [config](./config/).
 
+### Checkpointing
+
+#### Megatron-FSDP DCP
+
+To save Megatron-FSDP distributed checkpoints, refer to the following helper functions in [checkpoint.py](./checkpoint.py):
+
+```python
+import torch
+
+
+def save_dcp_checkpoint(checkpoint_path, model=None, optimizer=None):
+    """Save a Torch DCP checkpoint of the model and optimizer to checkpoint_path.
+
+    Docs: https://docs.pytorch.org/docs/stable/distributed.checkpoint.html
+    """
+    # Save model and optimizer checkpoints.
+    state_dict = {}
+    if model is not None:
+        state_dict["model"] = model.state_dict()
+    if optimizer is not None:
+        state_dict["optimizer"] = optimizer.state_dict()
+    torch.distributed.checkpoint.save(state_dict, checkpoint_id=checkpoint_path)
+
+
+def load_dcp_checkpoint(checkpoint_path, model=None, optimizer=None):
+    """Load a Torch DCP checkpoint from checkpoint_path into model and optimizer.
+
+    Docs: https://docs.pytorch.org/docs/stable/distributed.checkpoint.html
+    """
+    # Load model and optimizer checkpoints.
+    state_dict = {}
+    if model is not None:
+        state_dict["model"] = model.state_dict()
+    if optimizer is not None:
+        state_dict["optimizer"] = optimizer.state_dict()
+    torch.distributed.checkpoint.load(state_dict, checkpoint_id=checkpoint_path)
+    if model is not None:
+        model.load_state_dict(state_dict["model"])
+    if optimizer is not None:
+        optimizer.load_state_dict(state_dict["optimizer"])
+```
+
+which can be loaded directly into the `MegatronFSDP` model:
+
+```python
+# Create a MegatronFSDP model and optimizer.
+model, optimizer = fully_shard(model, optimizer, ...)
+
+# Load Megatron-FSDP DCP checkpoint into model and/or optimizer.
+load_dcp_checkpoint(CKPT_PATH, model=model, optimizer=optimizer)
+```
+
 #### Checkpoint Conversion
 
 To convert DCP checkpoints to non-distributed Torch checkpoints, and vice-versa, you can run the following command from `torch`:
@@ -72,8 +124,11 @@ python -m torch.distributed.checkpoint.format_utils dcp_to_torch step_75_loss_1.
 
 or:
 
-```
-from torch.distributed.checkpoint.format_utils import dcp_to_torch_save, torch_save_to_dcp
+```python
+from torch.distributed.checkpoint.format_utils import (
+    dcp_to_torch_save,
+    torch_save_to_dcp,
+)
 
 # Convert DCP model checkpoint to torch.save format.
 dcp_to_torch_save(CHECKPOINT_DIR, TORCH_SAVE_CHECKPOINT_PATH)
@@ -82,27 +137,29 @@ dcp_to_torch_save(CHECKPOINT_DIR, TORCH_SAVE_CHECKPOINT_PATH)
 torch_save_to_dcp(TORCH_SAVE_CHECKPOINT_PATH, f"{CHECKPOINT_DIR}_new")
 ```
 
-_Note that `torch.save`-converted Megatron-FSDP distributed checkpoints (DCP) cannot be loaded directly into `MegatronFSDP` module classes, because Megatron-FSDP expects a deterministic unevenly sharded checkpoint when loading using DCP. To load a non-distributed checkpoint for training with Megatron-FSDP, simply load the checkpoint into the unsharded model before calling `fully_shard`!_
+#### Megatron-FSDP Checkpoint State Caveats
+
+_Note that `torch.save`-converted distributed checkpoints (DCP) cannot be loaded directly into `MegatronFSDP` module classes, because Megatron-FSDP expects an unevenly-sharded DCP checkpoint with metadata not available in `torch.save` checkpoints that defines the distributed read and write sharding strategy for DCP load and save respectively. To load a non-distributed checkpoint for training with Megatron-FSDP, simply load the checkpoint into the unsharded model before calling `fully_shard` as an alternative to loading in a DCP checkpoint after `fully_shard`!_
 
 ```python
+from checkpoint import load_torch_checkpoint
+
 # Initialize model.
 model = build_vit_model(cfg, device_mesh)
 
-# Load model checkpoint. Remove the "module." prefix from the keys from Megatron-FSDP,
-# which is the main discrepancy between Megatron-FSDP and normal checkpoints.
-# Must load with weights_only=False if you have an optimizer state in your checkpoint.
-# NOTE(@cspades): `from checkpoint import load_torch_checkpoint`
-# -> load_torch_checkpoint(megatron_fsdp=True)
-model_checkpoint = {
-    (k.strip("module.") if megatron_fsdp else k): v
-    for k, v in torch.load(checkpoint_path, weights_only=False)["model"].items()
-}
-# Load with strict=False because the checkpoint may have TE-specific keys that are not
-# necessary for inference.
-model.load_state_dict(model_checkpoint, strict=False)
+# Load torch.save model checkpoint. If the checkpoint was converted
+# from a DCP checkpoint produced by Megatron-FSDP, set megatron_fsdp=True,
+# which simply strips the "module." prefix from the state dictionary.
+load_torch_checkpoint(CKPT_PATH, model, megatron_fsdp=True)
 
 # Fully-shard.
-model = fully_shard_model(...)
+model, _ = fully_shard(model, ...)
 ```
 
 TODO(@cspades): For converting DCP directly to HuggingFace SafeTensors checkpoints, you can look into: https://pytorch.org/blog/huggingface-safetensors-support-in-pytorch-distributed-checkpointing/
+
+### Inference
+
+[infer.py](./infer.py) is an example inference script that loads in a non-distributed `torch.save` checkpoint into an un-sharded ViT.
+
+For inference with Megatron-FSDP, refer to the `fully_shard` + `load_dcp_checkpoint` pattern in [train.py](./train.py) / [checkpoint.py](./checkpoint.py) and described in [Megatron-FSDP DCP](#megatron-fsdp-dcp).

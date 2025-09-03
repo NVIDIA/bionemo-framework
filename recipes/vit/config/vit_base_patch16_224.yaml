@@ -49,6 +49,7 @@ fsdp:
   fsdp_unit_modules:
     - vit.Block
     - vit.PatchEmbed
+    - vit.AttentionPoolLatent
     - torch.nn.LayerNorm
     - torch.nn.Linear
   use_hybrid_fsdp: true
