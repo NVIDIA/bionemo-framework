@@ -86,14 +86,12 @@ def parse_args():
     )
     ap.add_argument(
         "--fp8",
-        type=bool,
         action="store_true",
         default=False,
         help="Whether to use vortex style FP8. Defaults to False.",
     )
     ap.add_argument(
         "--flash-decode",
-        type=bool,
         action="store_true",
         default=False,
         help="Whether to use flash decode. Defaults to True.",
@@ -173,8 +171,8 @@ def infer(
         path=ckpt_dir,
         trainer=trainer,
         params_dtype=torch.bfloat16,
-        inference_batch_times_seqlen_threshold=8192,  # TODO
-        inference_max_seq_length=8192,  # TODO
+        inference_batch_times_seqlen_threshold=len(prompt) + max_new_tokens,  # TODO
+        inference_max_seq_length=len(prompt) + max_new_tokens,  # TODO
         recompute_granularity=None,
         recompute_num_layers=None,
         recompute_method=None,

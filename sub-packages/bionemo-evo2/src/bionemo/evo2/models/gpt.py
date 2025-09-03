@@ -91,15 +91,13 @@ class Evo2GPTModel(GPTModel):
         self, params_dtype, inference_batch_times_seqlen_threshold, inference_max_seq_length=8192
     ) -> GPTInferenceWrapper:
         """Gets the inference wrapper for the Mamba model."""
-        # Find MCoreMambaModel instance
-        mcore_model = self.module
-        while mcore_model:
-            if isinstance(mcore_model, ()):
+        model = self
+        while model is not None:
+            if getattr(model, "module", None) is not None:
+                model = model.module
+            else:
                 break
-            mcore_model = getattr(mcore_model, "module", None)
-        if mcore_model is None or not isinstance(
-            mcore_model, (megatron.core.models.gpt.gpt_model.GPTModel, Evo2StyleMCoreGPTModel)
-        ):
+        if not isinstance(model, megatron.core.models.gpt.gpt_model.GPTModel):
             raise ValueError("GPT model instance not found in the model structure.")
 
         vocab_size = None
@@ -111,14 +109,14 @@ class Evo2GPTModel(GPTModel):
             raise ValueError("Unable to find vocab size.")
 
         inference_wrapper_config = InferenceWrapperConfig(
-            hidden_size=mcore_model.config.hidden_size,
+            hidden_size=model.config.hidden_size,
             params_dtype=params_dtype,
             inference_batch_times_seqlen_threshold=inference_batch_times_seqlen_threshold,
             padded_vocab_size=vocab_size,
             inference_max_seq_length=inference_max_seq_length,
         )
 
-        model_inference_wrapper = GPTInferenceWrapper(mcore_model, inference_wrapper_config)
+        model_inference_wrapper = GPTInferenceWrapper(model, inference_wrapper_config)
         return model_inference_wrapper
 
     @override
