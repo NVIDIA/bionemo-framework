@@ -1,0 +1,117 @@
+# #########################################################
+# Lepton Job Configuration
+# If used in script: below, these must be referenced as $var (no brackets)
+# #########################################################
+job_name: evo2-finetune-job-jw2
+resource_shape: gpu.1xh200
+node_group_name: nv-int-multiteam-nebius-h200-01
+
+container:
+  image: nvcr.io/nvidia/clara/bionemo-framework:nightly
+  registry_auth: lepton-nvidia-cvai-bnmo-trng
+
+# environment variables can be secrets (in which case use name: value_from), or literals (in which case use name: value)
+environment_variables:
+  - name: WANDB_API_KEY
+    value_from: JWILBER_WANDB_API_KEY
+  - name: PYTHONPATH
+    value: /workspace/bionemo2/sub-packages/bionemo-evo2/src
+  - name: KRATOS_SSA_URL
+    value_from: KRATOS_SSA_URL
+  - name: KRATOS_SSA_CLIENT_ID
+    value_from: KRATOS_SSA_CLIENT_ID
+  - name: KRATOS_SSA_SECRET
+    value_from: KRATOS_SSA_SECRET
+  - name: LEP_LOGIN_CREDENTIALS
+    value_from: LEP_LOGIN_CREDENTIALS
+
+mounts:
+  - path: /BioNeMo
+    mount_path: /BioNeMo
+    from_: node-nfs:lepton-shared-fs
+  - path: /BioNeMo/jwilber/bionemo-dev/bionemo-framework/sub-packages/bionemo-evo2
+    mount_path: /workspace/bionemo2/sub-packages/bionemo-evo2
+    from_: node-nfs:lepton-shared-fs
+
+# #########################################################
+# Dashboard Information
+# This is data with log details we need for the dashboard dropdowns.
+# For example, for
+# #########################################################
+dashboard_info:
+  # model is the core model name; e.g. evo2, esm2, geneformer, etc.
+  model: evo2
+  # variant is the type of training; e.g. train, finetune, finetune_lora
+  variant: finetune
+  # config is the model size, optionally suffixed with -recipes, etc.
+  config: 1b
+  # repo is the repo name; e.g. bionemo2 or recipes.
+  repo: bionemo2
+
+# #########################################################
+# Script-specific arguments
+# If used in script: below, these must be referenced as ${var} (use brackets)
+# They can be whatever you want, but should be referenced in the script
+# #########################################################
+data_dir: /BioNeMo/data/evo2
+wandb_project_name: evo2-finetune-job-jw2
+max_steps: 5
+result_dir: pretraining_demo
+experiment_name: evo2
+model_size: 1b
+devices: 1
+num_nodes: 1
+seq_length: 8192
+micro_batch_size: 2
+lr: 0.000015
+min_lr: 0.0000149
+warmup_steps: 10
+grad_acc_batches: 4
+ckpt_dir: ${data_dir}/checkpoints/nemo2_evo2_1b_8k
+clip_grad: 250
+weight_decay: 0.001
+attention_dropout: 0.01
+hidden_dropout: 0.01
+val_check_interval: 5
+num_layers: 4
+hybrid_override_pattern: SDH*
+activation_checkpoint_recompute_num_layers: 2
+
+script: |
+  #!/bin/bash
+  wandb login $WANDB_API_KEY
+
+  torchrun \
+  --nnodes 1 \
+  --nproc_per_node 1 \
+  --node_rank 0 \
+  --master_addr localhost \
+  --master_port 29400 \
+  /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
+  -d ${data_dir}/model_convergence_training_data_config.yaml \
+  --dataset-dir ${data_dir}/preprocessed_data \
+  --result-dir ${result_dir} \
+  --experiment-name ${experiment_name} \
+  --model-size ${model_size} \
+  --devices ${devices} \
+  --num-nodes ${num_nodes} \
+  --seq-length ${seq_length} \
+  --micro-batch-size ${micro_batch_size} \
+  --lr ${lr} \
+  --min-lr ${min_lr} \
+  --warmup-steps ${warmup_steps} \
+  --grad-acc-batches ${grad_acc_batches} \
+  --max-steps ${max_steps} \
+  --ckpt-dir ${ckpt_dir} \
+  --clip-grad ${clip_grad} \
+  --wd ${weight_decay} \
+  --attention-dropout ${attention_dropout} \
+  --hidden-dropout ${hidden_dropout} \
+  --val-check-interval ${val_check_interval} \
+  --num-layers ${num_layers} \
+  --hybrid-override-pattern ${hybrid_override_pattern} \
+  --activation-checkpoint-recompute-num-layers ${activation_checkpoint_recompute_num_layers} \
+  --create-tensorboard-logger \
+  --ckpt-async-save \
+  --wandb-project=${wandb_project_name} \
+  --create-tflops-callback
