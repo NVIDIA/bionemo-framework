@@ -46,6 +46,8 @@ from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils.exp_manager import TimingCallback
 
+from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
+from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.run.peft import Evo2LoRA
 from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
@@ -61,7 +63,15 @@ torch._dynamo.config.suppress_errors = True
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     """Parse arguments for Evo2 model training."""
     parser = argparse.ArgumentParser(
-        description="Train a Hyena model using NeMo 2.0.",
+        description=(
+            "Train an Evo2/Hyena-family model using NeMo 2.0.\n\n"
+            "Choose exactly one data source:\n"
+            "  - --dataset-config: blended/weighted dataset YAML.\n"
+            "  - --mock-data: synthetic mock data for testing/debugging.\n"
+            "  - --fasta-data: single FASTA file input (requires --fasta-file).\n"
+            "  - --sharded-eden-data: pre-sharded SQLite sequence DBs + precomputed windows per split\n"
+            "      (requires --sequence-db-dir, --train-window-db, --val-window-db, --test-window-db)."
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     data_group = parser.add_mutually_exclusive_group(required=True)
@@ -70,18 +80,124 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "-d",
         "--dataset-config",
         type=str,
-        help="Path to the blended / weighted training dataset configuration YAML.",
+        help="Path to the blended / weighted training dataset configuration YAML. Mutually exclusive with "
+        "--mock-data, --fasta-data and --sharded-eden-data.",
     )
     data_group.add_argument(
         "--mock-data",
         action="store_true",
-        help="Train with Mock data (for testing/debugging), either set this or provide a dataset config.",
+        help="Use synthetic mock data for quick testing/debugging. Mutually exclusive with --dataset-config, --fasta-data and --sharded-eden-data.",
     )
 
+    data_group.add_argument(
+        "--fasta-data",
+        action="store_true",
+        help=(
+            "Train on a single FASTA file (EdenDataModule). Requires --fasta-file. Mutually exclusive with "
+            "--dataset-config, --mock-data and --sharded-eden-data."
+        ),
+    )
+
+    data_group.add_argument(
+        "--sharded-eden-data",
+        action="store_true",
+        help=(
+            "Train on pre-sharded SQLite sequence databases with precomputed windows per split "
+            "(ShardedEdenDataModule). Requires: --sequence-db-dir, --train-window-db, --val-window-db, --test-window-db. "
+            "Mutually exclusive with --dataset-config, --mock-data and --fasta-data."
+        ),
+    )
+
+    # Dataset configuration (unified)
+    parser.add_argument(
+        "--fasta-file",
+        type=str,
+        help=(
+            "Absolute path to FASTA file containing training data. Required when using --fasta-data; "
+            "ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--sequence-db-dir",
+        type=str,
+        help=(
+            "Directory containing per-sample SQLite databases with sequences. Required with --sharded-eden-data; "
+            "ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--train-window-db",
+        type=str,
+        help=(
+            "Path to the precomputed training split windows SQLite database. Required with --sharded-eden-data; "
+            "ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--val-window-db",
+        type=str,
+        help=(
+            "Path to the precomputed validation split windows SQLite database. Required with --sharded-eden-data; "
+            "ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--test-window-db",
+        type=str,
+        help=(
+            "Path to the precomputed test split windows SQLite database. Required with --sharded-eden-data; "
+            "ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--dataset-num-epochs",
+        type=int,
+        default=1,
+        help=(
+            "When using --sharded-eden-data, wrap each split with a MultiEpochDatasetResampler over this many epochs. "
+            "Default 1 means each split length equals its base dataset length."
+        ),
+    )
+    parser.add_argument(
+        "--stride",
+        type=int,
+        default=7992,
+        help=(
+            "Stride between adjacent windows used by ShardedEdenDataModule. Must match the stride used when "
+            "precomputing the windows databases. Ignored for other data modes."
+        ),
+    )
+    parser.add_argument(
+        "--window-min-length-threshold",
+        type=int,
+        default=0,
+        help=(
+            "If > 0, prune windows shorter than this effective length during precomputation and require matching "
+            "value in the window DB metadata. Defaults to 0 (disabled)."
+        ),
+    )
+    parser.add_argument(
+        "--log-windows",
+        action="store_true",
+        default=False,
+        help=("Enable window access logging for ShardedEdenDataset (applies only to --sharded-eden-data)."),
+    )
+    parser.add_argument(
+        "--window-log-dir",
+        type=str,
+        default=None,
+        help=("Directory for window-access logging SQLite files (applies only to --sharded-eden-data)."),
+    )
+    parser.add_argument(
+        "--rc-aug",
+        action="store_true",
+        default=False,
+        help=("Enable reverse-complement augmentation (applies only to --sharded-eden-data)."),
+    )
     parser.add_argument(
         "--dataset-dir",
         type=str,
-        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML.",
+        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML. Required with --dataset-config.",
     )
 
     parser.add_argument("--num-nodes", type=int, default=1, help="Number of nodes to use for training, defaults to 1.")
@@ -181,7 +297,9 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--model-size",
         type=str,
-        choices=sorted(list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys())),
+        choices=sorted(
+            list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys()) + list(LLAMA_MODEL_OPTIONS.keys())
+        ),
         default="7b",
         help="Model size/configuration to use. Options depend on the selected model-type.",
     )
@@ -526,6 +644,14 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "byte-level",
     )
 
+    bos_id, eos_id, sep_id, pad_id = 1, 2, 3, 0
+
+    # Patch the private attrs so tokenizer.bos_id/.eos_id/.pad_id work
+    tokenizer._bos_id = bos_id
+    tokenizer._eos_id = eos_id
+    tokenizer._sep_id = sep_id
+    tokenizer._pad_id = pad_id
+
     # Infer global batch size.
     global_batch_size = args.global_batch_size
     if global_batch_size is None:
@@ -546,7 +672,44 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             num_workers=args.workers,
             tokenizer=tokenizer,
         )
+    elif args.fasta_data:
+        raise NotImplementedError("Fasta data is not supported yet. Need to add EdenDataModule")
+        # data_module = EdenDataModule(
+        #     fasta_file=args.fasta_file,
+        #     seq_length=args.seq_length,
+        #     micro_batch_size=args.micro_batch_size,
+        #     global_batch_size=global_batch_size,
+        #     num_workers=args.workers,
+        #     tokenizer=tokenizer,
+        #     seed=args.seed,
+        # )
+    elif args.sharded_eden_data:
+        # Validate required arguments for sharded data
+        if not args.sequence_db_dir or not args.train_window_db or not args.val_window_db or not args.test_window_db:
+            raise ValueError(
+                "--sequence-db-dir, --train-window-db, --val-window-db, and --test-window-db are required when using --sharded-eden-data."
+            )
+        data_module = ShardedEdenDataModule(
+            sequence_db_dir=args.sequence_db_dir,
+            train_window_db_path=args.train_window_db,
+            val_window_db_path=args.val_window_db,
+            test_window_db_path=args.test_window_db,
+            seq_length=args.seq_length,
+            tokenizer=tokenizer,
+            micro_batch_size=args.micro_batch_size,
+            global_batch_size=global_batch_size,
+            num_workers=args.workers,
+            rc_aug=args.rc_aug,
+            stride=args.stride,
+            window_min_length_threshold=args.window_min_length_threshold,
+            seed=args.seed,
+            num_epochs=args.dataset_num_epochs,
+            log_windows=args.log_windows,
+            log_dir=args.window_log_dir,
+        )
     else:
+        if not args.dataset_dir:
+            raise ValueError("--dataset-dir is required when using --dataset-config.")
         blended_dataset_config = parse_dataset_config(
             dataset_config_path=args.dataset_config, dataset_path=args.dataset_dir
         )
@@ -614,6 +777,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         model_type = "hyena"
     elif args.model_size in MAMBA_MODEL_OPTIONS:
         model_type = "mamba"
+    elif args.model_size in LLAMA_MODEL_OPTIONS:
+        model_type = "llama"
     else:
         raise ValueError(f"Invalid model size: {args.model_size}")
 
@@ -632,7 +797,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
 
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
-    else:  # mamba
+    elif model_type == "mamba":  # mamba
         if args.no_weight_decay_embeddings:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
         config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
@@ -643,6 +808,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             raise ValueError("Bias output is not supported for Mamba models.")
         model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = MambaModel(model_config, tokenizer=data_module.tokenizer)
+    elif model_type == "llama":
+        model_config = LLAMA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
+        model = llm.LlamaModel(model_config, tokenizer=data_module.tokenizer)
 
     # Setup callbacks.
     callbacks = [
@@ -750,6 +918,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     if model_type == "mamba":
         # Include this setting for mamba models.
         wandb_run_name += f"-LLW{args.mamba_lowercase_loss_weight}"
+    elif model_type == "llama":
+        wandb_run_name += f"-LLAMA{args.model_size}"
 
     wandb_config: Optional[WandbConfig] = (
         None
@@ -773,6 +943,18 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         initialize_tensorboard_logger=args.create_tensorboard_logger,
         wandb_config=wandb_config,
     )
+
+    # Ensure window logging directory lives under the run directory
+    if args.sharded_eden_data and args.log_windows:
+        window_log_leaf = Path(args.window_log_dir).name if args.window_log_dir else "window_logs"
+        window_log_dir = Path(nemo_logger.save_dir) / window_log_leaf
+        try:
+            window_log_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        # Propagate to data module (datasets are built later during setup)
+        if isinstance(data_module, ShardedEdenDataModule):
+            data_module.log_dir = str(window_log_dir)
 
     if args.create_checkpoint_callback:
         checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
