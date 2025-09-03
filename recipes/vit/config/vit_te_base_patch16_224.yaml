@@ -10,3 +10,7 @@ training:
   checkpoint:
     path: "./checkpoints/vit_te"
     resume_from_metric: "-"   # + = Highest Metric (Score), - = Lowest Metric (Loss)
+
+inference:
+  checkpoint:
+    path: "./checkpoints/vit_te/torch_ckpt_test.pt"

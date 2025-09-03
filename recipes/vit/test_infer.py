@@ -13,20 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from copy import deepcopy
 from pathlib import Path
 
 import pytest
 from hydra import compose, initialize_config_dir
+from torch.distributed.checkpoint.format_utils import dcp_to_torch_save
 
-from train import main
+from checkpoint import save_dcp_checkpoint
+from distributed import initialize_distributed
+from infer import main
+from vit import build_vit_model
 
 
 @pytest.mark.parametrize("config_name", ["vit_base_patch16_224", "vit_te_base_patch16_224"])
-@pytest.mark.parametrize("init_model_with_meta_device", [True, False])
-def test_train(monkeypatch, tmp_path, config_name, init_model_with_meta_device):
+def test_infer(monkeypatch, tmp_path, config_name):
     """
-    Test training.
+    Test inference.
     """
     # Set required environment variables for distributed training
     monkeypatch.setenv("LOCAL_RANK", "0")
@@ -35,31 +37,25 @@ def test_train(monkeypatch, tmp_path, config_name, init_model_with_meta_device):
     monkeypatch.setenv("MASTER_ADDR", "localhost")
     monkeypatch.setenv("MASTER_PORT", "29500")
 
-    # Initialize training config.
+    # Initialize inference config.
     recipe_dir = Path(__file__).parent
+    test_ckpt_path = Path(tmp_path) / "test_infer_torch_checkpoint.pt"
     with initialize_config_dir(config_dir=str(recipe_dir / "config"), version_base="1.2"):
         vit_config = compose(
             config_name=config_name,
             overrides=[
-                "++training.steps=10",
-                "++training.val_interval=10",
-                "++training.log_interval=1",
-                f"++training.checkpoint.path={Path(tmp_path) / 'ckpt'}",
-                "++profiling.torch_memory_profile=false",
-                "++profiling.wandb=false",
-                f"++fsdp.init_model_with_meta_device={init_model_with_meta_device}",
+                f"++inference.checkpoint.path={test_ckpt_path}",
             ],
         )
-        vit_resume_config = deepcopy(vit_config)
-        vit_resume_config.training.steps = 10
 
+    # Write a test checkpoint.
+    with initialize_distributed(vit_config) as device_mesh:
+        # Init ViT.
+        model = build_vit_model(vit_config, device_mesh).cuda()
+        # Write checkpoint.
+        save_dcp_checkpoint(Path(tmp_path) / "test_infer_dcp_checkpoint", model)
+        # Convert checkpoint to Torch format.
+        dcp_to_torch_save(Path(tmp_path) / "test_infer_dcp_checkpoint", test_ckpt_path)
+
+    # Run inference.
     main(vit_config)
-
-    # Verify checkpoints were created.
-    assert sum(1 for item in (Path(tmp_path) / "ckpt").iterdir() if item.is_dir()) == 1, (
-        "Expected 1 checkpoint with 10 training steps and validation interval of 10."
-    )
-
-    # Auto-resume training from checkpoint. For this test, we auto-resume from the best checkpoint,
-    # so depending on what the best checkpoint is, we may have more than 5 checkpoints.
-    main(vit_resume_config)

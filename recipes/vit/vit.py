@@ -44,6 +44,7 @@ and modified for demonstrative use by NVIDIA (@cspades).
 
 import math
 import warnings
+from contextlib import nullcontext
 from enum import Enum
 from functools import partial
 from typing import (
@@ -64,6 +65,37 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformer_engine.pytorch import TransformerLayer
+
+
+def build_vit_model(cfg, device_mesh=None, meta_init=False):
+    """
+    Build a ViT.
+
+    Args:
+        cfg: Hydra config.
+        device_mesh: Device mesh. Only needed for TransformerEngine.
+
+    Returns:
+        model: The ViT model.
+    """
+    with (
+        # Meta Device Initialization
+        torch.device("meta") if meta_init else nullcontext()
+    ):
+        vit_kwargs = dict(cfg.model.vit)
+        if meta_init:
+            vit_kwargs["weight_init"] = None
+        if cfg.model.transformer_engine:
+            assert device_mesh is not None, "[build_model] device_mesh is required when using TransformerEngine."
+            vit_kwargs["block_fn"] = TransformerLayer
+            vit_kwargs["micro_batch_size"] = cfg.dataset.train.batch_size
+            vit_kwargs["tp_group"] = device_mesh["tp"].get_group()
+            vit_kwargs["tp_size"] = device_mesh["tp"].size()
+        model = VisionTransformer(**vit_kwargs)
+        if cfg.model.channels_last:
+            model.to(memory_format=torch.channels_last)
+    # Return the model.
+    return model
 
 
 class LayerScale(nn.Module):

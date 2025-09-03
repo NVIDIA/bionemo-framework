@@ -64,6 +64,10 @@ training:
     path: "./checkpoints/vit"
     resume_from_metric: "-"   # + = Highest Metric (Score), - = Lowest Metric (Loss)
 
+inference:
+  checkpoint:
+    path: "./checkpoints/vit/torch_ckpt_test.pt"
+
 dataset:
   num_classes: 100000
   num_workers: 4

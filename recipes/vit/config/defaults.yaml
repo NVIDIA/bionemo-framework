@@ -66,6 +66,10 @@ training:
     path: null
     resume_from_metric: null
 
+inference:
+  checkpoint:
+    path: null
+
 dataset:
   num_classes: 100000
   num_workers: 0
