@@ -42,6 +42,7 @@ jobs:
             !.github/**
             !.gitignore
             !.devcontainer/**
+            !ci/scripts/recipes_local_test.py
             .github/workflows/unit-tests-framework.yml
 
       - name: Show output
