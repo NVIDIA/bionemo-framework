@@ -205,12 +205,12 @@ class ImageNetReader:
         if isinstance(class_map, str):
             class_to_idx = load_class_map(class_map)
         elif isinstance(class_map, dict):
-            assert dict, "Class-to-Index mapping dict must be non-empty."
+            assert class_map, "Class-to-Index mapping dict must be non-empty."
             class_to_idx = class_map
         if isinstance(label_map, str):
             image_to_label = load_image_labels(label_map)
         elif isinstance(label_map, dict):
-            assert dict, "Image-to-Label mapping dict must be non-empty."
+            assert label_map, "Image-to-Label mapping dict must be non-empty."
             image_to_label = label_map
         self.samples, self.class_to_idx = find_images_and_targets(
             root,
