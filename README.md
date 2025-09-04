@@ -6,7 +6,7 @@
 [![Latest Tag](https://img.shields.io/github/v/tag/NVIDIA/bionemo-framework?label=latest-version)](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags)
 [![codecov](https://codecov.io/gh/NVIDIA/bionemo-framework/branch/main/graph/badge.svg?token=XqhegdZRqB)](https://codecov.io/gh/NVIDIA/bionemo-framework)
 
-NVIDIA BioNeMo Framework is a is a comprehensive suite of programming tools, libraries, and models designed for computational drug discovery.
+NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for computational drug discovery.
 It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing
 domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources for the
 fastest performance on the market. You can access BioNeMo Framework as a free community resource here in this repository
@@ -14,6 +14,12 @@ or learn more at <https://www.nvidia.com/en-us/clara/bionemo/> about getting an 
 expert-level support.
 
 BioNeMo Framework is part of a larger ecosystem of NVIDIA Biopharma products. Get notified of new releases, bug fixes, critical security updates, and more for biopharma. [Subscribe.](https://www.nvidia.com/en-us/clara/biopharma/product-updates/)
+
+> [!NOTE]
+> BioNeMo Recipes are now available, which demonstrate high-performance model training outside of the NeMo Framework.
+> The recipes show how to train models that derive from HuggingFace `PreTrainedModel` classes, and use
+> [NVIDIA TransformerEngine](https://github.com/NVIDIA/TransformerEngine) layers for optimized attention kernels. For
+> more information, see the [BioNeMo Recipes README](./bionemo-recipes.md).
 
 ## Structure of the Framework
 

@@ -1,0 +1,18 @@
+name: "BioNeMo Model Convergence Tests"
+
+on:
+  workflow_dispatch:
+
+# run lepton tests
+# update dashboard
+
+jobs:
+  submit-lepton-jobs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Submit Lepton Jobs
+        run: |
+          python ci/lepton/model_convergence/scripts/launch_job.py --config-name "evo2_finetune_lora"

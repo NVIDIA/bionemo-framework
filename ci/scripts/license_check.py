@@ -67,7 +67,7 @@ def process_file(filepath: Path, dry_run: bool):
     lines = filepath.read_text().splitlines()
 
     start_line = 0
-    if lines[0].startswith("#!"):
+    if lines and lines[0].startswith("#!"):
         # Make sure there's a blank line after the shebang
         if lines[1] != "":
             lines.insert(1, "")

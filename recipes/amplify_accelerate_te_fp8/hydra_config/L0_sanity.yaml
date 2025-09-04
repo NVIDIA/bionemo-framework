@@ -1,0 +1,15 @@
+defaults:
+  - defaults
+
+model_tag: "nvidia/AMPLIFY_120M"
+data_size: "sanity"
+stop_after_n_steps: 4
+trainer:
+  run_name: "amplify_120M_sanity"
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  save_steps: 2
+  eval_steps: 2
+  logging_steps: 1
+  report_to: "none"
+  dataloader_num_workers: 0
