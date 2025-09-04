@@ -15,7 +15,7 @@ script_args:
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
   data_path: /data/evo2
-  artefacts_url: https://__token__:${{JET_GITLAB_TOKEN}}@gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple
+  artefacts_url: https://__token__:${JET_GITLAB_TOKEN}@gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple
   file_name_wheel: subquadratic-ops
   model: evo2
   variant: train
