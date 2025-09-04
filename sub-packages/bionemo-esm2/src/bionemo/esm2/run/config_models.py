@@ -221,6 +221,7 @@ class ExposedESM2PretrainConfig(ExposedModelConfig[ESM2Config]):
         )
         return global_cfg
 
-    def model_class(self) -> Type[ESM2Config]:
+    @classmethod
+    def model_class(cls) -> Type[ESM2Config]:
         """Returns the model class associated with this configuration."""
         return ESM2Config
