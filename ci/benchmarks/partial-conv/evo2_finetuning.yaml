@@ -89,10 +89,11 @@ script: |-
     --devices=${gpus} \
     --num-nodes=${nodes} \
     --val-check-interval=${val_check_interval} \
-    --wandb-project=${wandb_project_name} \
-    --wandb-group=${model}_${variant}_${config_name}_${task}_${target} \
     --create-tensorboard-logger \
     --activation-checkpoint-recompute-num-layers=${activation_checkpoint_layers} \
     --disable-checkpointing \
     --early-stop-on-step=${stop_steps} \
+    --wandb-project=${wandb_project_name} \
+    --wandb-group=${model}_${variant}_${config_name}_${task}_${target} \
+    --wandb-job-type=${pipeline_label} \
     --garbage-collect-at-inference;
