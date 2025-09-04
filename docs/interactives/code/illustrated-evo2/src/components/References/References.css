@@ -1,0 +1,111 @@
+/* References section styles */
+.references-section {
+  border-top: 1px solid var(--silver);
+  margin-top: 4rem;
+}
+
+.references-section-container {
+  max-width: var(--content-max-width);
+  margin: 2rem auto 2rem;
+  padding: 0 1rem;
+}
+
+.references-header {
+  font-size: 1.625rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2rem;
+  font-family: var(--font-heavy);
+  letter-spacing: -0.01em;
+}
+
+.references-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  counter-reset: reference-counter;
+}
+
+.reference-item {
+  position: relative;
+  margin-bottom: 1.25rem;
+  padding-left: 3rem;
+  counter-increment: reference-counter;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.reference-item::before {
+  content: counter(reference-counter) ".";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--text-tertiary);
+  font-family: var(--font-main);
+  font-size: var(--font-size-sm);
+}
+
+.reference-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-right: 0.5rem;
+}
+
+.reference-link {
+  display: inline-block;
+  margin-left: 0.5rem;
+  color: var(--nvgreen);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.reference-link:hover {
+  color: var(--heliotrope);
+  border-bottom-color: currentColor;
+}
+
+.reference-authors {
+  color: var(--text-secondary);
+  font-family: var(--font-main);
+}
+
+.reference-publication {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.reference-doi {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+}
+
+/* Responsive styles */
+@media screen and (max-width: 768px) {
+  .references-section {
+    margin: 3rem auto 1.5rem;
+  }
+
+  .references-header {
+    font-size: 1.375rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .reference-item {
+    padding-left: 2rem;
+    margin-bottom: 1rem;
+    font-size: var(--font-size-sm);
+  }
+
+  .reference-item::before {
+    font-size: var(--font-size-sm);
+  }
+
+  .reference-link {
+    font-size: 0.75rem;
+  }
+}

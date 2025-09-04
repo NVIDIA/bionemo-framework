@@ -1,0 +1,68 @@
+.table-container {
+  margin: 0 auto;
+  overflow-x: auto;
+  max-width: 400px;
+
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  margin-bottom: 15px;
+}
+
+thead {
+  border-bottom: 1px solid #ccc;
+}
+
+th {
+  font-weight: bold;
+  text-align: left;
+  padding: 6px 4px;
+  color: #333;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+td {
+  padding: 4px 4px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+  /* text-align: center; */
+}
+
+/* For highlighting a specific row like Trump's row in the example */
+tr.highlighted {
+  /* background-color: #ffeeb2; Gold highlight */
+}
+
+/* Add subtle hover effect */
+tbody tr:hover {
+  /* background-color: #f0f0f0; */
+}
+
+/* Make the first column stronger */
+td:first-child {
+  font-weight: 500;
+}
+
+/* For any bolded cells like the Total Tokens row */
+td strong,
+th strong {
+  font-weight: 700;
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+  .table-container {
+    font-size: 10px;
+  }
+
+  th,
+  td {
+    padding: 3px 2px;
+  }
+}
