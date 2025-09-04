@@ -30,6 +30,7 @@ if __name__ == "__main__":
 import argparse
 import gc
 import importlib.metadata as im
+import json
 import os
 import platform
 import subprocess
@@ -37,7 +38,7 @@ import sys
 import tempfile
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -795,6 +796,44 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
     return f"{base_filename}_summary.csv", f"{base_filename}_detailed_breakdown.csv"
 
 
+def export_benchmark_results_json(
+    results: List[BenchmarkResult], filename: str | None = None, output_prefix: str = "benchmark_data"
+) -> str:
+    """Export benchmark results to JSON file."""
+    if filename is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{output_prefix}_{timestamp}.json"
+
+    # Create comprehensive JSON structure
+    json_data = {
+        "metadata": {
+            "export_timestamp": datetime.now().isoformat(),
+            "num_results": len(results),
+            "export_version": "1.0",
+        },
+        "results": [],
+    }
+
+    for result in results:
+        # Convert dataclass to dict and add derived metrics
+        result_dict = asdict(result)
+        derived_metrics = calculate_derived_metrics(result)
+        result_dict["derived_metrics"] = derived_metrics
+
+        # Add per-epoch data if available
+        if hasattr(result, "epoch_results") and result.epoch_results:
+            result_dict["epoch_breakdown"] = result.epoch_results
+
+        json_data["results"].append(result_dict)
+
+    # Write JSON file
+    with open(filename, "w") as f:
+        json.dump(json_data, f, indent=2, default=str)
+
+    print(f"JSON export complete: {filename}")
+    return filename
+
+
 def get_sampler(sampling_scheme: str, dataset: torch.utils.data.Dataset):
     """Returns the shuffle flag and sampler object for a given sampling scheme.
 
@@ -1141,6 +1180,7 @@ Examples:
   python scdl_speedtest.py -s sequential              # Use sequential sampling
   python scdl_speedtest.py -o report.txt              # Save report to file
   python scdl_speedtest.py --csv                      # Export detailed CSV files
+  python scdl_speedtest.py --json results.json        # Export detailed JSON file
   python scdl_speedtest.py --generate-baseline        # Compare SCDL vs AnnData performance
         """,
     )
@@ -1158,6 +1198,7 @@ Examples:
     parser.add_argument("--max-time", type=float, default=30.0, help="Max runtime seconds (default: 30)")
     parser.add_argument("--warmup-time", type=float, default=0.0, help="Warmup seconds (default: 0)")
     parser.add_argument("--csv", action="store_true", help="Export detailed CSV files")
+    parser.add_argument("--json", type=str, help="Export detailed JSON file to specified filename")
     parser.add_argument(
         "--generate-baseline", action="store_true", help="Generate AnnData baseline comparison (requires .h5ad input)"
     )
@@ -1265,6 +1306,11 @@ Examples:
                 csv_prefix = f"comparison_{args.sampling_scheme}"
                 base_filename = export_benchmark_results([scdl_result, anndata_result], output_prefix=csv_prefix)
                 print(f"CSV files exported with prefix: {base_filename}")
+
+            # Export JSON file if requested
+            if args.json:
+                json_filename = export_benchmark_results_json([scdl_result, anndata_result], filename=args.json)
+                print(f"JSON file exported: {json_filename}")
         else:
             # Regular SCDL-only benchmark
             factory = create_dataloader_factory(str(input_path), args.sampling_scheme, args.batch_size)
@@ -1297,6 +1343,11 @@ Examples:
                 csv_prefix = f"scdl_benchmark_{args.sampling_scheme}"
                 base_filename = export_benchmark_results([result], output_prefix=csv_prefix)
                 print(f"CSV files exported with prefix: {base_filename}")
+
+            # Export JSON file if requested
+            if args.json:
+                json_filename = export_benchmark_results_json([result], filename=args.json)
+                print(f"JSON file exported: {json_filename}")
 
     except Exception as e:
         print(f"\nBenchmark failed: {e}")

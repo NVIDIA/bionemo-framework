@@ -45,8 +45,11 @@ python scdl_speedtest.py
 # Benchmark your own AnnData dataset
 python scdl_speedtest.py -i your_dataset.h5ad
 
-# Export a detailed CSV file
+# Export detailed CSV files
 python scdl_speedtest.py --csv
+
+# Export detailed JSON file
+python scdl_speedtest.py --json results.json
 ```
 
 3. Deactivate your virtual environment to return to your original shell state
@@ -67,6 +70,9 @@ python scdl_speedtest.py -i my_data.h5ad -s sequential
 # Generate CSV files for analysis
 python scdl_speedtest.py --csv -o report.txt
 
+# Export results to a JSON file
+python scdl_speedtest.py --json my_benchmark_results.json
+
 # Run the speedtest with a custom batch size and runtime limit
 python scdl_speedtest.py --batch-size 64 --max-time 60
 
@@ -85,6 +91,7 @@ python scdl_speedtest.py --generate-baseline
 | `--max-time`            | Max benchmark runtime (seconds). If the dataset is smaller                                                           | 30                       |
 | `--warmup-time`         | Warmup period (seconds). This runs the dataloader before measurement to better reflect average expected performance. | 2                        |
 | `--csv`                 | Export detailed CSV files                                                                                            | False                    |
+| `--json`                | Export detailed JSON file to specified filename                                                                      | None                     |
 | `--generate-baseline`   | Compare SCDL vs AnnData performance                                                                                  | False                    |
 | `--num-epochs`          | The number of epochs (passes through the training dataset).                                                          | 1                        |
 
@@ -166,6 +173,15 @@ When using `--csv`, the script generates:
 - **`detailed_breakdown.csv`**: Per-epoch performance breakdown
 
 Perfect for analysis in Excel, Python, R, or other data tools.
+
+## JSON Export
+
+When using `--json filename.json`, the script generates a comprehensive JSON file containing:
+
+- **Metadata**: Export timestamp, number of results, and export version
+- **Complete benchmark results**: All metrics from the `BenchmarkResult` dataclass
+- **Derived metrics**: Calculated performance metrics (samples/sec, memory efficiency, etc.)
+- **Per-epoch breakdowns**: Detailed performance data for each epoch (when available)
 
 ## Troubleshooting
 
