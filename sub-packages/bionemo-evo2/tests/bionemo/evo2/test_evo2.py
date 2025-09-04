@@ -75,49 +75,49 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: 
                 "model_size": "1b",
                 "seq_len_cap": 6000,
                 "memory_needed_by_test": 18,
-            },  # checked in isolation
+            },  # checked both variants in isolation
             {
                 "test_name": "test_forward",
                 "model_size": "7b",
                 "seq_len_cap": 4000,
                 "memory_needed_by_test": 33,
-            },  # checked in isolation
+            },  # checked both variants in isolation
             {
                 "test_name": "test_forward_manual",
                 "model_size": "1b",
                 "seq_len_cap": 6000,
-                "memory_needed_by_test": 6,
-            },  # checked in isolation
+                "memory_needed_by_test": 18,
+            },  # checked both variants in isolation
             {
                 "test_name": "test_forward_manual",
                 "model_size": "7b",
                 "seq_len_cap": 4000,
                 "memory_needed_by_test": 21,
-            },  # checked in isolation
+            },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate",
                 "model_size": "1b",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 16,
-            },  # checked in isolation
+            },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate",
                 "model_size": "7b",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 43,
-            },  # checked in isolation
+            },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate_coding_sequences",
                 "model_size": "1b",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 6,
-            },  # checked in isolation
+            },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate_coding_sequences",
                 "model_size": "7b",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 21,
-            },  # checked in isolation
+            },  # checked both variants in isolation
             {
                 "test_name": "test_generate_speed",
                 "model_size": "1b",
@@ -721,7 +721,7 @@ def test_batch_generate(
         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
-        # ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
+        ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
     ],
 )
 def test_batch_generate_coding_sequences(
