@@ -14,6 +14,3 @@ wandb_init_args:
 # Learning rate scheduler config
 lr_scheduler_kwargs:
   num_warmup_steps: 0
-
-adamw_kwargs:
-  lr: 1e-2

@@ -16,6 +16,7 @@
 import logging
 import os
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 
 import hydra
@@ -85,7 +86,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Create an empty ESM-2 model with a masked language model head.
     if "facebook" in args.model_name:
         config = AutoConfig.from_pretrained(args.model_name, dtype=torch.bfloat16)
-        with torch.device("meta"):
+        with torch.device("meta") if args.use_meta_device else nullcontext():
             model = AutoModelForMaskedLM.from_config(config, attn_implementation="flash_attention_2")
         del model.esm.contact_head
         transformer_stack = model.esm.encoder.layer
@@ -94,7 +95,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         config = AutoConfig.from_pretrained(args.model_name, trust_remote_code=True, dtype=torch.bfloat16)
         config.max_seq_length = args.max_seq_length
         config.micro_batch_size = args.micro_batch_size
-        with torch.device("meta"):
+        with torch.device("meta") if args.use_meta_device else nullcontext():
             model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
         transformer_stack = model.esm.encoder.layers
 
@@ -111,10 +112,11 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    model.to_empty(device=device)
-    for module in model.modules():
-        if hasattr(module, "reset_parameters"):
-            module.reset_parameters()
+    if args.use_meta_device:
+        model.to_empty(device=device)
+        for module in model.modules():
+            if hasattr(module, "reset_parameters"):
+                module.reset_parameters()
 
     # Training loop.
     model.train()
