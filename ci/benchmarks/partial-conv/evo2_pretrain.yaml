@@ -7,7 +7,7 @@ key_segments:
   lr: False
   min_lr: False
   wu_steps: False
-  artefacts_url: False
+  pckg_url: False
   file_name_wheel: False
 script_args:
   # All arguments referenced in the script string must be specified here.
@@ -15,7 +15,7 @@ script_args:
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
   data_path: /data/evo2
-  artefacts_url: https://gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple
+  pckg_url: gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple/
   file_name_wheel: subquadratic-ops
   model: evo2
   variant: train
@@ -40,8 +40,7 @@ script_args:
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
-      curl --location --header "PRIVATE-TOKEN:$JET_GITLAB_TOKEN" "${artefacts_url}/${file_name_wheel}" --output ${file_name_wheel}
-      pip install ${file_name_wheel}
+      pip install ${file_name_wheel} --index-url https://oauth2:$JET_GITLAB_TOKEN@${pckg_url} --extra-index-url https://pypi.org/simple/
       touch $INSTALL_FLAG
   fi
   # All ranks wait until install flag file appears
