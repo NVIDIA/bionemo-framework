@@ -102,15 +102,18 @@ def run_tests_in_docker(work_dir: str) -> bool:
     install_and_test_script = textwrap.dedent("""
         set -e  # Exit on any error
 
+        # Ensure image-embedded constraints do not leak into local recipe installs
+        unset PIP_CONSTRAINT || true
+
         echo "Checking for dependency files..."
         # Install dependencies based on available files
         if [ -f pyproject.toml ] || [ -f setup.py ]; then
             echo "Installing package in editable mode..."
-            PIP_CACHE_DIR=/workspace/.cache/pip PIP_CONSTRAINT= pip install -e .
+            PIP_CACHE_DIR=/workspace/.cache/pip pip install -e .
             echo "Installed package as editable package"
         elif [ -f requirements.txt ]; then
             echo "Installing from requirements.txt..."
-            PIP_CACHE_DIR=/workspace/.cache/pip PIP_CONSTRAINT= pip install -r requirements.txt
+            PIP_CACHE_DIR=/workspace/.cache/pip pip install -r requirements.txt
             echo "Installed from requirements.txt"
         else
             echo "No pyproject.toml, setup.py, or requirements.txt found"
