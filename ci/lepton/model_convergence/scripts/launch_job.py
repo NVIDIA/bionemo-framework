@@ -6,12 +6,8 @@ Demo: python launch_job.py --config-name "evo2_finetune_lora" job_name="evo2-fin
 """
 
 import hydra
-import json
-
 from omegaconf import DictConfig
 from typing import Dict
-from types import SimpleNamespace
-
 from leptonai.api.v2.client import APIClient
 from leptonai.api.v1.types.affinity import LeptonResourceAffinity
 from leptonai.api.v1.types.common import Metadata
@@ -19,18 +15,6 @@ from leptonai.api.v1.types.deployment import EnvVar, EnvValue, LeptonContainer, 
 from leptonai.api.v1.types.job import LeptonJob, LeptonJobUserSpec
 from omegaconf import OmegaConf
 from omegaconf import DictConfig as HydraDictConfig, ListConfig
-
-# todo: move to some defaults file
-default_mounts = [
-    {"path": "/BioNeMo", "mount_path": "/BioNeMo", "from_": "node-nfs:lepton-shared-fs"},
-]
-
-default_env_vars = [
-    {"name": "KRATOS_SSA_URL", "value_from": "KRATOS_SSA_URL"},
-    {"name": "KRATOS_SSA_CLIENT_ID", "value_from": "KRATOS_SSA_CLIENT_ID"},
-    {"name": "KRATOS_SSA_SECRET", "value_from": "KRATOS_SSA_SECRET"},
-    {"name": "LEP_LOGIN_CREDENTIALS", "value_from": "LEP_LOGIN_CREDENTIALS"},
-]
 
 
 # todo: make utils file? also, add cfg checks to make sure these are used in the config before calling
@@ -47,7 +31,7 @@ def construct_mount(path: str, mount_path: str, from_: str = "node-nfs:lepton-sh
 
 def construct_env_var(env_var) -> EnvVar:
     """Construct an EnvVar object from a config entry, supporting both secrets and literals."""
-    if hasattr(env_var, 'value_from') and env_var.value_from is not None:
+    if 'value_from' in env_var:
         return EnvVar(
             name=env_var.name,
             value_from=EnvValue(secret_name_ref=env_var.value_from),
@@ -59,12 +43,8 @@ def construct_env_var(env_var) -> EnvVar:
         )
 
 
-bionemo_mount = construct_mount(
-    path=default_mounts[0]['path'], mount_path=default_mounts[0]['mount_path'], from_=default_mounts[0]['from_']
-)
-
-bionemo_env_vars = [construct_env_var(SimpleNamespace(**env_var)) for env_var in default_env_vars]
-print('bionemo_env_vars', bionemo_env_vars)
+import json
+from typing import Dict
 
 
 def wrap_with_wandb_copy(
@@ -86,6 +66,9 @@ def wrap_with_wandb_copy(
 # Get job name
 JOB_NAME="${{LEPTON_JOB_NAME:-unknown-job}}"
 
+ls
+
+
 # Run the training script
 set +e
 (
@@ -93,6 +76,9 @@ set +e
 )
 RC=$?
 set -e
+
+echo "pwd"
+pwd
 
 # Authenticate to Lepton
 echo "Authenticating to Lepton..."
@@ -161,31 +147,82 @@ JOB_INFO_JSON="$(printf '%s' "$JOB_INFO" | jq -c . 2>/dev/null || echo '{{}}')"
 
 # Stash dashboard info JSON (provided from Python)
 DASHBOARD_INFO_JSON='{dashboard_json}'
+echo "pwd"
+pwd
 
-# Copy W&B files from known location based on result_dir and experiment_name
-JOB_DIR="/BioNeMo/model_convergence_tests/job_logs/$JOB_NAME"
-mkdir -p "$JOB_DIR"
+echo "running ls -a bionemo-framework/recipes/esm2_native_te_mfsdp"
+ls -a bionemo-framework/recipes/esm2_native_te_mfsdp
 
-WANDB_BASE_DIR="{result_dir}/{experiment_name}/wandb"
+echo "Current working directory: $(pwd)"
+echo "Looking for W&B files..."
 WANDB_FOUND=0
-if [ -d "$WANDB_BASE_DIR" ]; then
-    LATEST_RUN=$(ls -td "$WANDB_BASE_DIR"/run-* 2>/dev/null | head -n1)
-    if [ -n "$LATEST_RUN" ] && [ -d "$LATEST_RUN/files" ]; then
-        if [ -f "$LATEST_RUN/files/wandb-summary.json" ]; then
-            cp -v "$LATEST_RUN/files/wandb-summary.json" "$JOB_DIR/wandb-summary.json"
-            WANDB_FOUND=1
-        fi
-        if [ -f "$LATEST_RUN/files/wandb-metadata.json" ]; then
-            cp -v "$LATEST_RUN/files/wandb-metadata.json" "$JOB_DIR/wandb-metadata.json"
-        fi
-    fi
+WANDB_SUMMARY=""
+WANDB_METADATA=""
+
+# Look for wandb in the known location - try both absolute and relative paths
+if [ -d "/workspace/bionemo-framework/recipes/esm2_native_te_mfsdp/wandb" ]; then
+    WANDB_DIR="/workspace/bionemo-framework/recipes/esm2_native_te_mfsdp/wandb"
+elif [ -d "bionemo-framework/recipes/esm2_native_te_mfsdp/wandb" ]; then
+    WANDB_DIR="bionemo-framework/recipes/esm2_native_te_mfsdp/wandb"
+else
+    WANDB_DIR=""
 fi
 
-if [ $WANDB_FOUND -eq 1 ] && [ -f "$JOB_DIR/wandb-summary.json" ]; then
+if [ -n "$WANDB_DIR" ] && [ -d "$WANDB_DIR" ]; then
+    echo "Found wandb directory at: $WANDB_DIR"
+    echo "Contents of $WANDB_DIR:"
+    ls -la "$WANDB_DIR"
+    
+    # Look for both offline-run-* and run-* patterns
+    LATEST_RUN=$(ls -td "$WANDB_DIR"/offline-run-* "$WANDB_DIR"/run-* 2>/dev/null | head -n1)
+    
+    if [ -n "$LATEST_RUN" ]; then
+        echo "Found latest run: $LATEST_RUN"
+        echo "Contents of $LATEST_RUN:"
+        ls -la "$LATEST_RUN"
+        
+        # Check for files in the main run directory first
+        if [ -f "$LATEST_RUN/wandb-summary.json" ]; then
+            WANDB_SUMMARY="$LATEST_RUN/wandb-summary.json"
+            WANDB_FOUND=1
+            echo "✓ Found wandb-summary.json at: $WANDB_SUMMARY"
+        fi
+        
+        if [ -f "$LATEST_RUN/wandb-metadata.json" ]; then
+            WANDB_METADATA="$LATEST_RUN/wandb-metadata.json"
+            echo "✓ Found wandb-metadata.json at: $WANDB_METADATA"
+        fi
+        
+        # If not found in main directory, check the files subdirectory
+        if [ "$WANDB_FOUND" -eq 0 ] && [ -d "$LATEST_RUN/files" ]; then
+            echo "Checking $LATEST_RUN/files:"
+            ls -la "$LATEST_RUN/files"
+            
+            if [ -f "$LATEST_RUN/files/wandb-summary.json" ]; then
+                WANDB_SUMMARY="$LATEST_RUN/files/wandb-summary.json"
+                WANDB_FOUND=1
+                echo "✓ Found wandb-summary.json at: $WANDB_SUMMARY"
+            fi
+            
+            if [ -f "$LATEST_RUN/files/wandb-metadata.json" ]; then
+                WANDB_METADATA="$LATEST_RUN/files/wandb-metadata.json"
+                echo "✓ Found wandb-metadata.json at: $WANDB_METADATA"
+            fi
+        fi
+    else
+        echo "No W&B runs found"
+    fi
+else
+    echo "W&B directory does not exist at expected locations"
+    echo "Checked: /workspace/bionemo-framework/recipes/esm2_native_te_mfsdp/wandb"
+    echo "Checked: bionemo-framework/recipes/esm2_native_te_mfsdp/wandb"
+fi
+echo "Now what?"
+if [ $WANDB_FOUND -eq 1 ] && [ -n "$WANDB_SUMMARY" ]; then
     echo "Combining W&B JSON files and uploading to Kratos..."
 
-    METADATA_JSON=$(cat "$JOB_DIR/wandb-metadata.json" 2>/dev/null || echo '{{}}')
-    SUMMARY_JSON=$(cat "$JOB_DIR/wandb-summary.json" 2>/dev/null || echo '{{}}')
+    METADATA_JSON=$(cat "$WANDB_METADATA" 2>/dev/null || echo '{{}}')
+    SUMMARY_JSON=$(cat "$WANDB_SUMMARY" 2>/dev/null || echo '{{}}')
 
     COMBINED_JSON=$(jq -n \
         --arg m "$METADATA_JSON" \
@@ -202,14 +239,8 @@ if [ $WANDB_FOUND -eq 1 ] && [ -f "$JOB_DIR/wandb-summary.json" ]; then
         }}
         ')
 
-    echo "$COMBINED_JSON" > "$JOB_DIR/wandb-combined.json"
-    echo "Combined W&B JSON saved to: $JOB_DIR/wandb-combined.json"
-
-    TELEMETRY_URL="https://prod.analytics.nvidiagrid.net"
-    COLLECTOR_ID="bionemo-convergence-lepton-logs-kratos.telemetry.lepton-poc-v001.prod"
-    SOURCE="bionemo-wandb-logs"
-    TYPE="wandb-training-metrics"
-    SUBJECT="$JOB_NAME"
+    echo "$COMBINED_JSON" > wandb-combined.json
+    echo "Combined W&B JSON saved to: wandb-combined.json"
 
     UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "$(date +%s)-$-$RANDOM")
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
@@ -230,9 +261,9 @@ if [ $WANDB_FOUND -eq 1 ] && [ -f "$JOB_DIR/wandb-summary.json" ]; then
             JSON_PAYLOAD=$(jq -n \
                 --arg id "$UUID" \
                 --arg time "$TIMESTAMP" \
-                --arg source "$SOURCE" \
-                --arg type "$TYPE" \
-                --arg subject "$SUBJECT" \
+                --arg source "bionemo-wandb-logs" \
+                --arg type "wandb-training-metrics" \
+                --arg subject "$JOB_NAME" \
                 --argjson data "$COMBINED_JSON" \
                 '{{ 
                   "specversion": "1.0",
@@ -247,7 +278,7 @@ if [ $WANDB_FOUND -eq 1 ] && [ -f "$JOB_DIR/wandb-summary.json" ]; then
             RESPONSE=$(curl -sS --request POST \
                 -H "Content-Type: application/cloudevents+json" \
                 -H "Authorization: Bearer ${{ACCESS_TOKEN}}" \
-                "${{TELEMETRY_URL}}/api/v2/topic/${{COLLECTOR_ID}}" \
+                "https://prod.analytics.nvidiagrid.net/api/v2/topic/bionemo-convergence-lepton-logs-kratos.telemetry.lepton-poc-v001.prod" \
                 --data "$JSON_PAYLOAD" 2>&1)
 
             if [ $? -eq 0 ]; then
@@ -325,9 +356,6 @@ def main(cfg: DictConfig):
     mounts = []
     if hasattr(cfg, "mounts") and cfg.mounts:
         mounts = [construct_mount(path=m.path, mount_path=m.mount_path, from_=m.from_) for m in cfg.mounts]
-
-    print('env_vars', env_vars)
-    print('mounts', mounts)
 
     # Create job specification
     job_spec = LeptonJobUserSpec(

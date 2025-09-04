@@ -1,0 +1,58 @@
+# #########################################################
+# Lepton Job Configuration
+# If used in script: below, these must be referenced as $var (no brackets)
+# #########################################################
+# job name may only have hypens, no underscores
+job_name: bionemo-scdl
+resource_shape: cpu.large
+node_group_name: nv-int-multiteam-nebius-h200-01
+
+container:
+  image: nvcr.io/nvidia/pytorch:25.06-py3
+  registry_auth: lepton-nvidia
+
+environment_variables:
+  - name: WANDB_API_KEY
+    value_from: JWILBER_WANDB_API_KEY
+  - name: KRATOS_SSA_URL
+    value_from: KRATOS_SSA_URL
+  - name: KRATOS_SSA_CLIENT_ID
+    value_from: KRATOS_SSA_CLIENT_ID
+  - name: KRATOS_SSA_SECRET
+    value_from: KRATOS_SSA_SECRET
+  - name: LEP_LOGIN_CREDENTIALS
+    value_from: LEP_LOGIN_CREDENTIALS
+
+# #########################################################
+# Dashboard Information
+# This is data with log details we need for the dashboard dropdowns.
+# For example, for recipe
+# #########################################################
+dashboard_info:
+  # model is the core model name; e.g. evo2, esm2, geneformer, etc.
+  model: scdl
+  # variant is the type of training; e.g. train, finetune, finetune_lora
+  variant: scdl
+  # config is the model size, optionally suffixed with -recipes, etc.
+  config: scdl
+  # repo is the repo name; e.g. bionemo2 or recipes.
+  repo: bionemo2
+
+# script specific variables
+# these must be wrapped with ${var}
+model_name: scdl
+
+# #########################################################
+# Script-specific arguments
+# If used in script: below, these must be referenced as ${var} (use brackets)
+# They can be whatever you want, but should be referenced in the script
+# #########################################################
+# Note, in this script:
+# lepton-specific vars must be $var
+# script-specific vars must be ${var}
+script: |
+  git clone https://github.com/NVIDIA/bionemo-framework.git
+  cd bionemo-framework
+  pip install -e sub-packages/bionemo-scdl/
+  cd sub-packages/bionemo-scdl/simple-benchmark
+  python scdl_speedtest.py
