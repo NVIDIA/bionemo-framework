@@ -15,8 +15,8 @@ script_args:
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
   data_path: /data/evo2
-  artefacts_url: https://gitlab-master.nvidia.com/api/v4/projects/clara-discovery%2Fcuhyena/jobs/172596829/artifacts/dist/
-  file_name_wheel: cuhyena-0.1-cp312-cp312-linux_x86_64.whl
+  artefacts_url: https://gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple
+  file_name_wheel: subquadratic-ops
   model: evo2
   variant: train
   config_name: 1b
