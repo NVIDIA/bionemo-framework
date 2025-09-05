@@ -170,7 +170,7 @@ def main(args: DictConfig) -> float | None:
             )
 
             progress_bar.update(1)
-            progress_bar.set_postfix({"loss": loss.item()})
+            progress_bar.set_postfix({"loss": loss_value})
 
     # Clean up distributed training
     if dist_config.is_main_process():

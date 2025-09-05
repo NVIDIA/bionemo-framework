@@ -35,13 +35,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Get merge-base commit
+        id: merge-base
+        run: |
+          # Get the merge-base between current branch and main
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          echo "merge-base=$MERGE_BASE" >> $GITHUB_OUTPUT
+          echo "Merge-base commit: $MERGE_BASE"
+
       - name: Get changed files
         id: changed-files
         uses: step-security/changed-files@v46
         with:
           json: true
           matrix: true
-          base_sha: main
+          base_sha: ${{ steps.merge-base.outputs.merge-base }}
           dir_names: true
           dir_names_max_depth: 2
           files: |
@@ -84,6 +92,13 @@ jobs:
           # Assign Docker images to the selected directories
           # Currently, AMPLIFY is the only folder that needs a custom base image, since we have to support both TE and
           # xformers-based models for golden value testing. The rest of the models use the default pytorch image.
+
+          # This uses a squashed version of the pytorch:25.06-py3 image, generated with `docker-squash
+          # nvcr.io/nvidia/pytorch:25.06-py3 -t svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed --output
+          # type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15` and pushed
+          # to the dockerhub registry. Our github actions are able to cache image pulls from dockerhub but not nvcr, so
+          # hopefully this cuts down slightly on CI time at the expense of having a slightly in-directed image location.
+
           DIRS_WITH_IMAGES=$(echo "$DIRS" | jq -c '
             map({
               dir: .,
@@ -91,14 +106,21 @@ jobs:
                 if . == "models/amplify" then
                   "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
                 else
-                  "nvcr.io/nvidia/pytorch:25.06-py3"
+                  "svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed-zstd"
                 end
               )
             })
           ')
           echo "dirs=$DIRS_WITH_IMAGES" >> $GITHUB_OUTPUT
+
       - name: Show output
         run: |
+          echo "=== Changed Files Analysis ==="
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "Merge-base commit: ${{ steps.merge-base.outputs.merge-base }}"
+          echo "Changed files compared to merge-base:"
+          echo '${{ steps.changed-files.outputs.all_changed_files }}' | jq -r '.[]' | sed 's/^/  - /'
+          echo "Total changed files: $(echo '${{ steps.changed-files.outputs.all_changed_files }}' | jq '. | length')"
           echo '${{ toJSON(steps.changed-files.outputs) }}'
           echo '${{ toJSON(steps.set-dirs.outputs) }}'
         shell: bash
@@ -115,8 +137,12 @@ jobs:
       fail-fast: false
 
     steps:
+
+      - name: Show GPU info
+        run: nvidia-smi
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -125,7 +151,6 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ matrix.recipe.dir }}
-        #
         run: |
           if [ -f pyproject.toml ] || [ -f setup.py ]; then
             PIP_CONSTRAINT= pip install -e .

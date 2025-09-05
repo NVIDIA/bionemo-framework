@@ -19,8 +19,8 @@ dependencies = [
     "nvidia_resiliency_ext",
     "omegaconf",
     "pytest",
-    "torch",
-    # "transformer_engine[pytorch]",
+    "torch==2.6.0a0+ecf3bae40a.nv25.01",
+    "transformer_engine[pytorch]",
     "transformers",
     "xformers",
 ]
