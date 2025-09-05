@@ -122,9 +122,15 @@ training:
   num_workers: 4                        # DataLoader workers
   mlm_probability: 0.15                 # Mask probability
   use_fp8: true                         # Enable FP8 precision
-  wandb_init_args:
-    name: "geneformer-4b-te"           # Experiment name
+```
+
+### WandB Configuration
+
+```yaml
+wandb_init_args:
+    name: "geneformer-4b-te"            # Experiment name
     project: "bionemo-recipes"          # Project name
+    mode: "offline"                     # Run data management
 ```
 
 ### Data Configuration
