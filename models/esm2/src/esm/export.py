@@ -21,7 +21,8 @@ from pathlib import Path
 import torch
 from transformers import AutoModel, AutoModelForMaskedLM, AutoTokenizer
 
-from esm.convert import convert_esm_hf_to_te
+from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf
+from esm.modeling_esm_te import NVEsmForMaskedLM
 
 
 def export_hf_checkpoint(tag: str, export_path: Path):
@@ -68,5 +69,62 @@ def export_hf_checkpoint(tag: str, export_path: Path):
         trust_remote_code=True,
     )
     del model_te
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+def export_te_checkpoint(te_checkpoint_path: str, output_path: str):
+    """Export a Transformer Engine checkpoint back to the original HuggingFace Facebook ESM-2 format.
+
+    This function converts from the NVIDIA Transformer Engine (TE) format back to the
+    weight format compatible with the original facebook/esm2_* series of checkpoints.
+    The TE model is also a HuggingFace model (you can load it with AutoModel.from_pretrained),
+    but this conversion ensures compatibility with the original Facebook ESM-2 model format hosted on Hugging Face.
+
+    Args:
+        te_checkpoint_path (str): Path to the TE checkpoint
+        output_path (str): Output path for the converted Facebook ESM-2 format model
+    """
+    if not Path(te_checkpoint_path).exists():
+        raise FileNotFoundError(f"TE checkpoint {te_checkpoint_path} not found")
+
+    print(f"Converting {te_checkpoint_path} from TE format back to original HuggingFace Facebook ESM-2 format")
+
+    # Load the TE model
+    model_te = NVEsmForMaskedLM.from_pretrained(te_checkpoint_path)
+
+    # Convert TE model to HF format
+    model_hf = convert_esm_te_to_hf(model_te)
+    model_hf.save_pretrained(output_path)
+
+    # Copy tokenizer files if they exist
+    tokenizer_path = Path(te_checkpoint_path) / "tokenizer.json"
+    if tokenizer_path.exists():
+        shutil.copy(tokenizer_path, Path(output_path) / "tokenizer.json")
+
+    tokenizer_config_path = Path(te_checkpoint_path) / "tokenizer_config.json"
+    if tokenizer_config_path.exists():
+        shutil.copy(tokenizer_config_path, Path(output_path) / "tokenizer_config.json")
+
+    vocab_path = Path(te_checkpoint_path) / "vocab.txt"
+    if vocab_path.exists():
+        shutil.copy(vocab_path, Path(output_path) / "vocab.txt")
+
+    # Update config to remove TE-specific settings
+    config_path = Path(output_path) / "config.json"
+    if config_path.exists():
+        with open(config_path, "r") as f:
+            config = json.load(f)
+        config.pop("auto_map", None)
+        config["model_type"] = "esm"
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2, sort_keys=True)
+
+    model_hf = AutoModelForMaskedLM.from_pretrained(
+        output_path,
+        torch_dtype=torch.bfloat16,
+        trust_remote_code=False,
+    )
+    del model_hf
     gc.collect()
     torch.cuda.empty_cache()
