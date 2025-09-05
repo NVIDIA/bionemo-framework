@@ -25,17 +25,19 @@ from megatron.core.inference.model_inference_wrappers.gpt.gpt_inference_wrapper 
 from megatron.core.inference.model_inference_wrappers.inference_wrapper_config import InferenceWrapperConfig
 from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.utils import WrappedTensor, deprecate_inference_params
-from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step
+from nemo.collections.llm.gpt.model.base import GPTModel, get_packed_seq_params, gpt_data_step
 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import make_upper_case, reweighted_cross_entropy
 from nemo.collections.llm.gpt.model.ssm import (
     NemotronHConfigBase,
 )
 from nemo.lightning import get_vocab_size
+from nemo.utils.import_utils import safe_import
 from typing_extensions import override
 
 from bionemo.evo2.utils.loss.embedding_variance import SquaredErrorTargetedVarianceLoss
 
 
+_, HAVE_TE = safe_import("transformer_engine")
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +57,17 @@ def mamba_forward_step(model, batch) -> torch.Tensor:
         "labels": batch["labels"],
         "loss_mask": batch["loss_mask"],
     }
-    forward_args["attention_mask"] = None
+    if "attention_mask" not in batch:
+        assert HAVE_TE, (
+            "The dataloader did not provide an attention mask, however Transformer Engine was not detected. \
+            This requires Transformer Engine's implementation of fused or flash attention."
+        )
+    else:
+        forward_args["attention_mask"] = batch["attention_mask"]
+
+    if "cu_seqlens" in batch:
+        forward_args["packed_seq_params"] = get_packed_seq_params(batch)
+
     return model(**forward_args)
 
 
