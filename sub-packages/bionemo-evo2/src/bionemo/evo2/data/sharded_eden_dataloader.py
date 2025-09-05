@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # high performance implementation of the EdenDataModule, assuming some items are pre-computed + sharded fasta files and fasta index files.
-
+# Contributed by: BaseCamp Research https://basecamp-research.com/ https://github.com/NVIDIA/bionemo-framework/pull/1091
 import argparse
 import csv
 import os
@@ -100,7 +100,7 @@ class ShardedEdenDataModule(pl.LightningDataModule):
         log_dir: Optional[str] = None,
         **kwargs,
     ):
-        """Initialize the ShardedEdenDataModule."""
+        """Initialize the ShardedEdenDataModule. See sub-packages/bionemo-evo2/src/bionemo/evo2/data/sharded_eden_dataloader.md for how to prepare the input data. """
         super().__init__()
         self.sequence_db_dir = sequence_db_dir
         self.train_window_db_path = train_window_db_path

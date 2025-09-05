@@ -13,13 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-import math
+
 from dataclasses import dataclass
 from typing import Optional
 
-import torch
 from nemo.collections import llm
+from nemo.collections.llm.gpt.model.llama import apply_rope_scaling
 
 
 @dataclass
@@ -55,48 +54,6 @@ class EdenConfig(llm.Llama3Config8B):
             old_context_len=self.old_context_len,
         )
         return model
-
-
-def apply_rope_scaling(
-    inv_freq,
-    factor: int = 8,
-    low_freq_factor: int = 1,
-    high_freq_factor: int = 4,
-    old_context_len: int = 8192,
-):
-    """Apply RoPE scaling for extending context length in Llama models.
-
-    This implements the NTK-aware RoPE scaling method used in Llama 3.1 models to
-    extend context length beyond the original training length.
-
-    Args:
-        inv_freq: Original inverse frequency tensor
-        factor: Scaling factor for context length extension
-        low_freq_factor: Factor for low frequency components
-        high_freq_factor: Factor for high frequency components
-        old_context_len: Original context length
-
-    Returns:
-        torch.Tensor: Modified inverse frequency tensor for extended context
-    """
-    logging.info(
-        f"Apply rope scaling with factor={factor}, low_freq_factor={low_freq_factor}, high_freq_factor={high_freq_factor}, old_context_len={old_context_len}."
-    )
-
-    low_freq_wavelen = old_context_len / low_freq_factor
-    high_freq_wavelen = old_context_len / high_freq_factor
-
-    wavelen = 2 * math.pi / inv_freq
-    # wavelen < high_freq_wavelen: do nothing
-    # wavelen > low_freq_wavelen: divide by factor
-    inv_freq_llama = torch.where(wavelen > low_freq_wavelen, inv_freq / factor, inv_freq)
-    # otherwise: interpolate between the two, using a smooth factor
-    smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
-    smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
-    is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
-    inv_freq_llama = torch.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
-
-    return inv_freq_llama
 
 
 @dataclass

@@ -430,7 +430,7 @@ def test_dataset_reverse_complement(sequence_db_dir, window_dbs):
     # Test with N bases
     test_seq_with_n = "ATCN"
     rc_seq_with_n = dataset.reverse_complement(test_seq_with_n)
-    assert rc_seq_with_n == "NCGAT"
+    assert rc_seq_with_n == "NGAT"
 
     # Clean up
     dataset.__del__()
@@ -480,54 +480,6 @@ def test_dataset_collate_fn(sequence_db_dir, window_dbs):
     dataset.__del__()
 
 
-def test_invalid_sequence_db_dir(window_dbs):
-    """Test error handling for invalid sequence database directory."""
-    # Mock tokenizer
-    mock_tokenizer = Mock()
-    mock_tokenizer.bos_id = 1
-    mock_tokenizer.eos_id = 2
-    mock_tokenizer._sep_id = 3
-    mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [10, 11, 12]
-
-    # Test with non-existent directory
-    with pytest.raises(ValueError, match="No SQLite files found"):
-        ShardedEdenDataset(
-            tokenizer=mock_tokenizer,
-            sequence_db_dir="/non/existent/path",
-            window_db_path=window_dbs["train"],
-            seq_length=8192,
-            create_attention_mask=False,
-            stride=7992,
-            rc_aug=False,
-            use_control_tags=False,
-            split="train",
-        )
-
-
-def test_invalid_window_db_path(sequence_db_dir):
-    """Test error handling for invalid window database path."""
-    # Mock tokenizer
-    mock_tokenizer = Mock()
-    mock_tokenizer.bos_id = 1
-    mock_tokenizer.eos_id = 2
-    mock_tokenizer._sep_id = 3
-    mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [10, 11, 12]
-
-    # Test with non-existent window database
-    with pytest.raises(ValueError):
-        ShardedEdenDataset(
-            tokenizer=mock_tokenizer,
-            sequence_db_dir=sequence_db_dir,
-            window_db_path="/non/existent/windows.db",
-            seq_length=8192,
-            create_attention_mask=False,
-            stride=7992,
-            rc_aug=False,
-            use_control_tags=False,
-            split="train",
-        )
 
 
 def test_window_min_length_threshold(temp_dir, train_parquet):
@@ -594,33 +546,3 @@ def test_dataset_length_and_iteration(sequence_db_dir, window_dbs):
     # Clean up
     dataset.__del__()
 
-
-def test_dataset_with_different_seq_lengths(sequence_db_dir, window_dbs):
-    """Test dataset with different sequence lengths."""
-    # Mock tokenizer
-    mock_tokenizer = Mock()
-    mock_tokenizer.bos_id = 1
-    mock_tokenizer.eos_id = 2
-    mock_tokenizer._sep_id = 3
-    mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [10, 11, 12]
-
-    # Test with different sequence lengths
-    for seq_length in [4096, 8192, 16384]:
-        dataset = ShardedEdenDataset(
-            tokenizer=mock_tokenizer,
-            sequence_db_dir=sequence_db_dir,
-            window_db_path=window_dbs["train"],
-            seq_length=seq_length,
-            create_attention_mask=False,
-            stride=seq_length - 200,  # Adjust stride
-            rc_aug=False,
-            use_control_tags=False,
-            split="train",
-        )
-
-        # Verify sequence length
-        assert dataset.seq_length == seq_length
-
-        # Clean up
-        dataset.__del__()

@@ -756,9 +756,10 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "distribute_saved_activations": False if args.sequence_parallel else True,
         "cross_entropy_loss_fusion": args.cross_entropy_loss_fusion,
         "fp32_residual_connection": not args.no_fp32_residual_connection,
-        "add_bias_output": args.add_bias_output,
         **activation_checkpointing_args,
     }
+    if args.add_bias_output:
+        config_modifiers_init["add_bias_output"] = args.add_bias_output
     if args.spike_no_more_embedding_init:
         config_modifiers_init["embedding_init_method_std"] = 1.0
         # When using spike_no_more_embedding_init, we don't want to share embeddings and outputs.
@@ -803,12 +804,10 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
         if args.model_size not in MAMBA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
-        add_bias_output = config_modifiers_init.pop("add_bias_output")
-        if add_bias_output:
-            raise ValueError("Bias output is not supported for Mamba models.")
         model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = MambaModel(model_config, tokenizer=data_module.tokenizer)
     elif model_type == "llama":
+        config_modifiers_init.pop("to_upper")
         model_config = LLAMA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = llm.LlamaModel(model_config, tokenizer=data_module.tokenizer)
 
@@ -895,7 +894,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-GBS{global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
         f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
         f"-ACRNL{model_config.recompute_num_layers}"
-        f"-PAT{model_config.hybrid_override_pattern}"
+        f"-PAT{getattr(model_config, 'hybrid_override_pattern', 'None')}"
         f"-F32R{model_config.fp32_residual_connection}"
         f"-FCE{model_config.cross_entropy_loss_fusion}"
         f"-AIC{average_in_collective}"
@@ -1071,7 +1070,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         constant_steps=args.constant_steps,
     )
     # This is where the no weight decay condition is applied to the optimizer state.
-    opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=model_config.hyena_no_weight_decay_cond_fn)
+    opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=getattr(model_config, 'hyena_no_weight_decay_cond_fn', None))
     opt.connect(model)
     # Start training
     trainer.fit(model, data_module)
