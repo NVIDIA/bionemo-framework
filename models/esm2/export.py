@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 from pathlib import Path
 
 from esm.export import export_hf_checkpoint
@@ -30,10 +31,32 @@ ESM_TAGS = [
 
 def main():
     """Export the ESM2 models from Hugging Face to the Transformer Engine format."""
-    # TODO (peter): maybe add a way to specify the model to export or option to export all models?
-    for tag in ESM_TAGS:
-        print(f"Converting {tag}...")
-        export_hf_checkpoint(tag, Path("./checkpoint_export"))
+    parser = argparse.ArgumentParser(description="Convert ESM2 models from Hugging Face to Transformer Engine format")
+
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=ESM_TAGS,
+        help="Specific model tag to convert. If not provided, all models will be converted.",
+    )
+    parser.add_argument(
+        "--output_path",
+        type=str,
+        default="./checkpoint_export",
+        help="Output directory path for the converted model. Defaults to './checkpoint_export'",
+    )
+
+    args = parser.parse_args()
+
+    if args.model:
+        if args.model not in ESM_TAGS:
+            print(f"Error: '{args.model}' is not a valid model tag.\nAvailable models: {', '.join(ESM_TAGS)}")
+            return
+        export_hf_checkpoint(args.model, Path(args.output_path))
+    else:
+        for tag in ESM_TAGS:
+            print(f"Converting {tag}...")
+            export_hf_checkpoint(tag, Path(args.output_path))
 
 
 if __name__ == "__main__":
