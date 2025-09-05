@@ -38,7 +38,6 @@ from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
 )
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.pytorch import callbacks as nl_callbacks
-from nemo.lightning.pytorch.callbacks import ModelTransform
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
@@ -493,7 +492,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Disable saving the last checkpoint.",
     )
     parser.add_argument("--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False)
-    parser.add_argument("--lora-checkpoint-path", type=Path, default=None, help="LoRA checkpoint path")
+    parser.add_argument("--lora-checkpoint-path", type=str, default=None, help="LoRA checkpoint path")
     parser.add_argument(
         "--no-calculate-per-token-loss",
         action="store_true",
@@ -656,7 +655,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         callbacks.append(GarbageCollectAtInferenceTime())
 
     if args.lora_finetune:
-        callbacks.append(ModelTransform())
+        callbacks.append(lora_transform)
     if args.enable_preemption:
         callbacks.append(nl_callbacks.PreemptionCallback())
     if args.debug_ddp_parity_freq > 0:
