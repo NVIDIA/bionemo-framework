@@ -21,10 +21,11 @@ training:
   wandb_init_args: # These arguments are for managing the weights and biases experiment.
     name: "geneformer-l0-sanity" # this setting defines the name of the experiment
     project: "bionemo-recipes-l0-sanity" # this setting defines the project name
+    mode: "offline"
   checkpoint_dir: "checkpoints/l0-sanity"
   save_every_n_steps: 50
   resume_from_checkpoint: true
 
 # Data configuration
 data:
-  path: "genecorpus_500_samples.parquet"  # A sanity dataset saved to the repo that holds 500 samples.
+  path: "genecorpus_500_samples.parquet" # A sanity dataset saved to the repo that holds 500 samples.

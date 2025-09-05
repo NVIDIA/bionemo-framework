@@ -117,6 +117,7 @@ def main(cfg: DictConfig) -> None:
         wandb.init(
             project=cfg.training.wandb_init_args.project,
             name=cfg.training.wandb_init_args.name,
+            mode=cfg.training.wandb_init_args.mode,
             config={
                 "batch_size": cfg.model.micro_batch_size,
                 "learning_rate": cfg.training.optimizer_kwargs.lr,
