@@ -42,13 +42,14 @@ training:
     fp8_format: "hybrid"
     amax_history_len: 16 # this setting defines the number of steps to store the amax values for the fp8 training. Why was mine so low?
     amax_compute_algo: "max"
-  wandb_init_args: # These arguments are for managing the weights and biases experiment.
-    name: "geneformer-???" # this setting defines the name of the experiment
-    project: "bionemo-recipes-???" # this setting defines the project name
-    mode: "offline"
   checkpoint_dir: ???
   save_every_n_steps: 50
   resume_from_checkpoint: true
+
+wandb_init_args: # These arguments are for managing the weights and biases experiment.
+  name: "geneformer-???" # this setting defines the name of the experiment
+  project: "bionemo-recipes-???" # this setting defines the project name
+  mode: "offline"
 
 # Data configuration
 data:
