@@ -112,12 +112,7 @@ class ShardedEdenDataModule(pl.LightningDataModule):
         self.log_dir = log_dir
 
         if tokenizer is None:
-            self.tokenizer = get_nmt_tokenizer(
-                "megatron",
-                "GPT2BPETokenizer",
-                vocab_file=vocab_file,
-                merges_file=merges_file,
-            )
+            self.tokenizer = get_nmt_tokenizer("byte-level")
         else:
             self.tokenizer = tokenizer
 
