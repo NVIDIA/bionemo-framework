@@ -16,6 +16,7 @@
 import logging
 import os
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 
 import hydra
@@ -86,15 +87,19 @@ def main(args: DictConfig) -> float | None:
         config = AutoConfig.from_pretrained(args.model_name, dtype=torch.bfloat16)
         from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 
-        with torch.device("meta" if args.fully_shard_kwargs.get("init_model_with_meta_device", True) else device):
+        with (
+            torch.device("meta") if args.fully_shard_kwargs.get("init_model_with_meta_device", True) else nullcontext()
+        ):
             model = AutoModelForMaskedLM.from_config(config, attn_implementation="flash_attention_2")
-            del model.esm.contact_head
+        del model.esm.contact_head
 
     else:
         config = AutoConfig.from_pretrained(args.model_name, trust_remote_code=True, dtype=torch.bfloat16)
         config.max_seq_length = args.max_seq_length
         config.micro_batch_size = args.micro_batch_size
-        with torch.device("meta" if args.fully_shard_kwargs.get("init_model_with_meta_device", True) else device):
+        with (
+            torch.device("meta") if args.fully_shard_kwargs.get("init_model_with_meta_device", True) else nullcontext()
+        ):
             model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
     # Log model and number of parameters on main process.
@@ -188,7 +193,7 @@ def main(args: DictConfig) -> float | None:
             )
 
             progress_bar.update(1)
-            progress_bar.set_postfix({"loss": loss.item()})
+            progress_bar.set_postfix({"loss": loss_value})
 
     # Clean up distributed training
     if dist_config.is_main_process():

@@ -35,13 +35,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Get merge-base commit
+        id: merge-base
+        run: |
+          # Get the merge-base between current branch and main
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          echo "merge-base=$MERGE_BASE" >> $GITHUB_OUTPUT
+          echo "Merge-base commit: $MERGE_BASE"
+
       - name: Get changed files
         id: changed-files
         uses: step-security/changed-files@v46
         with:
           json: true
           matrix: true
-          base_sha: main
+          base_sha: ${{ steps.merge-base.outputs.merge-base }}
           dir_names: true
           dir_names_max_depth: 2
           files: |
@@ -81,24 +89,15 @@ jobs:
             fi
           fi
 
-          # Assign Docker images to the selected directories
-          # Currently, AMPLIFY is the only folder that needs a custom base image, since we have to support both TE and
-          # xformers-based models for golden value testing. The rest of the models use the default pytorch image.
-          DIRS_WITH_IMAGES=$(echo "$DIRS" | jq -c '
-            map({
-              dir: .,
-              image: (
-                if . == "models/amplify" then
-                  "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
-                else
-                  "nvcr.io/nvidia/pytorch:25.06-py3"
-                end
-              )
-            })
-          ')
-          echo "dirs=$DIRS_WITH_IMAGES" >> $GITHUB_OUTPUT
+          echo "dirs=$DIRS" >> $GITHUB_OUTPUT
       - name: Show output
         run: |
+          echo "=== Changed Files Analysis ==="
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "Merge-base commit: ${{ steps.merge-base.outputs.merge-base }}"
+          echo "Changed files compared to merge-base:"
+          echo '${{ steps.changed-files.outputs.all_changed_files }}' | jq -r '.[]' | sed 's/^/  - /'
+          echo "Total changed files: $(echo '${{ steps.changed-files.outputs.all_changed_files }}' | jq '. | length')"
           echo '${{ toJSON(steps.changed-files.outputs) }}'
           echo '${{ toJSON(steps.set-dirs.outputs) }}'
         shell: bash
@@ -107,40 +106,31 @@ jobs:
     needs: changed-dirs
     runs-on: linux-amd64-gpu-l4-latest-1
     if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
-    container:
-      image: ${{ matrix.recipe.image }}
-    strategy:
-      matrix:
-        recipe: ${{ fromJson(needs.changed-dirs.outputs.dirs) }}
-      fail-fast: false
 
     steps:
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
+
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          sparse-checkout: "${{ matrix.recipe.dir }}"
-          sparse-checkout-cone-mode: false
 
-      - name: Install dependencies
-        working-directory: ${{ matrix.recipe.dir }}
-        #
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ci script dependencies
         run: |
-          if [ -f pyproject.toml ] || [ -f setup.py ]; then
-            PIP_CONSTRAINT= pip install -e .
-            echo "Installed ${{ matrix.recipe.dir }} as editable package"
-          elif [ -f requirements.txt ]; then
-            PIP_CONSTRAINT= pip install -r requirements.txt
-            echo "Installed ${{ matrix.recipe.dir }} from requirements.txt"
-          else
-            echo "No pyproject.toml, setup.py, or requirements.txt found in ${{ matrix.recipe.dir }}"
-            exit 1
-          fi
+          python -m pip install --upgrade pip
+          pip install platformdirs
 
       - name: Run tests
-        working-directory: ${{ matrix.recipe.dir }}
-        run: pytest -v .
+        env:
+          DIRS_JSON: ${{ needs.changed-dirs.outputs.dirs }}
+        run: |
+          # Convert JSON array to space-separated arguments
+          DIRS_ARGS=$(echo "$DIRS_JSON" | jq -r '.[]' | tr '\n' ' ')
+          ./ci/scripts/recipes_local_test.py $DIRS_ARGS
 
   verify-recipe-tests:
     # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.
