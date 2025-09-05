@@ -38,7 +38,12 @@ def main(args: DictConfig):
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     config.max_seq_length = args.max_seq_length
     config.micro_batch_size = args.trainer.per_device_train_batch_size
-    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True, torch_dtype=torch.bfloat16)
+
+    model = AutoModelForMaskedLM.from_config(
+        config,
+        trust_remote_code=True,
+        torch_dtype=torch.bfloat16,
+    )
 
     train_dataset, eval_dataset, data_collator = create_datasets_and_collator(
         tokenizer_name=args.model_tag,
@@ -57,7 +62,7 @@ def main(args: DictConfig):
         callbacks=[StopAfterNStepsCallback(args.stop_after_n_steps)],
     )
 
-    logger.info("ACCELERATE STATE:\n%s\n", trainer.accelerator.state)
+    train_result, eval_result = None, None
 
     if training_args.do_train:
         Path(training_args.output_dir).mkdir(parents=True, exist_ok=True)
@@ -72,7 +77,11 @@ def main(args: DictConfig):
         trainer.save_model(str(Path(training_args.output_dir) / "checkpoint-last"))
 
     if training_args.do_eval:
-        trainer.evaluate()
+        eval_result = trainer.evaluate()
+        logger.info("Evaluation complete. Metrics: %s", eval_result)
+        trainer.save_metrics("eval", eval_result)
+
+    return train_result, eval_result
 
 
 if __name__ == "__main__":

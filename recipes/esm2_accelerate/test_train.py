@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -40,6 +41,38 @@ requires_multi_gpu = pytest.mark.skipif(
 )
 
 
+def extract_final_train_loss(output_text: str) -> float:
+    """
+    Parse the training output to extract the final train_loss value.
+
+    Args:
+        output_text: Combined stdout and stderr from training process
+
+    Returns:
+        Final train_loss value as float
+
+    Raises:
+        ValueError: If no train_loss found or parsing fails
+    """
+    # Look for dictionary-like patterns containing train_loss
+    # Pattern matches: {'key': value, 'train_loss': value, ...}
+    pattern = r'\{[^{}]*[\'"]train_loss[\'"]:\s*([0-9.]+)[^{}]*\}'
+
+    matches = re.findall(pattern, output_text)
+
+    if not matches:
+        # Fallback: try to find train_loss in any context
+        simple_pattern = r'[\'"]train_loss[\'"]:\s*([0-9.]+)'
+        matches = re.findall(simple_pattern, output_text)
+
+    if not matches:
+        raise ValueError("No train_loss found in training output")
+
+    # Return the last (final) train_loss value found
+    final_train_loss = float(matches[-1])
+    return final_train_loss
+
+
 def test_train_can_resume_from_checkpoint(monkeypatch, tmp_path: Path):
     """Test that train.py runs successfully with sanity config and creates expected outputs."""
 
@@ -51,11 +84,19 @@ def test_train_can_resume_from_checkpoint(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("RANK", "0")
     monkeypatch.setenv("WORLD_SIZE", "1")
     monkeypatch.setenv("MASTER_ADDR", "localhost")
-    monkeypatch.setenv("MASTER_PORT", "29500")
+    monkeypatch.setenv("MASTER_PORT", f"{random.randint(20000, 40000)}")
     monkeypatch.setenv("WANDB_MODE", "disabled")
 
     with initialize_config_dir(config_dir=str(recipe_dir / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(config_name="L0_sanity", overrides=[f"trainer.output_dir={tmp_path}"])
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"trainer.output_dir={tmp_path}",
+                "stop_after_n_steps=4",
+                "trainer.do_eval=False",
+                "trainer.save_steps=2",
+            ],
+        )
 
     main(sanity_config)
 
@@ -155,11 +196,14 @@ def test_accelerate_launch(accelerate_config, model_tag, tmp_path):
         str(accelerate_config_path),
         "--num_processes",
         "1",
+        "--main_process_port",
+        f"{random.randint(20000, 40000)}",
         str(train_py),
         "--config-name",
         "L0_sanity.yaml",
         f"model_tag={model_tag}",
         f"trainer.output_dir={tmp_path}",
+        "trainer.do_eval=False",
     ]
 
     result = subprocess.run(
@@ -175,6 +219,17 @@ def test_accelerate_launch(accelerate_config, model_tag, tmp_path):
         print(f"STDOUT:\n{result.stdout}")
         print(f"STDERR:\n{result.stderr}")
         pytest.fail(f"Command:\n{' '.join(cmd)}\nfailed with exit code {result.returncode}")
+
+    # Parse the training output to check final train_loss
+    combined_output = result.stdout + result.stderr
+    try:
+        final_train_loss = extract_final_train_loss(combined_output)
+        print(f"Final train_loss: {final_train_loss}")
+        assert final_train_loss < 3.0, f"Final train_loss {final_train_loss} should be less than 3.0"
+    except ValueError as e:
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+        pytest.fail(f"Failed to extract train_loss from output: {e}")
 
 
 @requires_multi_gpu
@@ -211,11 +266,14 @@ def test_accelerate_launch_multi_gpu(accelerate_config, model_tag, tmp_path):
         str(accelerate_config_path),
         "--num_processes",
         "2",
+        "--main_process_port",
+        f"{random.randint(20000, 40000)}",
         str(train_py),
         "--config-name",
         "L0_sanity.yaml",
         f"model_tag={model_tag}",
         f"trainer.output_dir={tmp_path}",
+        "trainer.do_eval=False",
     ]
 
     result = subprocess.run(
@@ -231,3 +289,15 @@ def test_accelerate_launch_multi_gpu(accelerate_config, model_tag, tmp_path):
         print(f"STDOUT:\n{result.stdout}")
         print(f"STDERR:\n{result.stderr}")
         pytest.fail(f"Command:\n{' '.join(cmd)}\nfailed with exit code {result.returncode}")
+
+    # Parse the training output to check final train_loss
+    combined_output = result.stdout + result.stderr
+    try:
+        final_train_loss = extract_final_train_loss(combined_output)
+        breakpoint()
+        print(f"Final train_loss: {final_train_loss}")
+        assert final_train_loss < 3.0, f"Final train_loss {final_train_loss} should be less than 3.0"
+    except ValueError as e:
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+        pytest.fail(f"Failed to extract train_loss from output: {e}")
