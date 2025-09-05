@@ -106,6 +106,11 @@ def parse_args():
         help="Output dir that will contain the generated text produced by the Evo2 model. If not provided, the output will be logged.",
     )
     ap.add_argument(
+        "--files-per-subdir",
+        type=int,
+        help="Number of files to write to each subdirectory. If provided, subdirectories with N files each will be created. Ignored unless --write-interval is 'batch'.",
+    )
+    ap.add_argument(
         "--full-fp8",
         action="store_true",
         help="Use full FP8 precision (faster but less accurate) rather than vortex style which "
@@ -374,6 +379,7 @@ def predict(
     hybrid_override_pattern: str | None = None,
     num_layers: int | None = None,
     seq_len_interpolation_factor: int | None = None,
+    files_per_subdir: int | None = None,
 ):
     """Inference workflow for Evo2.
 
@@ -422,6 +428,8 @@ def predict(
                 write_interval=write_interval,
                 batch_dim_key_defaults={"token_logits": 0},
                 seq_dim_key_defaults={"token_logits": 1},
+                files_per_subdir=files_per_subdir,
+                save_all_model_parallel_ranks=False,  # only write one copy of predictions.
             )
         ],
         plugins=nl.MegatronMixedPrecision(
@@ -536,6 +544,8 @@ def main():
         hybrid_override_pattern=args.hybrid_override_pattern,
         seq_len_interpolation_factor=args.seq_len_interpolation_factor,
         num_layers=args.num_layers,
+        files_per_subdir=args.files_per_subdir,
+        write_interval=args.write_interval,
     )
 
 

@@ -16,7 +16,7 @@
 
 import logging
 import os
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Sequence, override
 
 import lightning.pytorch as pl
 import torch
@@ -45,23 +45,33 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
         batch_dim_key_defaults: dict[str, int] | None = None,
         seq_dim_key_defaults: dict[str, int] | None = None,
         save_all_model_parallel_ranks: bool = False,
+        files_per_subdir: int | None = None,
     ):
         """Initializes the callback.
 
         Args:
             output_dir: The directory where predictions will be written.
-            write_interval: The interval at which predictions will be written (batch, epoch). Epoch may not be used with multi-device trainers.
+            write_interval: The interval at which predictions will be written (batch, epoch). Epoch may not be used with
+                multi-device trainers.
             batch_dim_key_defaults: The default batch dimension for each key, if different from the standard 0.
             seq_dim_key_defaults: The default sequence dimension for each key, if different from the standard 1.
             save_all_model_parallel_ranks: Whether to save predictions for all model parallel ranks. Generally these
                 will be redundant.
+            files_per_subdir: Number of files to write to each subdirectory. If provided, subdirectories with N files
+                each will be created. Ignored unless write_interval is 'batch'.
         """
         super().__init__(write_interval)
         self.write_interval = write_interval
         self.output_dir = str(output_dir)
+        self.base_dir = self.output_dir  # start out like this, but output_dir will be updated if files_per_subdir>0
         self.batch_dim_key_defaults = batch_dim_key_defaults
         self.seq_dim_key_defaults = seq_dim_key_defaults
         self.save_all_model_parallel_ranks = save_all_model_parallel_ranks
+        self.files_per_subdir = files_per_subdir
+        # Initialize to infinity if files_per_subdir is provided so that we create a new subdirectory before writing
+        #   any files.
+        self.num_files_written = float("inf") if files_per_subdir else 0
+        self.num_subdirs_written = 0
 
     def setup(self, trainer: pl.Trainer, pl_module: pl.LightningModule, *args, **kwargs) -> None:  # noqa: D417
         """Invoked with Trainer.fit, validate, test, and predict are called. Will immediately fail when 'write_interval' is 'epoch' and 'trainer.num_devices' > 1.
@@ -77,9 +87,9 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
             )
 
     @property
-    def model_parallel_rank(self) -> int:
-        """Returns the model parallel rank."""
-        return torch.distributed.get_rank(parallel_state.get_model_parallel_group())
+    def data_parallel_world_size(self) -> int:
+        """Returns the data parallel world size."""
+        return torch.distributed.get_world_size(parallel_state.get_data_parallel_group(with_context_parallel=False))
 
     @property
     def data_parallel_rank(self) -> int:
@@ -96,12 +106,13 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
             and parallel_state.get_context_parallel_rank() == 0
         )
 
+    @override
     def write_on_batch_end(
         self,
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
         prediction: Any,
-        batch_indices: Sequence[int],
+        batch_indices: Sequence[int] | None,
         batch: Any,
         batch_idx: int,
         dataloader_idx: int,
@@ -123,6 +134,14 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
         # this will create N (num processes) files in `output_dir` each containing
         # the predictions of it's respective rank
         if self.should_write_predictions:
+            if (
+                self.files_per_subdir is not None
+                and (self.num_files_written * self.data_parallel_world_size) >= self.files_per_subdir
+            ):
+                self.num_subdirs_written += 1
+                self.output_dir = os.path.join(self.base_dir, f"subdir_{self.num_subdirs_written}")
+                os.makedirs(self.output_dir, exist_ok=True)
+                self.num_files_written = 0
             result_path = os.path.join(
                 self.output_dir,
                 f"predictions__rank_{trainer.global_rank}__dp_rank_{self.data_parallel_rank}__batch_{batch_idx}.pt",
@@ -137,7 +156,9 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
 
             torch.save(prediction, result_path)
             logging.info(f"Inference predictions are stored in {result_path}\n{prediction.keys()}")
+            self.num_files_written += 1
 
+    @override
     def write_on_epoch_end(
         self,
         trainer: pl.Trainer,
