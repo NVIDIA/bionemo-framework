@@ -1,0 +1,45 @@
+# @package _global_
+defaults:
+  - /base
+  - _self_
+
+job_name: geneformer-recipes
+resource_shape: gpu.2xh200
+
+dashboard_info:
+  model: geneformer
+  variant: recipes
+  repo: recipes
+
+# Base configuration
+recipe_subdir: geneformer_native_te_nvfsdp_fp8
+branch: main
+train_cmnd: train
+
+training:
+  num_train_steps: 100
+  wandb_init_args:
+    mode: "online" # need online to collect logs; if offline, must manually sync after run
+
+# Run one for each config
+products:
+  - model_name: geneformer-l0-106m
+    config: 106m
+  - model_name: geneformer-10m
+    config: 10m
+  - model_name: geneformer-l0-4b
+    config: 4b
+
+script: |
+  git clone https://github.com/NVIDIA/bionemo-framework.git
+  if [ "${branch}" != "main" ]; then
+    cd bionemo-framework
+    git checkout "${branch}"
+    cd ..
+  fi
+  cd bionemo-framework/recipes/${recipe_subdir}
+  pip install -r requirements.txt
+  torchrun ${train_cmnd}.py \
+    --config-name ${config}.yaml \
+    training.num_train_steps=${training.num_train_steps} \
+    wandb_init_args.mode=${wandb_init_args.mode}

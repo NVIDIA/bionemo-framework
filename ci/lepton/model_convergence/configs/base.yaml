@@ -1,0 +1,23 @@
+node_group_name: nv-int-multiteam-nebius-h200-01
+
+container:
+  image: nvcr.io/nvidia/pytorch:25.06-py3
+  registry_auth: lepton-nvidia
+
+environment_variables:
+  - name: WANDB_API_KEY
+    value_from: JWILBER_WANDB_API_KEY
+  - name: PYTHONPATH
+    value: /workspace/bionemo2/sub-packages/bionemo-evo2/src
+  - name: KRATOS_SSA_URL
+    value_from: KRATOS_SSA_URL
+  - name: KRATOS_SSA_CLIENT_ID
+    value_from: KRATOS_SSA_CLIENT_ID
+  - name: KRATOS_SSA_SECRET
+    value_from: KRATOS_SSA_SECRET
+  - name: LEP_LOGIN_CREDENTIALS
+    value_from: LEP_LOGIN_CREDENTIALS
+#   mounts:
+#     - path: /BioNeMo
+#       mount_path: /BioNeMo
+#       from_: node-nfs:lepton-shared-fs

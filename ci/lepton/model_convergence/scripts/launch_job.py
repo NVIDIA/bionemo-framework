@@ -6,52 +6,23 @@ Demo: python launch_job.py --config-name "evo2_finetune_lora" job_name="evo2-fin
 """
 
 import hydra
-from omegaconf import DictConfig
+import json
+from omegaconf import DictConfig, OmegaConf
 from typing import Dict
 from leptonai.api.v2.client import APIClient
 from leptonai.api.v1.types.affinity import LeptonResourceAffinity
 from leptonai.api.v1.types.common import Metadata
-from leptonai.api.v1.types.deployment import EnvVar, EnvValue, LeptonContainer, Mount, MountOptions
+from leptonai.api.v1.types.deployment import EnvVar, EnvValue, LeptonContainer, MountOptions
 from leptonai.api.v1.types.job import LeptonJob, LeptonJobUserSpec
-from omegaconf import OmegaConf
 from omegaconf import DictConfig as HydraDictConfig, ListConfig
 
-
-# todo: make utils file? also, add cfg checks to make sure these are used in the config before calling
-def construct_mount(path: str, mount_path: str, from_: str = "node-nfs:lepton-shared-fs") -> Mount:
-    """Construct a Mount object for a given path, mount_path, and source."""
-    # note, the from_="node-nfs:lepton-shared-fs" is not yet documented in the API docs
-    mount = {
-        "path": path,
-        "mount_path": mount_path,
-        "from": from_,
-    }
-    return Mount(**mount)
+from utils import construct_mount, construct_env_var
 
 
-def construct_env_var(env_var) -> EnvVar:
-    """Construct an EnvVar object from a config entry, supporting both secrets and literals."""
-    if 'value_from' in env_var:
-        return EnvVar(
-            name=env_var.name,
-            value_from=EnvValue(secret_name_ref=env_var.value_from),
-        )
-    else:
-        return EnvVar(
-            name=env_var.name,
-            value=env_var.value,
-        )
-
-
-import json
-from typing import Dict
-
-
-def wrap_with_wandb_copy(
+def wrap_script_with_logging(
     script: str,
-    result_dir: str = "pretraining_demo",
-    experiment_name: str = "evo2",
     dashboard_info: Dict[str, str] = None,
+    recipe_subdir: str = "esm2_native_te_mfsdp",
 ) -> str:
     if isinstance(dashboard_info, (HydraDictConfig, ListConfig)):
         dashboard_info = OmegaConf.to_container(dashboard_info, resolve=True)
@@ -66,9 +37,6 @@ def wrap_with_wandb_copy(
 # Get job name
 JOB_NAME="${{LEPTON_JOB_NAME:-unknown-job}}"
 
-ls
-
-
 # Run the training script
 set +e
 (
@@ -77,17 +45,11 @@ set +e
 RC=$?
 set -e
 
-echo "pwd"
-pwd
-
 # Authenticate to Lepton
-echo "Authenticating to Lepton..."
 pip install -q leptonai >/dev/null 2>&1 || pip install leptonai
 lep login -c "$LEP_LOGIN_CREDENTIALS" || true
 
-echo "Job name: $JOB_NAME"
-
-echo "Getting lepton job details (JSON)"
+# Get lepton job details
 JOB_INFO="$(
   lep job get --id "$JOB_NAME" 2>/dev/null \
   | awk '
@@ -142,85 +104,35 @@ JOB_INFO="$(
   ' 2>/dev/null
 )"
 
-# Normalize to valid JSON or default to {{}}
 JOB_INFO_JSON="$(printf '%s' "$JOB_INFO" | jq -c . 2>/dev/null || echo '{{}}')"
-
-# Stash dashboard info JSON (provided from Python)
 DASHBOARD_INFO_JSON='{dashboard_json}'
-echo "pwd"
-pwd
 
-echo "running ls -a bionemo-framework/recipes/esm2_native_te_mfsdp"
-ls -a bionemo-framework/recipes/esm2_native_te_mfsdp
-
-echo "Current working directory: $(pwd)"
-echo "Looking for W&B files..."
+# Look for W&B files
+WANDB_DIR="/workspace/bionemo-framework/recipes/{recipe_subdir}/wandb"
 WANDB_FOUND=0
 WANDB_SUMMARY=""
 WANDB_METADATA=""
 
-# Look for wandb in the known location - try both absolute and relative paths
-if [ -d "/workspace/bionemo-framework/recipes/esm2_native_te_mfsdp/wandb" ]; then
-    WANDB_DIR="/workspace/bionemo-framework/recipes/esm2_native_te_mfsdp/wandb"
-elif [ -d "bionemo-framework/recipes/esm2_native_te_mfsdp/wandb" ]; then
-    WANDB_DIR="bionemo-framework/recipes/esm2_native_te_mfsdp/wandb"
-else
-    WANDB_DIR=""
-fi
-
-if [ -n "$WANDB_DIR" ] && [ -d "$WANDB_DIR" ]; then
-    echo "Found wandb directory at: $WANDB_DIR"
-    echo "Contents of $WANDB_DIR:"
-    ls -la "$WANDB_DIR"
-    
-    # Look for both offline-run-* and run-* patterns
-    LATEST_RUN=$(ls -td "$WANDB_DIR"/offline-run-* "$WANDB_DIR"/run-* 2>/dev/null | head -n1)
-    
-    if [ -n "$LATEST_RUN" ]; then
-        echo "Found latest run: $LATEST_RUN"
-        echo "Contents of $LATEST_RUN:"
-        ls -la "$LATEST_RUN"
-        
-        # Check for files in the main run directory first
-        if [ -f "$LATEST_RUN/wandb-summary.json" ]; then
-            WANDB_SUMMARY="$LATEST_RUN/wandb-summary.json"
-            WANDB_FOUND=1
-            echo "✓ Found wandb-summary.json at: $WANDB_SUMMARY"
-        fi
-        
-        if [ -f "$LATEST_RUN/wandb-metadata.json" ]; then
-            WANDB_METADATA="$LATEST_RUN/wandb-metadata.json"
-            echo "✓ Found wandb-metadata.json at: $WANDB_METADATA"
-        fi
-        
-        # If not found in main directory, check the files subdirectory
-        if [ "$WANDB_FOUND" -eq 0 ] && [ -d "$LATEST_RUN/files" ]; then
-            echo "Checking $LATEST_RUN/files:"
-            ls -la "$LATEST_RUN/files"
-            
-            if [ -f "$LATEST_RUN/files/wandb-summary.json" ]; then
-                WANDB_SUMMARY="$LATEST_RUN/files/wandb-summary.json"
-                WANDB_FOUND=1
-                echo "✓ Found wandb-summary.json at: $WANDB_SUMMARY"
-            fi
-            
-            if [ -f "$LATEST_RUN/files/wandb-metadata.json" ]; then
-                WANDB_METADATA="$LATEST_RUN/files/wandb-metadata.json"
-                echo "✓ Found wandb-metadata.json at: $WANDB_METADATA"
-            fi
-        fi
+if [ -d "$WANDB_DIR" ]; then
+    # Use latest-run symlink or find most recent run
+    if [ -L "$WANDB_DIR/latest-run" ]; then
+        LATEST_RUN="$WANDB_DIR/latest-run"
     else
-        echo "No W&B runs found"
+        LATEST_RUN=$(ls -td "$WANDB_DIR"/run-* "$WANDB_DIR"/offline-run-* 2>/dev/null | head -n1)
     fi
-else
-    echo "W&B directory does not exist at expected locations"
-    echo "Checked: /workspace/bionemo-framework/recipes/esm2_native_te_mfsdp/wandb"
-    echo "Checked: bionemo-framework/recipes/esm2_native_te_mfsdp/wandb"
+    
+    if [ -n "$LATEST_RUN" ] && [ -d "$LATEST_RUN/files" ]; then
+        if [ -f "$LATEST_RUN/files/wandb-summary.json" ]; then
+            WANDB_SUMMARY="$LATEST_RUN/files/wandb-summary.json"
+            WANDB_METADATA="$LATEST_RUN/files/wandb-metadata.json"
+            WANDB_FOUND=1
+        fi
+    fi
 fi
-echo "Now what?"
-if [ $WANDB_FOUND -eq 1 ] && [ -n "$WANDB_SUMMARY" ]; then
-    echo "Combining W&B JSON files and uploading to Kratos..."
 
+if [ "$WANDB_FOUND" = "1" ] && [ -n "$WANDB_SUMMARY" ]; then
+    echo "Uploading W&B metrics to Kratos..."
+    
     METADATA_JSON=$(cat "$WANDB_METADATA" 2>/dev/null || echo '{{}}')
     SUMMARY_JSON=$(cat "$WANDB_SUMMARY" 2>/dev/null || echo '{{}}')
 
@@ -240,12 +152,9 @@ if [ $WANDB_FOUND -eq 1 ] && [ -n "$WANDB_SUMMARY" ]; then
         ')
 
     echo "$COMBINED_JSON" > wandb-combined.json
-    echo "Combined W&B JSON saved to: wandb-combined.json"
 
     UUID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "$(date +%s)-$-$RANDOM")
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
-
-    echo "Sending telemetry event to Kratos..."
 
     if [ -z "${{KRATOS_SSA_CLIENT_ID:-}}" ] || [ -z "${{KRATOS_SSA_SECRET:-}}" ] || [ -z "${{KRATOS_SSA_URL:-}}" ]; then
         echo "Warning: Kratos credentials not found. Skipping telemetry upload."
@@ -283,29 +192,23 @@ if [ $WANDB_FOUND -eq 1 ] && [ -n "$WANDB_SUMMARY" ]; then
 
             if [ $? -eq 0 ]; then
                 echo "✓ Event sent successfully to Kratos (ID: $UUID)"
-                [ -n "$RESPONSE" ] && echo "Response: $RESPONSE"
             else
-                echo "Failed to send event to Kratos"
-                echo "Response: $RESPONSE"
+                echo "Failed to send event to Kratos: $RESPONSE"
             fi
         else
             echo "Error: Failed to get Kratos access token"
-            echo "Token response: $TOKEN_RESPONSE"
         fi
     fi
 else
-    echo "Skipping Kratos upload - W&B files not found"
+    echo "W&B metrics not found - skipping Kratos upload"
 fi
 
 exit "$RC"
 """
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="")
-def main(cfg: DictConfig):
-
-    # Initialize client
-    client = APIClient()
+def launch_single_job(client, cfg: DictConfig):
+    """Launch a single job with the given configuration."""
 
     # Get node group
     node_groups = client.nodegroup.list_all()
@@ -313,11 +216,10 @@ def main(cfg: DictConfig):
 
     if cfg.node_group_name not in node_group_map:
         print(f"ERROR: Node group '{cfg.node_group_name}' not found!")
-        print(f"Available node groups: {list(node_group_map.keys())}")
-        return
+        print(f"  Job: {cfg.job_name}")
+        return False
 
     node_group = node_group_map[cfg.node_group_name]
-    print(f"Found node group with ID: {node_group.metadata.id_}")
 
     # Get valid node IDs
     valid_node_ids = set()
@@ -325,29 +227,21 @@ def main(cfg: DictConfig):
     for node in node_ids:
         valid_node_ids.add(node.metadata.id_)
 
-    # Extract result_dir and experiment_name from config
-    # Use the same defaults as in the training script
-    result_dir = cfg.get('result_dir', 'pretraining_demo')
-    experiment_name = cfg.get('experiment_name', 'evo2')
-
-    print(f"Using result_dir: {result_dir}")
-    print(f"Using experiment_name: {experiment_name}")
-    print(f"W&B files will be searched in: {result_dir}/{experiment_name}/wandb/")
-
     # Create command with the extracted parameters
     command = [
         "bash",
         "-c",
-        wrap_with_wandb_copy(
+        wrap_script_with_logging(
             cfg.script,
-            result_dir=result_dir,
-            experiment_name=experiment_name,
-            dashboard_info=cfg.dashboard_info,
+            dashboard_info=cfg.dashboard_info if hasattr(cfg, 'dashboard_info') else None,
+            recipe_subdir=cfg.recipe_subdir if hasattr(cfg, 'recipe_subdir') else "esm2_native_te_mfsdp",
         ),
     ]
 
-    # Build environment variables, if in config
+    # Build environment variables
     env_vars = []
+
+    # Add any additional environment variables from config
     if hasattr(cfg, "environment_variables") and cfg.environment_variables:
         for env_var in cfg.environment_variables:
             env_vars.append(construct_env_var(env_var))
@@ -381,13 +275,77 @@ def main(cfg: DictConfig):
     try:
         launched_job = client.job.create(job)
         if launched_job.status:
-            print("Batch Job Launched\n")
+            print(f"  ✓ Job launched: {cfg.job_name}")
             print(
-                f"View at https://dashboard.dgxc-lepton.nvidia.com/workspace/vfco61g2/compute/jobs/detail/{launched_job.metadata.id_}/replicas/list"
+                f"    View at: https://dashboard.dgxc-lepton.nvidia.com/workspace/vfco61g2/compute/jobs/detail/{launched_job.metadata.id_}/replicas/list"
             )
+            return True
     except Exception as e:
-        print(f"ERROR submitting job: {e}")
-        return
+        print(f"  ERROR submitting job {cfg.job_name}: {e}")
+        return False
+
+
+@hydra.main(version_base=None, config_path="../configs", config_name="")
+def main(cfg: DictConfig):
+    """Main function that handles both single and multi-product launches."""
+
+    # Initialize client
+    client = APIClient()
+
+    # Disable struct mode at the beginning to allow flexible merging
+    OmegaConf.set_struct(cfg, False)
+
+    # Check if products key exists for multi-job launch
+    if hasattr(cfg, 'products') and cfg.products:
+        print(f"Launching {len(cfg.products)} jobs from products configuration...")
+        successful_jobs = 0
+        failed_jobs = 0
+
+        for i, product in enumerate(cfg.products, 1):
+            # Create a copy of the base config without resolving interpolations
+            base_cfg_dict = OmegaConf.to_container(cfg, resolve=False)
+
+            # Remove products from the base config to avoid recursion
+            if 'products' in base_cfg_dict:
+                del base_cfg_dict['products']
+
+            # Convert product to dict
+            product_dict = OmegaConf.to_container(product, resolve=False)
+
+            # Merge the dictionaries
+            merged_dict = {**base_cfg_dict, **product_dict}
+
+            # Create new OmegaConf object from merged dict
+            product_cfg = OmegaConf.create(merged_dict)
+
+            # Generate job name as recipe_subdir-model_name, replacing underscores and slashes with hyphens
+            recipe_subdir = product_cfg.recipe_subdir.replace('_', '-').replace('/', '-')
+            model_name = product_dict['model_name'].replace('_', '-').replace('/', '-')
+            product_cfg.job_name = f"{model_name}-recipe"
+
+            print(f"\n[{i}/{len(cfg.products)}] Launching: {product_cfg.job_name}")
+
+            # Now resolve all interpolations after everything is merged
+            resolved_cfg = OmegaConf.to_container(product_cfg, resolve=True)
+            product_cfg = OmegaConf.create(resolved_cfg)
+
+            # Launch the job
+            if launch_single_job(client, product_cfg):
+                successful_jobs += 1
+            else:
+                failed_jobs += 1
+
+        # Summary
+        print(f"\n{'='*50}")
+        print(f"Job Launch Summary:")
+        print(f"  Successful: {successful_jobs}")
+        print(f"  Failed: {failed_jobs}")
+        print(f"  Total: {len(cfg.products)}")
+
+    else:
+        # Single job launch (original behavior)
+        print(f"Launching single job: {cfg.job_name}")
+        launch_single_job(client, cfg)
 
 
 if __name__ == "__main__":
