@@ -89,7 +89,6 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
     @property
     def should_write_predictions(self) -> bool:
         """Returns the context parallel rank."""
-
         # TODO: handle expert parallelism and other kinds of parallelism
         return self.save_all_model_parallel_ranks or (
             parallel_state.is_pipeline_last_stage()
