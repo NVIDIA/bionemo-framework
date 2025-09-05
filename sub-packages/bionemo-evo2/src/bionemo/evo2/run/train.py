@@ -1070,7 +1070,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         constant_steps=args.constant_steps,
     )
     # This is where the no weight decay condition is applied to the optimizer state.
-    opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=getattr(model_config, 'hyena_no_weight_decay_cond_fn', None))
+    opt = MegatronOptimizerModule(
+        opt_config, sched, no_weight_decay_cond=getattr(model_config, "hyena_no_weight_decay_cond_fn", None)
+    )
     opt.connect(model)
     # Start training
     trainer.fit(model, data_module)

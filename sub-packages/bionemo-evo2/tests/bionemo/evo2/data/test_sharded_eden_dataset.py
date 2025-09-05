@@ -480,8 +480,6 @@ def test_dataset_collate_fn(sequence_db_dir, window_dbs):
     dataset.__del__()
 
 
-
-
 def test_window_min_length_threshold(temp_dir, train_parquet):
     """Test window database creation with length threshold."""
     output_db = Path(temp_dir) / "threshold_windows.db"
@@ -545,4 +543,3 @@ def test_dataset_length_and_iteration(sequence_db_dir, window_dbs):
 
     # Clean up
     dataset.__del__()
-

@@ -100,7 +100,7 @@ class ShardedEdenDataModule(pl.LightningDataModule):
         log_dir: Optional[str] = None,
         **kwargs,
     ):
-        """Initialize the ShardedEdenDataModule. See sub-packages/bionemo-evo2/src/bionemo/evo2/data/sharded_eden_dataloader.md for how to prepare the input data. """
+        """Initialize the ShardedEdenDataModule. See sub-packages/bionemo-evo2/src/bionemo/evo2/data/sharded_eden_dataloader.md for how to prepare the input data."""
         super().__init__()
         self.sequence_db_dir = sequence_db_dir
         self.train_window_db_path = train_window_db_path

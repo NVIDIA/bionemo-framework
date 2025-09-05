@@ -119,6 +119,7 @@ def small_training_llama_finetune_cmd(
     )
     return cmd
 
+
 @pytest.mark.timeout(512)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
 def test_train_evo2_finetune_runs(tmp_path):
@@ -264,7 +265,6 @@ def test_train_evo2_mamba_finetune_runs(tmp_path):
     assert event_files, f"No TensorBoard event files found under {tensorboard_dir_ft}"
 
     assert len(matching_subfolders_ft) == 1, "Only one checkpoint subfolder should be found."
-
 
 
 @pytest.mark.timeout(512)  # Optional: fail if the test takes too long.
