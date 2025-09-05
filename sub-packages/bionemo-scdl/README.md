@@ -167,11 +167,13 @@ The runtime is examined on the Tahoe 100M dataset, which containes over 100 mill
 
 ![Throughput](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/pbinder/scdl_add_to_edawson/sub-packages/bionemo-scdl/assets/tahoe_throughput.png)
 
-### Using Neighbor Information in Single Cell Datasets
+To replicate this on your machine, see: [Tahoe 100M Profiling](https://github.com/NVIDIA/bionemo-framework/blob/main/sub-packages/bionemo-scdl/simple-benchmark/README.md#tahoe-100m) section.
+
+## Using Neighbor Information in Single Cell Datasets
 
 SCDL now supports loading and utilizing neighbor information from AnnData objects. This is particularly useful for tasks that require knowledge of cell neighborhoods, trajectory analysis, or spatial relationships.
 
-#### Neighbor Data Structure in AnnData
+### Neighbor Data Structure in AnnData
 
 The neighbor functionality reads neighbor information from the **`.obsp` (observations pairwise) attribute** of the AnnData object and **converts it from sparse matrix format into SCDL's memory-mapped format** for efficient access:
 

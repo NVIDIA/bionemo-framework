@@ -45,8 +45,11 @@ python scdl_speedtest.py
 # Benchmark your own AnnData dataset
 python scdl_speedtest.py -i your_dataset.h5ad
 
-# Export a detailed CSV file
+# Export detailed CSV files
 python scdl_speedtest.py --csv
+
+# Export detailed JSON file
+python scdl_speedtest.py --json results.json
 ```
 
 3. Deactivate your virtual environment to return to your original shell state
@@ -67,11 +70,17 @@ python scdl_speedtest.py -i my_data.h5ad -s sequential
 # Generate CSV files for analysis
 python scdl_speedtest.py --csv -o report.txt
 
+# Export results to a JSON file
+python scdl_speedtest.py --json my_benchmark_results.json
+
 # Run the speedtest with a custom batch size and runtime limit
 python scdl_speedtest.py --batch-size 64 --max-time 60
 
 # Baseline comparison (SCDL vs AnnData in backed mode with lazy loading)
 python scdl_speedtest.py --generate-baseline
+
+# Baseline comparison using a specific SCDL dataset path
+python scdl_speedtest.py --generate-baseline -i my_data.h5ad --scdl-path /path/to/converted_scdl_data
 ```
 
 ## Command Line Options
@@ -85,7 +94,9 @@ python scdl_speedtest.py --generate-baseline
 | `--max-time`            | Max benchmark runtime (seconds). If the dataset is smaller                                                           | 30                       |
 | `--warmup-time`         | Warmup period (seconds). This runs the dataloader before measurement to better reflect average expected performance. | 2                        |
 | `--csv`                 | Export detailed CSV files                                                                                            | False                    |
+| `--json`                | Export detailed JSON file to specified filename                                                                      | None                     |
 | `--generate-baseline`   | Compare SCDL vs AnnData performance                                                                                  | False                    |
+| `--scdl-path`           | Path to SCDL dataset (optional, only used with --generate-baseline)                                                  | None                     |
 | `--num-epochs`          | The number of epochs (passes through the training dataset).                                                          | 1                        |
 
 ## Sample Output
@@ -120,7 +131,9 @@ Anndata version: 0.11.4
 
 ## Baseline Comparison Output
 
-When using `--generate-baseline`, you get a comprehensive comparison:
+When using `--generate-baseline`, you get a comprehensive comparison between SCDL and AnnData performance.
+
+**Note:** The `--scdl-path` parameter is optional and can be used with `--generate-baseline` to specify an existing SCDL dataset path instead of converting from the input H5AD file. If not provided, the input H5AD file will be automatically converted to SCDL format for the comparison. This parameter is useful when you have already converted your data to SCDL format and want to benchmark against the same dataset without reconversion.
 
 ````
 ================================================================================
@@ -166,6 +179,15 @@ When using `--csv`, the script generates:
 - **`detailed_breakdown.csv`**: Per-epoch performance breakdown
 
 Perfect for analysis in Excel, Python, R, or other data tools.
+
+## JSON Export
+
+When using `--json filename.json`, the script generates a comprehensive JSON file containing:
+
+- **Metadata**: Export timestamp, number of results, and export version
+- **Complete benchmark results**: All metrics from the `BenchmarkResult` dataclass
+- **Derived metrics**: Calculated performance metrics (samples/sec, memory efficiency, etc.)
+- **Per-epoch breakdowns**: Detailed performance data for each epoch (when available)
 
 ## Troubleshooting
 
@@ -222,6 +244,12 @@ on your system. The following command will run the speedtest on the first plate,
 
 ```bash
 python scdl_speedtest.py --generate-baseline -i tahoe-100m/h5ad/plate1_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad
+```
+
+Alternatively, on the fully converted data:
+
+```bash
+python -m bionemo.scdl.simple_benchmark.scdl_speedtest.py --generate-baseline -i <path to Tahoe 100M in h5ad format> --scdl-path <path to Tahoe 100M in SCDL format> --warmup-time 30 --max-time 120
 ```
 
 ## Support
