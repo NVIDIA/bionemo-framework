@@ -246,6 +246,12 @@ on your system. The following command will run the speedtest on the first plate,
 python scdl_speedtest.py --generate-baseline -i tahoe-100m/h5ad/plate1_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad
 ```
 
+Alternatively, on the fully converted data:
+
+```bash
+python -m bionemo.scdl.simple_benchmark.scdl_speedtest.py --generate-baseline -i <path to Tahoe 100M in h5ad format> --scdl-path <path to Tahoe 100M in SCDL format> --warmup-time 30 --max-time 120
+```
+
 ## Support
 
 For support, please [file an issue in the BioNeMo Framework GitHub repository](https://github.com/NVIDIA/bionemo-framework/issues).
