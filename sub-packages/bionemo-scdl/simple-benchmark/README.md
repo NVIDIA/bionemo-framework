@@ -78,6 +78,9 @@ python scdl_speedtest.py --batch-size 64 --max-time 60
 
 # Baseline comparison (SCDL vs AnnData in backed mode with lazy loading)
 python scdl_speedtest.py --generate-baseline
+
+# Baseline comparison using a specific SCDL dataset path
+python scdl_speedtest.py --generate-baseline -i my_data.h5ad --scdl-path /path/to/converted_scdl_data
 ```
 
 ## Command Line Options
@@ -93,6 +96,7 @@ python scdl_speedtest.py --generate-baseline
 | `--csv`                 | Export detailed CSV files                                                                                            | False                    |
 | `--json`                | Export detailed JSON file to specified filename                                                                      | None                     |
 | `--generate-baseline`   | Compare SCDL vs AnnData performance                                                                                  | False                    |
+| `--scdl-path`           | Path to SCDL dataset (optional, only used with --generate-baseline)                                                  | None                     |
 | `--num-epochs`          | The number of epochs (passes through the training dataset).                                                          | 1                        |
 
 ## Sample Output
@@ -127,7 +131,9 @@ Anndata version: 0.11.4
 
 ## Baseline Comparison Output
 
-When using `--generate-baseline`, you get a comprehensive comparison:
+When using `--generate-baseline`, you get a comprehensive comparison between SCDL and AnnData performance.
+
+**Note:** The `--scdl-path` parameter is optional and can be used with `--generate-baseline` to specify an existing SCDL dataset path instead of converting from the input H5AD file. If not provided, the input H5AD file will be automatically converted to SCDL format for the comparison. This parameter is useful when you have already converted your data to SCDL format and want to benchmark against the same dataset without reconversion.
 
 ````
 ================================================================================

@@ -1202,6 +1202,8 @@ Examples:
     parser.add_argument(
         "--generate-baseline", action="store_true", help="Generate AnnData baseline comparison (requires .h5ad input)"
     )
+    parser.add_argument("--scdl-path", type=str, help="Path to SCDL dataset (default: None)")
+
     parser.add_argument("--num-epochs", type=int, default=1, help="Number of epochs (default: 1)")
 
     args = parser.parse_args()
@@ -1253,14 +1255,18 @@ Examples:
 
             # Run SCDL benchmark
             print("=== Running SCDL Benchmark ===")
+            if args.scdl_path:
+                scdl_path = args.scdl_path
+            else:
+                scdl_path = str(input_path)
             scdl_factory = create_dataloader_factory(
-                str(input_path), args.sampling_scheme, args.batch_size, use_anndata=False
+                str(scdl_path), args.sampling_scheme, args.batch_size, use_anndata=False
             )
 
             scdl_result = benchmark_dataloader(
                 name=f"SCDL-{args.sampling_scheme}",
                 dataloader_factory=scdl_factory,
-                data_path=str(input_path),
+                data_path=str(scdl_path),
                 num_epochs=args.num_epochs,
                 max_time_seconds=args.max_time,
                 warmup_time_seconds=args.warmup_time,
