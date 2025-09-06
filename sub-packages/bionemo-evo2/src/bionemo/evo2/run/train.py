@@ -266,7 +266,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--constant-steps",
         type=int,
-        help="Number of steps to keep the learning rate constant before annealing. This controls the "
+        help="Number of steps to keep the learning rate constant at minimum after annealing. This controls the "
         "shape of the learning rate curve.",
         default=80000,
     )
