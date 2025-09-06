@@ -203,7 +203,7 @@ def load(
     if checked.exists():
         path = checked.read_text()
         logger.debug(f"Using cached {path=} from {checked=}")
-        return path
+        return Path(path)
 
     download = pooch.retrieve(
         url=str(url),
