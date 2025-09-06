@@ -195,9 +195,19 @@ def load(
     else:
         raise ValueError(f"Source '{source}' not supported.")
 
+    # Pooch will keep checking hashes and unpacking archives for each call,
+    # which is very time-consuming for large checkpoints. Instead, we make it
+    # do it only once by marking the resource as fully checked.
+    fname = f"{resource.sha256}-{filename}"
+    checked = cache_dir / (fname + ".checked")
+    if checked.exists():
+        path = checked.read_text()
+        logger.debug(f"Using cached {path=} from {checked=}")
+        return Path(path)
+
     download = pooch.retrieve(
         url=str(url),
-        fname=f"{resource.sha256}-{filename}",
+        fname=fname,
         known_hash=resource.sha256,
         path=cache_dir,
         downloader=download_fn,
@@ -207,10 +217,12 @@ def load(
     # Pooch by default returns a list of unpacked files if they unpack a zipped or tarred directory. Instead of that, we
     # just want the unpacked, parent folder.
     if isinstance(download, list):
-        return Path(processor.extract_dir)  # type: ignore
-
+        path = Path(processor.extract_dir)  # type: ignore
     else:
-        return Path(download)
+        path = Path(download)
+
+    checked.write_text(str(path))
+    return path
 
 
 def _get_processor(extension: str, unpack: bool | None, decompress: bool | None):
