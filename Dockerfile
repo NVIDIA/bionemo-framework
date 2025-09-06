@@ -191,7 +191,8 @@ ENV UV_LINK_MODE=copy \
   UV_COMPILE_BYTECODE=1 \
   UV_PYTHON_DOWNLOADS=never \
   UV_SYSTEM_PYTHON=true \
-  UV_BREAK_SYSTEM_PACKAGES=1
+  UV_BREAK_SYSTEM_PACKAGES=1 \
+  PIP_NO_CACHE_DIR=1
 
 # Install the bionemo-geometric requirements ahead of copying over the rest of the repo, so that we can cache their
 # installation. These involve building some torch extensions, so they can take a while to install.
