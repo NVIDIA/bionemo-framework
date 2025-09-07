@@ -321,7 +321,7 @@ def main(cfg: DictConfig):
             # Generate job name as recipe_subdir-model_name, replacing underscores and slashes with hyphens
             recipe_subdir = product_cfg.recipe_subdir.replace('_', '-').replace('/', '-')
             model_name = product_dict['model_name'].replace('_', '-').replace('/', '-')
-            product_cfg.job_name = f"{model_name}-recipe"
+            product_cfg.job_name = f"{model_name}".lower()
 
             print(f"\n[{i}/{len(cfg.products)}] Launching: {product_cfg.job_name}")
 
