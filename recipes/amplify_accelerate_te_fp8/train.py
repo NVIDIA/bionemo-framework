@@ -20,7 +20,7 @@ import hydra
 import torch
 import transformers
 import wandb
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.trainer import Trainer
 from transformers.training_args import TrainingArguments
