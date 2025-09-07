@@ -3,11 +3,11 @@ defaults:
   - /base
   - _self_
 
-job_name: esm2-recipes
+job_name: esm2_native_te_mfsdp
 resource_shape: gpu.2xh200
 
 dashboard_info:
-  model: esm2_native_te_mfsdp
+  model: esm2
   variant: recipes
   repo: recipes
 
@@ -16,19 +16,17 @@ recipe_subdir: esm2_native_te_mfsdp
 branch: main
 wandb_init_args:
   mode: "online" # need online to collect logs; if offline have to manually sync after run
-num_train_steps: 250
+train_cmnd: train_fsdp2
+num_train_steps: 100
 
-# Multiple products to run
+# Run one for each config
 products:
-  - model_name: nvidia/esm2_t6_8M_UR50D
-    train_cmnd: train_mfsdp
-    dashboard_info:
-      config: 8M-mfsdp
-
-  - model_name: nvidia/esm2_t6_8M_UR50D
-    train_cmnd: train_ddp
-    dashboard_info:
-      config: 8M-ddp
+  - model_name: esm2_t48_15B_UR50D_nvfsdp_L1_perf
+    config: L1_15B_perf_test
+  - model_name: esm2_t36_3B_UR50D_ddp
+    config: L1_3B
+  - model_name: esm2_t33_650M_UR50D_mfsdp
+    config: L1_650M
 
 script: |
   git clone https://github.com/NVIDIA/bionemo-framework.git
@@ -40,7 +38,6 @@ script: |
   cd bionemo-framework/recipes/${recipe_subdir}
   pip install -r requirements.txt
   torchrun ${train_cmnd}.py \
-    --config-name L0_sanity \
+    --config-name ${config}.yaml \
     num_train_steps=${num_train_steps} \
-    model_name=${model_name} \
-    wandb_init_args.mode=${wandb_init_args.mode}
+    +wandb_init_args.mode=${wandb_init_args.mode}

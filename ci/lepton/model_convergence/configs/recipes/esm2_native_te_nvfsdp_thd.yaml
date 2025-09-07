@@ -23,10 +23,13 @@ num_train_steps: 100
 products:
   - model_name: esm2_t48_15B_UR50D
     config: L1_15B_perf_test
+    micro_batch_size: 4
   - model_name: esm2_t36_3B_UR50D
     config: L1_3B_ddp
+    micro_batch_size: 32
   - model_name: esm2_t33_650M_UR50D
     config: L1_650M
+    micro_batch_size: 16
 
 script: |
   git clone https://github.com/NVIDIA/bionemo-framework.git
@@ -40,5 +43,5 @@ script: |
   torchrun ${train_cmnd}.py \
     --config-name ${config}.yaml \
     num_train_steps=${num_train_steps} \
-    model_name=${model_name} \
+    micro_batch_size=${micro_batch_size} \
     +wandb_init_args.mode=${wandb_init_args.mode}

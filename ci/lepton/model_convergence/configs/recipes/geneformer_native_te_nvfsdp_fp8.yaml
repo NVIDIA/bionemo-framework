@@ -13,7 +13,7 @@ dashboard_info:
 
 # Base configuration
 recipe_subdir: geneformer_native_te_nvfsdp_fp8
-branch: jwilber/add-wandb-mode-to-config
+branch: main
 train_cmnd: train
 
 num_train_steps: 100
