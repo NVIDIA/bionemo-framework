@@ -13,7 +13,7 @@ dashboard_info:
 
 # Base configuration
 recipe_subdir: amplify_accelerate_te_fp8
-branch: main
+branch: jwilber/add-wandb-recipe-amplify
 train_cmnd: train
 
 wandb_init_args:
@@ -21,12 +21,15 @@ wandb_init_args:
 
 stop_after_n_steps: 10
 
+trainer:
+  report_to: "wandb"
+
 # Run one for each config
 products:
   - model_name: amplify_120M_sanity
     config: L0_sanity
-  - model_name: L1-350M-partial-conv
-    config: L1_350M_partial_conv
+  # - model_name: L1-350M-partial-conv
+  #   config: L1_350M_partial_conv
 
 script: |
   git clone https://github.com/NVIDIA/bionemo-framework.git
@@ -40,4 +43,4 @@ script: |
   torchrun ${train_cmnd}.py \
     --config-name ${config}.yaml \
     stop_after_n_steps=${stop_after_n_steps} \
-    wandb_init_args.mode=${wandb_init_args.mode}
+    trainer.report_to=${trainer.report_to}
