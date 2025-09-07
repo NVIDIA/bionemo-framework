@@ -37,7 +37,10 @@ class StopAfterNStepsCallback(TrainerCallback):
 
 
 class StepTimingCallback(TrainerCallback):
+    """Callback to log the time taken for each step."""
+
     def __init__(self):
+        """Initialize the callback."""
         self.step_start_time = None
 
     def on_step_begin(self, args, state, control, **kwargs):

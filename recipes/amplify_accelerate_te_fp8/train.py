@@ -25,7 +25,7 @@ from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.trainer import Trainer
 from transformers.training_args import TrainingArguments
 
-from callbacks import StopAfterNStepsCallback, StepTimingCallback
+from callbacks import StepTimingCallback, StopAfterNStepsCallback
 from dataset import create_datasets_and_collator
 from metrics import compute_metrics
 
@@ -42,7 +42,7 @@ def main(args: DictConfig):
             project=args.wandb_init_args.project,
             name=args.wandb_init_args.name,
             config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True),
-            mode=getattr(args.wandb_init_args, 'mode', 'online'),
+            mode=getattr(args.wandb_init_args, "mode", "online"),
         )
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     config.max_length = args.max_seq_length
@@ -59,10 +59,7 @@ def main(args: DictConfig):
         data_size=args.data_size,
     )
 
-    training_args = TrainingArguments(
-        **args.trainer,
-        report_to="wandb" if wandb.run is not None else None,
-    )
+    training_args = TrainingArguments(**args.trainer)
 
     trainer = Trainer(
         model=model,
