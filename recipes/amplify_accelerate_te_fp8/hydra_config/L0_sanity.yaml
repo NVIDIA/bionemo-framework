@@ -13,3 +13,8 @@ trainer:
   logging_steps: 1
   report_to: "none"
   dataloader_num_workers: 0
+
+wandb_init_args: # These arguments are for managing the weights and biases experiment.
+  name: "L0_sanity" # this setting defines the name of the experiment
+  project: "bionemo-recipes-amplify_accelerate_te_fp8" # this setting defines the project name
+  mode: "online"

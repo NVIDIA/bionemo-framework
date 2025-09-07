@@ -19,12 +19,13 @@ from pathlib import Path
 import hydra
 import torch
 import transformers
+import wandb
 from omegaconf import DictConfig
 from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.trainer import Trainer
 from transformers.training_args import TrainingArguments
 
-from callbacks import StopAfterNStepsCallback
+from callbacks import StopAfterNStepsCallback, StepTimingCallback
 from dataset import create_datasets_and_collator
 from metrics import compute_metrics
 
@@ -35,6 +36,14 @@ logger = logging.getLogger(__name__)
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig):
     """Entrypoint."""
+    # add wandb logging on main process
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        wandb.init(
+            project=args.wandb_init_args.project,
+            name=args.wandb_init_args.name,
+            config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True),
+            mode=getattr(args.wandb_init_args, 'mode', 'online'),
+        )
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     config.max_length = args.max_seq_length
 
@@ -50,7 +59,10 @@ def main(args: DictConfig):
         data_size=args.data_size,
     )
 
-    training_args = TrainingArguments(**args.trainer)
+    training_args = TrainingArguments(
+        **args.trainer,
+        report_to="wandb" if wandb.run is not None else None,
+    )
 
     trainer = Trainer(
         model=model,
@@ -59,7 +71,10 @@ def main(args: DictConfig):
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
         data_collator=data_collator,
-        callbacks=[StopAfterNStepsCallback(args.stop_after_n_steps)],
+        callbacks=[
+            StopAfterNStepsCallback(args.stop_after_n_steps),
+            StepTimingCallback(),
+        ],
     )
 
     logger.info("ACCELERATE STATE:\n%s\n", trainer.accelerator.state)
@@ -78,6 +93,9 @@ def main(args: DictConfig):
 
     if training_args.do_eval:
         trainer.evaluate()
+
+    if wandb.run is not None:
+        wandb.finish()
 
     if torch.distributed.is_available() and torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
