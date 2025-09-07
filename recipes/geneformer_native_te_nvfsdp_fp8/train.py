@@ -258,7 +258,7 @@ def main(cfg: DictConfig) -> None:
             step_time = current_time - previous_step_time
             previous_step_time = current_time
             logger.info(
-                f"Step {step} loss: {loss.item()}, grad_norm: {total_norm}, lr: {optimizer.param_groups[0]['lr']}"
+                f"Step {step} loss: {loss.item()}, grad_norm: {total_norm}, lr: {optimizer.param_groups[0]['lr']}, step_time: {step_time:.3f}s"
             )
             wandb.log(
                 {
