@@ -78,9 +78,6 @@ class Resource(pydantic.BaseModel):
     Should be in format [org/[team/]]name[:version]. If None, the resource is not available on NGC.
     """
 
-    ngc_registry: Literal["model", "resource"] | None = None
-    """The NGC resource type (model or resource) for the data. Must be provided if ngc is not None."""
-
     pbss: Annotated[pydantic.AnyUrl, pydantic.UrlConstraints(allowed_schemes=["s3"])]
     """The PBSS (NVIDIA-internal) URL of the resource."""
 
@@ -98,12 +95,6 @@ class Resource(pydantic.BaseModel):
 
     decompress: Literal[False, None] = None
     """Whether the resource should be decompressed after download. If None, will defer to the file extension."""
-
-    @pydantic.model_validator(mode="after")
-    def _validate_ngc_registry(self):
-        if self.ngc and not self.ngc_registry:
-            raise ValueError(f"ngc_registry must be provided if ngc is not None: {self.tag}")
-        return self
 
 
 @functools.cache
@@ -216,17 +207,14 @@ class NGCDownloader:
     """
 
     filename: str
-    ngc_registry: Literal["model", "resource"]
 
     def __call__(self, url: str, output_file: str | Path, _: pooch.Pooch) -> None:
         """Download a file from NGC."""
         client = default_ngc_client()
         nest_asyncio.apply()
 
-        download_fns = {
-            "model": client.registry.model.download_version,
-            "resource": client.registry.resource.download_version,
-        }
+        # SCDL only uses NGC resources, never models
+        download_fn = client.registry.resource.download_version
 
         output_file = Path(output_file)
         output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -235,7 +223,7 @@ class NGCDownloader:
         ngc_dirname = Path(url).name.replace(":", "_v")
 
         with tempfile.TemporaryDirectory(dir=output_file.parent) as temp_dir:
-            download_fns[self.ngc_registry](url, temp_dir, file_patterns=[self.filename])
+            download_fn(url, temp_dir, file_patterns=[self.filename])
             shutil.move(Path(temp_dir) / ngc_dirname / self.filename, output_file)
 
 
@@ -289,8 +277,7 @@ def load(
         url = resource.pbss
 
     elif source == "ngc":
-        assert resource.ngc_registry is not None
-        download_fn = NGCDownloader(filename=filename, ngc_registry=resource.ngc_registry)
+        download_fn = NGCDownloader(filename=filename)
         url = resource.ngc
 
     else:
