@@ -23,8 +23,6 @@ key_segments:
   hidden_dropout: False
   precision: False
   seq_length: False
-  pckg_url: False
-  file_name_wheel: False
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -56,8 +54,6 @@ script_args:
   batch_size: 2
   variant: finetune
   precision: fp8
-  pckg_url: gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple/
-  file_name_wheel: subquadratic-ops
   products:
     - variant: finetune
       lora_enabled: ""
@@ -68,15 +64,6 @@ script_args:
       task: lora_finetune_from_ckpt
       experiment_name: evo2-lora-finetune
 script: |-
-  INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
-  if [ "$SLURM_LOCALID" = "0" ]; then
-      pip install ${file_name_wheel} --index-url https://oauth2:$JET_GITLAB_TOKEN@${pckg_url} --extra-index-url https://pypi.org/simple/
-      touch $INSTALL_FLAG
-  fi
-  # All ranks wait until install flag file appears
-  while [ ! -f $INSTALL_FLAG ]; do
-      sleep 1
-  done
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY train_${model} \
     -d ${data_base_path}/${dataset_config} \
     --dataset-dir=${data_base_path}/${dataset_dir} \
@@ -102,7 +89,6 @@ script: |-
     --devices=${gpus} \
     --num-nodes=${nodes} \
     --val-check-interval=${val_check_interval} \
-    --use-subquadratic_ops \
     --create-tensorboard-logger \
     --activation-checkpoint-recompute-num-layers=${activation_checkpoint_layers} \
     --disable-checkpointing \
