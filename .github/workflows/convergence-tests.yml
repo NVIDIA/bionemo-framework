@@ -19,6 +19,10 @@ on:
           - esm2_native_te_mfsdp
           - esm2_native_te_nvfsdp_thd
           - geneformer_native_te_nvfsdp_fp8
+      config_override:
+        description: "Custom config override (optional, e.g. 'geneformer_106m')"
+        required: false
+        type: string
 
 jobs:
   submit-lepton-jobs:
@@ -50,4 +54,8 @@ jobs:
           LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
         run: |
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
-          python ci/lepton/model_convergence/scripts/launch_job.py --config-name="recipes/${{ inputs.model_config }}" branch="${{ inputs.branch }}"
+          if [ -n "${{ inputs.config_override }}" ]; then
+            python ci/lepton/model_convergence/scripts/launch_job.py --config-name="${{ inputs.config_override }}.yaml" branch="${{ inputs.branch }}"
+          else
+            python ci/lepton/model_convergence/scripts/launch_job.py --config-name="recipes/${{ inputs.model_config }}" branch="${{ inputs.branch }}"
+          fi
