@@ -169,6 +169,9 @@ class AMPLIFY(AMPLIFYPreTrainedModel):
             intermediate_size = int(2 * config.intermediate_size / 3)
             intermediate_size = multiple_of * ((intermediate_size + multiple_of - 1) // multiple_of)
 
+        else:
+            intermediate_size = config.intermediate_size
+
         self.transformer_encoder = nn.ModuleList()
         for layer_num in range(config.num_hidden_layers):
             self.transformer_encoder.append(
