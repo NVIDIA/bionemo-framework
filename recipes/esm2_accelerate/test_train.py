@@ -95,6 +95,7 @@ def test_train_can_resume_from_checkpoint(monkeypatch, tmp_path: Path):
                 "stop_after_n_steps=4",
                 "trainer.do_eval=False",
                 "trainer.save_steps=2",
+                f"hydra.run.dir={tmp_path}/outputs",
             ],
         )
 
@@ -203,6 +204,7 @@ def test_accelerate_launch(accelerate_config, model_tag, tmp_path):
         "L0_sanity.yaml",
         f"model_tag={model_tag}",
         f"trainer.output_dir={tmp_path}",
+        f"hydra.run.dir={tmp_path}/outputs",
         "trainer.do_eval=False",
     ]
 
@@ -241,9 +243,11 @@ def test_accelerate_launch(accelerate_config, model_tag, tmp_path):
         # modeling_esm_te import seems to fix it.
         # ("fsdp1_te.yaml", "nvidia/esm2_t6_8M_UR50D"),
         ("fsdp2_te.yaml", "nvidia/esm2_t6_8M_UR50D"),
-        ("default.yaml", "facebook/esm2_t6_8M_UR50D"),
-        ("fsdp1_hf.yaml", "facebook/esm2_t6_8M_UR50D"),
-        ("fsdp2_hf.yaml", "facebook/esm2_t6_8M_UR50D"),
+        # TODO: (BIONEMO-????). These tests were broken by https://github.com/huggingface/transformers/pull/40370, but
+        # oddly the single-GPU tests still seem to pass. Changing the attention_backend doesn't seem to help.
+        # ("default.yaml", "facebook/esm2_t6_8M_UR50D"),
+        # ("fsdp1_hf.yaml", "facebook/esm2_t6_8M_UR50D"),
+        # ("fsdp2_hf.yaml", "facebook/esm2_t6_8M_UR50D"),
     ],
 )
 def test_accelerate_launch_multi_gpu(accelerate_config, model_tag, tmp_path):
@@ -273,6 +277,7 @@ def test_accelerate_launch_multi_gpu(accelerate_config, model_tag, tmp_path):
         "L0_sanity.yaml",
         f"model_tag={model_tag}",
         f"trainer.output_dir={tmp_path}",
+        f"hydra.run.dir={tmp_path}/outputs",
         "trainer.do_eval=False",
     ]
 
