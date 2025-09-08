@@ -294,7 +294,6 @@ def test_accelerate_launch_multi_gpu(accelerate_config, model_tag, tmp_path):
     combined_output = result.stdout + result.stderr
     try:
         final_train_loss = extract_final_train_loss(combined_output)
-        breakpoint()
         print(f"Final train_loss: {final_train_loss}")
         assert final_train_loss < 3.0, f"Final train_loss {final_train_loss} should be less than 3.0"
     except ValueError as e:
