@@ -2,23 +2,6 @@ name: "BioNeMo Model Convergence Tests"
 
 on:
   workflow_dispatch:
-    inputs:
-      branch:
-        description: "Branch to use"
-        required: true
-        default: "main"
-        type: string
-      model_config:
-        description: "Model configuration to use"
-        required: true
-        default: "esm2_accelerate"
-        type: choice
-        options:
-          - amplify_accelerate_te_fp8.yaml
-          - esm2_accelerate
-          - esm2_native_te_mfsdp
-          - esm2_native_te_nvfsdp_thd
-          - geneformer_native_te_nvfsdp_fp8
 
 jobs:
   submit-lepton-jobs:
@@ -26,8 +9,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.branch }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -52,5 +33,4 @@ jobs:
           LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
         run: |
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
-          pwd
-          python ci/lepton/model_convergence/scripts/launch_job.py --config-name="recipes/${{ inputs.model_config }}" branch="${{ inputs.branch }}"
+          python ci/lepton/model_convergence/scripts/launch_job.py --config-name "evo2_finetune_lora"
