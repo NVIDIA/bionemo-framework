@@ -19,7 +19,7 @@ from pathlib import Path
 import hydra
 import torch
 import transformers
-from accelerate import Accelerator
+from accelerate import PartialState
 from omegaconf import DictConfig
 from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.trainer import Trainer
@@ -36,9 +36,14 @@ logger = logging.getLogger(__name__)
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig):
     """Entrypoint."""
-    # We need to initialize the Accelerator manually prior to creating our model, otherwise we won't end up setting the
-    # current torch device and the model creation will all happen on a single GPU, typically leading to an OOM.
-    _ = Accelerator()
+    # Initialize Accelerate's distributed state early so torch device is set per process
+    state = PartialState()
+    logger.info(
+        "Accelerate initialized (local_process_index=%s, num_processes=%s, device=%s)",
+        state.local_process_index,
+        state.num_processes,
+        state.device,
+    )
 
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     config.max_seq_length = args.max_seq_length
