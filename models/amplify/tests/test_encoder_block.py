@@ -57,7 +57,7 @@ class ForwardHook:
 @pytest.fixture
 def config():
     config = AutoConfig.from_pretrained("chandar-lab/AMPLIFY_120M", trust_remote_code=True)
-    config.torch_dtype = torch.bfloat16
+    config.dtype = torch.bfloat16
     return config
 
 
@@ -169,7 +169,7 @@ def test_encoder_block_forward(inputs, config):
         window_size=(-1, -1),
         rotary_pos_interleaved=True,
         seq_length=config.max_length,
-        params_dtype=config.torch_dtype,
+        params_dtype=config.dtype,
     ).to("cuda", dtype=torch.bfloat16)
 
     state_dict_mapping = {

@@ -147,17 +147,15 @@ class AMPLIFY(AMPLIFYPreTrainedModel):
             config.padded_vocab_size,
             config.hidden_size,
             padding_idx=config.pad_token_id,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
 
         if config.layer_norm_after_embedding:
             self.layer_norm_1 = (
-                transformer_engine.pytorch.RMSNorm(
-                    config.hidden_size, config.norm_eps, params_dtype=config.torch_dtype
-                )
+                transformer_engine.pytorch.RMSNorm(config.hidden_size, config.norm_eps, params_dtype=config.dtype)
                 if config.rms_norm
                 else transformer_engine.pytorch.LayerNorm(
-                    config.hidden_size, config.norm_eps, params_dtype=config.torch_dtype
+                    config.hidden_size, config.norm_eps, params_dtype=config.dtype
                 )
             )
 
@@ -194,7 +192,7 @@ class AMPLIFY(AMPLIFYPreTrainedModel):
                     window_size=(-1, -1),
                     rotary_pos_interleaved=True,
                     seq_length=config.max_length,
-                    params_dtype=config.torch_dtype,
+                    params_dtype=config.dtype,
                 )
             )
 
@@ -277,7 +275,7 @@ class AMPLIFYForMaskedLM(AMPLIFYPreTrainedModel):
                 config.hidden_size,
                 config.padded_vocab_size,
                 config.norm_eps,
-                params_dtype=config.torch_dtype,
+                params_dtype=config.dtype,
                 normalization="RMSNorm" if config.rms_norm else "LayerNorm",
                 init_method=lambda x: torch.nn.init.uniform_(
                     x, -self.config.decoder_init_range, self.config.decoder_init_range
@@ -286,7 +284,7 @@ class AMPLIFYForMaskedLM(AMPLIFYPreTrainedModel):
 
         else:
             self.decoder = transformer_engine.pytorch.Linear(
-                config.hidden_size, config.vocab_size, params_dtype=config.torch_dtype
+                config.hidden_size, config.vocab_size, params_dtype=config.dtype
             )
 
     def forward(

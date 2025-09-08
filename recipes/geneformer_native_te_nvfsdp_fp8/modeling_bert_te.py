@@ -75,7 +75,7 @@ class TEBertConfig(BertConfig):
     """Configuration class for the TE BERT model.
 
     This class is a subclass of BertConfig, and it adds the following attributes:
-    - torch_dtype: The dtype of the model parameters.
+    - dtype: The dtype of the model parameters.
     - use_te_layers: Whether to use the TE layers.
     """
 
@@ -87,7 +87,7 @@ class TEBertConfig(BertConfig):
         """
         super().__init__(**kwargs)
         # TODO(@jomitchell): Fix this in JIRA BIONEMO-2406
-        self.torch_dtype = kwargs.get("torch_dtype", torch.bfloat16)
+        self.dtype = kwargs.get("dtype", torch.bfloat16)
         self.use_te_layers = kwargs.get("use_te_layers", False)
 
 
@@ -117,7 +117,7 @@ class TEBertLayer(te.TransformerLayer):
             micro_batch_size=config.micro_batch_size,
             num_gqa_groups=config.num_attention_heads,
             fuse_qkv_params=False,
-            params_dtype=config.torch_dtype,
+            params_dtype=config.dtype,
             window_size=(-1, -1),
         )
         self.is_decoder = config.is_decoder

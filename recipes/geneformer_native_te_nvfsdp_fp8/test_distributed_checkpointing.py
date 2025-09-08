@@ -483,7 +483,7 @@ def test_safetensors_save_load_roundtrip_nvfsdp():
             # Load the model using our custom BertForMaskedLM class
             loaded_transformers_model = BertForMaskedLM.from_pretrained(
                 final_model_dir,  # Use the directory created by save_pretrained
-                torch_dtype=torch.bfloat16,
+                dtype=torch.bfloat16,
                 trust_remote_code=True,
             )
 
@@ -641,7 +641,7 @@ def test_distributed_safetensors_multiprocess_nvfsdp():
             from modeling_bert_te import BertForMaskedLM
 
             loaded_model = BertForMaskedLM.from_pretrained(
-                final_model_dir, torch_dtype=torch.bfloat16, trust_remote_code=True
+                final_model_dir, dtype=torch.bfloat16, trust_remote_code=True
             )
 
             # Basic validation
@@ -740,7 +740,7 @@ def test_safetensors_multiprocess_roundtrip_nvfsdp():
 
             # Load the model using our custom BertForMaskedLM class
             loaded_model = BertForMaskedLM.from_pretrained(
-                final_model_dir, torch_dtype=torch.bfloat16, trust_remote_code=True
+                final_model_dir, dtype=torch.bfloat16, trust_remote_code=True
             )
 
             print("✅ Successfully loaded multiprocess model using BertForMaskedLM.from_pretrained()")
@@ -878,11 +878,11 @@ def test_safetensors_unsharded_weights_consistency():
 
             # Load both models
             single_model = BertForMaskedLM.from_pretrained(
-                single_model_dir, torch_dtype=torch.bfloat16, trust_remote_code=True
+                single_model_dir, dtype=torch.bfloat16, trust_remote_code=True
             )
 
             multi_model = BertForMaskedLM.from_pretrained(
-                multi_model_dir, torch_dtype=torch.bfloat16, trust_remote_code=True
+                multi_model_dir, dtype=torch.bfloat16, trust_remote_code=True
             )
 
             # Get state dicts
@@ -1038,7 +1038,7 @@ def test_distributed_safetensors_multiprocess_ddp():
             from modeling_bert_te import BertForMaskedLM
 
             loaded_model = BertForMaskedLM.from_pretrained(
-                final_model_dir, torch_dtype=torch.bfloat16, trust_remote_code=True
+                final_model_dir, dtype=torch.bfloat16, trust_remote_code=True
             )
 
             # Basic validation
@@ -1137,7 +1137,7 @@ def test_safetensors_multiprocess_roundtrip_ddp():
 
             # Load the model using our custom BertForMaskedLM class
             loaded_model = BertForMaskedLM.from_pretrained(
-                final_model_dir, torch_dtype=torch.bfloat16, trust_remote_code=True
+                final_model_dir, dtype=torch.bfloat16, trust_remote_code=True
             )
 
             print("✅ Successfully loaded multiprocess DDP model using BertForMaskedLM.from_pretrained()")
@@ -1275,11 +1275,11 @@ def test_safetensors_unsharded_weights_consistency_ddp():
 
             # Load both models
             single_model = BertForMaskedLM.from_pretrained(
-                single_model_dir, torch_dtype=torch.bfloat16, trust_remote_code=True
+                single_model_dir, dtype=torch.bfloat16, trust_remote_code=True
             )
 
             multi_model = BertForMaskedLM.from_pretrained(
-                multi_model_dir, torch_dtype=torch.bfloat16, trust_remote_code=True
+                multi_model_dir, dtype=torch.bfloat16, trust_remote_code=True
             )
 
             # Get state dicts

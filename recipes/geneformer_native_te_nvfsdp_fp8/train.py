@@ -128,7 +128,7 @@ def main(cfg: DictConfig) -> None:
             },
         )
 
-    bert_model_config = TEBertConfig(**cfg.model, torch_dtype=torch.bfloat16)
+    bert_model_config = TEBertConfig(**cfg.model, dtype=torch.bfloat16)
     # Note. One may notice here that we are using BertConfig from transformers.models.bert.configuration_bert. instead of one from modeling_bert_te.py
     # This is because, the BertConfig will simply pass through any additional argument to the model.
     model = BertForMaskedLM(bert_model_config)
@@ -146,7 +146,7 @@ def main(cfg: DictConfig) -> None:
     # Here we cast the model layers to the specified dtype. in our TEBertConfig we specify the dtype for the
     # TE layers, and here we simply cast the all the other layers to the same dtype.
     # TODO(@jomitchell): BIONEMO-2406: Remove this after verifying FP8 works.
-    model = model.to(device=device, dtype=bert_model_config.torch_dtype)  # type: ignore
+    model = model.to(device=device, dtype=bert_model_config.dtype)  # type: ignore
 
     if cfg.training.use_nvfsdp:
         model, optimizer = fully_shard(
@@ -165,7 +165,7 @@ def main(cfg: DictConfig) -> None:
     else:
         # Use standard PyTorch DDP (no nvFSDP config)
         # TODO(@jomitchell): BIONEMO-2406: Keep this until this ticket is done.
-        # model = model.to(device=device, dtype=bert_model_config.torch_dtype)  # type: ignore
+        # model = model.to(device=device, dtype=bert_model_config.dtype)  # type: ignore
         model = torch.nn.parallel.DistributedDataParallel(
             model,
             device_ids=[dist_config.local_rank],

@@ -64,7 +64,7 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     # Smoke test that the model can be loaded.
     model_te = AutoModelForMaskedLM.from_pretrained(
         export_path / tag,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         trust_remote_code=True,
     )
     del model_te

@@ -153,7 +153,7 @@ import torch
 # Load the trained model
 model_path = "/workspace/bionemo/checkpoints/your_run/final_model"
 model = BertForMaskedLM.from_pretrained(
-    model_path, torch_dtype=torch.bfloat16, trust_remote_code=True
+    model_path, dtype=torch.bfloat16, trust_remote_code=True
 )
 
 # Example 1: Model inference

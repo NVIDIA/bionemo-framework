@@ -112,7 +112,7 @@ def main(args: DictConfig):
     config = NVEsmConfig(
         **AutoConfig.from_pretrained(
             f"facebook/{args.model_name}",
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
         ).to_dict(),
         micro_batch_size=args.micro_batch_size,
         max_seq_length=args.max_seq_length,

@@ -36,7 +36,7 @@ def tokenizer():
 @pytest.fixture
 def config():
     config = AutoConfig.from_pretrained("chandar-lab/AMPLIFY_120M", trust_remote_code=True)
-    config.torch_dtype = torch.bfloat16
+    config.dtype = torch.bfloat16
     return config
 
 

@@ -41,7 +41,7 @@ def main(args: DictConfig):
     model = AutoModelForMaskedLM.from_config(
         config,
         trust_remote_code=True,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
     )
 
     train_dataset, eval_dataset, data_collator = create_datasets_and_collator(

@@ -36,7 +36,7 @@ for tag in AMPLIFY_TAGS:
     # Smoke test that the model can be loaded.
     model_te = AutoModelForMaskedLM.from_pretrained(
         f"./checkpoint_export/{tag}",
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         trust_remote_code=True,
     )
     del model_te

@@ -111,7 +111,7 @@ def convert_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
     """Convert HuggingFace model to TransformerEngine format."""
     te_config = MyModelTEConfig(**model_hf.config.to_dict(), **config_kwargs)
     with init_empty_weights():
-        model_te = MyModelTE(te_config, torch_dtype=te_config.torch_dtype)
+        model_te = MyModelTE(te_config, dtype=te_config.dtype)
 
     output_model = io.apply_transforms(model_hf, model_te, ...)
     return output_model
