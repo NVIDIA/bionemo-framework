@@ -16,12 +16,16 @@
 from pathlib import Path
 
 import pytest
+import torch
 from hydra import compose, initialize_config_dir
 
 from train import main
 
 
-@pytest.mark.xfail(reason="CUDNN padded packed sequences not supported on all hardware currently.")
+@pytest.mark.xfail(
+    torch.cuda.get_device_capability() == (12, 0),
+    reason="CUDNN padded packed sequences not supported on all hardware currently (nvbugs/5458694).",
+)
 def test_main_invocation(monkeypatch, tmp_path):
     """Test that the main function can be invoked with the correct arguments."""
 
@@ -43,7 +47,10 @@ def test_main_invocation(monkeypatch, tmp_path):
     main(sanity_config)
 
 
-@pytest.mark.xfail(reason="CUDNN padded packed sequences not supported on all hardware currently.")
+@pytest.mark.xfail(
+    torch.cuda.get_device_capability() == (12, 0),
+    reason="CUDNN padded packed sequences not supported on all hardware currently (nvbugs/5458694).",
+)
 def test_main_invocation_ddp(monkeypatch, tmp_path):
     """Test that the main function can be invoked wrapping the model in DDP."""
 

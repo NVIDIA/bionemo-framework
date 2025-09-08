@@ -226,7 +226,7 @@ We support full integration with weights and biases. To use this please supply t
 export WANDB_API_KEY=<yourapikey>
 ```
 
-and supply the hydra config section `training.wandb_init_args` with your experiment name and project.
+and supply the hydra config section `wandb_init_args` with your experiment name and project.
 
 ### Dataset
 
