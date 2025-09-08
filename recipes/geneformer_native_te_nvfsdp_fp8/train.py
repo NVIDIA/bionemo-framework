@@ -116,9 +116,6 @@ def main(cfg: DictConfig) -> None:
     # Initialize wandb only on the main process
     if dist_config.is_main_process():
         wandb.init(
-            project=cfg.wandb_init_args.project,
-            name=cfg.wandb_init_args.name,
-            mode=cfg.wandb_init_args.mode,
             config={
                 "batch_size": cfg.model.micro_batch_size,
                 "learning_rate": cfg.training.optimizer_kwargs.lr,
@@ -127,6 +124,7 @@ def main(cfg: DictConfig) -> None:
                 "use_fp8": cfg.training.use_fp8,
                 "world_size": dist_config.world_size,
             },
+            **cfg.wandb_init_args,
         )
 
     bert_model_config = TEBertConfig(**cfg.model, torch_dtype=torch.bfloat16)
