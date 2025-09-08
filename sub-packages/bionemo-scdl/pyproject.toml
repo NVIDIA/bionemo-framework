@@ -23,7 +23,6 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "bionemo-core>=2.4.5",
     'pytest>=8.4.1'
 ]
 
