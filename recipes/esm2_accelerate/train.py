@@ -19,6 +19,7 @@ from pathlib import Path
 import hydra
 import torch
 import transformers
+from accelerate import Accelerator
 from omegaconf import DictConfig
 from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.trainer import Trainer
@@ -35,6 +36,10 @@ logger = logging.getLogger(__name__)
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig):
     """Entrypoint."""
+    # We need to initialize the Accelerator manually prior to creating our model, otherwise we won't end up setting the
+    # current torch device and the model creation will all happen on a single GPU, typically leading to an OOM.
+    _ = Accelerator()
+
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     config.max_seq_length = args.max_seq_length
     config.micro_batch_size = args.trainer.per_device_train_batch_size
@@ -56,8 +61,6 @@ def main(args: DictConfig):
         data_collator=data_collator,
         callbacks=[StopAfterNStepsCallback(args.stop_after_n_steps)],
     )
-
-    logger.info("ACCELERATE STATE:\n%s\n", trainer.accelerator.state)
 
     if training_args.do_train:
         Path(training_args.output_dir).mkdir(parents=True, exist_ok=True)
