@@ -89,7 +89,30 @@ jobs:
             fi
           fi
 
-          echo "dirs=$DIRS" >> $GITHUB_OUTPUT
+          # Assign Docker images to the selected directories
+          # Currently, AMPLIFY is the only folder that needs a custom base image, since we have to support both TE and
+          # xformers-based models for golden value testing. The rest of the models use the default pytorch image.
+
+          # This uses a squashed version of the pytorch:25.06-py3 image, generated with `docker-squash
+          # nvcr.io/nvidia/pytorch:25.06-py3 -t svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed --output
+          # type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15` and pushed
+          # to the dockerhub registry. Our github actions are able to cache image pulls from dockerhub but not nvcr, so
+          # hopefully this cuts down slightly on CI time at the expense of having a slightly in-directed image location.
+
+          DIRS_WITH_IMAGES=$(echo "$DIRS" | jq -c '
+            map({
+              dir: .,
+              image: (
+                if . == "models/amplify" then
+                  "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
+                else
+                  "svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed-zstd"
+                end
+              )
+            })
+          ')
+          echo "dirs=$DIRS_WITH_IMAGES" >> $GITHUB_OUTPUT
+
       - name: Show output
         run: |
           echo "=== Changed Files Analysis ==="
@@ -106,31 +129,43 @@ jobs:
     needs: changed-dirs
     runs-on: linux-amd64-gpu-l4-latest-1
     if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
+    container:
+      image: ${{ matrix.recipe.image }}
+    strategy:
+      matrix:
+        recipe: ${{ fromJson(needs.changed-dirs.outputs.dirs) }}
+      fail-fast: false
 
     steps:
+
+      - name: Show GPU info
+        run: nvidia-smi
       - name: Setup proxy cache
         uses: nv-gha-runners/setup-proxy-cache@main
 
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Setup python
-        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          sparse-checkout: "${{ matrix.recipe.dir }}"
+          sparse-checkout-cone-mode: false
 
-      - name: Install ci script dependencies
+      - name: Install dependencies
+        working-directory: ${{ matrix.recipe.dir }}
         run: |
-          python -m pip install --upgrade pip
-          pip install platformdirs
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+            PIP_CONSTRAINT= pip install -e .
+            echo "Installed ${{ matrix.recipe.dir }} as editable package"
+          elif [ -f requirements.txt ]; then
+            PIP_CONSTRAINT= pip install -r requirements.txt
+            echo "Installed ${{ matrix.recipe.dir }} from requirements.txt"
+          else
+            echo "No pyproject.toml, setup.py, or requirements.txt found in ${{ matrix.recipe.dir }}"
+            exit 1
+          fi
 
       - name: Run tests
-        env:
-          DIRS_JSON: ${{ needs.changed-dirs.outputs.dirs }}
-        run: |
-          # Convert JSON array to space-separated arguments
-          DIRS_ARGS=$(echo "$DIRS_JSON" | jq -r '.[]' | tr '\n' ' ')
-          ./ci/scripts/recipes_local_test.py $DIRS_ARGS
+        working-directory: ${{ matrix.recipe.dir }}
+        run: pytest -v .
 
   verify-recipe-tests:
     # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.
