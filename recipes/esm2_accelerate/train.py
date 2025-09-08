@@ -38,12 +38,7 @@ def main(args: DictConfig):
     """Entrypoint."""
     # add wandb logging on main process
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        wandb.init(
-            project=args.wandb_init_args.project,
-            name=args.wandb_init_args.name,
-            config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True),
-            mode=getattr(args.wandb_init_args, "mode", "online"),
-        )
+        wandb.init(config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True), **args.wandb_init_args)
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     config.max_seq_length = args.max_seq_length
     config.micro_batch_size = args.trainer.per_device_train_batch_size
