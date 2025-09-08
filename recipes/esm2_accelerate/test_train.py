@@ -243,7 +243,7 @@ def test_accelerate_launch(accelerate_config, model_tag, tmp_path):
         # modeling_esm_te import seems to fix it.
         # ("fsdp1_te.yaml", "nvidia/esm2_t6_8M_UR50D"),
         ("fsdp2_te.yaml", "nvidia/esm2_t6_8M_UR50D"),
-        # TODO: (BIONEMO-????). These tests were broken by https://github.com/huggingface/transformers/pull/40370, but
+        # TODO: (BIONEMO-2761). These tests were broken by https://github.com/huggingface/transformers/pull/40370, but
         # oddly the single-GPU tests still seem to pass. Changing the attention_backend doesn't seem to help.
         # ("default.yaml", "facebook/esm2_t6_8M_UR50D"),
         # ("fsdp1_hf.yaml", "facebook/esm2_t6_8M_UR50D"),
