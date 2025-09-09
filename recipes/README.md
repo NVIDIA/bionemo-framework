@@ -197,7 +197,7 @@ optimizer:
 # Distributed training
 distributed:
   backend: nccl
-  nvfsdp:
+  mfsdp:
     enable: true
     sharding_strategy: zero3
 
@@ -242,7 +242,7 @@ training:
   num_train_steps: 100    # Enough steps for stable metrics
 
 wandb:
-  name: "esm2_nvfsdp_benchmark"
+  name: "esm2_mfsdp_benchmark"
   tags: ["L1", "benchmark", "performance"]
 ```
 
@@ -411,7 +411,7 @@ docker run --rm -it --gpus all my_recipe pytest -v .
 
 For reference implementations, examine existing recipes:
 
-- **`esm2_native_te_nvfsdp/`**: Comprehensive example showing vanilla PyTorch with TE and nvFSDP
+- **`esm2_native_te_mfsdp/`**: Comprehensive example showing vanilla PyTorch with TE and megatron-fsdp
 - **`amplify_accelerate_fp8/`**: HuggingFace Accelerate integration with FP8 training
 - **`geneformer_lightning_context_parallel/`**: PyTorch Lightning with context parallelism for long sequences
 
