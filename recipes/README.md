@@ -2,7 +2,7 @@
 
 This directory contains self-contained training examples that demonstrate best practices for scaling
 biological foundation models using [TransformerEngine](https://github.com/NVIDIA/TransformerEngine)
-and [nvFSDP](https://github.com/NVIDIA-NeMo/nvFSDP). Each recipe is a complete Docker environment with
+and [megatron-fsdp](https://pypi.org/project/megatron-fsdp/). Each recipe is a complete Docker environment with
 benchmarked training scripts that users can learn from and adapt for their own research.
 
 ## Philosophy
@@ -49,7 +49,7 @@ Follow this naming pattern to clearly communicate what your recipe demonstrates:
 
 Examples:
 
-- `esm2_native_te_nvfsdp/` - ESM-2 with vanilla PyTorch, TransformerEngine, and nvFSDP
+- `esm2_native_te_mfsdp/` - ESM-2 with vanilla PyTorch, TransformerEngine, and megatron-fsdp
 - `amplify_accelerate_fp8/` - AMPLIFY with HuggingFace Accelerate and FP8 training
 - `geneformer_lightning_context_parallel/` - Geneformer with PyTorch Lightning and context parallelism
 
@@ -115,16 +115,16 @@ Your `train.py` should be educational and self-explanatory:
 ```python
 #!/usr/bin/env python3
 """
-ESM-2 training with TransformerEngine and nvFSDP.
+ESM-2 training with TransformerEngine and megatron-fsdp.
 
 This script demonstrates how to:
 1. Load and prepare biological sequence data
 2. Initialize ESM-2 with TransformerEngine layers
-3. Configure nvFSDP for memory-efficient multi-GPU training
+3. Configure megatron-fsdp for memory-efficient multi-GPU training
 4. Implement a training loop with proper checkpointing
 
 Key design decisions:
-- We use nvFSDP ZeRO-3 for maximum memory efficiency
+- We use megatron-fsdp ZeRO-3 for maximum memory efficiency
 - TransformerEngine FP8 is enabled for H100+ hardware
 - Context parallelism handles long biological sequences
 """
