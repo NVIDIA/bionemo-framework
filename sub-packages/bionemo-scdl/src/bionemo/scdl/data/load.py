@@ -138,7 +138,6 @@ __all__: Sequence[str] = (
 SourceOptions = Literal["ngc", "pbss"]
 _ENV_SOURCE = os.environ.get("BIONEMO_DATA_SOURCE", "ngc").lower()
 DEFAULT_SOURCE: SourceOptions = _ENV_SOURCE if _ENV_SOURCE in {"ngc", "pbss"} else "ngc"
-
 def default_pbss_client():
     """Create a default S3 client for PBSS."""
     try:
@@ -146,9 +145,9 @@ def default_pbss_client():
     except ImportError:
         raise ImportError("boto3 is required to download from PBSS.")
 
+    from botocore.config import Config  # defer optional dependency
     retry_config = Config(retries={"max_attempts": 10, "mode": "standard"})
     return boto3.client("s3", endpoint_url="https://pbss.s8k.io", config=retry_config)
-
 
 def _s3_download(url: str, output_file: str | Path, _: pooch.Pooch) -> None:
     """Download a file from PBSS."""
