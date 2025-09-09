@@ -17,6 +17,7 @@ import contextlib
 import functools
 import itertools
 import os
+import re
 import shutil
 import tempfile
 from collections import Counter
@@ -24,14 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Sequence
 
-import nest_asyncio
-import platformdirs
 import pooch
-import pydantic
 import yaml
-from botocore.config import Config
-from registry.api.utils import RegistryTarget
-from tqdm import tqdm
 
 
 if TYPE_CHECKING:
@@ -45,7 +40,13 @@ def _get_cache_dir() -> Path:
     if cache_dir := os.getenv("BIONEMO_CACHE_DIR"):
         return Path(cache_dir)
 
-    cache_dir = Path(platformdirs.user_cache_dir(appname="bionemo", appauthor="nvidia"))
+    try:
+        import platformdirs
+
+        cache_dir = Path(platformdirs.user_cache_dir(appname="bionemo", appauthor="nvidia"))
+    except ImportError:
+        # Fallback to simple cache directory if platformdirs is not available
+        cache_dir = Path.home() / ".cache" / "bionemo"
 
     try:
         cache_dir.mkdir(exist_ok=True, parents=True)
@@ -61,40 +62,82 @@ BIONEMO_CACHE_DIR = _get_cache_dir()
 
 
 def _validate_ngc_resource(value: str) -> str:
-    return str(RegistryTarget(value, "Pattern should be in format [org/[team/]]name[:version]"))
+    """Validate NGC resource URL format using regex."""
+    # Pattern allows optional 1-2 path segments (org/ or org/team/) + name + optional :version
+    pattern = r"^(?:[A-Za-z0-9_.-]+\/){0,2}[A-Za-z0-9_.-]+(?::[^\s:]+)?$"
+
+    if not re.match(pattern, value):
+        raise ValueError("Pattern should be in format [org/[team/]]name[:version]")
+
+    return value
 
 
-class Resource(pydantic.BaseModel):
-    """Class that represents a remote resource for downloading and caching test data."""
+try:
+    import pydantic
 
-    model_config = pydantic.ConfigDict(use_attribute_docstrings=True)
+    class Resource(pydantic.BaseModel):
+        """Class that represents a remote resource for downloading and caching test data."""
 
-    tag: Annotated[str, pydantic.StringConstraints(pattern=r"^[^/]*/[^/]*$")]  # Only slash between filename and tag.
-    """A unique identifier for the resource. The file(s) will be accessible via load("filename/tag")."""
+        model_config = pydantic.ConfigDict(use_attribute_docstrings=True)
 
-    ngc: Annotated[str, pydantic.AfterValidator(_validate_ngc_resource)] | None = None
-    """The NGC URL for the resource.
+        tag: Annotated[
+            str, pydantic.StringConstraints(pattern=r"^[^/]*/[^/]*$")
+        ]  # Only slash between filename and tag.
+        """A unique identifier for the resource. The file(s) will be accessible via load("filename/tag")."""
 
-    Should be in format [org/[team/]]name[:version]. If None, the resource is not available on NGC.
-    """
+        ngc: Annotated[str, pydantic.AfterValidator(_validate_ngc_resource)] | None = None
+        """The NGC URL for the resource.
 
-    pbss: Annotated[pydantic.AnyUrl, pydantic.UrlConstraints(allowed_schemes=["s3"])]
-    """The PBSS (NVIDIA-internal) URL of the resource."""
+        Should be in format [org/[team/]]name[:version]. If None, the resource is not available on NGC.
+        """
 
-    sha256: str | None
-    """The SHA256 checksum of the resource. If None, the SHA will not be checked on download (not recommended)."""
+        pbss: Annotated[pydantic.AnyUrl, pydantic.UrlConstraints(allowed_schemes=["s3"])]
+        """The PBSS (NVIDIA-internal) URL of the resource."""
 
-    owner: pydantic.NameEmail
-    """The owner or primary point of contact for the resource, in the format "Name <email>"."""
+        sha256: str | None
+        """The SHA256 checksum of the resource. If None, the SHA will not be checked on download (not recommended)."""
 
-    description: str | None = None
-    """A description of the file(s)."""
+        owner: pydantic.NameEmail
+        """The owner or primary point of contact for the resource, in the format "Name <email>"."""
 
-    unpack: Literal[False, None] = None
-    """Whether the resource should be unpacked after download. If None, will defer to the file extension."""
+        description: str | None = None
+        """A description of the file(s)."""
 
-    decompress: Literal[False, None] = None
-    """Whether the resource should be decompressed after download. If None, will defer to the file extension."""
+        unpack: Literal[False, None] = None
+        """Whether the resource should be unpacked after download. If None, will defer to the file extension."""
+
+        decompress: Literal[False, None] = None
+        """Whether the resource should be decompressed after download. If None, will defer to the file extension."""
+
+except ImportError:
+    # Fallback to dataclass if pydantic is not available
+    @dataclass
+    class Resource:
+        """Class that represents a remote resource for downloading and caching test data."""
+
+        tag: str
+        """A unique identifier for the resource."""
+
+        ngc: str | None = None
+        """The NGC URL for the resource."""
+
+        pbss: str | None = None
+        """The PBSS URL of the resource."""
+
+        sha256: str | None = None
+        """The SHA256 checksum of the resource."""
+
+        owner: str = ""
+        """The owner or primary point of contact for the resource."""
+
+        description: str | None = None
+        """A description of the file(s)."""
+
+        unpack: Literal[False, None] = None
+        """Whether the resource should be unpacked after download."""
+
+        decompress: Literal[False, None] = None
+        """Whether the resource should be decompressed after download."""
 
 
 @functools.cache
@@ -108,7 +151,13 @@ def get_all_resources(resource_path: Path | None = None) -> dict[str, Resource]:
 
     all_resources = [resource for file in resources_files for resource in _parse_resource_file(file)]
 
-    resource_list = pydantic.TypeAdapter(list[Resource]).validate_python(all_resources)
+    try:
+        import pydantic
+
+        resource_list = pydantic.TypeAdapter(list[Resource]).validate_python(all_resources)
+    except ImportError:
+        # If pydantic is not available, create Resource objects directly
+        resource_list = [Resource(**resource) for resource in all_resources]
     resource_dict = {resource.tag: resource for resource in resource_list}
 
     if len(resource_dict) != len(resource_list):
@@ -138,19 +187,35 @@ __all__: Sequence[str] = (
 SourceOptions = Literal["ngc", "pbss"]
 _ENV_SOURCE = os.environ.get("BIONEMO_DATA_SOURCE", "ngc").lower()
 DEFAULT_SOURCE: SourceOptions = _ENV_SOURCE if _ENV_SOURCE in {"ngc", "pbss"} else "ngc"
+
+
 def default_pbss_client():
     """Create a default S3 client for PBSS."""
     try:
         import boto3
+        from botocore.config import Config
     except ImportError:
-        raise ImportError("boto3 is required to download from PBSS.")
+        raise ImportError("boto3 and botocore are required to download from PBSS.")
 
     from botocore.config import Config  # defer optional dependency
+
     retry_config = Config(retries={"max_attempts": 10, "mode": "standard"})
     return boto3.client("s3", endpoint_url="https://pbss.s8k.io", config=retry_config)
 
+
 def _s3_download(url: str, output_file: str | Path, _: pooch.Pooch) -> None:
     """Download a file from PBSS."""
+    try:
+        from tqdm import tqdm
+    except ImportError:
+        # If tqdm is not available, create a no-op progress bar
+        class tqdm:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def update(self, n):
+                pass
+
     # Parse S3 URL to get bucket and key
     parts = url.replace("s3://", "").split("/")
     bucket = parts[0]
@@ -209,6 +274,13 @@ class NGCDownloader:
 
     def __call__(self, url: str, output_file: str | Path, _: pooch.Pooch) -> None:
         """Download a file from NGC."""
+        try:
+            import nest_asyncio
+        except ImportError:
+            raise ImportError(
+                "nest_asyncio is required for NGC downloads. Please install nest_asyncio or use PBSS source instead."
+            )
+
         client = default_ngc_client()
         nest_asyncio.apply()
 
@@ -268,26 +340,51 @@ def load(
     resource = resources[model_or_data_tag]
     filename = str(resource.pbss).split("/")[-1]
 
-     # Determine the right Pooch processor based on filename suffixes
--    extension = "".join(Path(filename).suffixes)
+    # Determine the right Pooch processor based on filename suffixes
     processor = _get_processor(filename, resource.unpack, resource.decompress)
 
-     if source == "pbss":
-         download_fn = _s3_download
-         url = resource.pbss
-@@
-def _get_processor(filename: str, unpack: bool | None, decompress: bool | None):
-     """Get the processor for a given file extension.
+    if source == "pbss":
+        download_fn = _s3_download
+        url = resource.pbss
 
-     If unpack and decompress are both None, the processor will be inferred from the file extension.
-@@
--    if extension in {".gz", ".bz2", ".xz"} and decompress is None:
--        return pooch.Decompress()
--
--    elif extension in {".tar", ".tar.gz"} and unpack is None:
--        return pooch.Untar()
--
--    elif extension == ".zip" and unpack is None:
+    elif source == "ngc":
+        download_fn = NGCDownloader(filename=filename)
+        url = resource.ngc
+
+    else:
+        raise ValueError(f"Source '{source}' not supported.")
+
+    download = pooch.retrieve(
+        url=str(url),
+        fname=f"{resource.sha256}-{filename}",
+        known_hash=resource.sha256,
+        path=cache_dir,
+        downloader=download_fn,
+        processor=processor,
+    )
+
+    # Pooch by default returns a list of unpacked files if they unpack a zipped or tarred directory. Instead of that, we
+    # just want the unpacked, parent folder.
+    if isinstance(download, list):
+        return Path(processor.extract_dir)  # type: ignore
+
+    else:
+        return Path(download)
+
+
+def _get_processor(filename: str, unpack: bool | None, decompress: bool | None):
+    """Get the processor for a given file extension.
+
+    If unpack and decompress are both None, the processor will be inferred from the file extension.
+
+    Args:
+        filename: The filename to inspect for extensions.
+        unpack: Whether to unpack the file.
+        decompress: Whether to decompress the file.
+
+    Returns:
+        A Pooch processor object.
+    """
     # Inspect all suffixes to handle multi-suffix archives robustly
     suffixes = Path(filename).suffixes  # e.g., ['.tar', '.gz'] or ['.tgz']
     last = suffixes[-1] if suffixes else ""
@@ -306,5 +403,3 @@ def _get_processor(filename: str, unpack: bool | None, decompress: bool | None):
 
     # 4) Otherwise, no automatic processing
     return None
-    else:
-        return None
