@@ -63,3 +63,23 @@ script: |-
     --accumulate-grad-batches ${acc_grad} \
     --precision ${precision} \
     --disable-checkpointing;
+tests:
+  - logic_type: static
+    logic_spec:
+      exit_codes:
+        - 0
+      baselines:
+        consumed_samples:
+          operator: eq
+          value: 15347456
+        val_loss:
+          operator: range
+          max: 2.4
+          min: 2.36
+        reduced_train_loss:
+          operator: range
+          max: 2.5
+          min: 2.45
+        TFLOPS_per_GPU:
+          operator: geq
+          value: 41
