@@ -268,59 +268,43 @@ def load(
     resource = resources[model_or_data_tag]
     filename = str(resource.pbss).split("/")[-1]
 
-    extension = "".join(Path(filename).suffixes)
-    processor = _get_processor(extension, resource.unpack, resource.decompress)
+     # Determine the right Pooch processor based on filename suffixes
+-    extension = "".join(Path(filename).suffixes)
+    processor = _get_processor(filename, resource.unpack, resource.decompress)
 
-    if source == "pbss":
-        download_fn = _s3_download
-        url = resource.pbss
+     if source == "pbss":
+         download_fn = _s3_download
+         url = resource.pbss
+@@
+def _get_processor(filename: str, unpack: bool | None, decompress: bool | None):
+     """Get the processor for a given file extension.
 
-    elif source == "ngc":
-        download_fn = NGCDownloader(filename=filename)
-        url = resource.ngc
+     If unpack and decompress are both None, the processor will be inferred from the file extension.
+@@
+-    if extension in {".gz", ".bz2", ".xz"} and decompress is None:
+-        return pooch.Decompress()
+-
+-    elif extension in {".tar", ".tar.gz"} and unpack is None:
+-        return pooch.Untar()
+-
+-    elif extension == ".zip" and unpack is None:
+    # Inspect all suffixes to handle multi-suffix archives robustly
+    suffixes = Path(filename).suffixes  # e.g., ['.tar', '.gz'] or ['.tgz']
+    last = suffixes[-1] if suffixes else ""
 
-    else:
-        raise ValueError(f"Source '{source}' not supported.")
-
-    download = pooch.retrieve(
-        url=str(url),
-        fname=f"{resource.sha256}-{filename}",
-        known_hash=resource.sha256,
-        path=cache_dir,
-        downloader=download_fn,
-        processor=processor,
-    )
-
-    # Pooch by default returns a list of unpacked files if they unpack a zipped or tarred directory. Instead of that, we
-    # just want the unpacked, parent folder.
-    if isinstance(download, list):
-        return Path(processor.extract_dir)  # type: ignore
-
-    else:
-        return Path(download)
-
-
-def _get_processor(extension: str, unpack: bool | None, decompress: bool | None):
-    """Get the processor for a given file extension.
-
-    If unpack and decompress are both None, the processor will be inferred from the file extension.
-
-    Args:
-        extension: The file extension.
-        unpack: Whether to unpack the file.
-        decompress: Whether to decompress the file.
-
-    Returns:
-        A Pooch processor object.
-    """
-    if extension in {".gz", ".bz2", ".xz"} and decompress is None:
-        return pooch.Decompress()
-
-    elif extension in {".tar", ".tar.gz"} and unpack is None:
+    # 1) Tar-based archives (any .tar.* or .tgz) → Untar
+    if unpack is None and (".tar" in suffixes or last == ".tgz"):
         return pooch.Untar()
 
-    elif extension == ".zip" and unpack is None:
+    # 2) Plain compression (no tar) → Decompress
+    if decompress is None and last in {".gz", ".bz2", ".xz"} and ".tar" not in suffixes:
+        return pooch.Decompress()
+
+    # 3) Zip archives → Unzip
+    if unpack is None and last == ".zip":
         return pooch.Unzip()
 
+    # 4) Otherwise, no automatic processing
+    return None
     else:
         return None
