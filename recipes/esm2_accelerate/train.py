@@ -46,13 +46,11 @@ def main(args: DictConfig):
     )
 
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
-    config.max_seq_length = args.max_seq_length
-    config.micro_batch_size = args.trainer.per_device_train_batch_size
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True, torch_dtype=torch.bfloat16)
 
     train_dataset, eval_dataset, data_collator = create_datasets_and_collator(
         tokenizer_name=args.model_tag,
-        max_length=config.max_seq_length,
+        max_length=args.max_seq_length,
     )
 
     training_args = TrainingArguments(**args.trainer)
