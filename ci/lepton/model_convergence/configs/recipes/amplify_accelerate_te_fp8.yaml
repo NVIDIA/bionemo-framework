@@ -14,7 +14,6 @@ dashboard_info:
 # Base configuration
 recipe_subdir: amplify_accelerate_te_fp8
 branch: jwilber/add-wandb-recipe-amplify
-commit_sha: ""
 train_cmnd: train
 
 wandb_init_args:
