@@ -343,12 +343,12 @@ def load(
 ) -> Path:
     """Download a resource from PBSS or NGC.
 
-    Args:
-        model_or_data_tag: A pointer to the desired resource. Must be a key in the resources dictionary.
-        source: Either "pbss" (NVIDIA-internal download) or "ngc" (NVIDIA GPU Cloud). Defaults to "pbss".
-        resources: A custom dictionary of resources. If None, the default resources will be used. (Mostly for testing.)
-        cache_dir: The directory to store downloaded files. Defaults to BIONEMO_CACHE_DIR. (Mostly for testing.)
-
+     Args:
+         model_or_data_tag: A pointer to the desired resource. Must be a key in the resources dictionary.
+        source: Either "pbss" (NVIDIA-internal) or "ngc" (NGC). Defaults to DEFAULT_SOURCE
+            (from environment variable BIONEMO_DATA_SOURCE; defaults to "ngc").
+         resources: A custom dictionary of resources. If None, the default resources will be used. (Mostly for testing.)
+         cache_dir: The directory to store downloaded files. Defaults to BIONEMO_CACHE_DIR. (Mostly for testing.)
     Raises:
         ValueError: If the desired tag was not found, or if an NGC url was requested but not provided.
 
