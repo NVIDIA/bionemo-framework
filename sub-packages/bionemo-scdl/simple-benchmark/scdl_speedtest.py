@@ -1168,6 +1168,67 @@ def format_comparison_report(scdl_result, anndata_result, input_path: str, sampl
     return "\n".join(report)
 
 
+def average_benchmark_results(results: List[BenchmarkResult], averaged_name: str | None = None) -> BenchmarkResult:
+    """Average multiple benchmark results into a single result."""
+    if not results:
+        raise ValueError("Cannot average empty list of results")
+    if len(results) == 1:
+        return results[0]
+
+    base = results[0]
+    n = len(results)
+    name = averaged_name or f"{base.name} (avg of {n} runs)"
+
+    # Average all numeric fields
+    numeric_fields = {
+        "disk_size_mb",
+        "setup_time_seconds",
+        "warmup_time_seconds",
+        "total_iteration_time_seconds",
+        "average_batch_time_seconds",
+        "samples_per_second",
+        "batches_per_second",
+        "peak_memory_mb",
+        "average_memory_mb",
+        "gpu_memory_mb",
+    }
+
+    kwargs = {"name": name}
+    for field in numeric_fields:
+        kwargs[field] = sum(getattr(r, field) for r in results) / n
+
+    # Average integer fields
+    for field in ["total_batches", "total_samples", "warmup_samples", "warmup_batches"]:
+        kwargs[field] = int(sum(getattr(r, field) for r in results) / n)
+
+    # Average optional numeric fields (only if present in all results)
+    optional_fields = [
+        "instantiation_time_seconds",
+        "peak_memory_during_instantiation_mb",
+        "memory_before_instantiation_mb",
+        "memory_after_instantiation_mb",
+        "conversion_time_seconds",
+        "load_time_seconds",
+    ]
+    for field in optional_fields:
+        values = [getattr(r, field) for r in results if getattr(r, field) is not None]
+        if len(values) == len(results):  # Only average if all have values
+            kwargs[field] = sum(values) / len(values)
+
+    # Copy non-numeric fields from base
+    for field in [
+        "data_path",
+        "max_time_seconds",
+        "shuffle",
+        "madvise_interval",
+        "conversion_performed",
+        "load_performed",
+    ]:
+        kwargs[field] = getattr(base, field)
+
+    return BenchmarkResult(**kwargs)
+
+
 def main():
     """Main function to run the benchmark."""
     parser = argparse.ArgumentParser(
@@ -1182,6 +1243,8 @@ Examples:
   python scdl_speedtest.py --csv                      # Export detailed CSV files
   python scdl_speedtest.py --json results.json        # Export detailed JSON file
   python scdl_speedtest.py --generate-baseline        # Compare SCDL vs AnnData performance
+  python scdl_speedtest.py --num-runs 3               # Run 3 iterations and average results
+  python scdl_speedtest.py --num-runs 5 --csv         # Average 5 runs and export CSV
         """,
     )
 
@@ -1205,8 +1268,14 @@ Examples:
     parser.add_argument("--scdl-path", type=str, help="Path to SCDL dataset (default: None)")
 
     parser.add_argument("--num-epochs", type=int, default=1, help="Number of epochs (default: 1)")
+    parser.add_argument("--num-runs", type=int, default=1, help="Number of benchmark runs to average (default: 1)")
 
     args = parser.parse_args()
+
+    # Validate num_runs parameter
+    if args.num_runs < 1:
+        print("Error: --num-runs must be a positive integer")
+        sys.exit(1)
 
     # Check if baseline generation is requested
     if args.generate_baseline:
@@ -1246,14 +1315,32 @@ Examples:
                 print("Exiting...")
                 sys.exit(1)
 
+    def run_single_benchmark(name, factory, data_path, run_num=None):
+        """Run a single benchmark iteration with optional run number for progress display."""
+        run_suffix = f" (run {run_num}/{args.num_runs})" if args.num_runs > 1 and run_num else ""
+        if args.num_runs > 1 and run_num:
+            print(f"\n--- Running {name}{run_suffix} ---")
+
+        return benchmark_dataloader(
+            name=name,
+            dataloader_factory=factory,
+            data_path=data_path,
+            num_epochs=args.num_epochs,
+            max_time_seconds=args.max_time,
+            warmup_time_seconds=args.warmup_time,
+            print_progress=True,
+        )
+
     try:
         if args.generate_baseline:
             # Run comparison benchmark
             print(f"\nRunning SCDL vs AnnData comparison: {Path(input_path).name}")
             print(f"Sampling: {args.sampling_scheme}")
+            if args.num_runs > 1:
+                print(f"Number of runs: {args.num_runs} (results will be averaged)")
             print("This will benchmark both SCDL and AnnData approaches...\n")
 
-            # Run SCDL benchmark
+            # Run SCDL benchmark(s)
             print("=== Running SCDL Benchmark ===")
             if args.scdl_path:
                 scdl_path = args.scdl_path
@@ -1263,32 +1350,46 @@ Examples:
                 str(scdl_path), args.sampling_scheme, args.batch_size, use_anndata=False
             )
 
-            scdl_result = benchmark_dataloader(
-                name=f"SCDL-{args.sampling_scheme}",
-                dataloader_factory=scdl_factory,
-                data_path=str(scdl_path),
-                num_epochs=args.num_epochs,
-                max_time_seconds=args.max_time,
-                warmup_time_seconds=args.warmup_time,
-                print_progress=True,
-            )
+            scdl_results = []
+            for run_num in range(1, args.num_runs + 1):
+                result = run_single_benchmark(
+                    f"SCDL-{args.sampling_scheme}",
+                    scdl_factory,
+                    str(scdl_path),
+                    run_num if args.num_runs > 1 else None,
+                )
+                scdl_results.append(result)
 
-            # Run AnnData benchmark
+            # Average SCDL results if multiple runs
+            if args.num_runs > 1:
+                scdl_result = average_benchmark_results(scdl_results, f"SCDL-{args.sampling_scheme}")
+                print(f"\nSCDL benchmark completed: averaged {len(scdl_results)} runs")
+            else:
+                scdl_result = scdl_results[0]
+
+            # Run AnnData benchmark(s)
             adata_path = input_path
             print("\n=== Running AnnData Benchmark ===")
             anndata_factory = create_dataloader_factory(
                 str(adata_path), args.sampling_scheme, args.batch_size, use_anndata=True
             )
 
-            anndata_result = benchmark_dataloader(
-                name=f"AnnData-{args.sampling_scheme}",
-                dataloader_factory=anndata_factory,
-                data_path=str(adata_path),
-                num_epochs=args.num_epochs,
-                max_time_seconds=args.max_time,
-                warmup_time_seconds=args.warmup_time,
-                print_progress=True,
-            )
+            anndata_results = []
+            for run_num in range(1, args.num_runs + 1):
+                result = run_single_benchmark(
+                    f"AnnData-{args.sampling_scheme}",
+                    anndata_factory,
+                    str(adata_path),
+                    run_num if args.num_runs > 1 else None,
+                )
+                anndata_results.append(result)
+
+            # Average AnnData results if multiple runs
+            if args.num_runs > 1:
+                anndata_result = average_benchmark_results(anndata_results, f"AnnData-{args.sampling_scheme}")
+                print(f"\nAnnData benchmark completed: averaged {len(anndata_results)} runs")
+            else:
+                anndata_result = anndata_results[0]
 
             # Format and output comparison report
             comparison_report = format_comparison_report(
@@ -1323,17 +1424,23 @@ Examples:
 
             print(f"\nBenchmarking: {Path(input_path).name}")
             print(f"Sampling: {args.sampling_scheme}")
+            if args.num_runs > 1:
+                print(f"Number of runs: {args.num_runs} (results will be averaged)")
             print("Running benchmark...\n")
 
-            result = benchmark_dataloader(
-                name=f"SCDL-{args.sampling_scheme}",
-                dataloader_factory=factory,
-                data_path=str(input_path),
-                num_epochs=args.num_epochs,
-                max_time_seconds=args.max_time,
-                warmup_time_seconds=args.warmup_time,
-                print_progress=True,
-            )
+            results = []
+            for run_num in range(1, args.num_runs + 1):
+                single_result = run_single_benchmark(
+                    f"SCDL-{args.sampling_scheme}", factory, str(input_path), run_num if args.num_runs > 1 else None
+                )
+                results.append(single_result)
+
+            # Average results if multiple runs
+            if args.num_runs > 1:
+                result = average_benchmark_results(results, f"SCDL-{args.sampling_scheme}")
+                print(f"\nBenchmark completed: averaged {len(results)} runs")
+            else:
+                result = results[0]
 
             # Format and output report
             report = format_report(result, str(input_path), args.sampling_scheme)

@@ -50,6 +50,9 @@ python scdl_speedtest.py --csv
 
 # Export detailed JSON file
 python scdl_speedtest.py --json results.json
+
+# Run multiple iterations and average results for more stable benchmarks
+python scdl_speedtest.py --num-runs 3
 ```
 
 3. Deactivate your virtual environment to return to your original shell state
@@ -72,6 +75,15 @@ python scdl_speedtest.py --csv -o report.txt
 
 # Export results to a JSON file
 python scdl_speedtest.py --json my_benchmark_results.json
+
+# Run 5 benchmark iterations and average the results for more reliable measurements
+python scdl_speedtest.py --num-runs 5
+
+# Run multiple iterations with baseline comparison
+python scdl_speedtest.py -i my_data.h5ad --generate-baseline --num-runs 3
+
+# Run multiple iterations and export CSV with averaged results
+python scdl_speedtest.py --num-runs 5 --csv
 
 # Run the speedtest with a custom batch size and runtime limit
 python scdl_speedtest.py --batch-size 64 --max-time 60
@@ -98,6 +110,7 @@ python scdl_speedtest.py --generate-baseline -i my_data.h5ad --scdl-path /path/t
 | `--generate-baseline`   | Compare SCDL vs AnnData performance                                                                                  | False                    |
 | `--scdl-path`           | Path to SCDL dataset (optional, only used with --generate-baseline)                                                  | None                     |
 | `--num-epochs`          | The number of epochs (passes through the training dataset).                                                          | 1                        |
+| `--num-runs`            | Number of benchmark runs to average (for more stable and reliable measurements)                                      | 1                        |
 
 ## Sample Output
 
@@ -205,6 +218,7 @@ When using `--json filename.json`, the script generates a comprehensive JSON fil
 - **Memory profiling**: Use `--csv` to get detailed memory usage per epoch
 - **Clearing the page cache**: With lazy loading, data may be stored in the page cache between runs. This is especially an issue with SCDL. Between runs, the page cache can be cleared with
   `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`
+- **Multiple runs for stability**: Use `--num-runs 3` or `--num-runs 5` to run multiple benchmark iterations and average the results. This reduces the impact of system variability, background processes, and cold cache effects, providing more reliable and representative performance measurements.
 
 ## Example Datasets
 
