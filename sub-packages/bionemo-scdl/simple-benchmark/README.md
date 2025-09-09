@@ -243,10 +243,14 @@ full conversion; however, running a single plate of the data should give you a g
 on your system. The following command will run the speedtest on the first plate, as downloaded above:
 
 ```bash
-python scdl_speedtest.py --generate-baseline -i tahoe-100m/h5ad/plate1_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad
+python scdl_speedtest.py --generate-baseline -i tahoe-100m/h5ad/plate1_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad --warmup-time 30 --max-time 120
 ```
 
 Alternatively, on the fully converted data:
+
+```bash
+python -m bionemo.scdl.simple_benchmark.scdl_speedtest.py --generate-baseline -i <path to Tahoe 100M in h5ad format> --scdl-path <path to Tahoe 100M in SCDL format> --warmup-time 30 --max-time 120
+```
 
 ## Support
 
