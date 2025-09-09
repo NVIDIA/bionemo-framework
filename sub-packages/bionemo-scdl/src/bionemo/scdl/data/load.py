@@ -136,8 +136,8 @@ __all__: Sequence[str] = (
     "load",
 )
 SourceOptions = Literal["ngc", "pbss"]
-DEFAULT_SOURCE: SourceOptions = os.environ.get("BIONEMO_DATA_SOURCE", "ngc")  # type: ignore
-
+_ENV_SOURCE = os.environ.get("BIONEMO_DATA_SOURCE", "ngc").lower()
+DEFAULT_SOURCE: SourceOptions = _ENV_SOURCE if _ENV_SOURCE in {"ngc", "pbss"} else "ngc"
 
 def default_pbss_client():
     """Create a default S3 client for PBSS."""
