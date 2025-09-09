@@ -22,6 +22,7 @@ import shutil
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Sequence
 
@@ -144,10 +145,16 @@ except ImportError:
 def get_all_resources(resource_path: Path | None = None) -> dict[str, Resource]:
     """Return a dictionary of all resources."""
     if not resource_path:
-        # Default to the local scdl resources directory
-        resource_path = Path(__file__).parent / "resources"
-
-    resources_files = itertools.chain(resource_path.glob("*.yaml"), resource_path.glob("*.yml"))
+        # Use importlib.resources to access bundled package resources
+        try:
+            resource_files = resources.files("bionemo.scdl.data.resources")
+            resources_files = [f for f in resource_files.iterdir() if f.is_file() and f.suffix in {".yaml", ".yml"}]
+        except (ImportError, FileNotFoundError):
+            # Fallback to local directory for development/testing
+            resource_path = Path(__file__).parent / "resources"
+            resources_files = itertools.chain(resource_path.glob("*.yaml"), resource_path.glob("*.yml"))
+    else:
+        resources_files = itertools.chain(resource_path.glob("*.yaml"), resource_path.glob("*.yml"))
 
     all_resources = [resource for file in resources_files for resource in _parse_resource_file(file)]
 
@@ -169,11 +176,41 @@ def get_all_resources(resource_path: Path | None = None) -> dict[str, Resource]:
 
 
 def _parse_resource_file(file) -> list[dict[str, Any]]:
-    with file.open("r") as f:
-        resources = yaml.safe_load(f)
-        for resource in resources:
-            resource["tag"] = f"{file.stem}/{resource['tag']}"
-        return resources
+    # Handle both Path objects and importlib.resources Traversable objects
+    if hasattr(file, "read_text"):
+        # importlib.resources Traversable
+        content = file.read_text(encoding="utf-8")
+        filename = file.name
+    else:
+        # Regular Path object
+        with file.open("r") as f:
+            content = f.read()
+        filename = file.name
+
+    # Parse YAML content
+    resources = yaml.safe_load(content)
+
+    # Validate YAML content
+    if resources is None:
+        raise ValueError(f"Empty YAML file: {filename}")
+
+    if not isinstance(resources, list):
+        raise TypeError(f"Expected list in YAML file {filename}, got {type(resources).__name__}")
+
+    # Validate each resource entry
+    for i, resource in enumerate(resources):
+        if not isinstance(resource, dict):
+            raise ValueError(f"Resource at index {i} in {filename} is not a dict: {resource}")
+
+        if "tag" not in resource:
+            raise ValueError(f"Resource at index {i} in {filename} missing required 'tag' key: {resource}")
+
+    # Update tags with file stem prefix
+    stem = Path(filename).stem
+    for resource in resources:
+        resource["tag"] = f"{stem}/{resource['tag']}"
+
+    return resources
 
 
 __all__: Sequence[str] = (
