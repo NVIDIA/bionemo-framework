@@ -226,16 +226,17 @@ _ENV_SOURCE = os.environ.get("BIONEMO_DATA_SOURCE", "ngc").lower()
 DEFAULT_SOURCE: SourceOptions = _ENV_SOURCE if _ENV_SOURCE in {"ngc", "pbss"} else "ngc"
 
 
- def default_pbss_client():
-     """Create a default S3 client for PBSS."""
-     try:
-         import boto3
-         from botocore.config import Config
-     except ImportError:
-         raise ImportError("boto3 and botocore are required to download from PBSS.")
+def default_pbss_client():
+    """Create a default S3 client for PBSS."""
+    try:
+        import boto3
+        from botocore.config import Config
+    except ImportError:
+        raise ImportError("boto3 and botocore are required to download from PBSS.")
 
-     retry_config = Config(retries={"max_attempts": 10, "mode": "standard"})
-     return boto3.client("s3", endpoint_url="https://pbss.s8k.io", config=retry_config)
+    retry_config = Config(retries={"max_attempts": 10, "mode": "standard"})
+    return boto3.client("s3", endpoint_url="https://pbss.s8k.io", config=retry_config)
+
 
 def _s3_download(url: str, output_file: str | Path, _: pooch.Pooch) -> None:
     """Download a file from PBSS."""
@@ -340,12 +341,13 @@ def load(
 ) -> Path:
     """Download a resource from PBSS or NGC.
 
-     Args:
-         model_or_data_tag: A pointer to the desired resource. Must be a key in the resources dictionary.
+    Args:
+        model_or_data_tag: A pointer to the desired resource. Must be a key in the resources dictionary.
         source: Either "pbss" (NVIDIA-internal) or "ngc" (NGC). Defaults to DEFAULT_SOURCE
             (from environment variable BIONEMO_DATA_SOURCE; defaults to "ngc").
-         resources: A custom dictionary of resources. If None, the default resources will be used. (Mostly for testing.)
-         cache_dir: The directory to store downloaded files. Defaults to BIONEMO_CACHE_DIR. (Mostly for testing.)
+        resources: A custom dictionary of resources. If None, the default resources will be used. (Mostly for testing.)
+        cache_dir: The directory to store downloaded files. Defaults to BIONEMO_CACHE_DIR. (Mostly for testing.)
+
     Raises:
         ValueError: If the desired tag was not found, or if an NGC url was requested but not provided.
 
