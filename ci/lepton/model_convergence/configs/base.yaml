@@ -4,6 +4,7 @@ container:
   image: nvcr.io/nvidia/pytorch:25.06-py3
   registry_auth: lepton-nvidia
 
+# These keys are required for the job to upload data to wandb and kratos
 environment_variables:
   - name: WANDB_API_KEY
     value_from: JWILBER_WANDB_API_KEY
@@ -21,3 +22,5 @@ environment_variables:
 #     - path: /BioNeMo
 #       mount_path: /BioNeMo
 #       from_: node-nfs:lepton-shared-fs
+
+commit_sha: ""
