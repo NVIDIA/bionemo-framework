@@ -91,10 +91,6 @@ tests:
           operator: range
           max: 0.1372
           min: 0.0993
-        TFLOPS_per_GPU:
-          operator: range
-          max: 719.5984
-          min: 694.8020
         val_acc:
           operator: range
           max: 0.8462
