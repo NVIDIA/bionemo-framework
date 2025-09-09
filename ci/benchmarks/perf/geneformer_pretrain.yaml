@@ -27,8 +27,20 @@ script_args:
       batch_size: 32
 
 script: |-
-   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
-    --data-dir ${data_path} \
+  COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
+  NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
+  if [ "$SLURM_LOCALID" = "0" ]; then
+      df -h;
+      echo $NEW_DATA_PATH;
+      time cp -r ${data_path}/ $NEW_DATA_PATH;
+      touch $COPY_FLAG
+  fi
+  # All ranks wait until install flag file appears
+  while [ ! -f $COPY_FLAG ]; do
+      sleep 1
+  done
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
+    --data-dir $NEW_DATA_PATH \
     --experiment-name ${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
     --num-gpus ${gpus} \
     --save-last-checkpoint \
