@@ -46,6 +46,7 @@ It is designed to be used as a starting point for developing more complex traini
 
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 
 import hydra
@@ -115,9 +116,6 @@ def main(cfg: DictConfig) -> None:
     # Initialize wandb only on the main process
     if dist_config.is_main_process():
         wandb.init(
-            project=cfg.wandb_init_args.project,
-            name=cfg.wandb_init_args.name,
-            mode=cfg.wandb_init_args.mode,
             config={
                 "batch_size": cfg.model.micro_batch_size,
                 "learning_rate": cfg.training.optimizer_kwargs.lr,
@@ -126,6 +124,7 @@ def main(cfg: DictConfig) -> None:
                 "use_fp8": cfg.training.use_fp8,
                 "world_size": dist_config.world_size,
             },
+            **cfg.wandb_init_args,
         )
 
     bert_model_config = TEBertConfig(**cfg.model, torch_dtype=torch.bfloat16)
@@ -218,7 +217,7 @@ def main(cfg: DictConfig) -> None:
             logger=logger,
             start_step=start_step,
         )
-
+    previous_step_time = time.perf_counter()
     for step in range(start_step, cfg.training.num_train_steps):
         # Get batch
         batch = next(dataloader)
@@ -253,8 +252,11 @@ def main(cfg: DictConfig) -> None:
 
         # Log metrics to wandb on main process
         if dist_config.is_main_process():
+            current_time = time.perf_counter()
+            step_time = current_time - previous_step_time
+            previous_step_time = current_time
             logger.info(
-                f"Step {step} loss: {loss.item()}, grad_norm: {total_norm}, lr: {optimizer.param_groups[0]['lr']}"
+                f"Step {step} loss: {loss.item()}, grad_norm: {total_norm}, lr: {optimizer.param_groups[0]['lr']}, step_time: {step_time:.3f}s"
             )
             wandb.log(
                 {
@@ -263,6 +265,7 @@ def main(cfg: DictConfig) -> None:
                     "train/learning_rate": optimizer.param_groups[0]["lr"],
                     "train/grad_norm": total_norm,
                     "train/epoch": step / dataloader_length,
+                    "train/step_time": step_time,
                 }
             )
 
