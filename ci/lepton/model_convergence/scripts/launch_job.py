@@ -23,6 +23,7 @@ def wrap_script_with_logging(
     script: str,
     dashboard_info: Dict[str, str] = None,
     recipe_subdir: str = "esm2_native_te_mfsdp",
+    all_config_json: str = "{}",
 ) -> str:
     if isinstance(dashboard_info, (HydraDictConfig, ListConfig)):
         dashboard_info = OmegaConf.to_container(dashboard_info, resolve=True)
@@ -105,6 +106,7 @@ JOB_INFO="$(
 )"
 
 JOB_INFO_JSON="$(printf '%s' "$JOB_INFO" | jq -c . 2>/dev/null || echo '{{}}')"
+ALL_CONFIG_JSON='{all_config_json}'
 DASHBOARD_INFO_JSON='{dashboard_json}'
 
 # Look for W&B files
@@ -141,13 +143,15 @@ if [ "$WANDB_FOUND" = "1" ] && [ -n "$WANDB_SUMMARY" ]; then
         --arg s "$SUMMARY_JSON" \
         --argjson job_info "$JOB_INFO_JSON" \
         --argjson dashboard_info "$DASHBOARD_INFO_JSON" \
+        --argjson all_config "$ALL_CONFIG_JSON" \
         '
         . + {{
           job_name: env.LEPTON_JOB_NAME,
           metadata: ($m | fromjson? // {{}}),
           summary:  ($s | fromjson? // {{}}),
           job_info: $job_info,
-          dashboard_info: $dashboard_info
+          dashboard_info: $dashboard_info,
+          config: $all_config
         }}
         ')
 
@@ -227,6 +231,8 @@ def launch_single_job(client, cfg: DictConfig):
     for node in node_ids:
         valid_node_ids.add(node.metadata.id_)
 
+    full_cfg_json = json.dumps(OmegaConf.to_container(cfg, resolve=True))
+
     # Create command with the extracted parameters
     command = [
         "bash",
@@ -235,6 +241,7 @@ def launch_single_job(client, cfg: DictConfig):
             cfg.script,
             dashboard_info=cfg.dashboard_info if hasattr(cfg, 'dashboard_info') else None,
             recipe_subdir=cfg.recipe_subdir if hasattr(cfg, 'recipe_subdir') else "esm2_native_te_mfsdp",
+            all_config_json=full_cfg_json,
         ),
     ]
 
