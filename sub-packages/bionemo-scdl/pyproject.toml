@@ -16,14 +16,17 @@ dependencies = [
     'numpy>=1.24.4',
     'pandas>=2.2.1',
     'pyarrow>=16.0.0',
+    'pooch>=1.6.0',
     'scipy>=1.11.1',
     'torch>=2.2.1',
     'pydantic[email]>=2.2.0',
+    'tqdm>=4.67.1'
 ]
 
 [project.optional-dependencies]
 test = [
-    'pytest>=8.4.1'
+    'pytest>=8.4.1',
+    'psutil>=7.0.0'
 ]
 
 [project.scripts]
