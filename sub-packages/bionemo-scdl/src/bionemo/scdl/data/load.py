@@ -226,19 +226,16 @@ _ENV_SOURCE = os.environ.get("BIONEMO_DATA_SOURCE", "ngc").lower()
 DEFAULT_SOURCE: SourceOptions = _ENV_SOURCE if _ENV_SOURCE in {"ngc", "pbss"} else "ngc"
 
 
-def default_pbss_client():
-    """Create a default S3 client for PBSS."""
-    try:
-        import boto3
-        from botocore.config import Config
-    except ImportError:
-        raise ImportError("boto3 and botocore are required to download from PBSS.")
+ def default_pbss_client():
+     """Create a default S3 client for PBSS."""
+     try:
+         import boto3
+         from botocore.config import Config
+     except ImportError:
+         raise ImportError("boto3 and botocore are required to download from PBSS.")
 
-    from botocore.config import Config  # defer optional dependency
-
-    retry_config = Config(retries={"max_attempts": 10, "mode": "standard"})
-    return boto3.client("s3", endpoint_url="https://pbss.s8k.io", config=retry_config)
-
+     retry_config = Config(retries={"max_attempts": 10, "mode": "standard"})
+     return boto3.client("s3", endpoint_url="https://pbss.s8k.io", config=retry_config)
 
 def _s3_download(url: str, output_file: str | Path, _: pooch.Pooch) -> None:
     """Download a file from PBSS."""
