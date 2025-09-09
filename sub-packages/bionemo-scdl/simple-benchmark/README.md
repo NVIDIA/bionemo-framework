@@ -249,7 +249,7 @@ python scdl_speedtest.py --generate-baseline -i tahoe-100m/h5ad/plate1_filt_Vevo
 Alternatively, on the fully converted data:
 
 ```bash
-python -m bionemo.scdl.simple_benchmark.scdl_speedtest.py --generate-baseline -i <path to Tahoe 100M in h5ad format> --scdl-path <path to Tahoe 100M in SCDL format> --warmup-time 30 --max-time 120
+python -m bionemo.scdl.simple_benchmark.scdl_speedtest --generate-baseline -i <path to Tahoe 100M in h5ad format> --scdl-path <path to Tahoe 100M in SCDL format> --warmup-time 30 --max-time 120
 ```
 
 ## Support
