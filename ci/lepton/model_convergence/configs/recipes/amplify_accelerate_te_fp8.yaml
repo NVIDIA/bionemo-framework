@@ -30,8 +30,8 @@ trainer:
 products:
   - model_name: amplify_120M_sanity
     config: L0_sanity
-  # - model_name: L1-350M-partial-conv
-  #   config: L1_350M_partial_conv
+  - model_name: L1-350M-partial-conv
+    config: L1_350M_partial_conv
 
 script: |
   git clone https://github.com/NVIDIA/bionemo-framework.git
@@ -51,4 +51,4 @@ script: |
     trainer.report_to=${trainer.report_to} \
     wandb_init_args.mode=${wandb_init_args.mode} \
     wandb_init_args.project=${wandb_init_args.project} \
-    +wandb_init_args.group=${wandb_init_args.group} \
+    +wandb_init_args.group=${wandb_init_args.group}
