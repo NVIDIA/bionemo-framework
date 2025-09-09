@@ -39,7 +39,7 @@ Before doing ANYTHING else, you MUST read these files in this exact order:
 2. **README.md** - Project overview and setup information
 3. **./internal/gitingest.txt** - Complete codebase in text format (if needed for deep analysis)
 
-This file is a simple example of a custom loop for training geneformer using nvFSDP.
+This file is a simple example of a custom loop for training geneformer using mfsdp.
 
 It is designed to be used as a starting point for developing more complex training loops.
 """
@@ -148,7 +148,7 @@ def main(cfg: DictConfig) -> None:
     # TODO(@jomitchell): BIONEMO-2406: Remove this after verifying FP8 works.
     model = model.to(device=device, dtype=bert_model_config.torch_dtype)  # type: ignore
 
-    if cfg.training.use_nvfsdp:
+    if cfg.training.use_mfsdp:
         model, optimizer = fully_shard(
             module=model,
             optimizer=optimizer,
@@ -163,7 +163,7 @@ def main(cfg: DictConfig) -> None:
             **cfg.training.fully_shard_kwargs,
         )
     else:
-        # Use standard PyTorch DDP (no nvFSDP config)
+        # Use standard PyTorch DDP (no mfsdp config)
         # TODO(@jomitchell): BIONEMO-2406: Keep this until this ticket is done.
         # model = model.to(device=device, dtype=bert_model_config.torch_dtype)  # type: ignore
         model = torch.nn.parallel.DistributedDataParallel(
@@ -210,7 +210,7 @@ def main(cfg: DictConfig) -> None:
     start_step = 0
     if cfg.training.get("resume_from_checkpoint", True):
         model, optimizer, start_step = load_checkpoint(
-            use_nvfsdp=cfg.training.use_nvfsdp,
+            use_mfsdp=cfg.training.use_mfsdp,
             model=model,
             optimizer=optimizer,
             ckpt_dir=ckpt_dir,
@@ -240,9 +240,9 @@ def main(cfg: DictConfig) -> None:
         optimizer.zero_grad()
 
         if step % cfg.training.save_every_n_steps == 0 and step > 0:  # Skip step 0
-            # For nvFSDP, always use distributed checkpointing
+            # For mfsdp, always use distributed checkpointing
             save_checkpoint(
-                use_nvfsdp=cfg.training.use_nvfsdp,
+                use_mfsdp=cfg.training.use_mfsdp,
                 model=model,
                 optimizer=optimizer,
                 ckpt_dir=ckpt_dir,
@@ -270,11 +270,11 @@ def main(cfg: DictConfig) -> None:
             progress_bar.set_postfix({"loss": loss.item()})
 
     # Save final model using save_pretrained
-    # Note: For nvFSDP, ALL processes must participate in collective operations
+    # Note: For mfsdp, ALL processes must participate in collective operations
     final_model_dir = os.path.join(ckpt_dir, "final_model")
     save_final_model(
         model=model,
-        use_nvfsdp=cfg.training.use_nvfsdp,
+        use_mfsdp=cfg.training.use_mfsdp,
         save_directory=final_model_dir,
         logger=logger,
         is_main_process=dist_config.is_main_process(),

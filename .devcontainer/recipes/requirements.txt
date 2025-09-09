@@ -7,6 +7,6 @@ megatron-fsdp==0.1.0rc0
 torchmetrics
 tqdm
 transformer_engine
-transformers @ git+https://github.com/huggingface/transformers.git
+transformers
 typer
 wandb
