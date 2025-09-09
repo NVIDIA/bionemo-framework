@@ -179,7 +179,7 @@ class TestMonotonicDecreasingLoss(unittest.TestCase):
 
         loss_values, error = self._run_training_with_config(
             "l0_sanity",
-            ["model.use_te_layers=false", "training.use_nvfsdp=false", "training.resume_from_checkpoint=false"],
+            ["model.use_te_layers=false", "training.use_mfsdp=false", "training.resume_from_checkpoint=false"],
         )
 
         if error:
@@ -217,7 +217,7 @@ class TestMonotonicDecreasingLoss(unittest.TestCase):
             self.skipTest("CUDA not available - skipping real training test")
 
         loss_values, error = self._run_training_with_config(
-            "l0_sanity", ["model.use_te_layers=true", "training.use_nvfsdp=false"]
+            "l0_sanity", ["model.use_te_layers=true", "training.use_mfsdp=false"]
         )
 
         if error:
@@ -251,17 +251,17 @@ class TestMonotonicDecreasingLoss(unittest.TestCase):
         )
 
     @pytest.mark.slow
-    def test_sanity_te_nvfsdp_config_loss_decreases(self):
-        """Test that sanity_te_nvfsdp config shows decreasing loss trend."""
+    def test_sanity_te_mfsdp_config_loss_decreases(self):
+        """Test that sanity_te_mfsdp config shows decreasing loss trend."""
         if not torch.cuda.is_available():
             self.skipTest("CUDA not available - skipping real training test")
 
         loss_values, error = self._run_training_with_config(
-            "l0_sanity", ["model.use_te_layers=true", "training.use_nvfsdp=true"]
+            "l0_sanity", ["model.use_te_layers=true", "training.use_mfsdp=true"]
         )
 
         if error:
-            self.fail(f"sanity_te_nvfsdp config: {error}")
+            self.fail(f"sanity_te_mfsdp config: {error}")
 
         # Ensure loss_values is not None before proceeding
         self.assertIsNotNone(loss_values, "Loss values should not be None")
@@ -276,30 +276,30 @@ class TestMonotonicDecreasingLoss(unittest.TestCase):
 
         # Log the results
         if is_decreasing:
-            logger.info("✅ sanity_te_nvfsdp: Loss shows decreasing trend - model is learning!")
-            logger.info(f"📊 sanity_te_nvfsdp: First loss: {loss_values[0]:.4f}, Last loss: {loss_values[-1]:.4f}")
+            logger.info("✅ sanity_te_mfsdp: Loss shows decreasing trend - model is learning!")
+            logger.info(f"📊 sanity_te_mfsdp: First loss: {loss_values[0]:.4f}, Last loss: {loss_values[-1]:.4f}")
         else:
-            logger.warning("⚠️ sanity_te_nvfsdp: Loss does not show clear decreasing trend")
-            logger.info(f"📊 sanity_te_nvfsdp: First 10 values: {loss_values[:10]}")
-            logger.info(f"📊 sanity_te_nvfsdp: Last 10 values: {loss_values[-10:]}")
+            logger.warning("⚠️ sanity_te_mfsdp: Loss does not show clear decreasing trend")
+            logger.info(f"📊 sanity_te_mfsdp: First 10 values: {loss_values[:10]}")
+            logger.info(f"📊 sanity_te_mfsdp: Last 10 values: {loss_values[-10:]}")
 
         # Assert that the loss is decreasing
         self.assertTrue(
-            is_decreasing, f"sanity_te_nvfsdp config: Loss should show decreasing trend. Loss values: {loss_values}"
+            is_decreasing, f"sanity_te_mfsdp config: Loss should show decreasing trend. Loss values: {loss_values}"
         )
 
     @pytest.mark.slow
-    def test_sanity_nvfsdp_config_loss_decreases(self):
-        """Test that sanity_nvfsdp config shows decreasing loss trend."""
+    def test_sanity_mfsdp_config_loss_decreases(self):
+        """Test that sanity_mfsdp config shows decreasing loss trend."""
         if not torch.cuda.is_available():
             self.skipTest("CUDA not available - skipping real training test")
 
         loss_values, error = self._run_training_with_config(
-            "l0_sanity", ["training.use_nvfsdp=true", "model.use_te_layers=false"]
+            "l0_sanity", ["training.use_mfsdp=true", "model.use_te_layers=false"]
         )
 
         if error:
-            self.fail(f"sanity_nvfsdp config: {error}")
+            self.fail(f"sanity_mfsdp config: {error}")
 
         # Ensure loss_values is not None before proceeding
         self.assertIsNotNone(loss_values, "Loss values should not be None")
@@ -314,16 +314,16 @@ class TestMonotonicDecreasingLoss(unittest.TestCase):
 
         # Log the results
         if is_decreasing:
-            logger.info("✅ sanity_nvfsdp: Loss shows decreasing trend - model is learning!")
-            logger.info(f"📊 sanity_nvfsdp: First loss: {loss_values[0]:.4f}, Last loss: {loss_values[-1]:.4f}")
+            logger.info("✅ sanity_mfsdp: Loss shows decreasing trend - model is learning!")
+            logger.info(f"📊 sanity_mfsdp: First loss: {loss_values[0]:.4f}, Last loss: {loss_values[-1]:.4f}")
         else:
-            logger.warning("⚠️ sanity_nvfsdp: Loss does not show clear decreasing trend")
-            logger.info(f"📊 sanity_nvfsdp: First 10 values: {loss_values[:10]}")
-            logger.info(f"📊 sanity_nvfsdp: Last 10 values: {loss_values[-10:]}")
+            logger.warning("⚠️ sanity_mfsdp: Loss does not show clear decreasing trend")
+            logger.info(f"📊 sanity_mfsdp: First 10 values: {loss_values[:10]}")
+            logger.info(f"📊 sanity_mfsdp: Last 10 values: {loss_values[-10:]}")
 
         # Assert that the loss is decreasing
         self.assertTrue(
-            is_decreasing, f"sanity_nvfsdp config: Loss should show decreasing trend. Loss values: {loss_values}"
+            is_decreasing, f"sanity_mfsdp config: Loss should show decreasing trend. Loss values: {loss_values}"
         )
 
 

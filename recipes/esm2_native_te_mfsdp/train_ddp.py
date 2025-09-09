@@ -51,7 +51,7 @@ class DistributedConfig:
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
-    """Train ESM-2 with TE layers using nvFSDP.
+    """Train ESM-2 with TE layers using mfsdp.
 
     Model names are valid ESM-2 model sizes, e.g.:
     - "esm2_t6_8M_UR50D"
@@ -63,7 +63,7 @@ def main(args: DictConfig) -> float | None:
     """
     # Initialize distributed training and create a device mesh for FSDP.
     # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
-    # to work correctly with nvFSDP.
+    # to work correctly with mfsdp.
     dist.init_process_group(backend="nccl")
     dist_config = DistributedConfig()
     torch.cuda.set_device(dist_config.local_rank)

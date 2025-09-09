@@ -17,7 +17,7 @@
 
 This module tests checkpoint save/resume functionality across different
 distributed training configurations:
-- nvFSDP (Native Fully Sharded Data Parallel) with 1 and 2 processes
+- mfsdp (Native Fully Sharded Data Parallel) with 1 and 2 processes
 - DDP (Distributed Data Parallel) with 1 and 2 processes
 
 Test Strategy:
@@ -47,11 +47,11 @@ requires_multi_gpu = pytest.mark.skipif(
 
 
 @pytest.mark.slow
-def test_checkpoint_save_and_load_single_process_nvfsdp():
-    """Test checkpoint save/resume functionality for nvFSDP with single process.
+def test_checkpoint_save_and_load_single_process_mfsdp():
+    """Test checkpoint save/resume functionality for mfsdp with single process.
 
     This test validates:
-    - nvFSDP creates distributed checkpoints (step_X directories)
+    - mfsdp creates distributed checkpoints (step_X directories)
     - Checkpoints are saved at specified intervals (every 5 steps)
     - Training can resume from latest checkpoint and continue
     - Resume starts from correct step count (5 -> 11)
@@ -61,7 +61,7 @@ def test_checkpoint_save_and_load_single_process_nvfsdp():
     2. Resume training from step 5, continue to step 11
     3. Verify checkpoints exist at steps 5 and 10
 
-    Uses: sanity_te_nvfsdp config (use_nvfsdp: true)
+    Uses: sanity_te_mfsdp config (use_mfsdp: true)
     """
     temp_dir = tempfile.mkdtemp(prefix="test_ckpt_")
 
@@ -81,7 +81,7 @@ def test_checkpoint_save_and_load_single_process_nvfsdp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=true",
+            "training.use_mfsdp=true",
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=false",
@@ -106,7 +106,7 @@ def test_checkpoint_save_and_load_single_process_nvfsdp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=true",
+            "training.use_mfsdp=true",
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=true",
@@ -136,11 +136,11 @@ def test_checkpoint_save_and_load_single_process_nvfsdp():
 
 @requires_multi_gpu
 @pytest.mark.slow
-def test_checkpoint_save_and_load_two_processes_nvfsdp():
-    """Test checkpoint save/resume functionality for nvFSDP with two processes.
+def test_checkpoint_save_and_load_two_processes_mfsdp():
+    """Test checkpoint save/resume functionality for mfsdp with two processes.
 
     This test validates:
-    - Multi-process nvFSDP coordination during checkpoint save/load
+    - Multi-process mfsdp coordination during checkpoint save/load
     - Distributed checkpoint format works across process boundaries
     - Both processes participate in distributed checkpoint operations
     - Training resumes correctly with proper process synchronization
@@ -150,7 +150,7 @@ def test_checkpoint_save_and_load_two_processes_nvfsdp():
     2. Resume training with 2 processes from step 5, continue to step 11
     3. Verify distributed checkpoints exist at steps 5 and 10
 
-    Uses: sanity_te_nvfsdp config with torchrun --nproc_per_node=2
+    Uses: sanity_te_mfsdp config with torchrun --nproc_per_node=2
     Requires: Multi-process environment (mark: needs_two_processes)
     """
     temp_dir = tempfile.mkdtemp(prefix="test_ckpt_")
@@ -171,7 +171,7 @@ def test_checkpoint_save_and_load_two_processes_nvfsdp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=true",
+            "training.use_mfsdp=true",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=false",
             "training.save_every_n_steps=5",
@@ -195,7 +195,7 @@ def test_checkpoint_save_and_load_two_processes_nvfsdp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=true",
+            "training.use_mfsdp=true",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=true",
             "training.save_every_n_steps=5",
@@ -237,7 +237,7 @@ def test_checkpoint_save_and_load_one_processes_ddp():
     2. Resume training from checkpoint, continue to step 11
     3. Verify step_X checkpoint files exist at steps 5 and 10
 
-    Uses: sanity_te config (use_nvfsdp: false)
+    Uses: sanity_te config (use_mfsdp: false)
     """
     temp_dir = tempfile.mkdtemp(prefix="test_ckpt_")
 
@@ -257,7 +257,7 @@ def test_checkpoint_save_and_load_one_processes_ddp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=false",
+            "training.use_mfsdp=false",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=false",
             "training.save_every_n_steps=5",
@@ -281,7 +281,7 @@ def test_checkpoint_save_and_load_one_processes_ddp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=false",
+            "training.use_mfsdp=false",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=true",
             "training.save_every_n_steps=5",
@@ -345,7 +345,7 @@ def test_checkpoint_save_and_load_two_processes_ddp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=false",
+            "training.use_mfsdp=false",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=false",
             "training.save_every_n_steps=5",
@@ -369,7 +369,7 @@ def test_checkpoint_save_and_load_two_processes_ddp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=false",
+            "training.use_mfsdp=false",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=true",
             "training.save_every_n_steps=5",
@@ -397,8 +397,8 @@ def test_checkpoint_save_and_load_two_processes_ddp():
 
 
 @pytest.mark.slow
-def test_safetensors_save_load_roundtrip_nvfsdp():
-    """Test safetensors save/load round-trip functionality for nvFSDP.
+def test_safetensors_save_load_roundtrip_mfsdp():
+    """Test safetensors save/load round-trip functionality for mfsdp.
 
     This test validates the complete save/load cycle:
     - Train model to get non-random weights
@@ -418,7 +418,7 @@ def test_safetensors_save_load_roundtrip_nvfsdp():
     4. Compare state dicts tensor-by-tensor for exact matches
     5. Verify parameter count and structure consistency
 
-    Uses: l0_sanity config (use_nvfsdp: true, use_te_layers: true)
+    Uses: l0_sanity config (use_mfsdp: true, use_te_layers: true)
     """
     temp_dir = tempfile.mkdtemp(prefix="test_safetensors_roundtrip_")
 
@@ -439,7 +439,7 @@ def test_safetensors_save_load_roundtrip_nvfsdp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=true",
+            "training.use_mfsdp=true",
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=false",
@@ -562,22 +562,22 @@ def test_safetensors_save_load_roundtrip_nvfsdp():
 
 @requires_multi_gpu
 @pytest.mark.slow
-def test_distributed_safetensors_multiprocess_nvfsdp():
-    """Test safetensors export functionality for nvFSDP with multiple processes.
+def test_distributed_safetensors_multiprocess_mfsdp():
+    """Test safetensors export functionality for mfsdp with multiple processes.
 
     This test validates:
-    - Multi-process nvFSDP training completes and creates safetensors export
+    - Multi-process mfsdp training completes and creates safetensors export
     - final_model directory is created with proper files (only on rank 0)
     - Safetensors file contains actual model weights gathered from all processes
     - Parameter gathering works correctly across process boundaries
     - Model weights can be loaded from multiprocess-generated safetensors
 
     Process:
-    1. Train for 5 steps with nvFSDP enabled across 2 processes
+    1. Train for 5 steps with mfsdp enabled across 2 processes
     2. Verify final_model directory is created (only on main process)
     3. Load and validate safetensors content matches expected multiprocess model
 
-    Uses: l0_sanity config (use_nvfsdp: true, use_te_layers: true)
+    Uses: l0_sanity config (use_mfsdp: true, use_te_layers: true)
     Requires: Multi-process environment (mark: needs_two_processes)
     """
     temp_dir = tempfile.mkdtemp(prefix="test_safetensors_multiprocess_")
@@ -598,7 +598,7 @@ def test_distributed_safetensors_multiprocess_nvfsdp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=true",
+            "training.use_mfsdp=true",
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=false",
@@ -679,8 +679,8 @@ def test_distributed_safetensors_multiprocess_nvfsdp():
 
 @requires_multi_gpu
 @pytest.mark.slow
-def test_safetensors_multiprocess_roundtrip_nvfsdp():
-    """Test safetensors save/load round-trip functionality for nvFSDP with multiple processes.
+def test_safetensors_multiprocess_roundtrip_mfsdp():
+    """Test safetensors save/load round-trip functionality for mfsdp with multiple processes.
 
     This test validates the complete multiprocess save/load cycle:
     - Train model with multiple processes to get non-random weights
@@ -691,11 +691,11 @@ def test_safetensors_multiprocess_roundtrip_nvfsdp():
 
     Process:
     1. Train model for 3 steps across 2 processes
-    2. Save final model using save_pretrained (with nvFSDP parameter gathering)
+    2. Save final model using save_pretrained (with mfsdp parameter gathering)
     3. Load model using BertForMaskedLM.from_pretrained()
     4. Verify model structure and key tensor properties
 
-    Uses: l0_sanity config (use_nvfsdp: true, use_te_layers: true)
+    Uses: l0_sanity config (use_mfsdp: true, use_te_layers: true)
     Requires: Multi-process environment (mark: needs_two_processes)
     """
     temp_dir = tempfile.mkdtemp(prefix="test_safetensors_multiprocess_roundtrip_")
@@ -717,7 +717,7 @@ def test_safetensors_multiprocess_roundtrip_nvfsdp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=true",
+            "training.use_mfsdp=true",
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=false",
@@ -801,7 +801,7 @@ def test_safetensors_multiprocess_roundtrip_nvfsdp():
 def test_safetensors_unsharded_weights_consistency():
     """Test that unsharded weights from multiprocess training match single-process training.
 
-    This test validates that the nvFSDP parameter gathering produces the same final
+    This test validates that the mfsdp parameter gathering produces the same final
     weights regardless of whether the model was trained with 1 or 2 processes.
     This is critical to ensure that the sharding/unsharding process preserves model
     correctness.
@@ -812,7 +812,7 @@ def test_safetensors_unsharded_weights_consistency():
     3. Compare key tensor values between single and multiprocess models
     4. Verify that parameter gathering produces consistent results
 
-    Uses: l0_sanity config (use_nvfsdp: true, use_te_layers: true)
+    Uses: l0_sanity config (use_mfsdp: true, use_te_layers: true)
     Note: Uses fixed random seed to ensure deterministic comparison
     """
     temp_dir_single = tempfile.mkdtemp(prefix="test_unsharded_single_")
@@ -836,7 +836,7 @@ def test_safetensors_unsharded_weights_consistency():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=true",
+            "training.use_mfsdp=true",
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir_single}",
             "training.resume_from_checkpoint=false",
@@ -854,7 +854,7 @@ def test_safetensors_unsharded_weights_consistency():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=true",
+            "training.use_mfsdp=true",
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir_multi}",
             "training.resume_from_checkpoint=false",
@@ -974,7 +974,7 @@ def test_distributed_safetensors_multiprocess_ddp():
     2. Verify final_model directory is created (only on main process)
     3. Load and validate safetensors content matches expected multiprocess model
 
-    Uses: l0_sanity config (use_nvfsdp: false, use_te_layers: true)
+    Uses: l0_sanity config (use_mfsdp: false, use_te_layers: true)
     Requires: Multi-process environment (mark: needs_two_processes)
     """
     temp_dir = tempfile.mkdtemp(prefix="test_safetensors_multiprocess_ddp_")
@@ -995,7 +995,7 @@ def test_distributed_safetensors_multiprocess_ddp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=false",  # Use vanilla DDP instead of nvFSDP
+            "training.use_mfsdp=false",  # Use vanilla DDP instead of mfsdp
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=false",
@@ -1092,7 +1092,7 @@ def test_safetensors_multiprocess_roundtrip_ddp():
     3. Load model using BertForMaskedLM.from_pretrained()
     4. Verify model structure and key tensor properties
 
-    Uses: l0_sanity config (use_nvfsdp: false, use_te_layers: true)
+    Uses: l0_sanity config (use_mfsdp: false, use_te_layers: true)
     Requires: Multi-process environment (mark: needs_two_processes)
     """
     temp_dir = tempfile.mkdtemp(prefix="test_safetensors_multiprocess_roundtrip_ddp_")
@@ -1114,7 +1114,7 @@ def test_safetensors_multiprocess_roundtrip_ddp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=false",  # Use vanilla DDP instead of nvFSDP
+            "training.use_mfsdp=false",  # Use vanilla DDP instead of mfsdp
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir}",
             "training.resume_from_checkpoint=false",
@@ -1209,7 +1209,7 @@ def test_safetensors_unsharded_weights_consistency_ddp():
     3. Compare key tensor values between single and multiprocess models
     4. Verify that parameter gathering produces consistent results
 
-    Uses: l0_sanity config (use_nvfsdp: false, use_te_layers: true)
+    Uses: l0_sanity config (use_mfsdp: false, use_te_layers: true)
     Note: Uses fixed random seed to ensure deterministic comparison
     """
     temp_dir_single = tempfile.mkdtemp(prefix="test_unsharded_single_ddp_")
@@ -1233,7 +1233,7 @@ def test_safetensors_unsharded_weights_consistency_ddp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=false",  # Use vanilla DDP instead of nvFSDP
+            "training.use_mfsdp=false",  # Use vanilla DDP instead of mfsdp
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir_single}",
             "training.resume_from_checkpoint=false",
@@ -1251,7 +1251,7 @@ def test_safetensors_unsharded_weights_consistency_ddp():
             train_script,
             "--config-name",
             "l0_sanity",
-            "training.use_nvfsdp=false",  # Use vanilla DDP instead of nvFSDP
+            "training.use_mfsdp=false",  # Use vanilla DDP instead of mfsdp
             "model.use_te_layers=true",
             f"training.checkpoint_dir={temp_dir_multi}",
             "training.resume_from_checkpoint=false",
