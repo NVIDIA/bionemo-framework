@@ -59,7 +59,7 @@ jobs:
         run: |
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
           if [ -n "${{ inputs.config_override }}" ]; then
-            python ci/lepton/model_convergence/scripts/launch_job.py --config-name="${{ inputs.config_override }}.yaml" branch="${{ inputs.branch }}" commit_sha="${{ inputs.commit_sha }}"
+            python ci/lepton/model_convergence/scripts/launch_job.py --config-name="${{ inputs.config_override }}.yaml" branch="${{ inputs.branch }}" +commit_sha="${{ inputs.commit_sha }}"
           else
-            python ci/lepton/model_convergence/scripts/launch_job.py --config-name="recipes/${{ inputs.model_config }}" branch="${{ inputs.branch }}" commit_sha="${{ inputs.commit_sha }}"
+            python ci/lepton/model_convergence/scripts/launch_job.py --config-name="recipes/${{ inputs.model_config }}" branch="${{ inputs.branch }}" +commit_sha="${{ inputs.commit_sha }}"
           fi
