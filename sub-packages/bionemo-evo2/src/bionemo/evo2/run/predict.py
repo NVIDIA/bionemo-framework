@@ -37,10 +37,10 @@ from nemo.lightning.data import WrappedDataLoader
 from torch import Tensor
 
 from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
+from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
-from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.model.biobert.lightning import get_batch_on_this_context_parallel_rank
 from bionemo.llm.utils.callbacks import PredictionWriter
@@ -82,7 +82,9 @@ def parse_args():
         "--model-size",
         type=str,
         default="7b",
-        choices=sorted(list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys()) + list(LLAMA_MODEL_OPTIONS.keys())),
+        choices=sorted(
+            list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys()) + list(LLAMA_MODEL_OPTIONS.keys())
+        ),
         help="Model size to use. Defaults to '7b'.",
     )
     # output args:
