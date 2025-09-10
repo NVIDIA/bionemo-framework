@@ -224,13 +224,10 @@ class BasePredictor(LightningPassthroughPredictionMixin):
             softmax_logprobs = torch.log_softmax(forward_out_gathered, dim=-1)
             softmax_logprobs = softmax_logprobs[:, :-1]
             input_ids = tokens_gathered[:, 1:]
-            try:
-                assert softmax_logprobs.shape[1] == input_ids.shape[1]
-            except Exception as e:
-                if torch.distributed.get_rank() == 0:
-                    breakpoint()
-                torch.distributed.barrier()
-                raise e
+            if softmax_logprobs.shape[1] != input_ids.shape[1]:
+                raise RuntimeError(
+                    f"Softmax logprobs shape {softmax_logprobs.shape} does not match input ids shape {input_ids.shape}"
+                )
 
             logprobs = torch.gather(
                 softmax_logprobs,  # Gather likelihoods...
@@ -404,6 +401,11 @@ def predict(
     """
     if work_dir is None:
         work_dir = Path(tempfile.mkdtemp())
+    if files_per_subdir is None and write_interval == "batch":
+        logger.warning(
+            "--files-per-subdir is not set with --write-interval batch, will write all predictions to a "
+            "single directory. This may cause problems if you are predicting on a very large dataset."
+        )
     sequence_parallel = tensor_parallel_size > 1 and not no_sequence_parallel
     output_dir.mkdir(parents=True, exist_ok=True)  # Make sure the output directory exists, files will be written here.
     model_parallel_size = tensor_parallel_size * pipeline_model_parallel_size * context_parallel_size

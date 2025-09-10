@@ -91,24 +91,35 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
                 "in the model's predictions as outputs are not ordered and batch indices do not track input order."
             )
 
+    @staticmethod
+    def _assert_initialized():
+        """Asserts that the environment is initialized."""
+        if not (
+            torch.distributed.is_available() and torch.distributed.is_initialized() and parallel_state.is_initialized()
+        ):
+            raise RuntimeError("This function is only defined within an initialized megatron parallel environment.")
+
     @property
     def data_parallel_world_size(self) -> int:
         """Returns the data parallel world size."""
+        self._assert_initialized()
         return torch.distributed.get_world_size(parallel_state.get_data_parallel_group(with_context_parallel=False))
 
     @property
     def data_parallel_rank(self) -> int:
         """Returns the data parallel rank."""
+        self._assert_initialized()
         return torch.distributed.get_rank(parallel_state.get_data_parallel_group(with_context_parallel=False))
 
     @property
     def should_write_predictions(self) -> bool:
         """Returns the context parallel rank."""
         # TODO: handle expert parallelism and other kinds of parallelism
+        self._assert_initialized()
+        if not parallel_state.is_pipeline_last_stage():
+            return False
         return self.save_all_model_parallel_ranks or (
-            parallel_state.is_pipeline_last_stage()
-            and parallel_state.get_tensor_model_parallel_rank() == 0
-            and parallel_state.get_context_parallel_rank() == 0
+            parallel_state.get_tensor_model_parallel_rank() == 0 and parallel_state.get_context_parallel_rank() == 0
         )
 
     @override
