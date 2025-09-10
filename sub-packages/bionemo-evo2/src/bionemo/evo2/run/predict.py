@@ -18,7 +18,6 @@
 
 
 import argparse
-import logging
 import tempfile
 from pathlib import Path
 from typing import Literal
@@ -34,6 +33,7 @@ from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS, HyenaModel
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning import NeMoLogger
 from nemo.lightning.data import WrappedDataLoader
+from nemo.utils import logging as logger
 from torch import Tensor
 
 from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
@@ -44,7 +44,6 @@ from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.utils.callbacks import PredictionWriter
 
 
-logger = logging.getLogger(__name__)
 CheckpointFormats = Literal["torch_dist", "zarr"]
 
 SHUFFLE_MESSAGE = (
@@ -58,7 +57,12 @@ SHUFFLE_MESSAGE = (
 def parse_args():
     """Parse arguments for Evo2 inference."""
     ap = argparse.ArgumentParser()
-
+    ap.add_argument("--num-nodes", type=int, default=1, help="Number of nodes to use for prediction, defaults to 1.")
+    ap.add_argument(
+        "--devices",
+        type=int,
+        help="Number of devices to use for prediction, defaults to tensor_model_parallel_size * pipeline_model_parallel_size * context_parallel_size.",
+    )
     ap.add_argument("--fasta", type=Path, required=True, help="Fasta path from which to generate logit predictions.")
     ap.add_argument("--ckpt-dir", type=Path, required=True, help="NeMo2 checkpoint directory for inference.")
     ap.add_argument("--prepend-bos", action="store_true", help="Prepend BOS token to sequences. Defaults to False.")
@@ -76,7 +80,7 @@ def parse_args():
         "parallelism is used. sequence parallelism should save a small amount of GPU memory so it's on"
         " by default.",
     )
-    ap.add_argument("--batch-size", type=int, default=1, help="Batch size for prediction. Defaults to 1.")
+    ap.add_argument("--micro-batch-size", type=int, default=1, help="Batch size for prediction. Defaults to 1.")
     ap.add_argument(
         "--write-interval",
         type=str,
@@ -364,13 +368,15 @@ def predict(
     tensor_parallel_size: int,
     pipeline_model_parallel_size: int,
     context_parallel_size: int,
+    num_nodes: int = 1,
+    devices: int | None = None,
     model_size: str = "7b",
     model_type: str = "hyena",
     ckpt_format: CheckpointFormats = "torch_dist",
     fp8: bool = False,
     full_fp8: bool = False,
     work_dir: Path | None = None,
-    batch_size: int = 1,
+    micro_batch_size: int = 1,
     output_log_prob_seqs: bool = False,
     log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
     write_interval: Literal["epoch", "batch"] = "epoch",
@@ -391,15 +397,22 @@ def predict(
     sequence_parallel = tensor_parallel_size > 1 and not no_sequence_parallel
     output_dir.mkdir(parents=True, exist_ok=True)  # Make sure the output directory exists, files will be written here.
     model_parallel_size = tensor_parallel_size * pipeline_model_parallel_size * context_parallel_size
-    if model_parallel_size > torch.cuda.device_count():
+    if devices is None:
+        devices = model_parallel_size
+    world_size = num_nodes * devices
+    if world_size % model_parallel_size != 0:
         raise ValueError(
-            f"Requested model parallel size {model_parallel_size} is greater than the "
-            f"number of available CUDA devices {torch.cuda.device_count()}"
+            f"world_size must be divisible by model_parallel_size, got {world_size} and"
+            f" {model_parallel_size}. Please set --num-nodes and --devices such that num_nodes * devices is divisible "
+            "by model_parallel_size, which is TP * CP * PP."
         )
+    global_batch_size = micro_batch_size * world_size // model_parallel_size
+
     # Create PTL trainer.
     trainer = nl.Trainer(
         accelerator="gpu",
-        devices=model_parallel_size,
+        num_nodes=num_nodes,
+        devices=devices,
         strategy=nl.MegatronStrategy(
             drop_last_batch=False,
             tensor_model_parallel_size=tensor_parallel_size,
@@ -409,12 +422,12 @@ def predict(
             ckpt_load_optimizer=False,  # Needs to be false for a normal model checkpoint.
             ckpt_save_optimizer=False,
             ckpt_async_save=False,
-            sequence_parallel=tensor_parallel_size > 1 and sequence_parallel,
+            sequence_parallel=sequence_parallel,
             save_ckpt_format=ckpt_format,
             ckpt_load_strictness="log_all",
             data_sampler=nl.MegatronDataSampler(
-                micro_batch_size=batch_size,
-                global_batch_size=batch_size,
+                micro_batch_size=micro_batch_size,
+                global_batch_size=global_batch_size,
                 seq_len=8192,
                 output_log=False,  # this is needed for predict step to work
             ),
@@ -514,7 +527,7 @@ def predict(
     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
 
     dataset = SimpleFastaDataset(fasta_path, tokenizer, prepend_bos=prepend_bos)
-    datamodule = PredictDataModule(dataset, batch_size=batch_size)
+    datamodule = PredictDataModule(dataset, batch_size=micro_batch_size)
     trainer.predict(model, datamodule=datamodule)  # TODO return_predictions=False
     dataset.write_idx_map(
         output_dir
@@ -525,6 +538,8 @@ def main():
     """Entrypoint for Evo2 prediction (single inference step, no new tokens)."""
     args = parse_args()
     predict(
+        num_nodes=args.num_nodes,
+        devices=args.devices,
         fasta_path=args.fasta,
         ckpt_dir=args.ckpt_dir,
         tensor_parallel_size=args.tensor_parallel_size,
@@ -536,7 +551,7 @@ def main():
         ckpt_format=args.ckpt_format,
         fp8=args.fp8,
         full_fp8=args.full_fp8,
-        batch_size=args.batch_size,
+        micro_batch_size=args.micro_batch_size,
         output_log_prob_seqs=args.output_log_prob_seqs,
         log_prob_collapse_option=args.log_prob_collapse_option,
         prepend_bos=args.prepend_bos,

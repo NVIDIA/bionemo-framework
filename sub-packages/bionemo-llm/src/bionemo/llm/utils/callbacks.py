@@ -14,7 +14,6 @@
 # limitations under the License.
 
 
-import logging
 import os
 from typing import Any, Literal, Sequence, override
 
@@ -22,12 +21,12 @@ import lightning.pytorch as pl
 import torch
 from lightning.pytorch.callbacks import BasePredictionWriter
 from megatron.core import parallel_state
+from nemo.utils import logging as logger
 
 from bionemo.llm.lightning import batch_collator
 
 
 IntervalT = Literal["epoch", "batch"]
-logger = logging.getLogger(__name__)
 
 
 class PredictionWriter(BasePredictionWriter, pl.Callback):
@@ -155,7 +154,7 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
             prediction["batch_idx"] = torch.tensor([batch_idx], dtype=torch.int64)
 
             torch.save(prediction, result_path)
-            logging.info(f"Inference predictions are stored in {result_path}\n{prediction.keys()}")
+            logger.info(f"Inference predictions are stored in {result_path}\n{prediction.keys()}")
             self.num_files_written += 1
 
     @override
@@ -206,4 +205,4 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
             else:
                 keys = "tensor"
             torch.save(prediction, result_path)
-            logging.info(f"Inference predictions are stored in {result_path}\n{keys}")
+            logger.info(f"Inference predictions are stored in {result_path}\n{keys}")
