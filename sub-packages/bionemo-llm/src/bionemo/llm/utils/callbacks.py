@@ -113,14 +113,14 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
 
     @property
     def should_write_predictions(self) -> bool:
-        """Returns the context parallel rank."""
-        # TODO: handle expert parallelism and other kinds of parallelism
+        """Ensures that predictions are only written on TP/CP rank 0 and that it is the last stage of the pipeline."""
         self._assert_initialized()
         if not parallel_state.is_pipeline_last_stage():
             return False
-        return self.save_all_model_parallel_ranks or (
-            parallel_state.get_tensor_model_parallel_rank() == 0 and parallel_state.get_context_parallel_rank() == 0
-        )
+        if self.save_all_model_parallel_ranks:
+            return True
+        # TODO: handle expert parallelism and other kinds of parallelism
+        return parallel_state.get_tensor_model_parallel_rank() == 0 and parallel_state.get_context_parallel_rank() == 0
 
     @override
     def write_on_batch_end(
