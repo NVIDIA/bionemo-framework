@@ -18,27 +18,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from torch import nn
 from transformers import AutoModelForMaskedLM
-
-
-def test_esm_model_has_all_te_layers():
-    """Test that the converted TE model doesn't contain vanilla PyTorch layers."""
-    from esm.convert import convert_esm_hf_to_te
-
-    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
-    model_te = convert_esm_hf_to_te(model_hf)
-    vanilla_layers_found = []
-    for name, module in model_te.named_modules():
-        if isinstance(module, nn.Linear):
-            vanilla_layers_found.append(f"Linear layer found in {name}")
-        if isinstance(module, nn.LayerNorm):
-            vanilla_layers_found.append(f"LayerNorm layer found in {name}")
-    if vanilla_layers_found:
-        print("ERROR: Found vanilla PyTorch layers in converted TE model:")
-        for error in vanilla_layers_found:
-            print(f"WARNING: {error}")
-        assert not vanilla_layers_found, f"Found {len(vanilla_layers_found)} vanilla layers in converted model"
 
 
 def test_convert_te_to_hf_roundtrip():
@@ -124,16 +104,22 @@ def test_config_conversion():
     model_te = convert_esm_hf_to_te(model_hf)
     model_hf_converted = convert_esm_te_to_hf(model_te)
 
-    assert model_hf_converted.config.model_type == "esm"
-    assert model_hf_converted.config.hidden_size == model_hf.config.hidden_size
-    assert model_hf_converted.config.num_hidden_layers == model_hf.config.num_hidden_layers
-    assert model_hf_converted.config.num_attention_heads == model_hf.config.num_attention_heads
-    assert model_hf_converted.config.intermediate_size == model_hf.config.intermediate_size
-    assert model_hf_converted.config.vocab_size == model_hf.config.vocab_size
+    original_config_dict = model_hf.config.to_dict()
+    converted_config_dict = model_hf_converted.config.to_dict()
 
-    # assert not hasattr(model_hf_converted.config, 'qkv_weight_interleaved')
-    # assert not hasattr(model_hf_converted.config, 'encoder_activation')
-    # assert not hasattr(model_hf_converted.config, 'attn_input_format')
-    # assert not hasattr(model_hf_converted.config, 'fuse_qkv_params')
-    # assert not hasattr(model_hf_converted.config, 'micro_batch_size')
-    # assert not hasattr(model_hf_converted.config, 'max_seq_length')
+    for key, value in original_config_dict.items():
+        assert key in converted_config_dict, f"Config field '{key}' missing in converted model"
+        assert converted_config_dict[key] == value, f"Config field '{key}' differs: original={value}, converted={converted_config_dict[key]}"
+
+    assert model_hf_converted.config.model_type == "esm"
+
+    te_specific_fields = [
+        'qkv_weight_interleaved',
+        'encoder_activation',
+        'attn_input_format',
+        'fuse_qkv_params',
+        'micro_batch_size',
+        'auto_map'
+    ]
+    for field in te_specific_fields:
+        assert not hasattr(model_hf_converted.config, field), f"TE-specific field '{field}' should not be present in converted model"

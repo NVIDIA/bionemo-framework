@@ -90,17 +90,10 @@ def export_te_checkpoint(te_checkpoint_path: str, output_path: str):
 
     print(f"Converting {te_checkpoint_path} from TE format back to original HuggingFace Facebook ESM-2 format")
 
-    # Load the TE model
+    # Load the TE model and convert to HF format
     model_te = NVEsmForMaskedLM.from_pretrained(te_checkpoint_path)
-
-    # Convert TE model to HF format
     model_hf = convert_esm_te_to_hf(model_te)
     model_hf.save_pretrained(output_path)
-
-    # Copy tokenizer files if they exist
-    tokenizer_path = Path(te_checkpoint_path) / "tokenizer.json"
-    if tokenizer_path.exists():
-        shutil.copy(tokenizer_path, Path(output_path) / "tokenizer.json")
 
     tokenizer_config_path = Path(te_checkpoint_path) / "tokenizer_config.json"
     if tokenizer_config_path.exists():
@@ -110,15 +103,9 @@ def export_te_checkpoint(te_checkpoint_path: str, output_path: str):
     if vocab_path.exists():
         shutil.copy(vocab_path, Path(output_path) / "vocab.txt")
 
-    # Update config to remove TE-specific settings
-    config_path = Path(output_path) / "config.json"
-    if config_path.exists():
-        with open(config_path, "r") as f:
-            config = json.load(f)
-        config.pop("auto_map", None)
-        config["model_type"] = "esm"
-        with open(config_path, "w") as f:
-            json.dump(config, f, indent=2, sort_keys=True)
+    special_tokens_path = Path(te_checkpoint_path) / "special_tokens_map.json"
+    if special_tokens_path.exists():
+        shutil.copy(special_tokens_path, Path(output_path) / "special_tokens_map.json")
 
     model_hf = AutoModelForMaskedLM.from_pretrained(
         output_path,

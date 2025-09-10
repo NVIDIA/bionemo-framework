@@ -103,9 +103,12 @@ def convert_esm_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
         "micro_batch_size",
         "max_seq_length",
         "model_type",
+        "auto_map",
     ]
     for key in te_specific_keys:
         hf_config_dict.pop(key, None)
+
+    hf_config_dict["model_type"] = "esm"
 
     hf_config = EsmConfig(**hf_config_dict, **config_kwargs)
 
@@ -149,11 +152,11 @@ def _pack_qkv_weight(ctx: io.TransformCTX, query, key, value):
     """Pad the embedding layer to the new input dimension."""
     concat_weights = torch.cat((query, key, value), dim=0)
     input_shape = concat_weights.size()
-    np = ctx.target.config.num_attention_heads
+    num_heads = ctx.target.config.num_attention_heads
     # transpose weights
     # [sequence length, batch size, num_splits_model_parallel * attention head size * #attention heads]
     # --> [sequence length, batch size, attention head size * num_splits_model_parallel * #attention heads]
-    concat_weights = concat_weights.view(3, np, -1, query.size()[-1])
+    concat_weights = concat_weights.view(3, num_heads, -1, query.size()[-1])
     concat_weights = concat_weights.transpose(0, 1).contiguous()
     concat_weights = concat_weights.view(*input_shape)
     return concat_weights
@@ -171,11 +174,11 @@ def _pack_qkv_bias(ctx: io.TransformCTX, query, key, value):
     """Pad the embedding layer to the new input dimension."""
     concat_biases = torch.cat((query, key, value), dim=0)
     input_shape = concat_biases.size()
-    np = ctx.target.config.num_attention_heads
+    num_heads = ctx.target.config.num_attention_heads
     # transpose biases
     # [num_splits_model_parallel * attention head size * #attention heads]
     # --> [attention head size * num_splits_model_parallel * #attention heads]
-    concat_biases = concat_biases.view(3, np, -1)
+    concat_biases = concat_biases.view(3, num_heads, -1)
     concat_biases = concat_biases.transpose(0, 1).contiguous()
     concat_biases = concat_biases.view(*input_shape)
     return concat_biases
@@ -190,26 +193,20 @@ def _pack_qkv_bias(ctx: io.TransformCTX, query, key, value):
     ),
 )
 def _unpack_qkv_weight(ctx: io.TransformCTX, qkv_weight):
-    """Unpack the fused QKV weight into separate query, key, and value weights."""
-    np = ctx.source.config.num_attention_heads
+    """Unpack fused QKV weights into separate [hidden_size, input_dim] tensors for query/key/value."""
+    num_heads = ctx.source.config.num_attention_heads
+    total_rows, input_dim = qkv_weight.size() # size: [num_heads * 3 *head_dim, input_dim]
+    assert total_rows % (3 * num_heads) == 0, (
+        f"QKV weight rows {total_rows} not divisible by 3*num_heads {3*num_heads}"
+    )
+    head_dim = total_rows // (3 * num_heads)
 
-    # Reverse the packing transformation
-    # First, reshape to separate the interleaved Q, K, V
-    # [attention head size * num_splits_model_parallel * #attention heads]
-    # --> [num_splits_model_parallel * attention head size * #attention heads]
-    qkv_weight = qkv_weight.view(np, 3, -1, qkv_weight.size()[-1])  # Output:[num_heads, 3, head_dim, vocab_size]
-    qkv_weight = qkv_weight.transpose(0, 1).contiguous()  # Output:[3, num_heads, head_dim, vocab_size]
+    qkv_weight = qkv_weight.view(num_heads, 3, head_dim, input_dim).transpose(0, 1).contiguous() # size: [3, num_heads, head_dim, input_dim]
+    query, key, value = qkv_weight[0], qkv_weight[1], qkv_weight[2] # size: [num_heads, head_dim, input_dim]
 
-    # Split into Q, K, V directly from the transposed tensor
-    # qkv_weight shape: [3, num_heads, head_dim, input_dim]
-    query = qkv_weight[0]  # [num_heads, head_dim, input_dim]
-    key = qkv_weight[1]  # [num_heads, head_dim, input_dim]
-    value = qkv_weight[2]  # [num_heads, head_dim, input_dim]
-
-    # Reshape to match HF format: [total_head_dim, input_dim]
-    query = query.view(-1, query.size()[-1])  # [num_heads * head_dim, input_dim]
-    key = key.view(-1, key.size()[-1])  # [num_heads * head_dim, input_dim]
-    value = value.view(-1, value.size()[-1])  # [num_heads * head_dim, input_dim]
+    query = query.reshape(-1, input_dim) # size: [num_heads * head_dim, input_dim]
+    key = key.reshape(-1, input_dim) # size: [num_heads * head_dim, input_dim]
+    value = value.reshape(-1, input_dim) # size: [num_heads * head_dim, input_dim]
 
     return query, key, value
 
@@ -223,25 +220,19 @@ def _unpack_qkv_weight(ctx: io.TransformCTX, qkv_weight):
     ),
 )
 def _unpack_qkv_bias(ctx: io.TransformCTX, qkv_bias):
-    """Unpack the fused QKV bias into separate query, key, and value biases."""
-    np = ctx.source.config.num_attention_heads
+    """Unpack fused QKV biases into separate [hidden_size] tensors for query/key/value."""
+    num_heads = ctx.source.config.num_attention_heads
+    total_size = qkv_bias.size(0) # size: [num_heads * 3 * head_dim]
+    assert total_size % (3 * num_heads) == 0, (
+        f"QKV bias size {total_size} not divisible by 3*num_heads {3*num_heads}"
+    )
+    head_dim = total_size // (3 * num_heads)
 
-    # Reverse the packing transformation
-    # First, reshape to separate the interleaved Q, K, V
-    # [num_splits_model_parallel * attention head size * #attention heads]
-    # --> [attention head size * num_splits_model_parallel * #attention heads]
-    qkv_bias = qkv_bias.view(np, 3, -1)
-    qkv_bias = qkv_bias.transpose(0, 1).contiguous()
+    qkv_bias = qkv_bias.view(num_heads, 3, head_dim).transpose(0, 1).contiguous() # size: [3, num_heads, head_dim]
+    query, key, value = qkv_bias[0], qkv_bias[1], qkv_bias[2] # size: [num_heads, head_dim]
 
-    # Split into Q, K, V directly from the transposed tensor
-    # qkv_bias shape: [3, num_heads, head_dim]
-    query = qkv_bias[0]  # [num_heads, head_dim]
-    key = qkv_bias[1]  # [num_heads, head_dim]
-    value = qkv_bias[2]  # [num_heads, head_dim]
-
-    # Reshape to match HF format: [total_head_dim]
-    query = query.view(-1)  # [num_heads * head_dim]
-    key = key.view(-1)  # [num_heads * head_dim]
-    value = value.view(-1)  # [num_heads * head_dim]
+    query = query.reshape(-1) # size: [num_heads * head_dim]
+    key = key.reshape(-1) # size: [num_heads * head_dim]
+    value = value.reshape(-1) # size: [num_heads * head_dim]
 
     return query, key, value

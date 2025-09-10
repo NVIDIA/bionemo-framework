@@ -44,13 +44,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         type=str,
+        required=True,
         help="Path to the TE checkpoint.",
     )
     parser.add_argument(
         "--output_path",
         type=str,
         default="./hf_checkpoints",
-        help="Base output directory for the converted models. Each checkpoint will be saved in a subdirectory named after the checkpoint. If not provided, uses './hf_checkpoints'.",
+        help="Output directory for the converted model. The model will be saved directly to this directory. If not provided, uses './hf_checkpoints'.",
     )
     args = parser.parse_args()
 

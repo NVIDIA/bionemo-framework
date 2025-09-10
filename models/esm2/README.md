@@ -37,6 +37,7 @@ This loads the pre-trained ESM2 model that will serve as our reference for compa
 Convert the Hugging Face model to Transformer Engine format using the high-level export API:
 
 ```python
+from pathlib import Path
 from esm.export import export_hf_checkpoint
 
 te_checkpoint_path = Path("te_checkpoint")
@@ -64,6 +65,7 @@ This step creates a new Hugging Face model that should be functionally equivalen
 Load the exported model and perform validation:
 
 ```python
+from transformers import AutoTokenizer
 model_hf_exported = AutoModelForMaskedLM.from_pretrained(str(hf_export_path))
 tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
 ```
@@ -73,21 +75,14 @@ tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
 Test the exported model against the original using masked language modeling:
 
 ```python
+import torch
+from transformers import DataCollatorForLanguageModeling
+
 # Prepare test sequence
 sequence = "MKTVRQERLKSIVRILERSKEPVSGAQLAEELSVSRQVIVQDIAYLRSLGYNIVATPRGYVLAGG"
-inputs = tokenizer(sequence, return_tensors="pt")
-
-# Create masked inputs (15% masking)
-input_ids = inputs["input_ids"].clone()
-labels = inputs["input_ids"].clone()
-mask_token_id = tokenizer.mask_token_id
-
-for i in range(input_ids.shape[1]):
-    if torch.rand(1).item() < 0.15:
-        input_ids[0, i] = mask_token_id
-
-inputs["input_ids"] = input_ids
-inputs["labels"] = labels
+batch = tokenizer([sequence], return_tensors="pt")
+collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15)
+inputs = collator([{"input_ids": batch["input_ids"][0]}])
 
 # Compare outputs
 with torch.no_grad():
