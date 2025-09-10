@@ -10,3 +10,8 @@ trainer:
   report_to: "wandb"
   per_device_train_batch_size: 128
   per_device_eval_batch_size: 256
+
+wandb_init_args: # These arguments are for managing the weights and biases experiment.
+  name: "L1_350M_partial_conv" # this setting defines the name of the experiment
+  project: "bionemo-recipes-amplify_accelerate_te_fp8" # this setting defines the project name
+  mode: "online"
