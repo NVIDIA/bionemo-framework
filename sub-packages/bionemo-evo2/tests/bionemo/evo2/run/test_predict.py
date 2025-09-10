@@ -352,6 +352,8 @@ def test_predict_evo2_runs_with_log_probs(
     assert len(seq_idx_map) == num_sequences
     for original_idx, log_probs in zip(preds["seq_idx"], preds["log_probs_seqs"]):
         if mp_size > 1 or fp8:
+            # FIXME changing batch size so it doesn't match also required dropping rel=1e-6 to rel=1e-3.
+            #  This should be investigated.
             rel = 1e-3
         else:
             rel = 1e-6
