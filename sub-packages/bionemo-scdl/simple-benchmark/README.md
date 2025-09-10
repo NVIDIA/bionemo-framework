@@ -113,6 +113,7 @@ python scdl_speedtest.py --generate-baseline -i my_data.h5ad --scdl-path /path/t
 | `--scdl-path`           | Path to SCDL dataset (optional, only used with --generate-baseline)                                                  | None                     |
 | `--num-epochs`          | The number of epochs (passes through the training dataset).                                                          | 1                        |
 | `--num-runs`            | Number of benchmark runs to average (for more stable and reliable measurements)                                      | 1                        |
+
 ## Sample Output
 
 ```
