@@ -106,12 +106,13 @@ python scdl_speedtest.py --generate-baseline -i my_data.h5ad --scdl-path /path/t
 | `--max-time`            | Max benchmark runtime (seconds). If the dataset is smaller                                                           | 30                       |
 | `--warmup-time`         | Warmup period (seconds). This runs the dataloader before measurement to better reflect average expected performance. | 2                        |
 | `--csv`                 | Export detailed CSV files                                                                                            | False                    |
+| `--batch-size`          | Batch size used in the PyTorch DataLoader                                                                            | 64                       |
+| `--warmup-time`         | Warmup period (seconds). This runs the dataloader before measurement to better reflect average expected performance. | 0                        |
 | `--json`                | Export detailed JSON file to specified filename                                                                      | None                     |
 | `--generate-baseline`   | Compare SCDL vs AnnData performance                                                                                  | False                    |
 | `--scdl-path`           | Path to SCDL dataset (optional, only used with --generate-baseline)                                                  | None                     |
 | `--num-epochs`          | The number of epochs (passes through the training dataset).                                                          | 1                        |
 | `--num-runs`            | Number of benchmark runs to average (for more stable and reliable measurements)                                      | 1                        |
-
 ## Sample Output
 
 ```
