@@ -40,6 +40,7 @@ from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
 
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
+from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.model.biobert.lightning import get_batch_on_this_context_parallel_rank
 from bionemo.llm.utils.callbacks import PredictionWriter
@@ -73,23 +74,23 @@ def parse_args():
     ap.add_argument(
         "--model-type",
         type=str,
-        choices=["hyena", "mamba"],
+        choices=["hyena", "mamba", "llama"],
         default="hyena",
-        help="Model architecture family to use. Choose between 'hyena' and 'mamba'.",
+        help="Model architecture family to use. Choose between 'hyena', 'mamba', and 'llama'.",
     )
     ap.add_argument(
         "--model-size",
         type=str,
         default="7b",
-        choices=sorted(list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys())),
+        choices=sorted(list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys()) + list(LLAMA_MODEL_OPTIONS.keys())),
         help="Model size to use. Defaults to '7b'.",
     )
     # output args:
     ap.add_argument(
         "--output-dir",
         type=Path,
-        default=None,
-        help="Output dir that will contain the generated text produced by the Evo2 model. If not provided, the output will be logged.",
+        required=True,
+        help="Output dir that will contain the generated text produced by the Evo2 model.",
     )
     ap.add_argument(
         "--full-fp8",
@@ -416,13 +417,21 @@ def predict(
             vortex_style_fp8=fp8 and not full_fp8,
             **config_modifiers_init,
         )
-    else:  # mamba
+    elif model_type == "mamba":  # mamba
         if model_size not in MAMBA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Mamba: {model_size}")
         config = MAMBA_MODEL_OPTIONS[model_size](
             forward_step_fn=hyena_predict_forward_step,  # Can reuse the same forward steps
             data_step_fn=hyena_predict_data_step,
             distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
+            **config_modifiers_init,
+        )
+    elif model_type == "llama":
+        if model_size not in LLAMA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Llama: {model_size}")
+        config = LLAMA_MODEL_OPTIONS[model_size](
+            forward_step_fn=hyena_predict_forward_step,
+            data_step_fn=hyena_predict_data_step,
             **config_modifiers_init,
         )
 
@@ -451,8 +460,15 @@ def predict(
             output_log_prob_seqs=output_log_prob_seqs,
             log_prob_collapse_option=log_prob_collapse_option,
         )
-    else:  # mamba
+    elif model_type == "mamba":  # mamba
         model = MambaPredictor(
+            config,
+            tokenizer=tokenizer,
+            output_log_prob_seqs=output_log_prob_seqs,
+            log_prob_collapse_option=log_prob_collapse_option,
+        )
+    elif model_type == "llama":
+        model = HyenaPredictor(
             config,
             tokenizer=tokenizer,
             output_log_prob_seqs=output_log_prob_seqs,
