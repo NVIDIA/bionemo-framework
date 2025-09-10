@@ -70,3 +70,36 @@ def test_scdl_speedtest_runs_no_args(scdl_speedtest_cmd):
     assert result.returncode == 0, (
         f"scdl_speedtest did not run successfully.\nstdout: {result.stdout.decode()}\nstderr: {result.stderr.decode()}"
     )
+
+
+def test_scdl_speedtest_num_runs(scdl_speedtest_cmd):
+    """Test that scdl_speedtest.py runs with --num-runs option and exits successfully."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Use very short runtime and small number of runs for test efficiency
+        num_runs_cmd = scdl_speedtest_cmd + ["--num-runs", "2", "--max-time", "5", "--warmup-time", "0"]
+        result = subprocess.run(num_runs_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdir)
+        assert result.returncode == 0, (
+            f"scdl_speedtest --num-runs 2 did not run successfully.\nstdout: {result.stdout.decode()}\nstderr: {result.stderr.decode()}"
+        )
+
+        # Check that output contains evidence of multiple runs
+        stdout = result.stdout.decode()
+        assert "run 1/2" in stdout or "run 2/2" in stdout or "averaged 2 runs" in stdout, (
+            f"Output should indicate multiple runs were performed.\nstdout: {stdout}"
+        )
+
+
+def test_scdl_speedtest_num_runs_invalid(scdl_speedtest_cmd):
+    """Test that scdl_speedtest.py rejects invalid --num-runs values."""
+    invalid_cmd = scdl_speedtest_cmd + ["--num-runs", "0"]
+    result = subprocess.run(invalid_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert result.returncode != 0, (
+        f"scdl_speedtest should reject --num-runs 0.\nstdout: {result.stdout.decode()}\nstderr: {result.stderr.decode()}"
+    )
+
+    # Check that error message is about num-runs
+    stderr = result.stderr.decode()
+    stdout = result.stdout.decode()
+    assert "--num-runs must be a positive integer" in stdout or "--num-runs must be a positive integer" in stderr, (
+        f"Should show validation error for invalid --num-runs.\nstdout: {stdout}\nstderr: {stderr}"
+    )

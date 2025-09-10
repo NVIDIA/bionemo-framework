@@ -5,7 +5,7 @@
 **DO NOT proceed without reading [AI_DOCUMENTATION.md](AI_DOCUMENTATION.md) first.**
 This file contains comprehensive documentation specifically designed for AI agents. Please see [gitingest.txt](./internal/gitingest.txt) for the complete codebase.
 
-# Geneformer Pretraining with nvFSDP and a custom pytorch training loop.
+# Geneformer Pretraining with mfsdp and a custom pytorch training loop.
 
 The code runs inside of a container. To construct this container please look at [container build](#container-build) and [container run](#container-run). In this folder we supply a pretraining script capable of training several variants of [Geneformer](https://huggingface.co/ctheodoris/Geneformer). Those variants are located in our [hydra_config](hydra_config/). This code was forked from the original geneformer repository, and enhanced to increase its performance.
 
@@ -34,7 +34,7 @@ You can override config parameters directly from the command line. The most comm
 
 - `model.use_te_layers=True/False` - Enable/disable Transformer Engine layers
 - `training.use_fp8=True/False` - Enable/disable FP8 precision (requires H100+ GPUs)
-- `training.use_nvfsdp=True/False` - Enable/disable nvFSDP distributed training
+- `training.use_mfsdp=True/False` - Enable/disable mfsdp distributed training
 
 #### Examples
 
@@ -45,8 +45,8 @@ torchrun --nproc_per_node=1 train.py --config-name 106m
 # Run 106M model without Transformer Engine layers
 torchrun --nproc_per_node=2 train.py --config-name 106m model.use_te_layers=False
 
-# Run 4B model with FP8 and nvFSDP enabled
-torchrun --nproc_per_node=4 train.py --config-name 4b training.use_fp8=True training.use_nvfsdp=True
+# Run 4B model with FP8 and mfsdp enabled
+torchrun --nproc_per_node=4 train.py --config-name 4b training.use_fp8=True training.use_mfsdp=True
 ```
 
 ## Configuration Files
@@ -122,11 +122,11 @@ Training jobs often run for many hours and may need to be stopped and restarted.
 
 When resuming, training will start at the step count where the most recent checkpoint was saved and continue until `num_train_steps` is reached. If no valid checkpoint is found, training starts from step 0.
 
-Checkpoint resuming is supported for both **nvFSDP** (distributed checkpoints) and **DDP** (single-file checkpoints) configurations.
+Checkpoint resuming is supported for both **mfsdp** (distributed checkpoints) and **DDP** (single-file checkpoints) configurations.
 
 ### Safetensors Export
 
-At the end of training, the model is automatically exported in safetensors format to the `final_model` directory within your checkpoint directory. This export works for both nvFSDP and vanilla DDP training configurations.
+At the end of training, the model is automatically exported in safetensors format to the `final_model` directory within your checkpoint directory. This export works for both mfsdp and vanilla DDP training configurations.
 
 **Export Location:**
 
@@ -138,7 +138,7 @@ At the end of training, the model is automatically exported in safetensors forma
 
 **How it works:**
 
-- For **nvFSDP**: Parameters are gathered from all processes, then saved by rank 0
+- For **mfsdp**: Parameters are gathered from all processes, then saved by rank 0
 - For **DDP**: The underlying model is unwrapped and saved by rank 0
 - Export happens automatically after training completes successfully
 

@@ -8,7 +8,7 @@ The biological AI community is actively prototyping model architectures and need
 
 - **Flexible scaling**: Scale from single-GPU prototyping to multi-node training without complex parallelism configurations
 - **Framework compatibility**: Works with popular frameworks like HuggingFace Accelerate, PyTorch Lightning, and vanilla PyTorch
-- **Performance optimization**: Leverages TransformerEngine and nvFSDP for state-of-the-art training efficiency
+- **Performance optimization**: Leverages TransformerEngine and megatron-fsdp for state-of-the-art training efficiency
 - **Research-friendly**: Hackable, readable code that researchers can easily adapt for their experiments
 
 ### Use Cases
@@ -35,7 +35,7 @@ Example models include ESM-2, Geneformer, and AMPLIFY.
 Self-contained training examples demonstrating best practices for scaling biological foundation models. Each recipe is a complete Docker container with:
 
 - **Framework examples**: Vanilla PyTorch, HuggingFace Accelerate, PyTorch Lightning
-- **Feature demonstrations**: FP8 training, nvFSDP, context parallelism, sequence packing
+- **Feature demonstrations**: FP8 training, megatron-fsdp, context parallelism, sequence packing
 - **Scaling strategies**: Single-GPU to multi-node training patterns
 - **Benchmarked performance**: Validated throughput and convergence metrics
 
@@ -57,7 +57,7 @@ tokenizer = AutoTokenizer.from_pretrained("nvidia/AMPLIFY_120M")
 
 ```bash
 # Navigate to a recipe
-cd recipes/esm2_native_te_nvfsdp
+cd recipes/esm2_native_te_mfsdp
 
 # Build and run
 docker build -t esm2_recipe .
@@ -191,4 +191,4 @@ For technical support and questions:
 
 - Check existing issues before opening a new one
 - Review our training recipes for implementation examples
-- Consult the TransformerEngine and nvFSDP documentation for underlying technologies
+- Consult the TransformerEngine and megatron-fsdp documentation for underlying technologies

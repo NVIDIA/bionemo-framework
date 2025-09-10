@@ -4,8 +4,7 @@ FROM nvcr.io/nvidia/pytorch:25.01-py3
 RUN MAX_JOBS=4 pip --disable-pip-version-check --no-cache-dir install -v git+https://github.com/facebookresearch/xformers.git@v0.0.29.post1#egg=xformers
 RUN PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch MAX_JOBS=4 pip --disable-pip-version-check --no-cache-dir install -v git+https://github.com/nvidia/TransformerEngine.git@v2.4
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /workspace/bionemo
 COPY . .
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache/pip \
     PIP_CONSTRAINT= pip install -e .

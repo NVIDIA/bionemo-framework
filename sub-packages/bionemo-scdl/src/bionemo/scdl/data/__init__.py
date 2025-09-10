@@ -13,31 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from bionemo.evo2.models.llama import (
-    LLAMA_MODEL_OPTIONS,
-    Eden11BConfig,
-    Eden18BConfig,
-    Eden21BConfig,
-    Eden24BConfig,
-    Eden27BConfig,
-    Eden28BConfig,
-    Eden35BConfig,
-    EdenConfig,
-)
-from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, HybridMambaConfig8BEvo2Loss, MambaModel
+"""SCDL data loading utilities."""
+
+from .load import Resource, get_all_resources, load
 
 
-__all__ = [
-    "LLAMA_MODEL_OPTIONS",
-    "MAMBA_MODEL_OPTIONS",
-    "Eden11BConfig",
-    "Eden18BConfig",
-    "Eden21BConfig",
-    "Eden24BConfig",
-    "Eden27BConfig",
-    "Eden28BConfig",
-    "Eden35BConfig",
-    "EdenConfig",
-    "HybridMambaConfig8BEvo2Loss",
-    "MambaModel",
-]
+__all__ = ["Resource", "get_all_resources", "load"]

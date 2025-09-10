@@ -19,7 +19,7 @@ model:
 
 # Training configuration
 training:
-  use_nvfsdp: true
+  use_mfsdp: true
   use_fp8: false
   optimizer_kwargs:
     lr: 1e-4
