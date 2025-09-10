@@ -18,6 +18,7 @@
 
 
 import argparse
+import functools
 import tempfile
 from pathlib import Path
 from typing import Literal
@@ -40,6 +41,7 @@ from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
 
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
+from bionemo.llm.data import collate
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.utils.callbacks import PredictionWriter
 
@@ -358,6 +360,12 @@ class PredictDataModule(LightningDataModule):
             num_workers=8,
             shuffle=False,
             drop_last=False,
+            collate_fn=functools.partial(
+                collate.padding_collate_fn,
+                padding_values={"tokens": 0, "position_ids": 0, "loss_mask": False},
+                min_length=None,
+                max_length=None,
+            ),
         )
 
 
