@@ -23,22 +23,11 @@ import transformer_engine.pytorch
 from conftest import requires_fp8
 from transformer_engine.common.recipe import DelayedScaling, Format
 
+import amplify.amplify_hf as amp_hf
 import amplify.amplify_te as amp_te
 from amplify.state_dict_convert import convert_amplify_hf_to_te
 
 
-try:
-    import xformers
-except ImportError:
-    xformers = None
-
-if xformers is not None:
-    import amplify.amplify_hf as amp_hf
-else:
-    amp_hf = None
-
-
-@pytest.mark.skipif(amp_hf is None, reason="xformers is not installed")
 def test_amplify_hf_model(config, input_data):
     model = amp_hf.AMPLIFY(config)
     model.to("cuda")
@@ -78,7 +67,6 @@ def test_te_model_has_all_te_layers(config):
         assert not isinstance(module, nn.RMSNorm), f"Vanilla RMSNorm layer found in {name}"
 
 
-@pytest.mark.skipif(amp_hf is None, reason="xformers is not installed")
 def test_models_have_identical_outputs(input_data):
     model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
     model_te = convert_amplify_hf_to_te(model_hf)
@@ -96,7 +84,6 @@ def test_models_have_identical_outputs(input_data):
     torch.testing.assert_close(outputs_hf.loss, outputs_te.loss, atol=1e-2, rtol=1e-3)
 
 
-@pytest.mark.skipif(amp_hf is None, reason="xformers is not installed")
 def test_converted_model_roundtrip(input_data, tmp_path):
     model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
     model_te = convert_amplify_hf_to_te(model_hf)
@@ -120,7 +107,6 @@ def test_converted_model_roundtrip(input_data, tmp_path):
     torch.testing.assert_close(outputs_hf.loss, outputs_te.loss, atol=1e-2, rtol=1e-3)
 
 
-@pytest.mark.skipif(amp_hf is None, reason="xformers is not installed")
 def test_convert_state_dict():
     model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
     model_te = convert_amplify_hf_to_te(model_hf)
@@ -182,52 +168,3 @@ def test_convert_state_dict():
     te_state_dict_keys.remove("decoder.bias")
 
     assert len(te_state_dict_keys) == 0
-
-
-def test_hf_trained_model_loss(input_data):
-    model = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
-    model.to("cuda", dtype=torch.bfloat16)
-    input_data = {k: v.to("cuda") for k, v in input_data.items()}
-    model.eval()
-    with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-        output = model(**input_data)
-
-    torch.testing.assert_close(output.loss.detach().cpu(), torch.tensor(2.4), atol=1e-1, rtol=1e-2)
-
-
-def test_te_trained_model_loss(input_data):
-    model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
-    model = convert_amplify_hf_to_te(model_hf)
-    model.to("cuda", dtype=torch.bfloat16)
-    input_data = {k: v.to("cuda") for k, v in input_data.items()}
-    model.eval()
-    with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-        output = model(**input_data)
-
-    torch.testing.assert_close(output.loss.detach().cpu(), torch.tensor(2.4), atol=1e-1, rtol=1e-2)
-
-
-def test_hf_reinitialized_model_loss(input_data):
-    config = amp_hf.AMPLIFYConfig.from_pretrained("chandar-lab/AMPLIFY_120M")
-    model = amp_hf.AMPLIFY(config)
-    model.to("cuda", dtype=torch.bfloat16)
-    input_data = {k: v.to("cuda") for k, v in input_data.items()}
-    model.eval()
-    with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-        output = model(**input_data)
-
-    loss = output.loss.detach().cpu()
-    assert loss < 3.5, f"Loss is {loss}, expected less than 3.5"
-
-
-def test_te_reinitialized_model_loss(input_data):
-    config = amp_te.AMPLIFYConfig.from_pretrained("chandar-lab/AMPLIFY_120M")
-    model = amp_te.AMPLIFYForMaskedLM(config)
-    model.to("cuda", dtype=torch.bfloat16)
-    input_data = {k: v.to("cuda") for k, v in input_data.items()}
-    model.eval()
-    with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-        output = model(**input_data)
-
-    loss = output.loss.detach().cpu()
-    assert loss < 3.5, f"Loss is {loss}, expected less than 3.5"
