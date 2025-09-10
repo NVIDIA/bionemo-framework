@@ -1,6 +1,23 @@
 model_tag: "nvidia/esm2_t6_8M_UR50D"
 stop_after_n_steps: 500_000
-max_seq_length: 1024
+
+dataset:
+  tokenizer_name: ${model_tag}
+  max_seq_length: 1024
+  # TODO(BIONEMO-2783): Replace this with our ESM-2 parquet dataset when it's ready.
+  train_load_dataset_kwargs:
+    path: "chandar-lab/UR100P"
+    split: "train"
+    revision: "refs/convert/parquet"
+    streaming: True
+  eval_load_dataset_kwargs:
+    path: "chandar-lab/UR100P"
+    split: "test"
+    revision: "refs/convert/parquet"
+  # Whether to truncate the eval dataset; HF Trainer will run the full eval dataset each eval step.
+  # If set to an integer, the eval dataset will be truncated to that number of examples.
+  truncate_eval_dataset: null
+
 trainer:
   output_dir: "results"
   run_name: ???
