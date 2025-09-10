@@ -322,7 +322,7 @@ def hyena_predict_data_step(dataloader_iter) -> dict[str, torch.Tensor]:
     include_seq_idx = False
     if parallel_state.is_pipeline_last_stage():
         include_seq_idx = True
-        required_device_keys.update(("labels", "loss_mask"))
+        required_device_keys.update(("labels", "tokens", "loss_mask"))
 
     _batch_required_keys = {}
     for key, val in _batch.items():
