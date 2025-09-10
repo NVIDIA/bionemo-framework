@@ -2,7 +2,7 @@
 
 ## Repository Overview
 
-**Purpose**: Geneformer pretraining with nvFSDP (NVIDIA Fully Sharded Data Parallel) and custom PyTorch training loops for single-cell genomics transformer models.
+**Purpose**: Geneformer pretraining with mFSDP (NVIDIA Fully Sharded Data Parallel) and custom PyTorch training loops for single-cell genomics transformer models.
 
 **Domain**: Computational Biology / Single-Cell Genomics / Deep Learning
 
@@ -55,7 +55,7 @@
 
 ### 1. Main Training Script (`train.py`)
 
-- **Purpose**: Distributed training with nvFSDP
+- **Purpose**: Distributed training with mFSDP
 - **Features**:
   - Hydra configuration management
   - Multi-GPU support with torchrun
@@ -74,7 +74,7 @@
 - **Features**:
   - Conditional TE usage via `use_te_layers` config
   - FP8 precision support (H100+ GPUs)
-  - nvFSDP compatibility
+  - mFSDP compatibility
 
 ### 3. Tokenizer System
 
@@ -122,9 +122,15 @@ training:
   num_workers: 4                        # DataLoader workers
   mlm_probability: 0.15                 # Mask probability
   use_fp8: true                         # Enable FP8 precision
-  wandb_init_args:
-    name: "geneformer-4b-te"           # Experiment name
+```
+
+### WandB Configuration
+
+```yaml
+wandb_init_args:
+    name: "geneformer-4b-te"            # Experiment name
     project: "bionemo-recipes"          # Project name
+    mode: "offline"                     # Run data management
 ```
 
 ### Data Configuration
@@ -175,7 +181,7 @@ torchrun --nproc_per_node=1 train.py  # Uses default sanity config
 - **Base**: `nvcr.io/nvidia/pytorch:25.03-py3`
 - **Key Libraries**:
   - `transformers` - HuggingFace transformers
-  - `nvfsdp==0.1.3` - NVIDIA FSDP
+  - `megatron-fsdp==0.1.0rc1` - Megatron-FSDP
   - `transformer_engine` - NVIDIA TE
   - `hydra-core` - Configuration
   - `wandb` - Experiment tracking

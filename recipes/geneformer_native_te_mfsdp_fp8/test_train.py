@@ -308,7 +308,7 @@ def run_integration_test_l0_sanity():
         logger.error(f"❌ Integration test error: {e}")
 
 
-def run_integration_test_l0_sanity_te_nvfsdp():
+def run_integration_test_l0_sanity_te_mfsdp():
     """Run a full integration test with the actual training script."""
     if not torch.cuda.is_available():
         logger.info("⚠️  Skipping integration test - CUDA not available")
@@ -338,7 +338,7 @@ def run_integration_test_l0_sanity_te_nvfsdp():
         "--config-name",
         "l0_sanity",
         "model.use_te_layers=true",
-        "training.use_nvfsdp=true",
+        "training.use_mfsdp=true",
     ]
 
     try:
@@ -362,7 +362,7 @@ def run_integration_test_l0_sanity_te_nvfsdp():
         logger.error(f"❌ Integration test error: {e}")
 
 
-def run_integration_test_l0_sanity_nvfsdp():
+def run_integration_test_l0_sanity_mfsdp():
     """Run a full integration test with the actual training script."""
     if not torch.cuda.is_available():
         logger.info("⚠️  Skipping integration test - CUDA not available")
@@ -391,7 +391,7 @@ def run_integration_test_l0_sanity_nvfsdp():
         train_script,
         "--config-name",
         "l0_sanity",
-        "training.use_nvfsdp=true",
+        "training.use_mfsdp=true",
         "model.use_te_layers=false",
     ]
 
@@ -481,7 +481,7 @@ if __name__ == "__main__":
 
     run_integration_test_l0_sanity()
     run_integration_test_l0_sanity_fp8()
-    run_integration_test_l0_sanity_nvfsdp()
-    run_integration_test_l0_sanity_te_nvfsdp()
+    run_integration_test_l0_sanity_mfsdp()
+    run_integration_test_l0_sanity_te_mfsdp()
 
     print("\n✅ All tests completed!")

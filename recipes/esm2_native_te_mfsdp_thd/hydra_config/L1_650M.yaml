@@ -9,5 +9,5 @@ num_train_steps: 1000
 
 # WandB config
 wandb_init_args:
-  name: "esm2_t33_650M_UR50D_nvfsdp"
+  name: "esm2_t33_650M_UR50D_mfsdp"
   project: "bionemo-recipes-pstjohn"

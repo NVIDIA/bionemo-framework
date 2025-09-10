@@ -130,12 +130,6 @@ source init.sh
 
 GPUS_PER_NODE=$(nvidia-smi -L | wc -l)
 
-# This doesn't seem to work from lepton nodes
-curl --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" https://gitlab-master.nvidia.com/clara-discovery/bionemo-recipes/-/archive/main/bionemo-recipes-main.tar.gz\?path\=recipes/esm2_native_te_nvfsdp --output bionemo-recipes-main.tar.gz
-
-tar xzf bionemo-recipes-main.tar.gz
-cd bionemo-recipes-main-recipes-esm2_native_te_nvfsdp/recipes/esm2_native_te_nvfsdp/
-
 PIP_CONSTRAINT= pip install -r requirements.txt
 
 torchrun \

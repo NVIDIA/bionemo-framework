@@ -4,7 +4,7 @@
 
 defaults:
   - defaults
-  - model: 10m
+  - model: 4b
   - _self_
 
 model:
@@ -13,18 +13,20 @@ model:
 
 # Training configuration
 training:
-  use_nvfsdp: true
+  use_mfsdp: true
   use_fp8: false
   num_train_steps: 100 # this setting defines the number of training steps
   num_workers: 4 # this setting defines the number of workers for the dataloader
   mlm_probability: 0.15 # this setting defines the probability of masking tokens in the input
-  wandb_init_args: # These arguments are for managing the weights and biases experiment.
-    name: "geneformer-l0-sanity" # this setting defines the name of the experiment
-    project: "bionemo-recipes-l0-sanity" # this setting defines the project name
-  checkpoint_dir: "checkpoints/l0-sanity"
+  checkpoint_dir: "checkpoints/4b"
   save_every_n_steps: 50
   resume_from_checkpoint: true
 
+wandb_init_args: # These arguments are for managing the weights and biases experiment.
+  name: "geneformer-l0-4b" # this setting defines the name of the experiment
+  project: "bionemo-recipes-l0-4b" # this setting defines the project name
+  mode: "offline"
+
 # Data configuration
 data:
-  path: "genecorpus_500_samples.parquet"  # A sanity dataset saved to the repo that holds 500 samples.
+  path: "genecorpus_500_samples.parquet" # A sanity dataset saved to the repo that holds 500 samples.

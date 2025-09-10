@@ -8,7 +8,7 @@ num_train_steps: 500
 
 # WandB config
 wandb_init_args:
-  name: "esm2_t48_15B_UR50D_nvfsdp_L1_perf"
+  name: "esm2_t48_15B_UR50D_mfsdp_L1_perf"
   project: "bionemo-recipes"
 
 # Optimizer config

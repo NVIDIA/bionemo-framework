@@ -22,7 +22,7 @@ hide:
         </span>
       </div>
       <div class="card-title" style="margin: 0;">
-        <strong>Datasets</strong>
+        <strong>User Guide</strong>
       </div>
     </div>
     <hr />
@@ -42,7 +42,7 @@ hide:
         </span>
       </div>
       <div class="card-title" style="margin: 0;">
-        <strong>Datasets</strong>
+        <strong>API Reference</strong>
       </div>
     </div>
     <hr />
@@ -62,7 +62,7 @@ hide:
         </span>
       </div>
       <div class="card-title" style="margin: 0;">
-        <strong>Datasets</strong>
+        <strong>Models</strong>
       </div>
     </div>
     <hr />

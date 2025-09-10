@@ -46,7 +46,7 @@ def convert_amplify_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
     """
     te_config = AMPLIFYConfig(**model_hf.config.to_dict(), **config_kwargs)
     with init_empty_weights():
-        model_te = AMPLIFYForMaskedLM(te_config, torch_dtype=te_config.torch_dtype)
+        model_te = AMPLIFYForMaskedLM(te_config, dtype=te_config.dtype)
 
     output_model = io.apply_transforms(
         model_hf,
