@@ -21,6 +21,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -54,7 +55,7 @@ def checkpoint_1b_8k_bf16_path() -> Path:
             )
         else:
             raise e
-    return checkpoint_path
+    yield checkpoint_path
 
 
 @pytest.fixture(scope="module")
@@ -69,11 +70,11 @@ def checkpoint_7b_1m_path() -> Path:
             )
         else:
             raise e
-    return checkpoint_path
+    yield checkpoint_path
 
 
 @pytest.mark.parametrize(
-    "ddp,pp,tp,wi",
+    "ddp,pp,wi",
     [
         pytest.param(1, 1, "epoch", id="ddp=1,pp=1,wi=epoch"),
         pytest.param(2, 1, "epoch", id="ddp=2,pp=1,wi=epoch"),
@@ -91,7 +92,6 @@ def test_predict_evo2_runs(
     tmp_path,
     ddp: int,
     pp: int,
-    tp: int,
     wi: str,
     checkpoint_1b_8k_bf16_path: Path,
     num_sequences: int = 5,
@@ -105,7 +105,7 @@ def test_predict_evo2_runs(
     Since it's the full output this does not support CP, so we only test with TP=1. We also want coverage of the
         case where the sequence lengths are different and not necessarily divisible by CP.
     """
-    world_size = ddp * pp * tp
+    world_size = ddp * pp
     if world_size > torch.cuda.device_count():
         pytest.skip(f"World size {world_size} is less than the number of GPUs {torch.cuda.device_count()}")
     fasta_file_path = tmp_path / "test.fasta"
@@ -125,7 +125,7 @@ def test_predict_evo2_runs(
     command = (
         f"torchrun --nproc_per_node {world_size} --nnodes 1 --no-python "
         f"predict_evo2 --fasta {fasta_file_path} --ckpt-dir {checkpoint_1b_8k_bf16_path} "
-        f"--output-dir {output_dir} --model-size 1b --tensor-parallel-size {tp} "
+        f"--output-dir {output_dir} --model-size 1b "
         f"--micro-batch-size 3 --write-interval {wi} "
         f"--pipeline-model-parallel-size {pp} --num-nodes 1 --devices {world_size}"
     )
@@ -180,6 +180,56 @@ def test_predict_evo2_runs(
         assert token_logits.shape == (max(target_sequence_lengths), 512)
 
 
+@pytest.fixture(scope="module")
+def baseline_predictions_7b_1m_results(
+    checkpoint_7b_1m_path: Path,
+    num_sequences: int = 5,
+    target_sequence_lengths: list[int] = [2048, 2048, 2048, 2048, 2048],
+) -> dict[int, float]:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        fasta_file_path = tmp_path / "test.fasta"
+        create_fasta_file(
+            fasta_file_path,
+            num_sequences,
+            sequence_lengths=target_sequence_lengths,
+            repeating_dna_pattern=ALU_SEQUENCE,
+        )
+        output_dir = tmp_path / "test_output"
+        command = (
+            f"torchrun --nproc_per_node 1 --nnodes 1 --no-python "
+            f"predict_evo2 --fasta {fasta_file_path} --ckpt-dir {checkpoint_7b_1m_path} "
+            f"--num-layers 4 --hybrid-override-pattern SDH* "  # subset of layers for testing
+            # FIXME changing batch size from 3 to 1 required dropping rel=1e-6 to rel=1e-3
+            #  even when model parallelism is not used. This should be investigated.
+            f"--micro-batch-size 3 "
+            f"--output-dir {output_dir} --model-size 7b_arc_longcontext "
+            f"--num-nodes 1 --write-interval epoch "
+            "--output-log-prob-seqs --log-prob-collapse-option sum"
+        )
+        # Create a mock data directory.
+        # a local copy of the environment
+        env = dict(**os.environ)
+        open_port = find_free_network_port()
+        env["MASTER_PORT"] = str(open_port)
+        result = subprocess.run(
+            command,
+            shell=True,  # Use the shell to interpret wildcards (e.g. SDH*)
+            cwd=tmp_path,  # Run in the temporary directory
+            capture_output=True,  # Capture stdout and stderr for debugging
+            env=env,  # Pass in the env where we override the master port.
+            text=True,  # Decode output as text
+        )
+        assert result.returncode == 0, "predict_evo2 command failed."
+        # Assert that the output directory was created.
+        pred_files = glob.glob(os.path.join(output_dir, "predictions__rank_*.pt"))
+        preds = [torch.load(pf) for pf in pred_files]
+        preds = batch_collator(
+            [p for p in preds if p is not None],
+        )
+        yield dict(zip([i.item() for i in preds["seq_idx"]], [p.item() for p in preds["log_probs_seqs"]]))
+
+
 @pytest.mark.parametrize(
     "ddp,cp,pp,tp,fp8,wi",
     [
@@ -216,6 +266,7 @@ def test_predict_evo2_runs_with_log_probs(
     fp8: bool,
     wi: str,
     checkpoint_7b_1m_path: Path,
+    baseline_predictions_7b_1m_results: dict[int, float],
     num_sequences: int = 5,
     target_sequence_lengths: list[int] = [2048, 2048, 2048, 2048, 2048],
 ):
@@ -228,6 +279,7 @@ def test_predict_evo2_runs_with_log_probs(
     """
 
     world_size = ddp * cp * pp * tp
+    mp_size = cp * pp * tp
     if world_size > torch.cuda.device_count():
         pytest.skip(f"World size {world_size} is less than the number of GPUs {torch.cuda.device_count()}")
     is_fp8_supported, _, _ = check_fp8_support(torch.cuda.current_device())
@@ -290,7 +342,6 @@ def test_predict_evo2_runs_with_log_probs(
             f
         )  # This gives us the mapping from the sequence names to the indices in the predictions.
     preds = [torch.load(pf) for pf in pred_files]
-    preds = [torch.load(pf) for pf in pred_files]
     preds = batch_collator(
         [p for p in preds if p is not None],
     )
@@ -299,6 +350,9 @@ def test_predict_evo2_runs_with_log_probs(
     assert "seq_idx" in preds
     assert len(preds["log_probs_seqs"]) == len(preds["seq_idx"]) == num_sequences
     assert len(seq_idx_map) == num_sequences
-    # TODO consider some kind of numerical test on the log probabilities returned. For now though there is no
-    #  correct answer, and the model is just a subset so it is not even a real model we would expect a good result
-    #  from. Checking that output is made without error will still capture API drift.
+    for original_idx, log_probs in zip(preds["seq_idx"], preds["log_probs_seqs"]):
+        if mp_size > 1 or fp8:
+            rel = 1e-3
+        else:
+            rel = 1e-6
+        assert log_probs.item() == pytest.approx(baseline_predictions_7b_1m_results[original_idx.item()], rel=rel)

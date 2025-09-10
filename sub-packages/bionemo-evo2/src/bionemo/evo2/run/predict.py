@@ -201,7 +201,9 @@ class BasePredictor(LightningPassthroughPredictionMixin):
         """Alias for forward_step, also log the pad mask since sequences may not all have the same length."""
         if len(batch) == 0:
             return
-        forward_out = self.forward_step(batch)
+        assert self.training is False, "predict_step should be called in eval mode"
+        with torch.no_grad():
+            forward_out = self.forward_step(batch)
         if not isinstance(forward_out, Tensor):
             return forward_out
         # Reminder: the model's predictions for input i land at output i+1. To get everything to align, we prepend the
