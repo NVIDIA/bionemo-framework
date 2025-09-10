@@ -47,6 +47,7 @@ def main(args: DictConfig):
 
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True, dtype=torch.bfloat16)
+    model.accepts_loss_kwargs = False
 
     train_dataset, eval_dataset, data_collator = create_datasets_and_collator(
         tokenizer_name=args.model_tag,
@@ -72,8 +73,6 @@ def main(args: DictConfig):
             logger.info("Resuming from checkpoint: %s", last_checkpoint)
         else:
             logger.info("No checkpoint found, starting from scratch")
-        if state.is_main_process:
-            breakpoint()
         train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
         logger.info("Training complete. Metrics: %s", train_result.metrics)
         trainer.save_metrics("train", train_result.metrics)
