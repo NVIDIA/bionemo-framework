@@ -68,6 +68,7 @@ def input_data(tokenizer):
         tokenizer=tokenizer,
         mlm_probability=0.15,
         pad_to_multiple_of=1024,
+        seed=42,
     )
 
     def tokenize_function(examples):

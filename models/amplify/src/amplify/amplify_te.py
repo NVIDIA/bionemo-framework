@@ -215,7 +215,6 @@ class AMPLIFY(AMPLIFYPreTrainedModel):
         output_hidden_states=False,
         output_attentions=False,
         labels=None,
-        **kwargs,
     ) -> BaseModelOutput:
         """Forward pass of the AMPLIFY model.
 
@@ -225,7 +224,6 @@ class AMPLIFY(AMPLIFYPreTrainedModel):
             output_hidden_states (bool): Whether to output the hidden states.
             output_attentions (bool): Whether to output the attention weights.
             labels (torch.Tensor): The labels.
-            **kwargs: Additional arguments.
 
         Returns:
             BaseModelOutput: The output of the model.
@@ -299,7 +297,6 @@ class AMPLIFYForMaskedLM(AMPLIFYPreTrainedModel):
         output_hidden_states=False,
         output_attentions=False,
         labels=None,
-        **kwargs,
     ) -> MaskedLMOutput:
         """Forward pass of the AMPLIFYForMaskedLM model.
 
@@ -309,7 +306,6 @@ class AMPLIFYForMaskedLM(AMPLIFYPreTrainedModel):
             output_hidden_states (bool): Whether to output the hidden states.
             output_attentions (bool): Whether to output the attention weights.
             labels (torch.Tensor): The labels.
-            **kwargs: Additional arguments.
 
         Returns:
             MaskedLMOutput: The output of the model.
@@ -320,7 +316,6 @@ class AMPLIFYForMaskedLM(AMPLIFYPreTrainedModel):
             output_hidden_states,
             output_attentions,
             labels,
-            **kwargs,
         )
 
         # Classification head with layer norm
