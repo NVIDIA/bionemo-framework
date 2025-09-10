@@ -70,7 +70,11 @@ def parse_args():
     ap.add_argument("--prepend-bos", action="store_true", help="Prepend BOS token to sequences. Defaults to False.")
     ap.add_argument("--tensor-parallel-size", type=int, default=1, help="Order of tensor parallelism. Defaults to 1.")
     ap.add_argument(
-        "--pipeline-model-parallel-size", type=int, default=1, help="Order of pipeline parallelism. Defaults to 1."
+        "--pipeline-model-parallel-size",
+        type=int,
+        choices=[1],
+        default=1,
+        help="Order of pipeline parallelism. Defaults to 1 and currently only 1 is supported.",
     )
     ap.add_argument(
         "--context-parallel-size", type=int, default=1, help="Order of context parallelism. Defaults to 1."
@@ -204,8 +208,8 @@ class BasePredictor(LightningPassthroughPredictionMixin):
         assert self.training is False, "predict_step should be called in eval mode"
         with torch.no_grad():
             forward_out = self.forward_step(batch)
-        if not isinstance(forward_out, Tensor):
-            return forward_out
+        if not parallel_state.is_pipeline_last_stage():
+            return None
         # Reminder: the model's predictions for input i land at output i+1. To get everything to align, we prepend the
         # EOS token to the input sequences and take the outputs for all but the first token.
         forward_out_tp_gathered = _gather_along_last_dim(
