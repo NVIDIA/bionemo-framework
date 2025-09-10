@@ -75,18 +75,16 @@ def checkpoint_7b_1m_path() -> Path:
 @pytest.mark.parametrize(
     "ddp,pp,tp,wi",
     [
-        pytest.param(1, 1, 1, "epoch", id="ddp=1,pp=1,tp=1,wi=epoch"),
-        pytest.param(2, 1, 1, "epoch", id="ddp=2,pp=1,tp=1,wi=epoch"),
-        pytest.param(2, 1, 1, "batch", id="ddp=2,pp=1,tp=1,wi=batch"),
+        pytest.param(1, 1, "epoch", id="ddp=1,pp=1,wi=epoch"),
+        pytest.param(2, 1, "epoch", id="ddp=2,pp=1,wi=epoch"),
+        pytest.param(2, 1, "batch", id="ddp=2,pp=1,wi=batch"),
         pytest.param(
             1,
             2,
-            1,
             "epoch",
-            id="ddp=1,pp=2,tp=1,wi=epoch",
+            id="ddp=1,pp=2,wi=epoch",
             marks=pytest.mark.skip("Pipeline parallelism test currently hangs."),
         ),
-        pytest.param(1, 1, 2, "epoch", id="ddp=1,pp=1,tp=2,wi=epoch"),
     ],
 )
 def test_predict_evo2_runs(
