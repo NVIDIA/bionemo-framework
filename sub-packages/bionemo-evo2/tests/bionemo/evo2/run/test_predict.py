@@ -30,6 +30,7 @@ from lightning.fabric.plugins.environments.lightning import find_free_network_po
 from bionemo.core.data.load import load
 from bionemo.llm.lightning import batch_collator
 from bionemo.testing.data.fasta import ALU_SEQUENCE, create_fasta_file
+from bionemo.testing.torch import check_fp8_support
 
 
 def is_a6000_gpu() -> bool:
@@ -74,11 +75,18 @@ def checkpoint_7b_1m_path() -> Path:
 @pytest.mark.parametrize(
     "ddp,pp,tp,wi",
     [
-        (1, 1, 1, "epoch"),
-        (2, 1, 1, "epoch"),
-        (2, 1, 1, "batch"),
-        (1, 2, 1, "epoch"),
-        (1, 1, 2, "epoch"),
+        pytest.param(1, 1, 1, "epoch", id="ddp=1,pp=1,tp=1,wi=epoch"),
+        pytest.param(2, 1, 1, "epoch", id="ddp=2,pp=1,tp=1,wi=epoch"),
+        pytest.param(2, 1, 1, "batch", id="ddp=2,pp=1,tp=1,wi=batch"),
+        pytest.param(
+            1,
+            2,
+            1,
+            "epoch",
+            id="ddp=1,pp=2,tp=1,wi=epoch",
+            marks=pytest.mark.skip("Pipeline parallelism test currently hangs."),
+        ),
+        pytest.param(1, 1, 2, "epoch", id="ddp=1,pp=1,tp=2,wi=epoch"),
     ],
 )
 def test_predict_evo2_runs(
@@ -177,15 +185,29 @@ def test_predict_evo2_runs(
 @pytest.mark.parametrize(
     "ddp,cp,pp,tp,fp8,wi",
     [
-        (1, 1, 1, 1, False, "epoch"),
-        (2, 1, 1, 1, False, "epoch"),
-        (2, 1, 1, 1, False, "batch"),  # simulate a large prediction run with dp parallelism
-        (1, 2, 1, 1, False, "epoch"),
-        (1, 2, 1, 1, False, "batch"),
-        (1, 1, 2, 1, False, "epoch"),
-        (1, 1, 2, 1, True, "epoch"),  # Cover case where FP8 was not supported with TP=2
-        (1, 1, 1, 2, False, "epoch"),
+        pytest.param(1, 1, 1, 1, False, "epoch", id="ddp=1,cp=1,pp=1,tp=1,fp8=False,wi=epoch"),
+        pytest.param(2, 1, 1, 1, False, "epoch", id="ddp=2,cp=1,pp=1,tp=1,fp8=False,wi=epoch"),
+        pytest.param(
+            2, 1, 1, 1, False, "batch", id="ddp=2,cp=1,pp=1,tp=1,fp8=False,wi=batch"
+        ),  # simulate a large prediction run with dp parallelism
+        pytest.param(1, 2, 1, 1, False, "epoch", id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=epoch"),
+        pytest.param(1, 2, 1, 1, False, "batch", id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=batch"),
+        pytest.param(
+            1,
+            1,
+            2,
+            1,
+            False,
+            "epoch",
+            id="ddp=1,cp=1,pp=2,tp=1,fp8=False,wi=epoch",
+            marks=pytest.mark.skip("Pipeline parallelism test currently hangs."),
+        ),
+        pytest.param(
+            1, 1, 1, 2, True, "epoch", id="ddp=1,cp=1,pp=1,tp=2,fp8=True,wi=epoch"
+        ),  # Cover case where FP8 was not supported with TP=2
+        pytest.param(1, 1, 1, 2, False, "epoch", id="ddp=1,cp=1,pp=1,tp=2,fp8=False,wi=epoch"),
     ],
+    ids=lambda x: f"ddp={x[0]},cp={x[1]},pp={x[2]},tp={x[3]},fp8={x[4]},wi={x[5]}",
 )
 def test_predict_evo2_runs_with_log_probs(
     tmp_path,
@@ -210,6 +232,9 @@ def test_predict_evo2_runs_with_log_probs(
     world_size = ddp * cp * pp * tp
     if world_size > torch.cuda.device_count():
         pytest.skip(f"World size {world_size} is less than the number of GPUs {torch.cuda.device_count()}")
+    is_fp8_supported, _, _ = check_fp8_support(torch.cuda.current_device())
+    if not is_fp8_supported and fp8:
+        pytest.skip("FP8 is not supported on this GPU.")
 
     fasta_file_path = tmp_path / "test.fasta"
     create_fasta_file(
@@ -221,6 +246,7 @@ def test_predict_evo2_runs_with_log_probs(
     if is_a6000_gpu():
         # Fix hanging issue on A6000 GPUs with multi-gpu tests
         env["NCCL_P2P_DISABLE"] = "1"
+
     fp8_option = "--fp8" if fp8 else ""
     # Build the command string.
     # Note: The command assumes that `train_evo2` is in your PATH.

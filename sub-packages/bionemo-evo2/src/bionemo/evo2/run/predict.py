@@ -507,12 +507,8 @@ def predict(
         resume_if_exists=True,
         resume_ignore_no_checkpoint=False,
         resume_past_end=False,
-        restore_config=nl.RestoreConfig(
-            path=str(ckpt_dir),  # NeMo expects a string path.
-            load_model_state=True,
-            load_optim_state=False,
-            load_artifacts=False,
-        ),
+        resume_from_path=str(ckpt_dir),
+        restore_config=None,
     )
     tokenizer = get_nmt_tokenizer("byte-level")
 
