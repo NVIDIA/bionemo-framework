@@ -5,6 +5,20 @@ defaults:
 model_tag: "nvidia/AMPLIFY_120M"
 stop_after_n_steps: 250
 
+dataset:
+  tokenizer_name: ${model_tag}
+  max_seq_length: 1024
+  train_load_dataset_kwargs:
+    path: "parquet"
+    split: "train"
+    data_files: "train.parquet"
+    streaming: True
+  eval_load_dataset_kwargs:
+    path: "parquet"
+    split: "train"
+    data_files: "train.parquet"
+  truncate_eval_dataset: 10
+
 trainer:
   run_name: "amplify_120M_sanity"
   per_device_train_batch_size: 2
