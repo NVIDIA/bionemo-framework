@@ -81,7 +81,8 @@ With a locally cloned repository and initialized submodules, build the BioNeMo c
 ```bash
 docker buildx build . -t my-container-tag
 ```
-If you see an error message like `No file descriptors available (os error 24)`, add the option `--ulimit nofile=65535:65535` to the docker build command.  
+
+If you see an error message like `No file descriptors available (os error 24)`, add the option `--ulimit nofile=65535:65535` to the docker build command.
 
 #### VSCode Devcontainer for Interactive Debugging
 
