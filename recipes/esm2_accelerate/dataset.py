@@ -53,26 +53,23 @@ def create_datasets_and_collator(
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
-    def tokenize_function(sequence):
+    def tokenize_function(examples):
         """Tokenize the protein sequences."""
         return tokenizer(
-            sequence,
+            examples["sequence"],
             truncation=True,
             padding="max_length",
             max_length=max_seq_length,
-            return_tensors="pt",
         )
 
     train_dataset = train_dataset.map(
         tokenize_function,
         batched=True,
-        input_columns=["sequence"],
         remove_columns=train_dataset.column_names,
     )
     eval_dataset = eval_dataset.map(
         tokenize_function,
         batched=True,
-        input_columns=["sequence"],
         remove_columns=eval_dataset.column_names,
     )
 
