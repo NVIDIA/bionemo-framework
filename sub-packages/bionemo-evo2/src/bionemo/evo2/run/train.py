@@ -38,6 +38,7 @@ from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
 )
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.pytorch import callbacks as nl_callbacks
+from nemo.lightning.pytorch.callbacks import ModelTransform
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
@@ -45,6 +46,13 @@ from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils.exp_manager import TimingCallback
 
+from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
+from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
+from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
+from bionemo.evo2.run.peft import Evo2LoRA
+from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
+from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
+from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -55,7 +63,15 @@ torch._dynamo.config.suppress_errors = True
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     """Parse arguments for Evo2 model training."""
     parser = argparse.ArgumentParser(
-        description="Train a Hyena model using NeMo 2.0.",
+        description=(
+            "Train an Evo2/Hyena-family model using NeMo 2.0.\n\n"
+            "Choose exactly one data source:\n"
+            "  - --dataset-config: blended/weighted dataset YAML.\n"
+            "  - --mock-data: synthetic mock data for testing/debugging.\n"
+            "  - --fasta-data: single FASTA file input (requires --fasta-file).\n"
+            "  - --sharded-eden-data: pre-sharded SQLite sequence DBs + precomputed windows per split\n"
+            "      (requires --sequence-db-dir, --train-window-db, --val-window-db, --test-window-db)."
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     data_group = parser.add_mutually_exclusive_group(required=True)
@@ -64,18 +80,124 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "-d",
         "--dataset-config",
         type=str,
-        help="Path to the blended / weighted training dataset configuration YAML.",
+        help="Path to the blended / weighted training dataset configuration YAML. Mutually exclusive with "
+        "--mock-data, --fasta-data and --sharded-eden-data.",
     )
     data_group.add_argument(
         "--mock-data",
         action="store_true",
-        help="Train with Mock data (for testing/debugging), either set this or provide a dataset config.",
+        help="Use synthetic mock data for quick testing/debugging. Mutually exclusive with --dataset-config, --fasta-data and --sharded-eden-data.",
     )
 
+    data_group.add_argument(
+        "--fasta-data",
+        action="store_true",
+        help=(
+            "Train on a single FASTA file (EdenDataModule). Requires --fasta-file. Mutually exclusive with "
+            "--dataset-config, --mock-data and --sharded-eden-data."
+        ),
+    )
+
+    data_group.add_argument(
+        "--sharded-eden-data",
+        action="store_true",
+        help=(
+            "Train on pre-sharded SQLite sequence databases with precomputed windows per split "
+            "(ShardedEdenDataModule). Requires: --sequence-db-dir, --train-window-db, --val-window-db, --test-window-db. "
+            "Mutually exclusive with --dataset-config, --mock-data and --fasta-data."
+        ),
+    )
+
+    # Dataset configuration (unified)
+    parser.add_argument(
+        "--fasta-file",
+        type=str,
+        help=(
+            "Absolute path to FASTA file containing training data. Required when using --fasta-data; "
+            "ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--sequence-db-dir",
+        type=str,
+        help=(
+            "Directory containing per-sample SQLite databases with sequences. Required with --sharded-eden-data; "
+            "ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--train-window-db",
+        type=str,
+        help=(
+            "Path to the precomputed training split windows SQLite database. Required with --sharded-eden-data; "
+            "ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--val-window-db",
+        type=str,
+        help=(
+            "Path to the precomputed validation split windows SQLite database. Required with --sharded-eden-data; "
+            "ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--test-window-db",
+        type=str,
+        help=(
+            "Path to the precomputed test split windows SQLite database. Required with --sharded-eden-data; "
+            "ignored otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--dataset-num-epochs",
+        type=int,
+        default=1,
+        help=(
+            "When using --sharded-eden-data, wrap each split with a MultiEpochDatasetResampler over this many epochs. "
+            "Default 1 means each split length equals its base dataset length."
+        ),
+    )
+    parser.add_argument(
+        "--stride",
+        type=int,
+        default=7992,
+        help=(
+            "Stride between adjacent windows used by ShardedEdenDataModule. Must match the stride used when "
+            "precomputing the windows databases. Ignored for other data modes."
+        ),
+    )
+    parser.add_argument(
+        "--window-min-length-threshold",
+        type=int,
+        default=0,
+        help=(
+            "If > 0, prune windows shorter than this effective length during precomputation and require matching "
+            "value in the window DB metadata. Defaults to 0 (disabled)."
+        ),
+    )
+    parser.add_argument(
+        "--log-windows",
+        action="store_true",
+        default=False,
+        help=("Enable window access logging for ShardedEdenDataset (applies only to --sharded-eden-data)."),
+    )
+    parser.add_argument(
+        "--window-log-dir",
+        type=str,
+        default=None,
+        help=("Directory for window-access logging SQLite files (applies only to --sharded-eden-data)."),
+    )
+    parser.add_argument(
+        "--rc-aug",
+        action="store_true",
+        default=False,
+        help=("Enable reverse-complement augmentation (applies only to --sharded-eden-data)."),
+    )
     parser.add_argument(
         "--dataset-dir",
         type=str,
-        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML.",
+        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML. Required with --dataset-config.",
     )
 
     parser.add_argument("--num-nodes", type=int, default=1, help="Number of nodes to use for training, defaults to 1.")
@@ -172,15 +294,14 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="TP communication backend to use. Defaults to 'nccl'.",
     )
     parser.add_argument("--align-param-gather", action="store_true", default=False)
-    # parser.add_argument("--straggler-detection", action="store_true", default=False)
     parser.add_argument(
         "--model-size",
         type=str,
-        choices=sorted(HYENA_MODEL_OPTIONS.keys()),
+        choices=sorted(
+            list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys()) + list(LLAMA_MODEL_OPTIONS.keys())
+        ),
         default="7b",
-        help="Model architecture to use, choose between 7b, 40b, or test (a sub-model of 4 layers, less than 1B "
-        "parameters). '_arc_1m' models have GLU / FFN dimensions that support 1M context length when trained "
-        "with TP<=8.",
+        help="Model size/configuration to use. Options depend on the selected model-type.",
     )
     parser.add_argument(
         "--add-bias-output",
@@ -212,14 +333,44 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Directory to restore an initial checkpoint from. Use this for supervised fine-tuning.",
     )
+    parser.add_argument(
+        "--use-precision-aware-optimizer",
+        action="store_true",
+        default=False,
+        help="Use precision aware optimizer that stores main weights in FP32 when doing mixed precision training.",
+    )
+    parser.add_argument(
+        "--bf16-main-grads",
+        action="store_true",
+        default=False,
+        help="Use bf16 for main gradients, only use this with --use-precision-aware-optimizer.",
+    )
     parser.add_argument("--wd", type=float, default=0.01, help="Weight decay for optimizer.")
+    parser.add_argument(
+        "--adam-beta1",
+        type=float,
+        default=0.9,
+        help="Adam optimizer beta1 parameter.",
+    )
+    parser.add_argument(
+        "--adam-beta2",
+        type=float,
+        default=0.95,
+        help="Adam optimizer beta2 parameter.",
+    )
+    parser.add_argument(
+        "--adam-eps",
+        type=float,
+        default=1e-8,
+        help="Adam optimizer epsilon parameter. The inverse of this value (1/eps) represents the maximum adaptive learning rate per parameter.",
+    )
     parser.add_argument(
         "--restore-optimizer-from-ckpt",
         action="store_true",
         help="Restore optimizer state from initial checkpoint. Defaults to False.",
     )
     parser.add_argument(
-        "--no-average-in-collective",
+        "--average-in-collective",
         action="store_true",
         default=False,
         help="Avaerage optimizer state in collective rather than dividing by dp size and summing.",
@@ -318,6 +469,28 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Start nsys profiling after this step.",
     )
     parser.add_argument(
+        "--spike-no-more-embedding-init",
+        action="store_true",
+        default=False,
+        help="If set, the embeddings are initialized with a Normal(0, 1.0) distribution rather "
+        "than the default Normal(0, 0.02). This may help avoid loss spiking during training. Consider using this with "
+        "--no-weight-decay-embeddings to avoid shrinking the embeddings to 0 by skipping weight decay on these layers, "
+        "or with --use-targeted-variance-loss to maintain a 1.0 variance during training even with weight decay. This "
+        "also turns off shared weights between embeddings and outputs.",
+    )
+    parser.add_argument(
+        "--no-weight-decay-embeddings",
+        action="store_true",
+        default=False,
+        help="If set, do not apply weight decay to the embeddings.",
+    )
+    parser.add_argument(
+        "--use-targeted-variance-loss",
+        action="store_true",
+        default=False,
+        help="Use targeted variance loss.",
+    )
+    parser.add_argument(
         "--nsys-end-step",
         type=int,
         required=False,
@@ -328,6 +501,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Do not renormalize the loss weights.",
+    )
+    parser.add_argument(
+        "--mamba-lowercase-loss-weight",
+        type=float,
+        default=0.1,
+        help="Loss weight for the Mamba model for lowercase bases, if you are using a Mamba model. "
+        "Default is 0.1 like the Evo2 paper. Set to 1.0 to disable differential loss weighting.",
     )
     # rank as list of integers
     parser.add_argument(
@@ -383,10 +563,27 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Dropout probability for the hyena layers",
     )
     parser.add_argument(
+        "--ffn-hidden-size",
+        type=int,
+        default=None,
+        help="FFN hidden size for the hyena layers",
+    )
+    parser.add_argument(
+        "--log-num-zeros-in-grad",
+        action="store_true",
+        default=False,
+        help="Log the number of zeros in the gradient.",
+    )
+    parser.add_argument(
         "--attention-dropout",
         type=float,
         default=0.0,
         help="Dropout probability for the attention layers.",
+    )
+    parser.add_argument(
+        "--use-subquadratic_ops",
+        action="store_true",
+        help="Use subquadratic_ops for improved performance.",
     )
     parser.add_argument(
         "--save-top-k",
@@ -413,6 +610,28 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=True,
         help="Disable saving the last checkpoint.",
     )
+    parser.add_argument("--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False)
+    parser.add_argument("--lora-checkpoint-path", type=Path, default=None, help="LoRA checkpoint path")
+    parser.add_argument(
+        "--no-calculate-per-token-loss",
+        action="store_true",
+        default=False,
+        help="Calculate a simpler mean across the microbatch of the loss prior to DDP reduction rather than the global"
+        " per-token mean loss. Use this if speed is critical and if you do not need token masking in your loss.",
+    )
+    parser.add_argument(
+        "--no-check-for-nan-in-grad",
+        action="store_true",
+        default=False,
+        help="Skip checking for NaNs in gradients. Only use this for debugging purposes.",
+    )
+    parser.add_argument(
+        "--garbage-collect-at-inference",
+        action="store_true",
+        default=False,
+        help="Enable CUDA memory cleanup before validation to prevent initialization errors.",
+    )
+
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
@@ -421,10 +640,17 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
 
 def train(args: argparse.Namespace) -> nl.Trainer:
     """Main function to run Evo2 training."""
-    # Instantiate tokenizer.
     tokenizer = get_nmt_tokenizer(
         "byte-level",
     )
+
+    bos_id, eos_id, sep_id, pad_id = 1, 2, 3, 0
+
+    # Patch the private attrs so tokenizer.bos_id/.eos_id/.pad_id work
+    tokenizer._bos_id = bos_id
+    tokenizer._eos_id = eos_id
+    tokenizer._sep_id = sep_id
+    tokenizer._pad_id = pad_id
 
     # Infer global batch size.
     global_batch_size = args.global_batch_size
@@ -446,7 +672,44 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             num_workers=args.workers,
             tokenizer=tokenizer,
         )
+    elif args.fasta_data:
+        raise NotImplementedError("Fasta data is not supported yet. Need to add EdenDataModule")
+        # data_module = EdenDataModule(
+        #     fasta_file=args.fasta_file,
+        #     seq_length=args.seq_length,
+        #     micro_batch_size=args.micro_batch_size,
+        #     global_batch_size=global_batch_size,
+        #     num_workers=args.workers,
+        #     tokenizer=tokenizer,
+        #     seed=args.seed,
+        # )
+    elif args.sharded_eden_data:
+        # Validate required arguments for sharded data
+        if not args.sequence_db_dir or not args.train_window_db or not args.val_window_db or not args.test_window_db:
+            raise ValueError(
+                "--sequence-db-dir, --train-window-db, --val-window-db, and --test-window-db are required when using --sharded-eden-data."
+            )
+        data_module = ShardedEdenDataModule(
+            sequence_db_dir=args.sequence_db_dir,
+            train_window_db_path=args.train_window_db,
+            val_window_db_path=args.val_window_db,
+            test_window_db_path=args.test_window_db,
+            seq_length=args.seq_length,
+            tokenizer=tokenizer,
+            micro_batch_size=args.micro_batch_size,
+            global_batch_size=global_batch_size,
+            num_workers=args.workers,
+            rc_aug=args.rc_aug,
+            stride=args.stride,
+            window_min_length_threshold=args.window_min_length_threshold,
+            seed=args.seed,
+            num_epochs=args.dataset_num_epochs,
+            log_windows=args.log_windows,
+            log_dir=args.window_log_dir,
+        )
     else:
+        if not args.dataset_dir:
+            raise ValueError("--dataset-dir is required when using --dataset-config.")
         blended_dataset_config = parse_dataset_config(
             dataset_config_path=args.dataset_config, dataset_path=args.dataset_dir
         )
@@ -463,7 +726,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             tokenizer=tokenizer,
             eod_mask_loss=args.eod_pad_in_loss_mask,
         )
-
     if args.no_activation_checkpointing:
         activation_checkpointing_args = {
             "recompute_granularity": None,
@@ -483,9 +745,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             }
         else:
             activation_checkpointing_args = {}
-
     # Retrieve model config.
     config_modifiers_init = {
+        "calculate_per_token_loss": not args.no_calculate_per_token_loss,  # override megatron internal behavior.
         "tp_comm_overlap": args.use_megatron_comm_overlap_llama3_8k,
         "seq_length": args.seq_length,
         "hidden_dropout": args.hidden_dropout,
@@ -494,28 +756,74 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "distribute_saved_activations": False if args.sequence_parallel else True,
         "cross_entropy_loss_fusion": args.cross_entropy_loss_fusion,
         "fp32_residual_connection": not args.no_fp32_residual_connection,
-        "add_bias_output": args.add_bias_output,
         **activation_checkpointing_args,
     }
+    if args.add_bias_output:
+        config_modifiers_init["add_bias_output"] = args.add_bias_output
+    if args.spike_no_more_embedding_init:
+        config_modifiers_init["embedding_init_method_std"] = 1.0
+        # When using spike_no_more_embedding_init, we don't want to share embeddings and outputs.
+        config_modifiers_init["share_embeddings_and_output_weights"] = False
+    if args.ffn_hidden_size:
+        config_modifiers_init["ffn_hidden_size"] = args.ffn_hidden_size
+    if args.use_targeted_variance_loss:
+        config_modifiers_init["use_targeted_variance_loss"] = True
+    if args.use_subquadratic_ops:
+        config_modifiers_init["use_subquadratic_ops"] = True
     if args.hybrid_override_pattern:
         config_modifiers_init["hybrid_override_pattern"] = args.hybrid_override_pattern
     if args.num_layers:
         config_modifiers_init["num_layers"] = args.num_layers
-
-    if args.model_size not in HYENA_MODEL_OPTIONS:
+    if args.model_size in HYENA_MODEL_OPTIONS:
+        model_type = "hyena"
+    elif args.model_size in MAMBA_MODEL_OPTIONS:
+        model_type = "mamba"
+    elif args.model_size in LLAMA_MODEL_OPTIONS:
+        model_type = "llama"
+    else:
         raise ValueError(f"Invalid model size: {args.model_size}")
-    evo2_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
 
-    # Instantiate model.
-    model = llm.HyenaModel(evo2_config, tokenizer=data_module.tokenizer)
+    # Create model based on selected model type
+    if model_type == "hyena":
+        if args.model_size not in HYENA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Hyena: {args.model_size}")
+        model_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
+        if args.no_weight_decay_embeddings:
+            # Override the default weight decay condition for Hyena with our bionemo version that also excludes
+            #  embeddings
+            model_config.hyena_no_weight_decay_cond_fn = hyena_no_weight_decay_cond_with_embeddings
+        # Lora adaptors configuration
+        lora_transform = None
+        if args.lora_finetune:
+            lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
+
+        model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
+    elif model_type == "mamba":  # mamba
+        if args.no_weight_decay_embeddings:
+            config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
+        config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
+        if args.model_size not in MAMBA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
+        model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
+        model = MambaModel(model_config, tokenizer=data_module.tokenizer)
+    elif model_type == "llama":
+        config_modifiers_init.pop("to_upper")
+        model_config = LLAMA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
+        model = llm.LlamaModel(model_config, tokenizer=data_module.tokenizer)
 
     # Setup callbacks.
     callbacks = [
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         TimingCallback(),
+        TEVCallback(),
     ]
 
+    if args.garbage_collect_at_inference:
+        callbacks.append(GarbageCollectAtInferenceTime())
+
+    if args.lora_finetune:
+        callbacks.append(ModelTransform())
     if args.enable_preemption:
         callbacks.append(nl_callbacks.PreemptionCallback())
     if args.debug_ddp_parity_freq > 0:
@@ -525,7 +833,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     if args.create_tflops_callback:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
         flop_meas_callback = FLOPsMeasurementCallback(
-            evo2_config,
+            model_config,
             data_module,
             "hyena",
         )
@@ -553,7 +861,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             tp_comm_overlap_cfg = userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192
         callbacks.append(
             MegatronCommOverlapCallback(
-                tp_comm_overlap=evo2_config.tp_comm_overlap,
+                tp_comm_overlap=model_config.tp_comm_overlap,
                 tp_comm_overlap_cfg=tp_comm_overlap_cfg,
                 tp_comm_bootstrap_backend=args.tp_comm_overlap_backend,
                 wgrad_deferral_limit=22,  # default from NeMo
@@ -578,17 +886,19 @@ def train(args: argparse.Namespace) -> nl.Trainer:
                 start_step=args.nsys_start_step, end_step=nsys_end_step, ranks=args.nsys_ranks, gen_shape=True
             )
         )
-
+    # Average in collective is only supported when per-token loss is not calculated.
+    average_in_collective = args.average_in_collective and args.no_calculate_per_token_loss
     wandb_run_name = (
         f"evo2-size-{args.model_size}-TP{args.tensor_parallel_size}-"
         f"PP{args.pipeline_model_parallel_size}-CP{args.context_parallel_size}"
         f"-GBS{global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
         f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
-        f"-ACRNL{evo2_config.recompute_num_layers}"
-        f"-PAT{evo2_config.hybrid_override_pattern}"
-        f"-F32R{evo2_config.fp32_residual_connection}"
-        f"-FCE{evo2_config.cross_entropy_loss_fusion}"
-        f"-AIC{not args.no_average_in_collective}"
+        f"-ACRNL{model_config.recompute_num_layers}"
+        f"-PAT{getattr(model_config, 'hybrid_override_pattern', 'None')}"
+        f"-F32R{model_config.fp32_residual_connection}"
+        f"-FCE{model_config.cross_entropy_loss_fusion}"
+        f"-AIC{average_in_collective}"
+        f"-PTL{not args.no_calculate_per_token_loss}"
         f"-PEOD{args.eod_pad_in_loss_mask}"
         f"-BO{args.add_bias_output}"
         f"-GCLP{args.clip_grad}"
@@ -596,9 +906,19 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-ADO{args.attention_dropout}"
         f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-CONSTSTEPS{args.constant_steps}-WD{args.wd}"
         f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
+        f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
+        f"-PAO{args.use_precision_aware_optimizer}"
+        f"-B16MG{args.bf16_main_grads}"
+        f"-EWD{args.no_weight_decay_embeddings}-SNI{args.spike_no_more_embedding_init}"
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
+        f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
     )
+    if model_type == "mamba":
+        # Include this setting for mamba models.
+        wandb_run_name += f"-LLW{args.mamba_lowercase_loss_weight}"
+    elif model_type == "llama":
+        wandb_run_name += f"-LLAMA{args.model_size}"
 
     wandb_config: Optional[WandbConfig] = (
         None
@@ -622,6 +942,18 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         initialize_tensorboard_logger=args.create_tensorboard_logger,
         wandb_config=wandb_config,
     )
+
+    # Ensure window logging directory lives under the run directory
+    if args.sharded_eden_data and args.log_windows:
+        window_log_leaf = Path(args.window_log_dir).name if args.window_log_dir else "window_logs"
+        window_log_dir = Path(nemo_logger.save_dir) / window_log_leaf
+        try:
+            window_log_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        # Propagate to data module (datasets are built later during setup)
+        if isinstance(data_module, ShardedEdenDataModule):
+            data_module.log_dir = str(window_log_dir)
 
     if args.create_checkpoint_callback:
         checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
@@ -658,12 +990,12 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         auto_resume = None
 
     ddp: DistributedDataParallelConfig = DistributedDataParallelConfig(
-        check_for_nan_in_grad=True,
+        check_for_nan_in_grad=not args.no_check_for_nan_in_grad,
         overlap_grad_reduce=args.overlap_grad_reduce,
         overlap_param_gather=args.overlap_param_gather,  # Verify that this works using
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
         align_param_gather=args.align_param_gather,
-        average_in_collective=not args.no_average_in_collective,
+        average_in_collective=average_in_collective,
     )
     # Initialize Megatron Strategy and Trainer.
     strategy = nl.MegatronStrategy(
@@ -719,11 +1051,15 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     opt_config = OptimizerConfig(
         optimizer="adam",
         lr=args.lr,
-        adam_beta1=0.9,
-        adam_beta2=0.95,
+        adam_beta1=args.adam_beta1,
+        adam_beta2=args.adam_beta2,
         weight_decay=args.wd,
         clip_grad=args.clip_grad,
+        adam_eps=args.adam_eps,
         use_distributed_optimizer=True,
+        log_num_zeros_in_grad=args.log_num_zeros_in_grad,
+        use_precision_aware_optimizer=args.use_precision_aware_optimizer,
+        main_grads_dtype=torch.bfloat16 if args.bf16_main_grads else torch.float32,
         bf16=True,
     )
 
@@ -733,10 +1069,11 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         min_lr=args.min_lr,
         constant_steps=args.constant_steps,
     )
-
-    opt = MegatronOptimizerModule(opt_config, sched, no_weight_decay_cond=evo2_config.hyena_no_weight_decay_cond_fn)
+    # This is where the no weight decay condition is applied to the optimizer state.
+    opt = MegatronOptimizerModule(
+        opt_config, sched, no_weight_decay_cond=getattr(model_config, "hyena_no_weight_decay_cond_fn", None)
+    )
     opt.connect(model)
-
     # Start training
     trainer.fit(model, data_module)
     return trainer

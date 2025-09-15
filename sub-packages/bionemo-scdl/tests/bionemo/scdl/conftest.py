@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from bionemo.core.data.load import load
+from bionemo.scdl.data.load import load
 
 
 @pytest.fixture
@@ -29,8 +29,17 @@ def test_directory() -> Path:
     Returns:
         A Path object that is the directory with test data.
     """
-    # return load("scdl/sample") / "scdl_data"
     return load("scdl/sample_scdl_feature_ids") / "scdl_data_with_feature_ids"
+
+
+@pytest.fixture
+def test_neighbor_directory() -> Path:
+    """Gets the path to the directory with neighbor test data.
+
+    Returns:
+        A Path object that is the directory with neighbor test data.
+    """
+    return load("scdl/sample_scdl_neighbor")
 
 
 @pytest.fixture
@@ -41,11 +50,7 @@ def create_cellx_val_data(tmpdir) -> Path:
         A Path object that is the directory with test data.
     """
     cellx_input_val_path = (
-        load("single_cell/testdata-20240506")
-        / "cellxgene_2023-12-15_small"
-        / "input_data"
-        / "val"
-        / "assay__10x_3_v2/"
+        load("scdl/testdata-20240506") / "cellxgene_2023-12-15_small" / "input_data" / "val" / "assay__10x_3_v2/"
     )
     file1 = (
         cellx_input_val_path

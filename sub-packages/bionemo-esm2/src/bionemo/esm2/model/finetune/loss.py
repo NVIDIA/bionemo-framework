@@ -18,9 +18,13 @@ from typing import Dict, Sequence, Tuple
 
 import torch
 from megatron.core import parallel_state
+from nemo.lightning.megatron_parallel import masked_token_loss
 from torch import Tensor
 
-from bionemo.llm.model.loss import BERTMLMLossWithReduction, PerTokenLossDict, SameSizeLossDict
+from bionemo.llm.model.loss import (
+    BERTMLMLossWithReduction,
+    unreduced_token_loss_fn,
+)
 
 
 __all__: Sequence[str] = (
@@ -37,42 +41,26 @@ class RegressorLossReduction(BERTMLMLossWithReduction):
 
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
-    ) -> Tuple[Tensor, PerTokenLossDict | SameSizeLossDict]:
-        """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
+        """Calculates the sum of squared errors within a micro-batch. A micro-batch is a batch of data on a single GPU. The averaging of the loss, i.e. MSE loss, is done in https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/pipeline_parallel/schedules.py#L304-L314.
 
         Args:
             batch: A batch of data that gets passed to the original forward inside LitAutoEncoder.
             forward_out: the output of the forward method inside classification head.
-
-        Returns:
-            A tuple containing [<loss_tensor>, ReductionT] where the loss tensor will be used for
-                backpropagation and the ReductionT will be passed to the reduce method
-                (which currently only works for logging.).
         """
         regression_output = forward_out["regression_output"]
         targets = batch["labels"].to(dtype=regression_output.dtype)  # [b, 1]
 
+        num_valid_tokens = torch.tensor(targets.numel(), dtype=torch.int, device=targets.device)
+
         cp_size = parallel_state.get_context_parallel_world_size()
         if cp_size == 1:
-            loss = torch.nn.functional.mse_loss(regression_output, targets)
+            loss_sum = ((regression_output - targets) ** 2).sum()  # torch.float
         else:
             raise NotImplementedError("Context Parallel support is not implemented for this loss")
 
-        return loss, {"avg": loss}
-
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
-        """Works across micro-batches. (data on single gpu).
-
-        Note: This currently only works for logging and this loss will not be used for backpropagation.
-
-        Args:
-            losses_reduced_per_micro_batch: a list of the outputs of forward
-
-        Returns:
-            A tensor that is the mean of the losses. (used for logging).
-        """
-        losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
-        return losses.mean()
+        loss_sum_and_ub_size = torch.cat([loss_sum.clone().detach().view(1), num_valid_tokens.view(1)])
+        return loss_sum, num_valid_tokens, {"loss_sum_and_ub_size": loss_sum_and_ub_size}
 
 
 class ClassifierLossReduction(BERTMLMLossWithReduction):
@@ -83,50 +71,37 @@ class ClassifierLossReduction(BERTMLMLossWithReduction):
 
     def forward(
         self, batch: Dict[str, Tensor], forward_out: Dict[str, Tensor]
-    ) -> Tuple[Tensor, PerTokenLossDict | SameSizeLossDict]:
-        """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU.
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
+        """Calculates the loss within a micro-batch. A micro-batch is a batch of data on a single GPU. The averaging of the loss is done in https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/pipeline_parallel/schedules.py#L304-L314.
 
         Args:
             batch: A batch of data that gets passed to the original forward inside LitAutoEncoder.
             forward_out: the output of the forward method inside classification head.
-
-        Returns:
-            A tuple where the loss tensor will be used for backpropagation and the dict will be passed to
-            the reduce method, which currently only works for logging.
         """
         targets = batch["labels"].squeeze()  # [b] or [b, s] for sequence-level or token-level classification
+        loss_mask = batch["loss_mask"]
 
         classification_output = forward_out["classification_output"]  # [b, num_class] or [b, s, num_class]
-        # [b, s, num_class] -> [b, num_class, s] to satisfy toke-level input dims for cross_entropy loss
         if classification_output.dim() == 3:
-            classification_output = classification_output.permute(0, 2, 1)
-
-        loss_mask = batch["loss_mask"]  # [b, s]
-
-        cp_size = parallel_state.get_context_parallel_world_size()
-        if cp_size == 1:
-            losses = torch.nn.functional.cross_entropy(classification_output, targets, reduction="none")
-            # token-level losses may contain NaNs at masked locations. We use masked_select to filter out these NaNs
-            if classification_output.dim() == 3:
-                masked_loss = torch.masked_select(losses, loss_mask)
-                loss = masked_loss.sum() / loss_mask.sum()
-            else:
-                loss = losses.mean()  # sequence-level single value classification
+            classification_output = classification_output.permute(1, 0, 2).contiguous()  # change to [s, b, num_class]
+        elif classification_output.dim() == 2:
+            # NOTE: this is for sequence-level classification, we artificially create a sequence dimension to use the same code path as token-level classification
+            classification_output = classification_output.unsqueeze(0)  # change to [1, b, num_class]
+            targets = targets.unsqueeze(1)  # change to [b, 1]
+            loss_mask = torch.ones((targets.shape[0], 1), dtype=loss_mask.dtype, device=loss_mask.device)
         else:
-            raise NotImplementedError("Context Parallel support is not implemented for this loss")
+            raise ValueError(f"Unexpected classification output dimension: {classification_output.dim()}")
 
-        return loss, {"avg": loss}
+        # NOTE: token_logits is [sequence, batch] but labels and other fields, including the loss are [batch, sequence]
+        unreduced_token_loss = unreduced_token_loss_fn(classification_output, targets)  # [b s]
+        loss_sum, num_valid_tokens = masked_token_loss(unreduced_token_loss, loss_mask)  # torch.float, torch.int
 
-    def reduce(self, losses_reduced_per_micro_batch: Sequence[SameSizeLossDict]) -> Tensor:
-        """Works across micro-batches. (data on single gpu).
+        if self.validation_step and not self.val_drop_last and loss_sum.isnan():
+            assert num_valid_tokens == 0, "Got NaN loss with non-empty input"
+            if loss_mask.count_nonzero() != 0:
+                raise ValueError("Got NaN loss with non-empty input")
+            loss_sum = torch.zeros_like(num_valid_tokens)
 
-        Note: This currently only works for logging and this loss will not be used for backpropagation.
-
-        Args:
-            losses_reduced_per_micro_batch: a list of the outputs of forward
-
-        Returns:
-            A tensor that is the mean of the losses. (used for logging).
-        """
-        losses = torch.stack([loss["avg"] for loss in losses_reduced_per_micro_batch])
-        return losses.mean()
+        num_valid_tokens = num_valid_tokens.clone().detach().to(torch.int)
+        loss_sum_and_ub_size = torch.cat([loss_sum.clone().detach().view(1), num_valid_tokens.view(1)])
+        return loss_sum, num_valid_tokens, {"loss_sum_and_ub_size": loss_sum_and_ub_size}

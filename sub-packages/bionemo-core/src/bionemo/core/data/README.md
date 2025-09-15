@@ -8,16 +8,15 @@ We currently support two locations for test data or saved models:
 
 SwiftStack
 
-:   SwiftStack or `pbss` is an NVIDIA-internal, s3-compatible object store that allows for very large data and fast,
-    parallel read/writes. Most critically, `pbss` can be uploaded to without legal approvals for dataset redistribution.
-    These files will not be accessible by external collaborators.
+: SwiftStack or `pbss` is an NVIDIA-internal, s3-compatible object store that allows for very large data and fast,
+parallel read/writes. Most critically, `pbss` can be uploaded to without legal approvals for dataset redistribution.
+These files will not be accessible by external collaborators.
 
 [NGC](https://catalog.ngc.nvidia.com/)
 
-:   NGC hosts containers, models, and resources, some of which require authentication and others that are generally
-    available. This library uses the model and resource types to save test data and reference model weights. These items
-    are accessible by external collaborators, but require legal approval before re-distributing test data.
-
+: NGC hosts containers, models, and resources, some of which require authentication and others that are generally
+available. This library uses the model and resource types to save test data and reference model weights. These items
+are accessible by external collaborators, but require legal approval before re-distributing test data.
 
 ## Loading test or example data
 
@@ -57,10 +56,11 @@ determined based on the filename specified in the `pbss` URL.
 
 !!! note "Files in NGC resources"
 
-    NGC resources are folders, i.e., they may contain multiple files per resource.
-    [load][bionemo.core.data.load.load] will _only_ download the filename matching the stem of the `pbss` url. The
-    same NGC resource can therefore be used to host multiple test assets that are used independently.
-
+```
+NGC resources are folders, i.e., they may contain multiple files per resource.
+[load][bionemo.core.data.load.load] will _only_ download the filename matching the stem of the `pbss` url. The
+same NGC resource can therefore be used to host multiple test assets that are used independently.
+```
 
 ## Adding new test assets
 
@@ -71,5 +71,7 @@ unspecified, `pooch` will report the downloaded file's sha when loaded.
 
 !!! warning
 
-    SHAs should be provided for all files to ensure the download completes correctly, and to invalidate caches if the
-    files change.
+```
+SHAs should be provided for all files to ensure the download completes correctly, and to invalidate caches if the
+files change.
+```

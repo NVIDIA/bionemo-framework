@@ -33,8 +33,8 @@ sanity_data_dir = load("esm2/testdata_esm2_pretrain:2.0")
 
 ### NGC Resource Links
 
-* [Sanity Dataset](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/resources/esm2_pretrain_nemo2_testdata/files)
-* [Full Dataset]
+- [Sanity Dataset](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/resources/esm2_pretrain_nemo2_testdata/files)
+- [Full Dataset]
 
 ## References
 

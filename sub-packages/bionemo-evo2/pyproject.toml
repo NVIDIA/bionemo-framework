@@ -30,6 +30,8 @@ predict_evo2 = "bionemo.evo2.run.predict:main"
 preprocess_evo2 = "bionemo.evo2.data.preprocess:main"
 splice_evo2 = "bionemo.evo2.data.transcript_extraction:main"
 evo2_convert_to_nemo2 = "bionemo.evo2.utils.checkpoint.convert_to_nemo:main"
+evo2_mamba_remove_optimizer = "bionemo.evo2.utils.checkpoint.mamba_remove_optimizer:main"
+
 
 [tool.setuptools.packages.find]
 where = ["src"]

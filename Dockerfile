@@ -19,7 +19,7 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.04-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.06-py3
 
 FROM rust:1.86.0 AS rust-env
 
@@ -49,6 +49,7 @@ apt-get install -qyy \
   curl \
   pre-commit \
   sudo \
+  emacs-nox \
   gnupg \
   unzip \
   libsqlite3-dev
@@ -58,24 +59,36 @@ rm -rf /tmp/* /var/tmp/*
 EOF
 
 
-## BUMP TE as a solution to the issue https://github.com/NVIDIA/bionemo-framework/issues/422. Drop this when pytorch images ship the fixed commit.
- ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
- RUN PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
-    pip --disable-pip-version-check --no-cache-dir install \
-    git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}
+## BUMP and patch TE as a solution to the issues:
+## 1. https://github.com/NVIDIA/bionemo-framework/issues/422
+## 2. https://github.com/NVIDIA/bionemo-framework/issues/973
+## Drop this when pytorch images ship the fixed commit.
+ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
 
-# Install AWS CLI based on architecture
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-      curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
-    elif [ "$TARGETARCH" = "amd64" ]; then \
-      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
-    else \
-      echo "Unsupported architecture: $TARGETARCH" && exit 1; \
-    fi && \
-    unzip awscliv2.zip && \
-    ./aws/install && \
-    rm -rf aws awscliv2.zip
+COPY ./docker_build_patches/te.patch /tmp/te.patch
+RUN git clone --recurse-submodules https://github.com/NVIDIA/TransformerEngine.git /tmp/TransformerEngine && \
+    cd /tmp/TransformerEngine && \
+    git checkout --recurse-submodules ${TE_TAG} && \
+    patch -p1 < /tmp/te.patch && \
+    PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
+    pip --disable-pip-version-check --no-cache-dir install .
 
+# Install AWS CLI from source rather than prebuilt binary.
+# This is good for two reasons:
+#  1. It is the same on both ARM and x86
+#  2. When installing this way, aws-cli doesn't bring its own pypi dependencies with it,
+#     which it might do via a binary install. These extra pypi packages sometimes bring
+#     CVEs with them.
+
+RUN <<EOF
+set -eo pipefail
+cd /tmp
+git clone --depth 1 --branch 2.27.59 https://github.com/aws/aws-cli.git
+cd aws-cli
+pip install .
+cd /
+rm -rf /tmp/aws-cli
+EOF
 
 # Use a branch of causal_conv1d while the repository works on Blackwell support.
 ARG CAUSAL_CONV_TAG=52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
@@ -127,21 +140,30 @@ fi
 # /end ARM
 ###############################################################################
 
-# Bits and bytes needs to be built from scratch
-RUN cd / && pip uninstall bitsandbytes && \
-    git clone --single-branch --branch 0.45.5 https://github.com/bitsandbytes-foundation/bitsandbytes.git && \
-    cd bitsandbytes && cmake -DCOMPUTE_BACKEND=cuda -S . && make && pip install . && cd .. && rm -rf bitsandbytes
-
 # Fix the version of scikit-misc to 0.3.1 because newer versions of scikit-misc require numpy >= 2.0 to be built.
 # Since there are not pre-built wheels for arm64, we need to install this specific version.
 # Once bionemo is compatible with numpy >= 2.0, we can remove this.
 # Technically, this is only needed for the ARM build, but we apply to all architectures to avoid library version
 # divergence.
-RUN pip install scikit-misc==0.3.1
+RUN apt-get update -qy && apt-get install -y libopenblas-dev && pip install scikit-misc==0.3.1
 
 # Mamba dependancy installation
-RUN pip --disable-pip-version-check --no-cache-dir install \
-  git+https://github.com/state-spaces/mamba.git@v2.2.2 --no-deps
+# See https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/d3c853c2d/docker/Dockerfile#L193-198
+#  for the command we want to keep in sync. Note that the package install is modified slightly to first build a
+#  wheel (no deps) and then install the wheel. This avoids issues with torch version conflicts.
+RUN <<EOF
+git clone https://github.com/state-spaces/mamba.git
+cd mamba
+git checkout 2e16fc3062cdcd4ebef27a9aa4442676e1c7edf4
+sed -i "/triton/d" setup.py
+sed -i "/triton/d" pyproject.toml
+pip3 wheel --disable-pip-version-check --no-build-isolation --no-deps .
+pip3 --disable-pip-version-check --no-cache-dir install mamba_ssm-*.whl --no-deps
+rm -f mamba_ssm-*.whl
+cd ..
+rm -rf mamba
+EOF
+
 
 # Nemo Run installation
 # Some things are pip installed in advance to avoid dependency issues during nemo_run installation
@@ -213,6 +235,9 @@ uv pip install --no-build-isolation \
 
 # Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
 uv pip install ngcsdk==3.64.3  # Temporary fix for changed filename, see https://nvidia.slack.com/archives/C074Z808N05/p1746231345981209
+# Install >=0.46.1 bitsandbytes specifically because it has CUDA>12.9 support.
+# TODO(trvachov) remove this once it stops conflicting with strange NeMo requirements.txt files
+uv pip uninstall bitsandbytes && uv pip install bitsandbytes==0.46.1
 
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
 # dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
@@ -296,7 +321,6 @@ FROM dev AS development
 
 WORKDIR /workspace/bionemo2
 COPY --from=bionemo2-base /workspace/bionemo2/ .
-COPY ./internal ./internal
 # because of the `rm -rf ./3rdparty` in bionemo2-base
 COPY ./3rdparty ./3rdparty
 
@@ -310,7 +334,6 @@ ENV RUSTUP_HOME="/usr/local/rustup"
 RUN <<EOF
 set -eo pipefail
 find . -name __pycache__ -type d -print | xargs rm -rf
-uv pip install --no-build-isolation --editable ./internal/infra-bionemo
 for sub in ./3rdparty/* ./sub-packages/bionemo-*; do
     uv pip install --no-deps --no-build-isolation --editable $sub
 done
@@ -330,7 +353,6 @@ FROM bionemo2-base AS release
 RUN mkdir -p /workspace/bionemo2/.cache/
 
 COPY VERSION .
-COPY ./scripts ./scripts
 COPY ./README.md ./
 # Copy over folders so that the image can run tests in a self-contained fashion.
 COPY ./ci/scripts ./ci/scripts

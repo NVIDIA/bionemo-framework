@@ -6,7 +6,7 @@
 [![Latest Tag](https://img.shields.io/github/v/tag/NVIDIA/bionemo-framework?label=latest-version)](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags)
 [![codecov](https://codecov.io/gh/NVIDIA/bionemo-framework/branch/main/graph/badge.svg?token=XqhegdZRqB)](https://codecov.io/gh/NVIDIA/bionemo-framework)
 
-NVIDIA BioNeMo Framework is a is a comprehensive suite of programming tools, libraries, and models designed for computational drug discovery.
+NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for computational drug discovery.
 It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing
 domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources for the
 fastest performance on the market. You can access BioNeMo Framework as a free community resource here in this repository
@@ -15,12 +15,17 @@ expert-level support.
 
 BioNeMo Framework is part of a larger ecosystem of NVIDIA Biopharma products. Get notified of new releases, bug fixes, critical security updates, and more for biopharma. [Subscribe.](https://www.nvidia.com/en-us/clara/biopharma/product-updates/)
 
+> [!NOTE]
+> BioNeMo Recipes are now available, which demonstrate high-performance model training outside of the NeMo Framework.
+> The recipes show how to train models that derive from HuggingFace `PreTrainedModel` classes, and use
+> [NVIDIA TransformerEngine](https://github.com/NVIDIA/TransformerEngine) layers for optimized attention kernels. For
+> more information, see the [BioNeMo Recipes README](./bionemo-recipes.md).
+
 ## Structure of the Framework
 
 The `bionemo-framework` is organized into independently installable namespace packages. These are located under the
 `sub-packages/` directory. Please refer to [PEP 420 – Implicit Namespace Packages](https://peps.python.org/pep-0420/)
 for details.
-
 
 ## Documentation Resources
 
@@ -62,7 +67,6 @@ git submodule update --init --recursive
 
 Different branches of the repo can have different pinned versions of these third-party submodules. Ensure submodules are automatically updated after switching branches or pulling updates by configuring git with:
 
-
 ```bash
 git config submodule.recurse true
 ```
@@ -72,13 +76,11 @@ You will have to run the full `git submodule update --init --recursive` command 
 
 #### Build the Docker Image Locally
 
-
 With a locally cloned repository and initialized submodules, build the BioNeMo container using:
 
 ```bash
 docker buildx build . -t my-container-tag
 ```
-
 
 #### VSCode Devcontainer for Interactive Debugging
 
