@@ -41,7 +41,7 @@ def get_latest_checkpoint(ckpt_dir):
 
 
 def load_checkpoint(
-    use_nvfsdp: bool,
+    use_mfsdp: bool,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     ckpt_dir: str,
@@ -65,7 +65,7 @@ def load_checkpoint(
         start_step = int(latest_checkpoint.split("_")[1])
 
         # Validate checkpoint before attempting to load
-        if not _validate_checkpoint(checkpoint_path, use_nvfsdp, logger):
+        if not _validate_checkpoint(checkpoint_path, use_mfsdp, logger):
             logger.warning(f"Checkpoint {checkpoint_path} is corrupted or invalid. Starting fresh training.")
             return model, optimizer, 0
 
@@ -75,12 +75,12 @@ def load_checkpoint(
         return model, optimizer, 0
 
     try:
-        if use_nvfsdp:
+        if use_mfsdp:
             ckpt_state_dict = {"model": model.state_dict(), "optimizer": optimizer.state_dict()}
             torch.distributed.checkpoint.load(state_dict=ckpt_state_dict, checkpoint_id=str(checkpoint_path))
             model.load_state_dict(ckpt_state_dict["model"])
             optimizer.load_state_dict(ckpt_state_dict["optimizer"])
-            logger.info(f"Successfully loaded nvFSDP checkpoint from step {start_step}")
+            logger.info(f"Successfully loaded mfsdp checkpoint from step {start_step}")
         else:
             # For DDP, load model + optimizer state
             checkpoint = torch.load(checkpoint_path, map_location=f"cuda:{dist_config.local_rank}")
@@ -97,21 +97,21 @@ def load_checkpoint(
     return model, optimizer, start_step
 
 
-def _validate_checkpoint(checkpoint_path: str, use_nvfsdp: bool, logger: logging.Logger) -> bool:
+def _validate_checkpoint(checkpoint_path: str, use_mfsdp: bool, logger: logging.Logger) -> bool:
     """Validate that a checkpoint is properly formatted and loadable."""
     try:
-        if use_nvfsdp:
-            # For nvFSDP, check that it's a directory with required files
+        if use_mfsdp:
+            # For mfsdp, check that it's a directory with required files
             if not os.path.isdir(checkpoint_path):
-                logger.warning(f"nvFSDP checkpoint should be a directory, but {checkpoint_path} is not")
+                logger.warning(f"mfsdp checkpoint should be a directory, but {checkpoint_path} is not")
                 return False
 
             metadata_path = os.path.join(checkpoint_path, ".metadata")
             if not os.path.isfile(metadata_path):
-                logger.warning(f"nvFSDP checkpoint missing .metadata file at {metadata_path}")
+                logger.warning(f"mfsdp checkpoint missing .metadata file at {metadata_path}")
                 return False
 
-            logger.debug(f"nvFSDP checkpoint validation passed for {checkpoint_path}")
+            logger.debug(f"mfsdp checkpoint validation passed for {checkpoint_path}")
             return True
         else:
             # For DDP, check that it's a file and loadable
@@ -136,7 +136,7 @@ def _validate_checkpoint(checkpoint_path: str, use_nvfsdp: bool, logger: logging
 
 
 def save_checkpoint(
-    use_nvfsdp: bool,
+    use_mfsdp: bool,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     ckpt_dir: str,
@@ -150,11 +150,11 @@ def save_checkpoint(
     # Clean up any existing corrupted checkpoint with the same name
     if os.path.exists(checkpoint_path):
         try:
-            if use_nvfsdp and os.path.isfile(checkpoint_path):
+            if use_mfsdp and os.path.isfile(checkpoint_path):
                 # Remove file that should be a directory
                 logger.warning(f"Removing corrupted checkpoint file: {checkpoint_path}")
                 os.remove(checkpoint_path)
-            elif not use_nvfsdp and os.path.isdir(checkpoint_path):
+            elif not use_mfsdp and os.path.isdir(checkpoint_path):
                 # Remove directory that should be a file
                 logger.warning(f"Removing corrupted checkpoint directory: {checkpoint_path}")
                 shutil.rmtree(checkpoint_path)
@@ -163,12 +163,12 @@ def save_checkpoint(
             return
 
     try:
-        if use_nvfsdp:
+        if use_mfsdp:
             torch.distributed.checkpoint.save(
                 {"model": model.state_dict(), "optimizer": optimizer.state_dict()},
                 checkpoint_id=checkpoint_path,
             )
-            logger.info(f"Successfully saved nvFSDP checkpoint to {checkpoint_path}")
+            logger.info(f"Successfully saved mfsdp checkpoint to {checkpoint_path}")
         else:
             # For DDP, save model + optimizer state on main process only
             if dist_config.is_main_process():
@@ -179,7 +179,7 @@ def save_checkpoint(
                 logger.info(f"Successfully saved DDP checkpoint to {checkpoint_path}")
 
         # Validate the saved checkpoint
-        if not _validate_checkpoint(checkpoint_path, use_nvfsdp, logger):
+        if not _validate_checkpoint(checkpoint_path, use_mfsdp, logger):
             logger.error(f"Saved checkpoint {checkpoint_path} failed validation!")
 
     except Exception as e:
@@ -196,9 +196,9 @@ def save_checkpoint(
             logger.error(f"Failed to clean up partial checkpoint: {cleanup_e}")
 
 
-def _gather_nvfsdp_parameters(model, logger):
-    """Helper function to gather nvFSDP parameters across all processes."""
-    logger.info("Starting nvFSDP parameter gathering...")
+def _gather_mfsdp_parameters(model, logger):
+    """Helper function to gather mfsdp parameters across all processes."""
+    logger.info("Starting mfsdp parameter gathering...")
 
     # These collective operations must run on ALL processes
     model._replace_param_with_raw_if_needed()
@@ -208,42 +208,42 @@ def _gather_nvfsdp_parameters(model, logger):
         bucket_id = model.param_and_grad_buffer.param_to_param_group[param]
         model.all_gather_pipeline.wait_bucket_ready(bucket_id)
 
-    logger.info("nvFSDP parameter gathering completed")
+    logger.info("mfsdp parameter gathering completed")
 
 
 def _get_underlying_model(model):
-    """Get the underlying model, handling both nvFSDP and DDP wrapping."""
+    """Get the underlying model, handling both mfsdp and DDP wrapping."""
     if hasattr(model, "module"):
         return model.module
     return model
 
 
-def save_final_model(model, save_directory, logger, use_nvfsdp=False, is_main_process=True):
+def save_final_model(model, save_directory, logger, use_mfsdp=False, is_main_process=True):
     """Save the final model in safetensors format.
 
-    For nvFSDP, this performs parameter gathering across all processes first.
+    For mfsdp, this performs parameter gathering across all processes first.
     For DDP, this simply unwraps the model if needed.
 
     Args:
         model: The model to save (wrapped or unwrapped)
         save_directory: Directory to save the model
         logger: Logger for status messages
-        use_nvfsdp: Whether using nvFSDP (requires parameter gathering)
+        use_mfsdp: Whether using mfsdp (requires parameter gathering)
         is_main_process: Whether this is the main process (only main process saves)
 
-    Note: For nvFSDP, parameter gathering operations run on ALL processes, but only
+    Note: For mfsdp, parameter gathering operations run on ALL processes, but only
     the main process saves the model.
     """
-    if use_nvfsdp:
+    if use_mfsdp:
         # Parameter gathering must happen on ALL processes
-        _gather_nvfsdp_parameters(model, logger)
+        _gather_mfsdp_parameters(model, logger)
 
         # Only main process saves the model
         if not is_main_process:
             return
 
         underlying_model = model.module
-        save_type = "nvFSDP"
+        save_type = "mfsdp"
     else:
         # Only main process needs to do anything for DDP
         if not is_main_process:

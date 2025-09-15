@@ -8,12 +8,9 @@ num_train_steps: 250
 
 # WandB config
 wandb_init_args:
-  name: "esm2_t6_8M_UR50D_nvfsdp_sanity"
+  name: "esm2_t6_8M_UR50D_mfsdp_sanity"
   mode: "offline"
 
 # Learning rate scheduler config
 lr_scheduler_kwargs:
   num_warmup_steps: 0
-
-adamw_kwargs:
-  lr: 1e-2

@@ -23,13 +23,16 @@ import textwrap
 from pathlib import Path
 from typing import List, Optional
 
+from platformdirs import user_cache_dir
+
+
+PIP_CACHE_DIR = user_cache_dir(appname="bionemo-pip-cache", appauthor="nvidia")
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 DOCKER_RUN_ARGS = [
     "--rm",
-    "-it",
     "--gpus",
     "all",
     "--ipc=host",
@@ -37,12 +40,22 @@ DOCKER_RUN_ARGS = [
     "memlock=-1",
     "--ulimit",
     "stack=67108864",
+    "-v",
+    f"{PIP_CACHE_DIR}:/workspace/.cache/pip",
 ]
 
 CUSTOM_CONTAINERS = {
     "models/amplify": "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025",
 }
-DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:25.06-py3"
+
+# DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:25.06-py3"
+
+# This is a squashed version of the pytorch:25.06-py3 image, generated with
+# docker-squash nvcr.io/nvidia/pytorch:25.06-py3 -t svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed
+# --output type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
+# and pushed to the dockerhub registry. Our github actions are able to cache image pulls from dockerhub but not nvcr, so
+# hopefully this cuts down slightly on CI time at the expense of having a slightly in-directed image location.
+DEFAULT_CONTAINER = "svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed"
 
 
 def get_git_root() -> str:
@@ -89,16 +102,18 @@ def run_tests_in_docker(work_dir: str) -> bool:
     install_and_test_script = textwrap.dedent("""
         set -e  # Exit on any error
 
-        echo "Checking for dependency files..."
+        # Ensure image-embedded constraints do not leak into local recipe installs
+        unset PIP_CONSTRAINT || true
 
+        echo "Checking for dependency files..."
         # Install dependencies based on available files
         if [ -f pyproject.toml ] || [ -f setup.py ]; then
             echo "Installing package in editable mode..."
-            PIP_CONSTRAINT= pip install -e .
+            PIP_CACHE_DIR=/workspace/.cache/pip pip install -e .
             echo "Installed package as editable package"
         elif [ -f requirements.txt ]; then
             echo "Installing from requirements.txt..."
-            PIP_CONSTRAINT= pip install -r requirements.txt
+            PIP_CACHE_DIR=/workspace/.cache/pip pip install -r requirements.txt
             echo "Installed from requirements.txt"
         else
             echo "No pyproject.toml, setup.py, or requirements.txt found"
@@ -106,7 +121,7 @@ def run_tests_in_docker(work_dir: str) -> bool:
         fi
 
         echo "Running tests..."
-        pytest -v .
+        python -m pytest -v .
         """)
 
     relative_path = Path(work_dir).relative_to(git_root).as_posix()
@@ -165,6 +180,8 @@ def main():
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    logger.info(f"Caching pip installations to: {PIP_CACHE_DIR}")
 
     # Get directories to test
     test_dirs = get_test_directories(args.directories)

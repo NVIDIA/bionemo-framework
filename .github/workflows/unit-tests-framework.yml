@@ -30,10 +30,18 @@ jobs:
           fetch-depth: 0
           submodules: "recursive"
 
+      - name: Get merge-base commit
+        id: merge-base
+        run: |
+          # Get the merge-base between current branch and main
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          echo "merge-base=$MERGE_BASE" >> $GITHUB_OUTPUT
+          echo "Merge-base commit: $MERGE_BASE"
+
       - uses: step-security/changed-files@v46
         id: changed-files
         with:
-          base_sha: main
+          base_sha: ${{ steps.merge-base.outputs.merge-base }}
           files: |
             **
             !models/**
@@ -42,6 +50,7 @@ jobs:
             !.github/**
             !.gitignore
             !.devcontainer/**
+            !ci/scripts/recipes_local_test.py
             .github/workflows/unit-tests-framework.yml
 
       - name: Show output
@@ -239,8 +248,6 @@ jobs:
       - name: Run notebook tests
         env:
           BIONEMO_DATA_SOURCE: ngc
-          # this variable should be used in the notebooks to run a subset of the model layers or a smaller model/dataset
-          FAST_CI_MODE: true
         run: |
           chmod +x ./ci/scripts/run_pytest_notebooks.sh
           ./ci/scripts/run_pytest_notebooks.sh
