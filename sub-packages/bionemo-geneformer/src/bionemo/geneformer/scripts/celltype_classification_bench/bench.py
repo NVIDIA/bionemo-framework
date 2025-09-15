@@ -154,7 +154,7 @@ def load_data_run_benchmark(result_path, adata_path, write_results=True):
 
     adata = read_h5ad(adata_path)
 
-    infer_Xs = torch.load(result_path / "predictions__rank_0.pt")["embeddings"].float().cpu().numpy()
+    infer_Xs = torch.load(result_path / "predictions__rank_0__dp_rank_0.pt")["embeddings"].float().cpu().numpy()
     assert len(adata) == len(infer_Xs), (len(adata), len(infer_Xs))
 
     infer_metadata = adata.obs
