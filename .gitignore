@@ -194,3 +194,7 @@ coverage.xml
 Thumbs.db
 
 .python_history
+
+# Lepton output logs
+ci/lepton/model_convergence/scripts/outputs/
+
