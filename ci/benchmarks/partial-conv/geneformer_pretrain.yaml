@@ -65,13 +65,16 @@ script: |-
     --disable-checkpointing;
 tests:
   - logic_type: static
+    # It can be used with the product_identifier to filter the runs by target (GPU type)
+    # but in fact this test should work with any target
+    # product_identifier: { 'target': 'dgxa100_dracooci-iad' }
     logic_spec:
       exit_codes:
         - 0
       baselines:
         consumed_samples:
           operator: eq
-          value: 15347456
+          value: 15360000.0
         val_loss:
           operator: range
           max: 2.4

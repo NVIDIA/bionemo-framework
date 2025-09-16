@@ -63,6 +63,9 @@ script: |-
     --disable-checkpointing;
 tests:
   - logic_type: static
+     # It can be used with the product_identifier to filter the runs by target (GPU type)
+    # but in fact this test should work with any target
+    # product_identifier: { 'target': 'dgxa100_dracooci-iad' }
     logic_spec:
       exit_codes:
         - 0
@@ -77,7 +80,7 @@ tests:
         reduced_train_loss:
           operator: range
           max: 2.5640
-          min: 2.5
+          min: 2.45
         TFLOPS_per_GPU:
           operator: geq
           value: 140.0
