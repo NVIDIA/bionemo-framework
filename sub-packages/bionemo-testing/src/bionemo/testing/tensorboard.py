@@ -14,21 +14,26 @@
 # limitations under the License.
 
 from pathlib import Path
+from typing import Optional
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 
-def verify_tensorboard_logs(tb_log_dir: Path, expected_metrics: list[str], min_steps: int = 1) -> None:
+def verify_tensorboard_logs(tb_log_dir: Path, expected_metrics: list[str], min_steps: int = 1) -> Optional[str]:
     """Verify that TensorBoard logs exist and contain expected metrics.
 
     Args:
         tb_log_dir: Path to the TensorBoard log directory
         expected_metrics: List of metric names expected in the logs
         min_steps: Minimum number of steps expected in the logs
+
+    Returns:
+        None if verification succeeds, error message string if it fails
     """
     # Find event files in the log directory
     event_files = list(tb_log_dir.glob("events.out.tfevents.*"))
-    assert len(event_files) > 0, f"No TensorBoard event files found in {tb_log_dir}"
+    if len(event_files) == 0:
+        return f"No TensorBoard event files found in {tb_log_dir}"
 
     # Load the event file
     event_acc = EventAccumulator(str(tb_log_dir))
@@ -41,11 +46,15 @@ def verify_tensorboard_logs(tb_log_dir: Path, expected_metrics: list[str], min_s
     for metric in expected_metrics:
         # Check if metric exists in any form (might have prefixes like "train/" or suffixes)
         metric_found = any(metric in tag for tag in scalar_tags)
-        assert metric_found, f"Expected metric '{metric}' not found in TensorBoard logs. Available tags: {scalar_tags}"
+        if not metric_found:
+            return f"Expected metric '{metric}' not found in TensorBoard logs. Available tags: {scalar_tags}"
 
     # Verify we have logged data for at least min_steps
     if scalar_tags:
         # Get the first available metric to check step count
         first_metric = scalar_tags[0]
         events = event_acc.Scalars(first_metric)
-        assert len(events) >= min_steps, f"Expected at least {min_steps} steps logged, but found {len(events)}" 
+        if len(events) < min_steps:
+            return f"Expected at least {min_steps} steps logged, but found {len(events)}"
+
+    return None
