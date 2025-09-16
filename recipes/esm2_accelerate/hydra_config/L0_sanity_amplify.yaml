@@ -1,5 +1,5 @@
 defaults:
-  - defaults
+  - defaults_amplify
   - _self_
 
 model_tag: "nvidia/AMPLIFY_120M"
