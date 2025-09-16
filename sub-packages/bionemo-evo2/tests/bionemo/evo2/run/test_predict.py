@@ -257,7 +257,7 @@ def baseline_predictions_7b_1m_results(
     ],
     ids=lambda x: f"ddp={x[0]},cp={x[1]},pp={x[2]},tp={x[3]},fp8={x[4]},wi={x[5]}",
 )
-def test_predict_evo2_runs_with_log_probs(
+def test_predict_evo2_equivalent_with_log_probs(
     tmp_path,
     ddp: int,
     cp: int,
@@ -276,6 +276,9 @@ def test_predict_evo2_runs_with_log_probs(
     The command is run in a subshell, and we assert that it returns an exit code of 0.
 
     For this test, we want coverage of CP, so we make sure sequence lengths are all the same and divisible by CP.
+
+    The other thing this test does is check that the log probabilities are equivalent to the baseline predictions
+     without model parallelism.
     """
 
     world_size = ddp * cp * pp * tp
