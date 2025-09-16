@@ -22,7 +22,7 @@ on:
           - esm2_accelerate
           - esm2_native_te_mfsdp
           - esm2_native_te_nvfsdp_thd
-          - geneformer_native_te_nvfsdp_fp8
+          - geneformer_native_te_mfsdp_fp8
       config_override:
         description: "Custom config override (optional, e.g. '10m')"
         required: false
