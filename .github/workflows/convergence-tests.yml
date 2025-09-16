@@ -52,15 +52,17 @@ jobs:
         env:
           LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
         run: |
+          set -euo pipefail
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
 
-          ARGS="--config-name=\"recipes/${{ inputs.model_config }}\" \
-                branch=\"${{ inputs.branch }}\" \
-                commit_sha=\"${{ inputs.commit_sha }}\""
-
-          # If user provided a subset (e.g., "10m" or "10m,4b"), pass it through
+          RUN_ONLY_ARGS=""
           if [ -n "${{ inputs.config_override }}" ]; then
-            ARGS="$ARGS +run_only=\"${{ inputs.config_override }}\""
+            # Users can type: 10m  or  10m,4b
+            RUN_ONLY_ARGS="+run_only=${{ inputs.config_override }}"
           fi
 
-          python ci/lepton/model_convergence/scripts/launch_job.py $ARGS
+          python ci/lepton/model_convergence/scripts/launch_job.py \
+            --config-name recipes/${{ inputs.model_config }} \
+            $RUN_ONLY_ARGS \
+            branch=${{ inputs.branch }} \
+            commit_sha=${{ inputs.commit_sha }}
