@@ -82,6 +82,8 @@ With a locally cloned repository and initialized submodules, build the BioNeMo c
 docker buildx build . -t my-container-tag
 ```
 
+If you see an error message like `No file descriptors available (os error 24)`, add the option `--ulimit nofile=65535:65535` to the docker build command.
+
 #### VSCode Devcontainer for Interactive Debugging
 
 We distribute a [development container](https://devcontainers.github.io/) configuration for vscode

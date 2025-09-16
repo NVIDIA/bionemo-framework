@@ -3,5 +3,5 @@ datasets
 deepspeed
 hydra-core
 torchmetrics
-transformers @ git+https://github.com/huggingface/transformers.git
+transformers
 wandb

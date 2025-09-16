@@ -49,6 +49,7 @@ apt-get install -qyy \
   curl \
   pre-commit \
   sudo \
+  emacs-nox \
   gnupg \
   unzip \
   libsqlite3-dev

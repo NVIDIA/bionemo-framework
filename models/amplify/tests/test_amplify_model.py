@@ -168,3 +168,52 @@ def test_convert_state_dict():
     te_state_dict_keys.remove("decoder.bias")
 
     assert len(te_state_dict_keys) == 0
+
+
+def test_hf_trained_model_loss(input_data):
+    model = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
+    model.to("cuda", dtype=torch.bfloat16)
+    input_data = {k: v.to("cuda") for k, v in input_data.items()}
+    model.eval()
+    with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+        output = model(**input_data)
+
+    torch.testing.assert_close(output.loss.detach().cpu(), torch.tensor(2.4), atol=1e-1, rtol=1e-2)
+
+
+def test_te_trained_model_loss(input_data):
+    model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
+    model = convert_amplify_hf_to_te(model_hf)
+    model.to("cuda", dtype=torch.bfloat16)
+    input_data = {k: v.to("cuda") for k, v in input_data.items()}
+    model.eval()
+    with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+        output = model(**input_data)
+
+    torch.testing.assert_close(output.loss.detach().cpu(), torch.tensor(2.4), atol=1e-1, rtol=1e-2)
+
+
+def test_hf_reinitialized_model_loss(input_data):
+    config = amp_hf.AMPLIFYConfig.from_pretrained("chandar-lab/AMPLIFY_120M")
+    model = amp_hf.AMPLIFY(config)
+    model.to("cuda", dtype=torch.bfloat16)
+    input_data = {k: v.to("cuda") for k, v in input_data.items()}
+    model.eval()
+    with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+        output = model(**input_data)
+
+    loss = output.loss.detach().cpu()
+    assert loss < 3.5, f"Loss is {loss}, expected less than 3.5"
+
+
+def test_te_reinitialized_model_loss(input_data):
+    config = amp_te.AMPLIFYConfig.from_pretrained("chandar-lab/AMPLIFY_120M")
+    model = amp_te.AMPLIFYForMaskedLM(config)
+    model.to("cuda", dtype=torch.bfloat16)
+    input_data = {k: v.to("cuda") for k, v in input_data.items()}
+    model.eval()
+    with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+        output = model(**input_data)
+
+    loss = output.loss.detach().cpu()
+    assert loss < 3.5, f"Loss is {loss}, expected less than 3.5"

@@ -19,6 +19,7 @@ from pathlib import Path
 import hydra
 import torch
 import transformers
+from accelerate import PartialState
 from omegaconf import DictConfig
 from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.trainer import Trainer
@@ -35,15 +36,19 @@ logger = logging.getLogger(__name__)
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig):
     """Entrypoint."""
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
-    config.max_seq_length = args.max_seq_length
-    config.micro_batch_size = args.trainer.per_device_train_batch_size
-    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True, torch_dtype=torch.bfloat16)
-
-    train_dataset, eval_dataset, data_collator = create_datasets_and_collator(
-        tokenizer_name=args.model_tag,
-        max_length=config.max_seq_length,
+    # Initialize Accelerate's distributed state early so torch device is set per process
+    state = PartialState()
+    logger.info(
+        "Accelerate initialized (local_process_index=%s, num_processes=%s, device=%s)",
+        state.local_process_index,
+        state.num_processes,
+        state.device,
     )
+
+    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
+    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True, dtype=torch.bfloat16)
+
+    train_dataset, eval_dataset, data_collator = create_datasets_and_collator(**args.dataset)
 
     training_args = TrainingArguments(**args.trainer)
 
@@ -56,8 +61,6 @@ def main(args: DictConfig):
         data_collator=data_collator,
         callbacks=[StopAfterNStepsCallback(args.stop_after_n_steps)],
     )
-
-    logger.info("ACCELERATE STATE:\n%s\n", trainer.accelerator.state)
 
     if training_args.do_train:
         Path(training_args.output_dir).mkdir(parents=True, exist_ok=True)

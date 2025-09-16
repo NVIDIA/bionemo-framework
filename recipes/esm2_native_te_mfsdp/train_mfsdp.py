@@ -16,6 +16,7 @@
 import logging
 import os
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 
 import hydra
@@ -54,7 +55,7 @@ class DistributedConfig:
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
-    """Train ESM-2 with TE layers using nvFSDP.
+    """Train ESM-2 with TE layers using mfsdp.
 
     Model names are valid ESM-2 model sizes, e.g.:
     - "esm2_t6_8M_UR50D"
@@ -66,7 +67,7 @@ def main(args: DictConfig) -> float | None:
     """
     # Initialize distributed training and create a device mesh for FSDP.
     # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
-    # to work correctly with nvFSDP.
+    # to work correctly with mfsdp.
     dist.init_process_group(backend="nccl")
     dist_config = DistributedConfig()
     torch.cuda.set_device(dist_config.local_rank)
@@ -86,15 +87,19 @@ def main(args: DictConfig) -> float | None:
         config = AutoConfig.from_pretrained(args.model_name, dtype=torch.bfloat16)
         from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 
-        with torch.device("meta" if args.fully_shard_kwargs.get("init_model_with_meta_device", True) else device):
+        with (
+            torch.device("meta") if args.fully_shard_kwargs.get("init_model_with_meta_device", True) else nullcontext()
+        ):
             model = AutoModelForMaskedLM.from_config(config, attn_implementation="flash_attention_2")
-            del model.esm.contact_head
+        del model.esm.contact_head
 
     else:
         config = AutoConfig.from_pretrained(args.model_name, trust_remote_code=True, dtype=torch.bfloat16)
         config.max_seq_length = args.max_seq_length
         config.micro_batch_size = args.micro_batch_size
-        with torch.device("meta" if args.fully_shard_kwargs.get("init_model_with_meta_device", True) else device):
+        with (
+            torch.device("meta") if args.fully_shard_kwargs.get("init_model_with_meta_device", True) else nullcontext()
+        ):
             model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
     # Log model and number of parameters on main process.
@@ -188,7 +193,7 @@ def main(args: DictConfig) -> float | None:
             )
 
             progress_bar.update(1)
-            progress_bar.set_postfix({"loss": loss.item()})
+            progress_bar.set_postfix({"loss": loss_value})
 
     # Clean up distributed training
     if dist_config.is_main_process():

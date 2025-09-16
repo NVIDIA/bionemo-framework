@@ -15,34 +15,11 @@
 
 
 import shutil
-import time
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import pytest
 
-from bionemo.core.data.load import load
-
-
-@pytest.fixture(scope="session", autouse=True)
-def verify_bionemo_core_installed() -> None:
-    """Ensure bionemo-core is installed, print its version, and pause briefly.
-
-    Runs once before any tests. If the distribution is not installed, aborts the
-    test session early with a clear message.
-    """
-    try:
-        core_version = version("bionemo-core")
-    except PackageNotFoundError:
-        pytest.exit(
-            "bionemo-core is not installed. Please install it (e.g., `pip install -e sub-packages/bionemo-core`) before running tests.",
-            returncode=1,
-        )
-
-    print("=" * 72)
-    print(f"BioNeMo Core (bionemo-core) version: {core_version}")
-    print("=" * 72, flush=True)
-    time.sleep(3)
+from bionemo.scdl.data.load import load
 
 
 @pytest.fixture
@@ -73,11 +50,7 @@ def create_cellx_val_data(tmpdir) -> Path:
         A Path object that is the directory with test data.
     """
     cellx_input_val_path = (
-        load("single_cell/testdata-20240506")
-        / "cellxgene_2023-12-15_small"
-        / "input_data"
-        / "val"
-        / "assay__10x_3_v2/"
+        load("scdl/testdata-20240506") / "cellxgene_2023-12-15_small" / "input_data" / "val" / "assay__10x_3_v2/"
     )
     file1 = (
         cellx_input_val_path
