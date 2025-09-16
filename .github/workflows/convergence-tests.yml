@@ -24,7 +24,7 @@ on:
           - esm2_native_te_nvfsdp_thd
           - geneformer_native_te_nvfsdp_fp8
       config_override:
-        description: "Custom config override (optional, e.g. 'geneformer_106m')"
+        description: "Custom config override (optional, e.g. '10m')"
         required: false
         type: string
 
@@ -54,10 +54,21 @@ jobs:
         run: |
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
           if [ -n "${{ inputs.config_override }}" ]; then
-            python ci/lepton/model_convergence/scripts/launch_job.py \
-              --config-name="${{ inputs.config_override }}.yaml" \
-              branch="${{ inputs.branch }}" \
-              commit_sha="${{ inputs.commit_sha }}"
+            OVERRIDE="${{ inputs.config_override }}"
+            if [[ "$OVERRIDE" == *"/"* || "$OVERRIDE" == *.yaml ]]; then
+              # Full Hydra path/name → primary config for the **outer** Hydra
+              python ci/lepton/model_convergence/scripts/launch_job.py \
+                --config-name="$OVERRIDE" \
+                branch="${{ inputs.branch }}" \
+                commit_sha="${{ inputs.commit_sha }}"
+            else
+              # Bare size (e.g., "10m") → pass to **inner** Hydra via +config
+              python ci/lepton/model_convergence/scripts/launch_job.py \
+                --config-name="recipes/${{ inputs.model_config }}" \
+                +config="$OVERRIDE" \
+                branch="${{ inputs.branch }}" \
+                commit_sha="${{ inputs.commit_sha }}"
+            fi
           else
             python ci/lepton/model_convergence/scripts/launch_job.py \
               --config-name="recipes/${{ inputs.model_config }}" \
