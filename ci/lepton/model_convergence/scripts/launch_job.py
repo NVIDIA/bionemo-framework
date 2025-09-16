@@ -21,18 +21,8 @@ from utils import construct_mount, construct_env_var
 
 def wrap_script_with_logging(
     script: str,
-    dashboard_info: Dict[str, str] = None,
-    recipe_subdir: str = "esm2_native_te_mfsdp",
     all_config_json: str = "{}",
 ) -> str:
-    if isinstance(dashboard_info, (HydraDictConfig, ListConfig)):
-        dashboard_info = OmegaConf.to_container(dashboard_info, resolve=True)
-    if dashboard_info is None:
-        dashboard_info = {}
-
-    # serialize after conversion
-    dashboard_json = json.dumps(dashboard_info, separators=(",", ":"))
-
     return f"""set -euo pipefail
 
 # Get job name
@@ -46,8 +36,20 @@ set +e
 RC=$?
 set -e
 
+echo "pwd"
+pwd
+
+echo "ls"
+ls
+
+echo "commit in bionemo-framework"
+(cd bionemo-framework && git log -1 || true)
+# Always grab the exact commit currently checked out in the framework repo
+COMMIT_SHA="$(cd bionemo-framework && git rev-parse HEAD 2>/dev/null || true)"
+echo "Resolved framework commit: ${{COMMIT_SHA:-<none>}}"
+
 # Authenticate to Lepton
-pip install -q leptonai >/dev/null 2>&1 || pip install leptonai
+pip install -q leptonai >/dev/null 2>&1 || pip install -q leptonai || true
 lep login -c "$LEP_LOGIN_CREDENTIALS" || true
 
 # Get lepton job details
@@ -104,25 +106,104 @@ JOB_INFO="$(
     }}
   ' 2>/dev/null
 )"
-
 JOB_INFO_JSON="$(printf '%s' "$JOB_INFO" | jq -c . 2>/dev/null || echo '{{}}')"
+
+# Ingest provided config JSON
 ALL_CONFIG_JSON='{all_config_json}'
-DASHBOARD_INFO_JSON='{dashboard_json}'
+if echo "$ALL_CONFIG_JSON" | jq -e . >/dev/null 2>&1; then
+  ALL_CONFIG_JSON_UPDATED="$(printf '%s' "$ALL_CONFIG_JSON" | jq -c '.')"
+else
+  echo "Warning: ALL_CONFIG_JSON is not valid JSON. Using empty object."
+  ALL_CONFIG_JSON_UPDATED='{{}}'
+fi
+
+# Inject/overwrite the resolved framework commit (only if we actually got one)
+if [ -n "${{COMMIT_SHA:-}}" ]; then
+  ALL_CONFIG_JSON_UPDATED="$(printf '%s' "$ALL_CONFIG_JSON_UPDATED" | jq -c --arg commit "$COMMIT_SHA" '.commit_sha = $commit')"
+fi
+
+# Extract values from config (with sensible defaults)
+RECIPE_SUBDIR="$(printf '%s' "$ALL_CONFIG_JSON_UPDATED" | jq -r '.recipe_subdir // "esm2_native_te_mfsdp"')"
+
+# ---------------------------
+# Collect NVIDIA SMI as JSON (no cuda_version in --query-gpu)
+# ---------------------------
+set +e
+NVIDIA_SMI_BIN="$(command -v nvidia-smi || echo /usr/bin/nvidia-smi)"
+NVIDIA_SMI_JSON="[]"
+for GPU_FIELDS in \
+'index,uuid,name,driver_version,pci.bus_id,pstate,temperature.gpu,power.draw,power.limit,clocks.sm,clocks.mem,clocks.gr,memory.total,memory.free,memory.used,utilization.gpu,utilization.memory,compute_mode' \
+'index,uuid,name,driver_version,pci.bus_id,pstate,temperature.gpu,power.draw,power.limit,clocks.current.sm,clocks.current.memory,clocks.current.graphics,memory.total,memory.free,memory.used,utilization.gpu,utilization.memory,compute_mode' \
+'index,uuid,name,driver_version,pci.bus_id,memory.total,memory.free,memory.used,utilization.gpu'; do
+  RAW_SMI="$("$NVIDIA_SMI_BIN" --query-gpu="$GPU_FIELDS" --format=csv,noheader,nounits 2>/dev/null || true)"
+  if [ -n "$RAW_SMI" ]; then
+    NVIDIA_SMI_JSON="$(
+      GPU_FIELDS="$GPU_FIELDS" python3 - <<'PY' 2>/dev/null || true
+import os, sys, csv, json
+keys = [s.strip() for s in os.environ.get("GPU_FIELDS","").split(",") if s.strip()]
+rows = []
+for r in csv.reader(sys.stdin):
+    if not r:
+        continue
+    vals = [x.strip() for x in r]
+    if len(vals) < len(keys):
+        vals += [None]*(len(keys)-len(vals))
+    rows.append(dict(zip(keys, vals[:len(keys)])))
+print(json.dumps(rows))
+PY
+    <<< "$RAW_SMI"
+    )"
+    if [ -n "$NVIDIA_SMI_JSON" ] && [ "$NVIDIA_SMI_JSON" != "[]" ]; then
+      break
+    fi
+  fi
+done
+
+RAW_APPS="$("$NVIDIA_SMI_BIN" --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader,nounits 2>/dev/null || true)"
+if [ -n "$RAW_APPS" ]; then
+  NVIDIA_COMPUTE_APPS_JSON="$(
+    python3 - <<'PY' 2>/dev/null || true
+import sys, csv, json
+rows=[]
+for r in csv.reader(sys.stdin):
+    if not r:
+        continue
+    gpu_uuid = r[0].strip() if len(r)>0 else None
+    # pid as int where possible
+    pid = None
+    if len(r)>1:
+        try: pid = int(r[1].strip())
+        except: pid = None
+    process  = r[2].strip() if len(r)>2 else None
+    used_mem = r[3].strip() if len(r)>3 else None
+    rows.append({{"gpu_uuid": gpu_uuid, "pid": pid, "process_name": process, "used_memory": used_mem}})
+print(json.dumps(rows))
+PY
+    <<< "$RAW_APPS"
+  )"
+else
+  NVIDIA_COMPUTE_APPS_JSON="[]"
+fi
+
+# Driver/CUDA at top level from -q (stable across versions)
+DRIVER_VERSION="$("$NVIDIA_SMI_BIN" -q 2>/dev/null | awk -F': ' '/Driver Version/ {{print $2; exit}}')"
+CUDA_VERSION="$("$NVIDIA_SMI_BIN" -q 2>/dev/null | awk -F': ' '/CUDA Version/ {{print $2; exit}}')"
+NVIDIA_DRIVER_INFO="$(jq -n --arg dv "$DRIVER_VERSION" --arg cv "$CUDA_VERSION" 'def nn($x): if ($x|length)>0 then $x else null end; {{driver_version: nn($dv), cuda_version: nn($cv)}}' 2>/dev/null || echo '{{}}')"
+set -e
 
 # Look for W&B files
-WANDB_DIR="/workspace/bionemo-framework/recipes/{recipe_subdir}/wandb"
+WANDB_DIR="/workspace/bionemo-framework/recipes/$RECIPE_SUBDIR/wandb"
 WANDB_FOUND=0
 WANDB_SUMMARY=""
 WANDB_METADATA=""
 
 if [ -d "$WANDB_DIR" ]; then
-    # Use latest-run symlink or find most recent run
     if [ -L "$WANDB_DIR/latest-run" ]; then
         LATEST_RUN="$WANDB_DIR/latest-run"
     else
         LATEST_RUN=$(ls -td "$WANDB_DIR"/run-* "$WANDB_DIR"/offline-run-* 2>/dev/null | head -n1)
     fi
-    
+
     if [ -n "$LATEST_RUN" ] && [ -d "$LATEST_RUN/files" ]; then
         if [ -f "$LATEST_RUN/files/wandb-summary.json" ]; then
             WANDB_SUMMARY="$LATEST_RUN/files/wandb-summary.json"
@@ -134,7 +215,7 @@ fi
 
 if [ "$WANDB_FOUND" = "1" ] && [ -n "$WANDB_SUMMARY" ]; then
     echo "Uploading W&B metrics to Kratos..."
-    
+
     METADATA_JSON=$(cat "$WANDB_METADATA" 2>/dev/null || echo '{{}}')
     SUMMARY_JSON=$(cat "$WANDB_SUMMARY" 2>/dev/null || echo '{{}}')
 
@@ -142,16 +223,20 @@ if [ "$WANDB_FOUND" = "1" ] && [ -n "$WANDB_SUMMARY" ]; then
         --arg m "$METADATA_JSON" \
         --arg s "$SUMMARY_JSON" \
         --argjson job_info "$JOB_INFO_JSON" \
-        --argjson dashboard_info "$DASHBOARD_INFO_JSON" \
-        --argjson all_config "$ALL_CONFIG_JSON" \
+        --argjson all_config "$ALL_CONFIG_JSON_UPDATED" \
+        --argjson nvidia_smi "$NVIDIA_SMI_JSON" \
+        --argjson nvidia_compute_apps "$NVIDIA_COMPUTE_APPS_JSON" \
+        --argjson nvidia_driver "$NVIDIA_DRIVER_INFO" \
         '
         . + {{
           job_name: env.LEPTON_JOB_NAME,
           metadata: ($m | fromjson? // {{}}),
           summary:  ($s | fromjson? // {{}}),
           job_info: $job_info,
-          dashboard_info: $dashboard_info,
-          config: $all_config
+          config: $all_config,
+          nvidia_smi: $nvidia_smi,
+          nvidia_compute_apps: $nvidia_compute_apps,
+          nvidia_driver: $nvidia_driver
         }}
         ')
 
@@ -239,8 +324,6 @@ def launch_single_job(client, cfg: DictConfig):
         "-c",
         wrap_script_with_logging(
             cfg.script,
-            dashboard_info=cfg.dashboard_info if hasattr(cfg, 'dashboard_info') else None,
-            recipe_subdir=cfg.recipe_subdir if hasattr(cfg, 'recipe_subdir') else "esm2_native_te_mfsdp",
             all_config_json=full_cfg_json,
         ),
     ]
@@ -325,10 +408,14 @@ def main(cfg: DictConfig):
             # Create new OmegaConf object from merged dict
             product_cfg = OmegaConf.create(merged_dict)
 
-            # Generate job name as recipe_subdir-model_name, replacing underscores and slashes with hyphens
-            recipe_subdir = product_cfg.recipe_subdir.replace('_', '-').replace('/', '-')
-            model_name = product_dict['model_name'].replace('_', '-').replace('/', '-')
-            product_cfg.job_name = f"{model_name}".lower()
+            # Generate job name using recipe_subdir and config value
+            # Extract the base recipe name from recipe_subdir (e.g., "geneformer" from "geneformer_native_te_mfsdp_fp8")
+            recipe_parts = product_cfg.recipe_subdir.split('_')
+            base_recipe_name = recipe_parts[0] if recipe_parts else product_cfg.recipe_subdir
+
+            # Create job name as base_recipe_name-config (e.g., "geneformer-10m")
+            config_name = product_dict['config'].replace('_', '-').replace('/', '-')
+            product_cfg.job_name = f"{base_recipe_name}-{config_name}".lower()
 
             print(f"\n[{i}/{len(cfg.products)}] Launching: {product_cfg.job_name}")
 

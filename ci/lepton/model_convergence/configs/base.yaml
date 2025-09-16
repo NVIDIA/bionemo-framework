@@ -8,8 +8,6 @@ container:
 environment_variables:
   - name: WANDB_API_KEY
     value_from: JWILBER_WANDB_API_KEY
-  - name: PYTHONPATH
-    value: /workspace/bionemo2/sub-packages/bionemo-evo2/src
   - name: KRATOS_SSA_URL
     value_from: KRATOS_SSA_URL
   - name: KRATOS_SSA_CLIENT_ID
@@ -23,4 +21,32 @@ environment_variables:
 #       mount_path: /BioNeMo
 #       from_: node-nfs:lepton-shared-fs
 
+wandb_init_args:
+  group: "recipes_model_convergence"
+  mode: "online"
+
+branch: main
 commit_sha: ""
+
+# Sharedcheckout script used by all recipes
+checkout_script: |
+  set -euo pipefail
+  git clone https://github.com/NVIDIA/bionemo-framework.git
+  cd bionemo-framework
+  if [ -n "${commit_sha}" ]; then
+    echo "Checking out commit: ${commit_sha}"
+    git checkout "${commit_sha}"
+  elif [ "${branch}" != "main" ]; then
+    echo "Checking out branch: ${branch}"
+    git checkout "${branch}"
+  fi
+  cd ..
+  cd bionemo-framework/recipes/${recipe_subdir}
+  pip install -r requirements.txt
+
+# Child configs should override this with their run-specific commands
+train_script: ""
+
+script: |
+  ${checkout_script}
+  ${train_script}
