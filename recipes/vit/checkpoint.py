@@ -39,6 +39,7 @@ def load_torch_checkpoint(checkpoint_path, model, megatron_fsdp=False):
     checkpoint = torch.load(checkpoint_path, weights_only=False)
     # Remove the "module." prefix from the keys of checkpoints
     # derived from Megatron-FSDP.
+    # TODO(@cspades): Remove this when the Megatron-FSDP checkpoint naming is fixed.
     model_checkpoint = {(k.removeprefix("module.") if megatron_fsdp else k): v for k, v in checkpoint["model"].items()}
     # Warn about Megatron-FSDP checkpoints.
     first_key = next(iter(model_checkpoint))
@@ -109,7 +110,7 @@ def load_auto_resume_checkpoint(cfg, model, optimizer):
             latest_step_idx = int(latest_subdir.name.split("_")[1])
             # Load model and optimizer checkpoints.
             load_dcp_checkpoint(latest_subdir, model, optimizer)
-            if torch.distributed.get_rank() == 0:
+            if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
                 _logger.info(f"Loaded latest model and optimizer checkpoints from: {latest_subdir}")
 
     # Return the auto-resumed step index for training progression.
@@ -160,5 +161,5 @@ def save_auto_resumable_checkpoint(cfg, model, optimizer, step_idx, loss_value):
                 # Change file perms.
                 file_path = Path(dirpath) / filename
                 os.chmod(file_path, mode)
-        if torch.distributed.get_rank() == 0:
+        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             _logger.info(f"Saved validated checkpoint to: {ckpt_dir}")

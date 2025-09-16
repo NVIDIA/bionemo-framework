@@ -75,22 +75,14 @@ inference:
     megatron_fsdp: true
 
 dataset:
-  num_classes: 100000
+  num_classes: 3
   num_workers: 4
   train:
-    root: "./data/super-tiny-imagenet-5/train"
-    class_map: "./data/super-tiny-imagenet-5/words.txt"
-    label_map: null   # Not needed, training data is labeled by directory.
-    class_filter: null
-    batch_size: 5
+    batch_size: 8
     shuffle: true
   val:
-    root: "./data/super-tiny-imagenet-5/val"
-    class_map: "./data/super-tiny-imagenet-5/words.txt"
-    label_map: "./data/super-tiny-imagenet-5/val/val_annotations.txt"
-    class_filter: null
-    batch_size: 5
-    shuffle: false
+    batch_size: 16
+    shuffle: true
 
 random:
   seed: 42

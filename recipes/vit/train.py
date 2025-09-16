@@ -15,7 +15,6 @@
 
 import logging
 import math
-import tarfile
 import time
 from pathlib import Path
 
@@ -30,10 +29,9 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, DistributedSampler
 from tqdm import tqdm
 
+from beans import BeansDataset, infinite_dataloader
 from checkpoint import load_auto_resume_checkpoint, save_auto_resumable_checkpoint
 from distributed import initialize_distributed
-from imagenet_dataset import ImageNetDataset, infinite_dataloader
-from imagenet_utils import transforms_imagenet_eval, transforms_imagenet_train
 from vit import build_vit_model
 
 
@@ -42,7 +40,7 @@ _logger = logging.getLogger(__name__)
 
 @hydra.main(version_base="1.2", config_path="config", config_name="vit_base_patch16_224")
 def main(cfg) -> None:
-    """Train a ViT model on ImageNet using Megatron-FSDP and TransformerEngine (TE)."""
+    """Train a ViT model on AI-Lab-Makerere/beans using Megatron-FSDP and TransformerEngine (TE)."""
 
     # Initialize distributed environment.
     with initialize_distributed(**cfg.distributed) as device_mesh:
@@ -116,20 +114,10 @@ def main(cfg) -> None:
         """
         Dataset
         """
-        # Check if the mock training + validation dataset exists. If not, untar the dataset.
-        if not Path(cfg.dataset.train.root).exists():
-            with tarfile.open(Path(cfg.dataset.train.root).parent.with_suffix(".tar.gz"), "r:gz") as tar:
-                tar.extractall(Path(cfg.dataset.train.root).parent.parent)
-
         # Training
-        imagenet_train_ds = ImageNetDataset(
-            root=cfg.dataset.train.root,
-            class_map=cfg.dataset.train.class_map,
-            transform=transforms_imagenet_train(**cfg.dataset.train.transform_kwargs),
-            class_filter=cfg.dataset.train.class_filter,
-        )
+        beans_train_dataset = BeansDataset(image_size=(cfg.model.vit.img_size, cfg.model.vit.img_size), split="train")
         train_sampler = DistributedSampler(
-            imagenet_train_ds,
+            beans_train_dataset,
             # Send distinct samples to all DP ranks only!
             num_replicas=device_mesh["dp"].size(),
             rank=device_mesh["dp"].get_local_rank(),
@@ -137,7 +125,7 @@ def main(cfg) -> None:
             seed=cfg.random.seed,
         )
         train_dataloader = DataLoader(
-            imagenet_train_ds,
+            beans_train_dataset,
             batch_size=cfg.dataset.train.batch_size,
             sampler=train_sampler,
             num_workers=cfg.dataset.num_workers,
@@ -146,19 +134,12 @@ def main(cfg) -> None:
             # Alternatively, you can set num_workers=0.
             persistent_workers=(cfg.dataset.num_workers > 0),
         )
-        if torch.distributed.get_rank() == 0:
-            _logger.info(f"Training Dataset Size: {len(imagenet_train_ds)}")
-
         # Validation
-        imagenet_val_ds = ImageNetDataset(
-            root=cfg.dataset.val.root,
-            class_map=cfg.dataset.val.class_map,
-            label_map=cfg.dataset.val.label_map,
-            transform=transforms_imagenet_eval(**cfg.dataset.val.transform_kwargs),
-            class_filter=cfg.dataset.val.class_filter,
+        beans_val_dataset = BeansDataset(
+            image_size=(cfg.model.vit.img_size, cfg.model.vit.img_size), split="validation"
         )
         val_sampler = DistributedSampler(
-            imagenet_val_ds,
+            beans_val_dataset,
             # Send distinct samples to all DP ranks only!
             num_replicas=device_mesh["dp"].size(),
             rank=device_mesh["dp"].get_local_rank(),
@@ -166,7 +147,7 @@ def main(cfg) -> None:
             seed=cfg.random.seed,
         )
         val_dataloader = DataLoader(
-            imagenet_val_ds,
+            beans_val_dataset,
             batch_size=cfg.dataset.val.batch_size,
             sampler=val_sampler,
             num_workers=cfg.dataset.num_workers,
@@ -175,8 +156,6 @@ def main(cfg) -> None:
             # Alternatively, you can set num_workers=0.
             persistent_workers=(cfg.dataset.num_workers > 0),
         )
-        if torch.distributed.get_rank() == 0:
-            _logger.info(f"Validation Dataset Size: {len(imagenet_val_ds)}")
 
         """
         Training Utilities
@@ -191,21 +170,23 @@ def main(cfg) -> None:
         Training Loop
         """
 
-        if torch.distributed.get_rank() == 0:
+        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             progress_bar = tqdm(
                 range(cfg.training.steps), desc="Model Training", disable=False, initial=latest_step_idx
             )
 
         # Training Loop
         t_start = time.perf_counter()
-        dataset_size = len(imagenet_train_ds)
+        dataset_size = len(beans_train_dataset)
         global_batch_size = cfg.dataset.train.batch_size * device_mesh["dp"].size()
         steps_per_epoch = math.ceil(dataset_size / global_batch_size)
-        for batch_idx, (input, target) in enumerate(
+        for batch_idx, sample in enumerate(
             # Skip to latest step.
             infinite_dataloader(train_dataloader, train_sampler),
             start=latest_step_idx,
         ):
+            # Unpack data.
+            input, target = sample
             # Measure data load time.
             data_load_time = time.perf_counter() - t_start
 
@@ -301,7 +282,7 @@ def main(cfg) -> None:
                 if cfg.profiling.torch_memory_profile:
                     torch_memory_profiler_snapshot = torch.cuda.memory._snapshot()
 
-                progress_bar.update(1)
+                progress_bar.update(cfg.training.log_interval)
 
             # Reset timer.
             t_start = time.perf_counter()

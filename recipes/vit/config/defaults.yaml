@@ -60,9 +60,9 @@ fsdp:
   preserve_fp32_weights: true
 
 training:
-  steps: 500
-  val_interval: 25
-  log_interval: 5
+  steps: 10
+  val_interval: 5
+  log_interval: 1
   checkpoint:
     path: null
     resume_from_metric: null
@@ -74,53 +74,14 @@ inference:
     megatron_fsdp: null
 
 dataset:
-  num_classes: 100000
+  num_classes: 3
   num_workers: 0
   train:
-    root: null
-    class_map: null
-    label_map: null
-    class_filter: null
     batch_size: 1
     shuffle: false
-    transform_kwargs:
-      img_size: 224
-      scale: null
-      ratio: null
-      train_crop_mode: null
-      hflip: 0.5
-      vflip: 0.
-      color_jitter: 0.4
-      color_jitter_prob: null
-      grayscale_prob: 0.
-      gaussian_blur_prob: 0.
-      interpolation: 'random'
-      re_prob: 0.
-      re_mode: 'const'
-      re_count: 1
-      re_num_splits: 0
-      normalize: True
-      separate: False
-      patch_size: 16
-      patchify: False
   val:
-    root: null
-    class_map: null
-    label_map: null
-    class_filter: null
     batch_size: 1
     shuffle: false
-    transform_kwargs:
-      img_size: 224
-      crop_pct: null
-      crop_mode: null
-      crop_border_pixels: null
-      interpolation: "bilinear"
-      mean: [0.485, 0.456, 0.406]
-      std: [0.229, 0.224, 0.225]
-      normalize: true
-      patch_size: 16
-      patchify: false
 
 random:
   seed: 42

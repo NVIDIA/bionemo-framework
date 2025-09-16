@@ -6,3 +6,4 @@ hydra-core
 einops
 wandb
 tqdm
+datasets

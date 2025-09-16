@@ -38,11 +38,11 @@ To train a ViT using FSDP, execute the following command in your Docker containe
 torchrun --nproc-per-node ${NGPU} train.py --config-name vit_base_patch16_224 distributed.dp_shard=${NGPU} training.checkpoint.path=./ckpts/vit
 ```
 
-which will train on a local tiny 5-class version of [ImageNet](https://image-net.org/) ([super-tiny-imagenet-5](./data/super-tiny-imagenet-5/)) and save auto-resumable [Torch DCP](https://docs.pytorch.org/docs/stable/distributed.checkpoint.html) checkpoints to the `training.checkpoint.path` directory.
+which will train on the [`AI-Lab-Makerere/ibean`](https://github.com/AI-Lab-Makerere/ibean/) (HuggingFace: [`AI-Lab-Makerere/beans`](https://huggingface.co/datasets/AI-Lab-Makerere/beans)) dataset and save auto-resumable [Torch DCP](https://docs.pytorch.org/docs/stable/distributed.checkpoint.html) checkpoints to the `training.checkpoint.path` directory.
 
-[`train.py`](train.py) is the transparent entrypoint to this script that explains how to modify your own training loop for `Megatron-FSDP` ([PyPI: `megatron-fsdp`](https://pypi.org/project/megatron-fsdp/) / [Source: Megatron-LM](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src)) to fully-shard your model across all devices. After executing `train.py` for the first time, the de-compressed ImageNet dataset will be available in `data/super-tiny-imagenet-5/...` (sourced from [`super-tiny-imagenet-5.tar.gz`](./data/super-tiny-imagenet-5.tar.gz)) for experimentation and review.
+[`train.py`](train.py) is the transparent entrypoint to this script that explains how to modify your own training loop for `Megatron-FSDP` ([PyPI: `megatron-fsdp`](https://pypi.org/project/megatron-fsdp/) / [Source: Megatron-LM](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src)) to fully-shard your model across all devices.
 
-The TIMM-derived model code for the ViT can be found in [`vit.py`](vit.py), and data utilities for ImageNet can be found in [`imagenet_*.py`](imagenet_dataset.py).
+The TIMM-derived model code for the ViT can be found in [`vit.py`](vit.py), and data utilities for Beans can be found in [`beans.py`](beans.py).
 
 Various configuration options common in computer vision modeling can be found in [config](./config/).
 
