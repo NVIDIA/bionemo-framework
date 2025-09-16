@@ -10,7 +10,8 @@ train_cmnd: train
 num_train_steps: 10000
 
 wandb_init_args:
-  project: "geneformer_native_te_mfsdp_fp8"
+  project: "lepton_recipe_convergence_{branch}"
+  group: "{recipe_subdir}_{resource_shape}"
 
 # Run one for each config
 products:
