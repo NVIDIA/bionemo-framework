@@ -24,7 +24,7 @@ on:
           - esm2_native_te_nvfsdp_thd
           - geneformer_native_te_mfsdp_fp8
       config_override:
-        description: "Custom config override (optional, e.g. '10m')"
+        description: "Optional: run only these product configs (CSV). Examples: 10m  or  10m,4b. Leave blank to run all."
         required: false
         type: string
 
@@ -53,25 +53,14 @@ jobs:
           LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
         run: |
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
+
+          ARGS="--config-name=\"recipes/${{ inputs.model_config }}\" \
+                branch=\"${{ inputs.branch }}\" \
+                commit_sha=\"${{ inputs.commit_sha }}\""
+
+          # If user provided a subset (e.g., "10m" or "10m,4b"), pass it through
           if [ -n "${{ inputs.config_override }}" ]; then
-            OVERRIDE="${{ inputs.config_override }}"
-            if [[ "$OVERRIDE" == *"/"* || "$OVERRIDE" == *.yaml ]]; then
-              # Full Hydra path/name → primary config for the **outer** Hydra
-              python ci/lepton/model_convergence/scripts/launch_job.py \
-                --config-name="$OVERRIDE" \
-                branch="${{ inputs.branch }}" \
-                commit_sha="${{ inputs.commit_sha }}"
-            else
-              # Bare size (e.g., "10m") → pass to **inner** Hydra via +config
-              python ci/lepton/model_convergence/scripts/launch_job.py \
-                --config-name="recipes/${{ inputs.model_config }}" \
-                +config="$OVERRIDE" \
-                branch="${{ inputs.branch }}" \
-                commit_sha="${{ inputs.commit_sha }}"
-            fi
-          else
-            python ci/lepton/model_convergence/scripts/launch_job.py \
-              --config-name="recipes/${{ inputs.model_config }}" \
-              branch="${{ inputs.branch }}" \
-              commit_sha="${{ inputs.commit_sha }}"
+            ARGS="$ARGS +run_only=\"${{ inputs.config_override }}\""
           fi
+
+          python ci/lepton/model_convergence/scripts/launch_job.py $ARGS

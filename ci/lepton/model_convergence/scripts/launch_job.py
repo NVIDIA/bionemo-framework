@@ -7,6 +7,7 @@ Demo: python launch_job.py --config-name "evo2_finetune_lora" job_name="evo2-fin
 
 import hydra
 import json
+import re
 from omegaconf import DictConfig, OmegaConf
 from typing import Dict
 from leptonai.api.v2.client import APIClient
@@ -384,6 +385,23 @@ def main(cfg: DictConfig):
 
     # Disable struct mode at the beginning to allow flexible merging
     OmegaConf.set_struct(cfg, False)
+
+    requested = []
+    run_only = getattr(cfg, "run_only", "")
+    if isinstance(run_only, str) and run_only.strip():
+        requested = [s.strip() for s in re.split(r"[,\s]+", run_only) if s.strip()]
+
+    if requested and getattr(cfg, "products", None):
+        want = set(requested)
+        filtered = [p for p in cfg.products if str(getattr(p, "config", "")) in want]
+        if filtered:
+            cfg.products = filtered
+            print(f"Selected product subset: {', '.join(str(getattr(p,'config', '')) for p in filtered)}")
+        else:
+            raise SystemExit(
+                f"No products matched {sorted(want)}. "
+                f"Available: {sorted(str(getattr(p,'config','')) for p in cfg.products)}"
+            )
 
     # Check if products key exists for multi-job launch
     if hasattr(cfg, 'products') and cfg.products:
