@@ -13,11 +13,3 @@
   sha256: 9020ba336dbfe33bddadba26ca0cde49958cbd73c5ad44f0960a5a4837c9db26 # pragma: allowlist secret
   owner: Savitha Srinivasan <savithas@nvidia.com>
   description: Sample test data for SCDL with feature IDs appended.
-
-- tag: sample_scdl_neighbor
-  ngc: nvidia/clara/scdl_neighbor_testdata:1.0
-  ngc_registry: resource
-  pbss: "s3://bionemo-ci/test-data/scdl_neighbor_test_20250616.tar.gz"
-  sha256: f64a723e5a1d3223d7ad636c2b7601fe5927be47fb1a418a60687ef80eab83d0 # pragma: allowlist secret
-  owner: Camir Ricketts <camirr@nvidia.com>
-  description: Sample test data for SCDL with neighbors.

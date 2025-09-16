@@ -147,17 +147,15 @@ class AMPLIFY(AMPLIFYPreTrainedModel):
             config.padded_vocab_size,
             config.hidden_size,
             padding_idx=config.pad_token_id,
-            dtype=config.torch_dtype,
+            dtype=config.dtype,
         )
 
         if config.layer_norm_after_embedding:
             self.layer_norm_1 = (
-                transformer_engine.pytorch.RMSNorm(
-                    config.hidden_size, config.norm_eps, params_dtype=config.torch_dtype
-                )
+                transformer_engine.pytorch.RMSNorm(config.hidden_size, config.norm_eps, params_dtype=config.dtype)
                 if config.rms_norm
                 else transformer_engine.pytorch.LayerNorm(
-                    config.hidden_size, config.norm_eps, params_dtype=config.torch_dtype
+                    config.hidden_size, config.norm_eps, params_dtype=config.dtype
                 )
             )
 
@@ -168,6 +166,9 @@ class AMPLIFY(AMPLIFYPreTrainedModel):
             multiple_of = 8
             intermediate_size = int(2 * config.intermediate_size / 3)
             intermediate_size = multiple_of * ((intermediate_size + multiple_of - 1) // multiple_of)
+
+        else:
+            intermediate_size = config.intermediate_size
 
         self.transformer_encoder = nn.ModuleList()
         for layer_num in range(config.num_hidden_layers):
@@ -194,7 +195,7 @@ class AMPLIFY(AMPLIFYPreTrainedModel):
                     window_size=(-1, -1),
                     rotary_pos_interleaved=True,
                     seq_length=config.max_length,
-                    params_dtype=config.torch_dtype,
+                    params_dtype=config.dtype,
                 )
             )
 
@@ -212,7 +213,6 @@ class AMPLIFY(AMPLIFYPreTrainedModel):
         output_hidden_states=False,
         output_attentions=False,
         labels=None,
-        **kwargs,
     ) -> BaseModelOutput:
         """Forward pass of the AMPLIFY model.
 
@@ -222,7 +222,6 @@ class AMPLIFY(AMPLIFYPreTrainedModel):
             output_hidden_states (bool): Whether to output the hidden states.
             output_attentions (bool): Whether to output the attention weights.
             labels (torch.Tensor): The labels.
-            **kwargs: Additional arguments.
 
         Returns:
             BaseModelOutput: The output of the model.
@@ -277,7 +276,7 @@ class AMPLIFYForMaskedLM(AMPLIFYPreTrainedModel):
                 config.hidden_size,
                 config.padded_vocab_size,
                 config.norm_eps,
-                params_dtype=config.torch_dtype,
+                params_dtype=config.dtype,
                 normalization="RMSNorm" if config.rms_norm else "LayerNorm",
                 init_method=lambda x: torch.nn.init.uniform_(
                     x, -self.config.decoder_init_range, self.config.decoder_init_range
@@ -286,7 +285,7 @@ class AMPLIFYForMaskedLM(AMPLIFYPreTrainedModel):
 
         else:
             self.decoder = transformer_engine.pytorch.Linear(
-                config.hidden_size, config.vocab_size, params_dtype=config.torch_dtype
+                config.hidden_size, config.vocab_size, params_dtype=config.dtype
             )
 
     def forward(
@@ -296,7 +295,6 @@ class AMPLIFYForMaskedLM(AMPLIFYPreTrainedModel):
         output_hidden_states=False,
         output_attentions=False,
         labels=None,
-        **kwargs,
     ) -> MaskedLMOutput:
         """Forward pass of the AMPLIFYForMaskedLM model.
 
@@ -306,7 +304,6 @@ class AMPLIFYForMaskedLM(AMPLIFYPreTrainedModel):
             output_hidden_states (bool): Whether to output the hidden states.
             output_attentions (bool): Whether to output the attention weights.
             labels (torch.Tensor): The labels.
-            **kwargs: Additional arguments.
 
         Returns:
             MaskedLMOutput: The output of the model.
@@ -317,7 +314,6 @@ class AMPLIFYForMaskedLM(AMPLIFYPreTrainedModel):
             output_hidden_states,
             output_attentions,
             labels,
-            **kwargs,
         )
 
         # Classification head with layer norm

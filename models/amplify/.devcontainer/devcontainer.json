@@ -2,14 +2,11 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
 {
     "name": "Existing Dockerfile",
-    "build": {
-        "context": "..",
-        "dockerfile": "Dockerfile.dev"
-    },
+    "image": "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025",
     "mounts": [
         "source=${localEnv:HOME}/.cache,target=/home/ubuntu/.cache,type=bind,consistency=cached"
     ],
-    "postCreateCommand": "pip install -e .[convert,test]",
+    "postCreateCommand": "PIP_CONSTRAINT= pip install -e .",
     "remoteUser": "ubuntu",
     "runArgs": [
         "--gpus=all",

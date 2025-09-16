@@ -13,32 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import gc
+import sys
 from pathlib import Path
 
-import torch
-from transformers import AutoModelForMaskedLM
 
-from amplify.export import export_hf_checkpoint
-
-
-AMPLIFY_TAGS = ["AMPLIFY_120M", "AMPLIFY_350M"]
-
-
-for tag in AMPLIFY_TAGS:
-    print(f"Converting {tag}...")
-
-    export_hf_checkpoint(tag, Path("./checkpoint_export"))
-
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    # Smoke test that the model can be loaded.
-    model_te = AutoModelForMaskedLM.from_pretrained(
-        f"./checkpoint_export/{tag}",
-        dtype=torch.bfloat16,
-        trust_remote_code=True,
-    )
-    del model_te
-    gc.collect()
-    torch.cuda.empty_cache()
+sys.path.append(Path(__file__).parent.parent.as_posix())
+sys.path.append(Path(__file__).parent.as_posix())
