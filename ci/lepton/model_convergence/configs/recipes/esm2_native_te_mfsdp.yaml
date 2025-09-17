@@ -3,41 +3,24 @@ defaults:
   - /base
   - _self_
 
-job_name: esm2_native_te_mfsdp
 resource_shape: gpu.2xh200
 
-dashboard_info:
-  model: esm2
-  variant: recipes
-  repo: recipes
-
-# Base configuration
 recipe_subdir: esm2_native_te_mfsdp
-branch: main
-wandb_init_args:
-  mode: "online" # need online to collect logs; if offline have to manually sync after run
 train_cmnd: train_fsdp2
 num_train_steps: 100
 
-# Run one for each config
-products:
-  - model_name: esm2_t48_15B_UR50D_nvfsdp_L1_perf
-    config: L1_15B_perf_test
-  - model_name: esm2_t36_3B_UR50D_ddp
-    config: L1_3B
-  - model_name: esm2_t33_650M_UR50D_mfsdp
-    config: L1_650M
+wandb_init_args:
+  project: "lepton_recipe_convergence_{branch}"
+  group: "{recipe_subdir}_{resource_shape}"
 
-script: |
-  git clone https://github.com/NVIDIA/bionemo-framework.git
-  if [ "${branch}" != "main" ]; then
-    cd bionemo-framework
-    git checkout "${branch}"
-    cd ..
-  fi
-  cd bionemo-framework/recipes/${recipe_subdir}
-  pip install -r requirements.txt
+products:
+  - config: L1_650M
+    resource_shape: gpu.2xh200
+  - config: L1_3B
+    resource_shape: gpu.2xh200
+  # - config: L1_15B_perf_test
+
+train_script: |
   torchrun ${train_cmnd}.py \
     --config-name ${config}.yaml \
-    num_train_steps=${num_train_steps} \
-    +wandb_init_args.mode=${wandb_init_args.mode}
+    num_train_steps=${num_train_steps}

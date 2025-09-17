@@ -3,46 +3,31 @@ defaults:
   - /base
   - _self_
 
-job_name: esm2_accelerate-recipes
 resource_shape: gpu.2xh200
-
-dashboard_info:
-  model: esm2
-  variant: recipes
-  repo: recipes
 
 # Base configuration
 recipe_subdir: esm2_accelerate
-branch: jwilber/add-wandb-recipe-esm2-accelerate
 train_cmnd: train
+branch: jwilber/add-wandb-recipe-esm2-accelerate
+
 stop_after_n_steps: 10
-model_tag: esm2_t6_8M_UR50D
+
+wandb_init_args:
+  project: "lepton_recipe_convergence_{branch}"
+  group: "{recipe_subdir}_{resource_shape}"
 
 trainer:
   report_to: "wandb"
 
 # Run one for each config
 products:
-  - model_name: esm2-accelerate-t6-8M
-    config: L0_sanity
-  # - model_name: esm2-accelerate-fsdp1-hf
-  #   config: fsdp1_hf
-  # - model_name: esm2-accelerate-fsdp1-te
-  #   config: fsdp1_te
-  # - model_name: esm2-accelerate-fsdp2-hf
-  #   config: fsdp2_hf
-  # - model_name: esm2-accelerate-fsdp2-te
-  #   config: fsdp2_te
+  - config: L0_sanity
+  # - config: fsdp1_hf
+  # - config: fsdp1_te
+  # - config: fsdp2_hf
+  # - config: fsdp2_te
 
-script: |
-  git clone https://github.com/NVIDIA/bionemo-framework.git
-  if [ "${branch}" != "main" ]; then
-    cd bionemo-framework
-    git checkout "${branch}"
-    cd ..
-  fi
-  cd bionemo-framework/recipes/${recipe_subdir}
-  pip install -r requirements.txt
+train_script: |
   torchrun ${train_cmnd}.py \
     --config-name ${config}.yaml \
     stop_after_n_steps=${stop_after_n_steps} \
