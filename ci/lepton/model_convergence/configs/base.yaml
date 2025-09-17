@@ -40,8 +40,7 @@ checkout_script: |
     echo "Checking out branch: ${branch}"
     git checkout "${branch}"
   fi
-  cd ..
-  cd bionemo-framework/recipes/${recipe_subdir}
+  cd bionemo-recipes/recipes/${recipe_subdir}
   pip install -r requirements.txt
 
 # Child configs should override this with their run-specific commands
