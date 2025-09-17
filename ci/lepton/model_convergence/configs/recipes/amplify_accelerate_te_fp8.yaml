@@ -3,13 +3,7 @@ defaults:
   - /base
   - _self_
 
-job_name: amplify-recipes
 resource_shape: gpu.2xh200
-
-dashboard_info:
-  model: amplify
-  variant: recipes
-  repo: recipes
 
 # Base configuration
 recipe_subdir: amplify_accelerate_te_fp8
@@ -17,9 +11,8 @@ branch: jwilber/add-wandb-recipe-amplify
 train_cmnd: train
 
 wandb_init_args:
-  project: "amplify_accelerate_te_fp8"
-  group: "recipes_model_convergence"
-  mode: "online"
+  project: "lepton_recipe_convergence_{branch}"
+  group: "{recipe_subdir}_{resource_shape}"
 
 stop_after_n_steps: 10
 
@@ -30,22 +23,10 @@ trainer:
 products:
   - model_name: amplify_120M_sanity
     config: L0_sanity
-  # - model_name: L1-350M-partial-conv
-  #   config: L1_350M_partial_conv
+  - model_name: L1-350M-partial-conv
+    config: L1_350M_partial_conv
 
-script: |
-  git clone https://github.com/NVIDIA/bionemo-framework.git
-  cd bionemo-framework
-  if [ -n "${commit_sha}" ]; then
-    echo "Checking out commit: ${commit_sha}"
-    git checkout "${commit_sha}"
-  elif [ "${branch}" != "main" ]; then
-    echo "Checking out branch: ${branch}"
-    git checkout "${branch}"
-  fi
-  cd ..
-  cd bionemo-framework/recipes/${recipe_subdir}
-  pip install -r requirements.txt
+train_script: |
   torchrun ${train_cmnd}.py \
     --config-name ${config}.yaml \
     trainer.report_to=${trainer.report_to} \

@@ -22,13 +22,16 @@ trainer:
 # Run one for each config
 products:
   - config: L0_sanity
-  # - config: fsdp1_hf
-  # - config: fsdp1_te
-  # - config: fsdp2_hf
-  # - config: fsdp2_te
+  - config: fsdp1_hf
+  - config: fsdp1_te
+  - config: fsdp2_hf
+  - config: fsdp2_te
 
 train_script: |
   torchrun ${train_cmnd}.py \
     --config-name ${config}.yaml \
     stop_after_n_steps=${stop_after_n_steps} \
-    trainer.report_to=${trainer.report_to}
+    trainer.report_to=${trainer.report_to} \
+    wandb_init_args.mode=${wandb_init_args.mode} \
+    wandb_init_args.project=${wandb_init_args.project} \
+    +wandb_init_args.group=${wandb_init_args.group}
