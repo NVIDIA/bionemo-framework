@@ -11,13 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Callable
+from typing import Callable, Optional
 import os
 from threading import stack_size
 from torch import nn
 from torch import Tensor
+import functools
+from einops import rearrange
 
 BNM_MODULE_HOOK_HANDLES = []
+
+
+_original_rearrange = rearrange
 
 
 class BnmModuleHookManager():
@@ -49,7 +54,8 @@ class BnmModuleHookManager():
             self.bnm_module_hook_output_filename = os.path.join(
                 str(self.results_dir), f"bnm_module_hook_output_lvl{self.level_max}.txt"
             )
-    
+        global BNM_MODULE_HOOK_OUTPUT_FILENAME
+        BNM_MODULE_HOOK_OUTPUT_FILENAME = self.bnm_module_hook_output_filename
         self.forward_pre_hook_types = forward_pre_hook_types
         self.forward_hook_types = forward_hook_types
         
@@ -62,14 +68,17 @@ class BnmModuleHookManager():
             "metric_name",
             "metric_value",
         ])
-        self.write_line_to_file(header_with_column_names)
-        
+        BnmModuleHookManager.write_line_to_file(
+            filename=self.bnm_module_hook_output_filename,
+            line=header_with_column_names,
+        )   
         BnmModuleHookManager.do_for_each_submodule_bfs(
             func=self.configure_hooks_for_submodule,
             module=root_module,
             level=0,
             level_max=self.level_max,
         )
+
    
     def configure_hooks_for_submodule(self, module: nn.Module, level: int | None = None):
         """
@@ -86,7 +95,10 @@ class BnmModuleHookManager():
                 input: tuple[Tensor]
             ):
                 message = BnmModuleHookManager.bnm_forward_pre_hook_for_input_shapes_helper(module, input, level)
-                self.write_line_to_file(message)
+                BnmModuleHookManager.write_line_to_file(
+                    filename=self.bnm_module_hook_output_filename,
+                    line=message,
+                )
 
             BNM_MODULE_HOOK_HANDLES.append(
                 module.register_forward_pre_hook(forward_pre_hook_for_input_shapes)
@@ -100,15 +112,18 @@ class BnmModuleHookManager():
                 output: tuple[Tensor] | Tensor,
             ):
                 message = BnmModuleHookManager.bnm_forward_hook_for_output_shapes_helper(module, input, output, level)
-                self.write_line_to_file(message)
+                BnmModuleHookManager.write_line_to_file(
+                    filename=self.bnm_module_hook_output_filename,
+                    line=message,
+                )
             
             BNM_MODULE_HOOK_HANDLES.append(
                 module.register_forward_hook(forward_hook_for_output_shapes)
             )
-
-    def write_line_to_file(self, line: str):
-        if self.bnm_module_hook_output_filename is not None:
-            with open(self.bnm_module_hook_output_filename, "a") as f:
+    @staticmethod
+    def write_line_to_file(filename: str, line: str):
+        if filename is not None:
+            with open(filename, "a") as f:
                 f.write(line + "\n")
                 f.flush() 
     
@@ -126,11 +141,9 @@ class BnmModuleHookManager():
                 BnmModuleHookManager.do_for_each_submodule_bfs(
                     func=func, module=child, level=level + 1, level_max=level_max
                 )
-                
+    
     @staticmethod
-    def bnm_forward_pre_hook_for_input_shapes_helper(
-        module: nn.Module, input: tuple[Tensor] | Tensor, level: int | None = None
-    ) -> str:
+    def arg_names_and_shapes_as_str(input: Tensor | tuple[Tensor]):
         some_list_of_strings = ["NA"]
         if isinstance(input, Tensor):
             some_list_of_strings = [str(tuple(input.shape))]
@@ -141,6 +154,14 @@ class BnmModuleHookManager():
             ]
     
         input_names_and_shapes = "|".join(some_list_of_strings)
+        return input_names_and_shapes
+        
+                
+    @staticmethod
+    def bnm_forward_pre_hook_for_input_shapes_helper(
+        module: nn.Module, input: tuple[Tensor] | Tensor, level: int | None = None
+    ) -> str:
+        input_names_and_shapes = BnmModuleHookManager.arg_names_and_shapes_as_str(input)
         
         module_name = f"{module.__class__.__name__}"
         if hasattr(module, "operator_type"):
@@ -160,13 +181,8 @@ class BnmModuleHookManager():
     def bnm_forward_hook_for_output_shapes_helper(
         module: nn.Module, input: tuple[Tensor], output: tuple[Tensor] | Tensor, level: int | None = None
     ) -> str:
-        some_list_of_strings = ["NA"]
-        if isinstance(output, Tensor):
-            some_list_of_strings = [str(tuple(output.shape))]
-        elif isinstance(output, tuple):
-            some_list_of_strings = ["NA" if not isinstance(output_component, Tensor) else str(tuple(output_component.shape)) for output_component in output]
-        
-        output_names_and_shapes = "|".join(some_list_of_strings)
+
+        output_names_and_shapes = BnmModuleHookManager.arg_names_and_shapes_as_str(output)
         module_name = f"{module.__class__.__name__}"
         if hasattr(module, "operator_type"):
             module_name += f"-{module.operator_type}"
@@ -180,3 +196,53 @@ class BnmModuleHookManager():
             f"{output_names_and_shapes}",
         ])
         return message
+
+
+    @staticmethod
+    def shape_logger(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # first argument is usually the tensor/array
+            input_ = args[0]
+
+            input_names_and_shapes = BnmModuleHookManager.arg_names_and_shapes_as_str(input_)
+            message = ";".join([
+                "BnmModuleHookManager",
+                "bnm_forward_hook_for_output_shapes_helper",
+                "?",
+                "rearrange",
+                "forward",
+                "input_shapes",
+                f"{input_names_and_shapes}",
+            ])
+            
+            BnmModuleHookManager.write_line_to_file(
+                filename=BNM_MODULE_HOOK_OUTPUT_FILENAME,
+                line=message,
+            )
+
+
+            result = func(*args, **kwargs)
+
+            result_names_and_shapes = BnmModuleHookManager.arg_names_and_shapes_as_str(result)
+            result_message = ";".join([
+                "BnmModuleHookManager",
+                "bnm_forward_hook_for_output_shapes_helper",
+                "?",
+                "rearrange",
+                "forward",
+                "output_shapes",
+                f"{result_names_and_shapes}",
+            ])
+            
+            BnmModuleHookManager.write_line_to_file(
+                filename=BNM_MODULE_HOOK_OUTPUT_FILENAME,
+                line=result_message,
+            )
+        
+        
+            return result
+        return wrapper
+
+
+rearrange = BnmModuleHookManager.shape_logger(_original_rearrange)
