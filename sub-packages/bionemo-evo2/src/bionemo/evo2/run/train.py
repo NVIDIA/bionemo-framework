@@ -818,17 +818,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         lora_transform = None
         if args.lora_finetune:
             lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
-<<<<<<< HEAD
-        print("********************train: init llm.HyenaModel*******")
-        #model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
-        model = HyenaModelWithCustomMetrics(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
-    
-    else:  # mamba
-=======
 
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
     elif model_type == "mamba":  # mamba
->>>>>>> main
         if args.no_weight_decay_embeddings:
             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
         config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
