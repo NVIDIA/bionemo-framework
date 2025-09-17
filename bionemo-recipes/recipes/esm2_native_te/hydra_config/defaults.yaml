@@ -1,6 +1,8 @@
 # Training config
 model_tag: ???
 num_train_steps: ???
+save_every_n_steps: 50
+resume_from_checkpoint: true
 
 # TODO: Once BIONEMO-2583 and BIONEMO-2719 are fixed, enable this by default and simplify training scripts to remove the
 # meta-device conditional.
@@ -59,3 +61,6 @@ adamw_kwargs:
 lr_scheduler_kwargs:
   num_warmup_steps: 2_000
   num_training_steps: 500_000
+
+# Model path
+ckpt_dir: ???

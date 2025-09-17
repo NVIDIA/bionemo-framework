@@ -1,5 +1,6 @@
 defaults:
   - defaults
+  - _self_
 
 # Training config
 model_tag: nvidia/esm2_t6_8M_UR50D
@@ -16,3 +17,5 @@ wandb_init_args:
 # Learning rate scheduler config
 lr_scheduler_kwargs:
   num_warmup_steps: 100
+
+ckpt_dir: "checkpoints/esm2_t6_8M_UR50D_sanity"

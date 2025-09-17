@@ -14,6 +14,8 @@
 # limitations under the License.
 
 import logging
+import os
+import sys
 import time
 
 import hydra
@@ -29,6 +31,7 @@ from tqdm import tqdm
 from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 
+from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp
 from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from scheduler import get_linear_schedule_with_warmup
@@ -50,6 +53,12 @@ def main(args: DictConfig) -> float | None:
     Returns:
         float: The loss value for the final batch.
     """
+    # Get the script name without extension and add it to checkpoint directory
+    script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
+    ckpt_dir = os.path.join(args.ckpt_dir, script_name)
+    logger.info(f"Checkpoint directory: {ckpt_dir}")
+    os.makedirs(ckpt_dir, exist_ok=True)
+
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
@@ -69,7 +78,6 @@ def main(args: DictConfig) -> float | None:
     if dist_config.is_main_process():
         wandb.init(**args.wandb_init_args, config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True))
 
-    # Create an empty ESM-2 model with a masked language model head.
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.dataset.use_sequence_packing:
@@ -127,9 +135,23 @@ def main(args: DictConfig) -> float | None:
     model.train()
     if dist_config.is_main_process():
         progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
+
+    # Load checkpoint if it exists and resume is enabled
+    start_step = 0
+    if args.resume_from_checkpoint:
+        model, optimizer, start_step = load_checkpoint_mfsdp(
+            model=model,
+            optimizer=optimizer,
+            ckpt_dir=ckpt_dir,
+            logger=logger,
+        )
+        # Increment start_step to avoid re-running the checkpointed step
+        start_step = min(start_step + 1, args.num_train_steps)
+
+    # Training loop.
     previous_step_time = time.perf_counter()
     loss_value = None
-    for step in range(args.num_train_steps):
+    for step in range(start_step, args.num_train_steps):
         # Get batch.
         batch = next(train_iterator)
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
@@ -150,6 +172,16 @@ def main(args: DictConfig) -> float | None:
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad()
+
+        if args.save_every_n_steps > 0 and step % args.save_every_n_steps == 0 and step > 0:  # Skip step 0
+            # For mfsdp, always use distributed checkpointing
+            save_checkpoint_mfsdp(
+                model=model,
+                optimizer=optimizer,
+                ckpt_dir=ckpt_dir,
+                step=step,
+                logger=logger,
+            )
 
         # Log metrics to logger and wandb on main process.
         if dist_config.is_main_process():
@@ -178,6 +210,14 @@ def main(args: DictConfig) -> float | None:
 
             progress_bar.update(1)
             progress_bar.set_postfix({"loss": loss_value})
+
+    final_model_dir = os.path.join(ckpt_dir, "final_model")
+    save_final_model_mfsdp(
+        model=model,
+        save_directory=final_model_dir,
+        dist_config=dist_config,
+        logger=logger,
+    )
 
     # Clean up distributed training
     if dist_config.is_main_process():
