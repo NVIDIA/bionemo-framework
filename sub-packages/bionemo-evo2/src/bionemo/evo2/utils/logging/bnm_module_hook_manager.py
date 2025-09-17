@@ -39,7 +39,6 @@ class BnmModuleHookManager():
         """
         print(f"BnmModuleHookManager,configure_hooks,type(self.module)={type(root_module)}")
         self.root_module = root_module
-        import pdb; pdb.set_trace()
         self.level_max = os.getenv("BNM_MODULE_HOOK_MANAGER_LEVEL_MAX", level_max)  # str or None or int
         if isinstance(self.level_max, str):
             self.level_max = int(self.level_max)
@@ -111,6 +110,7 @@ class BnmModuleHookManager():
         if self.bnm_module_hook_output_filename is not None:
             with open(self.bnm_module_hook_output_filename, "a") as f:
                 f.write(line + "\n")
+                f.flush() 
     
     @staticmethod
     def do_for_each_submodule_bfs(
@@ -140,12 +140,16 @@ class BnmModuleHookManager():
                 for input_component in input
             ]
     
-        input_names_and_shapes = "|".join(some_list_of_strings)    
+        input_names_and_shapes = "|".join(some_list_of_strings)
+        
+        module_name = f"{module.__class__.__name__}"
+        if hasattr(module, "operator_type"):
+            module_name += f"-{module.operator_type}"
         message = ";".join([
             "BnmModuleHookManager",
             "bnm_forward_pre_hook_for_input_shapes_helper",
             f"{level}",
-            f"{module.__class__.__name__}",
+            module_name,
             "forward",
             "input_shapes",
             f"{input_names_and_shapes}",
@@ -163,11 +167,14 @@ class BnmModuleHookManager():
             some_list_of_strings = ["NA" if not isinstance(output_component, Tensor) else str(tuple(output_component.shape)) for output_component in output]
         
         output_names_and_shapes = "|".join(some_list_of_strings)
+        module_name = f"{module.__class__.__name__}"
+        if hasattr(module, "operator_type"):
+            module_name += f"-{module.operator_type}"
         message = ";".join([
             "BnmModuleHookManager",
             "bnm_forward_hook_for_output_shapes_helper",
             f"{level}",
-            f"{module.__class__.__name__}",
+            module_name,
             "forward",
             "output_shapes",
             f"{output_names_and_shapes}",
