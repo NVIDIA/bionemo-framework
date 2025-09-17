@@ -59,6 +59,7 @@ class NVEsmConfig(EsmConfig):
         fuse_qkv_params: bool = True,
         micro_batch_size: Optional[int] = None,
         max_seq_length: Optional[int] = None,
+        padded_vocab_size: Optional[int] = 64,
         **kwargs,
     ):
         """Initialize the NVEsmConfig with additional TE-related config options.
@@ -86,6 +87,8 @@ class NVEsmConfig(EsmConfig):
             max_seq_length: The maximum sequence length to use for the attention. This is needed for
                 JIT Warmup, a technique where jit fused functions are warmed up before training to
                 ensure same kernels are used for forward propogation and activation recompute phase.
+            padded_vocab_size: The padded vocabulary size to support FP8. If not provided, defaults
+                to vocab_size. Must be greater than or equal to vocab_size.
             **kwargs: Additional config options to pass to EsmConfig.
         """
         super().__init__(**kwargs)
@@ -96,6 +99,15 @@ class NVEsmConfig(EsmConfig):
         self.fuse_qkv_params = fuse_qkv_params
         self.micro_batch_size = micro_batch_size
         self.max_seq_length = max_seq_length
+
+        # Set padded_vocab_size with default fallback to vocab_size
+        self.padded_vocab_size = padded_vocab_size if padded_vocab_size is not None else self.vocab_size
+
+        # Ensure padded_vocab_size is at least as large as vocab_size
+        if self.padded_vocab_size is not None and self.vocab_size is not None:
+            assert self.padded_vocab_size >= self.vocab_size, (
+                f"padded_vocab_size ({self.padded_vocab_size}) must be greater than or equal to vocab_size ({self.vocab_size})"
+            )
 
 
 class NVEsmEncoder(nn.Module):
@@ -290,7 +302,15 @@ class NVEsmModel(NVEsmPreTrainedModel):
         super().__init__(config)
         self.config = config
 
+        # Create EsmEmbeddings with temporarily modified config to use padded vocab size
+        # This ensures the word embeddings layer uses the padded vocabulary size for FP8 support
+        original_vocab_size = config.vocab_size
+        config.vocab_size = config.padded_vocab_size
+        # Ensure pad_token_id is set properly, defaulting to 0 if not specified
+        if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
+            config.pad_token_id = 0
         self.embeddings = EsmEmbeddings(config)
+        config.vocab_size = original_vocab_size  # Restore original vocab_size
         self.encoder = NVEsmEncoder(config)
         self.pooler = EsmPooler(config) if add_pooling_layer else None
 
@@ -475,6 +495,10 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
         sequence_output = outputs[0]
         prediction_scores = self.lm_head(sequence_output)
 
+        # Truncate logits back to original vocab_size if padding was used
+        if self.config.padded_vocab_size != self.config.vocab_size:
+            prediction_scores = prediction_scores[..., : self.config.vocab_size]
+
         masked_lm_loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
@@ -504,7 +528,7 @@ class NVEsmLMHead(nn.Module):
 
         self.decoder = transformer_engine.pytorch.LayerNormLinear(
             config.hidden_size,
-            config.vocab_size,
+            config.padded_vocab_size if config.padded_vocab_size is not None else config.vocab_size,
             bias=True,
             eps=config.layer_norm_eps,
         )

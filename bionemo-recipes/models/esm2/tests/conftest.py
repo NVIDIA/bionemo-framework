@@ -19,9 +19,10 @@ import pytest
 import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, DataCollatorForLanguageModeling
+from transformers import AutoModelForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
 
 from esm.collator import MLMDataCollatorWithFlattening
+from esm.convert import convert_esm_hf_to_te
 
 
 # Fix Triton UTF-8 decoding issue by setting CUDA library path
@@ -119,3 +120,11 @@ def input_data(tokenizer, bshd_data_collator):
 @pytest.fixture
 def input_data_thd(tokenizer, thd_data_collator):
     return get_input_data(tokenizer, thd_data_collator)
+
+
+@pytest.fixture
+def te_model_checkpoint(tmp_path):
+    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    model_te = convert_esm_hf_to_te(model_hf)
+    model_te.save_pretrained(tmp_path / "te_model_checkpoint")
+    return tmp_path / "te_model_checkpoint"
