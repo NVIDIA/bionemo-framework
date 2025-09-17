@@ -159,6 +159,11 @@ def parse_args():
         "know a model was trained with a specific interpolation factor for ROPE, provide it here, it can make a big "
         "difference in accuracy.",
     )
+    ap.add_argument(
+        "--debug-capture-activations-output-dir",
+        type=Path,
+        help="If set, capture the activations of the model and save them to the specified directory.",
+    )
     return ap.parse_args()
 
 
@@ -193,6 +198,7 @@ class BasePredictor(LightningPassthroughPredictionMixin):
         *args,
         output_log_prob_seqs: bool = False,
         log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
+        debug_capture_activations_output_dir: Path | None = None,
         **kwargs,
     ):
         """Initialize the base predictor with arguments needed for writing predictions."""
@@ -200,6 +206,7 @@ class BasePredictor(LightningPassthroughPredictionMixin):
         self.output_log_prob_seqs = output_log_prob_seqs
         self.log_prob_collapse_option = log_prob_collapse_option
         self.shuffle_warning_raised = False
+        self.debug_capture_activations_output_dir = debug_capture_activations_output_dir
 
     def predict_step(self, batch, batch_idx: int | None = None) -> Tensor | dict[str, Tensor] | None:
         """Alias for forward_step, also log the pad mask since sequences may not all have the same length."""
@@ -207,7 +214,46 @@ class BasePredictor(LightningPassthroughPredictionMixin):
             return
         assert self.training is False, "predict_step should be called in eval mode"
         with torch.no_grad():
+            _activation_outputs = {}  # init here, but probably do not use, this is only used if
+            #  --debug-capture-activations-output-dir is set.
+            if self.debug_capture_activations_output_dir is not None:
+                # Register hooks to capture activations.
+                from functools import partial
+
+                def register_hooks(model, hook_fn):
+                    for name, module in model.named_modules():
+                        module.register_forward_hook(partial(hook_fn, name))
+
+                def hook_fn(name, module, input, output):
+                    if not torch.is_tensor(output):
+                        output = None
+                    else:
+                        output = output.cpu()
+                    if not torch.is_tensor(input):
+                        input = None
+                    else:
+                        input = input.cpu()
+                    _activation_outputs[name] = (str(type(module)), input, output)
+
+                register_hooks(self.module, hook_fn)
+                torch.compiler.cudagraph_mark_step_begin()
+            # Run the forward step.
             forward_out = self.forward_step(batch)
+            if self.debug_capture_activations_output_dir is not None:
+                # Save the activations (per rank) if requested.
+                tp_rank = parallel_state.get_tensor_model_parallel_rank()
+                cp_rank = parallel_state.get_context_parallel_rank()
+                pp_rank = parallel_state.get_pipeline_model_parallel_rank()
+                dp_rank = parallel_state.get_data_parallel_rank()
+                global_rank = torch.distributed.get_rank()
+                torch.save(
+                    _activation_outputs,
+                    self.debug_capture_activations_output_dir
+                    / (
+                        f"activations_rank_{global_rank}_tp_{tp_rank}_cp_{cp_rank}"
+                        f"_pp_{pp_rank}_dp_{dp_rank}_batch_{batch_idx}.pt"
+                    ),
+                )
         if not parallel_state.is_pipeline_last_stage():
             return None
         # Reminder: the model's predictions for input i land at output i+1. To get everything to align, we prepend the
@@ -397,6 +443,7 @@ def predict(
     num_layers: int | None = None,
     seq_len_interpolation_factor: int | None = None,
     files_per_subdir: int | None = None,
+    debug_capture_activations_output_dir: Path | None = None,
 ):
     """Inference workflow for Evo2.
 
@@ -405,6 +452,8 @@ def predict(
     """
     if work_dir is None:
         work_dir = Path(tempfile.mkdtemp())
+    if debug_capture_activations_output_dir is not None:
+        debug_capture_activations_output_dir.mkdir(parents=True, exist_ok=True)
     if files_per_subdir is None and write_interval == "batch":
         logger.warning(
             "--files-per-subdir is not set with --write-interval batch, will write all predictions to a "
@@ -527,6 +576,7 @@ def predict(
             tokenizer=tokenizer,
             output_log_prob_seqs=output_log_prob_seqs,
             log_prob_collapse_option=log_prob_collapse_option,
+            debug_capture_activations_output_dir=debug_capture_activations_output_dir,
         )
     else:  # mamba
         model = MambaPredictor(
@@ -534,6 +584,7 @@ def predict(
             tokenizer=tokenizer,
             output_log_prob_seqs=output_log_prob_seqs,
             log_prob_collapse_option=log_prob_collapse_option,
+            debug_capture_activations_output_dir=debug_capture_activations_output_dir,
         )
 
     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
@@ -573,6 +624,7 @@ def main():
         num_layers=args.num_layers,
         files_per_subdir=args.files_per_subdir,
         write_interval=args.write_interval,
+        debug_capture_activations_output_dir=args.debug_capture_activations_output_dir,
     )
 
 
