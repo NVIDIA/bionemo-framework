@@ -35,8 +35,7 @@ body:
             --format '{{ index .Config.Labels "com.nvidia.bionemo.git_sha" }}'
           ```
         - **Version tag:** The part that comes after the colon (`:`) in the image name
-          (see [NGC tags](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags)).
-          You can list all remote tags with:
+          (see [NGC tags](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags)). You can list all released tags with:
           ```bash
           git ls-remote --tags origin
           ```
