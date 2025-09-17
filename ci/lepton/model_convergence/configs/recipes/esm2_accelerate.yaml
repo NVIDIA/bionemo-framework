@@ -1,0 +1,37 @@
+# @package _global_
+defaults:
+  - /base
+  - _self_
+
+resource_shape: gpu.2xh200
+
+# Base configuration
+recipe_subdir: esm2_accelerate
+train_cmnd: train
+branch: jwilber/add-wandb-recipe-esm2-accelerate
+
+stop_after_n_steps: 10
+
+wandb_init_args:
+  project: "lepton_recipe_convergence_{branch}"
+  group: "{recipe_subdir}_{resource_shape}"
+
+trainer:
+  report_to: "wandb"
+
+# Run one for each config
+products:
+  - config: L0_sanity
+  - config: fsdp1_hf
+  - config: fsdp1_te
+  - config: fsdp2_hf
+  - config: fsdp2_te
+
+train_script: |
+  torchrun ${train_cmnd}.py \
+    --config-name ${config}.yaml \
+    stop_after_n_steps=${stop_after_n_steps} \
+    trainer.report_to=${trainer.report_to} \
+    wandb_init_args.mode=${wandb_init_args.mode} \
+    wandb_init_args.project=${wandb_init_args.project} \
+    +wandb_init_args.group=${wandb_init_args.group}
