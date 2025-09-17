@@ -14,6 +14,7 @@ dataset:
     path: "chandar-lab/UR100P"
     split: "test"
     revision: "refs/convert/parquet"
+    streaming: True
   # Whether to truncate the eval dataset; HF Trainer will run the full eval dataset each eval step.
   # If set to an integer, the eval dataset will be truncated to that number of examples.
   truncate_eval_dataset: null

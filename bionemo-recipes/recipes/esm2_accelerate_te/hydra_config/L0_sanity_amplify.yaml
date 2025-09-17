@@ -7,7 +7,7 @@ stop_after_n_steps: 250
 
 dataset:
   tokenizer_name: ${model_tag}
-  max_seq_length: 1024
+  max_seq_length: 512
   train_load_dataset_kwargs:
     path: "parquet"
     split: "train"

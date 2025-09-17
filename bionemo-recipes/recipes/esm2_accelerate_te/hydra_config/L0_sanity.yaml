@@ -5,6 +5,7 @@ defaults:
 model_tag: "nvidia/esm2_t6_8M_UR50D"
 stop_after_n_steps: 250
 
+# Restructure this to use dataset/sanity.yaml etc.
 dataset:
   tokenizer_name: ${model_tag}
   max_seq_length: 1024
