@@ -1,29 +1,58 @@
 #!/usr/bin/env python3
-"""
-Lepton Job submission script with Hydra configuration
+
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Lepton Job submission script with Hydra configuration.
 
 Demo: python launch_job.py --config-name "evo2_finetune_lora" job_name="evo2-finetune-lora-job"
 """
 
-import hydra
 import json
 import re
-from omegaconf import DictConfig, OmegaConf
-from typing import Dict
-from leptonai.api.v2.client import APIClient
+
+import hydra
+from lepton_utils import construct_env_var, construct_mount
 from leptonai.api.v1.types.affinity import LeptonResourceAffinity
 from leptonai.api.v1.types.common import Metadata
-from leptonai.api.v1.types.deployment import EnvVar, EnvValue, LeptonContainer, MountOptions
+from leptonai.api.v1.types.deployment import LeptonContainer
 from leptonai.api.v1.types.job import LeptonJob, LeptonJobUserSpec
-from omegaconf import DictConfig as HydraDictConfig, ListConfig
-
-from lepton_utils import construct_mount, construct_env_var
+from leptonai.api.v2.client import APIClient
+from omegaconf import DictConfig, OmegaConf
 
 
 def wrap_script_with_logging(
     script: str,
     all_config_json: str = "{}",
 ) -> str:
+    """Wraps a shell script with logging and error handling for Lepton job execution.
+
+    This function generates a shell script that:
+      - Sets strict error handling (`set -euo pipefail`).
+      - Retrieves the Lepton job name from the environment variable `LEPTON_JOB_NAME`.
+      - Executes the provided training script with error trapping, capturing the return code.
+      - (Additional logging and post-processing steps are appended after this wrapper.)
+
+    Args:
+        script (str): The shell script to be executed as the main training or job script.
+        all_config_json (str, optional): A JSON string of the full configuration for logging or debugging.
+            Defaults to "{}".
+
+    Returns:
+        str: A shell script string with logging and error handling wrapped around the provided script.
+    """
     return f"""set -euo pipefail
 
 # Get job name
@@ -264,7 +293,7 @@ if [ "$WANDB_FOUND" = "1" ] && [ -n "$WANDB_SUMMARY" ]; then
                 --arg type "wandb-training-metrics" \
                 --arg subject "$JOB_NAME" \
                 --argjson data "$COMBINED_JSON" \
-                '{{ 
+                '{{
                   "specversion": "1.0",
                   "id": $id,
                   "time": $time,
@@ -299,7 +328,6 @@ exit "$RC"
 
 def launch_single_job(client, cfg: DictConfig):
     """Launch a single job with the given configuration."""
-
     # Get node group
     node_groups = client.nodegroup.list_all()
     node_group_map = {ng.metadata.name: ng for ng in node_groups}
@@ -379,7 +407,6 @@ def launch_single_job(client, cfg: DictConfig):
 @hydra.main(version_base=None, config_path="../configs", config_name="")
 def main(cfg: DictConfig):
     """Main function that handles both single and multi-product launches."""
-
     # Initialize client
     client = APIClient()
 
@@ -396,15 +423,15 @@ def main(cfg: DictConfig):
         filtered = [p for p in cfg.products if str(getattr(p, "config", "")) in want]
         if filtered:
             cfg.products = filtered
-            print(f"Selected product subset: {', '.join(str(getattr(p,'config', '')) for p in filtered)}")
+            print(f"Selected product subset: {', '.join(str(getattr(p, 'config', '')) for p in filtered)}")
         else:
             raise SystemExit(
                 f"No products matched {sorted(want)}. "
-                f"Available: {sorted(str(getattr(p,'config','')) for p in cfg.products)}"
+                f"Available: {sorted(str(getattr(p, 'config', '')) for p in cfg.products)}"
             )
 
     # Check if products key exists for multi-job launch
-    if hasattr(cfg, 'products') and cfg.products:
+    if hasattr(cfg, "products") and cfg.products:
         print(f"Launching {len(cfg.products)} jobs from products configuration...")
         successful_jobs = 0
         failed_jobs = 0
@@ -414,8 +441,8 @@ def main(cfg: DictConfig):
             base_cfg_dict = OmegaConf.to_container(cfg, resolve=False)
 
             # Remove products from the base config to avoid recursion
-            if 'products' in base_cfg_dict:
-                del base_cfg_dict['products']
+            if "products" in base_cfg_dict:
+                del base_cfg_dict["products"]
 
             # Convert product to dict
             product_dict = OmegaConf.to_container(product, resolve=False)
@@ -428,11 +455,11 @@ def main(cfg: DictConfig):
 
             # Generate job name using recipe_subdir and config value
             # Extract the base recipe name from recipe_subdir (e.g., "geneformer" from "geneformer_native_te_mfsdp_fp8")
-            recipe_parts = product_cfg.recipe_subdir.split('_')
+            recipe_parts = product_cfg.recipe_subdir.split("_")
             base_recipe_name = recipe_parts[0] if recipe_parts else product_cfg.recipe_subdir
 
             # Create job name as base_recipe_name-config (e.g., "geneformer-10m")
-            config_name = product_dict['config'].replace('_', '-').replace('/', '-')
+            config_name = product_dict["config"].replace("_", "-").replace("/", "-")
             product_cfg.job_name = f"{base_recipe_name}-{config_name}".lower()
 
             print(f"\n[{i}/{len(cfg.products)}] Launching: {product_cfg.job_name}")
@@ -448,8 +475,8 @@ def main(cfg: DictConfig):
                 failed_jobs += 1
 
         # Summary
-        print(f"\n{'='*50}")
-        print(f"Job Launch Summary:")
+        print(f"\n{'=' * 50}")
+        print("Job Launch Summary:")
         print(f"  Successful: {successful_jobs}")
         print(f"  Failed: {failed_jobs}")
         print(f"  Total: {len(cfg.products)}")
