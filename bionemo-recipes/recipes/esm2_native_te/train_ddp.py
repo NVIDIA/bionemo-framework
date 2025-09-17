@@ -14,10 +14,14 @@
 # limitations under the License.
 
 import logging
+import os
+import sys
 import time
 
 import hydra
 import torch
+import torch._dynamo
+import torch.distributed as dist
 import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
@@ -25,6 +29,7 @@ from torch.optim import AdamW
 from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForMaskedLM
 
+from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp
 from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from scheduler import get_linear_schedule_with_warmup
@@ -41,7 +46,15 @@ def main(args: DictConfig) -> float | None:
     Returns:
         float: The loss value for the final batch.
     """
-    # Initialize the distributed configuration, including creating the distributed process group.
+    # Initialize distributed training and create a device mesh for FSDP.
+    # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
+    # to work correctly with mfsdp.
+    
+    # Get the script name without extension and add it to checkpoint directory
+    script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
+    ckpt_dir = os.path.join(args.ckpt_dir, script_name)
+    logger.info(f"Checkpoint directory: {ckpt_dir}")
+    os.makedirs(ckpt_dir, exist_ok=True)
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
     torch.distributed.init_process_group(backend="nccl")
@@ -56,16 +69,8 @@ def main(args: DictConfig) -> float | None:
     if dist_config.is_main_process():
         wandb.init(**args.wandb_init_args, config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True))
 
-    # Create an empty ESM-2 model with a masked language model head.
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
-
-    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
-    # avoid errors with unused parameters.
-    try:
-        del model.esm.contact_head
-    except AttributeError:
-        pass
 
     # Log model and number of parameters on main process.
     if dist_config.is_main_process():
@@ -88,12 +93,23 @@ def main(args: DictConfig) -> float | None:
     # Create a dataloader that just infinitely loops over the dataset.
     train_iterator = create_dataloader(dist_config, **args.dataset)
 
+    # Load checkpoint if it exists and resume is enabled
+    start_step = 0
+    if args.resume_from_checkpoint:
+        model, optimizer, start_step = load_checkpoint_ddp(
+            model=model,
+            optimizer=optimizer,
+            ckpt_dir=ckpt_dir,
+            dist_config=dist_config,
+            logger=logger,
+        )
+
     # Training loop.
     if dist_config.is_main_process():
         progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
     previous_step_time = time.perf_counter()
     loss_value = None
-    for step in range(args.num_train_steps):
+    for step in range(start_step, args.num_train_steps):
         # Get batch.
         batch = next(train_iterator)
         batch = {k: v.to(device) for k, v in batch.items()}
@@ -113,6 +129,16 @@ def main(args: DictConfig) -> float | None:
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad()
+
+        if step % args.save_every_n_steps == 0 and step > 0:  # Skip step 0
+            save_checkpoint_ddp(
+                model=model,
+                optimizer=optimizer,
+                ckpt_dir=ckpt_dir,
+                step=step,
+                dist_config=dist_config,
+                logger=logger,
+            )
 
         # Log metrics to logger and wandb on main process.
         if dist_config.is_main_process():
@@ -141,6 +167,15 @@ def main(args: DictConfig) -> float | None:
 
             progress_bar.update(1)
             progress_bar.set_postfix({"loss": loss_value})
+
+    # Save final model using save_pretrained
+    final_model_dir = os.path.join(ckpt_dir, "final_model")
+    save_final_model_ddp(
+        model=model,
+        save_directory=final_model_dir,
+        dist_config=dist_config,
+        logger=logger,
+    )
 
     # Clean up distributed training
     if dist_config.is_main_process():

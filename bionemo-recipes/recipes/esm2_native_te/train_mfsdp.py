@@ -15,22 +15,27 @@
 
 import logging
 import time
-
+from omegaconf import DictConfig, OmegaConf
+import os
+import sys
 import hydra
 import torch
-import transformer_engine.pytorch
-import transformers
 import wandb
-from megatron_fsdp.fully_shard import fully_shard
-from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForMaskedLM
+import transformers
+import transformer_engine.pytorch
 
+from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp
 from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from scheduler import get_linear_schedule_with_warmup
+from megatron_fsdp.fully_shard import fully_shard
+import transformer_engine.pytorch
+
+
 
 
 logger = logging.getLogger(__name__)
@@ -59,6 +64,13 @@ def main(args: DictConfig) -> float | None:
     # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
     # to work correctly with mfsdp.
     device = torch.device(f"cuda:{dist_config.local_rank}")
+    # Get the script name without extension and add it to checkpoint directory
+    script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
+    ckpt_dir = os.path.join(args.ckpt_dir, script_name)
+    logger.info(f"Checkpoint directory: {ckpt_dir}")
+    os.makedirs(ckpt_dir, exist_ok=True)
+    dist_config = DistributedConfig()
+    torch.cuda.set_device(dist_config.local_rank)
     device_mesh = init_device_mesh(
         "cuda",
         mesh_shape=(dist_config.world_size, 1, 1),
@@ -68,7 +80,6 @@ def main(args: DictConfig) -> float | None:
     if dist_config.is_main_process():
         wandb.init(**args.wandb_init_args, config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True))
 
-    # Create an empty ESM-2 model with a masked language model head.
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
@@ -114,9 +125,21 @@ def main(args: DictConfig) -> float | None:
     model.train()
     if dist_config.is_main_process():
         progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
+
+    # Load checkpoint if it exists and resume is enabled
+    start_step = 0
+    if args.resume_from_checkpoint:
+        model, optimizer, start_step = load_checkpoint_mfsdp(
+            model=model,
+            optimizer=optimizer,
+            ckpt_dir=ckpt_dir,
+            logger=logger,
+        )
+
+    # Training loop.
     previous_step_time = time.perf_counter()
     loss_value = None
-    for step in range(args.num_train_steps):
+    for step in range(start_step, args.num_train_steps):
         # Get batch.
         batch = next(train_iterator)
         batch = {k: v.to(device) for k, v in batch.items()}
@@ -136,6 +159,16 @@ def main(args: DictConfig) -> float | None:
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad()
+
+        if step % args.save_every_n_steps == 0 and step > 0:  # Skip step 0
+            # For mfsdp, always use distributed checkpointing
+            save_checkpoint_mfsdp(
+                model=model,
+                optimizer=optimizer,
+                ckpt_dir=ckpt_dir,
+                step=step,
+                logger=logger,
+            )
 
         # Log metrics to logger and wandb on main process.
         if dist_config.is_main_process():
@@ -164,6 +197,15 @@ def main(args: DictConfig) -> float | None:
 
             progress_bar.update(1)
             progress_bar.set_postfix({"loss": loss_value})
+
+
+    final_model_dir = os.path.join(ckpt_dir, "final_model")
+    save_final_model_mfsdp(
+        model=model,
+        save_directory=final_model_dir,
+        dist_config=dist_config,
+        logger=logger,
+    )
 
     # Clean up distributed training
     if dist_config.is_main_process():

@@ -1,5 +1,6 @@
 defaults:
   - defaults
+  - _self_
 
 # Training config
 model_tag: nvidia/esm2_t48_15B_UR50D
