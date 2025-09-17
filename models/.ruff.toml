@@ -2,21 +2,21 @@ line-length = 119
 target-version = "py312"
 
 [lint]
-ignore = ["D100", "E501", "N811", "N814"]
+ignore = ["C901", "D100", "E501", "N811", "N814"]
 select = [
-    "C",   # Pylint conventions
-    "D",   # Documentation formatting
-    "E",   # style stuff, whitespaces
-    "F",   # important pyflakes lints
-    "I",   # import sorting
-    "RUF", # Some Ruff-specific lints, unused noqas, etc.
-    "W",   # Pylint warnings
+    "C",    # Pylint conventions
+    "D",    # Documentation formatting
+    "E",    # style stuff, whitespaces
+    "F",    # important pyflakes lints
+    "FURB",
+    "I",    # import sorting
     "N",
     "NPY",
     "PERF",
     "PLE",
     "PLW",
-    "FURB",
+    "RUF",  # Some Ruff-specific lints, unused noqas, etc.
+    "W",    # Pylint warnings
 ]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
@@ -59,6 +59,7 @@ exclude = [
 [lint.isort]
 lines-after-imports = 2
 known-third-party = ["wandb"]
+known-first-party = ["esm"]
 
 [lint.pydocstyle]
 convention = "google"

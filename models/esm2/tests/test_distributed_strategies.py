@@ -20,6 +20,7 @@ import subprocess
 
 import pytest
 import torch
+from transformers import DataCollatorForLanguageModeling
 
 
 logger = logging.getLogger(__name__)
@@ -119,7 +120,16 @@ if __name__ == "__main__":
 
     from conftest import get_input_data
 
-    input_data = get_input_data(AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D"))
+    tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
+
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        pad_to_multiple_of=1024,
+        seed=42,
+    )
+
+    input_data = get_input_data(tokenizer, data_collator)
 
     @dataclass
     class DistributedConfig:

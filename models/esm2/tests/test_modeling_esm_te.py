@@ -169,9 +169,10 @@ def test_golden_values(input_data):
 
 
 def test_converted_model_roundtrip(tmp_path, input_data):
+    from transformer_engine.pytorch import TransformerLayer
+
     from esm.convert import convert_esm_hf_to_te
     from esm.modeling_esm_te import NVEsmConfig, NVEsmEncoder, NVEsmForMaskedLM, NVEsmLMHead, NVEsmModel
-    from transformer_engine.pytorch import TransformerLayer
 
     model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
     model_te = convert_esm_hf_to_te(model_hf)

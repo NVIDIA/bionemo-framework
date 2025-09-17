@@ -15,8 +15,9 @@
 
 
 def test_export_hf_checkpoint(tmp_path):
-    from esm.export import export_hf_checkpoint
     from transformers import AutoModel, AutoModelForMaskedLM, AutoTokenizer
+
+    from esm.export import export_hf_checkpoint
 
     export_hf_checkpoint("esm2_t6_8M_UR50D", tmp_path)
 

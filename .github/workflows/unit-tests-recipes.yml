@@ -131,6 +131,7 @@ jobs:
     if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
     container:
       image: ${{ matrix.recipe.image }}
+      options: --shm-size=16G
     strategy:
       matrix:
         recipe: ${{ fromJson(needs.changed-dirs.outputs.dirs) }}

@@ -21,6 +21,8 @@ from datasets import Dataset
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, DataCollatorForLanguageModeling
 
+from esm.collator import MLMDataCollatorWithFlattening
+
 
 # Fix Triton UTF-8 decoding issue by setting CUDA library path
 # This bypasses the problematic ldconfig -p call that contains non-UTF-8 characters
@@ -29,12 +31,39 @@ if not os.environ.get("TRITON_LIBCUDA_PATH"):
     os.environ["TRITON_LIBCUDA_PATH"] = "/usr/local/cuda/lib64"
 
 
+@pytest.fixture(autouse=True)
+def use_te_debug(monkeypatch):
+    monkeypatch.setenv("NVTE_DEBUG", "1")
+    monkeypatch.setenv("NVTE_DEBUG_LEVEL", "2")
+
+
 @pytest.fixture
 def tokenizer():
     return AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
 
 
-def get_input_data(tokenizer):
+@pytest.fixture
+def bshd_data_collator(tokenizer):
+    return DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        pad_to_multiple_of=1024,
+        seed=42,
+    )
+
+
+@pytest.fixture
+def thd_data_collator(tokenizer):
+    return MLMDataCollatorWithFlattening(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        pad_to_multiple_of=1024,
+        return_flash_attn_kwargs=True,
+        seed=42,
+    )
+
+
+def get_input_data(tokenizer, data_collator):
     torch.manual_seed(42)
 
     test_proteins = [
@@ -56,12 +85,6 @@ def get_input_data(tokenizer):
     ]
 
     dataset = Dataset.from_list([{"sequence": p} for p in test_proteins])
-
-    data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        pad_to_multiple_of=1024,
-    )
 
     def tokenize_function(examples):
         return tokenizer(
@@ -89,5 +112,10 @@ def get_input_data(tokenizer):
 
 
 @pytest.fixture
-def input_data(tokenizer):
-    return get_input_data(tokenizer)
+def input_data(tokenizer, bshd_data_collator):
+    return get_input_data(tokenizer, bshd_data_collator)
+
+
+@pytest.fixture
+def input_data_thd(tokenizer, thd_data_collator):
+    return get_input_data(tokenizer, thd_data_collator)

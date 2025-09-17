@@ -23,7 +23,7 @@
 Adapted from `modeling_esm.py` in huggingface/transformers.
 """
 
-from typing import Optional, Tuple, Union
+from typing import Literal, Optional
 
 # TODO: put import guard around transformer_engine here, with an informative error message around
 # installation and the nvidia docker container.
@@ -35,7 +35,6 @@ from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
 from transformers.modeling_outputs import (
     BaseModelOutput,
     BaseModelOutputWithPooling,
-    BaseModelOutputWithPoolingAndCrossAttentions,
     MaskedLMOutput,
 )
 from transformers.modeling_utils import PreTrainedModel
@@ -56,7 +55,7 @@ class NVEsmConfig(EsmConfig):
         self,
         qkv_weight_interleaved: bool = True,
         encoder_activation: str = "gelu",
-        attn_input_format: str = "bshd",
+        attn_input_format: Literal["bshd", "thd"] = "bshd",
         fuse_qkv_params: bool = True,
         micro_batch_size: Optional[int] = None,
         max_seq_length: Optional[int] = None,
@@ -138,20 +137,26 @@ class NVEsmEncoder(nn.Module):
         self.emb_layer_norm_after = transformer_engine.pytorch.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         if config.position_embedding_type == "rotary":
             self.rotary_embeddings = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
+
             # Keep on CPU, pin for faster non_blocking H2D; don't persist in state_dict.
-            self.register_buffer(
-                "te_rope_emb",
-                self.rotary_embeddings(max_seq_len=config.max_position_embeddings).cpu().pin_memory(),
-                persistent=False,
-            )
-        else:
-            self.te_rope_emb = None
+            if config.attn_input_format == "bshd":
+                self.register_buffer(
+                    "te_rope_emb",
+                    self.rotary_embeddings(max_seq_len=config.max_position_embeddings).cpu().pin_memory(),
+                    persistent=False,
+                )
+            else:
+                self.te_rope_emb = None
 
     def forward(
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         output_hidden_states: bool = False,
+        cu_seq_lens_q: torch.IntTensor | None = None,
+        cu_seq_lens_k: torch.IntTensor | None = None,
+        max_length_q: int | None = None,
+        max_length_k: int | None = None,
     ):
         """Forward pass of the NVEsmEncoder.
 
@@ -159,22 +164,51 @@ class NVEsmEncoder(nn.Module):
             hidden_states (torch.Tensor): The hidden states.
             attention_mask (torch.Tensor): The attention mask.
             output_hidden_states (bool): Whether to output the hidden states.
+            cu_seq_lens_q (torch.IntTensor): The cumulative sequence lengths for the query state, if using THD inputs.
+            cu_seq_lens_k (torch.IntTensor): The cumulative sequence lengths for the key state, if using THD inputs.
+            max_length_q (int): The maximum length for the query state, if using THD inputs.
+            max_length_k (int): The maximum length for the key state, if using THD inputs.
         """
-        all_hidden_states = () if output_hidden_states else None
+        all_hidden_states: tuple[torch.Tensor, ...] = ()
 
-        if self.te_rope_emb is not None:
-            te_rope_emb = self.te_rope_emb.to(
-                device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
-            )
-            seq_len = hidden_states.shape[1]
-            if te_rope_emb.size(0) < seq_len:
-                raise RuntimeError(
-                    f"ROPE length {te_rope_emb.size(0)} < input seq length {seq_len}. "
-                    f"Increase max_position_embeddings."
+        if self.config.attn_input_format == "thd":
+            if any(x is None for x in [cu_seq_lens_q, cu_seq_lens_k, max_length_q, max_length_k]):
+                raise ValueError(
+                    "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k must be provided when using THD inputs."
                 )
-            te_rope_emb = te_rope_emb[:seq_len]
-        else:
-            te_rope_emb = None
+            assert hidden_states.dim() == 3 and hidden_states.size(0) == 1, (
+                "THD expects embeddings shaped [1, total_tokens, hidden_size]."
+            )
+            hidden_states = hidden_states.squeeze(0)
+
+        elif self.config.attn_input_format == "bshd":
+            if any(x is not None for x in [cu_seq_lens_q, cu_seq_lens_k, max_length_q, max_length_k]):
+                raise ValueError(
+                    "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k are not allowed when using BSHD inputs."
+                )
+
+        te_rope_emb = None
+        if self.config.position_embedding_type == "rotary":
+            if self.config.attn_input_format == "bshd":
+                te_rope_emb = self.te_rope_emb.to(
+                    device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
+                )
+                seq_len = hidden_states.shape[1]
+                if te_rope_emb.size(0) < seq_len:
+                    raise RuntimeError(
+                        f"ROPE length {te_rope_emb.size(0)} < input seq length {seq_len}. "
+                        f"Increase max_position_embeddings."
+                    )
+                te_rope_emb = te_rope_emb[:seq_len]
+
+            elif self.config.attn_input_format == "thd":
+                assert cu_seq_lens_q is not None
+                te_rope_emb = self.rotary_embeddings(max_seq_len=cu_seq_lens_q[-1]).to(
+                    device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
+                )
+
+            else:
+                raise ValueError(f"Unsupported attention input format: {self.config.attn_input_format}")
 
         for layer_module in self.layers:
             if output_hidden_states:
@@ -184,6 +218,10 @@ class NVEsmEncoder(nn.Module):
                 hidden_states,
                 attention_mask,
                 rotary_pos_emb=te_rope_emb,
+                cu_seqlens_q=cu_seq_lens_q,
+                cu_seqlens_kv=cu_seq_lens_k,
+                max_seqlen_q=max_length_q,
+                max_seqlen_kv=max_length_k,
             )
 
         hidden_states = self.emb_layer_norm_after(hidden_states)
@@ -193,7 +231,7 @@ class NVEsmEncoder(nn.Module):
 
         return BaseModelOutput(
             last_hidden_state=hidden_states,
-            hidden_states=all_hidden_states,
+            hidden_states=all_hidden_states if all_hidden_states else None,
         )
 
 
@@ -279,7 +317,11 @@ class NVEsmModel(NVEsmPreTrainedModel):
         head_mask: Optional[torch.Tensor] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
         output_hidden_states: Optional[bool] = None,
-    ) -> Union[Tuple[torch.Tensor], BaseModelOutputWithPoolingAndCrossAttentions]:
+        cu_seq_lens_q: torch.IntTensor | None = None,
+        cu_seq_lens_k: torch.IntTensor | None = None,
+        max_length_q: int | None = None,
+        max_length_k: int | None = None,
+    ) -> BaseModelOutputWithPooling:
         """Forward pass of the NVEsmModel.
 
         Args:
@@ -289,24 +331,13 @@ class NVEsmModel(NVEsmPreTrainedModel):
             head_mask (torch.Tensor): The head mask.
             inputs_embeds (torch.Tensor): The input embeddings.
             output_hidden_states (bool): Whether to output the hidden states.
+            cu_seq_lens_q (torch.IntTensor): The cumulative sequence lengths for the query state, if using THD inputs.
+            cu_seq_lens_k (torch.IntTensor): The cumulative sequence lengths for the key state, if using THD inputs.
+            max_length_q (int): The maximum length for the query state, if using THD inputs.
+            max_length_k (int): The maximum length for the key state, if using THD inputs.
 
         Returns:
             BaseModelOutputWithPooling: The output of the model.
-        """
-        r"""
-        encoder_hidden_states  (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
-            Sequence of hidden-states at the output of the last layer of the encoder. Used in the
-            cross-attention if the model is configured as a decoder.
-        encoder_attention_mask (`torch.FloatTensor` of shape `(batch_size, sequence_length)`, *optional*):
-            Mask to avoid performing attention on the padding token indices of the encoder input.
-            This mask is used in the cross-attention if the model is configured as a decoder. Mask
-            values selected in `[0, 1]`:
-
-            - 1 for tokens that are **not masked**,
-            - 0 for tokens that are **masked**.
-
-            Note that this mask is inverted when it is passed to TransformerEngine, which expects a
-            boolean mask where 1s are masked and 0s are not masked.
         """
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -352,6 +383,10 @@ class NVEsmModel(NVEsmPreTrainedModel):
             embedding_output,
             attention_mask=extended_attention_mask,
             output_hidden_states=output_hidden_states,
+            cu_seq_lens_q=cu_seq_lens_q,
+            cu_seq_lens_k=cu_seq_lens_k,
+            max_length_q=max_length_q,
+            max_length_k=max_length_k,
         )
         sequence_output = encoder_outputs[0]
         pooled_output = self.pooler(sequence_output) if self.pooler is not None else None
@@ -404,7 +439,11 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
         inputs_embeds: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None,
         output_hidden_states: Optional[bool] = None,
-    ) -> Union[Tuple, MaskedLMOutput]:
+        cu_seq_lens_q: torch.IntTensor | None = None,
+        cu_seq_lens_k: torch.IntTensor | None = None,
+        max_length_q: int | None = None,
+        max_length_k: int | None = None,
+    ) -> MaskedLMOutput:
         """Forward pass of the NVEsmForMaskedLM.
 
         Args:
@@ -414,17 +453,13 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
             inputs_embeds (torch.FloatTensor): The input embeddings.
             labels (torch.LongTensor): The labels.
             output_hidden_states (bool): Whether to output the hidden states.
+            cu_seq_lens_q (torch.IntTensor): The cumulative sequence lengths for the query state, if using THD inputs.
+            cu_seq_lens_k (torch.IntTensor): The cumulative sequence lengths for the key state, if using THD inputs.
+            max_length_q (int): The maximum length for the query state, if using THD inputs.
+            max_length_k (int): The maximum length for the key state, if using THD inputs.
 
         Returns:
             MaskedLMOutput: The output of the model.
-        """
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
-            Labels for computing the masked language modeling loss. Indices should be in `[-100, 0, ...,
-            config.vocab_size]` (see `input_ids` docstring) Tokens with indices set to `-100` are ignored (masked), the
-            loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`
-        kwargs (`Dict[str, any]`, *optional*, defaults to `{}`):
-            Used to hide legacy arguments that have been deprecated.
         """
         outputs = self.esm(
             input_ids,
@@ -432,6 +467,10 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
             position_ids=position_ids,
             inputs_embeds=inputs_embeds,
             output_hidden_states=output_hidden_states,
+            cu_seq_lens_q=cu_seq_lens_q,
+            cu_seq_lens_k=cu_seq_lens_k,
+            max_length_q=max_length_q,
+            max_length_k=max_length_k,
         )
         sequence_output = outputs[0]
         prediction_scores = self.lm_head(sequence_output)
@@ -439,27 +478,16 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
         masked_lm_loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
-
-            labels = labels.to(prediction_scores.device)
-            masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
+            masked_lm_loss = loss_fct(
+                prediction_scores.view(-1, self.config.vocab_size),
+                labels.to(prediction_scores.device).view(-1),
+            )
 
         return MaskedLMOutput(
             loss=masked_lm_loss,
             logits=prediction_scores,
             hidden_states=outputs.hidden_states,
         )
-
-    def predict_contacts(self, tokens: torch.Tensor, attention_mask: torch.Tensor):
-        """Predict the contacts of the model.
-
-        Args:
-            tokens (torch.Tensor): The tokens.
-            attention_mask (torch.Tensor): The attention mask.
-
-        Returns:
-            torch.Tensor: The predicted contacts.
-        """
-        return self.esm.predict_contacts(tokens, attention_mask=attention_mask)
 
 
 class NVEsmLMHead(nn.Module):

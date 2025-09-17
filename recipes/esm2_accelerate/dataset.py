@@ -16,39 +16,40 @@
 # Create the dataset -- here, we just use a simple parquet file with some raw protein sequences
 # stored in the repo itself to avoid external dependencies.
 
-from pathlib import Path
-
-from datasets import load_dataset
+from datasets import IterableDataset, load_dataset
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
 
-def infinite_dataloader(dataloader, sampler):
-    """Create an infinite iterator that automatically restarts at the end of each epoch."""
-    epoch = 0
-    while True:
-        sampler.set_epoch(epoch)  # Update epoch for proper shuffling
-        for batch in dataloader:
-            yield batch
-        epoch += 1  # Increment epoch counter after completing one full pass
-
-
-def create_datasets_and_collator(tokenizer_name: str, max_length: int = 1024):
-    """Create a dataloader for the dataset.
+def create_datasets_and_collator(
+    tokenizer_name: str,
+    train_load_dataset_kwargs: dict,
+    eval_load_dataset_kwargs: dict,
+    max_seq_length: int = 1024,
+    truncate_eval_dataset: int | None = None,
+):
+    """Create datasets and a data collator to pass to the huggingface trainer.
 
     Args:
         tokenizer_name: The name of the tokenizer to pull from the HuggingFace Hub.
-        max_length: The maximum length of the protein sequences.
+        train_load_dataset_kwargs: Keyword arguments to pass to `load_dataset` for the train dataset.
+        eval_load_dataset_kwargs: Keyword arguments to pass to `load_dataset` for the eval dataset.
+        max_seq_length: The maximum length of the protein sequences.
+        truncate_eval_dataset: If not `None`, the eval dataset will be truncated to this number of examples.
+
+    This assumes that the dataset has a "sequence" column that will be tokenized.
 
     Returns:
         Tuple of (train_dataset, eval_dataset, data_collator).
     """
-    # We copy this parquet file to the container to avoid external dependencies, modify if you're
-    # using a local dataset. If you're reading this and scaling up the dataset to a larger size,
-    # look into `set_transform` and other streaming options from the `datasets` library.
-    data_path = Path(__file__).parent / "train.parquet"
-    train_dataset = load_dataset("parquet", data_files=data_path.as_posix(), split="train")
-    eval_dataset = train_dataset.select(range(10))
+    train_dataset = load_dataset(**train_load_dataset_kwargs)
+    eval_dataset = load_dataset(**eval_load_dataset_kwargs)
+    if truncate_eval_dataset is not None:
+        if isinstance(eval_dataset, IterableDataset):
+            raise ValueError(
+                "Cannot truncate an IterableDataset, don't use streaming datasets for eval if you want to truncate."
+            )
+        eval_dataset = eval_dataset.select(range(truncate_eval_dataset))
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
@@ -58,17 +59,24 @@ def create_datasets_and_collator(tokenizer_name: str, max_length: int = 1024):
             examples["sequence"],
             truncation=True,
             padding="max_length",
-            max_length=max_length,
-            return_tensors="pt",
+            max_length=max_seq_length,
         )
 
-    for dataset in [train_dataset, eval_dataset]:
-        dataset.set_transform(tokenize_function)
+    train_dataset = train_dataset.map(
+        tokenize_function,
+        batched=True,
+        remove_columns=train_dataset.column_names,
+    )
+    eval_dataset = eval_dataset.map(
+        tokenize_function,
+        batched=True,
+        remove_columns=eval_dataset.column_names,
+    )
 
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm_probability=0.15,
-        pad_to_multiple_of=max_length,
+        pad_to_multiple_of=max_seq_length,
     )
 
     return train_dataset, eval_dataset, data_collator
