@@ -20,6 +20,11 @@ body:
      label: BioNeMo Framework Version
      description: What version or commit hash of the framework are you using? Please, specify a commit hash or version tag. Do not use 'latest', 'ToT' or 'nightly' as a reference.
      placeholder: commit-hash or version tag, ie v1.2.3.
+
+      * To get the commit hash, run `git rev-parse HEAD` for your local repository or `git rev-parse origin/main` for the remote main branch.
+      * To get the commit hash from the docker image, run `docker image inspect nvcr.io/nvidia/clara/bionemo-framework:nightly --format '{{ index .Config.Labels "com.nvidia.bionemo.git_sha" }}'`.
+      * The version tag is the part that comes after the colon (:) in the docker image names available at [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags). It corresponds to the version of the framework that are tagged by `git ls-remote --tags origin`.
+
    validations:
      required: true
 
