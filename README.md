@@ -19,7 +19,7 @@ BioNeMo Framework is part of a larger ecosystem of NVIDIA Biopharma products. Ge
 > BioNeMo Recipes are now available, which demonstrate high-performance model training outside of the NeMo Framework.
 > The recipes show how to train models that derive from HuggingFace `PreTrainedModel` classes, and use
 > [NVIDIA TransformerEngine](https://github.com/NVIDIA/TransformerEngine) layers for optimized attention kernels. For
-> more information, see the [BioNeMo Recipes README](./bionemo-recipes.md).
+> more information, see the [BioNeMo Recipes README](./bionemo-recipes/README.md).
 
 ## Structure of the Framework
 
@@ -81,6 +81,8 @@ With a locally cloned repository and initialized submodules, build the BioNeMo c
 ```bash
 docker buildx build . -t my-container-tag
 ```
+
+If you see an error message like `No file descriptors available (os error 24)`, add the option `--ulimit nofile=65535:65535` to the docker build command.
 
 #### VSCode Devcontainer for Interactive Debugging
 

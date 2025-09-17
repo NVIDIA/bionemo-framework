@@ -1,7 +1,0 @@
-accelerate
-datasets
-deepspeed
-hydra-core
-torchmetrics
-transformers @ git+https://github.com/huggingface/transformers.git
-wandb
