@@ -100,7 +100,6 @@ class MLMDataCollatorWithFlattening:
 
     def __init__(
         self,
-        # DataCollatorForLanguageModeling
         tokenizer: PreTrainedTokenizerBase,
         mlm: bool = True,
         mlm_probability: float | None = 0.15,
