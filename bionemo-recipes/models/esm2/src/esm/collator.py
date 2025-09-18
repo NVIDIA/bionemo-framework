@@ -19,8 +19,9 @@ This should eventually get moved to a separate package, or possibly upstreamed i
 """
 
 from dataclasses import dataclass
+from typing import Any
 
-import numpy as np
+import torch
 from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
 
 
@@ -59,7 +60,6 @@ class MLMDataCollatorWithFlattening:
         >>> collator = MLMDataCollatorWithFlattening(
         ...     tokenizer=tokenizer,
         ...     mlm_probability=0.15,
-        ...     return_flash_attn_kwargs=True,
         ... )
         >>>
         >>> # Process batch
@@ -89,12 +89,10 @@ class MLMDataCollatorWithFlattening:
         mask_replace_prob: float = 0.8,
         random_replace_prob: float = 0.1,
         pad_to_multiple_of: int | None = None,
+        label_pad: int = -100,
         tf_experimental_compile: bool = False,
         return_tensors: str = "pt",
         seed: int | None = None,
-        # DataCollatorWithFlattening
-        return_flash_attn_kwargs=True,
-        return_seq_idx=False,
     ):
         """Initialize the MLMDataCollatorWithFlattening."""
         self.mlm_collator = DataCollatorForLanguageModeling(
@@ -108,12 +106,9 @@ class MLMDataCollatorWithFlattening:
             return_tensors=return_tensors,
             seed=seed,
         )
-        self.flattening_collator = DataCollatorWithFlattening(
-            return_flash_attn_kwargs=return_flash_attn_kwargs,
-            return_seq_idx=return_seq_idx,
-            return_tensors=return_tensors,
-        )
         self.return_tensors = return_tensors
+        self.pad_to_multiple_of = pad_to_multiple_of
+        self.label_pad = label_pad
 
     def __call__(self, features, return_tensors=None):
         """Process a batch of variable-length sequences for Flash Attention with MLM.
@@ -173,80 +168,44 @@ class MLMDataCollatorWithFlattening:
         if return_tensors is None:
             return_tensors = self.return_tensors
 
-        batch = self.flattening_collator(features, return_tensors)
+        if return_tensors != "pt":
+            raise NotImplementedError(f'return_tensors must be "pt", {return_tensors=} not implemented')
+
+        batch = _pt_flatten_collate(features)
 
         special_tokens_mask = batch.pop("special_tokens_mask", None)
+        batch["input_ids"], batch["labels"] = self.mlm_collator.torch_mask_tokens(
+            batch["input_ids"], special_tokens_mask=special_tokens_mask
+        )
 
-        if return_tensors == "pt":
-            batch["input_ids"], batch["labels"] = self.mlm_collator.torch_mask_tokens(
-                batch["input_ids"], special_tokens_mask=special_tokens_mask
+        if self.pad_to_multiple_of is not None:
+            batch = _pt_pad_to_multiple_of(
+                batch,
+                self.pad_to_multiple_of,
+                token_pad=self.mlm_collator.tokenizer.pad_token_id,
+                label_pad=self.label_pad,
             )
-        elif return_tensors == "np":
-            batch["input_ids"], batch["labels"] = self.mlm_collator.numpy_mask_tokens(
-                batch["input_ids"], special_tokens_mask=special_tokens_mask
-            )
-        else:
-            raise ValueError(f'return_tensors must be one of ("pt", "np"), {return_tensors=} not suported')
 
         return batch
 
 
 @dataclass
 class DataCollatorWithFlattening(DefaultDataCollator):
-    """Data collator used for padding free approach.
+    """Data collator for sequence packing with flash attentions cu_seqlens-style attention.
 
-    Modified from transformers.data.data_collator.DataCollatorWithFlattening to not use a separator_id.
-
-    Does the following:
-
-    - concatenates the entire mini batch into single long sequence of shape [1, total_tokens]
-    - no padding will be added, returns `input_ids`, `labels` and `position_ids` by default
-    - optionally returns the kwargs contained in FlashAttentionKwargs
-    - optionally returns seq_idx indicating which sequence each token belongs to
-
-    <Tip warning={true}>
-
-    Using `DataCollatorWithFlattening` will flatten the entire mini batch into single long sequence.
-    Make sure your attention computation is able to handle it!
-
-    </Tip>
+    Inspired by transformers.data.data_collator.DataCollatorWithFlattening.
     """
 
-    def __init__(
-        self,
-        *args,
-        return_flash_attn_kwargs=True,
-        return_seq_idx=False,
-        **kwargs,
-    ):
-        """Initialize the DataCollatorWithFlattening.
+    pad_to_multiple_of: int | None = None
+    token_pad: int = 1
+    label_pad: int = -100
+
+    def __call__(self, features: list[dict[str, list[int]]], return_tensors: str | None = None) -> dict[str, Any]:
+        """Collate a batch of variable-length sequences for Flash Attention with MLM.
 
         Args:
-            *args: Arguments for the parent class.
-            return_flash_attn_kwargs (bool): Whether to return FlashAttention kwargs.
-            return_seq_idx (bool): Whether to return sequence indices.
-            **kwargs: Keyword arguments for the parent class.
-        """
-        super().__init__(*args, **kwargs)
-        self.return_flash_attn_kwargs = return_flash_attn_kwargs
-        self.return_seq_idx = return_seq_idx
-        self._int_64_keys = {"labels", "position_ids", "input_ids"}
-        self._batch_dim_keys = {"labels", "position_ids", "input_ids", "seq_idx"}
-        self._py_int_keys = {"max_length_q", "max_length_k"}
-
-    def __call__(self, features, return_tensors=None):
-        """Process a batch of variable-length sequences for Flash Attention with MLM.
-
-        Args:
-            features (List[Dict[str, List[int]]]): List of tokenized sequences, each containing
-                'input_ids' and optionally 'attention_mask'. Example:
-                [
-                    {"input_ids": [0, 5, 6, 7, 2]},      # Protein sequence 1
-                    {"input_ids": [0, 8, 9, 10, 11, 2]}, # Protein sequence 2
-                    {"input_ids": [0, 12, 13, 2]}        # Protein sequence 3
-                ]
-            return_tensors (str, optional): Format for returned tensors ('pt' for PyTorch).
-                Defaults to None (uses collator default).
+            features: List of tokenized sequences, each containing 'input_ids' and optionally 'labels'.
+            return_tensors: Currently only "pt" is supported.
 
         Returns:
             Dict[str, torch.Tensor]: Batch dictionary containing:
@@ -254,81 +213,95 @@ class DataCollatorWithFlattening(DefaultDataCollator):
                   Shape: [1, total_tokens] where total_tokens = sum of all sequence lengths.
                 - labels (torch.Tensor): MLM labels with -100 for non-masked tokens and
                   original token IDs for masked positions. Same shape as input_ids.
-                - position_ids (torch.Tensor): Position indices that reset at sequence boundaries.
-                  Shape: [1, total_tokens].
                 - cu_seq_lens_q (torch.IntTensor): Cumulative sequence lengths for queries.
                   Shape: [num_sequences + 1]. Example: [0, 5, 11, 15].
                 - cu_seq_lens_k (torch.IntTensor): Cumulative sequence lengths for keys.
                   Same as cu_seq_lens_q for self-attention.
                 - max_length_q (int): Maximum sequence length in the batch.
                 - max_length_k (int): Same as max_length_q for self-attention.
-
-        Example:
-            >>> # Input features
-            >>> features = [
-            ...     {"input_ids": [0, 5, 6, 7, 2]},      # 5 tokens
-            ...     {"input_ids": [0, 8, 9, 10, 11, 2]}, # 6 tokens
-            ...     {"input_ids": [0, 12, 13, 2]}        # 4 tokens
-            ... ]
-            >>>
-            >>> batch = collator(features)
-            >>>
-            >>> # Output shapes and values
-            >>> batch['input_ids'].shape          # torch.Size([1, 15])
-            >>> batch['labels'].shape             # torch.Size([1, 15])
-            >>> batch['cu_seq_lens_q']            # tensor([0, 5, 11, 15], dtype=torch.int32)
-            >>>
-            >>> # Flash Attention can now process this without attention masks!
-
-        Note:
-            The output is in THD (Tokens, Height, Depth) format with batch_size=1 and
-            sequence_length=total_tokens, optimized for Flash Attention's variable-length
-            sequence processing capabilities.
         """
         if return_tensors is None:
             return_tensors = self.return_tensors
-        is_labels_provided = "labels" in features[0]
-        batch = {"input_ids": [], "labels": []}
-        if self.return_seq_idx:
-            batch.update({"seq_idx": []})
-        if self.return_flash_attn_kwargs:
-            cu_seq_lens = [0]
-            max_length = 0
-        for seq_idx, sample in enumerate(features):
-            input_ids = sample["input_ids"]
-            batch["input_ids"] += input_ids
-            if is_labels_provided:
-                batch["labels"] += sample["labels"]
-            if self.return_seq_idx:
-                batch["seq_idx"] += [seq_idx for _ in range(len(input_ids))]
-            if self.return_flash_attn_kwargs:
-                cu_seq_lens.append(cu_seq_lens[-1] + len(input_ids))
-                max_length = max(max_length, len(input_ids))
 
-        if self.return_flash_attn_kwargs:
-            batch["cu_seq_lens_q"] = batch["cu_seq_lens_k"] = cu_seq_lens
-            batch["max_length_q"] = batch["max_length_k"] = max_length
+        if return_tensors != "pt":
+            raise NotImplementedError(f'return_tensors must be "pt", {return_tensors=} not implemented')
 
-        # FlashAttentionKwargs and seq_idx are expected to be int32s.
-        if return_tensors == "pt":
-            import torch
-
-            data_cls = torch.tensor
-            dtype_64 = torch.int64
-            dtype_32 = torch.int32
-        elif return_tensors == "np":
-            data_cls = np.array
-            dtype_64 = np.int64
-            dtype_32 = np.int32
-        else:
-            raise ValueError(f'return_tensors must be one of ("pt", "np"), {return_tensors=} not suported')
-
-        for k, v in batch.items():
-            v_ = v  # Avoid modifying the original loop variable v
-            if k in self._batch_dim_keys:
-                v_ = [v]
-            # Flash attention max_len_{q,k} are python ints
-            if k not in self._py_int_keys:
-                batch[k] = data_cls(v_, dtype=dtype_64 if k in self._int_64_keys else dtype_32)
-
+        batch = _pt_flatten_collate(features)
+        if self.pad_to_multiple_of is not None:
+            batch = _pt_pad_to_multiple_of(batch, self.pad_to_multiple_of, self.token_pad, self.label_pad)
         return batch
+
+
+def _pt_flatten_collate(features: list[dict[str, list[int]]]):
+    is_labels_provided = "labels" in features[0]
+    sample_lengths = [len(sample["input_ids"]) for sample in features]
+
+    batch = {}
+    batch["max_length_q"] = batch["max_length_k"] = max(sample_lengths)
+    batch["input_ids"] = torch.tensor(
+        [[token for sample in features for token in sample["input_ids"]]], dtype=torch.int64
+    )
+    if is_labels_provided:
+        batch["labels"] = torch.tensor(
+            [[label for sample in features for label in sample["labels"]]], dtype=torch.int64
+        )
+    cu_seq_lens = torch.zeros(len(features) + 1, dtype=torch.int32)
+    cu_seq_lens[1:] = torch.cumsum(torch.tensor(sample_lengths), dim=0, dtype=torch.int32)
+    batch["cu_seq_lens_q"] = batch["cu_seq_lens_k"] = cu_seq_lens
+    if "attention_mask" in features[0]:
+        batch["attention_mask"] = torch.tensor(
+            [[attention_mask for sample in features for attention_mask in sample["attention_mask"]]], dtype=torch.int64
+        )
+    return batch
+
+
+def _pt_pad_to_multiple_of(batch: dict[str, Any], pad_to_multiple_of: int, token_pad: int, label_pad: int):
+    """Pad a batch to a multiple of pad_to_multiple_of.
+
+    Appends a mock sequence to the end of the batch with the given token_pad and label_pad to make the total number of
+    tokens divisible by pad_to_multiple_of.
+
+    Args:
+        batch: Input batch, possibly containing labels and/or cu_seq_lens / max_length keys.
+        pad_to_multiple_of: Multiple to pad to.
+        token_pad: Token to pad with.
+        label_pad: Label to pad with.
+
+    Returns:
+        Batch dictionary with padded input_ids, labels, cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k.
+    """
+    # Number of tokens we need to pad to make the total number of tokens divisible by pad_to_multiple_of
+    remainder = -batch["input_ids"].numel() % pad_to_multiple_of
+
+    if remainder == 0:
+        return batch
+
+    batch["input_ids"] = torch.cat(
+        [batch["input_ids"], torch.full((1, remainder), token_pad, dtype=batch["input_ids"].dtype)], dim=1
+    )
+
+    if "labels" in batch:
+        batch["labels"] = torch.cat(
+            [batch["labels"], torch.full((1, remainder), label_pad, dtype=batch["labels"].dtype)], dim=1
+        )
+
+    if "cu_seq_lens_q" in batch:
+        batch["cu_seq_lens_q"] = torch.cat(
+            [
+                batch["cu_seq_lens_q"],
+                torch.tensor([batch["cu_seq_lens_q"][-1] + remainder], dtype=batch["cu_seq_lens_q"].dtype),
+            ],
+            dim=0,
+        )
+        batch["cu_seq_lens_k"] = batch["cu_seq_lens_q"]
+
+    if "max_length_q" in batch:
+        batch["max_length_q"] = max(batch["max_length_q"], remainder)
+        batch["max_length_k"] = batch["max_length_q"]
+
+    if "attention_mask" in batch:
+        batch["attention_mask"] = torch.cat(
+            [batch["attention_mask"], torch.zeros((1, remainder), dtype=batch["attention_mask"].dtype)], dim=1
+        )
+
+    return batch

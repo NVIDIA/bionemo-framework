@@ -16,7 +16,7 @@
 import pytest
 import torch
 import transformer_engine
-from transformer_engine.common.recipe import DelayedScaling, Format, MXFP8BlockScaling
+from transformer_engine.common.recipe import DelayedScaling, MXFP8BlockScaling
 from transformer_engine.pytorch.fp8 import check_fp8_support, check_mxfp8_support
 
 from esm.modeling_esm_te import NVEsmForMaskedLM
@@ -38,16 +38,15 @@ def requires_mxfp8(func):
 def test_fp8_forward_pass(te_model_checkpoint, input_data):
     model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, torch_dtype=torch.bfloat16)
     model_te.to("cuda")
-    input_data = {k: v.to("cuda") for k, v in input_data.items()}
 
+    input_data = {k: v.to("cuda") for k, v in input_data.items()}
     outputs = model_te(**input_data)
 
-    fp8_recipe = DelayedScaling(fp8_format=Format.HYBRID, amax_history_len=16, amax_compute_algo="max")
+    fp8_recipe = DelayedScaling()
     with transformer_engine.pytorch.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
         outputs_fp8 = model_te(**input_data)
 
-    torch.testing.assert_close(outputs.loss, outputs_fp8.loss)
-    # torch.testing.assert_close(outputs.logits, outputs_fp8.logits)
+    torch.testing.assert_close(outputs_fp8.loss, outputs.loss)
 
 
 @requires_fp8
@@ -56,32 +55,30 @@ def test_fp8_forward_pass_thd(te_model_checkpoint, input_data_thd):
         te_model_checkpoint, attn_input_format="thd", torch_dtype=torch.bfloat16
     )
     model_te.to("cuda")
-    input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
 
-    outputs = model_te(**input_data_thd)
+    input_data = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
+    outputs = model_te(**input_data)
 
-    fp8_recipe = DelayedScaling(fp8_format=Format.HYBRID, amax_history_len=16, amax_compute_algo="max")
+    fp8_recipe = DelayedScaling()
     with transformer_engine.pytorch.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
-        outputs_fp8 = model_te(**input_data_thd)
+        outputs_fp8 = model_te(**input_data)
 
-    torch.testing.assert_close(outputs.loss, outputs_fp8.loss)
-    # torch.testing.assert_close(outputs.logits, outputs_fp8.logits)
+    torch.testing.assert_close(outputs_fp8.loss, outputs.loss)
 
 
 @requires_mxfp8
 def test_mxfp8_forward_pass(te_model_checkpoint, input_data):
     model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, torch_dtype=torch.bfloat16)
     model_te.to("cuda")
-    input_data = {k: v.to("cuda") for k, v in input_data.items()}
 
+    input_data = {k: v.to("cuda") for k, v in input_data.items()}
     outputs = model_te(**input_data)
 
-    mxfp8_recipe = MXFP8BlockScaling(fp8_format=Format.E4M3)
+    mxfp8_recipe = MXFP8BlockScaling()
     with transformer_engine.pytorch.fp8_autocast(enabled=True, fp8_recipe=mxfp8_recipe):
         outputs_fp8 = model_te(**input_data)
 
-    torch.testing.assert_close(outputs.loss, outputs_fp8.loss)
-    # torch.testing.assert_close(outputs.logits, outputs_fp8.logits)
+    torch.testing.assert_close(outputs_fp8.loss, outputs.loss)
 
 
 @requires_mxfp8
@@ -90,13 +87,12 @@ def test_mxfp8_forward_pass_thd(te_model_checkpoint, input_data_thd):
         te_model_checkpoint, attn_input_format="thd", torch_dtype=torch.bfloat16
     )
     model_te.to("cuda")
-    input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
 
-    outputs = model_te(**input_data_thd)
+    input_data = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
+    outputs = model_te(**input_data)
 
-    mxfp8_recipe = MXFP8BlockScaling(fp8_format=Format.E4M3)
+    mxfp8_recipe = MXFP8BlockScaling()
     with transformer_engine.pytorch.fp8_autocast(enabled=True, fp8_recipe=mxfp8_recipe):
-        outputs_fp8 = model_te(**input_data_thd)
+        outputs_fp8 = model_te(**input_data)
 
-    torch.testing.assert_close(outputs.loss, outputs_fp8.loss)
-    # torch.testing.assert_close(outputs.logits, outputs_fp8.logits)
+    torch.testing.assert_close(outputs_fp8.loss, outputs.loss)

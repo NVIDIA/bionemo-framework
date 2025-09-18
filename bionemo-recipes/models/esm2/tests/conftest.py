@@ -58,16 +58,13 @@ def thd_data_collator(tokenizer):
     return MLMDataCollatorWithFlattening(
         tokenizer=tokenizer,
         mlm_probability=0.15,
-        pad_to_multiple_of=1024,
-        return_flash_attn_kwargs=True,
+        pad_to_multiple_of=8,
         seed=42,
     )
 
 
-def get_input_data(tokenizer, data_collator):
-    torch.manual_seed(42)
-
-    test_proteins = [
+def get_test_proteins():
+    return [
         "MLSATEKLSDYISSLFASVSIINSISTEDLFFLKLTCQTFSKDSEEYKAAYRILRGVQRGKVQIIEEALVS",
         "MFVFFAGTLVNQDTLNFRDQLNINVVGTVRGIAQDASKYLEYAIDSV",
         "MAATGSLILSDEEQAELIALAVRIVLACAGGSQNKELAAQLGVIETTVGEWRRRFAQNRVEGLRDEARPGAPSDDQ",
@@ -85,15 +82,22 @@ def get_input_data(tokenizer, data_collator):
         "MQILILPIPDQLQNPNKISQHLICITFVSEQTLPI",
     ]
 
-    dataset = Dataset.from_list([{"sequence": p} for p in test_proteins])
+
+@pytest.fixture
+def test_proteins():
+    return get_test_proteins()
+
+
+def get_input_data(tokenizer, data_collator):
+    torch.manual_seed(42)
+
+    dataset = Dataset.from_list([{"sequence": p} for p in get_test_proteins()])
 
     def tokenize_function(examples):
         return tokenizer(
             examples["sequence"],
             truncation=True,
-            padding="max_length",
             max_length=1024,
-            return_tensors="pt",
         )
 
     tokenized_proteins = dataset.map(

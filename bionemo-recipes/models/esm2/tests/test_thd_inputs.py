@@ -32,7 +32,7 @@ def test_thd_from_collator_output(te_model_checkpoint, input_data_thd):
     assert outputs.loss < 3.0
 
 
-def test_thd_values_match(te_model_checkpoint, tokenizer, monkeypatch):
+def test_thd_values_match(te_model_checkpoint, tokenizer):
     # Manually masked input tokens so that both BSHD and THD models have the same mask pattern
 
     proteins = [
@@ -64,7 +64,7 @@ def test_thd_values_match(te_model_checkpoint, tokenizer, monkeypatch):
     ]
 
     bshd_collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding=True)
-    thd_collator = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
+    thd_collator = DataCollatorWithFlattening()
 
     input_data_bshd = bshd_collator(sequences)
     input_data_thd = thd_collator(sequences)
