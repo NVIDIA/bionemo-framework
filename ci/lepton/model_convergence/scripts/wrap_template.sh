@@ -239,7 +239,7 @@ if [ "$WANDB_FOUND" = "1" ] && [ -n "$WANDB_SUMMARY" ]; then
                 --arg type "wandb-training-metrics" \
                 --arg subject "$JOB_NAME" \
                 --argjson data "$COMBINED_JSON" \
-                '{ 
+                '{
                   "specversion": "1.0",
                   "id": $id,
                   "time": $time,
