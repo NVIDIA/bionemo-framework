@@ -11,6 +11,7 @@ key_segments:
   file_name_wheel: False
   model_type: False
   seed: False
+  ops_kwargs: False
 
 script_args:
   # All arguments referenced in the script string must be specified here.
@@ -42,8 +43,10 @@ script_args:
   products:
     - model_type: hyena
       config_name: 1b
+      ops_kwargs: "--use-subquadratic_ops"
     - model_type: mamba
       config_name: hybrid_mamba_8b
+      ops_kwargs: ""
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
@@ -84,7 +87,7 @@ script: |-
   --limit-val-batches=20 \
   --log-every-n-steps=50 \
   --val-check-interval=500 \
-  --use-subquadratic_ops \
+  ${ops_kwargs} \
   --create-tflops-callback \
   --create-tensorboard-logger \
   --result-dir=${tensorboard_dir} \
