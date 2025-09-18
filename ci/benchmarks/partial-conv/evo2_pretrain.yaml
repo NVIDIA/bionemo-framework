@@ -94,4 +94,5 @@ script: |-
   --wandb-project=${wandb_project_name} \
   --wandb-group=${model}_${variant}_${model_type}_${config_name}__${target}__slen${seq_len} \
   --wandb-job-type=${pipeline_label} \
-  --disable-checkpointing;
+  --disable-checkpointing \
+  --garbage-collect-at-inference;
