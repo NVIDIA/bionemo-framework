@@ -5,25 +5,25 @@ defaults:
 
 # Base configuration
 recipe_subdir: geneformer_native_te_mfsdp_fp8
-train_cmnd: train
+train_cmd: train
 
-num_train_steps: 10000
+num_train_steps: 100
 
 wandb_init_args:
-  project: "lepton_recipe_convergence_{branch}"
-  group: "{recipe_subdir}_{resource_shape}"
+  project: "lepton_recipe_convergence_${branch}"
+  group: "${recipe_subdir}_${resource_shape}"
 
 # Run one for each config
 products:
   - config: 10m
-    resource_shape: gpu.4xh200
+    resource_shape: gpu.2xh200
   - config: 106m
-    resource_shape: gpu.4xh200
-  - config: 4b
-    resource_shape: gpu.8xh200
+    resource_shape: gpu.2xh200
+  # - config: 4b
+  #   resource_shape: gpu.8xh200
 
 train_script: |
-  torchrun ${train_cmnd}.py \
+  torchrun ${train_cmd}.py \
     --config-name ${config}.yaml \
     training.num_train_steps=${num_train_steps} \
     wandb_init_args.mode=${wandb_init_args.mode} \
