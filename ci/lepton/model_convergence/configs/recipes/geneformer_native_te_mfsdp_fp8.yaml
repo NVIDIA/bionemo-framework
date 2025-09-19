@@ -7,20 +7,21 @@ defaults:
 recipe_subdir: geneformer_native_te_mfsdp_fp8
 train_cmd: train
 
-num_train_steps: 100
+resource_shape: gpu.2xh100-sxm
+node_group: yo-bom-lepton-001
+
+num_train_steps: 10
 
 wandb_init_args:
-  project: "lepton_recipe_convergence_${branch}"
+  project: "lepton_recipe_convergence_${sanitize:jwilber/test}"
   group: "${recipe_subdir}_${resource_shape}"
+  mode: "online"
 
 # Run one for each config
 products:
   - config: 10m
-    resource_shape: gpu.2xh200
-  - config: 106m
-    resource_shape: gpu.2xh200
+  # - config: 106m
   # - config: 4b
-  #   resource_shape: gpu.8xh200
 
 train_script: |
   torchrun ${train_cmd}.py \
