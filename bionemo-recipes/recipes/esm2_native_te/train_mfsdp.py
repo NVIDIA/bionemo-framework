@@ -14,28 +14,26 @@
 # limitations under the License.
 
 import logging
-import time
-from omegaconf import DictConfig, OmegaConf
 import os
 import sys
+import time
+
 import hydra
 import torch
+import transformer_engine.pytorch
+import transformers
 import wandb
+from megatron_fsdp.fully_shard import fully_shard
+from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForMaskedLM
-import transformers
-import transformer_engine.pytorch
 
 from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp
 from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from scheduler import get_linear_schedule_with_warmup
-from megatron_fsdp.fully_shard import fully_shard
-import transformer_engine.pytorch
-
-
 
 
 logger = logging.getLogger(__name__)
@@ -197,7 +195,6 @@ def main(args: DictConfig) -> float | None:
 
             progress_bar.update(1)
             progress_bar.set_postfix({"loss": loss_value})
-
 
     final_model_dir = os.path.join(ckpt_dir, "final_model")
     save_final_model_mfsdp(

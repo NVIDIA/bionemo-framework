@@ -14,10 +14,10 @@
 # limitations under the License.
 
 import logging
-import time
-import sys
-
 import os
+import sys
+import time
+
 import hydra
 import torch
 import wandb
@@ -52,13 +52,13 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Initialize distributed training and create a device mesh for FSDP.
     # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
     # to work correctly with megatron-fsdp.
-    
+
     # Get the script name without extension and add it to checkpoint directory
     script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
     ckpt_dir = os.path.join(args.ckpt_dir, script_name)
     logger.info(f"Checkpoint directory: {ckpt_dir}")
     os.makedirs(ckpt_dir, exist_ok=True)
-    
+
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
     torch.distributed.init_process_group(backend="nccl")
@@ -102,7 +102,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    if args.use_meta_device and not load_from_checkpoint:
+    if args.use_meta_device:
         model.to_empty(device=device)
         for module in model.modules():
             if hasattr(module, "reset_parameters"):

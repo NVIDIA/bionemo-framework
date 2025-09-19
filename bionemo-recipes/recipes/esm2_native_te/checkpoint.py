@@ -18,13 +18,13 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-from safetensors.torch import save_file
 import torch
 import torch.distributed.checkpoint
+from safetensors.torch import save_file
 from torch.distributed.checkpoint.state_dict import (
+    StateDictOptions,
     get_model_state_dict,
     set_model_state_dict,
-    StateDictOptions,
 )
 
 
@@ -32,15 +32,16 @@ from torch.distributed.checkpoint.state_dict import (
 # Helper functions
 # ============================================================================
 
+
 def get_latest_checkpoint(ckpt_dir: str) -> Tuple[str, int]:
     """Get the latest checkpoint path and step number."""
     if not os.path.exists(ckpt_dir):
         raise ValueError(f"Checkpoint directory does not exist: {ckpt_dir}")
-    
+
     checkpoint_files = [f for f in os.listdir(ckpt_dir) if f.startswith("step_")]
     if not checkpoint_files:
         raise ValueError(f"No checkpoint files found in {ckpt_dir}")
-    
+
     latest = max(checkpoint_files, key=lambda x: int(Path(x).stem.split("_")[1]))
     step = int(Path(latest).stem.split("_")[1])
     return os.path.join(ckpt_dir, latest), step
@@ -49,6 +50,7 @@ def get_latest_checkpoint(ckpt_dir: str) -> Tuple[str, int]:
 # ============================================================================
 # DDP Checkpointing
 # ============================================================================
+
 
 def load_checkpoint_ddp(
     model: torch.nn.Module,
@@ -61,17 +63,17 @@ def load_checkpoint_ddp(
     try:
         checkpoint_path, step = get_latest_checkpoint(ckpt_dir)
         # checkpoint_path already includes .pt extension from get_latest_checkpoint
-        
+
         checkpoint = torch.load(checkpoint_path, map_location=f"cuda:{dist_config.local_rank}", weights_only=False)
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
-        
+
         # Get step from checkpoint if available, otherwise from filename
         step = checkpoint.get("step", step)
-        
+
         if dist_config.is_main_process():
             logger.info(f"Loaded DDP checkpoint from step {step}")
-        
+
         return model, optimizer, step
     except Exception as e:
         logger.error(f"Failed to load DDP checkpoint: {e}")
@@ -89,18 +91,11 @@ def save_checkpoint_ddp(
     """Save DDP checkpoint - only on main process."""
     if not dist_config.is_main_process():
         return
-    
+
     checkpoint_path = os.path.join(ckpt_dir, f"step_{step}.pt")
     os.makedirs(ckpt_dir, exist_ok=True)
-    
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "step": step
-        },
-        checkpoint_path
-    )
+
+    torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step}, checkpoint_path)
     logger.info(f"Saved DDP checkpoint to {checkpoint_path}")
 
 
@@ -113,22 +108,19 @@ def save_final_model_ddp(
     """Save final model for DDP - only on main process."""
     if not dist_config.is_main_process():
         return
-    
+
     # Unwrap model if wrapped
     underlying_model = model.module if hasattr(model, "module") else model
-    
+
     os.makedirs(save_directory, exist_ok=True)
-    underlying_model.save_pretrained(
-        save_directory,
-        state_dict=underlying_model.state_dict(),
-        safe_serialization=True
-    )
+    underlying_model.save_pretrained(save_directory, state_dict=underlying_model.state_dict(), safe_serialization=True)
     logger.info(f"Saved final DDP model to {save_directory}")
 
 
 # ============================================================================
 # mFSDP Checkpointing
 # ============================================================================
+
 
 def load_checkpoint_mfsdp(
     model: torch.nn.Module,
@@ -139,19 +131,13 @@ def load_checkpoint_mfsdp(
     """Load mFSDP distributed checkpoint."""
     try:
         checkpoint_path, step = get_latest_checkpoint(ckpt_dir)
-        
-        ckpt_state_dict = {
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict()
-        }
-        torch.distributed.checkpoint.load(
-            state_dict=ckpt_state_dict,
-            checkpoint_id=str(checkpoint_path)
-        )
-        
+
+        ckpt_state_dict = {"model": model.state_dict(), "optimizer": optimizer.state_dict()}
+        torch.distributed.checkpoint.load(state_dict=ckpt_state_dict, checkpoint_id=str(checkpoint_path))
+
         model.load_state_dict(ckpt_state_dict["model"])
         optimizer.load_state_dict(ckpt_state_dict["optimizer"])
-        
+
         logger.info(f"Loaded mFSDP checkpoint from step {step}")
         return model, optimizer, step
     except Exception as e:
@@ -171,10 +157,7 @@ def save_checkpoint_mfsdp(
     os.makedirs(ckpt_dir, exist_ok=True)
     # TODO: Do teh gather.
     torch.distributed.checkpoint.save(
-        {
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict()
-        },
+        {"model": model.state_dict(), "optimizer": optimizer.state_dict()},
         checkpoint_id=checkpoint_path,
     )
     logger.info(f"Saved mFSDP checkpoint to {checkpoint_path}")
@@ -191,29 +174,26 @@ def save_final_model_mfsdp(
     logger.info("Starting mFSDP parameter gathering...")
     model._replace_param_with_raw_if_needed()
     model.all_gather_pipeline.all_gather_params(list(model.module.parameters()))
-    
+
     for param in model.module.parameters():
         bucket_id = model.param_and_grad_buffer.param_to_param_group[param]
         model.all_gather_pipeline.wait_bucket_ready(bucket_id)
-    
+
     logger.info("mFSDP parameter gathering completed")
-    
+
     # Only main process saves the model
     if not dist_config.is_main_process():
         return
-    
+
     os.makedirs(save_directory, exist_ok=True)
-    model.module.save_pretrained(
-        save_directory,
-        state_dict=model.module.state_dict(),
-        safe_serialization=True
-    )
+    model.module.save_pretrained(save_directory, state_dict=model.module.state_dict(), safe_serialization=True)
     logger.info(f"Saved final mFSDP model to {save_directory}")
 
 
 # ============================================================================
 # FSDP2 Checkpointing
 # ============================================================================
+
 
 def load_checkpoint_fsdp2(
     model: torch.nn.Module,
@@ -226,7 +206,7 @@ def load_checkpoint_fsdp2(
     try:
         checkpoint_path, step = get_latest_checkpoint(ckpt_dir)
         # checkpoint_path already includes .pt extension from get_latest_checkpoint
-        
+
         # Only rank 0 loads the checkpoint file
         if dist_config.is_main_process():
             checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -236,7 +216,7 @@ def load_checkpoint_fsdp2(
         else:
             model_state = {}
             optimizer_state = {}
-        
+
         # ALL ranks call set_model_state_dict - DCP broadcasts from rank 0
         set_model_state_dict(
             model=model,
@@ -246,12 +226,12 @@ def load_checkpoint_fsdp2(
                 broadcast_from_rank0=True,
             ),
         )
-        
+
         # For optimizer, we can just load it directly on rank 0
         # Other ranks don't need the optimizer state for FSDP2
         if dist_config.is_main_process():
             optimizer.load_state_dict(optimizer_state)
-        
+
         logger.info(f"Loaded FSDP2 checkpoint from step {step}")
         return model, optimizer, step
     except Exception as e:
@@ -274,24 +254,17 @@ def save_checkpoint_fsdp2(
         options=StateDictOptions(
             full_state_dict=True,
             cpu_offload=True,
-        )
+        ),
     )
-    
+
     # Only rank 0 saves the checkpoint
     if not dist_config.is_main_process():
         return
-    
+
     checkpoint_path = os.path.join(ckpt_dir, f"step_{step}.pt")
     os.makedirs(ckpt_dir, exist_ok=True)
-    
-    torch.save(
-        {
-            "model": model_state_dict,
-            "optimizer": optimizer.state_dict(),
-            "step": step
-        },
-        checkpoint_path
-    )
+
+    torch.save({"model": model_state_dict, "optimizer": optimizer.state_dict(), "step": step}, checkpoint_path)
     logger.info(f"Saved FSDP2 checkpoint to {checkpoint_path}")
 
 
@@ -308,22 +281,22 @@ def save_final_model_fsdp2(
         options=StateDictOptions(
             full_state_dict=True,
             cpu_offload=True,
-        )
+        ),
     )
-    
+
     # Only main process saves
     if not dist_config.is_main_process():
         return
-    
+
     os.makedirs(save_directory, exist_ok=True)
-    
+
     # Save just the weights using safetensors
-    
+
     save_file(model_state_dict, os.path.join(save_directory, "model.safetensors"))
-    
+
     # Save the config
     underlying_model = model.module if hasattr(model, "module") else model
     if hasattr(underlying_model, "config"):
         underlying_model.config.save_pretrained(save_directory)
-    
+
     logger.info(f"Saved final FSDP2 model to {save_directory} (weights + config only)")
