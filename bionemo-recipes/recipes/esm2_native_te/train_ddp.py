@@ -20,7 +20,6 @@ import time
 
 import hydra
 import torch
-import torch._dynamo
 import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
@@ -45,9 +44,7 @@ def main(args: DictConfig) -> float | None:
     Returns:
         float: The loss value for the final batch.
     """
-    # Initialize distributed training and create a device mesh for FSDP.
-    # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
-    # to work correctly with mfsdp.
+    # Initialize the distributed configuration, including creating the distributed process group.
 
     # Get the script name without extension and add it to checkpoint directory
     script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]

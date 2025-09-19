@@ -53,6 +53,7 @@ def main(args: DictConfig) -> float | None:
         float: The loss value for the final batch.
     """
     # Initialize the distributed configuration, including creating the distributed process group.
+    
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
     torch.distributed.init_process_group(backend="nccl")

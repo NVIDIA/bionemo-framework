@@ -25,6 +25,7 @@ from torch.distributed.checkpoint.state_dict import (
     StateDictOptions,
     get_model_state_dict,
     set_model_state_dict,
+    set_optimizer_state_dict,
 )
 
 
@@ -138,6 +139,9 @@ def load_checkpoint_mfsdp(
         model.load_state_dict(ckpt_state_dict["model"])
         optimizer.load_state_dict(ckpt_state_dict["optimizer"])
 
+        # Ensure all ranks have completed loading before proceeding
+        torch.distributed.barrier()
+        
         logger.info(f"Loaded mFSDP checkpoint from step {step}")
         return model, optimizer, step
     except Exception as e:
@@ -202,12 +206,16 @@ def load_checkpoint_fsdp2(
     dist_config: Dict[str, Any],
     logger: logging.Logger,
 ) -> Tuple[torch.nn.Module, torch.optim.Optimizer, int]:
-    """Load FSDP2 checkpoint - load on main, broadcast to all."""
+    """Load FSDP2 checkpoint - load on main, broadcast to all.
+    
+    Both model and optimizer states are properly restored across all ranks
+    using distributed checkpoint APIs to avoid state divergence.
+    """
     try:
         checkpoint_path, step = get_latest_checkpoint(ckpt_dir)
         # checkpoint_path already includes .pt extension from get_latest_checkpoint
 
-        # Only rank 0 loads the checkpoint file
+        # Only rank 0 loads the checkpoint file from disk
         if dist_config.is_main_process():
             checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
             model_state = checkpoint["model"]
@@ -216,8 +224,14 @@ def load_checkpoint_fsdp2(
         else:
             model_state = {}
             optimizer_state = {}
+            step = 0
 
-        # ALL ranks call set_model_state_dict - DCP broadcasts from rank 0
+        # Broadcast step number to all ranks
+        step_tensor = torch.tensor([step], dtype=torch.int64, device=f"cuda:{dist_config.local_rank}")
+        torch.distributed.broadcast(step_tensor, src=0)
+        step = step_tensor.item()
+
+        # ALL ranks call set_model_state_dict - DCP handles broadcasting from rank 0
         set_model_state_dict(
             model=model,
             model_state_dict=model_state,
@@ -227,16 +241,27 @@ def load_checkpoint_fsdp2(
             ),
         )
 
-        # For optimizer, we can just load it directly on rank 0
-        # Other ranks don't need the optimizer state for FSDP2
-        if dist_config.is_main_process():
-            optimizer.load_state_dict(optimizer_state)
+        # ALL ranks MUST call set_optimizer_state_dict - DCP handles broadcasting from rank 0
+        # This ensures optimizer state is properly synchronized across all ranks
+        set_optimizer_state_dict(
+            model=model,
+            optimizer=optimizer,
+            optim_state_dict=optimizer_state,
+            options=StateDictOptions(
+                full_state_dict=True,
+                broadcast_from_rank0=True,
+            ),
+        )
 
-        logger.info(f"Loaded FSDP2 checkpoint from step {step}")
+        # Ensure all ranks have completed loading before proceeding
+        torch.distributed.barrier()
+        
+        logger.info(f"Loaded FSDP2 checkpoint from step {step} (model and optimizer restored on all ranks)")
         return model, optimizer, step
     except Exception as e:
         logger.error(f"Failed to load FSDP2 checkpoint: {e}")
         return model, optimizer, 0
+        
 
 
 def save_checkpoint_fsdp2(

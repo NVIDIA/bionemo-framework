@@ -49,9 +49,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         float: The loss value for the final batch.
     """
     # Initialize the distributed configuration, including creating the distributed process group.
-    # Initialize distributed training and create a device mesh for FSDP.
-    # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
-    # to work correctly with megatron-fsdp.
 
     # Get the script name without extension and add it to checkpoint directory
     script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
