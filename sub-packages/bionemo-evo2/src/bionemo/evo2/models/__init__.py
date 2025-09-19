@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, HybridMambaConfig8BEvo2Loss, MambaModel
+from bionemo.evo2.models.evo2_gpt_hf_exporter import HFEvo2GPTExporter
 
 
-__all__ = ["MAMBA_MODEL_OPTIONS", "HybridMambaConfig8BEvo2Loss", "MambaModel"]
+__all__ = ["MAMBA_MODEL_OPTIONS", "HybridMambaConfig8BEvo2Loss", "MambaModel", "HFEvo2GPTExporter"]
