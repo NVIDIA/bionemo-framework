@@ -44,7 +44,7 @@ script_args:
       ops_kwargs: "--use-subquadratic_ops"
     - config_name: hybrid_mamba_8b
       ops_kwargs: ""
-      batch_size: 64
+      batch_size: 256
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
