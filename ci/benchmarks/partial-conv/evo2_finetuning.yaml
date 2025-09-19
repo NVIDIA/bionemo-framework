@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 14400
+time_limit: 1800
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   dataset_config: False
@@ -96,4 +96,21 @@ script: |-
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name}_${task}_${target} \
     --wandb-job-type=${pipeline_label} \
-    --garbage-collect-at-inference;
+tests:
+  - logic_type: static
+    product_identifier: { "variant": "finetune" }
+    logic_spec:
+      exit_codes:
+        - 0
+      baselines:
+        consumed_samples:
+          operator: eq
+          value: 800
+        val_loss:
+          operator: range
+          max: 1.34
+          min: 1.31
+        reduced_train_loss:
+          operator: range
+          max: 1.34
+          min: 1.31

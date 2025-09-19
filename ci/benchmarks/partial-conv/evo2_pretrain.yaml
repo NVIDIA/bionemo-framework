@@ -86,3 +86,24 @@ script: |-
   --wandb-group=${model}_${variant}_${config_name}__${target}__slen${seq_len} \
   --wandb-job-type=${pipeline_label} \
   --disable-checkpointing;
+tests:
+  - logic_type: static
+    product_identifier: { 'target': 'dgxh100_eos' }
+    logic_spec:
+      exit_codes:
+        - 0
+      baselines:
+        consumed_samples:
+          operator: eq
+          value: 1766400
+        val_loss:
+          operator: range
+          max: 1.26
+          min: 1.22
+        reduced_train_loss:
+          operator: range
+          max: 1.24
+          min: 1.19
+        TFLOPS_per_GPU:
+          operator: geq
+          value: 390

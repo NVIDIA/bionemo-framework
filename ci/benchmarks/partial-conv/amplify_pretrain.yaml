@@ -62,3 +62,44 @@ script: |-
     --wandb-group=${model}_${variant}_${config_name}__${target} \
     --wandb-job-type=${pipeline_label} \
     --no-create-checkpoint-callback;
+tests:
+  - logic_type: static
+    product_identifier: { 'target': 'dgxh100_eos', 'config_name': '120M' }
+    logic_spec:
+      exit_codes:
+        - 0
+      baselines:
+        consumed_samples:
+          operator: eq
+          value: 81920000
+        val_loss:
+          operator: range
+          max: 2.05
+          min: 2.0
+        reduced_train_loss:
+          operator: range
+          max: 1.86
+          min: 1.82
+        TFLOPS_per_GPU:
+          operator: geq
+          value: 260
+  - logic_type: static
+    product_identifier: { 'target': 'dgxh100_eos', 'config_name': '350M' }
+    logic_spec:
+      exit_codes:
+        - 0
+      baselines:
+        consumed_samples:
+          operator: eq
+          value: 81920000
+        val_loss:
+          operator: range
+          max: 1.95
+          min: 1.85
+        reduced_train_loss:
+          operator: range
+          max: 1.80
+          min: 1.70
+        TFLOPS_per_GPU:
+          operator: geq
+          value: 300
