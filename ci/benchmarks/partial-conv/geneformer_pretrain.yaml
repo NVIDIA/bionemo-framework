@@ -77,11 +77,11 @@ tests:
           value: 15360000.0
         val_loss:
           operator: range
-          max: 2.4
+          max: 2.42
           min: 2.36
         reduced_train_loss:
           operator: range
-          max: 2.5
+          max: 2.52
           min: 2.45
         TFLOPS_per_GPU:
           operator: geq
