@@ -1,0 +1,27 @@
+# @package _global_
+defaults:
+  - /base
+  - _self_
+
+resource_shape: gpu.2xh100-sxm
+node_group: yo-bom-lepton-001
+
+recipe_subdir: esm2_accelerate_te
+
+wandb_init_args:
+  project: "lepton_recipe_convergence_${branch}"
+  group: "${recipe_subdir}_${resource_shape}"
+
+train_cmd: train
+stop_after_n_steps: 100
+
+# todo: use L1 configs, esm2 3B, focus on 1B.
+# future: amplify;
+products:
+  - config: L0_sanity
+
+train_script: |
+  accelerate launch --config_file accelerate_config/default.yaml \
+    ${train_cmd}.py \
+    --config-name=${config} \
+    stop_after_n_steps=${stop_after_n_steps}
