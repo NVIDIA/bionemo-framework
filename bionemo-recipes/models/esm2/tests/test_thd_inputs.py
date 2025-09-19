@@ -13,21 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
 import torch
-from transformers import AutoModelForMaskedLM, DataCollatorForTokenClassification
+from transformers import DataCollatorForTokenClassification
 
 from esm.collator import DataCollatorWithFlattening
-from esm.convert import convert_esm_hf_to_te
 from esm.modeling_esm_te import NVEsmForMaskedLM
-
-
-@pytest.fixture
-def te_model_checkpoint(tmp_path):
-    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
-    model_te = convert_esm_hf_to_te(model_hf)
-    model_te.save_pretrained(tmp_path / "te_model_checkpoint")
-    return tmp_path / "te_model_checkpoint"
 
 
 def test_thd_from_collator_output(te_model_checkpoint, input_data_thd):
@@ -42,7 +32,7 @@ def test_thd_from_collator_output(te_model_checkpoint, input_data_thd):
     assert outputs.loss < 3.0
 
 
-def test_thd_values_match(te_model_checkpoint, tokenizer, monkeypatch):
+def test_thd_values_match(te_model_checkpoint, tokenizer):
     # Manually masked input tokens so that both BSHD and THD models have the same mask pattern
 
     proteins = [
@@ -74,7 +64,7 @@ def test_thd_values_match(te_model_checkpoint, tokenizer, monkeypatch):
     ]
 
     bshd_collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding=True)
-    thd_collator = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
+    thd_collator = DataCollatorWithFlattening()
 
     input_data_bshd = bshd_collator(sequences)
     input_data_thd = thd_collator(sequences)

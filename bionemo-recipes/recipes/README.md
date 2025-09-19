@@ -86,7 +86,7 @@ recipes/{recipe_name}/
 Your `Dockerfile` should create a complete, reproducible training environment:
 
 ```dockerfile
-FROM nvcr.io/nvidia/pytorch:25.06-py3
+FROM nvcr.io/nvidia/pytorch:25.08-py3
 
 # Install dependencies with caching for faster builds
 RUN --mount=type=cache,target=/root/.cache/pip \
