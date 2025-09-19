@@ -19,7 +19,7 @@ BioNeMo Framework is part of a larger ecosystem of NVIDIA Biopharma products. Ge
 > BioNeMo Recipes are now available, which demonstrate high-performance model training outside of the NeMo Framework.
 > The recipes show how to train models that derive from HuggingFace `PreTrainedModel` classes, and use
 > [NVIDIA TransformerEngine](https://github.com/NVIDIA/TransformerEngine) layers for optimized attention kernels. For
-> more information, see the [BioNeMo Recipes README](./bionemo-recipes.md).
+> more information, see the [BioNeMo Recipes README](./bionemo-recipes/README.md).
 
 ## Structure of the Framework
 

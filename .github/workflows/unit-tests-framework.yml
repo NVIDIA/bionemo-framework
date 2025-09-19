@@ -44,8 +44,7 @@ jobs:
           base_sha: ${{ steps.merge-base.outputs.merge-base }}
           files: |
             **
-            !models/**
-            !recipes/**
+            !bionemo-recipes/**
             !**.md
             !.github/**
             !.gitignore

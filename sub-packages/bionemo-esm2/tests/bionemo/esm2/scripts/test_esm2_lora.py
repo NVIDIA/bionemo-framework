@@ -115,20 +115,20 @@ def test_different_results_with_peft(
         )
 
     if prediction_interval == "epoch":
-        results_original = torch.load(f"{result_dir_original}/predictions__rank_0.pt")
-        results_peft = torch.load(f"{result_dir_peft}/predictions__rank_0.pt")
+        results_original = torch.load(f"{result_dir_original}/predictions__rank_0__dp_rank_0.pt")
+        results_peft = torch.load(f"{result_dir_peft}/predictions__rank_0__dp_rank_0.pt")
 
     elif prediction_interval == "batch":
         results_original = batch_collator(
             [
                 torch.load(f, map_location="cpu")
-                for f in glob.glob(f"{result_dir_original}/predictions__rank_0__batch_*.pt")
+                for f in glob.glob(f"{result_dir_original}/predictions__rank_0__dp_rank_0__batch_*.pt")
             ]
         )
         results_peft = batch_collator(
             [
                 torch.load(f, map_location="cpu")
-                for f in glob.glob(f"{result_dir_peft}/predictions__rank_0__batch_*.pt")
+                for f in glob.glob(f"{result_dir_peft}/predictions__rank_0__dp_rank_0__batch_*.pt")
             ]
         )
     assert (results_original["embeddings"] != results_peft["embeddings"]).any()

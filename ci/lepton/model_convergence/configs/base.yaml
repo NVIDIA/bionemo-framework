@@ -1,0 +1,51 @@
+node_group_name: nv-int-multiteam-nebius-h200-01
+
+container:
+  image: nvcr.io/nvidia/pytorch:25.06-py3
+  registry_auth: lepton-nvidia
+
+# These keys are required for the job to upload data to wandb and kratos
+environment_variables:
+  - name: WANDB_API_KEY
+    value_from: JWILBER_WANDB_API_KEY
+  - name: KRATOS_SSA_URL
+    value_from: KRATOS_SSA_URL
+  - name: KRATOS_SSA_CLIENT_ID
+    value_from: KRATOS_SSA_CLIENT_ID
+  - name: KRATOS_SSA_SECRET
+    value_from: KRATOS_SSA_SECRET
+  - name: LEP_LOGIN_CREDENTIALS
+    value_from: LEP_LOGIN_CREDENTIALS
+#   mounts:
+#     - path: /BioNeMo
+#       mount_path: /BioNeMo
+#       from_: node-nfs:lepton-shared-fs
+
+wandb_init_args:
+  group: "recipes_model_convergence"
+  mode: "online"
+
+branch: main
+commit_sha: ""
+
+# Sharedcheckout script used by all recipes
+checkout_script: |
+  set -euo pipefail
+  git clone https://github.com/NVIDIA/bionemo-framework.git
+  cd bionemo-framework
+  if [ -n "${commit_sha}" ]; then
+    echo "Checking out commit: ${commit_sha}"
+    git checkout "${commit_sha}"
+  elif [ "${branch}" != "main" ]; then
+    echo "Checking out branch: ${branch}"
+    git checkout "${branch}"
+  fi
+  cd bionemo-recipes/recipes/${recipe_subdir}
+  pip install -r requirements.txt
+
+# Child configs should override this with their run-specific commands
+train_script: ""
+
+script: |
+  ${checkout_script}
+  ${train_script}

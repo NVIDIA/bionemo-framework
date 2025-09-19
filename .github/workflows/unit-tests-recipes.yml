@@ -51,10 +51,10 @@ jobs:
           matrix: true
           base_sha: ${{ steps.merge-base.outputs.merge-base }}
           dir_names: true
-          dir_names_max_depth: 2
+          dir_names_max_depth: 3
           files: |
-            models/**
-            recipes/**
+            bionemo-recipes/models/**
+            bionemo-recipes/recipes/**
 
       - id: set-dirs
         name: Determine which directories to run
@@ -64,7 +64,7 @@ jobs:
           CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
         run: |
           # Get all recipe and model directories
-          ALL_DIRS=$(ls -d recipes/*/ models/*/ 2>/dev/null | jq -R -s -c 'split("\n")[:-1] | map(rtrimstr("/"))')
+          ALL_DIRS=$(ls -d bionemo-recipes/models/*/ bionemo-recipes/recipes/*/ 2>/dev/null | jq -R -s -c 'split("\n")[:-1] | map(rtrimstr("/"))')
 
           # Determine which directories to run: all for schedule, filtered for other events
           if [[ "$EVENT_NAME" == "schedule" ]]; then
@@ -93,8 +93,8 @@ jobs:
           # Currently, AMPLIFY is the only folder that needs a custom base image, since we have to support both TE and
           # xformers-based models for golden value testing. The rest of the models use the default pytorch image.
 
-          # This uses a squashed version of the pytorch:25.06-py3 image, generated with `docker-squash
-          # nvcr.io/nvidia/pytorch:25.06-py3 -t svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed --output
+          # This uses a squashed version of the pytorch:25.08-py3 image, generated with `docker-squash
+          # nvcr.io/nvidia/pytorch:25.08-py3 -t svcbionemo023/bionemo-framework:pytorch25.08-py3-squashed --output
           # type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15` and pushed
           # to the dockerhub registry. Our github actions are able to cache image pulls from dockerhub but not nvcr, so
           # hopefully this cuts down slightly on CI time at the expense of having a slightly in-directed image location.
@@ -102,11 +102,13 @@ jobs:
           DIRS_WITH_IMAGES=$(echo "$DIRS" | jq -c '
             map({
               dir: .,
+              name: (. | sub("^bionemo-recipes/"; "")),
               image: (
-                if . == "models/amplify" then
+                if . == "bionemo-recipes/models/amplify" then
                   "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
                 else
-                  "svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed-zstd"
+                  # "nvcr.io/nvidia/pytorch:25.08-py3"
+                  "svcbionemo023/bionemo-framework:pytorch25.08-py3-squashed-zstd"
                 end
               )
             })
@@ -129,15 +131,16 @@ jobs:
     needs: changed-dirs
     runs-on: linux-amd64-gpu-l4-latest-1
     if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
+    name: "unit-tests (${{ matrix.recipe.name }})"
     container:
       image: ${{ matrix.recipe.image }}
+      options: --shm-size=16G
     strategy:
       matrix:
         recipe: ${{ fromJson(needs.changed-dirs.outputs.dirs) }}
       fail-fast: false
 
     steps:
-
       - name: Show GPU info
         run: nvidia-smi
       - name: Setup proxy cache

@@ -2,9 +2,31 @@ name: "BioNeMo Model Convergence Tests"
 
 on:
   workflow_dispatch:
-
-# run lepton tests
-# update dashboard
+    inputs:
+      branch:
+        description: "Branch to use (ignored if commit SHA is provided)"
+        required: true
+        default: "main"
+        type: string
+      commit_sha:
+        description: "Commit SHA (optional - overrides branch if provided)"
+        required: false
+        type: string
+      model_config:
+        description: "Model configuration to use"
+        required: true
+        default: "esm2_accelerate"
+        type: choice
+        options:
+          - amplify_accelerate_te_fp8.yaml
+          - esm2_accelerate
+          - esm2_native_te_mfsdp
+          - esm2_native_te_nvfsdp_thd
+          - geneformer_native_te_mfsdp_fp8
+      config_override:
+        description: "Optional: run only these product configs (CSV). Examples: 10m  or  10m,4b. Leave blank to run all."
+        required: false
+        type: string
 
 jobs:
   submit-lepton-jobs:
@@ -13,6 +35,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Submit Lepton Jobs
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            ci/lepton/model_convergence/requirements.txt
+
+      - name: Install dependencies
         run: |
-          python ci/lepton/model_convergence/scripts/launch_job.py --config-name "evo2_finetune_lora"
+          python -m pip install --upgrade pip
+          pip install -r ci/lepton/model_convergence/requirements.txt
+
+      - name: Submit Lepton Jobs
+        env:
+          LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
+        run: |
+          set -euo pipefail
+          lep login -c "$LEP_LOGIN_CREDENTIALS" || true
+
+          RUN_ONLY_ARGS=""
+          if [ -n "${{ inputs.config_override }}" ]; then
+            # Users can type: 10m  or  10m,4b
+            RUN_ONLY_ARGS="+run_only=${{ inputs.config_override }}"
+          fi
+
+          python ci/lepton/model_convergence/scripts/launch_job.py \
+            --config-name recipes/${{ inputs.model_config }} \
+            $RUN_ONLY_ARGS \
+            branch=${{ inputs.branch }} \
+            commit_sha=${{ inputs.commit_sha }}
