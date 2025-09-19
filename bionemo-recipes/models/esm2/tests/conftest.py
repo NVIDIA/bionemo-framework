@@ -19,9 +19,10 @@ import pytest
 import torch
 from datasets import Dataset
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, DataCollatorForLanguageModeling
+from transformers import AutoModelForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
 
 from esm.collator import MLMDataCollatorWithFlattening
+from esm.convert import convert_esm_hf_to_te
 
 
 # Fix Triton UTF-8 decoding issue by setting CUDA library path
@@ -57,16 +58,13 @@ def thd_data_collator(tokenizer):
     return MLMDataCollatorWithFlattening(
         tokenizer=tokenizer,
         mlm_probability=0.15,
-        pad_to_multiple_of=1024,
-        return_flash_attn_kwargs=True,
+        pad_to_multiple_of=8,
         seed=42,
     )
 
 
-def get_input_data(tokenizer, data_collator):
-    torch.manual_seed(42)
-
-    test_proteins = [
+def get_test_proteins():
+    return [
         "MLSATEKLSDYISSLFASVSIINSISTEDLFFLKLTCQTFSKDSEEYKAAYRILRGVQRGKVQIIEEALVS",
         "MFVFFAGTLVNQDTLNFRDQLNINVVGTVRGIAQDASKYLEYAIDSV",
         "MAATGSLILSDEEQAELIALAVRIVLACAGGSQNKELAAQLGVIETTVGEWRRRFAQNRVEGLRDEARPGAPSDDQ",
@@ -84,15 +82,22 @@ def get_input_data(tokenizer, data_collator):
         "MQILILPIPDQLQNPNKISQHLICITFVSEQTLPI",
     ]
 
-    dataset = Dataset.from_list([{"sequence": p} for p in test_proteins])
+
+@pytest.fixture
+def test_proteins():
+    return get_test_proteins()
+
+
+def get_input_data(tokenizer, data_collator):
+    torch.manual_seed(42)
+
+    dataset = Dataset.from_list([{"sequence": p} for p in get_test_proteins()])
 
     def tokenize_function(examples):
         return tokenizer(
             examples["sequence"],
             truncation=True,
-            padding="max_length",
             max_length=1024,
-            return_tensors="pt",
         )
 
     tokenized_proteins = dataset.map(
@@ -119,3 +124,11 @@ def input_data(tokenizer, bshd_data_collator):
 @pytest.fixture
 def input_data_thd(tokenizer, thd_data_collator):
     return get_input_data(tokenizer, thd_data_collator)
+
+
+@pytest.fixture
+def te_model_checkpoint(tmp_path):
+    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    model_te = convert_esm_hf_to_te(model_hf)
+    model_te.save_pretrained(tmp_path / "te_model_checkpoint")
+    return tmp_path / "te_model_checkpoint"
