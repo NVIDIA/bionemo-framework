@@ -1,16 +1,18 @@
 # Contributing Guidelines
 
 !!! note
-    For code review standards please see the [Code Review](code-review.md) page.
+For code review standards please see the [Code Review](code-review.md) page.
 
-    For all PRs, an approved NVIDIA staff member must sign off and trigger the continuous integration (CI) tests.
-    These are initiated by the member commenting `/build-ci` directly on the PR. All PRs must have successful CI runs and
-    sufficient code review before being merged.
+```
+For all PRs, an approved NVIDIA staff member must sign off and trigger the continuous integration (CI) tests.
+These are initiated by the member commenting `/build-ci` directly on the PR. All PRs must have successful CI runs and
+sufficient code review before being merged.
+```
 
 ## Developer Certificate of Origin (DCO)
 
 We require that all contributors "sign-off" on their commits (not GPG signing, just adding the `-s | --signoff`
-argument, or follow the instructions below for auto-signing). This sign-off certifies that you adhere to the  Developer
+argument, or follow the instructions below for auto-signing). This sign-off certifies that you adhere to the Developer
 Certificate of Origin (DCO) ([full text](https://developercertificate.org/)); in short that the contribution is your
 original work, or you have rights to submit it under the same license or a compatible license.
 
@@ -73,7 +75,7 @@ repository (unless external constraints prevent it).
 - `raise` an `Exception` instead of using an `assert` statement.
 - F-strings are preferred to format strings.
 - Loggers are preferred to print. In BioNeMo, you can use logger from `import logging`.
-- Private functions (functions starting with ``_``) shouldn't be called outside its host file.
+- Private functions (functions starting with `_`) shouldn't be called outside its host file.
 
 ### General Guidelines
 
@@ -107,12 +109,11 @@ submitting. Labels can be accessed in the right sidebar of the GitHub user inter
 
 ### CI Pipeline Configuration Controls
 
-CI pipeline behavior can be controlled via checkboxes in PR descriptions to optimize test execution:
+CI pipeline behavior can be controlled labels to optimize test execution:
 
 Key behaviors:
 
-- Controls processed automatically on PR submit/update
-- Labels applied based on checkbox status
+- Labels are processed automatically on PR submit/update
 - Invalid combinations default to most restrictive option
 
 By default, CI pipeline is enabled for all PRs and only unit tests are run. To skip CI pipeline, add the `ciflow:skip` label
@@ -123,10 +124,10 @@ By default, CI pipeline is enabled for all PRs and only unit tests are run. To s
 - Use for documentation typos, README updates
 
 #### **ciflow:slow**
+
 - Enables unit tests labelled as `@pytest.mark.slow` ie CLI tests
 - Use when modifying core functionalities and require extensive moderate complexity testing on a single GPU
 - Disabled by default
-
 
 #### **ciflow:notebooks**
 
@@ -140,6 +141,12 @@ By default, CI pipeline is enabled for all PRs and only unit tests are run. To s
 - Use when introducing significant codebase changes for comprehansive testing
 - Disabled by default
 
+#### **ciflow:all-recipes**
+
+Without this label, unit tests for recipes in PR CI are run only on folders whose codebases have been modified
+
+- Runs unit tests for all recipes, regardless of whether their codebases have been modified
+
 ### Developer Workflows
 
 You should always carefully test your changes. Run `pytest ...` in your container locally. All tests are done via `pytest`.
@@ -149,8 +156,8 @@ Changes that affect model training accuracy or compute performance should be tes
 Developer workflow for _external_ code contributions is as follows:
 
 1. External developers must first [fork](https://help.github.com/en/articles/fork-a-repo) the
-[upstream](https://github.com/NVIDIA/bionemo-framework/tree/main) BioNeMo OSS repository and for BioNeMo2 (this branch)
-use the `main` branch as base.
+   [upstream](https://github.com/NVIDIA/bionemo-framework/tree/main) BioNeMo OSS repository and for BioNeMo2 (this branch)
+   use the `main` branch as base.
 
 2. Clone the forked repository and push changes to the personal fork.
 
@@ -170,16 +177,16 @@ Developer workflow for _internal_ or those developers that have been granted pus
 For both internal and external developers, the next step is opening a PR:
 
 1. Once the code changes are staged on the fork and ready for review, a
-  [Pull Request](https://help.github.com/en/articles/about-pull-requests) (PR) can be
-    [requested](https://help.github.com/en/articles/creating-a-pull-request) to merge the changes from a branch of the
-    fork or branch into `main`.
-    - Exercise caution when selecting the source and target branches for the PR.
-    Note that versioned releases of TensorRT OSS are posted to `release/` branches of the upstream repo.
-    - Creation of a PR creation kicks off the code review process.
-    - At least one TensorRT engineer will be assigned for the review.
-    - While under review, mark your PRs as work-in-progress by prefixing the PR title with [WIP].
+   [Pull Request](https://help.github.com/en/articles/about-pull-requests) (PR) can be
+   [requested](https://help.github.com/en/articles/creating-a-pull-request) to merge the changes from a branch of the
+   fork or branch into `main`.
+   - Exercise caution when selecting the source and target branches for the PR.
+     Note that versioned releases of TensorRT OSS are posted to `release/` branches of the upstream repo.
+   - Creation of a PR creation kicks off the code review process.
+   - At least one TensorRT engineer will be assigned for the review.
+   - While under review, mark your PRs as work-in-progress by prefixing the PR title with [WIP].
 2. Once ready, CI can be started by a developer with permissions when they add a `/build-ci` comment. This must pass
-  prior to merging.
+   prior to merging.
 
 ### General Guidelines
 
@@ -206,7 +213,7 @@ our repository otherwise please create a fork with your branch and submit a PR w
 Contributors to BioNeMo FW are expected to unit test their introduced changes.
 
 After testing your code locally, trigger tests in the PR's CI. Let a code-owner know that you are ready for the build to
- run and they will leave a `/build-ci` comment on your PR which will run the CI test suite.
+run and they will leave a `/build-ci` comment on your PR which will run the CI test suite.
 
 #### Adding Unit Tests
 
@@ -236,7 +243,7 @@ We recommend using the developer container for contributions.
 
 ```bash
 pip install -r dev-requirements.txt --user
-python ./scripts/license_check.py --modify --replace --license-header ./license_header -c sub-packages/ -c docs/ -c scripts/ -c ci/ -c internal/
+python ci/scripts/license_check.py --modify --replace --license-header ./license_header -c sub-packages/ -c docs/ -c scripts/ -c ci/ -c internal/
 ```
 
 #### Updating the secrets baseline file
@@ -289,7 +296,7 @@ To publish your sub-package via "Trusted Publishing" to PyPI, you can follow the
     - For example, `bionemo-moco,bionemo-llm,bionemo-webdatamodule`. The sub-packages will be tested and published in separate parallel environments.
   - Optional: Set `test` to `true` if you want to test your sub-package. (Default: `true`)
     - Sub-packages that require pre- or post- installation steps may require modification of the `install-and-test` job in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
-      - Supported `pyproject.toml` Optional Dependencies: [ `te` ]
+      - Supported `pyproject.toml` Optional Dependencies: \[ `te` \]
   - Optional: Set `publish` to `true` if you want to publish to Test PyPI or PyPI. (Default: `false`)
     - Pre-Requisite: [BioNeMo Publishing to PyPI](#publishing-to-pypi)
     - Publishing requires package building, but does not require testing for flexibility of package management.

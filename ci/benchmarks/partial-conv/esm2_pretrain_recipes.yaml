@@ -1,0 +1,84 @@
+scope: partial-conv
+time_limit: 14400
+key_segments:
+  # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
+  data_path: False
+  num_workers: False
+script_args:
+  # All arguments referenced in the script string must be specified here.
+  # Arguments not referenced in the script string must have the 'arg' field specified.
+  # See jet/core/configs.py for the specification of the configuration class
+  workspace: /workspace/bionemo2
+  data_path: /data/20240809_uniref_2024_03/data
+  model: esm2
+  variant: train
+  config_name: 650M-recipes
+  precision: [bf16-mixed]
+  nodes: [4]
+  gpus: 8
+  batch_size: 16
+  max_steps: 500000
+  stop_steps: 26000
+  num_workers: 1
+script: |-
+  COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
+  NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
+  if [ "$SLURM_LOCALID" = "0" ]; then
+      df -h;
+      echo $NEW_DATA_PATH;
+      time cp -r ${data_path}/ $NEW_DATA_PATH;
+      touch $COPY_FLAG
+  fi
+  # All ranks wait until install flag file appears
+  while [ ! -f $COPY_FLAG ]; do
+      sleep 1
+  done
+  WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
+    --train-cluster-path=$NEW_DATA_PATH/train_clusters_bionemo_recipes.parquet \
+    --train-database-path=$NEW_DATA_PATH/train.db \
+    --valid-cluster-path=$NEW_DATA_PATH/valid_clusters.parquet \
+    --valid-database-path=$NEW_DATA_PATH/validation.db \
+    --micro-batch-size=${batch_size} \
+    --num-nodes=${nodes} \
+    --num-gpus=${gpus} \
+    --num-dataset-workers=${num_workers} \
+    --val-check-interval=1000 \
+    --limit-val-batches=1 \
+    --num-steps=${max_steps} \
+    --early-stop-on-step ${stop_steps} \
+    --min-seq-length=1024 \
+    --max-seq-length=1024 \
+    --num-layers=33 \
+    --hidden-size=1280 \
+    --num-attention-heads=20 \
+    --ffn-hidden-size=5120 \
+    --create-tensorboard-logger \
+    --create-tflops-callback \
+    --experiment-name=${batch_size}bs_${nodes}node_${gpus}gpu_${max_steps}s_${precision}prec \
+    --result-dir=${tensorboard_dir} \
+    --wandb-project=${wandb_project_name} \
+    --wandb-group=${model}_${variant}_${config_name}__${target} \
+    --wandb-job-type=${pipeline_label} \
+    --log-every-n-steps=50 \
+    --disable-checkpointing;
+tests:
+  - logic_type: static
+    logic_spec:
+      exit_codes:
+        - 0
+      baselines:
+        consumed_samples:
+          operator: eq
+          value: 13568000.0
+        val_loss:
+          operator: range
+          max: 2.5906
+          min: 2.4833
+        reduced_train_loss:
+          operator: range
+          max: 2.5640
+          min: 2.4578
+        tflops_per_sec_per_gpu:
+          operator: range
+          max: 157.9352
+          min: 141.2835

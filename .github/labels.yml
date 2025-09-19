@@ -11,6 +11,10 @@
   description: Run all tests (unit tests, slow tests, and notebooks)
   color: FBCA04  # Yellow/Gold
 
+- name: ciflow:all-recipes
+  description: Run tests for all recipes
+  color: 812afe  # Purple
+
 - name: ciflow:skip
   description: Skip all CI tests for this PR
   color: B60205  # Red

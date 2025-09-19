@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import textwrap
+from pathlib import Path
+
+
+TEMPLATE_PATH = Path(__file__).parent / "wrap_template.sh"
+
+
+def render_wrapper_string(script: str, all_config_json: str) -> str:
+    """Renders the wrapper shell script template with the provided script and config JSON.
+
+    Args:
+        script (str): The shell script to be embedded into the template.
+        all_config_json (str): The full configuration in JSON format to be injected into the template.
+
+    Returns:
+        str: The rendered shell script with the script and config JSON substituted in place.
+    """
+    tpl = TEMPLATE_PATH.read_text(encoding="utf-8")
+    script_indented = textwrap.indent(script.rstrip("\n"), "  ")
+    return tpl.replace("__SCRIPT__", script_indented).replace("__ALL_CONFIG_JSON__", all_config_json)

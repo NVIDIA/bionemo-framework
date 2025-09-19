@@ -19,6 +19,7 @@ For a custom build configuration that is not currently supported on PyPI, reach 
 ## Usage
 
 An example `torch.utils.data.Dataset` using `NvFaidx` / `bionemo-noodles`:
+
 ```
 import json
 from pathlib import Path
@@ -61,11 +62,13 @@ class SimpleFastaDataset(torch.utils.data.Dataset):
 ## BioNeMo Framework Ecosystem Development
 
 To install this sub-package locally (with `--editable`):
+
 ```
 pip install -e .
 ```
 
 To run unit tests, execute:
+
 ```bash
 pytest -v .
 ```

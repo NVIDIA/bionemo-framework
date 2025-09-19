@@ -23,11 +23,15 @@ from typing import Tuple
 
 import pytest
 from nemo import lightning as nl
+from transformer_engine.pytorch.fp8 import check_fp8_support
 
 from bionemo.evo2.run.train import parse_args, train
 from bionemo.testing.lightning import extract_global_steps_from_log
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
+
+
+fp8_available, reason_for_no_fp8 = check_fp8_support()
 
 
 def run_train_with_std_redirect(args: argparse.Namespace) -> Tuple[str, nl.Trainer]:
@@ -52,14 +56,73 @@ def small_training_cmd(path, max_steps, val_check, devices: int = 1, additional_
         "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* --limit-val-batches 1 "
         "--no-activation-checkpointing --add-bias-output --create-tensorboard-logger --create-tflops-callback "
         f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
+        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args}"
+    )
+    return cmd
+
+
+def small_training_finetune_cmd(path, max_steps, val_check, prev_ckpt, devices: int = 1, additional_args: str = ""):
+    cmd = (
+        f"train_evo2 --mock-data --result-dir {path} --devices {devices} "
+        "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* --limit-val-batches 1 "
+        "--no-activation-checkpointing --add-bias-output --create-tensorboard-logger --create-tflops-callback "
+        f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
+        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args} --ckpt-dir {prev_ckpt}"
+    )
+    return cmd
+
+
+def small_training_mamba_cmd(path, max_steps, val_check, devices: int = 1, additional_args: str = ""):
+    cmd = (
+        f"train_evo2 --mock-data --result-dir {path} --devices {devices} "
+        "--model-size hybrid_mamba_8b --num-layers 2 --hybrid-override-pattern M- --limit-val-batches 1 "
+        "--no-activation-checkpointing --create-tensorboard-logger --create-tflops-callback "
+        f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
         f"--seq-length 8 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args}"
     )
     return cmd
 
 
-@pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+def small_training_mamba_finetune_cmd(
+    path, max_steps, val_check, prev_ckpt, devices: int = 1, additional_args: str = ""
+):
+    cmd = (
+        f"train_evo2 --mock-data --result-dir {path} --devices {devices} "
+        "--model-size hybrid_mamba_8b --num-layers 2 --hybrid-override-pattern M- --limit-val-batches 1 "
+        "--no-activation-checkpointing --create-tensorboard-logger --create-tflops-callback "
+        f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
+        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args} --ckpt-dir {prev_ckpt}"
+    )
+    return cmd
+
+
+def small_training_llama_cmd(path, max_steps, val_check, devices: int = 1, additional_args: str = ""):
+    cmd = (
+        f"train_evo2 --no-fp32-residual-connection --mock-data --result-dir {path} --devices {devices} "
+        "--model-size 8B --num-layers 2 --limit-val-batches 1 "
+        "--no-activation-checkpointing --create-tensorboard-logger --create-tflops-callback "
+        f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
+        f"--seq-length 8 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args}"
+    )
+    return cmd
+
+
+def small_training_llama_finetune_cmd(
+    path, max_steps, val_check, prev_ckpt, devices: int = 1, additional_args: str = ""
+):
+    cmd = (
+        f"train_evo2 --no-fp32-residual-connection --mock-data --result-dir {path} --devices {devices} "
+        "--model-size 8B --num-layers 2 --limit-val-batches 1 "
+        "--no-activation-checkpointing --create-tensorboard-logger --create-tflops-callback "
+        f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
+        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args} --ckpt-dir {prev_ckpt}"
+    )
+    return cmd
+
+
+@pytest.mark.timeout(512)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
-def test_train_evo2_runs(tmp_path):
+def test_train_evo2_finetune_runs(tmp_path):
     """
     This test runs the `train_evo2` command with mock data in a temporary directory.
     It uses the temporary directory provided by pytest as the working directory.
@@ -67,10 +130,84 @@ def test_train_evo2_runs(tmp_path):
     """
     num_steps = 2
     # Note: The command assumes that `train_evo2` is in your PATH.
-    command = small_training_cmd(tmp_path, max_steps=num_steps, val_check=num_steps)
-    run_command_in_subprocess(command=command, path=str(tmp_path))
+    command = small_training_cmd(tmp_path / "pretrain", max_steps=num_steps, val_check=num_steps)
+    stdout_pretrain: str = run_command_in_subprocess(command=command, path=str(tmp_path))
+    assert "Restoring model weights from RestoreConfig(path='" not in stdout_pretrain
 
-    log_dir = tmp_path / "evo2"
+    log_dir = tmp_path / "pretrain" / "evo2"
+    checkpoints_dir = log_dir / "checkpoints"
+    tensorboard_dir = log_dir / "dev"
+
+    # Check if logs dir exists
+    assert log_dir.exists(), "Logs folder should exist."
+    # Check if checkpoints dir exists
+    assert checkpoints_dir.exists(), "Checkpoints folder does not exist."
+
+    expected_checkpoint_suffix = f"{num_steps}.0-last"
+    # Check if any subfolder ends with the expected suffix
+    matching_subfolders = [
+        p for p in checkpoints_dir.iterdir() if p.is_dir() and (expected_checkpoint_suffix in p.name)
+    ]
+
+    assert matching_subfolders, (
+        f"No checkpoint subfolder ending with '{expected_checkpoint_suffix}' found in {checkpoints_dir}."
+    )
+
+    # Check if directory with tensorboard logs exists
+    assert tensorboard_dir.exists(), "TensorBoard logs folder does not exist."
+    # Recursively search for files with tensorboard logger
+    event_files = list(tensorboard_dir.rglob("events.out.tfevents*"))
+    assert event_files, f"No TensorBoard event files found under {tensorboard_dir}"
+    assert len(matching_subfolders) == 1, "Only one checkpoint subfolder should be found."
+    command_finetune = small_training_finetune_cmd(
+        tmp_path / "finetune", max_steps=num_steps, val_check=num_steps, prev_ckpt=matching_subfolders[0]
+    )
+    stdout_finetune: str = run_command_in_subprocess(command=command_finetune, path=str(tmp_path))
+    assert "Restoring model weights from RestoreConfig(path='" in stdout_finetune
+
+    log_dir_ft = tmp_path / "finetune" / "evo2"
+    checkpoints_dir_ft = log_dir_ft / "checkpoints"
+    tensorboard_dir_ft = log_dir_ft / "dev"
+
+    # Check if logs dir exists
+    assert log_dir_ft.exists(), "Logs folder should exist."
+    # Check if checkpoints dir exists
+    assert checkpoints_dir_ft.exists(), "Checkpoints folder does not exist."
+
+    expected_checkpoint_suffix = f"{num_steps}.0-last"
+    # Check if any subfolder ends with the expected suffix
+    matching_subfolders_ft = [
+        p for p in checkpoints_dir_ft.iterdir() if p.is_dir() and (expected_checkpoint_suffix in p.name)
+    ]
+
+    assert matching_subfolders_ft, (
+        f"No checkpoint subfolder ending with '{expected_checkpoint_suffix}' found in {checkpoints_dir_ft}."
+    )
+
+    # Check if directory with tensorboard logs exists
+    assert tensorboard_dir_ft.exists(), "TensorBoard logs folder does not exist."
+    # Recursively search for files with tensorboard logger
+    event_files = list(tensorboard_dir_ft.rglob("events.out.tfevents*"))
+    assert event_files, f"No TensorBoard event files found under {tensorboard_dir_ft}"
+
+    assert len(matching_subfolders_ft) == 1, "Only one checkpoint subfolder should be found."
+
+
+@pytest.mark.timeout(512)  # Optional: fail if the test takes too long.
+@pytest.mark.slow
+def test_train_evo2_mamba_finetune_runs(tmp_path):
+    """
+    This test runs the `train_evo2` command with mock data in a temporary directory.
+    It uses the temporary directory provided by pytest as the working directory.
+    The command is run in a subshell, and we assert that it returns an exit code of 0.
+    """
+    num_steps = 2
+    # Note: The command assumes that `train_evo2` is in your PATH.
+    command = small_training_mamba_cmd(tmp_path / "pretrain", max_steps=num_steps, val_check=num_steps)
+    stdout_pretrain: str = run_command_in_subprocess(command=command, path=str(tmp_path))
+    assert "Restoring model weights from RestoreConfig(path='" not in stdout_pretrain
+
+    log_dir = tmp_path / "pretrain" / "evo2"
     checkpoints_dir = log_dir / "checkpoints"
     tensorboard_dir = log_dir / "dev"
 
@@ -95,13 +232,116 @@ def test_train_evo2_runs(tmp_path):
     event_files = list(tensorboard_dir.rglob("events.out.tfevents*"))
     assert event_files, f"No TensorBoard event files found under {tensorboard_dir}"
 
+    assert len(matching_subfolders) == 1, "Only one checkpoint subfolder should be found."
+    command_finetune = small_training_mamba_finetune_cmd(
+        tmp_path / "finetune", max_steps=num_steps, val_check=num_steps, prev_ckpt=matching_subfolders[0]
+    )
+    stdout_finetune: str = run_command_in_subprocess(command=command_finetune, path=str(tmp_path))
+    assert "Restoring model weights from RestoreConfig(path='" in stdout_finetune
+
+    log_dir_ft = tmp_path / "finetune" / "evo2"
+    checkpoints_dir_ft = log_dir_ft / "checkpoints"
+    tensorboard_dir_ft = log_dir_ft / "dev"
+
+    # Check if logs dir exists
+    assert log_dir_ft.exists(), "Logs folder should exist."
+    # Check if checkpoints dir exists
+    assert checkpoints_dir_ft.exists(), "Checkpoints folder does not exist."
+
+    expected_checkpoint_suffix = f"{num_steps}.0-last"
+    # Check if any subfolder ends with the expected suffix
+    matching_subfolders_ft = [
+        p for p in checkpoints_dir_ft.iterdir() if p.is_dir() and (expected_checkpoint_suffix in p.name)
+    ]
+
+    assert matching_subfolders_ft, (
+        f"No checkpoint subfolder ending with '{expected_checkpoint_suffix}' found in {checkpoints_dir_ft}."
+    )
+
+    # Check if directory with tensorboard logs exists
+    assert tensorboard_dir_ft.exists(), "TensorBoard logs folder does not exist."
+    # Recursively search for files with tensorboard logger
+    event_files = list(tensorboard_dir_ft.rglob("events.out.tfevents*"))
+    assert event_files, f"No TensorBoard event files found under {tensorboard_dir_ft}"
+
+    assert len(matching_subfolders_ft) == 1, "Only one checkpoint subfolder should be found."
+
+
+@pytest.mark.timeout(512)  # Optional: fail if the test takes too long.
+@pytest.mark.slow
+def test_train_evo2_llama_finetune_runs(tmp_path):
+    """
+    This test runs the `train_evo2` command with mock data in a temporary directory using Llama model.
+    It uses the temporary directory provided by pytest as the working directory.
+    The command is run in a subshell, and we assert that it returns an exit code of 0.
+    """
+    num_steps = 2
+    # Note: The command assumes that `train_evo2` is in your PATH.
+    command = small_training_llama_cmd(tmp_path / "pretrain", max_steps=num_steps, val_check=num_steps)
+    stdout_pretrain: str = run_command_in_subprocess(command=command, path=str(tmp_path))
+    assert "Restoring model weights from RestoreConfig(path='" not in stdout_pretrain
+
+    log_dir = tmp_path / "pretrain" / "evo2"
+    checkpoints_dir = log_dir / "checkpoints"
+    tensorboard_dir = log_dir / "dev"
+
+    # Check if logs dir exists
+    assert log_dir.exists(), "Logs folder should exist."
+    # Check if checkpoints dir exists
+    assert checkpoints_dir.exists(), "Checkpoints folder does not exist."
+
+    expected_checkpoint_suffix = f"{num_steps}.0-last"
+    # Check if any subfolder ends with the expected suffix
+    matching_subfolders = [
+        p for p in checkpoints_dir.iterdir() if p.is_dir() and (expected_checkpoint_suffix in p.name)
+    ]
+
+    assert matching_subfolders, (
+        f"No checkpoint subfolder ending with '{expected_checkpoint_suffix}' found in {checkpoints_dir}."
+    )
+
+    # Check if directory with tensorboard logs exists
+    assert tensorboard_dir.exists(), "TensorBoard logs folder does not exist."
+    # Recursively search for files with tensorboard logger
+    event_files = list(tensorboard_dir.rglob("events.out.tfevents*"))
+    assert event_files, f"No TensorBoard event files found under {tensorboard_dir}"
+
+    assert len(matching_subfolders) == 1, "Only one checkpoint subfolder should be found."
+    command_finetune = small_training_llama_finetune_cmd(
+        tmp_path / "finetune", max_steps=num_steps, val_check=num_steps, prev_ckpt=matching_subfolders[0]
+    )
+    stdout_finetune: str = run_command_in_subprocess(command=command_finetune, path=str(tmp_path))
+    assert "Restoring model weights from RestoreConfig(path='" in stdout_finetune
+
+    log_dir_ft = tmp_path / "finetune" / "evo2"
+    checkpoints_dir_ft = log_dir_ft / "checkpoints"
+    tensorboard_dir_ft = log_dir_ft / "dev"
+
+    # Check if logs dir exists
+    assert log_dir_ft.exists(), "Logs folder should exist."
+    # Check if checkpoints dir exists
+    assert checkpoints_dir_ft.exists(), "Checkpoints folder does not exist."
+
+    expected_checkpoint_suffix = f"{num_steps}.0-last"
+    matching_subfolders_ft = [
+        p for p in checkpoints_dir_ft.iterdir() if p.is_dir() and (expected_checkpoint_suffix in p.name)
+    ]
+
+    assert matching_subfolders_ft, (
+        f"No checkpoint subfolder ending with '{expected_checkpoint_suffix}' found in {checkpoints_dir_ft}."
+    )
+
+    # Check if directory with tensorboard logs exists
+    assert tensorboard_dir_ft.exists(), "TensorBoard logs folder does not exist."
+    # Recursively search for files with tensorboard logger
+    event_files = list(tensorboard_dir_ft.rglob("events.out.tfevents*"))
+    assert event_files, f"No TensorBoard event files found under {tensorboard_dir_ft}"
+
+    assert len(matching_subfolders_ft) == 1, "Only one checkpoint subfolder should be found."
+
 
 @pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
-@pytest.mark.skip(
-    reason="This test fails due to error when the checkpoints are saved on L40. "
-    "Issue: https://github.com/NVIDIA/bionemo-framework/issues/760"
-)
 def test_train_evo2_stops(tmp_path):
     """
     This test runs the `train_evo2` command with mock data in a temporary directory.
@@ -124,7 +364,7 @@ def test_train_evo2_stops(tmp_path):
     args = parse_args(args=command_parts_no_program)
     train_stdout, trainer = run_train_with_std_redirect(args)
 
-    assert f"Training epoch 0, iteration 0/{max_steps - 1}" in train_stdout
+    assert f"Training epoch 0, iteration 0/{early_stop_steps - 1}" in train_stdout
     # Extract and validate global steps
     global_steps = extract_global_steps_from_log(train_stdout)
     assert global_steps[0] == 0
@@ -150,12 +390,22 @@ def test_train_evo2_stops(tmp_path):
     assert "train_step_timing in s" in trainer.logged_metrics
 
 
+@pytest.mark.parametrize(
+    "additional_args",
+    [
+        pytest.param("", id="no_fp8"),
+        pytest.param(
+            "--fp8",
+            marks=[
+                pytest.mark.skipif(not fp8_available, reason=reason_for_no_fp8),
+            ],
+            id="fp8",
+        ),
+    ],
+)
 @pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
-@pytest.mark.skip(
-    reason="This test hangs on L40 on internal CI. Issue: https://github.com/NVIDIA/bionemo-framework/issues/769"
-)
-def test_train_evo2_stop_at_max_steps_and_continue(tmp_path):
+def test_train_evo2_stop_at_max_steps_and_continue(tmp_path, additional_args):
     max_steps_first_run = 4
     max_steps_second_run = 6
     val_check_interval = 2
@@ -163,7 +413,9 @@ def test_train_evo2_stop_at_max_steps_and_continue(tmp_path):
     log_dir = tmp_path / "evo2"
     checkpoints_dir = log_dir / "checkpoints"
 
-    command_first_run = small_training_cmd(tmp_path, max_steps_first_run, val_check_interval)
+    command_first_run = small_training_cmd(
+        tmp_path, max_steps_first_run, val_check_interval, additional_args=additional_args
+    )
 
     # The first training command to finish at max_steps_first_run
     stdout_first_run = run_command_in_subprocess(command=command_first_run, path=str(tmp_path))
@@ -188,7 +440,9 @@ def test_train_evo2_stop_at_max_steps_and_continue(tmp_path):
     )
 
     # The second training command to continue from max_steps_first_run and finish at max_steps_second_run
-    command_second_run = small_training_cmd(tmp_path, max_steps_second_run, val_check_interval)
+    command_second_run = small_training_cmd(
+        tmp_path, max_steps_second_run, val_check_interval, additional_args=additional_args
+    )
     stdout_second_run = run_command_in_subprocess(command=command_second_run, path=str(tmp_path))
     global_steps_second_run = extract_global_steps_from_log(stdout_second_run)
 

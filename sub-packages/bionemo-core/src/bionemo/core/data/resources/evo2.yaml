@@ -19,7 +19,6 @@
     and bf16 precision with 1% dropout on attention and hidden layers. This lead to a similar final loss as the original 1b model
     on fp8 but it also generalizes to bf16 precision at inference time.
 
-
 - tag: 7b-8k:1.0
   ngc: nvidia/clara/evo2-7b-8k-nemo2:1.0
   ngc_registry: model
@@ -39,7 +38,7 @@
     A 7b parameter evo2 model used in testing, zarr format (deprecated but equivalent to `evo2/7b-8k:1.0`).
 
 - tag: 7b-1m:1.0
-  ngc: null
+  ngc: nvidia/clara/evo2-7b-1m-nemo2:1.0
   ngc_registry: model
   pbss: "s3://bionemo-ci/models/nemo2_evo2_7b_1m.tar.gz"
   sha256: 448cf1f09204c079f9be3e6a46d6349de563fc1713ae5c38c376cfb274647f94 # pragma: allowlist secret

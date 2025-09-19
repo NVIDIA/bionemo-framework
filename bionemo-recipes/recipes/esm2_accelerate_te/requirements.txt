@@ -1,0 +1,7 @@
+accelerate
+datasets
+deepspeed
+hydra-core
+torchmetrics
+transformers
+wandb

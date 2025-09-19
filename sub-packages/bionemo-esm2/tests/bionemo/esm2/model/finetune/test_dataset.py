@@ -32,7 +32,16 @@ def data_to_csv(data, tmp_path, with_label=True):
     """Create a mock protein dataset."""
     csv_file = tmp_path / "protein_dataset.csv"
     # Create a DataFrame
-    df = pd.DataFrame(data, columns=["sequences", "labels"] if with_label else ["sequences"])
+    if not with_label:
+        df = pd.DataFrame(data, columns=["sequences"])
+    else:
+        df = pd.DataFrame(data)
+        if df.shape[1] == 2:
+            df.columns = ["sequences", "labels"]
+        elif df.shape[1] == 3:
+            df.columns = ["sequences", "labels", "resolved"]
+        else:
+            raise ValueError(f"Data has {df.shape[1]} columns, expected 2 or 3")
 
     # Save the DataFrame to a CSV file
     df.to_csv(csv_file, index=False)

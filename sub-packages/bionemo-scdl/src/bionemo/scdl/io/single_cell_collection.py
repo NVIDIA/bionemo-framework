@@ -148,9 +148,9 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         queue.wait()
         mmaps = queue.get_task_results()
 
-        for result in mmaps:
+        for result_path, result in zip(ann_data_paths, mmaps):
             if isinstance(result, Exception):
-                raise RuntimeError(f"Error in processing file {ann}: {result}") from result
+                raise RuntimeError(f"Error in processing file {result_path}: {result}") from result
 
         for mmap_path, mmap in zip(mmap_paths, mmaps):
             if isinstance(mmap, Exception):
