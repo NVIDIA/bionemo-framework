@@ -9,7 +9,6 @@ key_segments:
   wu_steps: False
   pckg_url: False
   file_name_wheel: False
-  model_type: False
   seed: False
   ops_kwargs: False
 
@@ -41,12 +40,11 @@ script_args:
   wu_steps: 5000
   wd: 0.1
   products:
-    - model_type: hyena
-      config_name: 1b
+    - config_name: 1b
       ops_kwargs: "--use-subquadratic_ops"
-    - model_type: mamba
-      config_name: hybrid_mamba_8b
+    - config_name: hybrid_mamba_8b
       ops_kwargs: ""
+      batch_size: 64
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
@@ -92,7 +90,7 @@ script: |-
   --create-tensorboard-logger \
   --result-dir=${tensorboard_dir} \
   --wandb-project=${wandb_project_name} \
-  --wandb-group=${model}_${variant}_${model_type}_${config_name}__${target}__slen${seq_len} \
+  --wandb-group=${model}_${variant}_${config_name}__${target}__slen${seq_len} \
   --wandb-job-type=${pipeline_label} \
   --disable-checkpointing \
   --garbage-collect-at-inference;
