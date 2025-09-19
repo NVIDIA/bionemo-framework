@@ -51,7 +51,3 @@ lr_scheduler_kwargs:
 
 # Model path
 ckpt_dir: ???
-
-# Optional: Load pretrained weights from a checkpoint path 
-# Can be a local path (e.g., "checkpoints/model/final_model") or HuggingFace ID (e.g., "nvidia/esm2_t6_8M_UR50D")
-load_final_checkpoint_from_path: null

@@ -77,9 +77,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     if dist_config.is_main_process():
         wandb.init(**args.wandb_init_args, config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True))
 
-    # Create an empty ESM-2 model with a masked language model head.
-    load_from_checkpoint = args.load_final_checkpoint_from_path is not None
-
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 

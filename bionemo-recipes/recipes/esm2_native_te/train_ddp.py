@@ -72,6 +72,11 @@ def main(args: DictConfig) -> float | None:
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
+    try:
+        del model.esm.contact_head
+    except AttributeError:
+        pass
+
     # Log model and number of parameters on main process.
     if dist_config.is_main_process():
         logger.info("model:\n%s", model)
