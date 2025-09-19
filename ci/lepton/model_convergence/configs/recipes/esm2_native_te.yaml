@@ -10,17 +10,9 @@ wandb_init_args:
   project: "lepton_recipe_convergence_${branch}"
   group: "${recipe_subdir}_${resource_shape}"
 
-train_cmd: train_fsdp2 #mfsdp
+train_cmd: train_fsdp2 # mfsdp
 num_train_steps: 100
 micro_batch_size: 2
-
-# products:
-# - config: L1_15B_perf_test
-#   micro_batch_size: 4
-# - config: L1_3B
-#   micro_batch_size: 32
-# - config: L1_650M
-#   micro_batch_size: 16
 
 products:
   - config: L0_sanity
@@ -33,4 +25,7 @@ train_script: |
   torchrun ${train_cmd}.py \
     --config-name ${config}.yaml \
     num_train_steps=${num_train_steps} \
-    micro_batch_size=${micro_batch_size}
+    micro_batch_size=${micro_batch_size} \
+    wandb_init_args.mode=${wandb_init_args.mode} \
+    +wandb_init_args.project=${wandb_init_args.project} \
+    +wandb_init_args.group=${wandb_init_args.group}
