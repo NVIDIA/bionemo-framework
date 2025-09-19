@@ -109,30 +109,43 @@ submitting. Labels can be accessed in the right sidebar of the GitHub user inter
 
 ### CI Pipeline Configuration Controls
 
-CI pipeline behavior can be controlled via checkboxes in PR descriptions to optimize test execution:
+CI pipeline behavior can be controlled labels to optimize test execution:
 
 Key behaviors:
 
-- Controls processed automatically on PR submit/update
-- Labels applied based on checkbox status
+- Labels are processed automatically on PR submit/update
 - Invalid combinations default to most restrictive option
 
-#### **SKIP_CI**
+By default, CI pipeline is enabled for all PRs and only unit tests are run. To skip CI pipeline, add the `ciflow:skip` label
+
+#### **ciflow:skip**
 
 - Skips entire CI pipeline
 - Use for documentation typos, README updates
 
-#### **INCLUDE_NOTEBOOKS_TESTS**
+#### **ciflow:slow**
 
-- Enables notebook validation tests
+- Enables unit tests labelled as `@pytest.mark.slow` ie CLI tests
+- Use when modifying core functionalities and require extensive moderate complexity testing on a single GPU
+- Disabled by default
+
+#### **ciflow:notebooks**
+
+- Enables notebooks validation tests under `./docs` subfolder and `./sub-packages/*`
 - Use when modifying notebooks or notebook-related code
 - Disabled by default
 
-#### **INCLUDE_SLOW_TESTS**
+#### **ciflow:all**
 
-- Enables unit tests labelled as slow ie CLI tests
-- Use when modifying core functionalities and require extensive, end-2-end, testing
+- Runs unit tests, slow tests and tests execution of notebooks
+- Use when introducing significant codebase changes for comprehansive testing
 - Disabled by default
+
+#### **ciflow:all-recipes**
+
+Without this label, unit tests for recipes in PR CI are run only on folders whose codebases have been modified
+
+- Runs unit tests for all recipes, regardless of whether their codebases have been modified
 
 ### Developer Workflows
 
