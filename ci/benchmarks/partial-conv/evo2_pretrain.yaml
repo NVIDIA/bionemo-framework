@@ -9,6 +9,9 @@ key_segments:
   wu_steps: False
   pckg_url: False
   file_name_wheel: False
+  seed: False
+  ops_kwargs: False
+
 script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
@@ -19,7 +22,6 @@ script_args:
   file_name_wheel: subquadratic-ops
   model: evo2
   variant: train
-  config_name: 1b
   precision: fp8
   gpus: 8
   nodes: 4
@@ -37,6 +39,12 @@ script_args:
   min_lr: 0.000015
   wu_steps: 5000
   wd: 0.1
+  products:
+    - config_name: 1b
+      ops_kwargs: "--use-subquadratic_ops"
+    - config_name: hybrid_mamba_8b
+      ops_kwargs: ""
+      batch_size: 256
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
@@ -55,7 +63,6 @@ script: |-
   --enable-preemption \
   --ckpt-async-save \
   --use-megatron-comm-overlap-llama3-8k \
-  --use-subquadratic_ops \
   --overlap-grad-reduce \
   --clip-grad=${clip_grad} \
   --eod-pad-in-loss-mask \
@@ -78,11 +85,12 @@ script: |-
   --limit-val-batches=20 \
   --log-every-n-steps=50 \
   --val-check-interval=500 \
-  --use-subquadratic_ops \
+  ${ops_kwargs} \
   --create-tflops-callback \
   --create-tensorboard-logger \
   --result-dir=${tensorboard_dir} \
   --wandb-project=${wandb_project_name} \
   --wandb-group=${model}_${variant}_${config_name}__${target}__slen${seq_len} \
   --wandb-job-type=${pipeline_label} \
-  --disable-checkpointing;
+  --disable-checkpointing \
+  --garbage-collect-at-inference;
