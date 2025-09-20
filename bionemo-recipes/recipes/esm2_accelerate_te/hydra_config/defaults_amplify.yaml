@@ -4,7 +4,9 @@ defaults:
 
 model_tag: "nvidia/AMPLIFY_350M"
 stop_after_n_steps: 1_000_000
-max_seq_length: 512
+
+dataset:
+  max_seq_length: 512
 
 trainer:
   learning_rate: 1e-3

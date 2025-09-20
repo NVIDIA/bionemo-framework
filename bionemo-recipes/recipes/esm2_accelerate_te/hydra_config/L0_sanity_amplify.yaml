@@ -7,7 +7,7 @@ stop_after_n_steps: 250
 
 dataset:
   tokenizer_name: ${model_tag}
-  max_seq_length: 1024
+  max_seq_length: 512
   train_load_dataset_kwargs:
     path: "parquet"
     split: "train"
@@ -17,6 +17,7 @@ dataset:
     path: "parquet"
     split: "train"
     data_files: "train.parquet"
+    streaming: False
   truncate_eval_dataset: 10
 
 trainer:
@@ -27,4 +28,4 @@ trainer:
   eval_steps: 1000
   logging_steps: 10
   report_to: "none"
-  dataloader_num_workers: 4
+  dataloader_num_workers: 1

@@ -17,6 +17,7 @@ dataset:
     path: "parquet"
     split: "train"
     data_files: "train.parquet"
+    streaming: False
   truncate_eval_dataset: 10
 
 trainer:

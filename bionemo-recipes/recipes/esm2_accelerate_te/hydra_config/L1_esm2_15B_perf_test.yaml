@@ -3,6 +3,7 @@ defaults:
   - _self_
 
 model_tag: nvidia/esm2_t48_15B_UR50D
+
 stop_after_n_steps: 500
 trainer:
   run_name: "esm2_t48_15B_UR50D_perf"

@@ -1,13 +1,21 @@
 # Training config
-model_name: ???
-micro_batch_size: ???
-max_seq_length: 1024
-data_path: .
+model_tag: ???
 num_train_steps: ???
 
 # TODO: Once BIONEMO-2583 and BIONEMO-2719 are fixed, enable this by default and simplify training scripts to remove the
 # meta-device conditional.
 use_meta_device: false
+
+dataset:
+  tokenizer_name: ${model_tag}
+  micro_batch_size: ???
+  num_workers: 1
+  max_seq_length: 1024
+  load_dataset_kwargs:
+    path: "parquet"
+    split: "train"
+    data_files: "train.parquet"
+    streaming: True
 
 # WandB config
 wandb_init_args:

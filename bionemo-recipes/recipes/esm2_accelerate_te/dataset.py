@@ -58,7 +58,6 @@ def create_datasets_and_collator(
         return tokenizer(
             examples["sequence"],
             truncation=True,
-            padding="max_length",
             max_length=max_seq_length,
         )
 
