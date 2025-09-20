@@ -13,8 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 import textwrap
 from pathlib import Path
+
+from omegaconf import OmegaConf
 
 
 TEMPLATE_PATH = Path(__file__).parent / "wrap_template.sh"
@@ -33,3 +36,22 @@ def render_wrapper_string(script: str, all_config_json: str) -> str:
     tpl = TEMPLATE_PATH.read_text(encoding="utf-8")
     script_indented = textwrap.indent(script.rstrip("\n"), "  ")
     return tpl.replace("__SCRIPT__", script_indented).replace("__ALL_CONFIG_JSON__", all_config_json)
+
+
+def register_resolvers():
+    """Registers custom OmegaConf resolvers for use in configuration files.
+
+    This function currently registers the "sanitize" resolver, which replaces
+    any character in a string that is not alphanumeric, an underscore, or a dash
+    with a dash ("-"). This is useful for generating safe strings for use in
+    resource names, file paths, etc.
+
+    Example:
+        ${sanitize:some/unsafe value!} -> "some-unsafe-value-"
+    """
+
+    def sanitize(value: str) -> str:
+        # Replace all forbidden characters `/ \ # ? % :` with '-'
+        return re.sub(r"[\/\\#\?\%:]", "-", value)
+
+    OmegaConf.register_new_resolver("sanitize", sanitize)
