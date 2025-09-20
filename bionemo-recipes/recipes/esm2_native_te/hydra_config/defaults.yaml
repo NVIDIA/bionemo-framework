@@ -30,7 +30,7 @@ fully_shard_kwargs:
   init_model_with_meta_device: ${use_meta_device}
   check_for_nan_in_grad: true
   grad_reduce_in_fp32: false
-  preserve_fp32_weights: true
+  preserve_fp32_weights: false  # Benchmarking everything in BF16.
   overlap_grad_reduce: true
   overlap_param_gather: true
   sync_grads_each_step: true

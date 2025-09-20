@@ -2,7 +2,8 @@ defaults:
   - defaults
   - _self_
 
-model_tag: "nvidia/esm2_t6_8M_UR50D"
+model_tag: "facebook/esm2_t36_3B_UR50D"
+attn_backend: null # flash_attention_3, flash_attention_2, flex_attention, sdpa, null
 stop_after_n_steps: 250
 
 dataset:
@@ -21,13 +22,13 @@ dataset:
   truncate_eval_dataset: 10
 
 trainer:
-  run_name: "esm2_t6_8M_UR50D_sanity"
-  per_device_train_batch_size: 2
-  per_device_eval_batch_size: 2
+  run_name: ${model_tag}_${attn_backend}_BS${trainer.per_device_train_batch_size}
+  per_device_train_batch_size: 12
+  per_device_eval_batch_size: 12
   save_steps: 1000
   eval_steps: 1000
   logging_steps: 10
-  report_to: "none"
+  report_to: "wandb"
   dataloader_num_workers: 1
   warmup_steps: 0
 
