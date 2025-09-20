@@ -3,6 +3,7 @@ defaults:
 
 # Training config
 model_tag: nvidia/esm2_t6_8M_UR50D
+attn_backend: "null" # sdpa, flex_attention, null, flash_attention_2
 num_train_steps: 250
 
 dataset:
@@ -11,7 +12,8 @@ dataset:
 # WandB config
 wandb_init_args:
   name: "esm2_t6_8M_UR50D_mfsdp_sanity"
-  mode: "offline"
+  project: "bionemo-recipes"
+  # mode: "offline"
 
 # Learning rate scheduler config
 lr_scheduler_kwargs:

@@ -36,6 +36,104 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+class PerfLogger:
+    """Logger for performance metrics."""
+
+    def __init__(self):
+        """Initialize the PerfLogger."""
+        self.total_step_time_buffer = []
+        self.model_step_time_buffer = []
+        self.optimizer_step_time_buffer = []
+        self.samples_per_second_buffer = []
+        self.data_batch_load_time_buffer = []
+        self.num_tokens_buffer = []
+        self.num_sig_tokens_buffer = []
+        self.tps_buffer = []
+        self.sig_tps_buffer = []
+        self.alloc_memory_gb_buffer = []
+        self.reserv_memory_gb_buffer = []
+
+    def log_step_metrics(
+        self,
+        step,
+        micro_batch_size,
+        seq_length,
+        loss_value,
+        total_norm,
+        step_time,
+        model_step_time,
+        optimizer_step_time,
+        data_batch_load_time,
+        num_sig_tokens,
+        current_lr,
+    ):
+        """Log metrics to logger and wandb on main process."""
+        # Single-rank training progress and metrics.
+        logger.info(
+            f"Train: [Step {step:>2d}  "
+            f"Loss: {loss_value:#.3g}  "
+            f"Time: {step_time:.3f}s ({micro_batch_size / step_time:>5.2f} samples/sec) "
+            f"TPS: {seq_length * micro_batch_size / step_time:.3f} tokens/sec  "
+            f"Non-Pad TPS: {num_sig_tokens / step_time:.3f} tokens/sec  "
+            f"Memory: {torch.cuda.memory.max_memory_reserved() / 1024**3:.3f} GB  "
+            f"LR: {current_lr:.3e}  "
+            f"Data Load Time: {data_batch_load_time:.3f}s"
+        )
+
+        # Performance metrics on a single/local rank.
+        self.total_step_time_buffer.append(step_time)
+        self.model_step_time_buffer.append(model_step_time)
+        self.optimizer_step_time_buffer.append(optimizer_step_time)
+        self.data_batch_load_time_buffer.append(data_batch_load_time)
+        self.samples_per_second_buffer.append(micro_batch_size / step_time)
+        self.num_tokens_buffer.append(seq_length * micro_batch_size)
+        self.num_sig_tokens_buffer.append(num_sig_tokens)
+        self.tps_buffer.append(seq_length * micro_batch_size / step_time)
+        self.sig_tps_buffer.append(num_sig_tokens / step_time)
+        self.alloc_memory_gb_buffer.append(torch.cuda.memory.memory_allocated() / 1024**3)
+        self.reserv_memory_gb_buffer.append(torch.cuda.memory.memory_reserved() / 1024**3)
+        wandb.log(
+            {
+                "train/loss": loss_value,
+                "train/global_step": step,
+                "train/learning_rate": current_lr,
+                "train/grad_norm": total_norm,
+                "train/perf/model_step_time": self.model_step_time_buffer[-1],
+                "train/perf/total_step_time": self.total_step_time_buffer[-1],
+                "train/perf/optimizer_step_time": self.optimizer_step_time_buffer[-1],
+                "train/perf/data_batch_load_time": self.data_batch_load_time_buffer[-1],
+                "train/perf/samples_per_second": self.samples_per_second_buffer[-1],
+                "train/perf/num_tokens": self.num_tokens_buffer[-1],
+                "train/perf/num_sig_tokens": self.num_sig_tokens_buffer[-1],
+                "train/perf/tps": self.tps_buffer[-1],
+                "train/perf/sig_tps": self.sig_tps_buffer[-1],
+                "train/perf/alloc_memory_gb": self.alloc_memory_gb_buffer[-1],
+                "train/perf/reserv_memory_gb": self.reserv_memory_gb_buffer[-1],
+            }
+        )
+
+    def log_average_metrics(self):
+        """Log average metrics to logger and wandb on main process."""
+        wandb.log(
+            {
+                "perf/avg_step_time_in_seconds": sum(self.total_step_time_buffer) / len(self.total_step_time_buffer),
+                "perf/avg_model_step_time": sum(self.model_step_time_buffer) / len(self.model_step_time_buffer),
+                "perf/avg_optimizer_step_time": sum(self.optimizer_step_time_buffer)
+                / len(self.optimizer_step_time_buffer),
+                "perf/avg_data_batch_load_time": sum(self.data_batch_load_time_buffer)
+                / len(self.data_batch_load_time_buffer),
+                "perf/avg_samples_per_second": sum(self.samples_per_second_buffer)
+                / len(self.samples_per_second_buffer),
+                "perf/avg_num_tokens": sum(self.num_tokens_buffer) / len(self.num_tokens_buffer),
+                "perf/avg_num_sig_tokens": sum(self.num_sig_tokens_buffer) / len(self.num_sig_tokens_buffer),
+                "perf/avg_tps": sum(self.tps_buffer) / len(self.tps_buffer),
+                "perf/avg_sig_tps": sum(self.sig_tps_buffer) / len(self.sig_tps_buffer),
+                "perf/avg_alloc_memory_gb": sum(self.alloc_memory_gb_buffer) / len(self.alloc_memory_gb_buffer),
+                "perf/avg_reserv_memory_gb": sum(self.reserv_memory_gb_buffer) / len(self.reserv_memory_gb_buffer),
+            }
+        )
+
+
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using ddp.
@@ -63,6 +161,8 @@ def main(args: DictConfig) -> float | None:
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.dataset.use_sequence_packing:
         config.attn_input_format = "thd"
+    if "facebook" in args.model_tag and args.attn_backend is not None:
+        config._attn_implementation = args.attn_backend
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
@@ -104,12 +204,20 @@ def main(args: DictConfig) -> float | None:
     model.train()
     if dist_config.is_main_process():
         progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
+
+    # Training loop + performance metrics.
+    perf_logger = PerfLogger()
     previous_step_time = time.perf_counter()
-    loss_value = None
     for step in range(args.num_train_steps):
         # Get batch.
         batch = next(train_iterator)
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+
+        # Calculate number of non-padded tokens for THD comparison.
+        num_sig_tokens = batch["input_ids"][batch["input_ids"] != 1].shape[0]
+
+        pre_forward_backward_time = time.perf_counter()
+        data_batch_load_time = pre_forward_backward_time - previous_step_time
 
         # Forward pass with mixed precision.
         with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
@@ -120,6 +228,9 @@ def main(args: DictConfig) -> float | None:
         loss = outputs.loss
         loss.backward()
 
+        post_forward_backward_time = time.perf_counter()
+        model_step_time = post_forward_backward_time - pre_forward_backward_time
+
         # Compute and clip gradient norms.
         total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
@@ -128,33 +239,54 @@ def main(args: DictConfig) -> float | None:
         scheduler.step()
         optimizer.zero_grad()
 
+        post_optimizer_step_time = time.perf_counter()
+        optimizer_step_time = post_optimizer_step_time - post_forward_backward_time
+
         # Log metrics to logger and wandb on main process.
+        loss_value = loss.detach().item()
         if dist_config.is_main_process():
-            loss_value = loss.detach().item()
             current_time = time.perf_counter()
             step_time = current_time - previous_step_time
             previous_step_time = current_time
-
             current_lr = optimizer.param_groups[0]["lr"]
-            logger.info(
-                "Step %d loss: %f, grad_norm: %f, lr: %f",
+
+            # Rank 0 training progress and metrics.
+            perf_logger.log_step_metrics(
                 step,
+                args.dataset.micro_batch_size,
+                args.dataset.max_seq_length,
                 loss_value,
                 total_norm,
+                step_time,
+                model_step_time,
+                optimizer_step_time,
+                data_batch_load_time,
+                num_sig_tokens,
                 current_lr,
-            )
-            wandb.log(
-                {
-                    "train/loss": loss_value,
-                    "train/global_step": step,
-                    "train/learning_rate": current_lr,
-                    "train/grad_norm": total_norm,
-                    "train/step_time": step_time,
-                }
             )
 
             progress_bar.update(1)
             progress_bar.set_postfix({"loss": loss_value})
+
+    # Log average performance metrics.
+    if dist_config.is_main_process():
+        # Log average performance metrics.
+        perf_logger.log_average_metrics()
+
+        # Report Torch memory profile.
+        torch_memory_profiler_snapshot = torch.cuda.memory._snapshot()
+        from pathlib import Path
+        from pickle import dump
+
+        from hydra.core.hydra_config import HydraConfig
+
+        with open(
+            # Path will only exist when using @hydra.main()!
+            Path(HydraConfig.get().runtime.output_dir)
+            / f"{args.wandb_init_args.name.replace('/', '_')}_torch_memory_profiler_snapshot.pickle",
+            "wb",
+        ) as f:
+            dump(torch_memory_profiler_snapshot, f)
 
     # Clean up distributed training
     if dist_config.is_main_process():
@@ -166,4 +298,5 @@ def main(args: DictConfig) -> float | None:
 
 
 if __name__ == "__main__":
+    torch.cuda.memory._record_memory_history(max_entries=250000)
     main()

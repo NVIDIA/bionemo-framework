@@ -3,6 +3,7 @@ defaults:
 
 # Training config
 model_tag: nvidia/esm2_t48_15B_UR50D
+attn_backend: "null" # sdpa, flex_attention, null, flash_attention_2
 num_train_steps: 500
 
 dataset:
