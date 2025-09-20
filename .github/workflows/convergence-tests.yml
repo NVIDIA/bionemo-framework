@@ -18,10 +18,9 @@ on:
         default: "esm2_accelerate"
         type: choice
         options:
-          - amplify_accelerate_te_fp8.yaml
-          - esm2_accelerate
-          - esm2_native_te_mfsdp
+          - esm2_accelerate_te.yaml
           - esm2_native_te_nvfsdp_thd
+          - esm2_native_te
           - geneformer_native_te_mfsdp_fp8
       config_override:
         description: "Optional: run only these product configs (CSV). Examples: 10m  or  10m,4b. Leave blank to run all."
