@@ -12,7 +12,6 @@ wandb_init_args:
 
 train_cmd: train_fsdp2 # mfsdp
 num_train_steps: 100
-micro_batch_size: 2
 
 products:
   - config: L0_sanity
@@ -25,7 +24,6 @@ train_script: |
   torchrun ${train_cmd}.py \
     --config-name ${config}.yaml \
     num_train_steps=${num_train_steps} \
-    micro_batch_size=${micro_batch_size} \
     wandb_init_args.mode=${wandb_init_args.mode} \
     +wandb_init_args.project=${wandb_init_args.project} \
     +wandb_init_args.group=${wandb_init_args.group}
