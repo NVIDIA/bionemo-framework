@@ -19,7 +19,7 @@ on:
         type: choice
         options:
           - esm2_accelerate_te.yaml
-          - esm2_native_te_nvfsdp_thd
+          - esm2_native_te_mfsdp_thd
           - esm2_native_te
           - geneformer_native_te_mfsdp_fp8
       config_override:
