@@ -42,9 +42,13 @@ script_args:
   products:
     - config_name: 1b
       ops_kwargs: "--use-subquadratic_ops"
+      tp: 1
+      acc_grad: 1
     - config_name: hybrid_mamba_8b
       ops_kwargs: ""
       tp: 4
+      acc_grad: 64
+      batch_size: 64
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
