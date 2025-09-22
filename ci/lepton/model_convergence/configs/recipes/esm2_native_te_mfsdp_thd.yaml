@@ -3,12 +3,15 @@ defaults:
   - /base
   - _self_
 
-resource_shape: gpu.2xh200
+resource_shape: gpu.2xh100-sxm
+node_group: yo-bom-lepton-001
+
+wandb_init_args:
+  project: "lepton_recipe_convergence_${sanitize:${branch}}"
+  group: "${recipe_subdir}_${resource_shape}"
+  job_type: "training"
 
 recipe_subdir: esm2_native_te_mfsdp_thd
-wandb_init_args:
-  project: "lepton_recipe_convergence_${branch}"
-  group: "${recipe_subdir}_${resource_shape}"
 
 train_cmd: train
 num_train_steps: 100
@@ -26,5 +29,4 @@ train_script: |
     --config-name ${config}.yaml \
     num_train_steps=${num_train_steps} \
     micro_batch_size=${micro_batch_size} \
-    +wandb_init_args.mode=${wandb_init_args.mode} \
     wandb_init_args.project=${wandb_init_args.project}

@@ -6,9 +6,12 @@ defaults:
 resource_shape: gpu.2xh100-sxm
 node_group: yo-bom-lepton-001
 recipe_subdir: esm2_native_te
+branch: jwilber/add-esm2-configs
+
 wandb_init_args:
-  project: "lepton_recipe_convergence_${branch}"
+  project: "lepton_recipe_convergence_${sanitize:${branch}}"
   group: "${recipe_subdir}_${resource_shape}"
+  job_type: "training"
 
 train_cmd: train_fsdp2 # mfsdp
 num_train_steps: 100
