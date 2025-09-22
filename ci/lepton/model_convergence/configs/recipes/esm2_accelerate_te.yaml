@@ -29,6 +29,6 @@ train_script: |
     ${train_cmd}.py \
     --config-name=${config} \
     stop_after_n_steps=${stop_after_n_steps} \
-    wandb_init_args.mode=${wandb_init_args.mode} \
+    +wandb_init_args.mode=${wandb_init_args.mode} \
     +wandb_init_args.project=${wandb_init_args.project} \
     +wandb_init_args.group=${wandb_init_args.group}
