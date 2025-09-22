@@ -16,3 +16,7 @@ trainer:
     min_lr: 1e-4
   warmup_steps: 1_000
   max_steps: 1_000_000
+
+# WandB config
+wandb_init_args:
+  name: ???
