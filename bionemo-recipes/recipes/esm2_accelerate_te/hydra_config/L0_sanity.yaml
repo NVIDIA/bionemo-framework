@@ -30,3 +30,6 @@ trainer:
   report_to: "none"
   dataloader_num_workers: 1
   warmup_steps: 0
+
+wandb_init_args:
+  mode: "offline"

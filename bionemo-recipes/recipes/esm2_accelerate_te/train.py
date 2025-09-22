@@ -38,10 +38,7 @@ logger = logging.getLogger(__name__)
 def main(args: DictConfig):
     """Entrypoint."""
     # add wandb logging on main process
-    if (
-        (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0)
-        and args.trainer.get("report_to") == "wandb"
-    ):
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         wandb.init(config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True), **args.wandb_init_args)
     # Initialize Accelerate's distributed state early so torch device is set per process
     state = PartialState()
@@ -87,7 +84,7 @@ def main(args: DictConfig):
     if training_args.do_eval:
         trainer.evaluate()
 
-    if args.trainer.get("report_to") == "wandb" and wandb.run is not None:
+    if wandb.run is not None:
         wandb.finish()
 
     if torch.distributed.is_available() and torch.distributed.is_initialized():

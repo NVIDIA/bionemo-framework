@@ -52,4 +52,6 @@ trainer:
   dataloader_num_workers: 8
   torch_compile: False
 
-wandb_init_args: {}
+# WandB config
+wandb_init_args:
+  name: ???
