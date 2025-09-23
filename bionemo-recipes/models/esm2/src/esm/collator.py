@@ -57,7 +57,6 @@ class MLMDataCollatorWithFlattening:
         mlm_probability (float | None): Probability of masking tokens. Defaults to 0.15.
         mask_replace_prob (float): Probability of replacing masked tokens with [MASK]. Defaults to 0.8.
         random_replace_prob (float): Probability of replacing masked tokens with random tokens. Defaults to 0.1.
-        tf_experimental_compile (bool): Whether to use TensorFlow experimental compilation. Defaults to False.
         return_tensors (str): Format for returned tensors. Only "pt" (PyTorch) is supported. Defaults to "pt".
         seed (int | None): Random seed for reproducible masking. Defaults to None.
         pad_to_multiple_of (int | None): If set, pads the total sequence length to be divisible
@@ -105,7 +104,6 @@ class MLMDataCollatorWithFlattening:
         mlm_probability: float | None = 0.15,
         mask_replace_prob: float = 0.8,
         random_replace_prob: float = 0.1,
-        tf_experimental_compile: bool = False,
         return_tensors: str = "pt",
         seed: int | None = None,
         pad_to_multiple_of: int | None = None,
@@ -118,7 +116,6 @@ class MLMDataCollatorWithFlattening:
             mlm_probability (float | None): Probability of masking tokens. Defaults to 0.15.
             mask_replace_prob (float): Probability of replacing masked tokens with [MASK]. Defaults to 0.8.
             random_replace_prob (float): Probability of replacing masked tokens with random tokens. Defaults to 0.1.
-            tf_experimental_compile (bool): Whether to use TensorFlow experimental compilation. Defaults to False.
             return_tensors (str): Format for returned tensors. Only "pt" (PyTorch) is supported. Defaults to "pt".
             seed (int | None): Random seed for reproducible masking. Defaults to None.
             pad_to_multiple_of (int | None): If set, pads the total sequence length to be divisible
@@ -130,7 +127,6 @@ class MLMDataCollatorWithFlattening:
             mlm_probability=mlm_probability,
             mask_replace_prob=mask_replace_prob,
             random_replace_prob=random_replace_prob,
-            tf_experimental_compile=tf_experimental_compile,
             return_tensors=return_tensors,
             seed=seed,
         )

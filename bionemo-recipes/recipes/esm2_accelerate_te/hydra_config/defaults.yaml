@@ -51,3 +51,7 @@ trainer:
   include_num_input_tokens_seen: True
   dataloader_num_workers: 8
   torch_compile: False
+
+# WandB config
+wandb_init_args:
+  name: ???

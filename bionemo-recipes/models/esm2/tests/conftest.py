@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 import os
 
 import pytest
 import torch
+import transformer_engine.pytorch
 from datasets import Dataset
 from torch.utils.data import DataLoader
 from transformers import AutoModelForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
@@ -36,6 +38,7 @@ if not os.environ.get("TRITON_LIBCUDA_PATH"):
 def use_te_debug(monkeypatch):
     monkeypatch.setenv("NVTE_DEBUG", "1")
     monkeypatch.setenv("NVTE_DEBUG_LEVEL", "2")
+    importlib.reload(transformer_engine.pytorch)
 
 
 @pytest.fixture

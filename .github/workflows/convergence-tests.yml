@@ -3,6 +3,14 @@ name: "BioNeMo Model Convergence Tests"
 on:
   workflow_dispatch:
     inputs:
+      node_group:
+        description: "DGX Lepton Node Group (Cluster) to use"
+        required: true
+        default: "yo-bom-lepton-001"
+        type: choice
+        options:
+          - yo-bom-lepton-001
+          - nv-int-multiteam-nebius-h200-01
       branch:
         description: "Branch to use (ignored if commit SHA is provided)"
         required: true
@@ -18,10 +26,9 @@ on:
         default: "esm2_accelerate"
         type: choice
         options:
-          - amplify_accelerate_te_fp8.yaml
-          - esm2_accelerate
-          - esm2_native_te_mfsdp
-          - esm2_native_te_nvfsdp_thd
+          - esm2_accelerate_te.yaml
+          - esm2_native_te
+          - esm2_native_te_mfsdp_thd
           - geneformer_native_te_mfsdp_fp8
       config_override:
         description: "Optional: run only these product configs (CSV). Examples: 10m  or  10m,4b. Leave blank to run all."
@@ -65,4 +72,5 @@ jobs:
             --config-name recipes/${{ inputs.model_config }} \
             $RUN_ONLY_ARGS \
             branch=${{ inputs.branch }} \
-            commit_sha=${{ inputs.commit_sha }}
+            commit_sha=${{ inputs.commit_sha }} \
+            node_group=${{ inputs.node_group }}
