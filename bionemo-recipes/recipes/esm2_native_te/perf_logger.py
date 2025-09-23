@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+import pprint
 import time
 from collections import deque
 
@@ -42,12 +43,14 @@ class PerfLogger:
     def __init__(self, dist_config: DistributedConfig, args: DictConfig):
         """Initialize the logger."""
         self._dist_config = dist_config
+        self._run_config = OmegaConf.to_container(args, resolve=True, throw_on_missing=True)
+
         self.min_loss = float("inf")
         if not dist_config.is_main_process():
             return
 
         # Log the entire args object to wandb for experiment tracking and reproducibility.s
-        wandb.init(**args.wandb_init_args, config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True))
+        wandb.init(**args.wandb_init_args, config=self._run_config)
 
         self._progress_bar = tqdm(total=args.num_train_steps, desc="Training")
 
@@ -129,6 +132,10 @@ class PerfLogger:
 
         wandb.finish()
         self._progress_bar.close()
+
+        # Log the run config, distributed config, and final averaged metrics to stdout.
+        logger.info("RUN CONFIG:\n%s", pprint.pformat(self._run_config))
+        logger.info("DISTRIBUTED CONFIG:\n%s", pprint.pformat(self._dist_config.__dict__))
         logger.info(
             f"FINAL METRICS:\n"
             f"Minimum loss seen: {self.min_loss:.3g}\n"
