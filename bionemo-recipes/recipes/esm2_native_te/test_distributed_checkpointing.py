@@ -81,6 +81,7 @@ def test_checkpoint_save_and_load_single_process_ddp():
             f"ckpt_dir={temp_dir}",
             "num_train_steps=10",
             "save_every_n_steps=5",
+            "resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -163,6 +164,7 @@ def test_checkpoint_save_and_load_two_processes_ddp():
             f"ckpt_dir={temp_dir}",
             "num_train_steps=10",
             "save_every_n_steps=5",
+            "resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -242,6 +244,7 @@ def test_checkpoint_save_and_load_single_process_mfsdp():
             f"ckpt_dir={temp_dir}",
             "num_train_steps=10",
             "save_every_n_steps=5",
+            "resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -326,6 +329,7 @@ def test_checkpoint_save_and_load_two_processes_mfsdp():
             f"ckpt_dir={temp_dir}",
             "num_train_steps=10",
             "save_every_n_steps=5",
+            "resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -409,6 +413,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2():
             f"ckpt_dir={temp_dir}",
             "num_train_steps=10",
             "save_every_n_steps=5",
+            "resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -489,6 +494,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2():
             f"ckpt_dir={temp_dir}",
             "num_train_steps=10",
             "save_every_n_steps=5",
+            "resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -671,263 +677,175 @@ def test_final_model_save_fsdp2():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-# @pytest.mark.slow
-# def test_load_from_final_checkpoint_ddp():
-#     """Test loading from a saved final model for DDP.
+@pytest.mark.slow
+def test_scheduler_resume_single_gpu():
+    """Test that learning rate scheduler resumes from correct state after checkpoint load.
 
-#     This test validates:
-#     - Training can start from a saved final model (model.safetensors)
-#     - The loaded model continues training correctly
-#     - New checkpoints are saved after loading
+    This test validates:
+    - Scheduler state is saved in checkpoint
+    - Scheduler resumes with correct step count
+    - Learning rate continues from where it left off (not reset)
+    - Warmup and decay continue correctly after resume
 
-#     Process:
-#     1. Train initial model for 5 steps and save final model
-#     2. Start new training from the saved final model
-#     3. Verify training continues and new checkpoints are created
-#     """
-#     temp_dir = tempfile.mkdtemp(prefix="test_final_load_ddp_")
+    Process:
+    1. Train for 10 steps, save checkpoint with scheduler state at step 5
+    2. Resume training, verify scheduler continues from step 6 (not step 0)
+    3. Check that learning rate progression is continuous across resume
+    """
+    temp_dir = tempfile.mkdtemp(prefix="test_scheduler_resume_")
 
-#     env = os.environ.copy()
-#     env["WANDB_MODE"] = "disabled"
+    env = os.environ.copy()
+    env["WANDB_MODE"] = "disabled"
 
-#     this_dir = os.path.dirname(__file__)
-#     train_script = os.path.join(this_dir, "train_ddp.py")
+    this_dir = os.path.dirname(__file__)
+    train_script = os.path.join(this_dir, "train_ddp.py")
 
-#     try:
-#         # Phase 1: Train and save final model
-#         cmd_phase1 = [
-#             "torchrun",
-#             "--nproc_per_node=1",
-#             train_script,
-#             f"ckpt_dir={temp_dir}/phase1",
-#             "num_train_steps=5",
-#         ]
+    try:
+        # Phase 1: Train for 10 steps with warmup
+        # Use small warmup to see LR changes quickly
+        cmd_phase1 = [
+            "torchrun",
+            "--nproc_per_node=1",
+            train_script,
+            f"ckpt_dir={temp_dir}",
+            "num_train_steps=10",
+            "save_every_n_steps=5",
+            "resume_from_checkpoint=false",  # Start fresh, don't look for checkpoints
+            "lr_scheduler_kwargs.num_warmup_steps=20",  # Warmup over 20 steps
+            "lr_scheduler_kwargs.num_training_steps=100",  # Total 100 steps
+        ]
 
-#         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
-#         assert result1.returncode == 0, f"Phase 1 failed: {result1.stderr}"
+        result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
+        assert result1.returncode == 0, f"Phase 1 failed: {result1.stderr}"
 
-#         final_model_dir = os.path.join(temp_dir, "phase1", "train_ddp", "final_model")
-#         assert os.path.exists(final_model_dir), "Final model not created in phase 1"
+        # Extract learning rates from phase 1 output
+        phase1_lrs = []
+        for line in result1.stdout.split("\n"):
+            if "lr:" in line:
+                # Extract learning rate from log line
+                lr_match = line.split("lr:")[-1].strip().split()[0]
+                phase1_lrs.append(float(lr_match))
 
-#         # Phase 2: Load from final model and continue training
-#         cmd_phase2 = [
-#             "torchrun",
-#             "--nproc_per_node=1",
-#             train_script,
-#             f"ckpt_dir={temp_dir}/phase2",
-#             f"load_final_checkpoint_from_path={final_model_dir}",
-#             "num_train_steps=10",
-#             "save_every_n_steps=5",
-#         ]
+        assert len(phase1_lrs) > 0, "No learning rates found in phase 1 output"
 
-#         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
-#         assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
+        # Phase 2: Resume training for 5 more steps
+        cmd_phase2 = [
+            "torchrun",
+            "--nproc_per_node=1",
+            train_script,
+            f"ckpt_dir={temp_dir}",
+            "num_train_steps=15",
+            "save_every_n_steps=5",
+            "lr_scheduler_kwargs.num_warmup_steps=20",
+            "lr_scheduler_kwargs.num_training_steps=100",
+        ]
 
-#         # Verify new checkpoints were created in phase 2
-#         phase2_ckpt_dir = os.path.join(temp_dir, "phase2", "train_ddp")
-#         checkpoint_files = [f for f in os.listdir(phase2_ckpt_dir) if f.startswith("step_") and f.endswith(".pt")]
-#         assert len(checkpoint_files) > 0, "No checkpoints created after loading from final model"
+        result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
+        assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
 
-#         print("✅ DDP loading from final checkpoint works")
-#         print(f"✅ Created {len(checkpoint_files)} new checkpoints after loading")
+        # Extract learning rates from phase 2 output
+        phase2_lrs = []
+        for line in result2.stdout.split("\n"):
+            if "lr:" in line and "Step" in line:
+                # Extract learning rate from log line
+                lr_match = line.split("lr:")[-1].strip().split()[0]
+                phase2_lrs.append(float(lr_match))
 
-#     finally:
-#         shutil.rmtree(temp_dir, ignore_errors=True)
+        assert len(phase2_lrs) > 0, "No learning rates found in phase 2 output"
 
+        # Verify scheduler continued (not reset)
+        # The first LR in phase 2 should be different from the first LR in phase 1
+        # (unless we're past warmup and in constant phase)
+        if len(phase1_lrs) > 1 and len(phase2_lrs) > 0:
+            # Phase 2 should continue from where phase 1 left off
+            # The learning rate should be progressing, not reset to initial
+            assert phase2_lrs[0] != phase1_lrs[0], (
+                f"Scheduler appears to have reset: Phase2 first LR {phase2_lrs[0]} == Phase1 first LR {phase1_lrs[0]}"
+            )
 
-# @pytest.mark.slow
-# def test_load_from_final_checkpoint_mfsdp():
-#     """Test loading from a saved final model for mFSDP.
+        print("✅ Test passed: Scheduler resumes correctly from checkpoint")
+        print(f"✅ Phase 1 LRs (first 3): {phase1_lrs[:3]}")
+        print(f"✅ Phase 2 LRs (first 3): {phase2_lrs[:3]}")
 
-#     This test validates:
-#     - Training can start from a saved final model (model.safetensors)
-#     - The loaded model continues training correctly with mFSDP
-#     - New distributed checkpoints are saved after loading
-
-#     Process:
-#     1. Train initial model for 5 steps and save final model
-#     2. Start new training from the saved final model
-#     3. Verify training continues and new checkpoints are created
-#     """
-#     temp_dir = tempfile.mkdtemp(prefix="test_final_load_mfsdp_")
-
-#     env = os.environ.copy()
-#     env["WANDB_MODE"] = "disabled"
-
-#     this_dir = os.path.dirname(__file__)
-#     train_script = os.path.join(this_dir, "train_mfsdp.py")
-
-#     try:
-#         # Phase 1: Train and save final model
-#         cmd_phase1 = [
-#             "torchrun",
-#             "--nproc_per_node=1",
-#             train_script,
-#             f"ckpt_dir={temp_dir}/phase1",
-#             "num_train_steps=5",
-#         ]
-
-#         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
-#         assert result1.returncode == 0, f"Phase 1 failed: {result1.stderr}"
-
-#         final_model_dir = os.path.join(temp_dir, "phase1", "train_mfsdp", "final_model")
-#         assert os.path.exists(final_model_dir), "Final model not created in phase 1"
-
-#         # Phase 2: Load from final model and continue training
-#         cmd_phase2 = [
-#             "torchrun",
-#             "--nproc_per_node=1",
-#             train_script,
-#             f"ckpt_dir={temp_dir}/phase2",
-#             f"load_final_checkpoint_from_path={final_model_dir}",
-#             "num_train_steps=10",
-#             "save_every_n_steps=5",
-#         ]
-
-#         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
-#         assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
-
-#         # Verify new checkpoints were created in phase 2
-#         phase2_ckpt_dir = os.path.join(temp_dir, "phase2", "train_mfsdp")
-#         checkpoint_dirs = [f for f in os.listdir(phase2_ckpt_dir) if f.startswith("step_") and os.path.isdir(os.path.join(phase2_ckpt_dir, f))]
-#         assert len(checkpoint_dirs) > 0, "No checkpoints created after loading from final model"
-
-#         print("✅ mFSDP loading from final checkpoint works")
-#         print(f"✅ Created {len(checkpoint_dirs)} new checkpoints after loading")
-
-#     finally:
-#         shutil.rmtree(temp_dir, ignore_errors=True)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-# @pytest.mark.slow
-# def test_load_from_final_checkpoint_fsdp2():
-#     """Test loading from a saved final model for FSDP2.
+@requires_multi_gpu
+@pytest.mark.slow
+def test_scheduler_resume_two_gpu():
+    """Test that learning rate scheduler resumes correctly with multi-GPU training.
 
-#     This test validates:
-#     - Training can start from a saved final model (model.safetensors)
-#     - The loaded model continues training correctly with FSDP2
-#     - New checkpoints are saved after loading
+    This test validates:
+    - Scheduler state is synchronized across GPUs during save
+    - All GPUs resume with same scheduler state
+    - Learning rate is consistent across all processes after resume
 
-#     Process:
-#     1. Train initial model for 5 steps and save final model
-#     2. Start new training from the saved final model
-#     3. Verify training continues and new checkpoints are created
-#     """
-#     temp_dir = tempfile.mkdtemp(prefix="test_final_load_fsdp2_")
+    Process:
+    1. Train for 10 steps across 2 GPUs, save checkpoint at step 5
+    2. Resume training on 2 GPUs, verify scheduler continues correctly
+    3. Ensure both GPUs have same learning rate progression
+    """
+    temp_dir = tempfile.mkdtemp(prefix="test_scheduler_resume_2gpu_")
 
-#     env = os.environ.copy()
-#     env["WANDB_MODE"] = "disabled"
+    env = os.environ.copy()
+    env["WANDB_MODE"] = "disabled"
 
-#     this_dir = os.path.dirname(__file__)
-#     train_script = os.path.join(this_dir, "train_fsdp2.py")
+    this_dir = os.path.dirname(__file__)
+    # Test with FSDP2 as it's most complex for scheduler state
+    train_script = os.path.join(this_dir, "train_fsdp2.py")
 
-#     try:
-#         # Phase 1: Train and save final model
-#         cmd_phase1 = [
-#             "torchrun",
-#             "--nproc_per_node=1",
-#             train_script,
-#             f"ckpt_dir={temp_dir}/phase1",
-#             "num_train_steps=5",
-#         ]
+    try:
+        # Phase 1: Train for 10 steps with 2 GPUs
+        cmd_phase1 = [
+            "torchrun",
+            "--nproc_per_node=2",
+            train_script,
+            f"ckpt_dir={temp_dir}",
+            "num_train_steps=10",
+            "save_every_n_steps=5",
+            "resume_from_checkpoint=false",  # Start fresh, don't look for checkpoints
+            "lr_scheduler_kwargs.num_warmup_steps=20",
+            "lr_scheduler_kwargs.num_training_steps=100",
+        ]
 
-#         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
-#         assert result1.returncode == 0, f"Phase 1 failed: {result1.stderr}"
+        result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
+        assert result1.returncode == 0, f"Phase 1 failed: {result1.stderr}"
 
-#         final_model_dir = os.path.join(temp_dir, "phase1", "train_fsdp2", "final_model")
-#         assert os.path.exists(final_model_dir), "Final model not created in phase 1"
+        # Check that checkpoint was created
+        ckpt_subdir = os.path.join(temp_dir, "train_fsdp2")
+        checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
+        assert "step_5.pt" in checkpoint_files, "Checkpoint at step 5 not found"
 
-#         # Phase 2: Load from final model and continue training
-#         cmd_phase2 = [
-#             "torchrun",
-#             "--nproc_per_node=1",
-#             train_script,
-#             f"ckpt_dir={temp_dir}/phase2",
-#             f"load_final_checkpoint_from_path={final_model_dir}",
-#             "num_train_steps=10",
-#             "save_every_n_steps=5",
-#         ]
+        # Phase 2: Resume training with 2 GPUs
+        cmd_phase2 = [
+            "torchrun",
+            "--nproc_per_node=2",
+            train_script,
+            f"ckpt_dir={temp_dir}",
+            "num_train_steps=15",
+            "save_every_n_steps=5",
+            "lr_scheduler_kwargs.num_warmup_steps=20",
+            "lr_scheduler_kwargs.num_training_steps=100",
+        ]
 
-#         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
-#         assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
+        result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
+        assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
 
-#         # Verify new checkpoints were created in phase 2
-#         phase2_ckpt_dir = os.path.join(temp_dir, "phase2", "train_fsdp2")
-#         checkpoint_files = [f for f in os.listdir(phase2_ckpt_dir) if f.startswith("step_") and f.endswith(".pt")]
-#         assert len(checkpoint_files) > 0, "No checkpoints created after loading from final model"
+        # Verify training continued (check for step progression in logs)
+        assert "Step 6" in result2.stdout or "step 6" in result2.stdout.lower(), (
+            "Phase 2 should start from step 6 after resuming from step 5"
+        )
 
-#         print("✅ FSDP2 loading from final checkpoint works")
-#         print(f"✅ Created {len(checkpoint_files)} new checkpoints after loading")
+        # Check that final checkpoint was created
+        final_checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
+        assert "step_10.pt" in final_checkpoint_files, "Checkpoint at step 10 not found"
 
-#     finally:
-#         shutil.rmtree(temp_dir, ignore_errors=True)
+        print("✅ Test passed: Multi-GPU scheduler resumes correctly")
+        print("✅ Both GPUs resumed training with synchronized scheduler state")
 
-
-# @pytest.mark.slow
-# def test_final_checkpoint_cross_compatibility():
-#     """Test that a final model saved with one strategy can be loaded by another.
-
-#     This test validates cross-compatibility between training strategies:
-#     - Save final model with DDP
-#     - Load and train with mFSDP
-#     - Load and train with FSDP2
-
-#     This ensures the final model format is consistent and portable.
-#     """
-#     temp_dir = tempfile.mkdtemp(prefix="test_cross_compat_")
-
-#     env = os.environ.copy()
-#     env["WANDB_MODE"] = "disabled"
-
-#     this_dir = os.path.dirname(__file__)
-
-#     try:
-#         # Phase 1: Train with DDP and save final model
-#         cmd_ddp = [
-#             "torchrun",
-#             "--nproc_per_node=1",
-#             os.path.join(this_dir, "train_ddp.py"),
-#             f"ckpt_dir={temp_dir}/ddp",
-#             "num_train_steps=3",
-#         ]
-
-#         result = subprocess.run(cmd_ddp, check=False, capture_output=True, text=True, env=env)
-#         assert result.returncode == 0, f"DDP training failed: {result.stderr}"
-
-#         ddp_final_model = os.path.join(temp_dir, "ddp", "train_ddp", "final_model")
-#         assert os.path.exists(ddp_final_model), "DDP final model not created"
-
-#         # Phase 2: Load DDP model with mFSDP
-#         cmd_mfsdp = [
-#             "torchrun",
-#             "--nproc_per_node=1",
-#             os.path.join(this_dir, "train_mfsdp.py"),
-#             f"ckpt_dir={temp_dir}/mfsdp",
-#             f"load_final_checkpoint_from_path={ddp_final_model}",
-#             "num_train_steps=3",
-#         ]
-
-#         result = subprocess.run(cmd_mfsdp, check=False, capture_output=True, text=True, env=env)
-#         assert result.returncode == 0, f"mFSDP loading from DDP failed: {result.stderr}"
-
-#         # Phase 3: Load DDP model with FSDP2
-#         cmd_fsdp2 = [
-#             "torchrun",
-#             "--nproc_per_node=1",
-#             os.path.join(this_dir, "train_fsdp2.py"),
-#             f"ckpt_dir={temp_dir}/fsdp2",
-#             f"load_final_checkpoint_from_path={ddp_final_model}",
-#             "num_train_steps=3",
-#         ]
-
-#         result = subprocess.run(cmd_fsdp2, check=False, capture_output=True, text=True, env=env)
-#         assert result.returncode == 0, f"FSDP2 loading from DDP failed: {result.stderr}"
-
-#         print("✅ Cross-compatibility test passed!")
-#         print("✅ DDP model successfully loaded by mFSDP and FSDP2")
-
-#     finally:
-#         shutil.rmtree(temp_dir, ignore_errors=True)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -86,8 +86,11 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         logger.info(f"total number of parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     # Create optimizer.
-    optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
-    scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+    # Convert OmegaConf to regular dict to avoid serialization issues later
+    adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
+    optimizer = AdamW(model.parameters(), **adamw_kwargs)
+    lr_scheduler_kwargs = OmegaConf.to_container(args.lr_scheduler_kwargs, resolve=True)
+    scheduler = get_linear_schedule_with_warmup(optimizer, **lr_scheduler_kwargs)
 
     model = model.to(device=device)
     model = torch.nn.parallel.DistributedDataParallel(
@@ -120,6 +123,12 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         )
         # Increment start_step to avoid re-running the checkpointed step
         start_step = min(start_step + 1, args.num_train_steps)
+        try:
+            scheduler.last_epoch = start_step - 1
+            scheduler.step()
+        except Exception:
+            for _ in range(start_step):
+                scheduler.step()
 
     # Training loop.
     model.train()

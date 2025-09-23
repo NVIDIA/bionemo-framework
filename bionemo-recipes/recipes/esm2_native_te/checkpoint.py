@@ -24,6 +24,7 @@ from safetensors.torch import save_file
 from torch.distributed.checkpoint.state_dict import (
     StateDictOptions,
     get_model_state_dict,
+    get_optimizer_state_dict,
     set_model_state_dict,
     set_optimizer_state_dict,
 )
@@ -281,6 +282,16 @@ def save_checkpoint_fsdp2(
         ),
     )
 
+    # ALL ranks must call get_optimizer_state_dict for the collective communication
+    optimizer_state_dict = get_optimizer_state_dict(
+        model=model,
+        optimizers=optimizer,  # Note: parameter name is 'optimizers' even for single optimizer
+        options=StateDictOptions(
+            full_state_dict=True,
+            cpu_offload=True,
+        ),
+    )
+
     # Only rank 0 saves the checkpoint
     if not dist_config.is_main_process():
         return
@@ -288,7 +299,7 @@ def save_checkpoint_fsdp2(
     checkpoint_path = os.path.join(ckpt_dir, f"step_{step}.pt")
     os.makedirs(ckpt_dir, exist_ok=True)
 
-    torch.save({"model": model_state_dict, "optimizer": optimizer.state_dict(), "step": step}, checkpoint_path)
+    torch.save({"model": model_state_dict, "optimizer": optimizer_state_dict, "step": step}, checkpoint_path)
     logger.info(f"Saved FSDP2 checkpoint to {checkpoint_path}")
 
 
