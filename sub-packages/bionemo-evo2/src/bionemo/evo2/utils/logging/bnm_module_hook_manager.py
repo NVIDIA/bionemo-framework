@@ -245,4 +245,4 @@ class BnmModuleHookManager():
         return wrapper
 
 
-rearrange = BnmModuleHookManager.shape_logger(_original_rearrange)
+# rearrange = BnmModuleHookManager.shape_logger(_original_rearrange)

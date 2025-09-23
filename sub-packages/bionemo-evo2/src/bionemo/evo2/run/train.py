@@ -57,7 +57,8 @@ from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 from bionemo.evo2.utils.logging.bnm_module_hook_manager import BnmModuleHookManager, BNM_MODULE_HOOK_HANDLES
-from bionemo.evo2.utils.logging.hyena_model_with_custom_metrics import HyenaModelWithCustomMetrics
+#from bionemo.evo2.utils.logging.hyena_model_with_custom_metrics import HyenaModelWithCustomMetrics
+from bionemo.evo2.utils.logging.hyena_model_with_call_stack_monitor import HyenaModelWithCallStackMonitor
 
 torch._dynamo.config.suppress_errors = True
 
@@ -800,8 +801,10 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
 
         import os
-        if os.getenv("BNM_MODULE_HOOK_MANAGER_LEVEL_MAX","") != "":
-            model = HyenaModelWithCustomMetrics(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
+        if os.getenv("BNM_CALL_STACK_MONITOR_LEVEL_MAX","") != "":
+            model = HyenaModelWithCallStackMonitor(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
+        # elif os.getenv("BNM_MODULE_HOOK_MANAGER_LEVEL_MAX","") != "":
+        #     model = HyenaModelWithCustomMetrics(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
         else:
             model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
     elif model_type == "mamba":  # mamba
