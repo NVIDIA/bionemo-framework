@@ -24,7 +24,7 @@ import json
 import re
 
 import hydra
-from lepton_utils import construct_env_var, construct_mount
+from lepton_utils import construct_env_var, construct_mount, resolve_resource_shape
 from leptonai.api.v1.types.affinity import LeptonResourceAffinity
 from leptonai.api.v1.types.common import Metadata
 from leptonai.api.v1.types.deployment import LeptonContainer
@@ -65,14 +65,8 @@ def _resolve_scheduling_target(client, cfg: DictConfig):
     # 3) Valid node IDs within that group
     valid_node_ids = {n.metadata.id_ for n in client.nodegroup.list_nodes(chosen.metadata.id_)}
 
-    # 4) Resolve resource shape (per-group override > global)
-    resolved_resource_shape = getattr(cfg, "resource_shape", None)
-    rbng = getattr(cfg, "resource_by_node_group", None)
-    if isinstance(rbng, dict):
-        resolved_resource_shape = rbng.get(chosen.metadata.name, resolved_resource_shape)
-
-    if not resolved_resource_shape:
-        raise SystemExit("Set `resource_shape` (or provide `resource_by_node_group` override).")
+    # 4) Resolve resource shape based on node group
+    resolved_resource_shape = resolve_resource_shape(chosen.metadata.name)
 
     return chosen, valid_node_ids, resolved_resource_shape
 

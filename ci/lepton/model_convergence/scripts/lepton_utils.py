@@ -16,6 +16,12 @@
 from leptonai.api.v1.types.deployment import EnvValue, EnvVar, Mount
 
 
+node_group2resource_shape = {
+    "yo-bom-lepton-001": "gpu.8xh100-sxm",
+    "nv-int-multiteam-nebius-h200-01": "gpu.2xh200",
+}
+
+
 def construct_mount(path: str, mount_path: str, from_: str = "node-nfs:lepton-shared-fs") -> Mount:
     """Construct a Mount object for a given path, mount_path, and source."""
     # note, the from_="node-nfs:lepton-shared-fs" is not yet documented in the API docs, but is necessary
@@ -39,3 +45,24 @@ def construct_env_var(env_var) -> EnvVar:
             name=env_var.name,
             value=env_var.value,
         )
+
+
+def resolve_resource_shape(node_group: str) -> str:
+    """Resolve resource shape based on node group.
+
+    Args:
+        node_group: The node group name
+
+    Returns:
+        The resolved resource shape
+
+    Raises:
+        SystemExit: If node group is unknown
+    """
+    if node_group not in node_group2resource_shape:
+        known_groups = ", ".join(sorted(node_group2resource_shape.keys()))
+        raise SystemExit(
+            f"Unknown node group '{node_group}' - no resource shape mapping found.\nKnown node groups: {known_groups}"
+        )
+
+    return node_group2resource_shape[node_group]
