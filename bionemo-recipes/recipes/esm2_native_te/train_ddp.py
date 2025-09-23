@@ -125,7 +125,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         start_step = min(start_step + 1, args.num_train_steps)
         try:
             scheduler.last_epoch = start_step - 1
-            scheduler.step()
         except Exception:
             for _ in range(start_step):
                 scheduler.step()

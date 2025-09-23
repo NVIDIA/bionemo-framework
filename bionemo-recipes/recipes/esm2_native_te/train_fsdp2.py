@@ -145,7 +145,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         # Align LR scheduler to start at the correct step
         try:
             scheduler.last_epoch = start_step - 1
-            scheduler.step()
         except Exception:
             for _ in range(start_step):
                 scheduler.step()
