@@ -3,30 +3,39 @@ defaults:
   - /base
   - _self_
 
-resource_shape: gpu.2xh100-sxm
+# lepton info)
 node_group: yo-bom-lepton-001
+resource_shape: gpu.2xh100-sxm
 
-wandb_init_args:
-  project: "lepton_recipe_convergence_${sanitize:${branch}}"
-  group: "${recipe_subdir}_${resource_shape}"
-  job_type: "training"
-
-# Base configuration
+# recipe identifiers
 recipe_subdir: geneformer_native_te_mfsdp_fp8
-train_cmd: train
+model_type: geneformer
 
+# wandb
+wandb_init_args:
+  project: "bionemo_recipes_convergence_lepton_tests_${sanitize:${branch}}"
+  group: "${model_type}_${node_group}_${sanitize:${resource_shape}}"
+  job_type: "${recipe_subdir}"
+  name: "${commit_sha}"
+
+# train specific commands
+train_cmd: train
 num_train_steps: 10
 
-# Run one for each config
+# configs to run
 products:
   - config: 10m
+    wandb_init_args.name: "${config}-${commit_sha}"
   # - config: 106m
   # - config: 4b
 
+# training script to run
 train_script: |
   torchrun ${train_cmd}.py \
     --config-name ${config}.yaml \
     training.num_train_steps=${num_train_steps} \
+    wandb_init_args.mode=${wandb_init_args.mode} \
     wandb_init_args.project=${wandb_init_args.project} \
     +wandb_init_args.group=${wandb_init_args.group} \
-    wandb_init_args.mode=${wandb_init_args.mode}
+    +wandb_init_args.job_type=${wandb_init_args.job_type} \
+    wandb_init_args.name=${wandb_init_args.name}

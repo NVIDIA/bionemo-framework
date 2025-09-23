@@ -3,27 +3,35 @@ defaults:
   - /base
   - _self_
 
-resource_shape: gpu.2xh100-sxm
+# lepton info)
 node_group: yo-bom-lepton-001
+resource_shape: gpu.2xh100-sxm
 
-wandb_init_args:
-  project: "lepton_recipe_convergence_${sanitize:${branch}}"
-  group: "${recipe_subdir}_${resource_shape}"
-  mode: "online"
-
+# recipe identifiers
 recipe_subdir: esm2_accelerate_te
+model_type: esm2
 
-train_cmd: train
-stop_after_n_steps: 100
+# wandb
+wandb_init_args:
+  project: "bionemo_recipes_convergence_lepton_tests_${sanitize:${branch}}"
+  group: "${model_type}_${node_group}_${sanitize:${resource_shape}}"
+  job_type: "${recipe_subdir}"
+  name: "${commit_sha}"
 
-# todo: use L1 configs, esm2 3B, focus on 1B.
-# future: amplify;
-products:
-  - config: L0_sanity
-
+# config overrides
 trainer:
   report_to: "wandb"
 
+# train specific commands
+train_cmd: train
+stop_after_n_steps: 100
+
+# configs to run
+products:
+  - config: L0_sanity
+    wandb_init_args.name: "${config}-${commit_sha}"
+
+# training script to run
 train_script: |
   accelerate launch --config_file accelerate_config/default.yaml \
     ${train_cmd}.py \
@@ -31,4 +39,6 @@ train_script: |
     stop_after_n_steps=${stop_after_n_steps} \
     wandb_init_args.mode=${wandb_init_args.mode} \
     +wandb_init_args.project=${wandb_init_args.project} \
-    +wandb_init_args.group=${wandb_init_args.group}
+    +wandb_init_args.group=${wandb_init_args.group} \
+    +wandb_init_args.job_type=${wandb_init_args.job_type} \
+    wandb_init_args.name=${wandb_init_args.name}
