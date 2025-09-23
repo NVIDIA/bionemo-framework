@@ -6,11 +6,11 @@ on:
       node_group:
         description: "DGX Lepton Node Group (Cluster) to use"
         required: true
-        default: "yo-bom-lepton-001 (H100)"
+        default: "yo-bom-lepton-001"
         type: choice
         options:
-          - yo-bom-lepton-001 (H100)
-          - nv-int-multiteam-nebius-h200-01 (H200)
+          - yo-bom-lepton-001
+          - nv-int-multiteam-nebius-h200-01
       branch:
         description: "Branch to use (ignored if commit SHA is provided)"
         required: true
