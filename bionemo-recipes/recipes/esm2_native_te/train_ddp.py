@@ -18,11 +18,13 @@ import time
 
 import hydra
 import torch
+import transformer_engine.pytorch
 import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from tqdm import tqdm
+from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 
 from dataset import create_dataloader
@@ -58,6 +60,9 @@ def main(args: DictConfig) -> float | None:
 
     # Create an empty ESM-2 model with a masked language model head.
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
+    # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
+    if args.dataset.use_sequence_packing:
+        config.attn_input_format = "thd"
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
@@ -83,12 +88,20 @@ def main(args: DictConfig) -> float | None:
         output_device=dist_config.local_rank,
         device_mesh=device_mesh["ddp"],
     )
-    model.train()
+
+    # Create an FP8 recipe
+    if args.fp8_config.enabled:
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
+    else:
+        fp8_recipe = None
 
     # Create a dataloader that just infinitely loops over the dataset.
     train_iterator = create_dataloader(dist_config, **args.dataset)
 
     # Training loop.
+    model.train()
     if dist_config.is_main_process():
         progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
     previous_step_time = time.perf_counter()
@@ -96,11 +109,12 @@ def main(args: DictConfig) -> float | None:
     for step in range(args.num_train_steps):
         # Get batch.
         batch = next(train_iterator)
-        batch = {k: v.to(device) for k, v in batch.items()}
+        batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
         # Forward pass with mixed precision.
         with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-            outputs = model(**batch)
+            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+                outputs = model(**batch)
 
         # Backward pass.
         loss = outputs.loss
