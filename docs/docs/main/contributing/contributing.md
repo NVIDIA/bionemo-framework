@@ -125,27 +125,27 @@ By default, CI pipeline is enabled for all PRs and only unit tests are run. To s
 
 #### **ciflow:slow**
 
-- Enables unit tests labelled as `@pytest.mark.slow` ie CLI tests
+- Run slow single GPU integration tests marked as @pytest.mark.slow for bionemo2
 - Use when modifying core functionalities and require extensive moderate complexity testing on a single GPU
 - Disabled by default
 
 #### **ciflow:notebooks**
 
-- Enables notebooks validation tests under `./docs` subfolder and `./sub-packages/*`
+- Enables Jupyter notebooks validation tests under `./docs` subfolder and `./sub-packages/*`
 - Use when modifying notebooks or notebook-related code
 - Disabled by default
 
 #### **ciflow:all**
 
-- Runs unit tests, slow tests and tests execution of notebooks
-- Use when introducing significant codebase changes for comprehansive testing
+- Run all tests (unit tests, slow tests, and notebooks) for bionemo2.
+- Without this label, unit tests for bionemo2 in PR CI are run only on when the bionemo2 codebase has been modified
+- Use when introducing significant codebase changes for comprehensive testing
 - Disabled by default
 
 #### **ciflow:all-recipes**
 
-Without this label, unit tests for recipes in PR CI are run only on folders whose codebases have been modified
-
-- Runs unit tests for all recipes, regardless of whether their codebases have been modified
+- Run tests for all recipes (under bionemo-recipes). This label can be used to enforce running tests for all recipes.
+- Without this label, unit tests for recipes in PR CI are run only on folders whose codebases have been modified
 
 ### Developer Workflows
 
