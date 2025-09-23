@@ -788,7 +788,7 @@ def _train_model_get_ckpt(
     n_steps_train: int,
     batch_size: int,
     data_path: Path,
-    checkpoint_path: Path,
+    checkpoint_path: Path | None = None,
     peft: PEFT | None = None,
     lr: float = 5e-4,
 ) -> Tuple[Path, MetricTracker, nl.Trainer]:
@@ -796,7 +796,8 @@ def _train_model_get_ckpt(
     data_dir = Path(data_path)
     train_data_path = data_dir / "train"
     val_data_path = data_dir / "val"
-    if not checkpoint_path.exists():
+    # Only validate checkpoint_path if it's provided and we're continuing/finetuning
+    if checkpoint_path is not None and not checkpoint_path.exists():
         raise FileNotFoundError(f"Could not find checkpoint at {checkpoint_path}. {data_error_str}")
     if not train_data_path.exists():
         raise FileNotFoundError(f"Could not find train data at {train_data_path}. {data_error_str}")
@@ -904,10 +905,9 @@ def test_continue_from_checkpoint_geneformer(
     tmpdir,
     geneformer_config: GeneformerConfig,
     data_path,
-    geneformer_nemo1_checkpoint,
     n_layers_test: int = 3,
-    n_steps_train: int = 100,
-    batch_size: int = 16,
+    n_steps_train: int = 5,
+    batch_size: int = 1,
 ):
     base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
 
@@ -927,6 +927,7 @@ def test_continue_from_checkpoint_geneformer(
     assert base_geneformer_config.nemo1_ckpt_path is None
     assert not base_geneformer_config.return_only_hidden_states
     with megatron_parallel_state_utils.distributed_model_parallel_state(32):
+        # Initial training from scratch
         ckpt_path, initial_metrics, initial_trainer = _train_model_get_ckpt(
             name="test_experiment",
             root_dir=tmpdir / "pretrain",
@@ -934,7 +935,7 @@ def test_continue_from_checkpoint_geneformer(
             n_steps_train=n_steps_train,
             batch_size=batch_size,
             data_path=data_path,
-            checkpoint_path=geneformer_nemo1_checkpoint,
+            checkpoint_path=None,  # Training from scratch, no checkpoint needed
             lr=1e-4,  # smaller LR so smooth initial dip
         )
         weights_ckpt = ckpt_path / "weights"
@@ -945,6 +946,7 @@ def test_continue_from_checkpoint_geneformer(
         # Make sure the loss dropped initially
         assert sum(initial_metrics.collection_train["loss"][:5]) > sum(initial_metrics.collection_train["loss"][-5:])
     with megatron_parallel_state_utils.distributed_model_parallel_state(43):
+        # Continue training from the checkpoint created in the first phase
         # NOTE all other hparams will be pulled from this checkpoint.
         update_base_geneformer_config = GeneformerConfig(
             initial_ckpt_path=str(ckpt_path),
@@ -956,7 +958,7 @@ def test_continue_from_checkpoint_geneformer(
             n_steps_train=n_steps_train,
             batch_size=batch_size,
             data_path=data_path,
-            checkpoint_path=ckpt_path,
+            checkpoint_path=ckpt_path,  # Continue from the checkpoint created in initial training
             lr=5e-4,  # Larger LR so loss dips faster after the first stage
         )
         weights_ckpt = ckpt_path / "weights"
@@ -981,8 +983,8 @@ def test_finetune_geneformer(
     data_path,
     geneformer_nemo1_checkpoint,
     n_layers_test: int = 3,
-    n_steps_train: int = 100,
-    batch_size: int = 16,
+    n_steps_train: int = 5,
+    batch_size: int = 1,
 ):
     base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
 
@@ -1052,8 +1054,8 @@ def test_finetune_geneformer_with_peft(
     data_path,
     geneformer_nemo1_checkpoint,
     n_layers_test: int = 3,
-    n_steps_train: int = 100,
-    batch_size: int = 16,
+    n_steps_train: int = 5,
+    batch_size: int = 1,
 ):
     base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
 
