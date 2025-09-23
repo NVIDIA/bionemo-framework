@@ -330,7 +330,6 @@ def test_sanity_ddp_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe_p
             config_name="L0_sanity",
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
                 "dataset.use_sequence_packing=true",
                 "num_train_steps=4",
                 "fp8_config.enabled=true",
@@ -355,12 +354,10 @@ def test_sanity_mfsdp_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe
             config_name="L0_sanity",
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
                 "dataset.use_sequence_packing=true",
                 "num_train_steps=4",
                 "fp8_config.enabled=true",
                 "dataset.sequence_packing_pad_to_multiple_of=16",
-                "checkpoint.resume_from_checkpoint=false",
             ],
         )
 
@@ -377,9 +374,7 @@ def test_sanity_convergence_fsdp2_meta_device(distributed_cleanup, tmp_path, rec
             config_name="L0_sanity",
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
                 "use_meta_device=true",
-                "checkpoint.resume_from_checkpoint=false",
             ],
         )
 
@@ -396,9 +391,7 @@ def test_sanity_convergence_mfsdp_eager(distributed_cleanup, tmp_path, recipe_pa
             config_name="L0_sanity",
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
                 "model_tag=facebook/esm2_t6_8M_UR50D",
-                "checkpoint.resume_from_checkpoint=false",
             ],
         )
 
