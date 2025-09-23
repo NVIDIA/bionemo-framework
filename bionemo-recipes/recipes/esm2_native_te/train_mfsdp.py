@@ -55,7 +55,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     """
     # Get the script name without extension and add it to checkpoint directory
     script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
-    ckpt_dir = os.path.join(args.ckpt_dir, script_name)
+    ckpt_dir = os.path.join(args.checkpoint.ckpt_dir, script_name)
     logger.info(f"Checkpoint directory: {ckpt_dir}")
     os.makedirs(ckpt_dir, exist_ok=True)
 
@@ -141,7 +141,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
 
     # Load checkpoint if it exists and resume is enabled
     start_step = 0
-    if args.resume_from_checkpoint:
+    if args.checkpoint.resume_from_checkpoint:
         model, optimizer, start_step = load_checkpoint_mfsdp(
             model=model,
             optimizer=optimizer,
@@ -181,7 +181,9 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         scheduler.step()
         optimizer.zero_grad()
 
-        if args.save_every_n_steps > 0 and step % args.save_every_n_steps == 0 and step > 0:  # Skip step 0
+        if (
+            args.checkpoint.save_every_n_steps > 0 and step % args.checkpoint.save_every_n_steps == 0 and step > 0
+        ):  # Skip step 0
             # For mfsdp, always use distributed checkpointing
             save_checkpoint_mfsdp(
                 model=model,

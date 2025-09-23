@@ -54,7 +54,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
 
     # Get the script name without extension and add it to checkpoint directory
     script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
-    ckpt_dir = os.path.join(args.ckpt_dir, script_name)
+    ckpt_dir = os.path.join(args.checkpoint.ckpt_dir, script_name)
     logger.info(f"Checkpoint directory: {ckpt_dir}")
     os.makedirs(ckpt_dir, exist_ok=True)
 
@@ -131,7 +131,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
 
     # Load checkpoint if it exists and resume is enabled
     start_step = 0
-    if args.resume_from_checkpoint:
+    if args.checkpoint.resume_from_checkpoint:
         logger.info(f"Loading checkpoint from {ckpt_dir}")
         model, optimizer, start_step = load_checkpoint_fsdp2(
             model=model,
@@ -173,7 +173,9 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         scheduler.step()
         optimizer.zero_grad()
 
-        if args.save_every_n_steps > 0 and step % args.save_every_n_steps == 0 and step > 0:  # Skip step 0
+        if (
+            args.checkpoint.save_every_n_steps > 0 and step % args.checkpoint.save_every_n_steps == 0 and step > 0
+        ):  # Skip step 0
             logger.info(f"Saving checkpoint at step {step}")
             save_checkpoint_fsdp2(
                 model=model,
@@ -182,7 +184,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                 step=step,
                 dist_config=dist_config,
                 logger=logger,
-                use_distributed_checkpoint=args.use_distributed_checkpoint_fsdp2,
+                use_distributed_checkpoint=args.checkpoint.use_distributed_checkpoint_fsdp2,
             )
 
         # Log metrics to logger and wandb on main process.

@@ -78,10 +78,10 @@ def test_checkpoint_save_and_load_single_process_ddp():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=10",
-            "save_every_n_steps=5",
-            "resume_from_checkpoint=false",  # Start fresh
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -104,9 +104,10 @@ def test_checkpoint_save_and_load_single_process_ddp():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=15",
-            "save_every_n_steps=5",
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         ]
 
         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -161,10 +162,10 @@ def test_checkpoint_save_and_load_two_processes_ddp():
             "torchrun",
             "--nproc_per_node=2",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=10",
-            "save_every_n_steps=5",
-            "resume_from_checkpoint=false",  # Start fresh
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -187,9 +188,10 @@ def test_checkpoint_save_and_load_two_processes_ddp():
             "torchrun",
             "--nproc_per_node=2",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=15",
-            "save_every_n_steps=5",
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         ]
 
         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -241,10 +243,10 @@ def test_checkpoint_save_and_load_single_process_mfsdp():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=10",
-            "save_every_n_steps=5",
-            "resume_from_checkpoint=false",  # Start fresh
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -269,9 +271,10 @@ def test_checkpoint_save_and_load_single_process_mfsdp():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=15",
-            "save_every_n_steps=5",
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         ]
 
         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -326,10 +329,10 @@ def test_checkpoint_save_and_load_two_processes_mfsdp():
             "torchrun",
             "--nproc_per_node=2",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=10",
-            "save_every_n_steps=5",
-            "resume_from_checkpoint=false",  # Start fresh
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -354,9 +357,10 @@ def test_checkpoint_save_and_load_two_processes_mfsdp():
             "torchrun",
             "--nproc_per_node=2",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=15",
-            "save_every_n_steps=5",
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         ]
 
         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -411,11 +415,11 @@ def test_checkpoint_save_and_load_single_process_fsdp2():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "model_tag=facebook/esm2_t6_8M_UR50D",  # Use smallest model
             "num_train_steps=10",
-            "save_every_n_steps=5",
-            "resume_from_checkpoint=false",  # Start fresh
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -440,9 +444,10 @@ def test_checkpoint_save_and_load_single_process_fsdp2():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=15",
-            "save_every_n_steps=5",
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         ]
 
         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -496,10 +501,10 @@ def test_checkpoint_save_and_load_two_processes_fsdp2():
             "torchrun",
             "--nproc_per_node=2",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=10",
-            "save_every_n_steps=5",
-            "resume_from_checkpoint=false",  # Start fresh
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",  # Start fresh
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -524,9 +529,10 @@ def test_checkpoint_save_and_load_two_processes_fsdp2():
             "torchrun",
             "--nproc_per_node=2",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=15",
-            "save_every_n_steps=5",
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         ]
 
         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -572,11 +578,11 @@ def test_fsdp2_legacy_checkpoint_format():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=10",
-            "save_every_n_steps=5",
-            "resume_from_checkpoint=false",
-            "use_distributed_checkpoint_fsdp2=false",  # Use legacy format
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",
+            "checkpoint.use_distributed_checkpoint_fsdp2=false",  # Use legacy format
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -599,10 +605,10 @@ def test_fsdp2_legacy_checkpoint_format():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=15",
-            "save_every_n_steps=5",
-            "use_distributed_checkpoint_fsdp2=false",  # Continue with legacy format
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.use_distributed_checkpoint_fsdp2=false",  # Continue with legacy format
         ]
 
         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -641,11 +647,11 @@ def test_fsdp2_backward_compatibility():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=10",
-            "save_every_n_steps=5",
-            "resume_from_checkpoint=false",
-            "use_distributed_checkpoint_fsdp2=false",  # Legacy format
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",
+            "checkpoint.use_distributed_checkpoint_fsdp2=false",  # Legacy format
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -662,9 +668,10 @@ def test_fsdp2_backward_compatibility():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=15",
-            "save_every_n_steps=5",
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
             # use_distributed_checkpoint_fsdp2=true by default
         ]
 
@@ -710,7 +717,7 @@ def test_final_model_save_ddp():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=3",
         ]
 
@@ -756,7 +763,7 @@ def test_final_model_save_mfsdp():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=3",
         ]
 
@@ -801,7 +808,7 @@ def test_final_model_save_fsdp2():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=3",
         ]
 
@@ -855,10 +862,10 @@ def test_scheduler_resume_single_gpu():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=10",
-            "save_every_n_steps=5",
-            "resume_from_checkpoint=false",  # Start fresh, don't look for checkpoints
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",  # Start fresh, don't look for checkpoints
             "lr_scheduler_kwargs.num_warmup_steps=20",  # Warmup over 20 steps
             "lr_scheduler_kwargs.num_training_steps=100",  # Total 100 steps
         ]
@@ -881,9 +888,10 @@ def test_scheduler_resume_single_gpu():
             "torchrun",
             "--nproc_per_node=1",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=15",
-            "save_every_n_steps=5",
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
             "lr_scheduler_kwargs.num_warmup_steps=20",
             "lr_scheduler_kwargs.num_training_steps=100",
         ]
@@ -949,10 +957,10 @@ def test_scheduler_resume_two_gpu():
             "torchrun",
             "--nproc_per_node=2",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=10",
-            "save_every_n_steps=5",
-            "resume_from_checkpoint=false",  # Start fresh, don't look for checkpoints
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",  # Start fresh, don't look for checkpoints
             "lr_scheduler_kwargs.num_warmup_steps=20",
             "lr_scheduler_kwargs.num_training_steps=100",
         ]
@@ -972,9 +980,10 @@ def test_scheduler_resume_two_gpu():
             "torchrun",
             "--nproc_per_node=2",
             train_script,
-            f"ckpt_dir={temp_dir}",
+            f"checkpoint.ckpt_dir={temp_dir}",
             "num_train_steps=15",
-            "save_every_n_steps=5",
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
             "lr_scheduler_kwargs.num_warmup_steps=20",
             "lr_scheduler_kwargs.num_training_steps=100",
         ]
