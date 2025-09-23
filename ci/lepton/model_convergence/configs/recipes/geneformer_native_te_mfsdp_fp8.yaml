@@ -3,7 +3,7 @@ defaults:
   - /base
   - _self_
 
-# lepton info)
+# lepton info
 node_group: yo-bom-lepton-001
 resource_shape: gpu.2xh100-sxm
 
