@@ -14,13 +14,10 @@
 # limitations under the License.
 
 import logging
-import os
 import time
-from dataclasses import dataclass, field
 
 import hydra
 import torch
-import torch.distributed as dist
 import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
@@ -29,6 +26,7 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForMaskedLM
 
 from dataset import create_dataloader
+from distributed_config import DistributedConfig
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -36,59 +34,38 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-@dataclass
-class DistributedConfig:
-    """Class to track distributed ranks."""
-
-    rank: int = field(default_factory=dist.get_rank)
-    local_rank: int = field(default_factory=lambda: int(os.environ["LOCAL_RANK"]))
-    world_size: int = field(default_factory=dist.get_world_size)
-
-    def is_main_process(self) -> bool:
-        """This is the global rank 0 process, to be used for wandb logging, etc."""
-        return self.rank == 0
-
-
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
-    """Train ESM-2 with TE layers using mfsdp.
-
-    Model names are valid ESM-2 model sizes, e.g.:
-    - "esm2_t6_8M_UR50D"
-    - "esm2_t36_3B_UR50D"
-    - "esm2_t48_15B_UR50D"
+    """Train ESM-2 with TE layers using ddp.
 
     Returns:
         float: The loss value for the final batch.
     """
-    # Initialize distributed training and create a device mesh for FSDP.
-    # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
-    # to work correctly with mfsdp.
-    dist.init_process_group(backend="nccl")
+    # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
+    logger.info("Initializing distributed training: %s", dist_config)
+    torch.distributed.init_process_group(backend="nccl")
     torch.cuda.set_device(dist_config.local_rank)
-    device_mesh = init_device_mesh(
-        "cuda",
-        mesh_shape=(dist_config.world_size,),
-        mesh_dim_names=("ddp",),
-    )
+
+    # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
+    # and MFSDP.
     device = torch.device(f"cuda:{dist_config.local_rank}")
-    logger.info("Initialized distributed training: %s", dist_config)
+
+    device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("ddp",))
 
     if dist_config.is_main_process():
         wandb.init(**args.wandb_init_args, config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True))
 
     # Create an empty ESM-2 model with a masked language model head.
-    if "facebook" in args.model_name:
-        config = AutoConfig.from_pretrained(args.model_name, dtype=torch.bfloat16)
-        model = AutoModelForMaskedLM.from_config(config, attn_implementation="flash_attention_2")
-        del model.esm.contact_head
+    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
+    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
-    else:
-        config = AutoConfig.from_pretrained(args.model_name, trust_remote_code=True, dtype=torch.bfloat16)
-        config.max_seq_length = args.max_seq_length
-        config.micro_batch_size = args.micro_batch_size
-        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
+    # avoid errors with unused parameters.
+    try:
+        del model.esm.contact_head
+    except AttributeError:
+        pass
 
     # Log model and number of parameters on main process.
     if dist_config.is_main_process():
@@ -106,20 +83,14 @@ def main(args: DictConfig) -> float | None:
         output_device=dist_config.local_rank,
         device_mesh=device_mesh["ddp"],
     )
-
-    # Training loop.
     model.train()
-    if dist_config.is_main_process():
-        progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
 
     # Create a dataloader that just infinitely loops over the dataset.
-    train_iterator, epoch_len = create_dataloader(
-        args.data_path,
-        args.micro_batch_size,
-        max_length=args.max_seq_length,
-    )
+    train_iterator = create_dataloader(dist_config, **args.dataset)
 
     # Training loop.
+    if dist_config.is_main_process():
+        progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
     previous_step_time = time.perf_counter()
     loss_value = None
     for step in range(args.num_train_steps):
@@ -164,7 +135,6 @@ def main(args: DictConfig) -> float | None:
                     "train/global_step": step,
                     "train/learning_rate": current_lr,
                     "train/grad_norm": total_norm,
-                    "train/epoch": step / epoch_len,
                     "train/step_time": step_time,
                 }
             )
@@ -176,7 +146,7 @@ def main(args: DictConfig) -> float | None:
     if dist_config.is_main_process():
         wandb.finish()
 
-    dist.destroy_process_group()
+    torch.distributed.destroy_process_group()
 
     return loss_value
 

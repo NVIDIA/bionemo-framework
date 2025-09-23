@@ -20,13 +20,13 @@ dependencies = [
     'scipy>=1.11.1',
     'torch>=2.2.1',
     'pydantic[email]>=2.2.0',
-    'tqdm>=4.67.1'
+    'tqdm>=4.67.1',
+    'psutil>=7.0.0',
 ]
 
 [project.optional-dependencies]
 test = [
     'pytest>=8.4.1',
-    'psutil>=7.0.0',
     'nest-asyncio>=1.6.0',
     'ngcsdk>=4.3.0'
 ]

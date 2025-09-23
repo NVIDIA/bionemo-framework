@@ -24,7 +24,8 @@ environment_variables:
 wandb_init_args:
   group: "recipes_model_convergence"
   mode: "online"
-
+# node group, can be either yo-bom-lepton-001 (our bionemo h100 cluster) or nv-int-multiteam-nebius-h200-01 (our h200 cluster)
+node_group: yo-bom-lepton-001
 branch: main
 commit_sha: ""
 

@@ -42,7 +42,7 @@ requires_multi_gpu = pytest.mark.skipif(
 )
 
 # Get the recipe directory
-recipe_dir = Path(__file__).parent
+recipe_dir = Path(__file__).parent.parent
 
 
 def run_train_cmd(cmd):
@@ -64,13 +64,7 @@ def run_train_cmd(cmd):
 
 
 @pytest.fixture
-def mock_distributed_config(monkeypatch):
-    monkeypatch.setenv("LOCAL_RANK", "0")
-    monkeypatch.setenv("RANK", "0")
-    monkeypatch.setenv("WORLD_SIZE", "1")
-    monkeypatch.setenv("MASTER_ADDR", "localhost")
-    monkeypatch.setenv("MASTER_PORT", "29500")
-    monkeypatch.setenv("WANDB_MODE", "disabled")
+def distributed_cleanup():
     yield
 
     # Try to destroy the process group, but don't fail if it's not available.
@@ -87,7 +81,7 @@ def mock_distributed_config(monkeypatch):
     _mesh_resources.mesh_dim_group_options.clear()
 
 
-def test_sanity_convergence_mfsdp(mock_distributed_config, tmp_path):
+def test_sanity_convergence_mfsdp(distributed_cleanup, tmp_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
@@ -98,8 +92,7 @@ def test_sanity_convergence_mfsdp(mock_distributed_config, tmp_path):
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-@pytest.mark.xfail(reason="MFSDP meta-device init seems to be failing with both TE and eager models (BIONEMO-2583)")
-def test_sanity_convergence_mfsdp_meta_device(mock_distributed_config, tmp_path):
+def test_sanity_convergence_mfsdp_meta_device(distributed_cleanup, tmp_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
@@ -116,8 +109,7 @@ def test_sanity_convergence_mfsdp_meta_device(mock_distributed_config, tmp_path)
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-@pytest.mark.xfail(reason="MFSDP meta-device init seems to be failing with both TE and eager models (BIONEMO-2583)")
-def test_sanity_convergence_mfsdp_eager_meta_device(mock_distributed_config, tmp_path):
+def test_sanity_convergence_mfsdp_eager_meta_device(distributed_cleanup, tmp_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
@@ -126,7 +118,7 @@ def test_sanity_convergence_mfsdp_eager_meta_device(mock_distributed_config, tmp
             config_name="L0_sanity",
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
-                "model_name=facebook/esm2_t6_8M_UR50D",
+                "model_tag=facebook/esm2_t6_8M_UR50D",
                 "use_meta_device=true",
             ],
         )
@@ -135,7 +127,7 @@ def test_sanity_convergence_mfsdp_eager_meta_device(mock_distributed_config, tmp
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_ddp(mock_distributed_config, tmp_path):
+def test_sanity_convergence_ddp(distributed_cleanup, tmp_path):
     """Test that the main function can be invoked wrapping the model in DDP."""
 
     # Run the training script with Hydra configuration overrides
@@ -146,7 +138,24 @@ def test_sanity_convergence_ddp(mock_distributed_config, tmp_path):
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_fsdp2(mock_distributed_config, tmp_path):
+def test_sanity_convergence_ddp_non_streaming_dataset(distributed_cleanup, tmp_path):
+    """Test that the training script works with a non-streaming dataset."""
+
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_dir / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                "dataset.load_dataset_kwargs.streaming=False",
+            ],
+        )
+
+    final_loss = main_ddp(sanity_config)
+    assert final_loss < 3.0, f"Final loss {final_loss} is too high"
+
+
+def test_sanity_convergence_fsdp2(distributed_cleanup, tmp_path):
     """Test that the main function can be invoked wrapping the model in FSDP2."""
 
     # Run the training script with Hydra configuration overrides
@@ -162,8 +171,8 @@ def test_sanity_convergence_fsdp2(mock_distributed_config, tmp_path):
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-@pytest.mark.xfail(reason="FSDP2 meta-device init seems doesn't have the same convergence (BIONEMO-2719)")
-def test_sanity_convergence_fsdp2_meta_device(mock_distributed_config, tmp_path):
+@pytest.mark.xfail(reason="Meta-device init seems to be having some issues with convergence (BIONEMO-2719)")
+def test_sanity_convergence_fsdp2_meta_device(distributed_cleanup, tmp_path):
     """Test that the main function can be invoked wrapping the model in FSDP2."""
 
     # Run the training script with Hydra configuration overrides
@@ -180,50 +189,49 @@ def test_sanity_convergence_fsdp2_meta_device(mock_distributed_config, tmp_path)
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_mfsdp_eager(mock_distributed_config, tmp_path):
+def test_sanity_convergence_mfsdp_eager(distributed_cleanup, tmp_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
     with initialize_config_dir(config_dir=str(recipe_dir / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
-            overrides=[f"+wandb_init_args.dir={tmp_path}", "model_name=facebook/esm2_t6_8M_UR50D"],
+            overrides=[f"+wandb_init_args.dir={tmp_path}", "model_tag=facebook/esm2_t6_8M_UR50D"],
         )
 
     final_loss = main_mfsdp(sanity_config)
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_ddp_eager(mock_distributed_config, tmp_path):
+def test_sanity_convergence_ddp_eager(distributed_cleanup, tmp_path):
     """Test that the main function can be invoked wrapping the model in DDP."""
 
     # Run the training script with Hydra configuration overrides
     with initialize_config_dir(config_dir=str(recipe_dir / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
-            overrides=[f"+wandb_init_args.dir={tmp_path}", "model_name=facebook/esm2_t6_8M_UR50D"],
+            overrides=[f"+wandb_init_args.dir={tmp_path}", "model_tag=facebook/esm2_t6_8M_UR50D"],
         )
 
     final_loss = main_ddp(sanity_config)
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_fsdp2_eager(mock_distributed_config, tmp_path):
+def test_sanity_convergence_fsdp2_eager(distributed_cleanup, tmp_path):
     """Test that the main function can be invoked wrapping the model in FSDP2."""
 
     # Run the training script with Hydra configuration overrides
     with initialize_config_dir(config_dir=str(recipe_dir / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
-            overrides=[f"+wandb_init_args.dir={tmp_path}", "model_name=facebook/esm2_t6_8M_UR50D"],
+            overrides=[f"+wandb_init_args.dir={tmp_path}", "model_tag=facebook/esm2_t6_8M_UR50D"],
         )
 
     final_loss = main_fsdp2(sanity_config)
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-@pytest.mark.xfail(reason="This passes on my local 5090 but fails on CI (L4) (BIONEMO-2719)")
-def test_sanity_convergence_fsdp2_eager_meta_device(mock_distributed_config, tmp_path):
+def test_sanity_convergence_fsdp2_eager_meta_device(distributed_cleanup, tmp_path):
     """Test that the main function can be invoked wrapping the model in FSDP2 and using meta-device init."""
 
     # Run the training script with Hydra configuration overrides
@@ -232,7 +240,7 @@ def test_sanity_convergence_fsdp2_eager_meta_device(mock_distributed_config, tmp
             config_name="L0_sanity",
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
-                "model_name=facebook/esm2_t6_8M_UR50D",
+                "model_tag=facebook/esm2_t6_8M_UR50D",
                 "use_meta_device=true",
             ],
         )
@@ -311,7 +319,7 @@ def test_multi_gpu_train_eager_fsdp2_meta_device(tmp_path):
             "train_fsdp2.py",
             "--config-name",
             "L0_sanity",
-            "model_name=facebook/esm2_t6_8M_UR50D",
+            "model_tag=facebook/esm2_t6_8M_UR50D",
             "use_meta_device=true",
             "num_train_steps=4",
         ]

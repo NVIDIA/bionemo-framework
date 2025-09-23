@@ -14,14 +14,10 @@
 # limitations under the License.
 
 import logging
-import os
 import time
-from contextlib import nullcontext
-from dataclasses import dataclass, field
 
 import hydra
 import torch
-import torch.distributed as dist
 import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
@@ -34,6 +30,7 @@ from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 
 from dataset import create_dataloader
+from distributed_config import DistributedConfig
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -41,64 +38,45 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-@dataclass
-class DistributedConfig:
-    """Class to track distributed ranks."""
-
-    rank: int = field(default_factory=dist.get_rank)
-    local_rank: int = field(default_factory=lambda: int(os.environ["LOCAL_RANK"]))
-    world_size: int = field(default_factory=dist.get_world_size)
-
-    def is_main_process(self) -> bool:
-        """This is the global rank 0 process, to be used for wandb logging, etc."""
-        return self.rank == 0
-
-
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:  # noqa: C901
-    """Train ESM-2 with TE layers using megatron-fsdp.
-
-    Model names are valid ESM-2 model sizes, e.g.:
-    - "esm2_t6_8M_UR50D"
-    - "esm2_t36_3B_UR50D"
-    - "esm2_t48_15B_UR50D"
+    """Train ESM-2 with TE layers using fsdp2.
 
     Returns:
         float: The loss value for the final batch.
     """
-    # Initialize distributed training and create a device mesh for FSDP.
-    # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
-    # to work correctly with megatron-fsdp.
-    dist.init_process_group(backend="nccl")
+    # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
+    logger.info("Initializing distributed training: %s", dist_config)
+    torch.distributed.init_process_group(backend="nccl")
     torch.cuda.set_device(dist_config.local_rank)
+
+    # Create a device mesh for FSDP.
+    # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
+    # to work correctly with fsdp2.
+    device = torch.device(f"cuda:{dist_config.local_rank}")
     device_mesh = init_device_mesh(
         "cuda",
         mesh_shape=(dist_config.world_size, 1, 1),
         mesh_dim_names=("fsdp", "cp", "tp"),
     )
-    device = torch.device(f"cuda:{torch.cuda.current_device()}")
-    logger.info("Initialized distributed training: %s", dist_config)
 
     if dist_config.is_main_process():
         wandb.init(**args.wandb_init_args, config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True))
 
     # Create an empty ESM-2 model with a masked language model head.
-    if "facebook" in args.model_name:
-        config = AutoConfig.from_pretrained(args.model_name, dtype=torch.bfloat16)
-        with torch.device("meta") if args.use_meta_device else nullcontext():
-            model = AutoModelForMaskedLM.from_config(config, attn_implementation="flash_attention_2")
+    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
+    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+
+    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
+    # avoid errors with unused parameters.
+    try:
         del model.esm.contact_head
-        transformer_stack = model.esm.encoder.layer
+    except AttributeError:
+        pass
 
-    else:
-        config = AutoConfig.from_pretrained(args.model_name, trust_remote_code=True, dtype=torch.bfloat16)
-        config.max_seq_length = args.max_seq_length
-        config.micro_batch_size = args.micro_batch_size
-        with torch.device("meta") if args.use_meta_device else nullcontext():
-            model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
-        transformer_stack = model.esm.encoder.layers
-
+    # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
+    transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
     for layer in transformer_stack:
         fully_shard(layer, mesh=device_mesh["fsdp"])
     fully_shard(model, mesh=device_mesh["fsdp"])
@@ -118,19 +96,13 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
 
+    # Create a dataloader that just infinitely loops over the dataset.
+    train_iterator = create_dataloader(dist_config, **args.dataset)
+
     # Training loop.
     model.train()
     if dist_config.is_main_process():
         progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
-
-    # Create a dataloader that just infinitely loops over the dataset.
-    train_iterator, epoch_len = create_dataloader(
-        args.data_path,
-        args.micro_batch_size,
-        max_length=args.max_seq_length,
-    )
-
-    # Training loop.
     previous_step_time = time.perf_counter()
     loss_value = None
     for step in range(args.num_train_steps):
@@ -175,19 +147,18 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     "train/global_step": step,
                     "train/learning_rate": current_lr,
                     "train/grad_norm": total_norm,
-                    "train/epoch": step / epoch_len,
                     "train/step_time": step_time,
                 }
             )
 
             progress_bar.update(1)
-            progress_bar.set_postfix({"loss": loss.item()})
+            progress_bar.set_postfix({"loss": loss_value})
 
     # Clean up distributed training
     if dist_config.is_main_process():
         wandb.finish()
 
-    dist.destroy_process_group()
+    torch.distributed.destroy_process_group()
 
     return loss_value
 
