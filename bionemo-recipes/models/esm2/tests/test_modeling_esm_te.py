@@ -44,7 +44,7 @@ def test_esm_model_has_all_te_layers(input_data):
 
 
 def test_convert_state_dict(input_data):
-    from esm.convert import _pack_qkv_bias, _pack_qkv_weight, convert_esm_hf_to_te, mapping
+    from esm.convert import _pack_qkv_bias, _pack_qkv_weight, _pad_bias, _pad_weights, convert_esm_hf_to_te, mapping
 
     model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
     model_te = convert_esm_hf_to_te(model_hf)
@@ -65,10 +65,18 @@ def test_convert_state_dict(input_data):
             for i in range(model_hf.config.num_hidden_layers):
                 k_sub = k.replace("*", str(i))
                 v_sub = v.replace("*", str(i))
-                torch.testing.assert_close(model_te.state_dict()[v_sub], model_hf.state_dict()[k_sub])
+                torch.testing.assert_close(
+                    model_te.state_dict()[v_sub],
+                    model_hf.state_dict()[k_sub],
+                    msg=lambda x: f"{k} {i} is not close: {x}",
+                )
                 te_state_dict_keys.remove(v_sub)
         else:
-            torch.testing.assert_close(model_te.state_dict()[v], model_hf.state_dict()[k])
+            torch.testing.assert_close(
+                model_te.state_dict()[v],
+                model_hf.state_dict()[k],
+                msg=lambda x: f"{k} is not close: {x}",
+            )
             te_state_dict_keys.remove(v)
 
     # # We untie these weights so we need to compare and remove manually
@@ -119,6 +127,26 @@ def test_convert_state_dict(input_data):
 
         torch.testing.assert_close(packed_weight, model_te.state_dict()[k])
         te_state_dict_keys.remove(k)
+
+    ctx_mock = MagicMock()
+    ctx_mock.target.config.padded_vocab_size = model_te.config.padded_vocab_size
+
+    torch.testing.assert_close(
+        _pad_weights(ctx_mock, model_hf.state_dict()["esm.embeddings.word_embeddings.weight"]),
+        model_te.state_dict()["esm.embeddings.word_embeddings.weight"],
+    )
+    torch.testing.assert_close(
+        _pad_weights(ctx_mock, model_hf.state_dict()["lm_head.decoder.weight"]),
+        model_te.state_dict()["lm_head.decoder.weight"],
+    )
+    torch.testing.assert_close(
+        _pad_bias.transform(ctx_mock, model_hf.state_dict()["lm_head.bias"]),
+        model_te.state_dict()["lm_head.decoder.bias"],
+    )
+
+    te_state_dict_keys.remove("esm.embeddings.word_embeddings.weight")
+    te_state_dict_keys.remove("lm_head.decoder.weight")
+    te_state_dict_keys.remove("lm_head.decoder.bias")
 
     assert len(te_state_dict_keys) == 0
 

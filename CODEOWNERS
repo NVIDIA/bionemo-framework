@@ -54,7 +54,7 @@ docs @dorotat-nv @jstjohn @pstjohn @trvachov @jwilber @tshimko-nv @polinabinder1
 *.txt @dorotat-nv @jstjohn @pstjohn @trvachov
 CODEOWNERS @jstjohn @pstjohn @trvachov
 Dockerfile @dorotat-nv @jstjohn @ohadmo @pstjohn @trvachov
-ci/ @dorotat-nv @pstjohn
+ci/ @dorotat-nv @pstjohn @trvachov @jwilber
 .github @dorotat-nv @jstjohn @pstjohn @trvachov
 
 #

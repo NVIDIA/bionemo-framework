@@ -22,7 +22,6 @@ from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
 
 mapping = {
-    "esm.embeddings.word_embeddings.weight": "esm.embeddings.word_embeddings.weight",
     "esm.encoder.layer.*.attention.output.dense.weight": "esm.encoder.layers.*.self_attention.proj.weight",
     "esm.encoder.layer.*.attention.output.dense.bias": "esm.encoder.layers.*.self_attention.proj.bias",
     "esm.encoder.layer.*.attention.LayerNorm.weight": "esm.encoder.layers.*.self_attention.layernorm_qkv.layer_norm_weight",
@@ -35,8 +34,6 @@ mapping = {
     "esm.encoder.layer.*.LayerNorm.bias": "esm.encoder.layers.*.layernorm_mlp.layer_norm_bias",
     "esm.encoder.emb_layer_norm_after.weight": "esm.encoder.emb_layer_norm_after.weight",
     "esm.encoder.emb_layer_norm_after.bias": "esm.encoder.emb_layer_norm_after.bias",
-    "lm_head.bias": "lm_head.decoder.bias",
-    "lm_head.decoder.weight": "lm_head.decoder.weight",
     "lm_head.dense.weight": "lm_head.dense.weight",
     "lm_head.dense.bias": "lm_head.dense.bias",
     "lm_head.layer_norm.weight": "lm_head.decoder.layer_norm_weight",
@@ -63,7 +60,7 @@ def convert_esm_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
         model_hf,
         model_te,
         mapping,
-        [_pack_qkv_weight, _pack_qkv_bias],
+        [_pack_qkv_weight, _pack_qkv_bias, _pad_embeddings, _pad_decoder_weights, _pad_bias],
         state_dict_ignored_entries=["lm_head.decoder.weight"],
     )
 
@@ -114,3 +111,40 @@ def _pack_qkv_bias(ctx: io.TransformCTX, query, key, value):
     concat_biases = concat_biases.transpose(0, 1).contiguous()
     concat_biases = concat_biases.view(*input_shape)
     return concat_biases
+
+
+def _pad_weights(ctx: io.TransformCTX, source_embed):
+    """Pad the embedding layer to the new input dimension."""
+    target_embedding_dimension = ctx.target.config.padded_vocab_size
+    hf_embedding_dimension = source_embed.size(0)
+    num_padding_rows = target_embedding_dimension - hf_embedding_dimension
+    padding_rows = torch.zeros(
+        num_padding_rows, source_embed.size(1), dtype=source_embed.dtype, device=source_embed.device
+    )
+    return torch.cat((source_embed, padding_rows), dim=0)
+
+
+_pad_embeddings = io.state_transform(
+    source_key="esm.embeddings.word_embeddings.weight",
+    target_key="esm.embeddings.word_embeddings.weight",
+)(_pad_weights)
+
+_pad_decoder_weights = io.state_transform(
+    source_key="lm_head.decoder.weight",
+    target_key="lm_head.decoder.weight",
+)(_pad_weights)
+
+
+@io.state_transform(
+    source_key="lm_head.bias",
+    target_key="lm_head.decoder.bias",
+)
+def _pad_bias(ctx: io.TransformCTX, source_bias):
+    """Pad the embedding layer to the new input dimension."""
+    target_embedding_dimension = ctx.target.config.padded_vocab_size
+    hf_embedding_dimension = source_bias.size(0)
+    output_bias = torch.finfo(source_bias.dtype).min * torch.ones(
+        target_embedding_dimension, dtype=source_bias.dtype, device=source_bias.device
+    )
+    output_bias[:hf_embedding_dimension] = source_bias
+    return output_bias
