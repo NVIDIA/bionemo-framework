@@ -281,6 +281,7 @@ def test_sanity_mfsdp_thd(distributed_cleanup, tmp_path, monkeypatch, recipe_pat
     main_mfsdp(sanity_config)
 
 
+@requires_fp8
 def test_sanity_ddp_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe_path):
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
@@ -303,6 +304,7 @@ def test_sanity_ddp_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe_p
     main_ddp(sanity_config)
 
 
+@requires_fp8
 def test_sanity_mfsdp_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe_path):
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
