@@ -384,8 +384,8 @@ def test_checkpoint_save_and_load_single_process_fsdp2():
     """Test checkpoint save/resume functionality for FSDP2 with single process.
 
     This test validates:
-    - FSDP2 creates single-file checkpoints (step_X.pt files)
-    - Full state dict gathering and saving works correctly
+    - FSDP2 creates distributed checkpoints (step_X directories by default)
+    - Each rank saves its shard (even with single process)
     - Training can resume from latest checkpoint and continue
     - Resume starts from correct step count
 
@@ -405,12 +405,14 @@ def test_checkpoint_save_and_load_single_process_fsdp2():
     train_script = os.path.join(this_dir, "train_fsdp2.py")
 
     try:
-        # Phase 1: Train for 10 steps
+        # Phase 1: Train for 10 steps (using distributed checkpoint by default)
+        # Use smaller model for faster tests
         cmd_phase1 = [
             "torchrun",
             "--nproc_per_node=1",
             train_script,
             f"ckpt_dir={temp_dir}",
+            "model_tag=facebook/esm2_t6_8M_UR50D",  # Use smallest model
             "num_train_steps=10",
             "save_every_n_steps=5",
             "resume_from_checkpoint=false",  # Start fresh
@@ -423,13 +425,15 @@ def test_checkpoint_save_and_load_single_process_fsdp2():
         ckpt_subdir = os.path.join(temp_dir, "train_fsdp2")
         assert os.path.exists(ckpt_subdir), f"Checkpoint subdirectory {ckpt_subdir} not created"
 
-        # Verify checkpoint was created (FSDP2 creates .pt files)
-        checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
-        assert len(checkpoint_files) > 0, "No checkpoint files created in phase 1"
+        # Verify checkpoint was created (FSDP2 now creates directories by default)
+        checkpoint_dirs = [
+            d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+        ]
+        assert len(checkpoint_dirs) > 0, "No checkpoint directories created in phase 1"
 
         # Check that checkpoint at step 5 exists
-        expected_checkpoint = "step_5.pt"
-        assert expected_checkpoint in checkpoint_files, f"Expected {expected_checkpoint} not found"
+        expected_checkpoint = "step_5"
+        assert expected_checkpoint in checkpoint_dirs, f"Expected {expected_checkpoint} not found"
 
         # Phase 2: Resume training
         cmd_phase2 = [
@@ -445,13 +449,15 @@ def test_checkpoint_save_and_load_single_process_fsdp2():
         assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
 
         # Verify phase 2 completed and created additional checkpoints
-        final_checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
-        expected_checkpoints = ["step_5.pt", "step_10.pt"]
+        final_checkpoint_dirs = [
+            d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+        ]
+        expected_checkpoints = ["step_5", "step_10"]
         for expected in expected_checkpoints:
-            assert expected in final_checkpoint_files, f"Missing checkpoint: {expected}"
+            assert expected in final_checkpoint_dirs, f"Missing checkpoint: {expected}"
 
-        print("✅ Test passed: FSDP2 checkpoints created successfully")
-        print(f"✅ Found checkpoints: {sorted(final_checkpoint_files)}")
+        print("✅ Test passed: FSDP2 distributed checkpoints created successfully")
+        print(f"✅ Found checkpoints: {sorted(final_checkpoint_dirs)}")
         print("✅ Resume functionality works")
 
     finally:
@@ -465,9 +471,8 @@ def test_checkpoint_save_and_load_two_processes_fsdp2():
     """Test checkpoint save/resume functionality for FSDP2 with two processes.
 
     This test validates:
-    - Multi-process FSDP2 state dict gathering (all ranks participate)
-    - Main process saves full state dict after gathering
-    - All processes can load and broadcast from rank 0
+    - Multi-process FSDP2 distributed checkpointing (each rank saves its shard)
+    - All ranks participate in saving and loading
     - Training resumes correctly with proper process synchronization
 
     Process:
@@ -504,13 +509,15 @@ def test_checkpoint_save_and_load_two_processes_fsdp2():
         ckpt_subdir = os.path.join(temp_dir, "train_fsdp2")
         assert os.path.exists(ckpt_subdir), f"Checkpoint subdirectory {ckpt_subdir} not created"
 
-        # Verify checkpoint was created
-        checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
-        assert len(checkpoint_files) > 0, "No checkpoint files created in phase 1"
+        # Verify checkpoint was created (FSDP2 now creates directories by default)
+        checkpoint_dirs = [
+            d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+        ]
+        assert len(checkpoint_dirs) > 0, "No checkpoint directories created in phase 1"
 
         # Check that checkpoint at step 5 exists
-        expected_checkpoint = "step_5.pt"
-        assert expected_checkpoint in checkpoint_files, f"Expected {expected_checkpoint} not found"
+        expected_checkpoint = "step_5"
+        assert expected_checkpoint in checkpoint_dirs, f"Expected {expected_checkpoint} not found"
 
         # Phase 2: Resume training with 2 processes
         cmd_phase2 = [
@@ -526,17 +533,158 @@ def test_checkpoint_save_and_load_two_processes_fsdp2():
         assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
 
         # Verify phase 2 completed and created additional checkpoints
-        final_checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
-        expected_checkpoints = ["step_5.pt", "step_10.pt"]
+        final_checkpoint_dirs = [
+            d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+        ]
+        expected_checkpoints = ["step_5", "step_10"]
         for expected in expected_checkpoints:
-            assert expected in final_checkpoint_files, f"Missing checkpoint: {expected}"
+            assert expected in final_checkpoint_dirs, f"Missing checkpoint: {expected}"
 
-        print("✅ Test passed: Multi-process FSDP2 checkpoints created successfully")
-        print(f"✅ Found checkpoints: {sorted(final_checkpoint_files)}")
+        print("✅ Test passed: Multi-process FSDP2 distributed checkpoints created successfully")
+        print(f"✅ Found checkpoints: {sorted(final_checkpoint_dirs)}")
         print("✅ Resume functionality works across processes")
 
     finally:
         # Cleanup temporary directory
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@pytest.mark.slow
+def test_fsdp2_legacy_checkpoint_format():
+    """Test FSDP2 with legacy checkpoint format (gather full state).
+
+    This test validates:
+    - Can explicitly use legacy format with use_distributed_checkpoint_fsdp2=false
+    - Creates single .pt files instead of directories
+    - Can resume from legacy checkpoints
+    """
+    temp_dir = tempfile.mkdtemp(prefix="test_ckpt_fsdp2_legacy_")
+
+    env = os.environ.copy()
+    env["WANDB_MODE"] = "disabled"
+
+    this_dir = os.path.dirname(__file__)
+    train_script = os.path.join(this_dir, "train_fsdp2.py")
+
+    try:
+        # Phase 1: Train with legacy format
+        cmd_phase1 = [
+            "torchrun",
+            "--nproc_per_node=1",
+            train_script,
+            f"ckpt_dir={temp_dir}",
+            "num_train_steps=10",
+            "save_every_n_steps=5",
+            "resume_from_checkpoint=false",
+            "use_distributed_checkpoint_fsdp2=false",  # Use legacy format
+        ]
+
+        result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
+        assert result1.returncode == 0, f"Phase 1 failed: {result1.stderr}"
+
+        ckpt_subdir = os.path.join(temp_dir, "train_fsdp2")
+
+        # Verify legacy .pt files were created (not directories)
+        checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
+        checkpoint_dirs = [
+            d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+        ]
+
+        assert len(checkpoint_files) > 0, "No legacy checkpoint files created"
+        assert len(checkpoint_dirs) == 0, "Unexpected checkpoint directories created in legacy mode"
+        assert "step_5.pt" in checkpoint_files, "Expected step_5.pt not found"
+
+        # Phase 2: Resume from legacy checkpoint
+        cmd_phase2 = [
+            "torchrun",
+            "--nproc_per_node=1",
+            train_script,
+            f"ckpt_dir={temp_dir}",
+            "num_train_steps=15",
+            "save_every_n_steps=5",
+            "use_distributed_checkpoint_fsdp2=false",  # Continue with legacy format
+        ]
+
+        result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
+        assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
+
+        final_checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
+        assert "step_10.pt" in final_checkpoint_files, "Missing step_10.pt"
+
+        print("✅ Test passed: FSDP2 legacy format works correctly")
+        print(f"✅ Found legacy checkpoints: {sorted(final_checkpoint_files)}")
+
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@pytest.mark.slow
+def test_fsdp2_backward_compatibility():
+    """Test FSDP2 can load legacy checkpoints when using distributed format.
+
+    This test validates:
+    - Create checkpoint with legacy format
+    - Resume with distributed format (should auto-detect and load legacy)
+    - New checkpoints use distributed format
+    """
+    temp_dir = tempfile.mkdtemp(prefix="test_ckpt_fsdp2_compat_")
+
+    env = os.environ.copy()
+    env["WANDB_MODE"] = "disabled"
+
+    this_dir = os.path.dirname(__file__)
+    train_script = os.path.join(this_dir, "train_fsdp2.py")
+
+    try:
+        # Phase 1: Create legacy checkpoint
+        cmd_phase1 = [
+            "torchrun",
+            "--nproc_per_node=1",
+            train_script,
+            f"ckpt_dir={temp_dir}",
+            "num_train_steps=10",
+            "save_every_n_steps=5",
+            "resume_from_checkpoint=false",
+            "use_distributed_checkpoint_fsdp2=false",  # Legacy format
+        ]
+
+        result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
+        assert result1.returncode == 0, f"Phase 1 failed: {result1.stderr}"
+
+        ckpt_subdir = os.path.join(temp_dir, "train_fsdp2")
+
+        # Verify legacy checkpoint exists
+        checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
+        assert "step_5.pt" in checkpoint_files, "Legacy checkpoint not created"
+
+        # Phase 2: Resume with distributed format (default)
+        cmd_phase2 = [
+            "torchrun",
+            "--nproc_per_node=1",
+            train_script,
+            f"ckpt_dir={temp_dir}",
+            "num_train_steps=15",
+            "save_every_n_steps=5",
+            # use_distributed_checkpoint_fsdp2=true by default
+        ]
+
+        result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
+        assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
+
+        # Check we have both formats now
+        final_checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
+        final_checkpoint_dirs = [
+            d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+        ]
+
+        assert "step_5.pt" in final_checkpoint_files, "Legacy checkpoint should still exist"
+        assert "step_10" in final_checkpoint_dirs, "New distributed checkpoint not created"
+
+        print("✅ Test passed: FSDP2 backward compatibility works")
+        print(f"✅ Legacy checkpoints: {sorted(final_checkpoint_files)}")
+        print(f"✅ Distributed checkpoints: {sorted(final_checkpoint_dirs)}")
+
+    finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -812,10 +960,12 @@ def test_scheduler_resume_two_gpu():
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
         assert result1.returncode == 0, f"Phase 1 failed: {result1.stderr}"
 
-        # Check that checkpoint was created
+        # Check that checkpoint was created (FSDP2 uses distributed format by default)
         ckpt_subdir = os.path.join(temp_dir, "train_fsdp2")
-        checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
-        assert "step_5.pt" in checkpoint_files, "Checkpoint at step 5 not found"
+        checkpoint_dirs = [
+            d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+        ]
+        assert "step_5" in checkpoint_dirs, "Checkpoint at step 5 not found"
 
         # Phase 2: Resume training with 2 GPUs
         cmd_phase2 = [
@@ -837,19 +987,14 @@ def test_scheduler_resume_two_gpu():
             "Phase 2 should start from step 6 after resuming from step 5"
         )
 
-        # Check that final checkpoint was created
-        final_checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
-        assert "step_10.pt" in final_checkpoint_files, "Checkpoint at step 10 not found"
+        # Check that final checkpoint was created (distributed format)
+        final_checkpoint_dirs = [
+            d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+        ]
+        assert "step_10" in final_checkpoint_dirs, "Checkpoint at step 10 not found"
 
         print("✅ Test passed: Multi-GPU scheduler resumes correctly")
         print("✅ Both GPUs resumed training with synchronized scheduler state")
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-if __name__ == "__main__":
-    # Run a quick test to verify the setup works
-    print("Running quick sanity test...")
-    test_checkpoint_save_and_load_single_process_ddp()
-    print("\nAll tests can be run with: pytest test_distributed_checkpointing.py")

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import torch
-import torch.distributed.checkpoint
+import torch.distributed.checkpoint as dcp
 from safetensors.torch import save_file
 from torch.distributed.checkpoint.state_dict import (
     StateDictOptions,
@@ -207,58 +207,112 @@ def load_checkpoint_fsdp2(
     dist_config: Dict[str, Any],
     logger: logging.Logger,
 ) -> Tuple[torch.nn.Module, torch.optim.Optimizer, int]:
-    """Load FSDP2 checkpoint - load on main, broadcast to all.
+    """Load FSDP2 checkpoint - distributed or legacy format.
 
-    Both model and optimizer states are properly restored across all ranks
-    using distributed checkpoint APIs to avoid state divergence.
+    Automatically detects checkpoint format and loads appropriately.
+    Both model and optimizer states are properly restored across all ranks.
     """
     try:
-        checkpoint_path, step = get_latest_checkpoint(ckpt_dir)
-        # checkpoint_path already includes .pt extension from get_latest_checkpoint
+        # Check for distributed checkpoint directories (step_X folders)
+        checkpoint_dirs = [
+            d for d in os.listdir(ckpt_dir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_dir, d))
+        ]
 
-        # Only rank 0 loads the checkpoint file from disk
-        if dist_config.is_main_process():
-            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-            model_state = checkpoint["model"]
-            optimizer_state = checkpoint["optimizer"]
-            step = checkpoint.get("step", step)
+        # Check for legacy checkpoint files (step_X.pt files)
+        checkpoint_files = [f for f in os.listdir(ckpt_dir) if f.startswith("step_") and f.endswith(".pt")]
+        if checkpoint_dirs:
+            # Load distributed checkpoint (newer format)
+            # Find the latest checkpoint directory
+            latest_step = max(int(d.split("_")[1]) for d in checkpoint_dirs)
+            checkpoint_dir = os.path.join(ckpt_dir, f"step_{latest_step}")
+
+            # Initialize empty state dicts for loading
+            model_state_dict = {}
+            optimizer_state_dict = {}
+            metadata = {}
+
+            state_dict = {
+                "model": model_state_dict,
+                "optimizer": optimizer_state_dict,
+                "metadata": metadata,
+            }
+            # All ranks participate in distributed load
+            dcp.load(
+                state_dict=state_dict,
+                checkpoint_id=checkpoint_dir,
+            )
+
+            step = metadata.get("step", latest_step)
+
+            # Set the loaded state dicts (sharded format)
+            set_model_state_dict(
+                model=model,
+                model_state_dict=model_state_dict,
+                options=StateDictOptions(
+                    full_state_dict=False,  # Sharded format
+                ),
+            )
+
+            set_optimizer_state_dict(
+                model=model,
+                optimizers=optimizer,
+                optim_state_dict=optimizer_state_dict,
+                options=StateDictOptions(
+                    full_state_dict=False,  # Sharded format
+                ),
+            )
+
+            logger.info(f"Loaded distributed FSDP2 checkpoint from step {step}")
+            return model, optimizer, step
+        elif checkpoint_files:
+            # Load legacy checkpoint (older format)
+            checkpoint_path, step = get_latest_checkpoint(ckpt_dir)
+
+            # Only rank 0 loads the checkpoint file from disk
+            if dist_config.is_main_process():
+                checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+                model_state = checkpoint["model"]
+                optimizer_state = checkpoint["optimizer"]
+                step = checkpoint.get("step", step)
+            else:
+                model_state = {}
+                optimizer_state = {}
+                step = 0
+
+            # Broadcast step number to all ranks
+            step_tensor = torch.tensor([step], dtype=torch.int64, device=f"cuda:{dist_config.local_rank}")
+            torch.distributed.broadcast(step_tensor, src=0)
+            step = step_tensor.item()
+
+            # ALL ranks call set_model_state_dict - DCP handles broadcasting from rank 0
+            set_model_state_dict(
+                model=model,
+                model_state_dict=model_state,
+                options=StateDictOptions(
+                    full_state_dict=True,
+                    broadcast_from_rank0=True,
+                ),
+            )
+
+            # ALL ranks MUST call set_optimizer_state_dict - DCP handles broadcasting from rank 0
+            set_optimizer_state_dict(
+                model=model,
+                optimizers=optimizer,
+                optim_state_dict=optimizer_state,
+                options=StateDictOptions(
+                    full_state_dict=True,
+                    broadcast_from_rank0=True,
+                ),
+            )
+
+            # Ensure all ranks have completed loading before proceeding
+            torch.distributed.barrier()
+
+            logger.info(f"Loaded legacy FSDP2 checkpoint from step {step}")
+            return model, optimizer, step
         else:
-            model_state = {}
-            optimizer_state = {}
-            step = 0
-
-        # Broadcast step number to all ranks
-        step_tensor = torch.tensor([step], dtype=torch.int64, device=f"cuda:{dist_config.local_rank}")
-        torch.distributed.broadcast(step_tensor, src=0)
-        step = step_tensor.item()
-
-        # ALL ranks call set_model_state_dict - DCP handles broadcasting from rank 0
-        set_model_state_dict(
-            model=model,
-            model_state_dict=model_state,
-            options=StateDictOptions(
-                full_state_dict=True,
-                broadcast_from_rank0=True,
-            ),
-        )
-
-        # ALL ranks MUST call set_optimizer_state_dict - DCP handles broadcasting from rank 0
-        # This ensures optimizer state is properly synchronized across all ranks
-        set_optimizer_state_dict(
-            model=model,
-            optimizer=optimizer,
-            optim_state_dict=optimizer_state,
-            options=StateDictOptions(
-                full_state_dict=True,
-                broadcast_from_rank0=True,
-            ),
-        )
-
-        # Ensure all ranks have completed loading before proceeding
-        torch.distributed.barrier()
-
-        logger.info(f"Loaded FSDP2 checkpoint from step {step} (model and optimizer restored on all ranks)")
-        return model, optimizer, step
+            logger.info("No FSDP2 checkpoints found")
+            return model, optimizer, 0
     except Exception as e:
         logger.error(f"Failed to load FSDP2 checkpoint: {e}")
         return model, optimizer, 0
@@ -271,36 +325,88 @@ def save_checkpoint_fsdp2(
     step: int,
     dist_config: Dict[str, Any],
     logger: logging.Logger,
+    use_distributed_checkpoint: bool = True,  # Default to distributed for scalability
 ) -> None:
-    """Save FSDP2 checkpoint - gather on all ranks, save on main."""
-    # ALL ranks must call get_model_state_dict for the collective communication
-    model_state_dict = get_model_state_dict(
-        model=model,
-        options=StateDictOptions(
-            full_state_dict=True,
-            cpu_offload=True,
-        ),
-    )
+    """Save FSDP2 checkpoint - distributed sharded or gathered based on flag.
 
-    # ALL ranks must call get_optimizer_state_dict for the collective communication
-    optimizer_state_dict = get_optimizer_state_dict(
-        model=model,
-        optimizers=optimizer,  # Note: parameter name is 'optimizers' even for single optimizer
-        options=StateDictOptions(
-            full_state_dict=True,
-            cpu_offload=True,
-        ),
-    )
+    Args:
+        model: The model to save.
+        optimizer: The optimizer to save.
+        ckpt_dir: The directory to save the checkpoint.
+        step: The step number to save the checkpoint.
+        dist_config: The distributed configuration.
+        logger: The logger to use.
+        use_distributed_checkpoint: If True, use distributed checkpoint (each rank saves its shard).
+                                  If False, gather full state and save on rank 0 (for small models).
+    """
+    if use_distributed_checkpoint:
+        # Distributed checkpoint - each rank saves its own shard
+        checkpoint_dir = os.path.join(ckpt_dir, f"step_{step}")
 
-    # Only rank 0 saves the checkpoint
-    if not dist_config.is_main_process():
-        return
+        # Get sharded state dicts (each rank has its portion)
+        model_state_dict = get_model_state_dict(
+            model=model,
+            options=StateDictOptions(
+                full_state_dict=False,  # Keep sharded
+                cpu_offload=True,
+            ),
+        )
 
-    checkpoint_path = os.path.join(ckpt_dir, f"step_{step}.pt")
-    os.makedirs(ckpt_dir, exist_ok=True)
+        optimizer_state_dict = get_optimizer_state_dict(
+            model=model,
+            optimizers=optimizer,
+            options=StateDictOptions(
+                full_state_dict=False,  # Keep sharded
+                cpu_offload=True,
+            ),
+        )
 
-    torch.save({"model": model_state_dict, "optimizer": optimizer_state_dict, "step": step}, checkpoint_path)
-    logger.info(f"Saved FSDP2 checkpoint to {checkpoint_path}")
+        # Save metadata separately (step number)
+        metadata = {"step": step}
+
+        # All ranks participate in distributed save
+        state_dict = {
+            "model": model_state_dict,
+            "optimizer": optimizer_state_dict,
+            "metadata": metadata,
+        }
+
+        dcp.save(
+            state_dict=state_dict,
+            checkpoint_id=checkpoint_dir,
+        )
+
+        logger.info(f"Saved distributed FSDP2 checkpoint to {checkpoint_dir}")
+    else:
+        # Legacy path: gather full state dict and save on rank 0 (can OOM for large models)
+        # ALL ranks must call get_model_state_dict for the collective communication
+        model_state_dict = get_model_state_dict(
+            model=model,
+            options=StateDictOptions(
+                full_state_dict=True,
+                cpu_offload=True,
+            ),
+        )
+
+        # ALL ranks must call get_optimizer_state_dict for the collective communication
+        optimizer_state_dict = get_optimizer_state_dict(
+            model=model,
+            optimizers=optimizer,  # Note: parameter name is 'optimizers' even for single optimizer
+            options=StateDictOptions(
+                full_state_dict=True,
+                cpu_offload=True,
+            ),
+        )
+
+        # Only rank 0 saves the checkpoint
+        if not dist_config.is_main_process():
+            return
+
+        checkpoint_path = os.path.join(ckpt_dir, f"step_{step}.pt")
+        os.makedirs(ckpt_dir, exist_ok=True)
+
+        torch.save({"model": model_state_dict, "optimizer": optimizer_state_dict, "step": step}, checkpoint_path)
+        logger.info(f"Saved FSDP2 checkpoint to {checkpoint_path}")
 
 
 def save_final_model_fsdp2(

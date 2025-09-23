@@ -183,6 +183,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                 step=step,
                 dist_config=dist_config,
                 logger=logger,
+                use_distributed_checkpoint=args.use_distributed_checkpoint_fsdp2,
             )
 
         # Log metrics to logger and wandb on main process.
