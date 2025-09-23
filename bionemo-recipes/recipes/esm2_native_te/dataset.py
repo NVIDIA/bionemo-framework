@@ -19,11 +19,11 @@ from torch.utils.data import DataLoader, DistributedSampler
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
+from collator import MLMDataCollatorWithFlattening
 from distributed_config import DistributedConfig
 
 
-# Create the dataset -- here, we just use a simple parquet file with some raw protein sequences
-# stored in the repo itself to avoid external dependencies.
+# Create the dataset. In unit tests, we load the train.parquet file from the repo itself to avoid external dependencies.
 
 
 def infinite_dataloader(dataloader, dataset_or_sampler):
@@ -49,6 +49,8 @@ def create_dataloader(
     num_workers: int,
     max_seq_length: int = 1024,
     seed: int = 42,
+    use_sequence_packing: bool = False,
+    sequence_packing_pad_to_multiple_of: int | None = None,
 ):
     """Create a dataloader for the dataset.
 
@@ -60,6 +62,8 @@ def create_dataloader(
         num_workers: The number of workers to use for the dataloader.
         max_seq_length: The maximum length of the protein sequences.
         seed: The seed to use for the distributed sampler and data collator.
+        use_sequence_packing: Whether to use sequence packing.
+        sequence_packing_pad_to_multiple_of: The padding to use for the sequence packing collator, for fp8 support.
 
     Returns:
         A dataloader that just infinitely loops over the dataset.
@@ -97,12 +101,20 @@ def create_dataloader(
         remove_columns=dataset.column_names,
     )
 
-    data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        pad_to_multiple_of=max_seq_length,
-        seed=seed,
-    )
+    if use_sequence_packing:
+        data_collator = MLMDataCollatorWithFlattening(
+            tokenizer=tokenizer,
+            mlm_probability=0.15,
+            pad_to_multiple_of=sequence_packing_pad_to_multiple_of,
+            seed=seed,
+        )
+    else:
+        data_collator = DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            mlm_probability=0.15,
+            pad_to_multiple_of=max_seq_length,
+            seed=seed,
+        )
 
     train_dataloader = DataLoader(
         tokenized_dataset,

@@ -11,6 +11,8 @@ dataset:
   micro_batch_size: ???
   num_workers: 1
   max_seq_length: 1024
+  use_sequence_packing: false
+  sequence_packing_pad_to_multiple_of: null
   load_dataset_kwargs:
     path: "parquet"
     split: "train"
@@ -33,6 +35,17 @@ fully_shard_kwargs:
   overlap_param_gather: true
   sync_grads_each_step: true
   average_in_collective: false
+
+# TransformerEngine FP8 config. See
+# https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html for more information on
+# supported formats.
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs:
+    amax_history_len: 16
+    amax_compute_algo: "max"
 
 # Optimizer config
 adamw_kwargs:
