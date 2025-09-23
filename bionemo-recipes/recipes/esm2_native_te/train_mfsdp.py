@@ -14,26 +14,23 @@
 # limitations under the License.
 
 import logging
-import os
-import sys
-import time
+from pathlib import Path
 
 import hydra
 import torch
 import transformer_engine.pytorch
 import transformers
-import wandb
 from megatron_fsdp.fully_shard import fully_shard
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
-from tqdm import tqdm
 from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 
-from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp
+from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp, should_save_checkpoint
 from dataset import create_dataloader
 from distributed_config import DistributedConfig
+from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -42,7 +39,7 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
-def main(args: DictConfig) -> float | None:  # noqa: C901
+def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using mfsdp.
 
     Model names are valid ESM-2 model sizes, e.g.:
@@ -53,12 +50,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     Returns:
         float: The loss value for the final batch.
     """
-    # Get the script name without extension and add it to checkpoint directory
-    script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
-    ckpt_dir = os.path.join(args.checkpoint.ckpt_dir, script_name)
-    logger.info(f"Checkpoint directory: {ckpt_dir}")
-    os.makedirs(ckpt_dir, exist_ok=True)
-
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
@@ -75,9 +66,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         mesh_dim_names=("fsdp", "cp", "tp"),
     )
 
-    if dist_config.is_main_process():
-        wandb.init(**args.wandb_init_args, config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True))
-
+    # Create an empty ESM-2 model with a masked language model head.
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.dataset.use_sequence_packing:
@@ -91,15 +80,8 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     except AttributeError:
         pass
 
-    # Log model and number of parameters on main process.
-    if dist_config.is_main_process():
-        logger.info("model:\n%s", model)
-        logger.info(f"total number of parameters: {sum(p.numel() for p in model.parameters()):,}")
-
-    # Create optimizer.
-    # Convert OmegaConf to regular dict to avoid serialization issues later
-    adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
-    optimizer = AdamW(model.parameters(), **adamw_kwargs)
+    # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
+    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
 
     # Wrap model in megatron-fsdp
     model, optimizer = fully_shard(
@@ -119,8 +101,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
 
     # This is important; the LR scheduler modifies optimizer.step(), so this needs to get created
     # after the optimizer gets wrapped in FSDP. Here we use a warmup and linear decay scheduler.
-    lr_scheduler_kwargs = OmegaConf.to_container(args.lr_scheduler_kwargs, resolve=True)
-    scheduler = get_linear_schedule_with_warmup(optimizer, **lr_scheduler_kwargs)
+    scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     # Create a dataloader that just infinitely loops over the dataset.
     train_iterator = create_dataloader(dist_config, **args.dataset)
@@ -134,31 +115,22 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     else:
         fp8_recipe = None
 
-    # Training loop.
-    model.train()
-    if dist_config.is_main_process():
-        progress_bar = tqdm(range(args.num_train_steps), desc="Training", disable=False)
-
-    # Load checkpoint if it exists and resume is enabled
-    start_step = 0
-    if args.checkpoint.resume_from_checkpoint:
-        model, optimizer, start_step = load_checkpoint_mfsdp(
+    # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
+    ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_mfsdp" if args.checkpoint.ckpt_dir else None
+    if args.checkpoint.resume_from_checkpoint and ckpt_path:
+        model, optimizer, scheduler, start_step = load_checkpoint_mfsdp(
             model=model,
             optimizer=optimizer,
-            ckpt_dir=ckpt_dir,
-            logger=logger,
+            scheduler=scheduler,
+            ckpt_path=ckpt_path,
         )
-        # Increment start_step to avoid re-running the checkpointed step
-        start_step = min(start_step + 1, args.num_train_steps)
-        try:
-            scheduler.last_epoch = start_step - 1
-        except Exception:
-            for _ in range(start_step):
-                scheduler.step()
+    else:
+        start_step = 0
+
+    perf_logger = PerfLogger(dist_config, args)
 
     # Training loop.
-    previous_step_time = time.perf_counter()
-    loss_value = None
+    model.train()
     for step in range(start_step, args.num_train_steps):
         # Get batch.
         batch = next(train_iterator)
@@ -181,61 +153,29 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         scheduler.step()
         optimizer.zero_grad()
 
-        if (
-            args.checkpoint.save_every_n_steps > 0 and step % args.checkpoint.save_every_n_steps == 0 and step > 0
-        ):  # Skip step 0
-            # For mfsdp, always use distributed checkpointing
+        if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
             save_checkpoint_mfsdp(
                 model=model,
                 optimizer=optimizer,
-                ckpt_dir=ckpt_dir,
+                scheduler=scheduler,
+                ckpt_path=ckpt_path,
                 step=step,
-                logger=logger,
             )
 
-        # Log metrics to logger and wandb on main process.
-        if dist_config.is_main_process():
-            loss_value = loss.detach().item()
-            current_time = time.perf_counter()
-            step_time = current_time - previous_step_time
-            previous_step_time = current_time
+        perf_logger.log_step(step, loss.detach().item(), total_norm, optimizer.param_groups[0]["lr"])
 
-            current_lr = optimizer.param_groups[0]["lr"]
-            logger.info(
-                "Step %d loss: %f, grad_norm: %f, lr: %f",
-                step,
-                loss_value,
-                total_norm,
-                current_lr,
-            )
-            wandb.log(
-                {
-                    "train/loss": loss_value,
-                    "train/global_step": step,
-                    "train/learning_rate": current_lr,
-                    "train/grad_norm": total_norm,
-                    "train/step_time": step_time,
-                }
-            )
-
-            progress_bar.update(1)
-            progress_bar.set_postfix({"loss": loss_value})
-
-    final_model_dir = os.path.join(ckpt_dir, "final_model")
-    save_final_model_mfsdp(
-        model=model,
-        save_directory=final_model_dir,
-        dist_config=dist_config,
-        logger=logger,
-    )
+    if args.checkpoint.save_final_model and ckpt_path:
+        save_final_model_mfsdp(
+            model=model,
+            save_directory=ckpt_path / "final_model",
+            dist_config=dist_config,
+        )
 
     # Clean up distributed training
-    if dist_config.is_main_process():
-        wandb.finish()
-
+    perf_logger.finish()
     torch.distributed.destroy_process_group()
 
-    return loss_value
+    return perf_logger.min_loss
 
 
 if __name__ == "__main__":
