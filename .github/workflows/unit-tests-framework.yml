@@ -1,3 +1,35 @@
+# BioNeMo Framework CI Workflow
+#
+# This workflow runs comprehensive tests for the BioNeMo framework on various triggers:
+#
+# TRIGGERS:
+# - Push to main branch, pull-request branches, or dependabot branches
+# - Merge group events (when PRs are merged via merge queue)
+# - Scheduled runs (daily at 7 AM UTC)
+#
+# WORKFLOW OVERVIEW:
+# 1. changed-files: Detects which files have changed compared to main branch
+#    - Tracks changes in: All files (**) except:
+#      * bionemo-recipes/** (recipes have separate workflow)
+#      * **.md (markdown documentation files)
+#      * .github/** (GitHub configuration, except this workflow file)
+#      * .gitignore, .devcontainer/**
+#      * ci/scripts/recipes_local_test.py
+#    - Includes: .github/workflows/unit-tests-framework.yml (this workflow file)
+# 2. pre-commit: Runs static code checks and linting
+# 3. get-pr-labels: Retrieves PR labels for conditional job execution
+# 4. build-bionemo-image: Builds Docker image (conditional on triggers/labels)
+# 5. run-tests: Runs unit tests (when image build succeeds)
+# 6. run-tests-slow: Runs slow tests (when image succeeds + ciflow:slow label OR schedule/merge_group/ciflow:all)
+# 7. run-tests-notebooks: Runs notebook tests (when image succeeds + ciflow:notebooks label OR schedule/merge_group/ciflow:all)
+# 8. verify-tests-status: Verifies all test jobs completed successfully
+#
+# CONDITIONAL EXECUTION:
+# - build-bionemo-image runs on: schedule, ciflow:all label, (no ciflow:skip + modified files), (merge_group + modified files)
+# - run-tests runs when: build-bionemo-image succeeds
+# - run-tests-slow runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
+# - run-tests-notebooks runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:notebooks)
+
 name: "BioNeMo Framework CI"
 
 on:
@@ -116,10 +148,11 @@ jobs:
         (github.event_name == 'schedule') ||
         contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
         (
-          (
-            !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') ||
-            (github.event_name == 'merge_group')
-          ) &&
+          !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
+          (needs.changed-files.outputs.any_changed == 'true')
+        ) ||
+        (
+          (github.event_name == 'merge_group') &&
           (needs.changed-files.outputs.any_changed == 'true')
         )
       }}
@@ -181,18 +214,7 @@ jobs:
       credentials:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
-    if: |
-      ${{
-        (github.event_name == 'schedule') ||
-        contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
-        (
-          (
-            !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') ||
-            (github.event_name == 'merge_group')
-          ) &&
-          (needs.changed-files.outputs.any_changed == 'true')
-        )
-      }}
+    if: needs.build-bionemo-image.result == 'success'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -234,17 +256,12 @@ jobs:
         password: ${{ secrets.DOCKER_PASSWORD }}
     if: |
       ${{
-        (github.event_name == 'schedule') ||
-        contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+        (needs.build-bionemo-image.result == 'success') &&
         (
-          (
-            (
-              !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
-              contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
-            ) ||
-            (github.event_name == 'merge_group')
-          ) &&
-          (needs.changed-files.outputs.any_changed == 'true')
+          (github.event_name == 'schedule') ||
+          (github.event_name == 'merge_group') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
         )
       }}
     steps:
@@ -270,17 +287,12 @@ jobs:
 
     if: |
       ${{
-        (github.event_name == 'schedule') ||
-        contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+        (needs.build-bionemo-image.result == 'success') &&
         (
-          (
-            (
-              !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
-              contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:notebooks')
-            ) ||
-            (github.event_name == 'merge_group')
-          ) &&
-          (needs.changed-files.outputs.any_changed == 'true')
+          (github.event_name == 'schedule') ||
+          (github.event_name == 'merge_group') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:notebooks')
         )
       }}
 
