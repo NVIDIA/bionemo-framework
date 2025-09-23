@@ -130,7 +130,6 @@ def main(args: DictConfig) -> float | None:
         scheduler.step()
         optimizer.zero_grad()
 
-<<<<<<< HEAD
         if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
             save_checkpoint_ddp(
                 model=model,
@@ -141,17 +140,14 @@ def main(args: DictConfig) -> float | None:
                 dist_config=dist_config,
             )
 
-        perf_logger.log_step(step, loss.detach().item(), total_norm, optimizer.param_groups[0]["lr"])
-=======
         perf_logger.log_step(
             step=step,
             num_tokens=batch["input_ids"].numel(),
-            num_unpadded_tokens=batch["input_ids"][batch["input_ids"] != 1].numel(),
+            num_unpadded_tokens=batch["input_ids"][batch["input_ids"] != 1].numel(),  # 1 is the padding token.
             loss=loss.detach().item(),
             grad_norm=total_norm,
             lr=optimizer.param_groups[0]["lr"],
         )
->>>>>>> 598da51b (consolidate logging and add final perf output)
 
     # Save final model using save_pretrained
     if args.checkpoint.save_final_model and ckpt_path:
