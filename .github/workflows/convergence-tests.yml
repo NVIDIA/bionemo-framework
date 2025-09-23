@@ -72,4 +72,5 @@ jobs:
             --config-name recipes/${{ inputs.model_config }} \
             $RUN_ONLY_ARGS \
             branch=${{ inputs.branch }} \
-            commit_sha=${{ inputs.commit_sha }}
+            commit_sha=${{ inputs.commit_sha }} \
+            node_group=${{ inputs.node_group }}
