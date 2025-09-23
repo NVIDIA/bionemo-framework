@@ -77,7 +77,9 @@ def test_sanity_convergence_mfsdp(distributed_cleanup, tmp_path, recipe_path):
 
     # Run the training script with Hydra configuration overrides
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(config_name="L0_sanity", overrides=[f"+wandb_init_args.dir={tmp_path}", "resume_from_checkpoint=false"])
+        sanity_config = compose(
+            config_name="L0_sanity", overrides=[f"+wandb_init_args.dir={tmp_path}", "resume_from_checkpoint=false"]
+        )
 
     final_loss = main_mfsdp(sanity_config)
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
@@ -294,10 +296,12 @@ def test_sanity_mfsdp_thd(distributed_cleanup, tmp_path, monkeypatch, recipe_pat
                 f"+wandb_init_args.dir={tmp_path}",
                 "dataset.use_sequence_packing=true",
                 "num_train_steps=4",
+                "resume_from_checkpoint=false",
             ],
         )
 
     main_mfsdp(sanity_config)
+
 
 @requires_fp8
 def test_sanity_ddp_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe_path):

@@ -42,7 +42,7 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
-def main(args: DictConfig) -> float | None:
+def main(args: DictConfig) -> float | None:  # noqa: C901
     """Train ESM-2 with TE layers using mfsdp.
 
     Model names are valid ESM-2 model sizes, e.g.:
