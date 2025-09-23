@@ -134,7 +134,7 @@ jobs:
 
       - name: Set empty labels for non-PR branches
         if: ${{ !startsWith(github.ref, 'refs/heads/pull-request/') }}
-        id: get-labels-empty
+        id: get-labels
         run: echo "labels=[]" >> $GITHUB_OUTPUT
 
   build-bionemo-image:
