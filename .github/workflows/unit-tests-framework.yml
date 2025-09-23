@@ -114,7 +114,7 @@ jobs:
   get-pr-labels:
     runs-on: ubuntu-latest
     outputs:
-      labels: ${{ steps.get-labels.outputs.labels }}
+      labels: ${{ steps.get-labels.outputs.labels || steps.get-labels-empty.outputs.labels }}
     steps:
       - name: Get PR number from branch
         if: startsWith(github.ref, 'refs/heads/pull-request/')
