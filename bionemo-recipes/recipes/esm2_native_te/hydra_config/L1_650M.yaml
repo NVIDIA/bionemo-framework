@@ -15,4 +15,9 @@ wandb_init_args:
   project: "bionemo-recipes-pstjohn"
   mode: "offline"
 
-ckpt_dir: "checkpoints/esm2_t33_650M_UR50D_sanity"
+# Checkpoint config
+checkpoint:
+  ckpt_dir: "checkpoints/esm2_t33_650M_UR50D_sanity"
+  resume_from_checkpoint: false
+  use_distributed_checkpoint_fsdp2: true
+  save_every_n_steps: 500
