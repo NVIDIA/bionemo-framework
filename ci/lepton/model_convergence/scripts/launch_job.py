@@ -100,7 +100,7 @@ def launch_single_job(client, cfg: DictConfig):
             image=cfg.container.image,
             command=command,
         ),
-        completions=1,
+        completions=cfg.num_nodes,
         parallelism=1,
         envs=env_vars,
         image_pull_secrets=[cfg.container.registry_auth],
