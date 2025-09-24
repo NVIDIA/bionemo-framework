@@ -39,18 +39,24 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-def get_latest_checkpoint(ckpt_path: str | os.PathLike) -> tuple[str, int]:
-    """Get the latest checkpoint path and step number."""
-    if not os.path.exists(ckpt_path):
-        raise ValueError(f"Checkpoint directory does not exist: {ckpt_path}")
+def get_latest_checkpoint(ckpt_path: str | os.PathLike) -> tuple[Path | None, int]:
+    """Get the latest checkpoint path and step number.
 
-    checkpoint_files = [f for f in os.listdir(ckpt_path) if f.startswith("step_")]
+    Returns:
+        Tuple of (checkpoint path, step number).
+        If no checkpoint files are found, returns (None, 0).
+    """
+    ckpt_path = Path(ckpt_path)
+    if not ckpt_path.exists():
+        return None, 0
+
+    checkpoint_files = [f for f in ckpt_path.iterdir() if f.name.startswith("step_")]
     if not checkpoint_files:
-        raise ValueError(f"No checkpoint files found in {ckpt_path}")
+        return None, 0
 
     latest = max(checkpoint_files, key=lambda x: int(Path(x).stem.split("_")[1]))
     step = int(Path(latest).stem.split("_")[1])
-    return os.path.join(ckpt_path, latest), step
+    return ckpt_path / latest, step
 
 
 def should_save_checkpoint(step: int, save_every_n_steps: int) -> bool:
@@ -74,7 +80,9 @@ def load_checkpoint_ddp(
 ) -> tuple[torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int]:
     """Load DDP checkpoint."""
     checkpoint_path, step = get_latest_checkpoint(ckpt_path)
-    # checkpoint_path already includes .pt extension from get_latest_checkpoint
+    if not checkpoint_path:
+        logger.info("No DDP checkpoint found, starting from scratch")
+        return model, optimizer, scheduler, 0
 
     checkpoint = torch.load(checkpoint_path, map_location=f"cuda:{dist_config.local_rank}", weights_only=False)
     model.load_state_dict(checkpoint["model"])
@@ -158,6 +166,9 @@ def load_checkpoint_mfsdp(
         Tuple of (model, optimizer, scheduler, step).
     """
     checkpoint_path, step = get_latest_checkpoint(ckpt_path)
+    if not checkpoint_path:
+        logger.info("No mFSDP checkpoint found, starting from scratch")
+        return model, optimizer, scheduler, 0
 
     ckpt_state_dict = {
         "model": model.state_dict(),
@@ -252,13 +263,13 @@ def _load_distributed_checkpoint_fsdp2(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LRScheduler,
-    checkpoint_dirs: list[str],
+    checkpoint_dirs: list[Path],
     ckpt_path: str | os.PathLike,
     dist_config: DistributedConfig,
 ) -> tuple[torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int]:
     # Load distributed checkpoint (newer format)
     # Find the latest checkpoint directory
-    latest_step = max(int(d.split("_")[1]) for d in checkpoint_dirs)
+    latest_step = max(int(d.name.split("_")[1]) for d in checkpoint_dirs)
     checkpoint_dir = os.path.join(ckpt_path, f"step_{latest_step}")
 
     # Initialize empty state dicts for loading
@@ -316,6 +327,9 @@ def _load_legacy_checkpoint_fsdp2(
 ) -> tuple[torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int]:
     # Load legacy checkpoint (older format)
     checkpoint_path, step = get_latest_checkpoint(ckpt_path)
+    if not checkpoint_path:
+        logger.info("No FSDP2 checkpoint found, starting from scratch")
+        return model, optimizer, scheduler, 0
 
     # Only rank 0 loads the checkpoint file from disk
     if dist_config.is_main_process():
@@ -380,9 +394,12 @@ def load_checkpoint_fsdp2(
     Both model and optimizer states are properly restored across all ranks.
     """
     # Check for distributed checkpoint directories (step_X folders)
-    checkpoint_dirs = [
-        d for d in os.listdir(ckpt_path) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_path, d))
-    ]
+    ckpt_path = Path(ckpt_path)
+    if not ckpt_path.exists():
+        logger.info("No FSDP2 checkpoint found, starting from scratch")
+        return model, optimizer, scheduler, 0
+
+    checkpoint_dirs = [d for d in ckpt_path.iterdir() if d.name.startswith("step_") and d.is_dir()]
 
     if checkpoint_dirs:
         return _load_distributed_checkpoint_fsdp2(
@@ -395,7 +412,7 @@ def load_checkpoint_fsdp2(
         )
 
     # Check for legacy checkpoint files (step_X.pt files)
-    checkpoint_files = [f for f in os.listdir(ckpt_path) if f.startswith("step_") and f.endswith(".pt")]
+    checkpoint_files = [f for f in ckpt_path.iterdir() if f.name.startswith("step_") and f.name.endswith(".pt")]
 
     if checkpoint_files:
         return _load_legacy_checkpoint_fsdp2(
@@ -406,7 +423,7 @@ def load_checkpoint_fsdp2(
             dist_config=dist_config,
         )
 
-    logger.info("No FSDP2 checkpoints found")
+    logger.info("No FSDP2 checkpoint found, starting from scratch")
     return model, optimizer, scheduler, 0
 
 

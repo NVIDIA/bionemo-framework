@@ -20,7 +20,7 @@ lr_scheduler_kwargs:
 
 checkpoint:
   ckpt_dir: null
-  resume_from_checkpoint: false
+  resume_from_checkpoint: true
   save_every_n_steps: 50
   use_distributed_checkpoint_fsdp2: true
   save_final_model: false
