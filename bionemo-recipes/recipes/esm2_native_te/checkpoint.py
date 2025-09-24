@@ -51,13 +51,12 @@ def get_latest_checkpoint(ckpt_path: str | os.PathLike) -> tuple[Path | None, in
     if not ckpt_path.exists():
         return None, 0
 
-    checkpoint_files = [f for f in ckpt_path.iterdir() if f.name.startswith("step_")]
-    checkpoint_dirs = [f for f in ckpt_path.iterdir() if f.name.startswith("step_") and f.is_dir()]
+    checkpoints = [f for f in ckpt_path.iterdir() if f.name.startswith("step_")]
 
-    if not checkpoint_files and not checkpoint_dirs:
+    if not checkpoints:
         return None, 0
 
-    latest = max(checkpoint_files + checkpoint_dirs, key=lambda x: int(Path(x).stem.split("_")[1]))
+    latest = max(checkpoints, key=lambda x: int(Path(x).stem.split("_")[1]))
     step = int(Path(latest).stem.split("_")[1])
     return ckpt_path / latest, step
 
@@ -113,8 +112,9 @@ def save_checkpoint_ddp(
     if not dist_config.is_main_process():
         return
 
-    checkpoint_path = os.path.join(ckpt_path, f"step_{step}.pt")
-    os.makedirs(ckpt_path, exist_ok=True)
+    ckpt_path = Path(ckpt_path)
+    ckpt_path.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = ckpt_path / f"step_{step}.pt"
 
     torch.save(
         {
@@ -163,7 +163,6 @@ def load_checkpoint_mfsdp(
         optimizer: The optimizer to load.
         scheduler: The LR scheduler to load.
         ckpt_path: The directory containing checkpoints.
-        dist_config: The distributed configuration.
 
     Returns:
         Tuple of (model, optimizer, scheduler, step).
@@ -179,7 +178,7 @@ def load_checkpoint_mfsdp(
         "scheduler": scheduler.state_dict(),
         "metadata": {},
     }
-    torch.distributed.checkpoint.load(state_dict=ckpt_state_dict, checkpoint_id=str(checkpoint_path))
+    torch.distributed.checkpoint.load(state_dict=ckpt_state_dict, checkpoint_id=checkpoint_path)
 
     model.load_state_dict(ckpt_state_dict["model"])
     optimizer.load_state_dict(ckpt_state_dict["optimizer"])
@@ -189,6 +188,9 @@ def load_checkpoint_mfsdp(
     metadata_step = ckpt_state_dict.get("metadata", {}).get("step")
     if metadata_step is not None:
         step = metadata_step
+
+    # Increment the step by one to avoid re-running the previous step.
+    step += 1
 
     # Ensure all ranks have completed loading before proceeding
     torch.distributed.barrier()
@@ -329,8 +331,11 @@ def load_checkpoint_fsdp2(
     state_dict = {"app": app_state}
     dcp.load(state_dict, checkpoint_id=checkpoint_path)
 
+    # Increment the step by one to avoid re-running the previous step.
+    step = app_state.step + 1
+
     logger.info(f"Loaded distributed FSDP2 checkpoint from step {app_state.step}")
-    return model, optimizer, scheduler, app_state.step
+    return model, optimizer, scheduler, step
 
 
 def save_checkpoint_fsdp2(
