@@ -249,6 +249,125 @@ def save_final_model_mfsdp(
 # ============================================================================
 
 
+def _load_distributed_checkpoint_fsdp2(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    checkpoint_dirs: list[str],
+    ckpt_path: str | os.PathLike,
+    dist_config: DistributedConfig,
+) -> tuple[torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int]:
+    # Load distributed checkpoint (newer format)
+    # Find the latest checkpoint directory
+    latest_step = max(int(d.split("_")[1]) for d in checkpoint_dirs)
+    checkpoint_dir = os.path.join(ckpt_path, f"step_{latest_step}")
+
+    # Initialize empty state dicts for loading
+    model_state_dict = {}
+    optimizer_state_dict = {}
+    scheduler_state_dict = {}
+    metadata = {}
+
+    state_dict = {
+        "model": model_state_dict,
+        "optimizer": optimizer_state_dict,
+        "scheduler": scheduler_state_dict,
+        "metadata": metadata,
+    }
+
+    # All ranks participate in distributed load
+    dcp.load(
+        state_dict=state_dict,
+        checkpoint_id=checkpoint_dir,
+    )
+
+    step = metadata.get("step", latest_step)
+
+    # Set the loaded state dicts (sharded format)
+    set_model_state_dict(
+        model=model,
+        model_state_dict=model_state_dict,
+        options=StateDictOptions(
+            full_state_dict=False,  # Sharded format
+        ),
+    )
+
+    set_optimizer_state_dict(
+        model=model,
+        optimizers=optimizer,
+        optim_state_dict=optimizer_state_dict,
+        options=StateDictOptions(
+            full_state_dict=False,  # Sharded format
+        ),
+    )
+
+    # Load scheduler state if available
+    scheduler.load_state_dict(scheduler_state_dict)
+
+    logger.info(f"Loaded distributed FSDP2 checkpoint from step {step}")
+    return model, optimizer, scheduler, step
+
+
+def _load_legacy_checkpoint_fsdp2(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    ckpt_path: str | os.PathLike,
+    dist_config: DistributedConfig,
+) -> tuple[torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int]:
+    # Load legacy checkpoint (older format)
+    checkpoint_path, step = get_latest_checkpoint(ckpt_path)
+
+    # Only rank 0 loads the checkpoint file from disk
+    if dist_config.is_main_process():
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        model_state = checkpoint["model"]
+        optimizer_state = checkpoint["optimizer"]
+        scheduler_state = checkpoint["scheduler"]
+        step = checkpoint.get("step", step)
+    else:
+        model_state = {}
+        optimizer_state = {}
+        scheduler_state = {}
+        step = 0
+
+    # Broadcast step number to all ranks
+    step_tensor = torch.tensor([step], dtype=torch.int64, device=f"cuda:{dist_config.local_rank}")
+    torch.distributed.broadcast(step_tensor, src=0)
+    step = step_tensor.item()
+
+    # ALL ranks call set_model_state_dict - DCP handles broadcasting from rank 0
+    set_model_state_dict(
+        model=model,
+        model_state_dict=model_state,
+        options=StateDictOptions(
+            full_state_dict=True,
+            broadcast_from_rank0=True,
+        ),
+    )
+
+    # ALL ranks MUST call set_optimizer_state_dict - DCP handles broadcasting from rank 0
+    set_optimizer_state_dict(
+        model=model,
+        optimizers=optimizer,
+        optim_state_dict=optimizer_state,
+        options=StateDictOptions(
+            full_state_dict=True,
+            broadcast_from_rank0=True,
+        ),
+    )
+
+    # Load scheduler state if available (only on rank 0, then broadcast happens automatically)
+    if dist_config.is_main_process() and scheduler_state:
+        scheduler.load_state_dict(scheduler_state)
+
+    # Ensure all ranks have completed loading before proceeding
+    torch.distributed.barrier()
+
+    logger.info(f"Loaded legacy FSDP2 checkpoint from step {step}")
+    return model, optimizer, scheduler, int(step)
+
+
 def load_checkpoint_fsdp2(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -266,114 +385,30 @@ def load_checkpoint_fsdp2(
         d for d in os.listdir(ckpt_path) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_path, d))
     ]
 
+    if checkpoint_dirs:
+        return _load_distributed_checkpoint_fsdp2(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            checkpoint_dirs=checkpoint_dirs,
+            ckpt_path=ckpt_path,
+            dist_config=dist_config,
+        )
+
     # Check for legacy checkpoint files (step_X.pt files)
     checkpoint_files = [f for f in os.listdir(ckpt_path) if f.startswith("step_") and f.endswith(".pt")]
-    if checkpoint_dirs:
-        # Load distributed checkpoint (newer format)
-        # Find the latest checkpoint directory
-        latest_step = max(int(d.split("_")[1]) for d in checkpoint_dirs)
-        checkpoint_dir = os.path.join(ckpt_path, f"step_{latest_step}")
 
-        # Initialize empty state dicts for loading
-        model_state_dict = {}
-        optimizer_state_dict = {}
-        scheduler_state_dict = {}
-        metadata = {}
-
-        state_dict = {
-            "model": model_state_dict,
-            "optimizer": optimizer_state_dict,
-            "scheduler": scheduler_state_dict,
-            "metadata": metadata,
-        }
-
-        # All ranks participate in distributed load
-        dcp.load(
-            state_dict=state_dict,
-            checkpoint_id=checkpoint_dir,
-        )
-
-        step = metadata.get("step", latest_step)
-
-        # Set the loaded state dicts (sharded format)
-        set_model_state_dict(
+    if checkpoint_files:
+        return _load_legacy_checkpoint_fsdp2(
             model=model,
-            model_state_dict=model_state_dict,
-            options=StateDictOptions(
-                full_state_dict=False,  # Sharded format
-            ),
+            optimizer=optimizer,
+            scheduler=scheduler,
+            ckpt_path=ckpt_path,
+            dist_config=dist_config,
         )
 
-        set_optimizer_state_dict(
-            model=model,
-            optimizers=optimizer,
-            optim_state_dict=optimizer_state_dict,
-            options=StateDictOptions(
-                full_state_dict=False,  # Sharded format
-            ),
-        )
-
-        # Load scheduler state if available
-        scheduler.load_state_dict(scheduler_state_dict)
-
-        logger.info(f"Loaded distributed FSDP2 checkpoint from step {step}")
-        return model, optimizer, scheduler, step
-
-    elif checkpoint_files:
-        # Load legacy checkpoint (older format)
-        checkpoint_path, step = get_latest_checkpoint(ckpt_path)
-
-        # Only rank 0 loads the checkpoint file from disk
-        if dist_config.is_main_process():
-            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-            model_state = checkpoint["model"]
-            optimizer_state = checkpoint["optimizer"]
-            scheduler_state = checkpoint["scheduler"]
-            step = checkpoint.get("step", step)
-        else:
-            model_state = {}
-            optimizer_state = {}
-            scheduler_state = {}
-            step = 0
-
-        # Broadcast step number to all ranks
-        step_tensor = torch.tensor([step], dtype=torch.int64, device=f"cuda:{dist_config.local_rank}")
-        torch.distributed.broadcast(step_tensor, src=0)
-        step = step_tensor.item()
-
-        # ALL ranks call set_model_state_dict - DCP handles broadcasting from rank 0
-        set_model_state_dict(
-            model=model,
-            model_state_dict=model_state,
-            options=StateDictOptions(
-                full_state_dict=True,
-                broadcast_from_rank0=True,
-            ),
-        )
-
-        # ALL ranks MUST call set_optimizer_state_dict - DCP handles broadcasting from rank 0
-        set_optimizer_state_dict(
-            model=model,
-            optimizers=optimizer,
-            optim_state_dict=optimizer_state,
-            options=StateDictOptions(
-                full_state_dict=True,
-                broadcast_from_rank0=True,
-            ),
-        )
-
-        # Load scheduler state if available (only on rank 0, then broadcast happens automatically)
-        if dist_config.is_main_process() and scheduler_state:
-            scheduler.load_state_dict(scheduler_state)
-
-        # Ensure all ranks have completed loading before proceeding
-        torch.distributed.barrier()
-
-        logger.info(f"Loaded legacy FSDP2 checkpoint from step {step}")
-        return model, optimizer, scheduler, step
-    else:
-        logger.info("No FSDP2 checkpoints found")
-        return model, optimizer, scheduler, 0
+    logger.info("No FSDP2 checkpoints found")
+    return model, optimizer, scheduler, 0
 
 
 def _save_distributed_checkpoint_fsdp2(
