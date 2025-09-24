@@ -41,7 +41,7 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
-def main(args: DictConfig) -> float | None:
+def main(args: DictConfig) -> float | None:  # noqa: C901
     """Train ESM-2 with TE layers using fsdp2.
 
     Returns:
@@ -112,7 +112,6 @@ def main(args: DictConfig) -> float | None:
             optimizer=optimizer,
             scheduler=scheduler,
             ckpt_path=ckpt_path,
-            dist_config=dist_config,
         )
     else:
         start_step = 0
@@ -150,8 +149,6 @@ def main(args: DictConfig) -> float | None:
                 scheduler=scheduler,
                 ckpt_path=ckpt_path,
                 step=step,
-                dist_config=dist_config,
-                use_distributed_checkpoint=args.checkpoint.use_distributed_checkpoint_fsdp2,
             )
 
         perf_logger.log_step(

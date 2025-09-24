@@ -355,7 +355,6 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb_init_args.dir={tmp_path}",
-                "model_tag=facebook/esm2_t6_8M_UR50D",  # Use smallest model
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
@@ -474,121 +473,6 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
     expected_checkpoints = ["step_5", "step_10"]
     for expected in expected_checkpoints:
         assert expected in final_checkpoint_dirs, f"Missing checkpoint: {expected}"
-
-
-def test_fsdp2_legacy_checkpoint_format(recipe_path, tmp_path):
-    """Test FSDP2 with legacy checkpoint format (gather full state).
-
-    This test validates:
-    - Can explicitly use legacy format with use_distributed_checkpoint_fsdp2=false
-    - Creates single .pt files instead of directories
-    - Can resume from legacy checkpoints
-    """
-    temp_dir = str(tmp_path / "test_ckpt_fsdp2_legacy")
-
-    # Phase 1: Train with legacy format
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        phase1_config = compose(
-            config_name="L0_sanity",
-            overrides=[
-                f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
-                "num_train_steps=10",
-                "checkpoint.save_every_n_steps=5",
-                "checkpoint.resume_from_checkpoint=false",
-                "checkpoint.use_distributed_checkpoint_fsdp2=false",  # Use legacy format
-            ],
-        )
-
-    main_fsdp2(phase1_config)
-
-    ckpt_subdir = os.path.join(temp_dir, "train_fsdp2")
-
-    # Verify legacy .pt files were created (not directories)
-    checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
-    checkpoint_dirs = [
-        d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
-    ]
-
-    assert len(checkpoint_files) > 0, "No legacy checkpoint files created"
-    assert len(checkpoint_dirs) == 0, "Unexpected checkpoint directories created in legacy mode"
-    assert "step_5.pt" in checkpoint_files, "Expected step_5.pt not found"
-
-    # Phase 2: Resume from legacy checkpoint
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        phase2_config = compose(
-            config_name="L0_sanity",
-            overrides=[
-                f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
-                "num_train_steps=15",
-                "checkpoint.save_every_n_steps=5",
-                "checkpoint.use_distributed_checkpoint_fsdp2=false",  # Continue with legacy format
-            ],
-        )
-
-    main_fsdp2(phase2_config)
-
-    final_checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
-    assert "step_10.pt" in final_checkpoint_files, "Missing step_10.pt"
-
-
-def test_fsdp2_backward_compatibility(recipe_path, tmp_path):
-    """Test FSDP2 can load legacy checkpoints when using distributed format.
-
-    This test validates:
-    - Create checkpoint with legacy format
-    - Resume with distributed format (should auto-detect and load legacy)
-    - New checkpoints use distributed format
-    """
-    temp_dir = str(tmp_path / "test_ckpt_fsdp2_compat")
-
-    # Phase 1: Create legacy checkpoint
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        phase1_config = compose(
-            config_name="L0_sanity",
-            overrides=[
-                f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
-                "num_train_steps=10",
-                "checkpoint.save_every_n_steps=5",
-                "checkpoint.resume_from_checkpoint=false",
-                "checkpoint.use_distributed_checkpoint_fsdp2=false",  # Legacy format
-            ],
-        )
-
-    main_fsdp2(phase1_config)
-
-    ckpt_subdir = os.path.join(temp_dir, "train_fsdp2")
-
-    # Verify legacy checkpoint exists
-    checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
-    assert "step_5.pt" in checkpoint_files, "Legacy checkpoint not created"
-
-    # Phase 2: Resume with distributed format (default)
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        phase2_config = compose(
-            config_name="L0_sanity",
-            overrides=[
-                f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
-                "num_train_steps=15",
-                "checkpoint.save_every_n_steps=5",
-                "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
-                # use_distributed_checkpoint_fsdp2=true by default
-            ],
-        )
-
-    main_fsdp2(phase2_config)
-
-    # Check we have both formats now
-    final_checkpoint_files = [f for f in os.listdir(ckpt_subdir) if f.startswith("step_") and f.endswith(".pt")]
-    final_checkpoint_dirs = [
-        d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
-    ]
-
-    assert "step_5.pt" in final_checkpoint_files, "Legacy checkpoint should still exist"
-    assert "step_10" in final_checkpoint_dirs, "New distributed checkpoint not created"
 
 
 def test_final_model_save_ddp(recipe_path, tmp_path):

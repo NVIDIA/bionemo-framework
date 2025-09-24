@@ -22,5 +22,4 @@ checkpoint:
   ckpt_dir: null
   resume_from_checkpoint: true
   save_every_n_steps: 50
-  use_distributed_checkpoint_fsdp2: true
   save_final_model: false
