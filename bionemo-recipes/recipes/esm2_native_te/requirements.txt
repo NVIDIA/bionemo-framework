@@ -1,6 +1,6 @@
 datasets
 hydra-core
-megatron-fsdp==0.1.0rc0
+megatron-fsdp
 torch
 tqdm
 transformer_engine

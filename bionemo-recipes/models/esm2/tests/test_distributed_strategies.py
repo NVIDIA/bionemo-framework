@@ -197,7 +197,7 @@ if __name__ == "__main__":
                 device_mesh=device_mesh,
                 dp_shard_dim="dp",
                 tp_dim="tp",
-                sync_grads_each_step=True,
+                sync_model_each_microbatch=True,
                 preserve_fp32_weights=False,  # TODO: cory, any idea why this is needed?
             )
 

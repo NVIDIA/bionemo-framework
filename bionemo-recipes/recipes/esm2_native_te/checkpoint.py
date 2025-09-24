@@ -58,7 +58,7 @@ def get_latest_checkpoint(ckpt_path: str | os.PathLike) -> tuple[Path | None, in
 
     latest = max(checkpoints, key=lambda x: int(Path(x).stem.split("_")[1]))
     step = int(Path(latest).stem.split("_")[1])
-    return ckpt_path / latest, step
+    return latest, step
 
 
 def should_save_checkpoint(step: int, save_every_n_steps: int) -> bool:
@@ -237,12 +237,18 @@ def save_final_model_mfsdp(
     model: torch.nn.Module,
     save_directory: str | os.PathLike,
     dist_config: DistributedConfig,
+    outer_dp_sharding=False,
 ) -> None:
     """Save final model for mFSDP - requires parameter gathering on all ranks."""
     # Parameter gathering must happen on ALL processes
     logger.info("Starting mFSDP parameter gathering...")
     model._replace_param_with_raw_if_needed()
-    model.all_gather_pipeline.all_gather_params(list(model.module.parameters()))
+    model.all_gather_pipeline.all_gather_params(
+        list(model.module.parameters()),
+        # Only needed if DP-Outer sharding is enabled.
+        # Otherwise, just all-gather on DP-Shard.
+        outer_fsdp_group_param_gather=outer_dp_sharding,
+    )
 
     for param in model.module.parameters():
         bucket_id = model.param_and_grad_buffer.param_to_param_group[param]
@@ -253,6 +259,14 @@ def save_final_model_mfsdp(
     # Only main process saves the model
     if not dist_config.is_main_process():
         return
+
+    # WAR(@cspades): Since we are saving the un-sharded model, we need to remove the
+    # state dictionary hook which replaces un-sharded parameters with sharded parameters.
+    # If your model does not fit on 1 GPU, all-gathering parameters will OOM.
+    # Native HuggingFace Safetensors checkpoint support is a WIP.
+    # WARNING: THIS IS A HACK AND WILL BREAK DCP CHECKPOINTING FOR THIS INSTANCE OF THE
+    # MODEL. ONLY USE IN THE VERY END OF YOUR TRAINING PROCESS / SCRIPT.
+    model._state_dict_pre_hook.remove()
 
     os.makedirs(save_directory, exist_ok=True)
     model.module.save_pretrained(save_directory, state_dict=model.module.state_dict(), safe_serialization=True)

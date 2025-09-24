@@ -196,13 +196,18 @@ def save_checkpoint(
             logger.error(f"Failed to clean up partial checkpoint: {cleanup_e}")
 
 
-def _gather_mfsdp_parameters(model, logger):
+def _gather_mfsdp_parameters(model, logger, outer_dp_sharding=False):
     """Helper function to gather mfsdp parameters across all processes."""
     logger.info("Starting mfsdp parameter gathering...")
 
     # These collective operations must run on ALL processes
     model._replace_param_with_raw_if_needed()
-    model.all_gather_pipeline.all_gather_params(list(model.module.parameters()))
+    model.all_gather_pipeline.all_gather_params(
+        list(model.module.parameters()),
+        # Only needed if DP-Outer sharding is enabled.
+        # Otherwise, just all-gather on DP-Shard.
+        outer_fsdp_group_param_gather=outer_dp_sharding,
+    )
 
     for param in model.module.parameters():
         bucket_id = model.param_and_grad_buffer.param_to_param_group[param]
@@ -218,7 +223,7 @@ def _get_underlying_model(model):
     return model
 
 
-def save_final_model(model, save_directory, logger, use_mfsdp=False, is_main_process=True):
+def save_final_model(model, save_directory, logger, use_mfsdp=False, outer_dp_sharding=False, is_main_process=True):
     """Save the final model in safetensors format.
 
     For mfsdp, this performs parameter gathering across all processes first.
@@ -229,6 +234,7 @@ def save_final_model(model, save_directory, logger, use_mfsdp=False, is_main_pro
         save_directory: Directory to save the model
         logger: Logger for status messages
         use_mfsdp: Whether using mfsdp (requires parameter gathering)
+        outer_dp_sharding: When sharding on DP-Outer, we need to all-gather on DP-Outer as well.
         is_main_process: Whether this is the main process (only main process saves)
 
     Note: For mfsdp, parameter gathering operations run on ALL processes, but only
@@ -236,7 +242,7 @@ def save_final_model(model, save_directory, logger, use_mfsdp=False, is_main_pro
     """
     if use_mfsdp:
         # Parameter gathering must happen on ALL processes
-        _gather_mfsdp_parameters(model, logger)
+        _gather_mfsdp_parameters(model, logger, outer_dp_sharding)
 
         # Only main process saves the model
         if not is_main_process:
@@ -253,6 +259,15 @@ def save_final_model(model, save_directory, logger, use_mfsdp=False, is_main_pro
         save_type = "DDP"
 
     logger.info(f"Starting {save_type} model saving...")
+
+    # WAR(@cspades): Since we are saving the un-sharded model, we need to remove the
+    # state dictionary hook which replaces un-sharded parameters with sharded parameters.
+    # If your model does not fit on 1 GPU, all-gathering parameters will OOM.
+    # Native HuggingFace Safetensors checkpoint support is a WIP.
+    # WARNING: THIS IS A HACK AND WILL BREAK DCP CHECKPOINTING FOR THIS INSTANCE OF THE
+    # MODEL. ONLY USE IN THE VERY END OF YOUR TRAINING PROCESS / SCRIPT.
+    if use_mfsdp:
+        model._state_dict_pre_hook.remove()
 
     underlying_model.save_pretrained(save_directory, state_dict=underlying_model.state_dict(), safe_serialization=True)
 
