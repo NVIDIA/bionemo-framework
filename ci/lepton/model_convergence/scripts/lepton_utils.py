@@ -1,0 +1,68 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from leptonai.api.v1.types.deployment import EnvValue, EnvVar, Mount
+
+
+node_group2resource_shape = {
+    "yo-bom-lepton-001": "gpu.8xh100-sxm",
+    "nv-int-multiteam-nebius-h200-01": "gpu.2xh200",
+}
+
+
+def construct_mount(path: str, mount_path: str, from_: str = "node-nfs:lepton-shared-fs") -> Mount:
+    """Construct a Mount object for a given path, mount_path, and source."""
+    # note, the from_="node-nfs:lepton-shared-fs" is not yet documented in the API docs, but is necessary
+    mount = {
+        "path": path,
+        "mount_path": mount_path,
+        "from": from_,
+    }
+    return Mount(**mount)
+
+
+def construct_env_var(env_var) -> EnvVar:
+    """Construct an EnvVar object from a config entry, supporting both secrets and literals."""
+    if "value_from" in env_var:
+        return EnvVar(
+            name=env_var.name,
+            value_from=EnvValue(secret_name_ref=env_var.value_from),
+        )
+    else:
+        return EnvVar(
+            name=env_var.name,
+            value=env_var.value,
+        )
+
+
+def resolve_resource_shape(node_group: str) -> str:
+    """Resolve resource shape based on node group.
+
+    Args:
+        node_group: The node group name
+
+    Returns:
+        The resolved resource shape
+
+    Raises:
+        SystemExit: If node group is unknown
+    """
+    if node_group not in node_group2resource_shape:
+        known_groups = ", ".join(sorted(node_group2resource_shape.keys()))
+        raise SystemExit(
+            f"Unknown node group '{node_group}' - no resource shape mapping found.\nKnown node groups: {known_groups}"
+        )
+
+    return node_group2resource_shape[node_group]

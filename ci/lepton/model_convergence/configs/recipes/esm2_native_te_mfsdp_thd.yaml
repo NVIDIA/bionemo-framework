@@ -1,0 +1,32 @@
+# @package _global_
+defaults:
+  - /base
+  - _self_
+
+resource_shape: gpu.2xh100-sxm
+node_group: yo-bom-lepton-001
+
+wandb_init_args:
+  project: "lepton_recipe_convergence_${sanitize:${branch}}"
+  group: "${recipe_subdir}_${resource_shape}"
+  job_type: "training"
+
+recipe_subdir: esm2_native_te_mfsdp_thd
+
+train_cmd: train
+num_train_steps: 100
+
+products:
+  # - config: L1_15B_perf_test
+  #   micro_batch_size: 4
+  # - config: L1_3B_ddp
+  #   micro_batch_size: 32
+  - config: L1_650M
+    micro_batch_size: 16
+
+train_script: |
+  torchrun ${train_cmd}.py \
+    --config-name ${config}.yaml \
+    num_train_steps=${num_train_steps} \
+    micro_batch_size=${micro_batch_size} \
+    wandb_init_args.project=${wandb_init_args.project}

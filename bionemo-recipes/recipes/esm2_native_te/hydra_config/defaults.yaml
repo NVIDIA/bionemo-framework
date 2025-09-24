@@ -1,0 +1,70 @@
+# Training config
+model_tag: ???
+num_train_steps: ???
+save_every_n_steps: 50
+
+
+# TODO: Once BIONEMO-2583 and BIONEMO-2719 are fixed, enable this by default and simplify training scripts to remove the
+# meta-device conditional.
+use_meta_device: false
+
+dataset:
+  tokenizer_name: ${model_tag}
+  micro_batch_size: ???
+  num_workers: 1
+  max_seq_length: 1024
+  use_sequence_packing: false
+  sequence_packing_pad_to_multiple_of: null
+  load_dataset_kwargs:
+    path: "parquet"
+    split: "train"
+    data_files: "train.parquet"
+    streaming: True
+
+# WandB config
+wandb_init_args:
+  name: ???
+
+# mFSDP config
+fully_shard_kwargs:
+  zero_dp_strategy: "optim_grads_params"
+  calculate_per_token_loss: false
+  init_model_with_meta_device: ${use_meta_device}
+  check_for_nan_in_grad: true
+  grad_reduce_in_fp32: false
+  preserve_fp32_weights: true
+  overlap_grad_reduce: true
+  overlap_param_gather: true
+  sync_grads_each_step: true
+  average_in_collective: false
+
+# TransformerEngine FP8 config. See
+# https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html for more information on
+# supported formats.
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs:
+    amax_history_len: 16
+    amax_compute_algo: "max"
+
+# Optimizer config
+adamw_kwargs:
+  lr: 4e-4
+  fused: true
+  betas: [0.9, 0.98]
+  eps: 1e-8
+  weight_decay: 0.01
+
+# Learning rate scheduler config
+lr_scheduler_kwargs:
+  num_warmup_steps: 2_000
+  num_training_steps: 500_000
+
+# Checkpoint config
+checkpoint:
+  ckpt_dir: ???
+  resume_from_checkpoint: true
+  use_distributed_checkpoint_fsdp2: true
+  save_every_n_steps: 50

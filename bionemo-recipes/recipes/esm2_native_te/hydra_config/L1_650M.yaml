@@ -1,0 +1,18 @@
+defaults:
+  - defaults
+  - _self_
+
+# Training config
+model_tag: nvidia/esm2_t33_650M_UR50D
+num_train_steps: 200
+
+dataset:
+  micro_batch_size: 4
+
+# WandB config
+wandb_init_args:
+  name: "esm2_t33_650M_UR50D_mfsdp"
+  project: "bionemo-recipes-pstjohn"
+  mode: "offline"
+
+ckpt_dir: "checkpoints/esm2_t33_650M_UR50D_sanity"

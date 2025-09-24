@@ -971,6 +971,11 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         )
         callbacks.append(checkpoint_callback)
 
+        # Note: `nl.AutoResume` is only created if a `ModelCheckpoint` exists, because `nl.AutoResume.setup()`
+        # expects the trainer to have a `checkpoint_callback` set. See: https://github.com/NVIDIA/NeMo/blob/29c230b8a3352bef2128ba2d226a327d52d05be3/nemo/lightning/resume.py#L128
+        #
+        # In principle, this shouldn't be a constraint — it should be possible to create `nl.AutoResume` even if
+        # checkpointing is not enabled.
         auto_resume = nl.AutoResume(
             resume_if_exists=True,
             resume_ignore_no_checkpoint=True,
