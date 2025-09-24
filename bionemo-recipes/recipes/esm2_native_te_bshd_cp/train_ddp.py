@@ -28,11 +28,13 @@ from torch.optim import AdamW
 from tqdm import tqdm
 from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
+from models.esm2.src.esm.modeling_esm_te import NVEsmModel, NVEsmEncoder, NVEsmConfig
 
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp
 from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from scheduler import get_linear_schedule_with_warmup
+from utils import get_batch_on_this_cp_rank
 
 
 logger = logging.getLogger(__name__)
@@ -83,7 +85,8 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.dataset.use_sequence_packing:
         config.attn_input_format = "thd"
-    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    # model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    model = NVEsmModel(config, add_pooling_layer=False)
 
     try:
         del model.esm.contact_head
@@ -130,8 +133,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     else:
         fp8_recipe = None
 
-    if dist_config.is_main_process():
-        import pdb; pdb.set_trace()
     # Create a dataloader that just infinitely loops over the dataset.
     train_iterator = create_dataloader(dist_config, **args.dataset)
 
@@ -162,7 +163,21 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     for step in range(start_step, args.num_train_steps):
         # Get batch.
         batch = next(train_iterator)
-        batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        print(f"Batch keys: {list(batch.keys())}")
+        input_ids, labels, position_ids = get_batch_on_this_cp_rank(
+            cu_seqlens_padded=None,
+            input_ids_padded=batch['input_ids'],
+            labels_padded=batch['labels'],
+            position_ids_padded=None,
+            cp_group=cp_group,
+            qvk_format="bshd"
+        )
+        batch['input_ids'] = input_ids
+        batch['labels'] = labels
+        # batch['position_ids'] = position_ids
+        
+        batch = {k: v.to(device, non_blocking=True).contiguous() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        # batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
         # Forward pass with mixed precision.
         with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):

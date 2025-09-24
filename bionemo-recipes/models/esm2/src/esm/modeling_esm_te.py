@@ -204,6 +204,8 @@ class NVEsmEncoder(nn.Module):
         te_rope_emb = None
         if self.config.position_embedding_type == "rotary":
             if self.config.attn_input_format == "bshd":
+                print("te_rope_emb", self.te_rope_emb.shape)
+                print("hidden_states", hidden_states.shape)
                 te_rope_emb = self.te_rope_emb.to(
                     device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
                 )
@@ -214,7 +216,7 @@ class NVEsmEncoder(nn.Module):
                         f"Increase max_position_embeddings."
                     )
                 #TODO: Is this correct?
-                te_rope_emb = te_rope_emb[:seq_len]
+                te_rope_emb = te_rope_emb[:seq_len] # TODO: May need to divide by CP factor
 
             elif self.config.attn_input_format == "thd":
                 assert cu_seq_lens_q is not None
@@ -229,6 +231,7 @@ class NVEsmEncoder(nn.Module):
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
+            print("hidden_states", hidden_states.shape)
             hidden_states = layer_module(
                 hidden_states,
                 attention_mask,
@@ -362,6 +365,11 @@ class NVEsmModel(NVEsmPreTrainedModel):
         Returns:
             BaseModelOutputWithPooling: The output of the model.
         """
+        print("At start of model forward pass...")
+        print("input_ids", input_ids.shape)
+        print("position_ids", position_ids.shape)
+        print("attention_mask", attention_mask.shape)
+        print("inputs_embeds", inputs_embeds.shape)
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
@@ -396,6 +404,10 @@ class NVEsmModel(NVEsmPreTrainedModel):
         # and head_mask is converted to shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
         head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
 
+        print("input_ids", input_ids.shape)
+        print("position_ids", position_ids.shape)
+        print("attention_mask", attention_mask.shape)
+        print("inputs_embeds", inputs_embeds.shape)
         embedding_output = self.embeddings(
             input_ids=input_ids,
             position_ids=position_ids,
