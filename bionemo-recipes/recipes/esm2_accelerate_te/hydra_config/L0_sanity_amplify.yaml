@@ -29,3 +29,7 @@ trainer:
   logging_steps: 10
   report_to: "none"
   dataloader_num_workers: 1
+
+wandb_init_args:
+  name: "amplify_120M_sanity"
+  mode: "offline"

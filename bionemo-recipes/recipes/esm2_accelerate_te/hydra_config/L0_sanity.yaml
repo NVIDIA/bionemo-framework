@@ -30,3 +30,7 @@ trainer:
   report_to: "none"
   dataloader_num_workers: 1
   warmup_steps: 0
+
+wandb_init_args:
+  name: "esm2_t6_8M_UR50D_sanity"
+  mode: "offline"

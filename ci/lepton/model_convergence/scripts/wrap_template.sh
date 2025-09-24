@@ -4,6 +4,14 @@ set -euo pipefail
 # Get job name
 JOB_NAME="${LEPTON_JOB_NAME:-unknown-job}"
 
+# Log the hydra config at the start
+echo "=========================================="
+echo "HYDRA CONFIG FOR JOB: $JOB_NAME"
+echo "=========================================="
+echo '__ALL_CONFIG_JSON__' | jq '.' 2>/dev/null || echo '__ALL_CONFIG_JSON__'
+echo "=========================================="
+echo ""
+
 # Run the training script
 set +e
 (
@@ -168,7 +176,7 @@ NVIDIA_DRIVER_INFO="$(jq -n --arg dv "$DRIVER_VERSION" --arg cv "$CUDA_VERSION" 
 set -e
 
 # Look for W&B files
-WANDB_DIR="/workspace/bionemo-framework/recipes/$RECIPE_SUBDIR/wandb"
+WANDB_DIR="/workspace/bionemo-framework/bionemo-recipes/recipes/$RECIPE_SUBDIR/wandb"
 WANDB_FOUND=0
 WANDB_SUMMARY=""
 WANDB_METADATA=""

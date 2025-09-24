@@ -1,5 +1,6 @@
 defaults:
   - defaults
+  - _self_
 
 # Training config
 model_tag: nvidia/esm2_t48_15B_UR50D
@@ -20,3 +21,5 @@ adamw_kwargs:
 
 lr_scheduler_kwargs:
   num_warmup_steps: 20_000
+
+ckpt_dir: "checkpoints/esm2_t48_15B_UR50D_sanity"

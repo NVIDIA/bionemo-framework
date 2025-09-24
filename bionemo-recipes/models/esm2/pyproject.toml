@@ -14,7 +14,7 @@ dependencies = [
     "hydra-core",
     "lightning",
     "megatron-core@git+https://github.com/NVIDIA/Megatron-LM.git", # Currently at ToT until mfsdp is in a release.
-    "megatron-fsdp",
+    "megatron-fsdp==0.1.0rc0",
     "nemo_toolkit[lightning]",                                     # tested with 2.3.1
     "omegaconf",
     "pytest",
