@@ -27,7 +27,7 @@ branch: main
 commit_sha: ""
 
 wandb_init_args:
-  group: "recipes_model_convergence"
+  group: "model_convergence__recipes"
   mode: "online"
 
 # Sharedcheckout script used by all recipes
@@ -46,8 +46,8 @@ checkout_script: |
   pip install -r requirements.txt
 
 # Child configs should override this with their run-specific commands
-train_script: ""
+run_script: ""
 
 script: |
   ${checkout_script}
-  ${train_script}
+  ${run_script}
