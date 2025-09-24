@@ -81,9 +81,8 @@ def load_checkpoint_ddp(
     optimizer.load_state_dict(checkpoint["optimizer"])
     scheduler.load_state_dict(checkpoint["scheduler"])
 
-    # Get step from checkpoint if available, otherwise from filename. Increment the step by one to avoid re-running the
-    # previous step
-    step = checkpoint.get("step", step) + 1
+    # Increment the step by one to avoid re-running the previous step.
+    step = checkpoint["step"] + 1
 
     if dist_config.is_main_process():
         logger.info(f"Loaded DDP checkpoint from step {step}")
