@@ -949,11 +949,10 @@ def test_continue_from_checkpoint_geneformer(
     with megatron_parallel_state_utils.distributed_model_parallel_state(43):
         # Continue training from the checkpoint created in the first phase
         continue_checkpoint, continue_metrics, continue_trainer = _train_model_get_ckpt(
-            name="test_experiment", # same experiment name to trigger resume
+            name="test_experiment",  # same experiment name to trigger resume
             root_dir=tmpdir / "pretrain",  # new checkpoint will land in a subdir of this
             config=base_geneformer_config,  # same config as before since we are just continuing training
-            n_steps_train=n_steps_train
-            + 10,  # This simulates running the same training command again but for more total steps
+            n_steps_train=n_steps_train + 10,  # Run the same training command again but for more total steps
             batch_size=batch_size,
             data_path=data_path,
             checkpoint_path=None,  # Set to None to let it auto-resume
