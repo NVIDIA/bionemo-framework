@@ -17,4 +17,9 @@ wandb_init_args:
 lr_scheduler_kwargs:
   num_warmup_steps: 20_000
 
-ckpt_dir: "checkpoints/esm2_t36_3B_UR50D_sanity"
+# Checkpoint config
+checkpoint:
+  ckpt_dir: "checkpoints/esm2_t36_3B_UR50D_sanity"
+  resume_from_checkpoint: false
+  use_distributed_checkpoint_fsdp2: true
+  save_every_n_steps: 500
