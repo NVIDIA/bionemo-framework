@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data collator for THD input format tests.
+"""Data collator for THD input format.
+
+Copied from models/esm2/src/esm/collator.py.
 
 This should eventually get moved to a separate package, or possibly upstreamed into `transformers`.
 """

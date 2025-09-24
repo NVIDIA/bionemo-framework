@@ -24,59 +24,76 @@ import json
 import re
 
 import hydra
-from lepton_utils import construct_env_var, construct_mount
+from lepton_utils import construct_env_var, construct_mount, resolve_resource_shape
 from leptonai.api.v1.types.affinity import LeptonResourceAffinity
 from leptonai.api.v1.types.common import Metadata
 from leptonai.api.v1.types.deployment import LeptonContainer
 from leptonai.api.v1.types.job import LeptonJob, LeptonJobUserSpec
 from leptonai.api.v2.client import APIClient
 from omegaconf import DictConfig, OmegaConf
-from utils import render_wrapper_string
+from utils import register_resolvers, render_wrapper_string
+
+
+# need this to sanitize config inputs (e.g. branch names for wandb)
+register_resolvers()
+
+
+def _resolve_scheduling_target(client, cfg: DictConfig):
+    """Single-node-group version.
+
+    Returns (chosen_node_group_obj, valid_node_ids_set, resolved_resource_shape).
+    """
+    # 1) Resolve the desired node group name as a plain string
+    desired = None
+    if getattr(cfg, "node_group", None):
+        desired = str(cfg.node_group).strip()
+    elif getattr(cfg, "node_group_name", None):
+        desired = str(cfg.node_group_name).strip()
+    else:
+        raise SystemExit("Set `node_group` (or legacy `node_group_name`).")
+
+    # 2) Map available groups
+    node_groups = client.nodegroup.list_all()
+    node_group_map = {ng.metadata.name: ng for ng in node_groups}
+
+    if desired not in node_group_map:
+        available = ", ".join(sorted(node_group_map.keys()))
+        raise SystemExit(f"Requested node group not found: {desired}\nAvailable: {available}")
+
+    chosen = node_group_map[desired]
+
+    # 3) Valid node IDs within that group
+    valid_node_ids = {n.metadata.id_ for n in client.nodegroup.list_nodes(chosen.metadata.id_)}
+
+    # 4) Resolve resource shape based on node group
+    resolved_resource_shape = resolve_resource_shape(chosen.metadata.name)
+
+    return chosen, valid_node_ids, resolved_resource_shape
 
 
 def launch_single_job(client, cfg: DictConfig):
     """Launch a single job with the given configuration."""
-    # Get node group
-    node_groups = client.nodegroup.list_all()
-    node_group_map = {ng.metadata.name: ng for ng in node_groups}
-
-    if cfg.node_group_name not in node_group_map:
-        print(f"ERROR: Node group '{cfg.node_group_name}' not found!")
-        print(f"  Job: {cfg.job_name}")
-        return False
-
-    node_group = node_group_map[cfg.node_group_name]
-
-    # Get valid node IDs
-    valid_node_ids = set()
-    node_ids = client.nodegroup.list_nodes(node_group.metadata.id_)
-    for node in node_ids:
-        valid_node_ids.add(node.metadata.id_)
+    chosen_group, valid_node_ids, resolved_resource_shape = _resolve_scheduling_target(client, cfg)
 
     full_cfg_json = json.dumps(OmegaConf.to_container(cfg, resolve=True))
     rendered = render_wrapper_string(cfg.script, full_cfg_json)
-
-    # Show as full inline command in the UI:
     command = ["bash", "-c", rendered]
 
-    # Build environment variables
+    # env vars
     env_vars = []
-
-    # Add any additional environment variables from config
-    if hasattr(cfg, "environment_variables") and cfg.environment_variables:
+    if getattr(cfg, "environment_variables", None):
         for env_var in cfg.environment_variables:
             env_vars.append(construct_env_var(env_var))
 
-    # Build mounts, if in config
+    # mounts
     mounts = []
-    if hasattr(cfg, "mounts") and cfg.mounts:
+    if getattr(cfg, "mounts", None):
         mounts = [construct_mount(path=m.path, mount_path=m.mount_path, from_=m.from_) for m in cfg.mounts]
 
-    # Create job specification
     job_spec = LeptonJobUserSpec(
-        resource_shape=cfg.resource_shape,
+        resource_shape=resolved_resource_shape,
         affinity=LeptonResourceAffinity(
-            allowed_dedicated_node_groups=[node_group.metadata.id_],
+            allowed_dedicated_node_groups=[chosen_group.metadata.id_],
             allowed_nodes_in_node_group=valid_node_ids,
         ),
         container=LeptonContainer(
@@ -90,9 +107,7 @@ def launch_single_job(client, cfg: DictConfig):
         mounts=mounts,
     )
 
-    # Create job object
     job = LeptonJob(spec=job_spec, metadata=Metadata(id=cfg.job_name))
-
     try:
         launched_job = client.job.create(job)
         if launched_job.status:

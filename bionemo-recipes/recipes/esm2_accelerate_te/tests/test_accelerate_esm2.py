@@ -43,7 +43,6 @@ def test_te_with_dynamo_config(tmp_path):
     assert train_loss < 3.0, f"Final train_loss {train_loss} should be less than 3.0"
 
 
-@pytest.mark.xfail(reason="TODO(BIONEMO-2782): FP8 will require padding ESM-2 weights to be a multiple of 8.")
 def test_te_with_fp8_config(tmp_path):
     train_loss = launch_accelerate("fp8.yaml", tmp_path, 1, "L0_sanity", "model_tag=nvidia/esm2_t6_8M_UR50D")
     assert train_loss < 3.0, f"Final train_loss {train_loss} should be less than 3.0"

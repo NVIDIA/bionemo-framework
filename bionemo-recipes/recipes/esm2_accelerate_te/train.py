@@ -19,13 +19,14 @@ from pathlib import Path
 import hydra
 import torch
 import transformers
+import wandb
 from accelerate import PartialState
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.trainer import Trainer
 from transformers.training_args import TrainingArguments
 
-from callbacks import StopAfterNStepsCallback
+from callbacks import StepTimingCallback, StopAfterNStepsCallback
 from dataset import create_datasets_and_collator
 from metrics import compute_metrics
 
@@ -36,6 +37,9 @@ logger = logging.getLogger(__name__)
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig):
     """Entrypoint."""
+    # add wandb logging on main process
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        wandb.init(config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True), **args.wandb_init_args)
     # Initialize Accelerate's distributed state early so torch device is set per process
     state = PartialState()
     logger.info(
@@ -59,7 +63,10 @@ def main(args: DictConfig):
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
         data_collator=data_collator,
-        callbacks=[StopAfterNStepsCallback(args.stop_after_n_steps)],
+        callbacks=[
+            StopAfterNStepsCallback(args.stop_after_n_steps),
+            StepTimingCallback(),
+        ],
     )
 
     if training_args.do_train:
@@ -76,6 +83,12 @@ def main(args: DictConfig):
 
     if training_args.do_eval:
         trainer.evaluate()
+
+    if wandb.run is not None:
+        wandb.finish()
+
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":

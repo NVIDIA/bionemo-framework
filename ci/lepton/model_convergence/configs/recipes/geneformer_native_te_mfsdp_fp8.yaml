@@ -3,29 +3,30 @@ defaults:
   - /base
   - _self_
 
+resource_shape: gpu.2xh100-sxm
+node_group: yo-bom-lepton-001
+
+wandb_init_args:
+  project: "lepton_recipe_convergence_${sanitize:${branch}}"
+  group: "${recipe_subdir}_${resource_shape}"
+  job_type: "training"
+
 # Base configuration
 recipe_subdir: geneformer_native_te_mfsdp_fp8
 train_cmd: train
 
-num_train_steps: 100
-
-wandb_init_args:
-  project: "lepton_recipe_convergence_${branch}"
-  group: "${recipe_subdir}_${resource_shape}"
+num_train_steps: 10
 
 # Run one for each config
 products:
   - config: 10m
-    resource_shape: gpu.2xh200
-  - config: 106m
-    resource_shape: gpu.2xh200
+  # - config: 106m
   # - config: 4b
-  #   resource_shape: gpu.8xh200
 
 train_script: |
   torchrun ${train_cmd}.py \
     --config-name ${config}.yaml \
     training.num_train_steps=${num_train_steps} \
-    wandb_init_args.mode=${wandb_init_args.mode} \
     wandb_init_args.project=${wandb_init_args.project} \
-    +wandb_init_args.group=${wandb_init_args.group}
+    +wandb_init_args.group=${wandb_init_args.group} \
+    wandb_init_args.mode=${wandb_init_args.mode}

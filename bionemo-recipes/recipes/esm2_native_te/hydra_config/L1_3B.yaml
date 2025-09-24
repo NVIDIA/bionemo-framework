@@ -1,10 +1,13 @@
 defaults:
   - defaults
+  - _self_
 
 # Training config
-model_name: nvidia/esm2_t36_3B_UR50D
-micro_batch_size: 16
+model_tag: nvidia/esm2_t36_3B_UR50D
 num_train_steps: 10_000
+
+dataset:
+  micro_batch_size: 16
 
 # WandB config
 wandb_init_args:
@@ -13,3 +16,5 @@ wandb_init_args:
 
 lr_scheduler_kwargs:
   num_warmup_steps: 20_000
+
+ckpt_dir: "checkpoints/esm2_t36_3B_UR50D_sanity"
