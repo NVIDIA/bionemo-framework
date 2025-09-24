@@ -1,5 +1,6 @@
 defaults:
   - defaults
+  - _self_
 
 # Training config
 model_tag: nvidia/esm2_t36_3B_UR50D
@@ -15,3 +16,5 @@ wandb_init_args:
 
 lr_scheduler_kwargs:
   num_warmup_steps: 20_000
+
+ckpt_dir: "checkpoints/esm2_t36_3B_UR50D_sanity"

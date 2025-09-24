@@ -4,7 +4,7 @@ on:
   pull_request_review:
 
 env:
-  TIER2_REVIEWERS: "jstjohn,trvachov,pstjohn"
+  TIER2_REVIEWERS: "jstjohn,trvachov,pstjohn,dorotat-nv"
 
 jobs:
   check_approval:

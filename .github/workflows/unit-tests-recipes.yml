@@ -70,12 +70,12 @@ jobs:
           if [[ "$EVENT_NAME" == "schedule" ]]; then
             DIRS=$(echo "$ALL_DIRS")
           else
-            # Check if INCLUDE_ALL_RECIPES label is present
+            # Check if "ciflow:all-recipes" label is present
             HAS_INCLUDE_ALL_LABEL=false
             if [[ "$PR_INFO" != "null" && "$PR_INFO" != "" ]]; then
-              if echo "$PR_INFO" | jq -e '.labels[]? | select(.name == "INCLUDE_ALL_RECIPES")' > /dev/null 2>&1; then
+              if echo "$PR_INFO" | jq -e '.labels[]? | select(.name == "ciflow:all-recipes")' > /dev/null 2>&1; then
                 HAS_INCLUDE_ALL_LABEL=true
-                echo "Found INCLUDE_ALL_RECIPES label - running all directories"
+                echo "Found 'ciflow:all-recipes' label - running all directories"
               fi
             fi
 
