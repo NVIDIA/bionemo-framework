@@ -104,6 +104,13 @@ fi
 # Inject/overwrite the resolved framework commit (only if we actually got one)
 if [ -n "${COMMIT_SHA:-}" ]; then
   ALL_CONFIG_JSON_UPDATED="$(printf '%s' "$ALL_CONFIG_JSON_UPDATED" | jq -c --arg commit "$COMMIT_SHA" '.commit_sha = $commit')"
+
+  # Find which branch contains this commit
+  RESOLVED_BRANCH="$(cd bionemo-framework && git branch -r --contains "$COMMIT_SHA" | grep 'origin/' | head -1 | sed 's|.*origin/||' || true)"
+
+  if [ -n "$RESOLVED_BRANCH" ] && [ "$RESOLVED_BRANCH" != "HEAD" ]; then
+    ALL_CONFIG_JSON_UPDATED="$(printf '%s' "$ALL_CONFIG_JSON_UPDATED" | jq -c --arg branch "$RESOLVED_BRANCH" '.branch = $branch')"
+  fi
 fi
 
 # Extract values from config (with sensible defaults)
