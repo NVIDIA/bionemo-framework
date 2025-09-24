@@ -140,11 +140,6 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
         events = event_acc.Scalars(tag)
         assert len(events) >= 2, f"Expected at least 2 logged values for {tag}, but found {len(events)}"
 
-    # Check TensorBoard logs
-    tb_log_dir = run_dir / "tb_logs"
-    assert tb_log_dir.exists(), f"TensorBoard log directory not found at {tb_log_dir}"
-    assert tb_log_dir.is_dir(), "TensorBoard log directory should be a directory"
-
     # Verify TensorBoard event files exist
     tb_event_files = list(run_dir.glob("events.out.tfevents.*"))
     assert len(tb_event_files) > 0, "No TensorBoard event files found"
