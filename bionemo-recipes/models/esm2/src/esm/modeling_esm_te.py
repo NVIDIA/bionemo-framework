@@ -60,6 +60,7 @@ class NVEsmConfig(EsmConfig):
         micro_batch_size: Optional[int] = None,
         max_seq_length: Optional[int] = None,
         padded_vocab_size: Optional[int] = 64,
+        attn_mask_type: str = "padding",
         **kwargs,
     ):
         """Initialize the NVEsmConfig with additional TE-related config options.
@@ -89,6 +90,7 @@ class NVEsmConfig(EsmConfig):
                 ensure same kernels are used for forward propogation and activation recompute phase.
             padded_vocab_size: The padded vocabulary size to support FP8. If not provided, defaults
                 to vocab_size. Must be greater than or equal to vocab_size.
+            attn_mask_type: The type of attention mask to use. This controls whether the attention mask is a padding mask or a causal mask.
             **kwargs: Additional config options to pass to EsmConfig.
         """
         super().__init__(**kwargs)
@@ -99,7 +101,7 @@ class NVEsmConfig(EsmConfig):
         self.fuse_qkv_params = fuse_qkv_params
         self.micro_batch_size = micro_batch_size
         self.max_seq_length = max_seq_length
-
+        self.attn_mask_type = attn_mask_type
         # Set padded_vocab_size with default fallback to vocab_size
         self.padded_vocab_size = padded_vocab_size if padded_vocab_size is not None else self.vocab_size
 
@@ -133,7 +135,7 @@ class NVEsmEncoder(nn.Module):
                     qkv_weight_interleaved=config.qkv_weight_interleaved,
                     layer_number=i + 1,
                     layer_type="encoder",
-                    self_attn_mask_type="padding",
+                    self_attn_mask_type=config.attn_mask_type,
                     activation=config.encoder_activation,
                     attn_input_format=config.attn_input_format,
                     seq_length=config.max_seq_length,
@@ -211,6 +213,7 @@ class NVEsmEncoder(nn.Module):
                         f"ROPE length {te_rope_emb.size(0)} < input seq length {seq_len}. "
                         f"Increase max_position_embeddings."
                     )
+                #TODO: Is this correct?
                 te_rope_emb = te_rope_emb[:seq_len]
 
             elif self.config.attn_input_format == "thd":
