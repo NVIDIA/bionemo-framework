@@ -28,7 +28,6 @@ from torch.optim import AdamW
 from tqdm import tqdm
 from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
-from models.esm2.src.esm.modeling_esm_te import NVEsmModel, NVEsmEncoder, NVEsmConfig
 
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp
 from dataset import create_dataloader
@@ -82,11 +81,12 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Create an empty ESM-2 model with a masked language model head.
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     config.attn_mask_type = "no_mask"
+    config.max_position_embeddings = args.dataset.max_seq_length
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.dataset.use_sequence_packing:
         config.attn_input_format = "thd"
-    # model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
-    model = NVEsmModel(config, add_pooling_layer=False)
+    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    #TODO copy file over and then hack it.
 
     try:
         del model.esm.contact_head
@@ -164,17 +164,18 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         # Get batch.
         batch = next(train_iterator)
         print(f"Batch keys: {list(batch.keys())}")
-        input_ids, labels, position_ids = get_batch_on_this_cp_rank(
+        input_ids, labels, attention_mask = get_batch_on_this_cp_rank(
             cu_seqlens_padded=None,
             input_ids_padded=batch['input_ids'],
             labels_padded=batch['labels'],
-            position_ids_padded=None,
+            position_ids_padded=batch['attention_mask'], # TODO HACK IT
             cp_group=cp_group,
             qvk_format="bshd"
         )
         batch['input_ids'] = input_ids
         batch['labels'] = labels
-        # batch['position_ids'] = position_ids
+        batch['attention_mask'] = attention_mask
+
         
         batch = {k: v.to(device, non_blocking=True).contiguous() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
         # batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}

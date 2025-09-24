@@ -60,7 +60,6 @@ class NVEsmConfig(EsmConfig):
         micro_batch_size: Optional[int] = None,
         max_seq_length: Optional[int] = None,
         padded_vocab_size: Optional[int] = 64,
-        attn_mask_type: str = "padding",
         **kwargs,
     ):
         """Initialize the NVEsmConfig with additional TE-related config options.
@@ -90,7 +89,6 @@ class NVEsmConfig(EsmConfig):
                 ensure same kernels are used for forward propogation and activation recompute phase.
             padded_vocab_size: The padded vocabulary size to support FP8. If not provided, defaults
                 to vocab_size. Must be greater than or equal to vocab_size.
-            attn_mask_type: The type of attention mask to use. This controls whether the attention mask is a padding mask or a causal mask.
             **kwargs: Additional config options to pass to EsmConfig.
         """
         super().__init__(**kwargs)
@@ -101,7 +99,7 @@ class NVEsmConfig(EsmConfig):
         self.fuse_qkv_params = fuse_qkv_params
         self.micro_batch_size = micro_batch_size
         self.max_seq_length = max_seq_length
-        self.attn_mask_type = attn_mask_type
+
         # Set padded_vocab_size with default fallback to vocab_size
         self.padded_vocab_size = padded_vocab_size if padded_vocab_size is not None else self.vocab_size
 
@@ -135,7 +133,7 @@ class NVEsmEncoder(nn.Module):
                     qkv_weight_interleaved=config.qkv_weight_interleaved,
                     layer_number=i + 1,
                     layer_type="encoder",
-                    self_attn_mask_type=config.attn_mask_type,
+                    self_attn_mask_type="padding",
                     activation=config.encoder_activation,
                     attn_input_format=config.attn_input_format,
                     seq_length=config.max_seq_length,
@@ -204,8 +202,6 @@ class NVEsmEncoder(nn.Module):
         te_rope_emb = None
         if self.config.position_embedding_type == "rotary":
             if self.config.attn_input_format == "bshd":
-                print("te_rope_emb", self.te_rope_emb.shape)
-                print("hidden_states", hidden_states.shape)
                 te_rope_emb = self.te_rope_emb.to(
                     device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
                 )
@@ -215,12 +211,11 @@ class NVEsmEncoder(nn.Module):
                         f"ROPE length {te_rope_emb.size(0)} < input seq length {seq_len}. "
                         f"Increase max_position_embeddings."
                     )
-                #TODO: Is this correct?
-                te_rope_emb = te_rope_emb[:seq_len] # TODO: May need to divide by CP factor
+                te_rope_emb = te_rope_emb[:512]
 
             elif self.config.attn_input_format == "thd":
                 assert cu_seq_lens_q is not None
-                te_rope_emb = self.rotary_embeddings(max_seq_len=cu_seq_lens_q[-1]).to(
+                te_rope_emb = self.rotary_embeddings(max_seq_len=512).to(
                     device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
                 )
 
@@ -231,7 +226,6 @@ class NVEsmEncoder(nn.Module):
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            print("hidden_states", hidden_states.shape)
             hidden_states = layer_module(
                 hidden_states,
                 attention_mask,
@@ -365,11 +359,6 @@ class NVEsmModel(NVEsmPreTrainedModel):
         Returns:
             BaseModelOutputWithPooling: The output of the model.
         """
-        print("At start of model forward pass...")
-        print("input_ids", input_ids.shape)
-        print("position_ids", position_ids.shape)
-        print("attention_mask", attention_mask.shape)
-        print("inputs_embeds", inputs_embeds.shape)
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
@@ -410,6 +399,7 @@ class NVEsmModel(NVEsmPreTrainedModel):
             attention_mask=attention_mask,
             inputs_embeds=inputs_embeds,
         )
+        print("embedding_output", embedding_output.shape)
         encoder_outputs = self.encoder(
             embedding_output,
             attention_mask=extended_attention_mask,

@@ -7,7 +7,8 @@ model_tag: nvidia/esm2_t6_8M_UR50D
 num_train_steps: 250
 
 dataset:
-  micro_batch_size: 2
+  micro_batch_size: 1
+  max_seq_length: 512 # if you have CP=2
 
 # WandB config
 wandb_init_args:
