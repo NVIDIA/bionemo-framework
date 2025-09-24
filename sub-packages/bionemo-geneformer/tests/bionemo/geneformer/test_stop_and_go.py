@@ -215,9 +215,3 @@ class TestGeneformerStopAndGo(stop_and_go.StopAndGoHarness):
         assert val_consumed_go == 0
         assert train_consumed_stop == 0
         assert train_consumed_go > 0
-
-
-def test_save_restore_via_experiment_manager(tmpdir, data_path):
-    """Test save and restore functionality via experiment manager."""
-    # TODO: Implement this test
-    pass

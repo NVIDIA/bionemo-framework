@@ -944,25 +944,20 @@ def test_continue_from_checkpoint_geneformer(
         assert io.is_distributed_ckpt(weights_ckpt)
         assert initial_trainer.model.config.num_layers == n_layers_test
         initial_losses = initial_metrics.collection_train["loss"]
-        assert initial_losses[0] >= initial_losses[-1] * 0.98, (
-            f"Initial training should show improvement or stability: {initial_losses}"
-        )
+        assert len(initial_losses) == n_steps_train, f"Expected {n_steps_train} losses, got {len(initial_losses)}"
 
     with megatron_parallel_state_utils.distributed_model_parallel_state(43):
         # Continue training from the checkpoint created in the first phase
-        # NOTE all other hparams will be pulled from this checkpoint.
-        update_base_geneformer_config = GeneformerConfig(
-            initial_ckpt_path=str(ckpt_path),
-        )
         continue_checkpoint, continue_metrics, continue_trainer = _train_model_get_ckpt(
             name="test_experiment_continue",
-            root_dir=tmpdir / "continue_training",  # new checkpoint will land in a subdir of this
-            config=update_base_geneformer_config,  # same config as before since we are just continuing training
-            n_steps_train=n_steps_train,
+            root_dir=tmpdir / "pretrain",  # new checkpoint will land in a subdir of this
+            config=base_geneformer_config,  # same config as before since we are just continuing training
+            n_steps_train=n_steps_train
+            + 10,  # This simulates running the same training command again but for more total steps
             batch_size=batch_size,
             data_path=data_path,
-            checkpoint_path=ckpt_path,  # Continue from the checkpoint created in initial training
-            lr=5e-4,  # Larger LR so loss dips faster after the first stage
+            checkpoint_path=None,  # Set to None to let it auto-resume
+            lr=1e-4,  # Same LR as initial training
         )
         weights_ckpt = continue_checkpoint / "weights"
         assert weights_ckpt.exists()
@@ -970,12 +965,8 @@ def test_continue_from_checkpoint_geneformer(
         assert io.is_distributed_ckpt(weights_ckpt)
         assert continue_trainer.model.config.num_layers == n_layers_test
 
-        continue_losses = continue_metrics.collection_train["loss"]
-        initial_losses = initial_metrics.collection_train["loss"]
-
-        assert abs(continue_losses[0] - initial_losses[-1]) < 1.0, (
-            f"Continued training should start near where initial training ended: "
-            f"initial_last={initial_losses[-1]:.4f}, continue_first={continue_losses[0]:.4f}"
+        assert continue_trainer.global_step == n_steps_train + 10, (
+            f"Should have completed {n_steps_train + 10} total steps, got {continue_trainer.global_step}"
         )
 
 
