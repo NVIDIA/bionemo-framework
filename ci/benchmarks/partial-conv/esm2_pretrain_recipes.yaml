@@ -18,7 +18,7 @@ script_args:
   gpus: 8
   batch_size: 16
   max_steps: 500000
-  stop_steps: 26000
+  stop_steps: 25000
   num_workers: 1
 script: |-
   COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
@@ -29,7 +29,7 @@ script: |-
       time cp -r ${data_path}/ $NEW_DATA_PATH;
       touch $COPY_FLAG
   fi
-  # All ranks wait until install flag file appears
+  # All ranks wait until data copy flag file appears
   while [ ! -f $COPY_FLAG ]; do
       sleep 1
   done
