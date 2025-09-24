@@ -9,7 +9,7 @@ num_nodes: 1
 device_type: gpu
 num_devices: 2
 gpu_type: h100-sxm
-total_gpus: 2
+total_gpus: ${multiply:${num_devices},${num_nodes}}
 resource_shape: "${device_type}.${num_devices}x${gpu_type}"
 
 # recipe identifiers

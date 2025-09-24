@@ -62,5 +62,9 @@ def register_resolvers():
         except Exception:
             return "unknown"
 
+    def multiply(a, b):
+        return int(a) * int(b)
+
     OmegaConf.register_new_resolver("sanitize", sanitize)
     OmegaConf.register_new_resolver("gitsha", gitsha)
+    OmegaConf.register_new_resolver("multiply", multiply)
