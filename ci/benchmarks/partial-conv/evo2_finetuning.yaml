@@ -59,10 +59,12 @@ script_args:
       lora_enabled: ""
       task: finetune_from_ckpt
       experiment_name: evo2-finetune
+      lr: 0.000015
     - variant: lora_finetune
       lora_enabled: "--lora-finetune"
       task: lora_finetune_from_ckpt
       experiment_name: evo2-lora-finetune
+      lr: 0.015 # 0.000015 * 1000 since lora is used
 script: |-
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY train_${model} \
     -d ${data_base_path}/${dataset_config} \
