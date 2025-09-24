@@ -118,7 +118,11 @@ addopts = [
     "--ignore=3rdparty",
     "--ignore-glob=sub-packages/bionemo-moco/examples/discrete_data_interpolant_tutorial.ipynb"
 ]
-markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+markers = [
+    "slow: medium-complexity tests, like integration tests, on a single GPU",
+    "multi_gpu: tests that require multiple GPUs",
+    "distributed: tests that require distributed setup via torchrun execution",
+]
 
 [tool.pyright]
 include = ["./sub-packages/"]

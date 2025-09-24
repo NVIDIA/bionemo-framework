@@ -4,6 +4,14 @@ set -euo pipefail
 # Get job name
 JOB_NAME="${LEPTON_JOB_NAME:-unknown-job}"
 
+# Log the hydra config at the start
+echo "=========================================="
+echo "HYDRA CONFIG FOR JOB: $JOB_NAME"
+echo "=========================================="
+echo '__ALL_CONFIG_JSON__' | jq '.' 2>/dev/null || echo '__ALL_CONFIG_JSON__'
+echo "=========================================="
+echo ""
+
 # Run the training script
 set +e
 (

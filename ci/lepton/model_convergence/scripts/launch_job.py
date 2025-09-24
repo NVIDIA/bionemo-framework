@@ -24,7 +24,7 @@ import json
 import re
 
 import hydra
-from lepton_utils import construct_env_var, construct_mount, resolve_resource_shape
+from lepton_utils import construct_env_var, construct_mount, validate_resource_shape
 from leptonai.api.v1.types.affinity import LeptonResourceAffinity
 from leptonai.api.v1.types.common import Metadata
 from leptonai.api.v1.types.deployment import LeptonContainer
@@ -41,7 +41,7 @@ register_resolvers()
 def _resolve_scheduling_target(client, cfg: DictConfig):
     """Single-node-group version.
 
-    Returns (chosen_node_group_obj, valid_node_ids_set, resolved_resource_shape).
+    Returns (chosen_node_group_obj, valid_node_ids_set, resource_shape).
     """
     # 1) Resolve the desired node group name as a plain string
     desired = None
@@ -52,7 +52,15 @@ def _resolve_scheduling_target(client, cfg: DictConfig):
     else:
         raise SystemExit("Set `node_group` (or legacy `node_group_name`).")
 
-    # 2) Map available groups
+    # 2) Get resource shape from config
+    if not getattr(cfg, "resource_shape", None):
+        raise SystemExit("Set `resource_shape` in your configuration.")
+    resource_shape = str(cfg.resource_shape).strip()
+
+    # 3) Validate that resource shape is compatible with node group
+    validate_resource_shape(desired, resource_shape)
+
+    # 4) Map available groups
     node_groups = client.nodegroup.list_all()
     node_group_map = {ng.metadata.name: ng for ng in node_groups}
 
@@ -62,18 +70,15 @@ def _resolve_scheduling_target(client, cfg: DictConfig):
 
     chosen = node_group_map[desired]
 
-    # 3) Valid node IDs within that group
+    # 5) Valid node IDs within that group
     valid_node_ids = {n.metadata.id_ for n in client.nodegroup.list_nodes(chosen.metadata.id_)}
 
-    # 4) Resolve resource shape based on node group
-    resolved_resource_shape = resolve_resource_shape(chosen.metadata.name)
-
-    return chosen, valid_node_ids, resolved_resource_shape
+    return chosen, valid_node_ids, resource_shape
 
 
 def launch_single_job(client, cfg: DictConfig):
     """Launch a single job with the given configuration."""
-    chosen_group, valid_node_ids, resolved_resource_shape = _resolve_scheduling_target(client, cfg)
+    chosen_group, valid_node_ids, resource_shape = _resolve_scheduling_target(client, cfg)
 
     full_cfg_json = json.dumps(OmegaConf.to_container(cfg, resolve=True))
     rendered = render_wrapper_string(cfg.script, full_cfg_json)
@@ -91,7 +96,7 @@ def launch_single_job(client, cfg: DictConfig):
         mounts = [construct_mount(path=m.path, mount_path=m.mount_path, from_=m.from_) for m in cfg.mounts]
 
     job_spec = LeptonJobUserSpec(
-        resource_shape=resolved_resource_shape,
+        resource_shape=resource_shape,
         affinity=LeptonResourceAffinity(
             allowed_dedicated_node_groups=[chosen_group.metadata.id_],
             allowed_nodes_in_node_group=valid_node_ids,
@@ -100,7 +105,7 @@ def launch_single_job(client, cfg: DictConfig):
             image=cfg.container.image,
             command=command,
         ),
-        completions=1,
+        completions=cfg.num_nodes,
         parallelism=1,
         envs=env_vars,
         image_pull_secrets=[cfg.container.registry_auth],
