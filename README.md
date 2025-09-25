@@ -6,31 +6,80 @@
 [![Latest Tag](https://img.shields.io/github/v/tag/NVIDIA/bionemo-framework?label=latest-version)](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags)
 [![codecov](https://codecov.io/gh/NVIDIA/bionemo-framework/branch/main/graph/badge.svg?token=XqhegdZRqB)](https://codecov.io/gh/NVIDIA/bionemo-framework)
 
-NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for computational drug discovery.
-It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing
-domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources for the
-fastest performance on the market. You can access BioNeMo Framework as a free community resource here in this repository
-or learn more at <https://www.nvidia.com/en-us/clara/bionemo/> about getting an enterprise license for improved
-expert-level support.
+NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for computational drug discovery. It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources with state-of-the-art performance.
+
+> [!NOTE]
+> A core use-case of the BioNeMo Framework is to help digital biology scientists accelerate and scale their model training onto a compute cluster. This repository contains 3 categories of modules for this use-case:
+>
+> 1\. Models using **fully-sharded-data-parallel (FSDP)**, which is possible with a number of different implementations including [PyTorch’s FSDP2/FSDP1](https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html) and [NVIDIA megatron-FSDP](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src). Sharding a model with FSDP typically requires only a few lines of code changes. You can find models and ready-to-run recipes parallelized with megatron-FSDP and accelerated with [NVIDIA TransformerEngine (TE)](https://github.com/NVIDIA/TransformerEngine) in [`bionemo-recipes`](./bionemo-recipes/).
+>
+> <details>
+> <summary><b>(Click to expand) <code>bionemo-recipes</code> support matrix </b></summary>
+> <small>
+>
+> | Directory                                      | Description                                        | Support Status       | 5D Parallel | Megatron-FSDP | TE     | Sequence Packing | FP8    | Context Parallelism |
+> | ---------------------------------------------- | -------------------------------------------------- | -------------------- | ----------- | ------------- | ------ | ---------------- | ------ | ------------------- |
+> | `models/`<br>`amplify`                         | TE accelerated protein BERT, pushed to HuggingFace | ✅ Active            | ❌          | ✅            | ✅     | 🚧 WIP           | ✅     | 🚧 WIP              |
+> | `models/`<br>`esm2`                            | TE accelerated protein BERT, pushed to HuggingFace | ✅ Active            | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
+> | `models/`<br>`geneformer`                      | TE accelerated single-cell BERT                    | 🚧 WIP               | ❌          | ✅            | 🚧 WIP | 🚧 WIP           | 🚧 WIP | 🚧 WIP              |
+> | `recipes/`<br>`amplify_accelerate_te_fp8`      | Recipe for Amplify TE + HF Accelerate              | ☠️ EOL<sup>[1]</sup> | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
+> | `recipes/`<br>`esm2_accelerate_te`             | Recipe for ESM2 TE + HF Accelerate                 | ✅ Active            | ❌          | 🚧 WIP        | ✅     | ❌               | ✅     | 🚧 WIP              |
+> | `recipes/`<br>`esm2_native_te`                 | Recipe for ESM2 TE + native PyTorch                | ✅ Active            | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
+> | `recipes/`<br>`esm2_native_te_mfsdp_thd`       | Recipe for ESM2 TE + megatron-FSDP + seq packing   | ☠️ EOL<sup>[1]</sup> | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
+> | `recipes/`<br>`geneformer_native_te_mfsdp_fp8` | Recipe for Geneformer HF model                     | 🚧 WIP               | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
+> | `recipes/`<br>`vit`                            | Recipe for Vision Transformer                      | 🚧 WIP               | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
+>
+> \[1\]: End-of-life; to be merged with `esm2_native_te` recipe. <br/>
+> </small>
+>
+> </details>
+>
+> 2\. Models using explicit **5D parallelism** (tensor parallel, pipeline parallel, context parallel, etc.), for which NVIDIA provides accelerated support with [NeMo](https://github.com/NVIDIA-NeMo/NeMo) and [Megatron-Core](https://github.com/NVIDIA/Megatron-LM). 5D parallelism requires explicit modification of the model code to make it shardable along different dimensions. The models for this style of acceleration and parallelism can be found in the `sub-packages` directory. While it is possible to pip install the models, we strongly suggest using our [Docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework) that comes with NeMo and Megatron-Core pre-installed.
+>
+> <details>
+> <summary><b>(Click to expand) <code>sub-packages</code> models support matrix</b></summary>
+> <small>
+>
+> | Directory               | Description                         | Support        | 5D Parallel | Megatron-FSDP | TE  | Sequence Packing | FP8 | Context Parallel |
+> | ----------------------- | ----------------------------------- | -------------- | ----------- | ------------- | --- | ---------------- | --- | ---------------- |
+> | `bionemo-amplify`       | 5D parallel model                   | 🔧 Maintenance | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
+> | `bionemo-core`          | Model Config/test data utils        | ✅ Active      | ✅          | N/A           | ✅  | ❌               | N/A | N/A              |
+> | `bionemo-esm2`          | 5D parallel model                   | ✅ Active      | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
+> | `bionemo-evo2`          | 5D parallel model                   | ✅ Active      | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
+> | `bionemo-example_model` | Example 5D parallel model           | 🔧 Maintenance | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
+> | `bionemo-fw`            | Meta package to pull other packages | ✅ Active      | ✅          | N/A           | N/A | ❌               | ✅  | N/A              |
+> | `bionemo-geneformer`    | 5D parallel model                   | 🔧 Maintenance | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
+> | `bionemo-llm`           | 5D parallel base model (BioBert)    | ✅ Active      | ✅          | ❌            | ✅  | ✅               | ✅  | ✅               |
+> | `bionemo-testing`       | Testing Utilities                   | ✅ Active      | ✅          | N/A           | N/A | N/A              | N/A | N/A              |
+>
+> </small>
+> </details>
+>
+> 3\. Tooling for dataloading and in-the-training-loop processing, which are lightweight and individually pip installable. These are also in the `sub-packages` directory adjacent to the 5D parallel models.
+>
+> <details>
+> <summary><b>(Click to expand) <code>sub-packages</code> tooling support matrix</b></summary>
+> <small>
+>
+> | Directory                     | Description                                | Support        | 5D Parallel   | Megatron-FSDP | TE  | Sequence Packing | FP8 | Context Parallel |
+> | ----------------------------- | ------------------------------------------ | -------------- | ------------- | ------------- | --- | ---------------- | --- | ---------------- |
+> | `bionemo-moco`                | Molecular Co-design tools                  | ✅ Active      | ❌            | N/A           | N/A | N/A              | N/A | N/A              |
+> | `bionemo-noodles`             | Python API to fast FASTA file I/O          | 🔧 Maintenance | ❌            | N/A           | N/A | N/A              | N/A | N/A              |
+> | `bionemo-scspeedtest`         | Single Cell Dataloading benchmark tests    | ✅ Active      | N/A           | N/A           | N/A | N/A              | N/A | N/A              |
+> | `bionemo-size-aware-batching` | Memory consumption aware batching          | 🔧 Maintenance | N/A           | N/A           | N/A | N/A              | N/A | N/A              |
+> | `bionemo-scdl`                | Modular Single Cell Data Loader            | ✅ Active      | ✅ Compatible | N/A           | N/A | N/A              | N/A | N/A              |
+> | `bionemo-webdatamodule`       | PyTorch Lightning module to use WebDataset | 🔧 Maintenance | N/A           | N/A           | N/A | N/A              | N/A | N/A              |
+>
+> </small>
+> </details>
 
 BioNeMo Framework is part of a larger ecosystem of NVIDIA Biopharma products. Get notified of new releases, bug fixes, critical security updates, and more for biopharma. [Subscribe.](https://www.nvidia.com/en-us/clara/biopharma/product-updates/)
 
-> [!NOTE]
-> BioNeMo Recipes are now available, which demonstrate high-performance model training outside of the NeMo Framework.
-> The recipes show how to train models that derive from HuggingFace `PreTrainedModel` classes, and use
-> [NVIDIA TransformerEngine](https://github.com/NVIDIA/TransformerEngine) layers for optimized attention kernels. For
-> more information, see the [BioNeMo Recipes README](./bionemo-recipes/README.md).
-
-## Structure of the Framework
-
-The `bionemo-framework` is organized into independently installable namespace packages. These are located under the
-`sub-packages/` directory. Please refer to [PEP 420 – Implicit Namespace Packages](https://peps.python.org/pep-0420/)
-for details.
-
 ## Documentation Resources
 
-- **Official Documentation:** For user guides, API references, and troubleshooting, visit our [official documentation](https://docs.nvidia.com/bionemo-framework/latest/).
-- **In-Progress Documentation:** To explore the latest features and developments, check the documentation reflecting the current state of the `main` branch [here](https://nvidia.github.io/bionemo-framework/). Note that this may include references to features or APIs that are not yet finalized.
+- **Official Documentation:** Contents of `sub-packages` including user guides, API references, and troubleshooting, are documented on our [official documentation](https://docs.nvidia.com/bionemo-framework/latest/). Nightly builds of this documentation is available on [BioNeMo Framework GitHub Pages](https://nvidia.github.io/bionemo-framework/)
+
+- **🚧 In-Progress Documentation 🚧:** `bionemo-recipes` documentation is currently work in progress, however the recipes are meant to be self-documented and easy to understand—we suggest you throw them into your favorite genai code assistant!
 
 ## Getting Started with BioNeMo Framework
 
