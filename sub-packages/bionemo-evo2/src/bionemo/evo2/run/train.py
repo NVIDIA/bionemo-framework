@@ -320,6 +320,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Number of validation steps",
     )
     parser.add_argument(
+        "--limit-test-batches",
+        type=int,
+        help="Number of test steps (sometimes useful for getting around megatron errors of too few samples). Defaults "
+        "to the same as limit_val_batches.",
+    )
+    parser.add_argument(
         "--log-every-n-steps",
         type=int,
         default=1,
@@ -1025,6 +1031,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         callbacks=callbacks,
         log_every_n_steps=args.log_every_n_steps,
         limit_val_batches=args.limit_val_batches,
+        limit_test_batches=args.limit_test_batches or args.limit_val_batches,
         num_sanity_val_steps=0,
         use_distributed_sampler=False,
         plugins=nl.MegatronMixedPrecision(
