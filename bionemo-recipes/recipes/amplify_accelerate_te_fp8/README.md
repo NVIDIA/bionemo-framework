@@ -1,7 +1,7 @@
 # AMPLIFY 350M Pre-training with Accelerate
 
 > [!WARNING]
-> This recipe is **deprecated** and is no longer be maintained. To train AMPLIFY, use the ESM-2 recipes (e.g.
+> This recipe is **deprecated** and is no longer maintained. To train AMPLIFY, use the ESM-2 recipes (e.g.
 > [`esm2_accelerate_te`](../esm2_accelerate_te/) or [`esm2_native_te`](../esm2_native_te/)) and switch the model_tag to
 > reference the AMPLIFY model, e.g. `nvidia/AMPLIFY_120M`, and change the dataset as appropriate.
 
