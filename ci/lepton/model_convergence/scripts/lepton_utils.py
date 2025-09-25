@@ -16,9 +16,9 @@
 from leptonai.api.v1.types.deployment import EnvValue, EnvVar, Mount
 
 
-node_group2resource_shape = {
-    "yo-bom-lepton-001": "gpu.8xh100-sxm",
-    "nv-int-multiteam-nebius-h200-01": "gpu.2xh200",
+resource_shapes_by_node_group = {
+    "yo-bom-lepton-001": ["h100-sxm"],
+    "nv-int-multiteam-nebius-h200-01": ["h200"],
 }
 
 
@@ -47,22 +47,31 @@ def construct_env_var(env_var) -> EnvVar:
         )
 
 
-def resolve_resource_shape(node_group: str) -> str:
-    """Resolve resource shape based on node group.
+def validate_resource_shape(node_group: str, resource_shape: str) -> None:
+    """Validate that the resource shape is compatible with the node group.
 
     Args:
         node_group: The node group name
-
-    Returns:
-        The resolved resource shape
+        resource_shape: The resource shape (e.g., "gpu.2xh100-sxm")
 
     Raises:
-        SystemExit: If node group is unknown
+        SystemExit: If node group is unknown or resource shape is incompatible
     """
-    if node_group not in node_group2resource_shape:
-        known_groups = ", ".join(sorted(node_group2resource_shape.keys()))
-        raise SystemExit(
-            f"Unknown node group '{node_group}' - no resource shape mapping found.\nKnown node groups: {known_groups}"
-        )
+    if node_group not in resource_shapes_by_node_group:
+        known_groups = ", ".join(sorted(resource_shapes_by_node_group.keys()))
+        raise SystemExit(f"Unknown node group '{node_group}'.\nKnown node groups: {known_groups}")
 
-    return node_group2resource_shape[node_group]
+    # Extract GPU type from resource shape (e.g., "gpu.2xh100-sxm" -> "h100-sxm")
+    try:
+        # Handle format like "gpu.2xh100-sxm" or "gpu.8xh200"
+        gpu_part = resource_shape.split(".", 1)[1]  # Get "2xh100-sxm"
+        gpu_type = gpu_part.split("x", 1)[1]  # Get "h100-sxm"
+    except (IndexError, ValueError):
+        raise SystemExit(f"Invalid resource shape format: {resource_shape}. Expected format: gpu.NxGPU_TYPE")
+
+    available_gpu_types = resource_shapes_by_node_group[node_group]
+    if gpu_type not in available_gpu_types:
+        raise SystemExit(
+            f"Resource shape '{resource_shape}' (GPU type: {gpu_type}) is not available in node group '{node_group}'.\n"
+            f"Available GPU types for {node_group}: {', '.join(available_gpu_types)}"
+        )

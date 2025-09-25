@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import re
+import subprocess
 import textwrap
 from pathlib import Path
 
@@ -54,4 +55,16 @@ def register_resolvers():
         # Replace all forbidden characters `/ \ # ? % :` with '-'
         return re.sub(r"[\/\\#\?\%:]", "-", value)
 
+    def gitsha():
+        try:
+            args = ["git", "rev-parse", "--short", "HEAD"]
+            return subprocess.check_output(args, text=True).strip()
+        except Exception:
+            return "unknown"
+
+    def multiply(a, b):
+        return int(a) * int(b)
+
     OmegaConf.register_new_resolver("sanitize", sanitize)
+    OmegaConf.register_new_resolver("gitsha", gitsha)
+    OmegaConf.register_new_resolver("multiply", multiply)

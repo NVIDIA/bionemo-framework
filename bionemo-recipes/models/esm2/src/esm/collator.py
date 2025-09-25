@@ -107,6 +107,7 @@ class MLMDataCollatorWithFlattening:
         return_tensors: str = "pt",
         seed: int | None = None,
         pad_to_multiple_of: int | None = None,
+        return_position_ids: bool = False,
     ):
         """Initialize the MLMDataCollatorWithFlattening.
 
@@ -120,6 +121,7 @@ class MLMDataCollatorWithFlattening:
             seed (int | None): Random seed for reproducible masking. Defaults to None.
             pad_to_multiple_of (int | None): If set, pads the total sequence length to be divisible
                 by this number by adding a mock sequence at the end. Defaults to None.
+            return_position_ids (bool): Whether to return position ids. Defaults to False.
         """
         self.mlm_collator = DataCollatorForLanguageModeling(
             tokenizer=tokenizer,
@@ -132,6 +134,7 @@ class MLMDataCollatorWithFlattening:
         )
         self.return_tensors = return_tensors
         self.pad_to_multiple_of = pad_to_multiple_of
+        self.return_position_ids = return_position_ids
 
     def __call__(self, features, return_tensors=None):
         """Process a batch of variable-length sequences for Flash Attention with MLM.
@@ -198,7 +201,7 @@ class MLMDataCollatorWithFlattening:
         if return_tensors != "pt":
             raise NotImplementedError(f'return_tensors must be "pt", {return_tensors=} not implemented')
 
-        batch = _pt_flatten_collate(features)
+        batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
 
         special_tokens_mask = batch.pop("special_tokens_mask", None)
         batch["input_ids"], batch["labels"] = self.mlm_collator.torch_mask_tokens(
@@ -226,13 +229,18 @@ class MLMDataCollatorWithFlattening:
 class DataCollatorWithFlattening(DefaultDataCollator):
     """Data collator for sequence packing with flash attentions cu_seqlens-style attention.
 
-    Inspired by transformers.data.data_collator.DataCollatorWithFlattening.
+    Inspired by transformers.data.data_collator.DataCollatorWithFlattening, but skips adding a separator_id in the
+    output labels, since this overwrites the first token in MLM masking.
+
+    Optionally returns position_ids, which are not needed for Flash Attention, but can be needed for context
+    parallelism.
     """
 
     pad_to_multiple_of: int | None = None
     token_pad: int = 1
     label_pad: int = -100
     return_tensors: str = "pt"
+    return_position_ids: bool = False
 
     def __call__(self, features: list[dict[str, list[int]]], return_tensors: str | None = None) -> dict[str, Any]:
         """Collate a batch of variable-length sequences for Flash Attention with sequence packing.
@@ -264,13 +272,13 @@ class DataCollatorWithFlattening(DefaultDataCollator):
         if return_tensors != "pt":
             raise NotImplementedError(f'return_tensors must be "pt", {return_tensors=} not implemented')
 
-        batch = _pt_flatten_collate(features)
+        batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
         if self.pad_to_multiple_of is not None:
             batch = _pt_pad_to_multiple_of(batch, self.pad_to_multiple_of, self.token_pad, self.label_pad)
         return batch
 
 
-def _pt_flatten_collate(features: list[dict[str, list[int]]]):
+def _pt_flatten_collate(features: list[dict[str, list[int]]], return_position_ids: bool = False):
     is_labels_provided = "labels" in features[0]
     sample_lengths = [len(sample["input_ids"]) for sample in features]
 
@@ -290,6 +298,11 @@ def _pt_flatten_collate(features: list[dict[str, list[int]]]):
         batch["attention_mask"] = torch.tensor(
             [[v for sample in features for v in sample["attention_mask"]]], dtype=torch.int64
         )
+    if return_position_ids:
+        batch["position_ids"] = torch.hstack(
+            [torch.arange(sample_len, dtype=torch.int64) for sample_len in sample_lengths]
+        ).unsqueeze(0)
+
     return batch
 
 
@@ -340,6 +353,11 @@ def _pt_pad_to_multiple_of(batch: dict[str, Any], pad_to_multiple_of: int, token
     if "attention_mask" in batch:
         batch["attention_mask"] = torch.cat(
             [batch["attention_mask"], torch.zeros((1, remainder), dtype=batch["attention_mask"].dtype)], dim=1
+        )
+
+    if "position_ids" in batch:
+        batch["position_ids"] = torch.cat(
+            [batch["position_ids"], torch.arange(remainder, dtype=batch["position_ids"].dtype).unsqueeze(0)], dim=1
         )
 
     return batch
