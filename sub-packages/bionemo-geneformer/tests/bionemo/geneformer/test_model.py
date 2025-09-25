@@ -906,8 +906,8 @@ def test_continue_from_checkpoint_geneformer(
     geneformer_config: GeneformerConfig,
     data_path,
     n_layers_test: int = 3,
-    n_steps_train: int = 5,
-    batch_size: int = 1,
+    n_steps_train: int = 20,
+    batch_size: int = 4,
 ):
     base_geneformer_config = io.reinit(geneformer_config)  # generate a new copy by calling the cached init.
 
@@ -945,28 +945,46 @@ def test_continue_from_checkpoint_geneformer(
         assert initial_trainer.model.config.num_layers == n_layers_test
         initial_losses = initial_metrics.collection_train["loss"]
         assert len(initial_losses) == n_steps_train, f"Expected {n_steps_train} losses, got {len(initial_losses)}"
+        # Make sure that loss is dropping at continue
+        assert sum(initial_metrics.collection_train["loss"][:5]) > sum(
+            initial_metrics.collection_train["loss"][-5:]
+        ), "Loss should be dropping at initial training"
 
     with megatron_parallel_state_utils.distributed_model_parallel_state(43):
         # Continue training from the checkpoint created in the first phase
+        # NOTE all other hparams will be pulled from this checkpoint.
+        update_base_geneformer_config = GeneformerConfig(
+            initial_ckpt_path=str(ckpt_path),
+        )
         continue_checkpoint, continue_metrics, continue_trainer = _train_model_get_ckpt(
-            name="test_experiment",  # same experiment name to trigger resume
-            root_dir=tmpdir / "pretrain",  # new checkpoint will land in a subdir of this
-            config=base_geneformer_config,  # same config as before since we are just continuing training
-            n_steps_train=n_steps_train + 10,  # Run the same training command again but for more total steps
+            name="test_experiment_continue",
+            root_dir=tmpdir / "continue_training",  # new checkpoint will land in a subdir of this
+            config=update_base_geneformer_config,  # same config as before since we are just continuing training
+            n_steps_train=n_steps_train,
             batch_size=batch_size,
             data_path=data_path,
-            checkpoint_path=None,  # Set to None to let it auto-resume
             lr=1e-4,  # Same LR as initial training
         )
-        weights_ckpt = continue_checkpoint / "weights"
+        weights_ckpt = ckpt_path / "weights"
         assert weights_ckpt.exists()
         assert weights_ckpt.is_dir()
         assert io.is_distributed_ckpt(weights_ckpt)
         assert continue_trainer.model.config.num_layers == n_layers_test
 
-        assert continue_trainer.global_step == n_steps_train + 10, (
-            f"Should have completed {n_steps_train + 10} total steps, got {continue_trainer.global_step}"
+        # Make sure that loss is dropping at continue
+        assert sum(continue_metrics.collection_train["loss"][:5]) > sum(
+            continue_metrics.collection_train["loss"][-5:]
+        ), "Loss should be dropping at continue training"
+
+        # Make sure the number of steps is the same
+        assert continue_trainer.global_step == n_steps_train, (
+            f"Should have completed {n_steps_train} total steps, got {continue_trainer.global_step}"
         )
+
+        # Make sure the loss at the beginning of continue is a bit better than the end of initial
+        assert sum(continue_metrics.collection_train["loss"][:5]) < sum(
+            initial_metrics.collection_train["loss"][-5:]
+        ), "Loss should be dropping at continue training in comparison to the initial training"
 
 
 @pytest.mark.needs_gpu
