@@ -17,9 +17,7 @@ import random
 
 import pytest
 import torch
-import torch.distributed as dist
 from hydra import compose, initialize_config_dir
-from torch.distributed.device_mesh import _mesh_resources
 from transformer_engine.pytorch.fp8 import check_fp8_support
 
 from train_ddp import main as main_ddp
@@ -41,38 +39,7 @@ requires_fp8 = pytest.mark.skipif(
 )
 
 
-@pytest.fixture
-def distributed_cleanup():
-    yield
-
-    # Try to destroy the process group, but don't fail if it's not available.
-    try:
-        if dist.is_initialized():
-            dist.destroy_process_group()
-    except (AssertionError, RuntimeError):
-        pass
-
-    # Clear ALL mesh resources (for both MFSDP and FSDP2) to avoid issues re-running in the same process.
-    _mesh_resources.mesh_stack.clear()
-    _mesh_resources.child_to_root_mapping.clear()
-    _mesh_resources.root_to_flatten_mapping.clear()
-    _mesh_resources.flatten_name_to_root_dims.clear()
-    _mesh_resources.mesh_dim_group_options.clear()
-
-    # Clear CUDA cache to prevent memory issues between tests
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-
-    # Reset CUDA device to ensure clean state
-    if torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats()
-        # Reset all accumulated values in CUDA memory stats
-        for device in range(torch.cuda.device_count()):
-            torch.cuda.reset_accumulated_memory_stats(device)
-
-
-def test_sanity_convergence_mfsdp(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_mfsdp(tmp_path, recipe_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
@@ -89,7 +56,7 @@ def test_sanity_convergence_mfsdp(distributed_cleanup, tmp_path, recipe_path):
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_mfsdp_meta_device(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_mfsdp_meta_device(tmp_path, recipe_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
@@ -108,7 +75,7 @@ def test_sanity_convergence_mfsdp_meta_device(distributed_cleanup, tmp_path, rec
 
 
 @pytest.mark.xfail(reason="Meta-device init seems to be having some issues with convergence (BIONEMO-2719)")
-def test_sanity_convergence_mfsdp_eager_meta_device(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_mfsdp_eager_meta_device(tmp_path, recipe_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
@@ -127,7 +94,7 @@ def test_sanity_convergence_mfsdp_eager_meta_device(distributed_cleanup, tmp_pat
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_ddp(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_ddp(tmp_path, recipe_path):
     """Test that the main function can be invoked wrapping the model in DDP."""
 
     # Run the training script with Hydra configuration overrides
@@ -144,7 +111,7 @@ def test_sanity_convergence_ddp(distributed_cleanup, tmp_path, recipe_path):
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_ddp_non_streaming_dataset(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_ddp_non_streaming_dataset(tmp_path, recipe_path):
     """Test that the training script works with a non-streaming dataset."""
 
     # Run the training script with Hydra configuration overrides
@@ -162,7 +129,7 @@ def test_sanity_convergence_ddp_non_streaming_dataset(distributed_cleanup, tmp_p
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_fsdp2(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_fsdp2(tmp_path, recipe_path):
     """Test that the main function can be invoked wrapping the model in FSDP2."""
 
     # Run the training script with Hydra configuration overrides
@@ -180,7 +147,7 @@ def test_sanity_convergence_fsdp2(distributed_cleanup, tmp_path, recipe_path):
 
 
 @requires_fp8
-def test_sanity_mfsdp_fp8(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_mfsdp_fp8(tmp_path, recipe_path):
     # For MFSDP, we only check that the script can run successfully with FP8, not convergence.
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
@@ -197,7 +164,7 @@ def test_sanity_mfsdp_fp8(distributed_cleanup, tmp_path, recipe_path):
 
 
 @requires_fp8
-def test_sanity_ddp_fp8(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_ddp_fp8(tmp_path, recipe_path):
     # For DDP, we only check that the script can run successfully with FP8, not convergence.
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
@@ -214,7 +181,7 @@ def test_sanity_ddp_fp8(distributed_cleanup, tmp_path, recipe_path):
 
 
 @requires_fp8
-def test_sanity_convergence_fsdp2_fp8(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_fsdp2_fp8(tmp_path, recipe_path):
     """For FSDP2, we check that the script can run successfully with FP8 and check convergence."""
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
@@ -230,7 +197,7 @@ def test_sanity_convergence_fsdp2_fp8(distributed_cleanup, tmp_path, recipe_path
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_fsdp2_thd(distributed_cleanup, tmp_path, monkeypatch, recipe_path):
+def test_sanity_convergence_fsdp2_thd(tmp_path, monkeypatch, recipe_path):
     """For FSDP2, we check that the script can run successfully with FP8 and check convergence."""
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
@@ -252,7 +219,7 @@ def test_sanity_convergence_fsdp2_thd(distributed_cleanup, tmp_path, monkeypatch
 
 
 @requires_fp8
-def test_sanity_convergence_fsdp2_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe_path):
+def test_sanity_convergence_fsdp2_thd_fp8(tmp_path, monkeypatch, recipe_path):
     """For FSDP2, we check that the script can run successfully with THD + FP8 and check convergence."""
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
@@ -275,7 +242,7 @@ def test_sanity_convergence_fsdp2_thd_fp8(distributed_cleanup, tmp_path, monkeyp
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_ddp_thd(distributed_cleanup, tmp_path, monkeypatch, recipe_path):
+def test_sanity_ddp_thd(tmp_path, monkeypatch, recipe_path):
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
         # but it's missing this THD implementation.
@@ -296,7 +263,7 @@ def test_sanity_ddp_thd(distributed_cleanup, tmp_path, monkeypatch, recipe_path)
     main_ddp(sanity_config)
 
 
-def test_sanity_mfsdp_thd(distributed_cleanup, tmp_path, monkeypatch, recipe_path):
+def test_sanity_mfsdp_thd(tmp_path, monkeypatch, recipe_path):
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
         # but it's missing this THD implementation.
@@ -318,7 +285,7 @@ def test_sanity_mfsdp_thd(distributed_cleanup, tmp_path, monkeypatch, recipe_pat
 
 
 @requires_fp8
-def test_sanity_ddp_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe_path):
+def test_sanity_ddp_thd_fp8(tmp_path, monkeypatch, recipe_path):
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
         # but it's missing this THD implementation.
@@ -342,7 +309,7 @@ def test_sanity_ddp_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe_p
 
 
 @requires_fp8
-def test_sanity_mfsdp_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe_path):
+def test_sanity_mfsdp_thd_fp8(tmp_path, monkeypatch, recipe_path):
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
         # but it's missing this THD implementation.
@@ -365,7 +332,7 @@ def test_sanity_mfsdp_thd_fp8(distributed_cleanup, tmp_path, monkeypatch, recipe
 
 
 @pytest.mark.xfail(reason="Meta-device init seems to be having some issues with convergence (BIONEMO-2719)")
-def test_sanity_convergence_fsdp2_meta_device(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_fsdp2_meta_device(tmp_path, recipe_path):
     """Test that the main function can be invoked wrapping the model in FSDP2."""
 
     # Run the training script with Hydra configuration overrides
@@ -382,7 +349,7 @@ def test_sanity_convergence_fsdp2_meta_device(distributed_cleanup, tmp_path, rec
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_mfsdp_eager(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_mfsdp_eager(tmp_path, recipe_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
@@ -399,7 +366,7 @@ def test_sanity_convergence_mfsdp_eager(distributed_cleanup, tmp_path, recipe_pa
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_ddp_eager(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_ddp_eager(tmp_path, recipe_path):
     """Test that the main function can be invoked wrapping the model in DDP."""
 
     # Run the training script with Hydra configuration overrides
@@ -418,7 +385,7 @@ def test_sanity_convergence_ddp_eager(distributed_cleanup, tmp_path, recipe_path
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_fsdp2_eager(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_fsdp2_eager(tmp_path, recipe_path):
     """Test that the main function can be invoked wrapping the model in FSDP2."""
 
     # Run the training script with Hydra configuration overrides
@@ -438,7 +405,7 @@ def test_sanity_convergence_fsdp2_eager(distributed_cleanup, tmp_path, recipe_pa
 
 
 @pytest.mark.xfail(reason="Meta-device init seems to be having some issues with convergence (BIONEMO-2719)")
-def test_sanity_convergence_fsdp2_eager_meta_device(distributed_cleanup, tmp_path, recipe_path):
+def test_sanity_convergence_fsdp2_eager_meta_device(tmp_path, recipe_path):
     """Test that the main function can be invoked wrapping the model in FSDP2 and using meta-device init."""
 
     # Run the training script with Hydra configuration overrides

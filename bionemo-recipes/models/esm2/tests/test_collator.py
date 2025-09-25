@@ -20,7 +20,7 @@ from esm.collator import DataCollatorWithFlattening, MLMDataCollatorWithFlatteni
 
 def test_data_collator_with_flattening_basic():
     """Test DataCollatorWithFlattening with input_ids and attention_mask."""
-    collator = DataCollatorWithFlattening()
+    collator = DataCollatorWithFlattening(return_position_ids=True)
 
     # Create test sequences of different lengths
     features = [
@@ -52,6 +52,10 @@ def test_data_collator_with_flattening_basic():
     # Assert max_length values are correct
     assert batch["max_length_q"] == 6, f"Expected max_length_q=6, got {batch['max_length_q']}"
     assert batch["max_length_k"] == 6, f"Expected max_length_k=6, got {batch['max_length_k']}"
+
+    # Assert position_ids are created properly
+    expected_position_ids = torch.tensor([[0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3]], dtype=torch.int64)
+    torch.testing.assert_close(batch["position_ids"], expected_position_ids)
 
     # Assert flattened input_ids matches concatenated original sequences
     expected_input_ids = torch.tensor([[0, 5, 6, 7, 2, 0, 8, 9, 10, 11, 2, 0, 12, 13, 2]], dtype=torch.int64)
@@ -123,7 +127,7 @@ def test_data_collator_with_flattening_with_labels():
 
 def test_data_collator_pads_to_multiple_of():
     """Test DataCollatorWithFlattening with input_ids and attention_mask."""
-    collator = DataCollatorWithFlattening(pad_to_multiple_of=8, token_pad=1, label_pad=-100)
+    collator = DataCollatorWithFlattening(pad_to_multiple_of=8, token_pad=1, label_pad=-100, return_position_ids=True)
 
     # Create test sequences with labels
     features = [
@@ -149,12 +153,16 @@ def test_data_collator_pads_to_multiple_of():
     # Assert input_ids are padded with 1
     assert batch["input_ids"][:, -1].item() == 1
 
+    expected_position_ids = torch.tensor([[0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 0]], dtype=torch.int64)
+    torch.testing.assert_close(batch["position_ids"], expected_position_ids)
+
 
 def test_mlm_data_collator_with_flattening_basic(tokenizer):
     """Test MLMDataCollatorWithFlattening with basic input_ids and verify labels are created."""
     collator = MLMDataCollatorWithFlattening(
         tokenizer=tokenizer,
         mlm_probability=0.15,
+        return_position_ids=True,
     )
 
     # Create test sequences of different lengths
@@ -206,6 +214,10 @@ def test_mlm_data_collator_with_flattening_basic(tokenizer):
     assert "cu_seq_lens_k" in batch, "cu_seq_lens_k should be present for Flash Attention"
     assert "max_length_q" in batch, "max_length_q should be present for Flash Attention"
     assert "max_length_k" in batch, "max_length_k should be present for Flash Attention"
+
+    # Assert that position_ids are created properly
+    expected_position_ids = torch.tensor([[0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6]], dtype=torch.int64)
+    torch.testing.assert_close(batch["position_ids"], expected_position_ids)
 
 
 def test_mlm_data_collator_with_flattening_masking(tokenizer, test_proteins):

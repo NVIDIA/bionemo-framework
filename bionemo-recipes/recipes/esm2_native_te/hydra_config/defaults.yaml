@@ -3,7 +3,6 @@ model_tag: ???
 num_train_steps: ???
 save_every_n_steps: 50
 
-
 # TODO: Once BIONEMO-2583 and BIONEMO-2719 are fixed, enable this by default and simplify training scripts to remove the
 # meta-device conditional.
 use_meta_device: false
@@ -65,6 +64,11 @@ lr_scheduler_kwargs:
 # Checkpoint config
 checkpoint:
   ckpt_dir: ???
+  save_final_model: true
+  save_checkpoints: true
   resume_from_checkpoint: true
   use_distributed_checkpoint_fsdp2: true
   save_every_n_steps: 50
+
+logger:
+  max_step_times: 100
