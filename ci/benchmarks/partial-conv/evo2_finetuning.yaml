@@ -98,6 +98,7 @@ script: |-
     --wandb-project=${wandb_project_name} \
     --wandb-group=${model}_${variant}_${config_name}_${task}_${target} \
     --wandb-job-type=${pipeline_label} \
+    --garbage-collect-at-inference
 tests:
   - logic_type: static
     product_identifier: { "variant": "finetune" }
