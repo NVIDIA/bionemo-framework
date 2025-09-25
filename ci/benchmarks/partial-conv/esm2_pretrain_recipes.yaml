@@ -74,7 +74,7 @@ tests:
       baselines:
         consumed_samples:
           operator: eq
-          value: 13312000.0
+          value: 12800000.0
         # increasing val_loss is expected as we are using a different training cluster set
         val_loss:
           operator: range
