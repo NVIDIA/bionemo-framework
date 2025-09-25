@@ -25,12 +25,19 @@ script_args:
   acc_grad: 1
   num_workers: 4
 script: |-
+  # Copying data to shared memory filesystem in Linux that provides a RAM-based temporary storage location
+  COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
+  NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
   COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
   NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
-      df -h;
+      df -h /dev/shm
       echo $NEW_DATA_PATH;
+      # Create destination directory if it doesn't exist
+      mkdir -p $NEW_DATA_PATH;
+      # Check if source directory exists and has files
       time cp -r ${data_path}/* $NEW_DATA_PATH/;
+      # ls -R $NEW_DATA_PATH;
       touch $COPY_FLAG
   fi
   # All ranks wait until data copy flag file appears
