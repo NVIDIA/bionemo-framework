@@ -31,9 +31,6 @@ script: |-
       df -h;
       echo $NEW_DATA_PATH;
       time cp -r ${data_path}/* $NEW_DATA_PATH/;
-      ls -R $NEW_DATA_PATH;
-      ls -l $NEW_DATA_PATH/train/metadata.json;
-      ls -R $data_path;
       touch $COPY_FLAG
   fi
   # All ranks wait until data copy flag file appears
