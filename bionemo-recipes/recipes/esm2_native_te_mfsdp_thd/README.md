@@ -1,8 +1,8 @@
 # ESM-2 training with megatron-fsdp and custom pytorch training loop with sequence packing
 
 > [!WARNING]
-> This recipe is **deprecated** and is no longer maintained. Sequence packing / THD input formats is now supported in
-> the base ESM-2 model. To train ESM-2 with sequence packing, using the ESM-2 native recipe
+> This recipe is **deprecated** and is no longer maintained. Sequence packing / THD input format is now supported in
+> the base ESM-2 model. To train ESM-2 with sequence packing, use the ESM-2 native recipe
 > ([`esm2_native_te`](../esm2_native_te/)) and set `dataset.use_sequence_packing=true`.
 
 Build the docker image with the following command:
