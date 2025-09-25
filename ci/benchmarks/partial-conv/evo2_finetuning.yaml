@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 1800
+time_limit: 3600
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   dataset_config: False
