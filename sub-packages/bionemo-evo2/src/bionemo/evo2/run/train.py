@@ -196,7 +196,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--dataset-dir",
         type=str,
-        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML. Required with --dataset-config.",
+        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML. Only used with --dataset-config.",
     )
 
     parser.add_argument("--num-nodes", type=int, default=1, help="Number of nodes to use for training, defaults to 1.")
@@ -710,8 +710,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             log_dir=args.window_log_dir,
         )
     else:
-        if not args.dataset_dir:
-            raise ValueError("--dataset-dir is required when using --dataset-config.")
         blended_dataset_config = parse_dataset_config(
             dataset_config_path=args.dataset_config, dataset_path=args.dataset_dir
         )
