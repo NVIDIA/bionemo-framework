@@ -17,6 +17,9 @@ import sys
 from pathlib import Path
 
 import pytest
+import torch
+import torch.distributed as dist
+from torch.distributed.device_mesh import _mesh_resources
 
 
 sys.path.append(Path(__file__).parent.parent.as_posix())
@@ -27,3 +30,34 @@ sys.path.append(Path(__file__).parent.as_posix())
 def recipe_path() -> Path:
     """Return the root directory of the recipe."""
     return Path(__file__).parent.parent
+
+
+@pytest.fixture(autouse=True)
+def distributed_cleanup():
+    yield
+
+    # Try to destroy the process group, but don't fail if it's not available.
+    try:
+        if dist.is_initialized():
+            dist.destroy_process_group()
+    except (AssertionError, RuntimeError):
+        pass
+
+    # Clear ALL mesh resources (for both MFSDP and FSDP2) to avoid issues re-running in the same process.
+    _mesh_resources.mesh_stack.clear()
+    _mesh_resources.child_to_root_mapping.clear()
+    _mesh_resources.root_to_flatten_mapping.clear()
+    _mesh_resources.flatten_name_to_root_dims.clear()
+    _mesh_resources.mesh_dim_group_options.clear()
+
+    # Clear CUDA cache to prevent memory issues between tests
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+
+    # Reset CUDA device to ensure clean state
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+        # Reset all accumulated values in CUDA memory stats
+        for device in range(torch.cuda.device_count()):
+            torch.cuda.reset_accumulated_memory_stats(device)
