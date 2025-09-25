@@ -15,17 +15,17 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 ## Supported Models and Training Features
 
-| Model                                     | BF16 | FP8[^1] | THD Input Format | FP8 with THD Input Format | MXFP8[^2] | Context Parallelism |
-| ----------------------------------------- | ---- | ------- | ---------------- | ------------------------- | --------- | ------------------- |
-| [ESM-2](../../models/esm2/README.md)      | ✅   | ✅      | ✅               | ✅                        | ✅        | 🚧                  |
-| [AMPLIFY](../../models/amplify/README.md) | ✅   | ❌      | 🚧               | ❌                        | ❌        | 🚧                  |
+| Model                                     | BF16 | FP8<sup>[1](#fp8)</sup> | THD Input Format | FP8 with THD Input Format | MXFP8<sup>[2](#mxfp8)</sup> | Context Parallelism |
+| ----------------------------------------- | ---- | ----------------------- | ---------------- | ------------------------- | --------------------------- | ------------------- |
+| [ESM-2](../../models/esm2/README.md)      | ✅   | ✅                      | ✅               | ✅                        | ✅                          | 🚧                  |
+| [AMPLIFY](../../models/amplify/README.md) | ✅   | ❌                      | 🚧               | ❌                        | ❌                          | 🚧                  |
 
 ✅: Supported
 🚧: Under development
 ❌: Not supported
 
-\[^1\]: Requires compute capacity 9.0 and above (Hopper+)
-\[^2\]: Requires compute capacity 10.0 and 10.3 (Blackwell), 12.0 support pending
+<a name="fp8">1</a>: Requires compute capacity 9.0 and above (Hopper+)
+<a name="mxfp8">2</a>: Requires compute capacity 10.0 and 10.3 (Blackwell), 12.0 support pending
 
 ### Distributed Training
 
