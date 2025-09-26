@@ -3,8 +3,6 @@ defaults:
   - /base
   - _self_
 
-job_name: ${recipe_subdir}_${config}
-
 ############################################################
 # lepton job info
 ############################################################
@@ -58,6 +56,7 @@ micro_batch_size: 16
 num_warmup_steps: 20_000
 
 # checkpoint controls
+ckpt_dir: ""
 save_checkpoints: false
 save_final_model: false
 resume_from_checkpoint: false
@@ -95,8 +94,9 @@ run_script: |
     num_train_steps=${num_train_steps} \
     dataset.micro_batch_size=${micro_batch_size} \
     lr_scheduler_kwargs.num_warmup_steps=${num_warmup_steps} \
-    checkpoint.save_checkpoints=${save_checkpoints} \
+    checkpoint.ckpt_dir=${ckpt_dir} \
     checkpoint.save_final_model=${save_final_model} \
     checkpoint.resume_from_checkpoint=${resume_from_checkpoint} \
     checkpoint.save_every_n_steps=${save_every_n_steps} \
-    checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2}
+    +checkpoint.save_checkpoints=${save_checkpoints} \
+    +checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2}
