@@ -1031,7 +1031,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         callbacks=callbacks,
         log_every_n_steps=args.log_every_n_steps,
         limit_val_batches=args.limit_val_batches,
-        limit_test_batches=args.limit_test_batches or args.limit_val_batches,
+        limit_test_batches=args.limit_test_batches if args.limit_test_batches is not None else args.limit_val_batches,
         num_sanity_val_steps=0,
         use_distributed_sampler=False,
         plugins=nl.MegatronMixedPrecision(
