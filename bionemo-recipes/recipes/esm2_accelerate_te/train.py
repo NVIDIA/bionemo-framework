@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+import os
 from pathlib import Path
 
 import hydra
@@ -71,7 +72,9 @@ def main(args: DictConfig):
 
     if training_args.do_train:
         Path(training_args.output_dir).mkdir(parents=True, exist_ok=True)
-        last_checkpoint = transformers.trainer_utils.get_last_checkpoint(training_args.output_dir)
+        last_checkpoint = training_args.resume_from_checkpoint or transformers.trainer_utils.get_last_checkpoint(
+            training_args.output_dir
+        )
         if last_checkpoint is not None:
             logger.info("Resuming from checkpoint: %s", last_checkpoint)
         else:
@@ -92,4 +95,12 @@ def main(args: DictConfig):
 
 
 if __name__ == "__main__":
+    # Set required environment variables for distributed training (if not already set) to enable `python train.py` to
+    # succeed.
+    os.environ.setdefault("LOCAL_RANK", "0")
+    os.environ.setdefault("RANK", "0")
+    os.environ.setdefault("WORLD_SIZE", "1")
+    os.environ.setdefault("MASTER_ADDR", "localhost")
+    os.environ.setdefault("MASTER_PORT", "29500")
+    os.environ.setdefault("WANDB_MODE", "offline")
     main()

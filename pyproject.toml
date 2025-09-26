@@ -20,7 +20,6 @@ dependencies = [
     'bionemo-example_model',
     'bionemo-fw',
     'bionemo-geneformer',
-    'bionemo-geometric',
     'bionemo-llm',
     'bionemo-moco',
     'bionemo-scdl',
@@ -53,7 +52,6 @@ bionemo-esm2 = { workspace = true }
 bionemo-example_model = { workspace = true }
 bionemo-fw = { workspace = true }
 bionemo-geneformer = { workspace = true }
-bionemo-geometric = { workspace = true }
 bionemo-llm = { workspace = true }
 bionemo-moco = { workspace = true }
 bionemo-noodles = { workspace = true }
@@ -139,7 +137,6 @@ executionEnvironments = [
         './sub-packages/bionemo-example_model/src',
         './sub-packages/bionemo-fw/src',
         './sub-packages/bionemo-geneformer/src',
-        './sub-packages/bionemo-geometric/src',
         './sub-packages/bionemo-llm/src',
         './sub-packages/bionemo-moco/src',
         './sub-packages/bionemo-noodles/src',
