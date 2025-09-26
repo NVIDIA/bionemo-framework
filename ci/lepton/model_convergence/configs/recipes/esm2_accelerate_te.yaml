@@ -3,20 +3,39 @@ defaults:
   - /base
   - _self_
 
-# lepton info
+############################################################
+# lepton job info
+############################################################
 node_group: yo-bom-lepton-001
 num_nodes: 2
 device_type: gpu
-num_devices: 2
+num_devices: 8
 gpu_type: h100-sxm
-total_gpus: ${multiply:${num_devices},${num_nodes}}
 resource_shape: "${device_type}.${num_devices}x${gpu_type}"
+# `total_gpus` calculated from above
+total_gpus: ${multiply:${num_devices},${num_nodes}}
 
+############################################################
 # recipe identifiers
+# mostly used for logging and observability
+############################################################
 recipe_subdir: esm2_accelerate_te
 model_type: esm2
+variant: train # train, finetune
 
-# wandb
+# Core identifiers for filtering
+framework: native # native, accelerate
+parallelism_strategy: fsdp2 # ddp, fsdp2, mfsdp
+precision: fp8 # likely bf16 or fp8
+te_enabled: true
+fp8_enabled: true
+
+# Catchall for additional features/configs
+extras: [] # e.g. [thd]
+
+############################################################
+# wandb info (total_gpus used for group name)
+############################################################
 wandb_init_args:
   project: "test_convergence__recipes__${sanitize:${branch}}"
   group: "${model_type}__${task_cmd}__${total_gpus}__${sanitize:${gpu_type}}"
@@ -28,21 +47,42 @@ trainer:
   report_to: "wandb"
 
 # train specific commands
-task_cmd: train
 stop_after_n_steps: 10
 
-# configs to run
+############################################################
+# task commands
+# shared across all products (if not explicitly overridden)
+############################################################
+# task_cmd: train_fsdp2 # mfsdp
+task_cmd: train
+
+# script overrides
+# these should match the keys in the recipe's config file
+# model_tag: nvidia/esm2_t36_3B_UR50D
+script_args:
+  stop_after_n_steps: 100
+  # micro_batch_size: 16
+  # num_warmup_steps: 20_000
+
+############################################################
+# Each product is a different config to run, alongside
+# config-specific arguments. Must have a w`andb_name`.
+############################################################
 products:
-  - config: L0_sanity
+  - config: L1_esm2_15B_perf_test
+    acc_config: fsdp2_hf
     wandb_name: "${config}__${now:%Y%m%d-%H%M%S}__${gitsha:}"
 
-# training script to run
+############################################################
+# run script
+# This gets called right after `checkout_script` in the base config.
+############################################################
 run_script: |
-  accelerate launch --config_file accelerate_config/default.yaml \
+  accelerate launch --config_file accelerate_config/${acc_config}.yaml \
     ${task_cmd}.py \
     --config-name=${config} \
-    stop_after_n_steps=${stop_after_n_steps} \
-    wandb_init_args.mode=${wandb_init_args.mode} \
+    stop_after_n_steps=${script_args.stop_after_n_steps} \
+    +wandb_init_args.mode=${wandb_init_args.mode} \
     +wandb_init_args.project=${wandb_init_args.project} \
     +wandb_init_args.group=${wandb_init_args.group} \
     +wandb_init_args.job_type=${wandb_init_args.job_type} \

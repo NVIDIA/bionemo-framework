@@ -20,12 +20,6 @@ __SCRIPT__
 RC=$?
 set -e
 
-echo "pwd"
-pwd
-
-echo "ls"
-ls
-
 echo "commit in bionemo-framework"
 (cd bionemo-framework && git log -1 || true)
 # Always grab the exact commit currently checked out in the framework repo
