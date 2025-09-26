@@ -143,7 +143,7 @@ class NVEsmEncoder(nn.Module):
                     micro_batch_size=config.micro_batch_size,
                     num_gqa_groups=config.num_attention_heads,
                     fuse_qkv_params=config.fuse_qkv_params,
-                    params_dtype=config.torch_dtype,
+                    params_dtype=config.dtype,
                     window_size=(-1, -1),
                 )
                 for i in range(config.num_hidden_layers)
