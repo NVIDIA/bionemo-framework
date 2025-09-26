@@ -21,6 +21,7 @@ from typing import Dict
 
 import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 from bionemo.core.data.load import load
 from bionemo.geneformer.scripts.train_geneformer import get_parser, main
@@ -29,7 +30,7 @@ from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def data_path() -> Path:
     """Gets the path to the directory with cellx small dataset in Single Cell Memmap format.
     Returns:
@@ -45,6 +46,14 @@ def test_bionemo2_rootdir(data_path):
 
 @pytest.mark.parametrize("create_checkpoint_callback", [True, False])
 def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
+    """Test that verifies the training script runs correctly with checkpoints and TensorBoard logs.
+
+    This test ensures:
+    - The training script runs correctly and outputs checkpoints (when enabled)
+    - TensorBoard logs are generated and include specific metrics such as TFLOPS per GPU and train step
+    - Checkpoints and TensorBoard logs are saved in the correct directories
+    - All expected metrics are logged with proper values
+    """
     result_dir = Path(tmpdir.mkdir("results"))
 
     with megatron_parallel_state_utils.distributed_model_parallel_state():
@@ -63,42 +72,83 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
             biobert_spec_option=BiobertSpecOption.bert_layer_local_spec,
             lr=1e-4,
             micro_batch_size=2,
-            accumulate_grad_batches=2,
+            accumulate_grad_batches=1,
             cosine_rampup_frac=0.01,
             cosine_hold_frac=0.01,
             precision="bf16-mixed",
             experiment_name="test_experiment",
             resume_if_exists=False,
-            create_tensorboard_logger=False,
+            create_tensorboard_logger=True,  # Always enable TensorBoard
+            create_tflops_callback=True,  # Always enable TFLOPS callback
             num_layers=2,
             num_attention_heads=2,
             hidden_size=4,
             ffn_hidden_size=4 * 2,
             create_checkpoint_callback=create_checkpoint_callback,
+            log_every_n_steps=1,
         )
 
-    assert (result_dir / "test_experiment").exists(), "Could not find test experiment directory."
-    assert (result_dir / "test_experiment").is_dir(), "Test experiment directory is supposed to be a directory."
-    children = list((result_dir / "test_experiment").iterdir())
-    assert len(children) == 1, f"Expected 1 child in test experiment directory, found {children}."
-    uq_rundir = children[0]  # it will be some date.
+    # Verify experiment directory structure
+    experiment_dir = result_dir / "test_experiment"
+    assert experiment_dir.exists(), "Experiment directory not found"
+    assert experiment_dir.is_dir(), "Experiment directory should be a directory"
 
-    expected_exists = create_checkpoint_callback
-    actual_exists = (result_dir / "test_experiment" / uq_rundir / "checkpoints").exists()
+    # Get the unique run directory (date-based)
+    run_dirs = list(experiment_dir.iterdir())
+    assert len(run_dirs) == 1, f"Expected exactly one run directory, found {len(run_dirs)}"
+    run_dir = run_dirs[0]
 
-    assert expected_exists == actual_exists, (
-        f"Checkpoints directory existence mismatch. "
-        f"Expected: {'exists' if expected_exists else 'does not exist'}, "
-        f"Found: {'exists' if actual_exists else 'does not exist'}."
-    )
+    # Check log file
+    assert (run_dir / "nemo_log_globalrank-0_localrank-0.txt").is_file(), "Could not find experiment log."
 
+    # Check checkpoint directory
+    checkpoint_dir = run_dir / "checkpoints"
     if create_checkpoint_callback:
-        assert (result_dir / "test_experiment" / uq_rundir / "checkpoints").is_dir(), (
-            "Test experiment checkpoints directory is supposed to be a directory."
-        )
-    assert (result_dir / "test_experiment" / uq_rundir / "nemo_log_globalrank-0_localrank-0.txt").is_file(), (
-        "Could not find experiment log."
+        assert checkpoint_dir.exists(), "Checkpoints directory not found"
+        assert checkpoint_dir.is_dir(), "Checkpoints directory should be a directory"
+
+        # Verify checkpoint directories exist (distributed checkpoints are saved as directories)
+        checkpoint_items = list(checkpoint_dir.iterdir())
+        assert len(checkpoint_items) > 0, "No checkpoint directories found"
+    else:
+        assert not checkpoint_dir.exists(), "Checkpoints directory should not exist when callback is disabled"
+
+    # Check TensorBoard logs - they are saved directly in the run directory
+    # Verify TensorBoard event files exist
+    tb_event_files = list(run_dir.glob("events.out.tfevents.*"))
+    assert len(tb_event_files) > 0, "No TensorBoard event files found"
+
+    # Load and verify TensorBoard metrics
+    event_acc = EventAccumulator(str(run_dir))
+    event_acc.Reload()
+
+    scalar_tags = event_acc.Tags()["scalars"]
+
+    # Check for specific metrics that should be present
+    required_metrics = {
+        "lr": "Learning rate",
+        "TFLOPS_per_GPU": "TFLOPS per GPU",  # From FLOPsMeasurementCallback
+        "train_step_timing": "Training step timing",
+        "consumed_samples": "Consumed samples",
+        "epoch": "Epoch",
+        "step": "Step",
+    }
+
+    missing_metrics = []
+    for metric_key, metric_name in required_metrics.items():
+        if not any(metric_key in tag for tag in scalar_tags):
+            missing_metrics.append(f"{metric_name} ({metric_key})")
+
+    assert len(missing_metrics) == 0, (
+        f"Missing required metrics: {', '.join(missing_metrics)}. Available tags: {scalar_tags}"
     )
+
+    # Verify that metrics have been logged for multiple steps
+    for tag in scalar_tags:
+        if "step" in tag or "epoch" in tag:
+            continue  # Skip step/epoch counters themselves
+        events = event_acc.Scalars(tag)
+        assert len(events) >= 2, f"Expected at least 2 logged values for {tag}, but found {len(events)}"
 
 
 @pytest.mark.parametrize("limit_val_batches", [0.0, 1])
@@ -202,7 +252,10 @@ def test_pretrain_cli(tmpdir, data_path):
     --num-layers 2 \
     --num-attention-heads 2 \
     --hidden-size 4 \
-    --ffn-hidden-size 8
+    --ffn-hidden-size 8 \
+    --create-tensorboard-logger \
+    --create-tflops-callback \
+    --log-every-n-steps 1
     """.strip()
     env = dict(**os.environ)  # a local copy of the environment
     env["MASTER_PORT"] = str(open_port)
@@ -213,8 +266,22 @@ def test_pretrain_cli(tmpdir, data_path):
         env=env,
         capture_output=True,
     )
-    assert result.returncode == 0, f"Pretrain script failed: {cmd_str}"
-    assert (result_dir / "test_experiment").exists(), "Could not find test experiment directory."
+    assert result.returncode == 0, (
+        f"Pretrain script failed: {cmd_str}\nstdout: {result.stdout.decode()}\nstderr: {result.stderr.decode()}"
+    )
+
+    # Verify experiment directory exists
+    experiment_dir = result_dir / "test_experiment"
+    assert experiment_dir.exists(), "Could not find test experiment directory."
+
+    # Get the run directory
+    run_dirs = list(experiment_dir.iterdir())
+    assert len(run_dirs) == 1, f"Expected exactly one run directory, found {len(run_dirs)}"
+    run_dir = run_dirs[0]
+
+    # Verify TensorBoard logs were created - they are saved directly in the run directory
+    tb_event_files = list(run_dir.glob("events.out.tfevents.*"))
+    assert len(tb_event_files) > 0, "No TensorBoard event files found"
 
 
 @pytest.fixture(scope="function")

@@ -14,13 +14,20 @@
 # limitations under the License.
 
 
-import logging
 import os
 from typing import Any, Literal, Sequence
+
+
+try:  # Python 3.12+
+    from typing import override
+except ImportError:  # Python < 3.12
+    from typing_extensions import override
 
 import lightning.pytorch as pl
 import torch
 from lightning.pytorch.callbacks import BasePredictionWriter
+from megatron.core import parallel_state
+from nemo.utils import logging as logger
 
 from bionemo.llm.lightning import batch_collator
 
@@ -42,20 +49,34 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
         write_interval: IntervalT,
         batch_dim_key_defaults: dict[str, int] | None = None,
         seq_dim_key_defaults: dict[str, int] | None = None,
+        save_all_model_parallel_ranks: bool = False,
+        files_per_subdir: int | None = None,
     ):
         """Initializes the callback.
 
         Args:
             output_dir: The directory where predictions will be written.
-            write_interval: The interval at which predictions will be written (batch, epoch). Epoch may not be used with multi-device trainers.
+            write_interval: The interval at which predictions will be written (batch, epoch). Epoch may not be used with
+                multi-device trainers.
             batch_dim_key_defaults: The default batch dimension for each key, if different from the standard 0.
             seq_dim_key_defaults: The default sequence dimension for each key, if different from the standard 1.
+            save_all_model_parallel_ranks: Whether to save predictions for all model parallel ranks. Generally these
+                will be redundant.
+            files_per_subdir: Number of files to write to each subdirectory. If provided, subdirectories with N files
+                each will be created. Ignored unless write_interval is 'batch'.
         """
         super().__init__(write_interval)
         self.write_interval = write_interval
         self.output_dir = str(output_dir)
+        self.base_dir = self.output_dir  # start out like this, but output_dir will be updated if files_per_subdir>0
         self.batch_dim_key_defaults = batch_dim_key_defaults
         self.seq_dim_key_defaults = seq_dim_key_defaults
+        self.save_all_model_parallel_ranks = save_all_model_parallel_ranks
+        self.files_per_subdir = files_per_subdir
+        # Initialize to infinity if files_per_subdir is provided so that we create a new subdirectory before writing
+        #   any files.
+        self.num_files_written = float("inf") if files_per_subdir else 0
+        self.num_subdirs_written = 0
 
     def setup(self, trainer: pl.Trainer, pl_module: pl.LightningModule, *args, **kwargs) -> None:  # noqa: D417
         """Invoked with Trainer.fit, validate, test, and predict are called. Will immediately fail when 'write_interval' is 'epoch' and 'trainer.num_devices' > 1.
@@ -65,16 +86,49 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
             pl_module: The LightningModule instance.
         """
         if trainer.num_devices > 1 and self.write_interval == "epoch":
-            raise ValueError(
-                "Multi-GPU predictions are not permitted as outputs are not ordered and batch indices are lost."
+            logger.warning(
+                "Multi-GPU predictions could result in shuffled inputs. Verify that the original indices are included "
+                "in the model's predictions as outputs are not ordered and batch indices do not track input order."
             )
 
+    @staticmethod
+    def _assert_initialized():
+        """Asserts that the environment is initialized."""
+        if not (
+            torch.distributed.is_available() and torch.distributed.is_initialized() and parallel_state.is_initialized()
+        ):
+            raise RuntimeError("This function is only defined within an initialized megatron parallel environment.")
+
+    @property
+    def data_parallel_world_size(self) -> int:
+        """Returns the data parallel world size."""
+        self._assert_initialized()
+        return torch.distributed.get_world_size(parallel_state.get_data_parallel_group(with_context_parallel=False))
+
+    @property
+    def data_parallel_rank(self) -> int:
+        """Returns the data parallel rank."""
+        self._assert_initialized()
+        return torch.distributed.get_rank(parallel_state.get_data_parallel_group(with_context_parallel=False))
+
+    @property
+    def should_write_predictions(self) -> bool:
+        """Ensures that predictions are only written on TP/CP rank 0 and that it is the last stage of the pipeline."""
+        self._assert_initialized()
+        if not parallel_state.is_pipeline_last_stage():
+            return False
+        if self.save_all_model_parallel_ranks:
+            return True
+        # TODO: handle expert parallelism and other kinds of parallelism
+        return parallel_state.get_tensor_model_parallel_rank() == 0 and parallel_state.get_context_parallel_rank() == 0
+
+    @override
     def write_on_batch_end(
         self,
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
         prediction: Any,
-        batch_indices: Sequence[int],
+        batch_indices: Sequence[int] | None,
         batch: Any,
         batch_idx: int,
         dataloader_idx: int,
@@ -95,18 +149,32 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
         """
         # this will create N (num processes) files in `output_dir` each containing
         # the predictions of it's respective rank
-        result_path = os.path.join(self.output_dir, f"predictions__rank_{trainer.global_rank}__batch_{batch_idx}.pt")
+        if self.should_write_predictions:
+            if (
+                self.files_per_subdir is not None
+                and (self.num_files_written * self.data_parallel_world_size) >= self.files_per_subdir
+            ):
+                self.num_subdirs_written += 1
+                self.output_dir = os.path.join(self.base_dir, f"subdir_{self.num_subdirs_written}")
+                os.makedirs(self.output_dir, exist_ok=True)
+                self.num_files_written = 0
+            result_path = os.path.join(
+                self.output_dir,
+                f"predictions__rank_{trainer.global_rank}__dp_rank_{self.data_parallel_rank}__batch_{batch_idx}.pt",
+            )
 
-        # batch_indices is not captured due to a lightning bug when return_predictions = False
-        # we use input IDs in the prediction to map the result to input.
+            # batch_indices is not captured due to a lightning bug when return_predictions = False
+            # we use input IDs in the prediction to map the result to input.
 
-        # NOTE store the batch_idx so we do not need to rely on filenames for reconstruction of inputs. This is wrapped
-        # in a tensor and list container to ensure compatibility with batch_collator.
-        prediction["batch_idx"] = torch.tensor([batch_idx], dtype=torch.int64)
+            # NOTE store the batch_idx so we do not need to rely on filenames for reconstruction of inputs. This is wrapped
+            # in a tensor and list container to ensure compatibility with batch_collator.
+            prediction["batch_idx"] = torch.tensor([batch_idx], dtype=torch.int64)
 
-        torch.save(prediction, result_path)
-        logging.info(f"Inference predictions are stored in {result_path}\n{prediction.keys()}")
+            torch.save(prediction, result_path)
+            logger.info(f"Inference predictions are stored in {result_path}\n{prediction.keys()}")
+            self.num_files_written += 1
 
+    @override
     def write_on_epoch_end(
         self,
         trainer: pl.Trainer,
@@ -132,23 +200,26 @@ class PredictionWriter(BasePredictionWriter, pl.Callback):
         """
         # this will create N (num processes) files in `output_dir` each containing
         # the predictions of it's respective rank
+        if self.should_write_predictions:
+            result_path = os.path.join(
+                self.output_dir,
+                f"predictions__rank_{trainer.global_rank}__dp_rank_{self.data_parallel_rank}.pt",
+            )
 
-        result_path = os.path.join(self.output_dir, f"predictions__rank_{trainer.global_rank}.pt")
+            # collate multiple batches / ignore empty ones
+            collate_kwargs = {}
+            if self.batch_dim_key_defaults is not None:
+                collate_kwargs["batch_dim_key_defaults"] = self.batch_dim_key_defaults
+            if self.seq_dim_key_defaults is not None:
+                collate_kwargs["seq_dim_key_defaults"] = self.seq_dim_key_defaults
 
-        # collate multiple batches / ignore empty ones
-        collate_kwargs = {}
-        if self.batch_dim_key_defaults is not None:
-            collate_kwargs["batch_dim_key_defaults"] = self.batch_dim_key_defaults
-        if self.seq_dim_key_defaults is not None:
-            collate_kwargs["seq_dim_key_defaults"] = self.seq_dim_key_defaults
+            prediction = batch_collator([item for item in predictions if item is not None], **collate_kwargs)
 
-        prediction = batch_collator([item for item in predictions if item is not None], **collate_kwargs)
-
-        # batch_indices is not captured due to a lightning bug when return_predictions = False
-        # we use input IDs in the prediction to map the result to input
-        if isinstance(prediction, dict):
-            keys = prediction.keys()
-        else:
-            keys = "tensor"
-        torch.save(prediction, result_path)
-        logging.info(f"Inference predictions are stored in {result_path}\n{keys}")
+            # batch_indices is not captured due to a lightning bug when return_predictions = False
+            # we use input IDs in the prediction to map the result to input
+            if isinstance(prediction, dict):
+                keys = prediction.keys()
+            else:
+                keys = "tensor"
+            torch.save(prediction, result_path)
+            logger.info(f"Inference predictions are stored in {result_path}\n{keys}")

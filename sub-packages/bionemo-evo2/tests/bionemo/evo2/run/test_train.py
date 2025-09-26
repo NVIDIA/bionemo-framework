@@ -30,14 +30,14 @@ from bionemo.testing.lightning import extract_global_steps_from_log
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
 
+from .common import small_training_cmd, small_training_finetune_cmd
+
 
 fp8_available, reason_for_no_fp8 = check_fp8_support()
 
 
 def run_train_with_std_redirect(args: argparse.Namespace) -> Tuple[str, nl.Trainer]:
-    """
-    Run a function with output capture.
-    """
+    """Run a function with output capture."""
     stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
     with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
         with distributed_model_parallel_state():
@@ -48,28 +48,6 @@ def run_train_with_std_redirect(args: argparse.Namespace) -> Tuple[str, nl.Train
     print("Captured STDOUT:\n", train_stdout)
     print("Captured STDERR:\n", train_stderr)
     return train_stdout, trainer
-
-
-def small_training_cmd(path, max_steps, val_check, devices: int = 1, additional_args: str = ""):
-    cmd = (
-        f"train_evo2 --mock-data --result-dir {path} --devices {devices} "
-        "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* --limit-val-batches 1 "
-        "--no-activation-checkpointing --add-bias-output --create-tensorboard-logger --create-tflops-callback "
-        f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
-        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args}"
-    )
-    return cmd
-
-
-def small_training_finetune_cmd(path, max_steps, val_check, prev_ckpt, devices: int = 1, additional_args: str = ""):
-    cmd = (
-        f"train_evo2 --mock-data --result-dir {path} --devices {devices} "
-        "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* --limit-val-batches 1 "
-        "--no-activation-checkpointing --add-bias-output --create-tensorboard-logger --create-tflops-callback "
-        f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
-        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args} --ckpt-dir {prev_ckpt}"
-    )
-    return cmd
 
 
 def small_training_mamba_cmd(path, max_steps, val_check, devices: int = 1, additional_args: str = ""):
