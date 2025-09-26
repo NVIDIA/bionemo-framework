@@ -30,11 +30,11 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 This recipe leverages [Hugging Face Accelerate](https://huggingface.co/docs/accelerate) for distributed training, which supports multiple distributed training frameworks through configuration files:
 
-- [Distributed Data Parallel (DDP)](https://docs.pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html), shown in `accelerate_config/default.yaml`
-- [Fully Sharded Data Parallel (FSDP)](https://docs.pytorch.org/docs/stable/distributed.fsdp.fully_shard.html), shown in
+- [Distributed Data Parallel (DDP)](https://pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html), shown in `accelerate_config/default.yaml`
+- [Fully Sharded Data Parallel (FSDP)](https://pytorch.org/docs/stable/distributed.fsdp.fully_shard.html), shown in
   `accelerate_config/fsdp1_te.yaml` and `accelerate_config/fsdp1_hf.yaml` (depending on whether the model is
   TransformerEngine-accelerated or not)
-- [Fully Sharded Data Parallel 2 (FSDP2)](https://docs.pytorch.org/docs/stable/distributed.fsdp.fully_shard.html), shown in
+- [Fully Sharded Data Parallel 2 (FSDP2)](https://pytorch.org/docs/stable/distributed.fsdp.fully_shard.html), shown in
   `accelerate_config/fsdp2_te.yaml` and `accelerate_config/fsdp2_hf.yaml`
 
 The training strategy is configured through Accelerate's configuration system rather than separate training scripts.

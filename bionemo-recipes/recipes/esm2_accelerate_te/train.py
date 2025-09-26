@@ -102,5 +102,5 @@ if __name__ == "__main__":
     os.environ.setdefault("WORLD_SIZE", "1")
     os.environ.setdefault("MASTER_ADDR", "localhost")
     os.environ.setdefault("MASTER_PORT", "29500")
-    os.environ.setdefault("WANDB_MODE", "disabled")
+    os.environ.setdefault("WANDB_MODE", "offline")
     main()
