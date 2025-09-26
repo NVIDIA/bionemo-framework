@@ -104,7 +104,7 @@ script: |-
   --disable-checkpointing;
 tests:
   - logic_type: static
-    product_identifier: { 'target': 'dgxh100_eos' }
+    product_identifier: { 'target': 'dgxh100_eos', 'config_name': 1b }
     logic_spec:
       exit_codes:
         - 0
