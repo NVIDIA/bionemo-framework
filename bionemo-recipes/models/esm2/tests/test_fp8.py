@@ -39,7 +39,7 @@ def requires_mxfp8(func):
 
 @requires_fp8
 def test_fp8_forward_and_backward_pass(te_model_checkpoint, input_data):
-    model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, torch_dtype=torch.bfloat16)
+    model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     model_te.to("cuda")
 
     input_data = {k: v.to("cuda") for k, v in input_data.items()}
@@ -60,9 +60,7 @@ def test_fp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd, 
         # but it's missing this THD implementation.
         monkeypatch.setenv("NVTE_FUSED_ATTN", "0")
 
-    model_te = NVEsmForMaskedLM.from_pretrained(
-        te_model_checkpoint, attn_input_format="thd", torch_dtype=torch.bfloat16
-    )
+    model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
     model_te.to("cuda")
 
     input_data = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
@@ -78,7 +76,7 @@ def test_fp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd, 
 
 @requires_mxfp8
 def test_mxfp8_forward_and_backward_pass(te_model_checkpoint, input_data):
-    model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, torch_dtype=torch.bfloat16)
+    model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     model_te.to("cuda")
 
     input_data = {k: v.to("cuda") for k, v in input_data.items()}
@@ -94,9 +92,7 @@ def test_mxfp8_forward_and_backward_pass(te_model_checkpoint, input_data):
 
 @requires_mxfp8
 def test_mxfp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd):
-    model_te = NVEsmForMaskedLM.from_pretrained(
-        te_model_checkpoint, attn_input_format="thd", torch_dtype=torch.bfloat16
-    )
+    model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
     model_te.to("cuda")
 
     input_data = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}

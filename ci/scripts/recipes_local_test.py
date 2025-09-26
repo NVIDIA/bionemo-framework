@@ -45,7 +45,7 @@ DOCKER_RUN_ARGS = [
 ]
 
 CUSTOM_CONTAINERS = {
-    "models/amplify": "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025",
+    "bionemo-recipes/models/amplify": "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025",
 }
 
 # DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:25.08-py3"

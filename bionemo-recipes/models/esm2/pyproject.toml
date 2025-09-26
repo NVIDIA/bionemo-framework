@@ -12,6 +12,7 @@ dependencies = [
     "datasets",
     "fiddle",
     "hydra-core",
+    "jinja2",
     "lightning",
     "megatron-core@git+https://github.com/NVIDIA/Megatron-LM.git", # Currently at ToT until mfsdp is in a release.
     "megatron-fsdp==0.1.0rc0",
@@ -20,7 +21,7 @@ dependencies = [
     "pytest",
     "torch",
     "transformer_engine[pytorch]",
-    "transformers<4.56",                                           # TODO: fix me, currently failing with a modelopt import from nemo.
+    "transformers",                                                # TODO: fix me, currently failing with a modelopt import from nemo.
 ]
 
 
