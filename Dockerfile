@@ -19,7 +19,7 @@
 #   https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/main/.gitlab-ci.yml
 #  We should keep versions in our container up to date to ensure that we get the latest tested perf improvements and
 #   training loss curves from NeMo.
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.06-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.08-py3
 
 FROM rust:1.86.0 AS rust-env
 
@@ -57,21 +57,6 @@ apt-get upgrade -qyy \
   rsync
 rm -rf /tmp/* /var/tmp/*
 EOF
-
-
-## BUMP and patch TE as a solution to the issues:
-## 1. https://github.com/NVIDIA/bionemo-framework/issues/422
-## 2. https://github.com/NVIDIA/bionemo-framework/issues/973
-## Drop this when pytorch images ship the fixed commit.
-ARG TE_TAG=9d4e11eaa508383e35b510dc338e58b09c30be73
-
-COPY ./docker_build_patches/te.patch /tmp/te.patch
-RUN git clone --recurse-submodules https://github.com/NVIDIA/TransformerEngine.git /tmp/TransformerEngine && \
-    cd /tmp/TransformerEngine && \
-    git checkout --recurse-submodules ${TE_TAG} && \
-    patch -p1 < /tmp/te.patch && \
-    PIP_CONSTRAINT= NVTE_FRAMEWORK=pytorch NVTE_WITH_USERBUFFERS=1 MPI_HOME=/usr/local/mpi \
-    pip --disable-pip-version-check --no-cache-dir install .
 
 # Install AWS CLI from source rather than prebuilt binary.
 # This is good for two reasons:
