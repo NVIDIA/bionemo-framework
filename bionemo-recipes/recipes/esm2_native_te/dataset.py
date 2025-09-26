@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+
 import datasets
 import datasets.distributed
 from torch.utils.data import DataLoader, DistributedSampler
@@ -23,7 +25,7 @@ from collator import MLMDataCollatorWithFlattening
 from distributed_config import DistributedConfig
 
 
-# Create the dataset. In unit tests, we load the train.parquet file from the repo itself to avoid external dependencies.
+logger = logging.getLogger(__name__)
 
 
 def infinite_dataloader(dataloader, dataset_or_sampler):
@@ -68,7 +70,9 @@ def create_dataloader(
     Returns:
         A dataloader that just infinitely loops over the dataset.
     """
+    logger.info(f"Loading dataset with kwargs: {load_dataset_kwargs}")
     dataset = datasets.load_dataset(**load_dataset_kwargs)
+    logger.info(f"Loaded dataset: {dataset}")
 
     if isinstance(dataset, datasets.IterableDataset):
         dataset = datasets.distributed.split_dataset_by_node(
