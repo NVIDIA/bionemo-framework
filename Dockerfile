@@ -137,9 +137,9 @@ RUN apt-get update -qy && apt-get install -y libopenblas-dev && pip install scik
 #  for the command we want to keep in sync. Note that the package install is modified slightly to first build a
 #  wheel (no deps) and then install the wheel. This avoids issues with torch version conflicts.
 RUN <<EOF
-git clone https://github.com/state-spaces/mamba.git
+git clone https://github.com/trvachov/mamba
 cd mamba
-git checkout 2e16fc3062cdcd4ebef27a9aa4442676e1c7edf4
+git checkout v2.2.5-cuda-13.0
 sed -i "/triton/d" setup.py
 sed -i "/triton/d" pyproject.toml
 pip3 wheel --disable-pip-version-check --no-build-isolation --no-deps .
