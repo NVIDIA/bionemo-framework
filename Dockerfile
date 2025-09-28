@@ -75,9 +75,20 @@ cd /
 rm -rf /tmp/aws-cli
 EOF
 
-# Use a branch of causal_conv1d while the repository works on Blackwell support.
-ARG CAUSAL_CONV_TAG=52e06e3d5ca10af0c7eb94a520d768c48ef36f1f
-RUN CAUSAL_CONV1D_FORCE_BUILD=TRUE pip --disable-pip-version-check --no-cache-dir install git+https://github.com/trvachov/causal-conv1d.git@${CAUSAL_CONV_TAG}
+# causal_conv1d for CUDA 13.0 requires a dev build
+# Just as we do for a bleeding edge mamba build, the package install is modified
+# slightly to first build a wheel (no deps) and then install the wheel.
+# This avoids issues with torch version conflicts.
+RUN <<EOF
+git clone https://github.com/Dao-AILab/causal-conv1d
+cd causal-conv1d
+git checkout 3d19ec779bbaefd7895d22456f3b98878296ce2f
+pip3 wheel --disable-pip-version-check --no-build-isolation --no-deps .
+pip3 --disable-pip-version-check --no-cache-dir install causal_conv1d-*.whl --no-deps
+rm -f causal_conv1d-*.whl
+cd ..
+rm -rf causal_conv1d
+EOF
 
 ###############################################################################
 # ARM
@@ -134,8 +145,9 @@ RUN apt-get update -qy && apt-get install -y libopenblas-dev && pip install scik
 
 # Mamba dependancy installation
 # See https://gitlab-master.nvidia.com/dl/JoC/nemo-ci/-/blob/d3c853c2d/docker/Dockerfile#L193-198
-#  for the command we want to keep in sync. Note that the package install is modified slightly to first build a
-#  wheel (no deps) and then install the wheel. This avoids issues with torch version conflicts.
+# for the command we want to keep in sync. Note that the package install is modified
+# slightly to first build a wheel (no deps) and then install the wheel.
+# This avoids issues with torch version conflicts.
 RUN <<EOF
 git clone https://github.com/trvachov/mamba
 cd mamba
@@ -214,9 +226,11 @@ uv pip install --no-build-isolation \
 
 # Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
 uv pip install ngcsdk==3.64.3  # Temporary fix for changed filename, see https://nvidia.slack.com/archives/C074Z808N05/p1746231345981209
-# Install >=0.46.1 bitsandbytes specifically because it has CUDA>12.9 support.
-# TODO(trvachov) remove this once it stops conflicting with strange NeMo requirements.txt files
-uv pip uninstall bitsandbytes && uv pip install bitsandbytes==0.46.1
+
+# CUDA 13.0 supported bitsandbytes requires a nightly build, which doesn't seem to work
+# with uv because of some trivial package/version name check, so we use uv for uninstall
+# and then pip for reinstall
+uv pip uninstall bitsandbytes && pip install --no-deps --no-build-isolation https://github.com/bitsandbytes-foundation/bitsandbytes/releases/download/continuous-release_main/bitsandbytes-1.33.7.preview-py3-none-manylinux_2_24_x86_64.whl
 
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
 # dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
