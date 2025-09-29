@@ -49,9 +49,9 @@ script_args:
     - config_name: hybrid_mamba_8b
       ops_kwargs: ""
       tp: 8
-      pp: 2
-      batch_size: 8
-      stop_steps: 4000
+      pp: 1
+      batch_size: 4
+      stop_steps: 6900
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
