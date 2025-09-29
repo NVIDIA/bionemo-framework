@@ -50,7 +50,7 @@ script_args:
       ops_kwargs: ""
       tp: 8
       pp: 1
-      batch_size: 2
+      batch_size: 8
       stop_steps: 4000
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
