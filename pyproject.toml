@@ -20,7 +20,6 @@ dependencies = [
     'bionemo-example_model',
     'bionemo-fw',
     'bionemo-geneformer',
-    'bionemo-geometric',
     'bionemo-llm',
     'bionemo-moco',
     'bionemo-scdl',
@@ -53,7 +52,6 @@ bionemo-esm2 = { workspace = true }
 bionemo-example_model = { workspace = true }
 bionemo-fw = { workspace = true }
 bionemo-geneformer = { workspace = true }
-bionemo-geometric = { workspace = true }
 bionemo-llm = { workspace = true }
 bionemo-moco = { workspace = true }
 bionemo-noodles = { workspace = true }
@@ -111,7 +109,6 @@ known-first-party = ["bionemo", "infra_bionemo"]
 convention = "google"
 
 [tool.pytest.ini_options]
-xfail_strict = true
 norecursedirs = ["3rdparty"]
 addopts = [
     "--durations-min=30.0",
@@ -119,7 +116,11 @@ addopts = [
     "--ignore=3rdparty",
     "--ignore-glob=sub-packages/bionemo-moco/examples/discrete_data_interpolant_tutorial.ipynb"
 ]
-markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+markers = [
+    "slow: medium-complexity tests, like integration tests, on a single GPU",
+    "multi_gpu: tests that require multiple GPUs",
+    "distributed: tests that require distributed setup via torchrun execution",
+]
 
 [tool.pyright]
 include = ["./sub-packages/"]
@@ -136,7 +137,6 @@ executionEnvironments = [
         './sub-packages/bionemo-example_model/src',
         './sub-packages/bionemo-fw/src',
         './sub-packages/bionemo-geneformer/src',
-        './sub-packages/bionemo-geometric/src',
         './sub-packages/bionemo-llm/src',
         './sub-packages/bionemo-moco/src',
         './sub-packages/bionemo-noodles/src',
