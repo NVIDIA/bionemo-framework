@@ -112,3 +112,9 @@ you can deploy the converted checkpoints to the HuggingFace Hub by running the f
 ```bash
 huggingface-cli upload nvidia/${MODEL_NAME} $PWD/checkpoint_export/${MODEL_NAME}
 ```
+
+Or, upload all models at once with:
+
+```bash
+for dir in *; do huggingface-cli upload nvidia/$(basename "$dir") "$dir/"; done
+```

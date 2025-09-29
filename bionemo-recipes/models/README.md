@@ -52,7 +52,7 @@ models/{model_name}/
 ├── .dockerignore                # Docker ignore patterns
 ├── pyproject.toml               # Python package configuration
 ├── README.md                    # Model-specific documentation
-├── model_readme.md              # Detailed model card for Hub upload
+├── model_readme.template        # Detailed model card for Hub upload
 ├── export.py                    # Checkpoint export utilities
 ├── LICENSE                      # Open source license file
 ├── src/                         # Source code directory
@@ -111,7 +111,7 @@ def convert_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
     """Convert HuggingFace model to TransformerEngine format."""
     te_config = MyModelTEConfig(**model_hf.config.to_dict(), **config_kwargs)
     with init_empty_weights():
-        model_te = MyModelTE(te_config, torch_dtype=te_config.torch_dtype)
+        model_te = MyModelTE(te_config, dtype=te_config.dtype)
 
     output_model = io.apply_transforms(model_hf, model_te, ...)
     return output_model
@@ -209,7 +209,7 @@ The `export.py` script must bundle all necessary assets for Hugging Face Hub upl
 2. **Configuration**: `config.json` with proper `auto_map` section
 3. **Model code**: All source files needed to instantiate the model
 4. **Tokenizer**: `tokenizer.json`, `tokenizer_config.json`, `vocab.txt`, etc.
-5. **Model Card**: `model_readme.md` model card
+5. **Model Card**: `model_readme.template` model card
 6. **License**: `LICENSE` file with approved open-source license
 7. **Requirements**: `requirements.txt` for any additional dependencies
 
@@ -258,7 +258,9 @@ def export_checkpoint(output_dir: str):
         shutil.copy(f"src/my_model/{file}", output_path / file)
 
     # Copy documentation and license
-    shutil.copy("model_readme.md", output_path / "README.md")
+    shutil.copy(
+        "model_readme.md", output_path / "README.md"
+    )  # Or alternative template-based creation of README.md
     shutil.copy("LICENSE", output_path / "LICENSE")
 
     print(f"Checkpoint exported to {output_path}")

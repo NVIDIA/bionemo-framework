@@ -21,9 +21,7 @@ from esm.modeling_esm_te import NVEsmForMaskedLM
 
 
 def test_thd_from_collator_output(te_model_checkpoint, input_data_thd):
-    model_thd = NVEsmForMaskedLM.from_pretrained(
-        te_model_checkpoint, attn_input_format="thd", torch_dtype=torch.bfloat16
-    )
+    model_thd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
     model_thd.to("cuda")
     input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
     with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.bfloat16):
@@ -79,10 +77,8 @@ def test_thd_values_match(te_model_checkpoint, tokenizer):
         input_data_thd["labels"].flatten(0),
     )
 
-    model_bshd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, torch_dtype=torch.bfloat16)
-    model_thd = NVEsmForMaskedLM.from_pretrained(
-        te_model_checkpoint, attn_input_format="thd", torch_dtype=torch.bfloat16
-    )
+    model_bshd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
+    model_thd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
     model_bshd.to("cuda")
     model_thd.to("cuda")
 
@@ -105,9 +101,7 @@ def test_thd_backwards(te_model_checkpoint, input_data_thd, monkeypatch):
         # but it's missing this THD implementation.
         monkeypatch.setenv("NVTE_FUSED_ATTN", "0")
 
-    model_thd = NVEsmForMaskedLM.from_pretrained(
-        te_model_checkpoint, attn_input_format="thd", torch_dtype=torch.bfloat16
-    )
+    model_thd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
     model_thd.to("cuda")
     input_data = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
     outputs = model_thd(**input_data)

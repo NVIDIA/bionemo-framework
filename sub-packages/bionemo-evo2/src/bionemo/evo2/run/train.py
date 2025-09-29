@@ -196,7 +196,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--dataset-dir",
         type=str,
-        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML. Required with --dataset-config.",
+        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML. Only used with --dataset-config.",
     )
 
     parser.add_argument("--num-nodes", type=int, default=1, help="Number of nodes to use for training, defaults to 1.")
@@ -318,6 +318,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         type=int,
         default=20,
         help="Number of validation steps",
+    )
+    parser.add_argument(
+        "--limit-test-batches",
+        type=int,
+        help="Number of test steps (sometimes useful for getting around megatron errors of too few samples). Defaults "
+        "to the same as limit_val_batches.",
     )
     parser.add_argument(
         "--log-every-n-steps",
@@ -710,8 +716,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             log_dir=args.window_log_dir,
         )
     else:
-        if not args.dataset_dir:
-            raise ValueError("--dataset-dir is required when using --dataset-config.")
         blended_dataset_config = parse_dataset_config(
             dataset_config_path=args.dataset_config, dataset_path=args.dataset_dir
         )
@@ -1027,6 +1031,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         callbacks=callbacks,
         log_every_n_steps=args.log_every_n_steps,
         limit_val_batches=args.limit_val_batches,
+        limit_test_batches=args.limit_test_batches if args.limit_test_batches is not None else args.limit_val_batches,
         num_sanity_val_steps=0,
         use_distributed_sampler=False,
         plugins=nl.MegatronMixedPrecision(

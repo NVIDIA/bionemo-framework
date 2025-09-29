@@ -19,10 +19,36 @@ import shutil
 from pathlib import Path
 
 import torch
+from jinja2 import Template
 from transformers import AutoModel, AutoModelForMaskedLM, AutoTokenizer
 
 from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf
 from esm.modeling_esm_te import NVEsmForMaskedLM
+
+
+BENCHMARK_RESULTS = {
+    "esm2_t6_8M_UR50D": {"CAMEO": 0.48, "CASP14": 0.37},
+    "esm2_t12_35M_UR50D": {"CAMEO": 0.56, "CASP14": 0.41},
+    "esm2_t30_150M_UR50D": {"CAMEO": 0.65, "CASP14": 0.49},
+    "esm2_t33_650M_UR50D": {"CAMEO": 0.70, "CASP14": 0.51},
+    "esm2_t36_3B_UR50D": {"CAMEO": 0.72, "CASP14": 0.52},
+    "esm2_t48_15B_UR50D": {"CAMEO": 0.72, "CASP14": 0.55},
+}
+
+
+def format_parameter_count(num_params: int, sig: int = 1) -> str:
+    """Format parameter count in scientific notation (e.g., 6.5 x 10^8).
+
+    Args:
+        num_params: Total number of parameters
+        sig: Number of digits to include after the decimal point
+
+    Returns:
+        Formatted string in scientific notation
+    """
+    s = f"{num_params:.{sig}e}"
+    base, exp = s.split("e")
+    return f"{base} x 10^{int(exp)}"
 
 
 def export_hf_checkpoint(tag: str, export_path: Path):
@@ -55,7 +81,27 @@ def export_hf_checkpoint(tag: str, export_path: Path):
         json.dump(config, f, indent=2, sort_keys=True)
 
     shutil.copy("src/esm/modeling_esm_te.py", export_path / tag / "esm_nv.py")
-    shutil.copy("model_readme.md", export_path / tag / "README.md")
+
+    # Calculate model parameters and render README template
+    num_params = sum(p.numel() for p in model_te.parameters())
+    formatted_params = format_parameter_count(num_params)
+
+    # Read and render the template
+    with open("model_readme.template", "r", encoding="utf-8") as f:
+        template_content = f.read()
+
+    template = Template(template_content)
+    rendered_readme = template.render(
+        num_params=formatted_params,
+        model_tag=tag,
+        cameo_score=BENCHMARK_RESULTS[tag]["CAMEO"],
+        casp14_score=BENCHMARK_RESULTS[tag]["CASP14"],
+    )
+
+    # Write the rendered README
+    with open(export_path / tag / "README.md", "w") as f:
+        f.write(rendered_readme)
+
     shutil.copy("LICENSE", export_path / tag / "LICENSE")
 
     del model_hf, model_te
@@ -65,7 +111,7 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     # Smoke test that the model can be loaded.
     model_te = AutoModelForMaskedLM.from_pretrained(
         export_path / tag,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         trust_remote_code=True,
     )
     del model_te

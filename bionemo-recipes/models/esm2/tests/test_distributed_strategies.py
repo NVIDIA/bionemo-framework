@@ -155,14 +155,14 @@ if __name__ == "__main__":
         if use_te:
             model = AutoModelForMaskedLM.from_pretrained(
                 "nvidia/esm2_t6_8M_UR50D",
-                torch_dtype=torch.bfloat16,
+                dtype=torch.bfloat16,
                 trust_remote_code=True,
             )
             transformer_layers = model.esm.encoder.layers
         else:
             model = AutoModelForMaskedLM.from_pretrained(
                 "facebook/esm2_t6_8M_UR50D",
-                torch_dtype=torch.bfloat16,
+                dtype=torch.bfloat16,
             )
             transformer_layers = model.esm.encoder.layer
             del model.esm.contact_head  # Unused in backwards pass.
