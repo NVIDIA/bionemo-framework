@@ -104,6 +104,7 @@ _OVERRIDE_BIOBERT_CONFIG_DEFAULTS: List[str] = OVERRIDE_BIONEMO_CONFIG_DEFAULTS 
     "activation_func",  # FIXME hack: update the ESM2 checkpoint with the updated activation function and don't override
     "moe_extended_tp",
     "skip_logits",
+    "calculate_per_token_loss",
 ]
 
 # A copy that we do not use internally. Useful for external users who want to
