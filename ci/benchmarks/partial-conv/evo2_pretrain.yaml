@@ -44,15 +44,13 @@ script_args:
       ops_kwargs: "--use-subquadratic_ops"
       tp: 1
       pp: 1
-      acc_grad: 1
       batch_size: 8
       stop_steps: 6900
     - config_name: hybrid_mamba_8b
       ops_kwargs: ""
       tp: 8
-      pp: 2
-      acc_grad: 1
-      batch_size: 1
+      pp: 1
+      batch_size: 2
       stop_steps: 4000
 script: |-
   INSTALL_FLAG="/tmp/install_done_${{SLURMD_NODENAME}}";
