@@ -46,4 +46,20 @@ def test_export_hf_checkpoint(tmp_path):
     # Test that required files (LICENSE, README.md) are present in the exported directory
     export_dir = tmp_path / "esm2_t6_8M_UR50D"
     assert (export_dir / "LICENSE").is_file(), "LICENSE file is missing in the export directory"
-    assert (export_dir / "README.md").is_file(), "README.md file is missing in the export directory"
+    readme_path = export_dir / "README.md"
+    assert readme_path.is_file(), "README.md file is missing in the export directory"
+    with open(readme_path, "r") as f:
+        readme_contents = f.read()
+    assert "**Number of model parameters:** 7.5 x 10^6" in readme_contents, (
+        f"README.md does not contain the expected parameter count line: {readme_contents}"
+    )
+    assert (
+        "Hugging Face 07/29/2025 via [https://huggingface.co/nvidia/esm2_t6_8M_UR50D]"
+        "(https://huggingface.co/nvidia/esm2_t6_8M_UR50D)"
+    ) in readme_contents, f"README.md does not contain the expected Hugging Face link line: {readme_contents}"
+    assert "**Benchmark Score:** 0.48" in readme_contents, (
+        f"README.md does not contain the expected CAMEO score line: {readme_contents}"
+    )
+    assert "**Benchmark Score:** 0.37" in readme_contents, (
+        f"README.md does not contain the expected CASP14 score line: {readme_contents}"
+    )
