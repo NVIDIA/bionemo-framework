@@ -33,7 +33,7 @@ fully_shard_kwargs:
   preserve_fp32_weights: true
   overlap_grad_reduce: true
   overlap_param_gather: true
-  sync_grads_each_step: true
+  sync_model_each_microbatch: true
   average_in_collective: false
 
 # TransformerEngine FP8 config. See

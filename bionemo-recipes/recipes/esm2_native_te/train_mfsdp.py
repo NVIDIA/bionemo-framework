@@ -92,6 +92,7 @@ def main(args: DictConfig) -> float | None:
             transformer_engine.pytorch.LayerNorm,
             transformer_engine.pytorch.LayerNormLinear,
             transformers.models.esm.modeling_esm.EsmLayer,
+            transformers.models.esm.modeling_esm.EsmEmbeddings,
         ],
         device_mesh=device_mesh,
         dp_shard_dim="dp",

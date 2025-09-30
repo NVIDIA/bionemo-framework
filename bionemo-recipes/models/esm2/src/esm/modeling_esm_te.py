@@ -337,7 +337,6 @@ class NVEsmModel(NVEsmPreTrainedModel):
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
         output_hidden_states: Optional[bool] = None,
         cu_seq_lens_q: torch.IntTensor | None = None,
@@ -351,7 +350,6 @@ class NVEsmModel(NVEsmPreTrainedModel):
             input_ids (torch.Tensor): The input ids.
             attention_mask (torch.Tensor): The attention mask.
             position_ids (torch.Tensor): The position ids.
-            head_mask (torch.Tensor): The head mask.
             inputs_embeds (torch.Tensor): The input embeddings.
             output_hidden_states (bool): Whether to output the hidden states.
             cu_seq_lens_q (torch.IntTensor): The cumulative sequence lengths for the query state, if using THD inputs.
@@ -388,13 +386,6 @@ class NVEsmModel(NVEsmPreTrainedModel):
 
         # TE expects a boolean attention mask, where 1s are masked and 0s are not masked
         extended_attention_mask = extended_attention_mask < -1
-
-        # Prepare head mask if needed
-        # 1.0 in head_mask indicate we keep the head
-        # attention_probs has shape bsz x n_heads x N x N
-        # input head_mask has shape [num_heads] or [num_hidden_layers x num_heads]
-        # and head_mask is converted to shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
-        head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
 
         embedding_output = self.embeddings(
             input_ids=input_ids,

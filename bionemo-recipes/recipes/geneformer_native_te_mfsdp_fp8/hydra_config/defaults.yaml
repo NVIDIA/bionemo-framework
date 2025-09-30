@@ -36,7 +36,7 @@ training:
     preserve_fp32_weights: true
     overlap_grad_reduce: true
     overlap_param_gather: true
-    sync_grads_each_step: true
+    sync_model_each_microbatch: true
     average_in_collective: false
   fp8_recipe_kwargs:
     fp8_format: "hybrid"
