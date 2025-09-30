@@ -1,9 +1,9 @@
 scope: partial-conv
 time_limit: 14400
-artifacts:
-  # Artifact data mount paths for script execution, specified as mount_path: artifact_tag pairs.
-  # See Confluence Onboarding Guide section 5.4 for more details on locating this data.
-  /data-jetart/cellxgene_scdl : tabular/cellxgene/processed/scdl-2025-06-20
+# artifacts:
+#   # Artifact data mount paths for script execution, specified as mount_path: artifact_tag pairs.
+#   # See Confluence Onboarding Guide section 5.4 for more details on locating this data.
+#   /data-jetart/cellxgene_scdl : tabular/cellxgene/processed/scdl-2025-06-20
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   data_path: False
@@ -15,7 +15,7 @@ script_args:
   # Arguments not referenced in the script string must have the 'arg' field specified.
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
-  data_path: /data-jetart/cellxgene_scdl
+  data_path: /data/cellxgene_scdl
   model: geneformer
   variant: train
   config_name: 10M
