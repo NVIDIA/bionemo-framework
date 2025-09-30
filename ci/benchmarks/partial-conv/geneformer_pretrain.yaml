@@ -15,7 +15,7 @@ script_args:
   # Arguments not referenced in the script string must have the 'arg' field specified.
   # See jet/core/configs.py for the specification of the configuration class
   workspace: /workspace/bionemo2
-  data_path: /data/cellxgene_scdl
+  data_path: /data-jetart/cellxgene_scdl
   model: geneformer
   variant: train
   config_name: 10M
