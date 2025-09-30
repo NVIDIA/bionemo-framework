@@ -18,42 +18,80 @@
 
 
 import argparse
-import functools
 import tempfile
 from pathlib import Path
 from typing import Literal
 
 import nemo.lightning as nl
 import torch
-from lightning.pytorch import LightningDataModule
-from megatron.core import parallel_state
-from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
-from megatron.core.utils import get_batch_on_this_cp_rank
-from nemo.collections.llm.gpt.model.base import get_packed_seq_params
 from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS, HyenaModel
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning import NeMoLogger
-from nemo.lightning.data import WrappedDataLoader
 from nemo.utils import logging as logger
 from torch import Tensor
+from torch.nn import functional as F
 
 from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
 
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
-from bionemo.llm.data import collate
-from bionemo.llm.lightning import LightningPassthroughPredictionMixin
+from bionemo.evo2.run.predict import (
+    BasePredictor,
+    HyenaPredictor,
+    MambaPredictor,
+    _to_cpu,
+    hyena_predict_data_step,
+    hyena_predict_forward_step,
+)
 from bionemo.llm.utils.callbacks import PredictionWriter
 
 
-CheckpointFormats = Literal["torch_dist", "zarr"]
+# TODO consider just adding this to predict...
+class LogitsPredictor(BasePredictor):
+    def __init__(
+        self, *args, output_log_prob_seqs: bool = True, include_tokens_with_logprob_seqs: bool = True, **kwargs
+    ):
+        super().__init__(
+            *args,
+            output_log_prob_seqs=output_log_prob_seqs,
+            include_tokens_with_logprob_seqs=include_tokens_with_logprob_seqs,
+            **kwargs,
+        )
 
-SHUFFLE_MESSAGE = (
-    "Per token log probabilities are not supported when using context parallelism. The results will be "
-    "zigzag shuffled along the sequence dimension. Raise a feature request if you need this and do "
-    "not want to manually do the unshuffling yourself. You need to undo the shuffling that happened in "
-    "`megatron.core.utils.get_batch_on_this_cp_rank`."
-)
+    def predict_step(
+        self, batch, batch_idx: int | None = None, to_cpu: bool = True
+    ) -> Tensor | dict[str, Tensor] | None:
+        _result_any = super().predict_step(batch, batch_idx, to_cpu=False)
+        if not isinstance(_result_any, dict):
+            return _result_any
+        result: dict[str, Tensor] = _result_any
+        shifted_token_logits = result["token_logits"][:, :-1]
+        shifted_pad_mask = result["pad_mask"][:, 1:]
+        shifted_tokens = result["tokens"][:, 1:]
+        lm_loss_full = (
+            F.cross_entropy(shifted_token_logits[shifted_pad_mask], shifted_tokens[shifted_pad_mask], reduction="none")
+            * shifted_pad_mask
+        )
+        n_tokens = shifted_pad_mask.sum(dim=-1)
+        nll_sum = lm_loss_full.sum(dim=-1)
+        # These have been TP and CP gathered, so they will be the same on all CP+TP ranks. DP may differ unless
+        #  predict gathers them for us.
+        # TODO: idea get a sum per seq_idx, then later we can gather on the various samples in the fasta and sum
+        #   by group.
+        return _to_cpu({"nll_sum": nll_sum, "n_tokens": n_tokens, "seq_idx": result["seq_idx"]})
+
+
+class MambaLogitsPredictor(LogitsPredictor, MambaModel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+class HyenaLogitsPredictor(LogitsPredictor, HyenaModel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+CheckpointFormats = Literal["torch_dist", "zarr"]
 
 
 def parse_args():
@@ -87,13 +125,6 @@ def parse_args():
         " by default.",
     )
     ap.add_argument("--micro-batch-size", type=int, default=1, help="Batch size for prediction. Defaults to 1.")
-    ap.add_argument(
-        "--write-interval",
-        type=str,
-        default="epoch",
-        choices=["epoch", "batch"],
-        help="Interval to write predictions to disk. If doing very large predictions, you may want to set this to 'batch'.",
-    )
     ap.add_argument(
         "--model-type",
         type=str,
@@ -136,15 +167,6 @@ def parse_args():
         help="Specify checkpoint format to use. Defaults to 'torch_dist', as 'zarr' is deprecated.",
     )
     ap.add_argument(
-        "--output-log-prob-seqs", action="store_true", help="Output log probability of sequences. Defaults to False."
-    )
-    ap.add_argument(
-        "--log-prob-collapse-option",
-        choices=["sum", "mean", "per_token"],
-        default="mean",
-        help="How to collapse the log probabilities across the sequence dimension.",
-    )
-    ap.add_argument(
         "--hybrid-override-pattern",
         type=str,
         help="Override the hybrid override pattern in the config (specifies hyena layer ordering and type).",
@@ -162,237 +184,7 @@ def parse_args():
     return ap.parse_args()
 
 
-def _gather_along_cp_dim(input_, seq_dim: int = 1):
-    """Gather tensors and concatenate along the last dimension."""
-    world_size = parallel_state.get_context_parallel_world_size()
-    # Bypass the function if we are using only 1 GPU.
-    if world_size == 1:
-        return input_
-
-    dim_size = list(input_.size())
-    dim_size[0] = dim_size[0] * world_size
-
-    output = torch.empty(dim_size, dtype=input_.dtype, device=torch.cuda.current_device())
-    # TODO: handle zigzag packing here. Currently this just gathers along ranks, but if you want to see the sequence in
-    #   the original order you need to undo the zigzag packing that happens in
-    #   `megatron.core.utils.get_batch_on_this_cp_rank`.
-    torch.distributed.all_gather_into_tensor(
-        output, input_.contiguous(), group=parallel_state.get_context_parallel_group()
-    )
-    tensor_list = output.chunk(world_size, dim=0)
-    output = torch.cat(tensor_list, dim=seq_dim).contiguous()
-
-    return output
-
-
-def _to_cpu(inputs: dict[str, Tensor]) -> dict[str, Tensor]:
-    return {k: v.cpu() for k, v in inputs.items()}
-
-
-def _identity(inputs: dict[str, Tensor]) -> dict[str, Tensor]:
-    return inputs
-
-
-class BasePredictor(LightningPassthroughPredictionMixin):
-    """Base predictor for GPT-style models."""
-
-    def __init__(
-        self,
-        *args,
-        output_log_prob_seqs: bool = False,
-        include_tokens_with_logprob_seqs: bool = False,
-        log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
-        **kwargs,
-    ):
-        """Initialize the base predictor with arguments needed for writing predictions."""
-        super().__init__(*args, **kwargs)
-        self.output_log_prob_seqs = output_log_prob_seqs
-        self.log_prob_collapse_option = log_prob_collapse_option
-        self.include_tokens_with_logprob_seqs = include_tokens_with_logprob_seqs
-        self.shuffle_warning_raised = False
-
-    def predict_step(
-        self, batch, batch_idx: int | None = None, to_cpu: bool = True
-    ) -> Tensor | dict[str, Tensor] | None:
-        """Alias for forward_step, also log the pad mask since sequences may not all have the same length."""
-        if len(batch) == 0:
-            return
-        assert self.training is False, "predict_step should be called in eval mode"
-        with torch.no_grad():
-            forward_out = self.forward_step(batch)
-        if not parallel_state.is_pipeline_last_stage():
-            return None
-        # Reminder: the model's predictions for input i land at output i+1. To get everything to align, we prepend the
-        # EOS token to the input sequences and take the outputs for all but the first token.
-        forward_out_tp_gathered = _gather_along_last_dim(
-            forward_out, group=parallel_state.get_tensor_model_parallel_group()
-        )
-
-        forward_out_gathered = _gather_along_cp_dim(forward_out_tp_gathered)
-        loss_mask_gathered = _gather_along_cp_dim(batch["loss_mask"])
-        tokens_gathered = _gather_along_cp_dim(batch["tokens"])
-        cp_group_size = max(parallel_state.get_context_parallel_world_size(), 1)
-        assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1]
-        to_cpu_fn = _to_cpu if to_cpu else _identity
-        if self.output_log_prob_seqs:
-            if self.log_prob_collapse_option == "per_token" and cp_group_size > 1 and not self.shuffle_warning_raised:
-                logger.warning(SHUFFLE_MESSAGE)
-                self.shuffle_warning_raised = True
-            softmax_logprobs = torch.log_softmax(forward_out_gathered, dim=-1)
-            softmax_logprobs = softmax_logprobs[:, :-1]
-            input_ids = tokens_gathered[:, 1:]
-            if softmax_logprobs.shape[1] != input_ids.shape[1]:
-                raise RuntimeError(
-                    f"Softmax logprobs shape {softmax_logprobs.shape} does not match input ids shape {input_ids.shape}"
-                )
-
-            logprobs = torch.gather(
-                softmax_logprobs,  # Gather likelihoods...
-                2,  # along the vocab dimension...
-                input_ids.unsqueeze(-1),  # using the token ids to index.
-            ).squeeze(-1)
-            log_prob_per_token = logprobs * loss_mask_gathered[:, 1:].float()
-            if self.log_prob_collapse_option == "per_token":
-                return to_cpu_fn({"log_probs_seqs": log_prob_per_token, "seq_idx": batch["seq_idx"]})
-            else:
-                log_prob_seqs = torch.sum(log_prob_per_token, dim=1)
-                if self.log_prob_collapse_option == "mean":
-                    log_prob_seqs = log_prob_seqs / torch.clamp(loss_mask_gathered[:, 1:].float().sum(dim=-1), min=1.0)
-                return to_cpu_fn({"log_probs_seqs": log_prob_seqs, "seq_idx": batch["seq_idx"]})
-        else:
-            # If the user wants to match back to logits, then they will need to do the offsetting logic themselves.
-            if cp_group_size > 1 and not self.shuffle_warning_raised:
-                logger.warning(SHUFFLE_MESSAGE)
-                self.shuffle_warning_raised = True
-            logprob_seqs_restult = {
-                "token_logits": forward_out_gathered,
-                "pad_mask": loss_mask_gathered,
-                "seq_idx": batch["seq_idx"],
-            }
-            if self.include_tokens_with_logprob_seqs:
-                logprob_seqs_restult["tokens"] = tokens_gathered
-            # Note, to match up tokens with logprobs, you need to offset by 1. Eg something like this:
-            #  shifted_token_logits = token_logits[:, :-1]
-            #  shifted_pad_mask = pad_mask[:, 1:]
-            #  shifted_tokens = tokens[:, 1:]
-            return to_cpu_fn(logprob_seqs_restult)
-
-
-class HyenaPredictor(BasePredictor, HyenaModel):
-    """A predictor for the Hyena model. This adds in the predict step and the passthrough method."""
-
-
-class MambaPredictor(BasePredictor, MambaModel):
-    """Mamba model for prediction with additional metrics."""
-
-
-def hyena_predict_forward_step(model, batch) -> torch.Tensor:
-    """Performs a forward step for the Hyena model.
-
-    Args:
-        model: The Hyena model
-        batch: Dictionary containing input batch data with keys:
-            - tokens: Input token IDs
-            - position_ids: Position IDs
-            - labels: Labels for loss computation
-            - loss_mask: Mask for loss computation
-
-    Returns:
-        torch.Tensor: Output from the model forward pass
-    """
-    forward_args = {
-        "input_ids": batch["tokens"],
-        "position_ids": batch["position_ids"],
-        # "labels": batch["labels"],
-        # "loss_mask": batch["loss_mask"],
-    }
-
-    forward_args["attention_mask"] = None
-    if "cu_seqlens" in batch:
-        forward_args["packed_seq_params"] = get_packed_seq_params(batch)
-    return model(**forward_args)
-
-
-def hyena_predict_data_step(dataloader_iter) -> dict[str, torch.Tensor]:
-    """Data step for the Hyena model prediction. Modified from the original gpt data step to include the seq_idx."""
-    from megatron.core import parallel_state
-
-    # Based on: https://github.com/NVIDIA/Megatron-LM/blob/main/pretrain_gpt.py#L87
-    # https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/nlp/models/language_modeling/megatron_gpt_model.py#L828-L842
-
-    batch = next(dataloader_iter)
-
-    _batch: dict
-    if isinstance(batch, tuple) and len(batch) == 3:
-        _batch = batch[0]
-    else:
-        _batch = batch
-
-    required_device_keys = set()
-    required_host_keys = set()
-
-    required_device_keys.add("attention_mask")
-    if "cu_seqlens" in _batch:
-        required_device_keys.add("cu_seqlens")
-        required_host_keys.add("cu_seqlens_argmin")
-        required_host_keys.add("max_seqlen")
-
-    if parallel_state.is_pipeline_first_stage():
-        required_device_keys.update(("tokens", "position_ids"))
-    include_seq_idx = False
-    if parallel_state.is_pipeline_last_stage():
-        include_seq_idx = True
-        required_device_keys.update(("labels", "tokens", "loss_mask"))
-
-    _batch_required_keys = {}
-    for key, val in _batch.items():
-        if key in required_device_keys:
-            _batch_required_keys[key] = val.cuda(non_blocking=True)
-        elif key in required_host_keys:
-            _batch_required_keys[key] = val.cpu()
-        else:
-            _batch_required_keys[key] = None
-
-    # slice batch along sequence dimension for context parallelism
-    output = get_batch_on_this_cp_rank(_batch_required_keys)
-    if include_seq_idx:
-        output["seq_idx"] = _batch["seq_idx"].cuda(non_blocking=True)
-    return output
-
-
-class PredictDataModule(LightningDataModule):
-    """Create a dataloader for prediction."""
-
-    def __init__(self, dataset: torch.utils.data.Dataset, batch_size: int = 1):
-        """Create a dataloader for prediction."""
-        super().__init__()
-        self.dataset = dataset
-        self.batch_size = batch_size
-
-    def setup(self, stage: str | None = None) -> None:
-        """Set up the dataloader."""
-        pass
-
-    def predict_dataloader(self):
-        """Create a dataloader for prediction."""
-        # need to use this to communicate that we are in predict mode and safe to not drop last batch
-        return WrappedDataLoader(
-            mode="predict",
-            dataset=self.dataset,
-            batch_size=self.batch_size,
-            num_workers=8,
-            shuffle=False,
-            drop_last=False,
-            collate_fn=functools.partial(
-                collate.padding_collate_fn,
-                padding_values={"tokens": 0, "position_ids": 0, "loss_mask": False},
-                min_length=None,
-                max_length=None,
-            ),
-        )
-
-
-def predict(
+def eval(
     fasta_path: Path,
     ckpt_dir: str,
     output_dir: Path,
@@ -408,7 +200,6 @@ def predict(
     full_fp8: bool = False,
     work_dir: Path | None = None,
     micro_batch_size: int = 1,
-    output_log_prob_seqs: bool = False,
     log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
     write_interval: Literal["epoch", "batch"] = "epoch",
     prepend_bos: bool = False,
@@ -569,7 +360,7 @@ def predict(
 def main():
     """Entrypoint for Evo2 prediction (single inference step, no new tokens)."""
     args = parse_args()
-    predict(
+    eval(
         num_nodes=args.num_nodes,
         devices=args.devices,
         fasta_path=args.fasta,
