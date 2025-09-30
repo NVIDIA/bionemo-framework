@@ -58,7 +58,7 @@ def get_latest_checkpoint(ckpt_path: str | os.PathLike) -> tuple[Path | None, in
 
     latest = max(checkpoints, key=lambda x: int(Path(x).stem.split("_")[1]))
     step = int(Path(latest).stem.split("_")[1])
-    return ckpt_path / latest, step
+    return latest, step
 
 
 def should_save_checkpoint(step: int, save_every_n_steps: int) -> bool:
@@ -241,21 +241,25 @@ def save_final_model_mfsdp(
     """Save final model for mFSDP - requires parameter gathering on all ranks."""
     # Parameter gathering must happen on ALL processes
     logger.info("Starting mFSDP parameter gathering...")
-    model._replace_param_with_raw_if_needed()
-    model.all_gather_pipeline.all_gather_params(list(model.module.parameters()))
 
-    for param in model.module.parameters():
-        bucket_id = model.param_and_grad_buffer.param_to_param_group[param]
-        model.all_gather_pipeline.wait_bucket_ready(bucket_id)
+    from megatron_fsdp.uneven_dtensor import gather_uneven_dtensor_to_full_tensor
 
-    logger.info("mFSDP parameter gathering completed")
+    unsharded_state_dict = {
+        # Gather all parameters to CPU, and remove the "module." prefix from the Megatron-FSDP class wrapper.
+        k.removeprefix("module."): gather_uneven_dtensor_to_full_tensor(
+            v, target_device=torch.device("cpu")
+        ).to_local()
+        if isinstance(v, torch.distributed.tensor.DTensor)
+        else v
+        for k, v in model.state_dict().items()
+    }
 
     # Only main process saves the model
     if not dist_config.is_main_process():
         return
 
     os.makedirs(save_directory, exist_ok=True)
-    model.module.save_pretrained(save_directory, state_dict=model.module.state_dict(), safe_serialization=True)
+    model.module.save_pretrained(save_directory, state_dict=unsharded_state_dict, safe_serialization=True)
     logger.info(f"Saved final mFSDP model to {save_directory}")
 
 
