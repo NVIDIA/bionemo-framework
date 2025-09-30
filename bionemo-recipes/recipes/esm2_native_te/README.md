@@ -109,6 +109,12 @@ directory within the checkpoint directory.
 
 Checkpointing is implemented for all three strategies, see [`checkpoint.py`](checkpoint.py) for more details.
 
+## Stateful dataloading
+
+We now offer the ability to resume your dataloader exactly where it left off.
+
+- When loading the dataloaders state, you must provide the same `num_workers` that you used to save the dataloader state, because state is saved from each worker-level.
+
 ## Running Inference with the Trained Model
 
 Models can be loaded from the final checkpoint directory using the `AutoModel.from_pretrained` method. For example:

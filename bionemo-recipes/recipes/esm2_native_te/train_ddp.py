@@ -90,7 +90,7 @@ def main(args: DictConfig) -> float | None:
         fp8_recipe = None
 
     # Create a dataloader that just infinitely loops over the dataset.
-    train_iterator = create_dataloader(dist_config, **args.dataset)
+    train_iterator = create_dataloader(dist_config, **args.dataset).iterator
 
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_ddp" if args.checkpoint.ckpt_dir else None

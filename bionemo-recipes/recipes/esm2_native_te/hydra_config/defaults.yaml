@@ -14,10 +14,13 @@ dataset:
   max_seq_length: 1024
   use_sequence_packing: false
   sequence_packing_pad_to_multiple_of: null
+  use_stateful_dataloader: false
+  mlm_probability: 0.15
   load_dataset_kwargs:
     path: "nvidia/esm2_uniref_pretraining_data"
     split: "train"
     streaming: True
+
 
 # WandB config
 wandb_init_args:

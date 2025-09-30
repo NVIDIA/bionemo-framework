@@ -105,7 +105,7 @@ def main(args: DictConfig) -> float | None:
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     # Create a dataloader that just infinitely loops over the dataset.
-    train_iterator = create_dataloader(dist_config, **args.dataset)
+    train_iterator = create_dataloader(dist_config, **args.dataset).iterator
 
     # Create an FP8 recipe
     if args.fp8_config.enabled:

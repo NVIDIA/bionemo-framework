@@ -3,6 +3,7 @@ hydra-core
 megatron-fsdp
 torch
 torchmetrics
+torchdata
 tqdm
 transformer_engine
 transformers
