@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+
 import datasets
 import datasets.distributed
 from torch.utils.data import DataLoader, DistributedSampler
@@ -23,7 +25,7 @@ from collator import MLMDataCollatorWithFlattening
 from distributed_config import DistributedConfig
 
 
-# Create the dataset. In unit tests, we load the train.parquet file from the repo itself to avoid external dependencies.
+logger = logging.getLogger(__name__)
 
 
 def infinite_dataloader(dataloader, dataset_or_sampler):
@@ -51,6 +53,8 @@ def create_dataloader(
     seed: int = 42,
     use_sequence_packing: bool = False,
     sequence_packing_pad_to_multiple_of: int | None = None,
+    buffer_size: int = 10_000,
+    use_lazy_tokenization: bool = True,
 ):
     """Create a dataloader for the dataset.
 
@@ -64,11 +68,16 @@ def create_dataloader(
         seed: The seed to use for the distributed sampler and data collator.
         use_sequence_packing: Whether to use sequence packing.
         sequence_packing_pad_to_multiple_of: The padding to use for the sequence packing collator, for fp8 support.
+        buffer_size: The buffer size to use for the distributed sampler.
+        use_lazy_tokenization: Whether to use datasets.set_transform for tokenization if the dataset is a
+            non-streaming datasets.Dataset. Defaults to True.
 
     Returns:
         A dataloader that just infinitely loops over the dataset.
     """
+    logger.info(f"Loading dataset with kwargs: {load_dataset_kwargs}")
     dataset = datasets.load_dataset(**load_dataset_kwargs)
+    logger.info(f"Loaded dataset: {dataset}")
 
     if isinstance(dataset, datasets.IterableDataset):
         dataset = datasets.distributed.split_dataset_by_node(
@@ -76,6 +85,7 @@ def create_dataloader(
             rank=distributed_config.rank,
             world_size=distributed_config.world_size,
         )
+        dataset = dataset.shuffle(seed=42, buffer_size=buffer_size)
         sampler = None
     else:
         sampler = DistributedSampler(
@@ -95,11 +105,17 @@ def create_dataloader(
             max_length=max_seq_length,
         )
 
-    tokenized_dataset = dataset.map(
-        tokenize_function,
-        batched=True,
-        remove_columns=dataset.column_names,
-    )
+    if isinstance(dataset, datasets.Dataset) and use_lazy_tokenization:
+        # Using dataset.map on a non-streaming dataset will automatically perform and cache the transform, which can
+        # trigger an expensive tokenization.
+        tokenized_dataset = dataset.with_transform(tokenize_function)
+
+    else:
+        tokenized_dataset = dataset.map(
+            tokenize_function,
+            batched=True,
+            remove_columns=dataset.column_names,
+        )
 
     if use_sequence_packing:
         data_collator = MLMDataCollatorWithFlattening(

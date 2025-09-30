@@ -53,17 +53,16 @@ def main(args: DictConfig) -> float | None:
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
-    torch.distributed.init_process_group(backend="nccl")
+    device = torch.device(f"cuda:{dist_config.local_rank}")
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
     # Create a device mesh for FSDP.
-    # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
-    # to work correctly with mfsdp.
-    device = torch.device(f"cuda:{dist_config.local_rank}")
+    # We have to create a dummy mesh dimension for tensor parallel for things to work correctly with mfsdp.
     device_mesh = init_device_mesh(
         "cuda",
-        mesh_shape=(dist_config.world_size, 1, 1),
-        mesh_dim_names=("fsdp", "cp", "tp"),
+        mesh_shape=(dist_config.world_size, 1),
+        mesh_dim_names=("dp", "tp"),
     )
 
     # Create an empty ESM-2 model with a masked language model head.
@@ -72,6 +71,7 @@ def main(args: DictConfig) -> float | None:
     if args.dataset.use_sequence_packing:
         config.attn_input_format = "thd"
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    logger.info("Initialized Model:\n%s", model)
 
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
     # avoid errors with unused parameters.
@@ -94,7 +94,7 @@ def main(args: DictConfig) -> float | None:
             transformers.models.esm.modeling_esm.EsmLayer,
         ],
         device_mesh=device_mesh,
-        dp_shard_dim="fsdp",
+        dp_shard_dim="dp",
         tp_dim="tp",
         **args.fully_shard_kwargs,
     )

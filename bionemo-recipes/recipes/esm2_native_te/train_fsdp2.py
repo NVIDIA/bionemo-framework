@@ -50,17 +50,15 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
-    torch.distributed.init_process_group(backend="nccl")
+    device = torch.device(f"cuda:{dist_config.local_rank}")
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
     # Create a device mesh for FSDP.
-    # We have to create a dummy mesh dimension for context parallel and tensor parallel for things
-    # to work correctly with fsdp2.
-    device = torch.device(f"cuda:{dist_config.local_rank}")
     device_mesh = init_device_mesh(
         "cuda",
-        mesh_shape=(dist_config.world_size, 1, 1),
-        mesh_dim_names=("fsdp", "cp", "tp"),
+        mesh_shape=(dist_config.world_size,),
+        mesh_dim_names=("dp",),
     )
 
     # Create an empty ESM-2 model with a masked language model head.
@@ -69,6 +67,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     if args.dataset.use_sequence_packing:
         config.attn_input_format = "thd"
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    logger.info("Initialized Model:\n%s", model)
 
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
     # avoid errors with unused parameters.
@@ -80,8 +79,8 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
     for layer in transformer_stack:
-        fully_shard(layer, mesh=device_mesh["fsdp"])
-    fully_shard(model, mesh=device_mesh["fsdp"])
+        fully_shard(layer, mesh=device_mesh["dp"])
+    fully_shard(model, mesh=device_mesh["dp"])
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
