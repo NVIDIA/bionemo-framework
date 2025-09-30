@@ -12,8 +12,6 @@ device_type: gpu
 num_devices: 2
 gpu_type: h100-sxm
 resource_shape: "${device_type}.${num_devices}x${gpu_type}"
-# `total_gpus` calculated from above
-total_gpus: ${multiply:${num_devices},${num_nodes}}
 
 ############################################################
 # recipe identifiers
@@ -36,9 +34,12 @@ extras: [] # e.g. [thd]
 ############################################################
 # wandb info (total_gpus used for group name)
 ############################################################
+# `total_gpus` calculated from lepton job info above
+total_gpus: ${multiply:${num_devices},${num_nodes}}
+
 wandb_init_args:
   project: "test_convergence__recipes__${sanitize:${branch}}"
-  group: "${model_type}__${task_cmd}__${total_gpus}__${sanitize:${gpu_type}}"
+  group: "${model_type}__${task_cmd}__${total_gpus}gpus__${sanitize:${gpu_type}}"
   job_type: "${recipe_subdir}"
   name: null
 

@@ -182,7 +182,7 @@ def main(cfg: DictConfig):
 
             # Create job name as base_recipe_name-config (e.g., "geneformer-10m")
             config_name = product_dict["config"].replace("_", "-").replace("/", "-")
-            product_cfg.job_name = f"{base_recipe_name}-{config_name}".lower()
+            product_cfg.job_name = f"convtest-{base_recipe_name}-{config_name}".lower()
 
             print(f"\n[{i}/{len(cfg.products)}] Launching: {product_cfg.job_name}")
 

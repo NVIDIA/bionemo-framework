@@ -1,5 +1,3 @@
-node_group_name: nv-int-multiteam-nebius-h200-01
-
 container:
   image: nvcr.io/nvidia/pytorch:25.06-py3
   registry_auth: lepton-nvidia
