@@ -11,15 +11,6 @@ on:
         options:
           - h100-sxm
           - h200
-      branch:
-        description: "Branch to use (ignored if commit SHA is provided)"
-        required: true
-        default: "main"
-        type: string
-      commit_sha:
-        description: "Commit SHA (optional - overrides branch if provided)"
-        required: false
-        type: string
       model_config:
         description: "Model configuration to use"
         required: true
@@ -28,10 +19,18 @@ on:
         options:
           - esm2_accelerate_te.yaml
           - esm2_native_te
-          - esm2_native_te_mfsdp_thd
           - geneformer_native_te_mfsdp_fp8
       config_override:
         description: "Optional: run only these product configs (CSV). Examples: 10m  or  10m,4b. Leave blank to run all."
+        required: false
+        type: string
+      branch:
+        description: "Branch to use (ignored if commit SHA is provided)"
+        required: true
+        default: "main"
+        type: string
+      commit_sha:
+        description: "Commit SHA (optional - overrides branch if provided)"
         required: false
         type: string
 
