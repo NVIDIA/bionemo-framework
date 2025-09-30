@@ -196,26 +196,6 @@ def save_checkpoint(
             logger.error(f"Failed to clean up partial checkpoint: {cleanup_e}")
 
 
-def _gather_mfsdp_parameters(model, logger, outer_dp_sharding=False):
-    """Helper function to gather mfsdp parameters across all processes."""
-    logger.info("Starting mfsdp parameter gathering...")
-
-    # These collective operations must run on ALL processes
-    model._replace_param_with_raw_if_needed()
-    model.all_gather_pipeline.all_gather_params(
-        list(model.module.parameters()),
-        # Only needed if DP-Outer sharding is enabled.
-        # Otherwise, just all-gather on DP-Shard.
-        outer_fsdp_group_param_gather=outer_dp_sharding,
-    )
-
-    for param in model.module.parameters():
-        bucket_id = model.param_and_grad_buffer.param_to_param_group[param]
-        model.all_gather_pipeline.wait_bucket_ready(bucket_id)
-
-    logger.info("mfsdp parameter gathering completed")
-
-
 def _get_underlying_model(model):
     """Get the underlying model, handling both mfsdp and DDP wrapping."""
     if hasattr(model, "module"):
@@ -223,7 +203,7 @@ def _get_underlying_model(model):
     return model
 
 
-def save_final_model(model, save_directory, logger, use_mfsdp=False, outer_dp_sharding=False, is_main_process=True):
+def save_final_model(model, save_directory, logger, use_mfsdp=False, is_main_process=True):
     """Save the final model in safetensors format.
 
     For mfsdp, this performs parameter gathering across all processes first.
@@ -234,21 +214,31 @@ def save_final_model(model, save_directory, logger, use_mfsdp=False, outer_dp_sh
         save_directory: Directory to save the model
         logger: Logger for status messages
         use_mfsdp: Whether using mfsdp (requires parameter gathering)
-        outer_dp_sharding: When sharding on DP-Outer, we need to all-gather on DP-Outer as well.
         is_main_process: Whether this is the main process (only main process saves)
 
     Note: For mfsdp, parameter gathering operations run on ALL processes, but only
     the main process saves the model.
     """
     if use_mfsdp:
-        # Parameter gathering must happen on ALL processes
-        _gather_mfsdp_parameters(model, logger, outer_dp_sharding)
+        # Gather Megatron-FSDP parameters to CPU.
+        from megatron_fsdp.uneven_dtensor import gather_uneven_dtensor_to_full_tensor
+
+        unsharded_state_dict = {
+            # Gather all parameters to CPU, and remove the "module." prefix from the Megatron-FSDP class wrapper.
+            k.removeprefix("module."): gather_uneven_dtensor_to_full_tensor(
+                v, target_device=torch.device("cpu")
+            ).to_local()
+            if isinstance(v, torch.distributed.tensor.DTensor)
+            else v
+            for k, v in model.state_dict().items()
+        }
 
         # Only main process saves the model
         if not is_main_process:
             return
 
         underlying_model = model.module
+        model_state_dict = unsharded_state_dict
         save_type = "mfsdp"
     else:
         # Only main process needs to do anything for DDP
@@ -256,19 +246,11 @@ def save_final_model(model, save_directory, logger, use_mfsdp=False, outer_dp_sh
             return
 
         underlying_model = _get_underlying_model(model)
+        model_state_dict = underlying_model.state_dict()
         save_type = "DDP"
 
     logger.info(f"Starting {save_type} model saving...")
 
-    # WAR(@cspades): Since we are saving the un-sharded model, we need to remove the
-    # state dictionary hook which replaces un-sharded parameters with sharded parameters.
-    # If your model does not fit on 1 GPU, all-gathering parameters will OOM.
-    # Native HuggingFace Safetensors checkpoint support is a WIP.
-    # WARNING: THIS IS A HACK AND WILL BREAK DCP CHECKPOINTING FOR THIS INSTANCE OF THE
-    # MODEL. ONLY USE IN THE VERY END OF YOUR TRAINING PROCESS / SCRIPT.
-    if use_mfsdp:
-        model._state_dict_pre_hook.remove()
-
-    underlying_model.save_pretrained(save_directory, state_dict=underlying_model.state_dict(), safe_serialization=True)
+    underlying_model.save_pretrained(save_directory, state_dict=model_state_dict, safe_serialization=True)
 
     logger.info(f"✅ {save_type} save_pretrained succeeded with safe_serialization=True")

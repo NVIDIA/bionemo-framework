@@ -237,39 +237,29 @@ def save_final_model_mfsdp(
     model: torch.nn.Module,
     save_directory: str | os.PathLike,
     dist_config: DistributedConfig,
-    outer_dp_sharding=False,
 ) -> None:
     """Save final model for mFSDP - requires parameter gathering on all ranks."""
     # Parameter gathering must happen on ALL processes
     logger.info("Starting mFSDP parameter gathering...")
-    model._replace_param_with_raw_if_needed()
-    model.all_gather_pipeline.all_gather_params(
-        list(model.module.parameters()),
-        # Only needed if DP-Outer sharding is enabled.
-        # Otherwise, just all-gather on DP-Shard.
-        outer_fsdp_group_param_gather=outer_dp_sharding,
-    )
 
-    for param in model.module.parameters():
-        bucket_id = model.param_and_grad_buffer.param_to_param_group[param]
-        model.all_gather_pipeline.wait_bucket_ready(bucket_id)
+    from megatron_fsdp.uneven_dtensor import gather_uneven_dtensor_to_full_tensor
 
-    logger.info("mFSDP parameter gathering completed")
+    unsharded_state_dict = {
+        # Gather all parameters to CPU, and remove the "module." prefix from the Megatron-FSDP class wrapper.
+        k.removeprefix("module."): gather_uneven_dtensor_to_full_tensor(
+            v, target_device=torch.device("cpu")
+        ).to_local()
+        if isinstance(v, torch.distributed.tensor.DTensor)
+        else v
+        for k, v in model.state_dict().items()
+    }
 
     # Only main process saves the model
     if not dist_config.is_main_process():
         return
 
-    # WAR(@cspades): Since we are saving the un-sharded model, we need to remove the
-    # state dictionary hook which replaces un-sharded parameters with sharded parameters.
-    # If your model does not fit on 1 GPU, all-gathering parameters will OOM.
-    # Native HuggingFace Safetensors checkpoint support is a WIP.
-    # WARNING: THIS IS A HACK AND WILL BREAK DCP CHECKPOINTING FOR THIS INSTANCE OF THE
-    # MODEL. ONLY USE IN THE VERY END OF YOUR TRAINING PROCESS / SCRIPT.
-    model._state_dict_pre_hook.remove()
-
     os.makedirs(save_directory, exist_ok=True)
-    model.module.save_pretrained(save_directory, state_dict=model.module.state_dict(), safe_serialization=True)
+    model.module.save_pretrained(save_directory, state_dict=unsharded_state_dict, safe_serialization=True)
     logger.info(f"Saved final mFSDP model to {save_directory}")
 
 
