@@ -46,12 +46,12 @@ def main(args: DictConfig) -> float | None:
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
-    torch.distributed.init_process_group(backend="nccl")
+    device = torch.device(f"cuda:{dist_config.local_rank}")
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
     # and MFSDP.
-    device = torch.device(f"cuda:{dist_config.local_rank}")
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("ddp",))
 
     # Create an empty ESM-2 model with a masked language model head.
@@ -60,6 +60,7 @@ def main(args: DictConfig) -> float | None:
     if args.dataset.use_sequence_packing:
         config.attn_input_format = "thd"
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    logger.info("Initialized Model:\n%s", model)
 
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
     # avoid errors with unused parameters.
@@ -142,9 +143,8 @@ def main(args: DictConfig) -> float | None:
 
         perf_logger.log_step(
             step=step,
-            num_tokens=batch["input_ids"].numel(),
-            num_unpadded_tokens=batch["input_ids"][batch["input_ids"] != 1].numel(),  # 1 is the padding token.
-            loss=loss.detach().item(),
+            batch=batch,
+            outputs=outputs,
             grad_norm=total_norm,
             lr=optimizer.param_groups[0]["lr"],
         )

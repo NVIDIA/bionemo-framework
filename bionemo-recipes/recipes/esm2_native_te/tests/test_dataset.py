@@ -137,3 +137,33 @@ def test_map_dataset_dataloader_yields_different_values_per_rank():
     for key, value in rank1_batch.items():
         assert (value != rank2_batch[key]).any()
         torch.testing.assert_close(value, rank1_duplicate_batch[key])
+
+
+def test_lazy_tokenization_returns_batch():
+    """Test that the lazy tokenization works."""
+
+    tokenizer_name = "facebook/esm2_t6_8M_UR50D"
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "split": "train",
+        "data_files": "train.parquet",
+        "streaming": False,
+    }
+
+    config = MockDistributedConfig(
+        rank=0,
+        local_rank=0,
+        world_size=2,
+    )
+
+    dataloader = create_dataloader(
+        distributed_config=config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=4,
+        num_workers=1,
+        use_lazy_tokenization=True,
+    )
+
+    batch = next(dataloader)
+    assert batch is not None
