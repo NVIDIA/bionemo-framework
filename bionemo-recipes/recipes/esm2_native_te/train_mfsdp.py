@@ -164,9 +164,8 @@ def main(args: DictConfig) -> float | None:
 
         perf_logger.log_step(
             step=step,
-            num_tokens=batch["input_ids"].numel(),
-            num_unpadded_tokens=batch["input_ids"][batch["input_ids"] != 1].numel(),  # 1 is the padding token.
-            loss=loss.detach().item(),
+            batch=batch,
+            outputs=outputs,
             grad_norm=total_norm,
             lr=optimizer.param_groups[0]["lr"],
         )

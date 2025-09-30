@@ -18,9 +18,11 @@ import time
 
 import torch
 import torchmetrics
+import torchmetrics.text
 import wandb
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
+from transformers.modeling_outputs import MaskedLMOutput
 
 from distributed_config import DistributedConfig
 
@@ -55,6 +57,7 @@ class PerfLogger:
                 "train/step_time": torchmetrics.MeanMetric(),
                 "train/tokens_per_second": torchmetrics.MeanMetric(),
                 "train/unpadded_tokens_per_second": torchmetrics.MeanMetric(),
+                "train/perplexity": torchmetrics.text.Perplexity(ignore_index=-100),
             }
         )
         # We move metrics to a GPU device so we can use torch.distributed to aggregate them before logging.
@@ -69,9 +72,8 @@ class PerfLogger:
     def log_step(
         self,
         step: int,
-        num_tokens: int,
-        num_unpadded_tokens: int,
-        loss: float,
+        batch: dict[str, torch.Tensor],
+        outputs: MaskedLMOutput,
         grad_norm: float,
         lr: float,
     ):
@@ -79,21 +81,30 @@ class PerfLogger:
 
         Args:
             step: The step number.
-            num_tokens: The input tokens for the step, used to track token throughput.
-            num_unpadded_tokens: The number of non-padded tokens for the step, used to track token throughput.
-            loss: The loss of the step.
+            batch: The batch of data for the step.
+            outputs: The outputs of the step.
             grad_norm: The gradient norm of the step.
             lr: The learning rate of the step.
         """
-        self.min_loss = min(self.min_loss, loss)
+        num_tokens = batch["input_ids"].numel()
+        # 1 is the padding token for ESM-2.
+        num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != 1].numel()
+
+        self.min_loss = min(self.min_loss, outputs.loss.item())
         step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
 
-        self.metrics["train/loss"].update(loss)
+        self.metrics["train/loss"].update(outputs.loss)
         self.metrics["train/learning_rate"].update(lr)
         self.metrics["train/grad_norm"].update(grad_norm)
         self.metrics["train/step_time"].update(step_time)
         self.metrics["train/tokens_per_second"].update(num_tokens / step_time)
         self.metrics["train/unpadded_tokens_per_second"].update(num_unpadded_tokens / step_time)
+
+        # Handle sequence packing for torchmetrics calculation.
+        if outputs.logits.dim() < 3:
+            outputs.logits = outputs.logits.unsqueeze(0)
+
+        self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
 
         if step % self.logging_frequency == 0 and step > 0:
             metrics = self.metrics.compute()
@@ -103,7 +114,7 @@ class PerfLogger:
             if self._dist_config.is_main_process():
                 wandb.log(metrics, step=step)
                 self._progress_bar.update(self.logging_frequency)
-                self._progress_bar.set_postfix({"loss": loss})
+                self._progress_bar.set_postfix({"loss": outputs.loss.item()})
 
             if self._dist_config.local_rank == 0:
                 logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
