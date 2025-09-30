@@ -193,6 +193,14 @@ def _gather_along_cp_dim(input_, seq_dim: int = 1):
     return output
 
 
+def _to_cpu(inputs: dict[str, Tensor]) -> dict[str, Tensor]:
+    return {k: v.cpu() for k, v in inputs.items()}
+
+
+def _identity(inputs: dict[str, Tensor]) -> dict[str, Tensor]:
+    return inputs
+
+
 class BasePredictor(LightningPassthroughPredictionMixin):
     """Base predictor for GPT-style models."""
 
@@ -200,6 +208,7 @@ class BasePredictor(LightningPassthroughPredictionMixin):
         self,
         *args,
         output_log_prob_seqs: bool = False,
+        include_tokens_with_logprob_seqs: bool = False,
         log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
         **kwargs,
     ):
@@ -207,9 +216,12 @@ class BasePredictor(LightningPassthroughPredictionMixin):
         super().__init__(*args, **kwargs)
         self.output_log_prob_seqs = output_log_prob_seqs
         self.log_prob_collapse_option = log_prob_collapse_option
+        self.include_tokens_with_logprob_seqs = include_tokens_with_logprob_seqs
         self.shuffle_warning_raised = False
 
-    def predict_step(self, batch, batch_idx: int | None = None) -> Tensor | dict[str, Tensor] | None:
+    def predict_step(
+        self, batch, batch_idx: int | None = None, to_cpu: bool = True
+    ) -> Tensor | dict[str, Tensor] | None:
         """Alias for forward_step, also log the pad mask since sequences may not all have the same length."""
         if len(batch) == 0:
             return
@@ -229,6 +241,7 @@ class BasePredictor(LightningPassthroughPredictionMixin):
         tokens_gathered = _gather_along_cp_dim(batch["tokens"])
         cp_group_size = max(parallel_state.get_context_parallel_world_size(), 1)
         assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1]
+        to_cpu_fn = _to_cpu if to_cpu else _identity
         if self.output_log_prob_seqs:
             if self.log_prob_collapse_option == "per_token" and cp_group_size > 1 and not self.shuffle_warning_raised:
                 logger.warning(SHUFFLE_MESSAGE)
@@ -248,22 +261,29 @@ class BasePredictor(LightningPassthroughPredictionMixin):
             ).squeeze(-1)
             log_prob_per_token = logprobs * loss_mask_gathered[:, 1:].float()
             if self.log_prob_collapse_option == "per_token":
-                return {"log_probs_seqs": log_prob_per_token.cpu(), "seq_idx": batch["seq_idx"].cpu()}
+                return to_cpu_fn({"log_probs_seqs": log_prob_per_token, "seq_idx": batch["seq_idx"]})
             else:
                 log_prob_seqs = torch.sum(log_prob_per_token, dim=1)
                 if self.log_prob_collapse_option == "mean":
                     log_prob_seqs = log_prob_seqs / torch.clamp(loss_mask_gathered[:, 1:].float().sum(dim=-1), min=1.0)
-                return {"log_probs_seqs": log_prob_seqs.cpu(), "seq_idx": batch["seq_idx"].cpu()}
+                return to_cpu_fn({"log_probs_seqs": log_prob_seqs, "seq_idx": batch["seq_idx"]})
         else:
             # If the user wants to match back to logits, then they will need to do the offsetting logic themselves.
             if cp_group_size > 1 and not self.shuffle_warning_raised:
                 logger.warning(SHUFFLE_MESSAGE)
                 self.shuffle_warning_raised = True
-            return {
-                "token_logits": forward_out_gathered.cpu(),
-                "pad_mask": loss_mask_gathered.cpu(),
-                "seq_idx": batch["seq_idx"].cpu(),
+            logprob_seqs_restult = {
+                "token_logits": forward_out_gathered,
+                "pad_mask": loss_mask_gathered,
+                "seq_idx": batch["seq_idx"],
             }
+            if self.include_tokens_with_logprob_seqs:
+                logprob_seqs_restult["tokens"] = tokens_gathered
+            # Note, to match up tokens with logprobs, you need to offset by 1. Eg something like this:
+            #  shifted_token_logits = token_logits[:, :-1]
+            #  shifted_pad_mask = pad_mask[:, 1:]
+            #  shifted_tokens = tokens[:, 1:]
+            return to_cpu_fn(logprob_seqs_restult)
 
 
 class HyenaPredictor(BasePredictor, HyenaModel):
