@@ -44,6 +44,7 @@ from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils.exp_manager import TimingCallback
+from megatron.core.enums import Fp8Recipe
 
 from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
 from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
@@ -54,6 +55,7 @@ from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
+from nemo.utils import logging as logger
 
 
 torch._dynamo.config.suppress_errors = True
@@ -455,6 +457,16 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate.")
     parser.add_argument("--min-lr", type=float, default=3e-5, help="Min learning rate in cosine annealing.")
     parser.add_argument("--warmup-steps", type=int, default=2500, help="Number of warmup steps in cosine annealing")
+    parser.add_argument(
+        "--fp8-recipe",
+        type=str,
+        default="delayed",
+        choices=list(Fp8Recipe.__members__.keys()),
+        help="FP8 recipe to use for FP8 tensors in the forward and backward pass. Note that some recipes are only "
+        "supported by certain architectures. For example 'mxfp8' requires at least blackwell, and 'blockwise' is only "
+        "implemented for hopper (but not blackwell). 'tensorwise' and 'delayed' are currently supported by all "
+        "architectures, but 'tensorwise' is preferred over 'delayed' which is the default for historical reasons.",
+    )
     # NSYS profiling/tooling arguments
     parser.add_argument(
         "--nsys-profiling",
@@ -643,12 +655,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(args=args)
 
 
-def train(args: argparse.Namespace) -> nl.Trainer:
-    """Main function to run Evo2 training."""
-    tokenizer = get_nmt_tokenizer(
-        "byte-level",
-    )
-
+def patch_eden_tokenizer(tokenizer):
+    """Patch the Eden tokenizer to work with the Evo2 tokenizer."""
     bos_id, eos_id, sep_id, pad_id = 1, 2, 3, 0
 
     # Patch the private attrs so tokenizer.bos_id/.eos_id/.pad_id work
@@ -656,6 +664,13 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     tokenizer._eos_id = eos_id
     tokenizer._sep_id = sep_id
     tokenizer._pad_id = pad_id
+
+
+def train(args: argparse.Namespace) -> nl.Trainer:
+    """Main function to run Evo2 training."""
+    tokenizer = get_nmt_tokenizer(
+        "byte-level",
+    )
 
     # Infer global batch size.
     global_batch_size = args.global_batch_size
@@ -697,6 +712,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             raise ValueError(
                 "--sequence-db-dir, --train-window-db, --val-window-db, and --test-window-db are required when using --sharded-eden-data."
             )
+        logger.info(f"Patching the tokenizer for compatibility with Eden model training: {tokenizer}")
+        patch_eden_tokenizer(tokenizer)  # Eden tokenizer uses different IDs for BOS, EOS, SEP, and PAD than default.
         data_module = ShardedEdenDataModule(
             sequence_db_dir=args.sequence_db_dir,
             train_window_db_path=args.train_window_db,
@@ -813,7 +830,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = MambaModel(model_config, tokenizer=data_module.tokenizer)
     elif model_type == "llama":
-        config_modifiers_init.pop("to_upper")
+        config_modifiers_init.pop("to_upper")  # llama model does not handle custom loss renormalization settings.
         model_config = LLAMA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = llm.LlamaModel(model_config, tokenizer=data_module.tokenizer)
 
@@ -1036,6 +1053,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         use_distributed_sampler=False,
         plugins=nl.MegatronMixedPrecision(
             precision="bf16-mixed",
+            fp8_recipe=args.fp8_recipe,
             params_dtype=torch.bfloat16,
             grad_reduce_in_fp32=args.grad_reduce_in_fp32,
             fp8="hybrid" if args.fp8 else None,
