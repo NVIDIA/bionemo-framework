@@ -14,14 +14,15 @@
 # limitations under the License.
 
 import logging
-import pprint
 import time
-from collections import deque
 
-import numpy as np
+import torch
+import torchmetrics
+import torchmetrics.text
 import wandb
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
+from transformers.modeling_outputs import MaskedLMOutput
 
 from distributed_config import DistributedConfig
 
@@ -46,25 +47,33 @@ class PerfLogger:
         self._run_config = OmegaConf.to_container(args, resolve=True, throw_on_missing=True)
 
         self.min_loss = float("inf")
-        if not dist_config.is_main_process():
-            return
 
-        # Log the entire args object to wandb for experiment tracking and reproducibility.s
-        wandb.init(**args.wandb_init_args, config=self._run_config)
+        self.logging_frequency = args.logger.frequency
+        self.metrics = torchmetrics.MetricCollection(
+            {
+                "train/loss": torchmetrics.MeanMetric(),
+                "train/grad_norm": torchmetrics.MeanMetric(),
+                "train/learning_rate": torchmetrics.MeanMetric(),
+                "train/step_time": torchmetrics.MeanMetric(),
+                "train/tokens_per_second": torchmetrics.MeanMetric(),
+                "train/unpadded_tokens_per_second": torchmetrics.MeanMetric(),
+                "train/perplexity": torchmetrics.text.Perplexity(ignore_index=-100),
+            }
+        )
+        # We move metrics to a GPU device so we can use torch.distributed to aggregate them before logging.
+        self.metrics.to(torch.device(f"cuda:{dist_config.local_rank}"))
+        self.previous_step_time = time.perf_counter()
 
-        self._progress_bar = tqdm(total=args.num_train_steps, desc="Training")
-
-        # Store the last `max_step_times` step times to compute the mean values at the end of training.
-        self._step_times = deque(maxlen=args.logger.max_step_times)
-        self._num_tokens_per_second = deque(maxlen=args.logger.max_step_times)
-        self._num_unpadded_tokens_per_second = deque(maxlen=args.logger.max_step_times)
+        if self._dist_config.is_main_process():
+            # Log the entire args object to wandb for experiment tracking and reproducibility.
+            wandb.init(**args.wandb_init_args, config=self._run_config)
+            self._progress_bar = tqdm(total=args.num_train_steps, desc="Training")
 
     def log_step(
         self,
         step: int,
-        num_tokens: int,
-        num_unpadded_tokens: int,
-        loss: float,
+        batch: dict[str, torch.Tensor],
+        outputs: MaskedLMOutput,
         grad_norm: float,
         lr: float,
     ):
@@ -72,58 +81,43 @@ class PerfLogger:
 
         Args:
             step: The step number.
-            num_tokens: The input tokens for the step, used to track token throughput.
-            num_unpadded_tokens: The number of non-padded tokens for the step, used to track token throughput.
-            loss: The loss of the step.
+            batch: The batch of data for the step.
+            outputs: The outputs of the step.
             grad_norm: The gradient norm of the step.
             lr: The learning rate of the step.
         """
-        self.min_loss = min(self.min_loss, loss)
-        if not self._dist_config.is_main_process():
-            return
+        num_tokens = batch["input_ids"].numel()
+        # 1 is the padding token for ESM-2.
+        num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != 1].numel()
 
-        # Store these in buffers to compute the mean values at the end of training.
-        step_time = self.get_step_duration()
-        self._num_tokens_per_second.append(num_tokens / step_time)
-        self._num_unpadded_tokens_per_second.append(num_unpadded_tokens / step_time)
+        self.min_loss = min(self.min_loss, outputs.loss.item())
+        step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
 
-        metrics = {
-            "train/loss": loss,
-            "train/global_step": step,
-            "train/learning_rate": lr,
-            "train/grad_norm": grad_norm,
-            "train/step_time": step_time,
-            "train/tokens_per_second": self._num_tokens_per_second[-1],
-            "train/unpadded_tokens_per_second": self._num_unpadded_tokens_per_second[-1],
-        }
+        self.metrics["train/loss"].update(outputs.loss)
+        self.metrics["train/learning_rate"].update(lr)
+        self.metrics["train/grad_norm"].update(grad_norm)
+        self.metrics["train/step_time"].update(step_time)
+        self.metrics["train/tokens_per_second"].update(num_tokens / step_time)
+        self.metrics["train/unpadded_tokens_per_second"].update(num_unpadded_tokens / step_time)
 
-        self._progress_bar.update(1)
-        self._progress_bar.set_postfix({"loss": loss})
+        # Handle sequence packing for torchmetrics calculation.
+        if outputs.logits.dim() < 3:
+            outputs.logits = outputs.logits.unsqueeze(0)
 
-        wandb.log(metrics)
-        logger.info(
-            ", ".join(
-                [
-                    f"{k.split('/')[1]}: {v:.3g}" if isinstance(v, float) else f"{k.split('/')[1]}: {v}"
-                    for k, v in metrics.items()
-                ]
-            )
-        )
+        self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
 
-    def get_step_duration(self):
-        """Get the duration of the last step.
+        if step % self.logging_frequency == 0 and step > 0:
+            metrics = self.metrics.compute()
+            self.metrics.reset()
+            metrics["train/global_step"] = torch.tensor(step, dtype=torch.int64)
 
-        Returns:
-            float: The duration of the last step.
-        """
-        if not self._dist_config.is_main_process():
-            raise RuntimeError("Step duration can only be logged on the main process")
+            if self._dist_config.is_main_process():
+                wandb.log(metrics, step=step)
+                self._progress_bar.update(self.logging_frequency)
+                self._progress_bar.set_postfix({"loss": outputs.loss.item()})
 
-        self._step_times.append(time.perf_counter())
-        if len(self._step_times) > 1:
-            return self._step_times[-1] - self._step_times[-2]
-        else:
-            return np.nan
+            if self._dist_config.local_rank == 0:
+                logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
 
     def finish(self):
         """Finish the logger and close the progress bar."""
@@ -132,15 +126,3 @@ class PerfLogger:
 
         wandb.finish()
         self._progress_bar.close()
-
-        # Log the run config, distributed config, and final averaged metrics to stdout.
-        logger.info("RUN CONFIG:\n%s", pprint.pformat(self._run_config))
-        logger.info("DISTRIBUTED CONFIG:\n%s", pprint.pformat(self._dist_config.__dict__))
-        logger.info(
-            f"FINAL METRICS:\n"
-            f"Minimum loss seen: {self.min_loss:.3g}\n"
-            f"Mean step time (last {len(self._step_times)} steps): {np.diff(self._step_times).mean():.3g}s\n"
-            f"Mean tokens per second (per GPU): {np.mean(self._num_tokens_per_second):.3g}\n"
-            f"Mean unpadded tokens per second (per GPU) (last {len(self._num_unpadded_tokens_per_second)} steps): "
-            f"{np.mean(self._num_unpadded_tokens_per_second):.3g}\n"
-        )

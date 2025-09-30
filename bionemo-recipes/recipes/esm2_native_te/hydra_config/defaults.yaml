@@ -15,9 +15,8 @@ dataset:
   use_sequence_packing: false
   sequence_packing_pad_to_multiple_of: null
   load_dataset_kwargs:
-    path: "parquet"
+    path: "nvidia/esm2_uniref_pretraining_data"
     split: "train"
-    data_files: "train.parquet"
     streaming: True
 
 # WandB config
@@ -69,4 +68,4 @@ checkpoint:
   save_every_n_steps: 50
 
 logger:
-  max_step_times: 100
+  frequency: 100
