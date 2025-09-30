@@ -4,5 +4,5 @@ megatron-fsdp
 torch
 tqdm
 transformer_engine
-transformers @ git+https://github.com/huggingface/transformers
+transformers
 wandb
