@@ -2,11 +2,13 @@
 
 import pytest
 import torch
+import os
 from dataclasses import dataclass
+import shutil
 from transformers import AutoConfig, AutoModelForMaskedLM
 from torch.optim import AdamW
 from scheduler import get_linear_schedule_with_warmup
-from checkpoint import save_checkpoint_ddp
+from checkpoint import save_checkpoint_ddp, load_checkpoint_ddp
 from dataset import create_dataloader
 
 
@@ -82,11 +84,22 @@ def test_stop_and_go_single_gpu(tmp_path):
     device = torch.device(f"cuda:{dist_config.local_rank}")
     model = model.to(device=device)
 
+    step5_path_reference = f"{tmp_path}_step_5"
+    step10_path_reference = f"{tmp_path}_step_10"
+    step5_path_reloaded = f"{tmp_path}_step_5_reloaded"
+    if os.path.exists(step5_path_reference):
+        shutil.rmtree(step5_path_reference)
+    if os.path.exists(step10_path_reference):
+        shutil.rmtree(step10_path_reference)
+    if os.path.exists(step5_path_reloaded):
+        shutil.rmtree(step5_path_reloaded)
+    os.makedirs(step5_path_reference, exist_ok=True)
+    os.makedirs(step10_path_reference, exist_ok=True)
+    os.makedirs(step5_path_reloaded, exist_ok=True)
     # Training loop.
     model.train()
-    for step in range(10):
-        batch = next(reference_dataloader_info.iterator)
-        # TODO: You have to set the labels equal to the input_ids so we just train on everything
+    for step, batch in enumerate(reference_dataloader_info.dataloader):
+        batch["labels"] = batch["input_ids"].clone()
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
         # Forward pass with mixed precision.
@@ -95,6 +108,8 @@ def test_stop_and_go_single_gpu(tmp_path):
 
         # Backward pass.
         loss = outputs.loss
+        logits = outputs.logits
+        # TODO[LIGHT]: Get gradients
         loss.backward()
 
         # Step optimizer.
@@ -104,37 +119,113 @@ def test_stop_and_go_single_gpu(tmp_path):
 
         if step == 5:
             dataloader_state = reference_dataloader_info.dataloader.state_dict()
-            torch.save(dataloader_state, f"{tmp_path}_step_{step}_dataloader_state.pt")
+            torch.save(dataloader_state, f"{step5_path_reference}_dataloader_state.pt")
+            
+            # torch.save(logits.cpu(), f"{step5_path_reference}_logits.pt")
+            # torch.save(loss.cpu(), f"{step5_path_reference}_loss.pt")
+            # Let's save a random layers weights to disk also
             save_checkpoint_ddp(
                 model=model,
                 optimizer=optimizer,
                 scheduler=scheduler,
-                ckpt_path=f"{tmp_path}_step_{step}",
+                ckpt_path=step5_path_reference,
                 step=step,
                 dist_config=dist_config,
             )
+        if step == 9:
+            break
 
     # Now save the results after 10 steps
     save_checkpoint_ddp(
         model=model,
         optimizer=optimizer,
         scheduler=scheduler,
-        ckpt_path=f"{tmp_path}_step_{step}",
+        ckpt_path=step10_path_reference,
         step=step,
         dist_config=dist_config,
     )
+    torch.save(logits.cpu(), f"{step10_path_reference}_logits.pt")
+    torch.save(loss.cpu(), f"{step10_path_reference}_loss.pt")
+    torch.save(batch, f"{step10_path_reference}_batch.pt")
+    torch.save(reference_dataloader_info.dataloader.state_dict(), f"{step10_path_reference}_dataloader_state.pt")
     # TODO: Save the logits / loss / gradients etc
     # TODO: Now check after running this script multiple times that those are the same.
+    print("step5_path is", step5_path_reference)
+    print("created the following files: os.listdir(step5_path_reference)", os.listdir(step5_path_reference))
+    print("step10_path is", step10_path_reference)
+    print("created the following files: os.listdir(step10_path_reference)", os.listdir(step10_path_reference))
+
+    # From step 5, load the checkpoint and model and optimizer.
+    model, optimizer, scheduler, start_step = load_checkpoint_ddp(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            ckpt_path=step5_path_reference,
+            dist_config=dist_config,
+        )
+    dataloader_state = torch.load(f"{step5_path_reference}_dataloader_state.pt")
+    # Now make a dataloader brand new and restore the state?
+    new_dataloader_info = create_dataloader(
+        distributed_config=dist_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=4,
+        num_workers=1,
+        use_stateful_dataloader=True,
+        mlm_probability=0,
+    )
+
+    new_dataloader = new_dataloader_info.dataloader
+    new_dataloader.load_state_dict(dataloader_state)
+
+    model.train()
+    for step, batch in enumerate(new_dataloader):
+        step = step + start_step
+        batch["labels"] = batch["input_ids"].clone()
+        batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+
+
+        # Forward pass with mixed precision.
+        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+            outputs = model(**batch)
+
+        # Backward pass.
+        loss = outputs.loss
+        logits = outputs.logits
+        # TODO[LIGHT]: Get gradients
+        loss.backward()
+
+        # Step optimizer.
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
+        if step == 9:
+            break
+
+
+    # Now save the results after 5 steps from the new dataloader. Which should match 10 steps of the reference dataloader.
+    torch.save(logits.cpu(), f"{step5_path_reloaded}_logits.pt")
+    torch.save(loss.cpu(), f"{step5_path_reloaded}_loss.pt")
+    torch.save(batch, f"{step5_path_reloaded}_batch.pt")
+    torch.save(new_dataloader_info.dataloader.state_dict(), f"{step5_path_reloaded}_dataloader_state.pt")
+    save_checkpoint_ddp(
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        ckpt_path=step5_path_reloaded,
+        step=step,
+        dist_config=dist_config,
+    )
+
+    # Let's compare the batches now.
+    reference_batch_step_10 = torch.load(f"{step10_path_reference}_batch.pt")['input_ids']
+    reloaded_batch_step_5 = torch.load(f"{step5_path_reloaded}_batch.pt")['input_ids']
+    assert torch.equal(reference_batch_step_10, reloaded_batch_step_5)
+
+
+    # Let's compare logits now.
+    reference_logits_step_10 = torch.load(f"{step10_path_reference}_logits.pt")
+    reloaded_logits_step_5 = torch.load(f"{step5_path_reloaded}_logits.pt")
+    assert torch.equal(reference_logits_step_10, reloaded_logits_step_5)
     
-    print("tmp path is", tmp_path)
-    return 1/0
-
-
-    # Run ten steps of training. Then save the (1) Loss (2) Logits and (3) Gradients. and (4) Last batch of data.
-    # At step 5, save (1) the model checkpoint, (2) dataloader state, (3) Optimizer state and (4) Global step etc.
-
-    # Resume training from the checkpoint and continue for another 5 steps.
-    # Then compare.
-
-
-    # Dist config
+    

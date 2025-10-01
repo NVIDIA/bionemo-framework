@@ -32,6 +32,71 @@ class MockDistributedConfig:
     local_rank: int
     world_size: int
 
+def test_stateful_dataloader_works_with_iterator():
+    tokenizer_name = "facebook/esm2_t6_8M_UR50D"
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "split": "train",
+        "data_files": "train.parquet",
+        "streaming": True,
+    }
+
+    dist_config = MockDistributedConfig(
+        rank=0,
+        local_rank=0,
+        world_size=1,
+    )
+
+    # First, collect reference batches from a fresh dataloader
+    reference_dataloader_info = create_dataloader(
+        distributed_config=dist_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=4,
+        num_workers=1,
+        use_stateful_dataloader=True,
+        mlm_probability=0,
+    )
+
+    # Collect 10 batches in total. Save the state of the sixth batch at iteration 5.
+    reference_batches = []
+    for i, batch in enumerate(reference_dataloader_info.iterator):
+        reference_batches.append(batch["input_ids"])
+        if i == 5:
+            # save the state of the fifth batch
+            dataloader_state = reference_dataloader_info.dataloader.state_dict()
+        if i == 9:  # Collect 10 batches total
+            break
+
+    # Now test checkpoint/restore
+    new_dataloader_info = create_dataloader(
+        distributed_config=dist_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=4,
+        num_workers=1,
+        use_stateful_dataloader=True,
+        mlm_probability=0,
+    )
+
+    new_dataloader = new_dataloader_info.dataloader
+    new_dataloader.load_state_dict(dataloader_state)
+
+    # Note: Maybe the transform is non deterministic? Like the lazy loading map function.
+    # Get three batches of data
+    loaded_batches = []
+    for i, batch in enumerate(new_dataloader):
+        loaded_batches.append(batch["input_ids"])
+        if i == 2:
+            break
+
+    assert len(reference_batches) == 10
+    assert len(loaded_batches) == 3
+
+    assert torch.equal(loaded_batches[0], reference_batches[6])
+    assert torch.equal(loaded_batches[1], reference_batches[7])
+    assert torch.equal(loaded_batches[2], reference_batches[8])
+
 
 def test_stateful_dataloader():
     """Test that the stateful dataloader works with streaming = False.
