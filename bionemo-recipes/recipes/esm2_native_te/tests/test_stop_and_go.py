@@ -147,9 +147,6 @@ def test_stop_and_go_single_gpu(tmp_path):
     torch.save(logits.cpu(), f"{step10_path_reference}_logits.pt")
     torch.save(loss.cpu(), f"{step10_path_reference}_loss.pt")
     torch.save(batch, f"{step10_path_reference}_batch.pt")
-    torch.save(reference_dataloader_info.dataloader.state_dict(), f"{step10_path_reference}_dataloader_state.pt")
-    # TODO: Save the logits / loss / gradients etc
-    # TODO: Now check after running this script multiple times that those are the same.
     print("step5_path is", step5_path_reference)
     print("created the following files: os.listdir(step5_path_reference)", os.listdir(step5_path_reference))
     print("step10_path is", step10_path_reference)
@@ -180,7 +177,6 @@ def test_stop_and_go_single_gpu(tmp_path):
 
     model.train()
     for step, batch in enumerate(new_dataloader):
-        step = step + start_step
         batch["labels"] = batch["input_ids"].clone()
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
@@ -199,7 +195,7 @@ def test_stop_and_go_single_gpu(tmp_path):
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad()
-        if step == 9:
+        if step == 3:
             break
 
 
