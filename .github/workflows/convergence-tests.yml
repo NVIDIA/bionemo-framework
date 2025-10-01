@@ -14,7 +14,7 @@ on:
       model_config:
         description: "Model configuration to use"
         required: true
-        default: ""
+        default: "esm2_native_te"
         type: choice
         options:
           - esm2_accelerate_te.yaml
@@ -86,7 +86,7 @@ jobs:
           python ci/lepton/model_convergence/scripts/launch_job.py \
             --config-name "recipes/$MODEL_CONFIG" \
             $RUN_ONLY_ARGS \
-            branch=$"BRANCH" \
+            branch="$BRANCH" \
             commit_sha=$COMMIT_SHA \
             node_group=$NODE_GROUP \
-            gpu_type=$"GPU_TYPE"
+            gpu_type="$GPU_TYPE"
