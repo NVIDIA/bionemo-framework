@@ -83,9 +83,8 @@ RUN <<EOF
 git clone https://github.com/Dao-AILab/causal-conv1d
 cd causal-conv1d
 git checkout 3d19ec779bbaefd7895d22456f3b98878296ce2f
-pip3 wheel --disable-pip-version-check --no-build-isolation --no-deps .
-pip3 --disable-pip-version-check --no-cache-dir install causal_conv1d-*.whl --no-deps
-rm -f causal_conv1d-*.whl
+python setup.py build_ext --inplace
+python setup.py install --force
 cd ..
 rm -rf causal_conv1d
 EOF
@@ -152,11 +151,8 @@ RUN <<EOF
 git clone https://github.com/trvachov/mamba
 cd mamba
 git checkout v2.2.5-cuda-13.0
-sed -i "/triton/d" setup.py
-sed -i "/triton/d" pyproject.toml
-pip3 wheel --disable-pip-version-check --no-build-isolation --no-deps .
-pip3 --disable-pip-version-check --no-cache-dir install mamba_ssm-*.whl --no-deps
-rm -f mamba_ssm-*.whl
+python setup.py build_ext --inplace
+python setup.py install --force
 cd ..
 rm -rf mamba
 EOF
