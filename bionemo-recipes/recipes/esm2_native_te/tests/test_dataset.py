@@ -15,10 +15,16 @@
 
 from dataclasses import dataclass
 
+import pytest
 import torch
 
 from dataset import create_dataloader
 
+
+requires_multi_gpu = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+    reason="Test requires at least 2 GPUs",
+)
 
 @dataclass
 class MockDistributedConfig:
@@ -98,6 +104,80 @@ def test_stateful_dataloader():
     assert torch.equal(loaded_batches[0], reference_batches[6])
     assert torch.equal(loaded_batches[1], reference_batches[7])
     assert torch.equal(loaded_batches[2], reference_batches[8])
+
+
+def test_stateful_dataloader_with_multiple_workers():
+    """Test that the stateful dataloader works with multiple GPUs."""
+    tokenizer_name = "facebook/esm2_t6_8M_UR50D"
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "split": "train",
+        "data_files": "train.parquet",
+        "streaming": True,
+    }
+
+    dist_config = MockDistributedConfig(
+        rank=0,
+        local_rank=0,
+        world_size=1,
+    )
+
+    # First, collect reference batches from a fresh dataloader
+    reference_dataloader_info = create_dataloader(
+        distributed_config=dist_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=4,
+        num_workers=4,
+        use_stateful_dataloader=True,
+        mlm_probability=0,
+    )
+
+    # Collect 10 batches in total. Save the state of the sixth batch at iteration 5.
+    reference_batches = []
+    for i, batch in enumerate(reference_dataloader_info.dataloader):
+        reference_batches.append(batch["input_ids"])
+        if i == 5:
+            # save the state of the fifth batch
+            dataloader_state = reference_dataloader_info.dataloader.state_dict()
+        if i == 9:  # Collect 10 batches total
+            break
+
+    # Now test checkpoint/restore
+    new_dataloader_info = create_dataloader(
+        distributed_config=dist_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=4,
+        num_workers=4,
+        use_stateful_dataloader=True,
+        mlm_probability=0,
+    )
+
+    new_dataloader = new_dataloader_info.dataloader
+    new_dataloader.load_state_dict(dataloader_state)
+
+    # Note: Maybe the transform is non deterministic? Like the lazy loading map function.
+    # Get three batches of data
+    loaded_batches = []
+    for i, batch in enumerate(new_dataloader):
+        loaded_batches.append(batch["input_ids"])
+        if i == 2:
+            break
+
+    assert len(reference_batches) == 10
+    assert len(loaded_batches) == 3
+
+    assert torch.equal(loaded_batches[0], reference_batches[6])
+    assert torch.equal(loaded_batches[1], reference_batches[7])
+    assert torch.equal(loaded_batches[2], reference_batches[8])
+
+
+
+@requires_multi_gpu
+def test_stateful_dataloader_with_multiple_gpus():
+    pass
+
 
 
 def test_iterable_dataloader_yields_different_values_per_rank():

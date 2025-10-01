@@ -121,7 +121,6 @@ def create_dataloader(
             examples["sequence"],
             truncation=True,
             max_length=max_seq_length,
-            mlm_probability=mlm_probability,
         )
 
     if isinstance(dataset, datasets.Dataset) and use_lazy_tokenization:
