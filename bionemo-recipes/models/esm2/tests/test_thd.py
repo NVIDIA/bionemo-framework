@@ -35,8 +35,9 @@ def input_data_thd(tokenizer, tokenized_proteins):
     return data_collator(tokenized_proteins)
 
 
-def test_nv_esm_embeddings(input_data_thd, input_data):
-    config = NVEsmConfig()
+def test_nv_esm_embeddings(te_model_checkpoint, input_data_thd, input_data):
+    config = NVEsmConfig.from_pretrained(te_model_checkpoint)
+    assert config.token_dropout is True
     embedding = NVEsmEmbeddings(config)
     embedding.to("cuda")
 
@@ -114,8 +115,10 @@ def test_thd_logits_match(te_model_checkpoint, input_data, input_data_thd, attn_
         input_data_thd["labels"].flatten(0),
     )
 
-    model_bshd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
-    model_thd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
+    model_bshd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, token_dropout=False, dtype=torch.bfloat16)
+    model_thd = NVEsmForMaskedLM.from_pretrained(
+        te_model_checkpoint, token_dropout=False, attn_input_format="thd", dtype=torch.bfloat16
+    )
 
     model_bshd.to("cuda")
     model_thd.to("cuda")
@@ -123,10 +126,19 @@ def test_thd_logits_match(te_model_checkpoint, input_data, input_data_thd, attn_
     input_data_bshd = {k: v.to("cuda") for k, v in input_data.items()}
     input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
 
-    bshd_outputs = model_bshd(**input_data_bshd)
-    thd_outputs = model_thd(**input_data_thd)
+    model_bshd.eval()
+    model_thd.eval()
 
-    # TODO(BIONEMO-2801): Investigate why these are not close on sm89 but pass on sm120.
+    thd_outputs = model_thd(**input_data_thd, output_hidden_states=True)
+    bshd_outputs = model_bshd(**input_data_bshd, output_hidden_states=True)
+
+    for i, (bshd_hidden, thd_hidden) in enumerate(zip(bshd_outputs.hidden_states, thd_outputs.hidden_states)):
+        torch.testing.assert_close(
+            bshd_hidden[input_data_bshd["attention_mask"].to(bool)],
+            thd_hidden.squeeze(0),
+            msg=lambda msg: "Hidden states do not match after layer " + str(i + 1) + ": " + msg,
+        )
+
     bshd_logits = bshd_outputs.logits[input_data_bshd["attention_mask"].to(bool)]
     torch.testing.assert_close(bshd_logits, thd_outputs.logits)
 

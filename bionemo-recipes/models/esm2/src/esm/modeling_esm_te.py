@@ -555,7 +555,7 @@ class NVEsmEmbeddings(nn.Module):
         if config.position_embedding_type != "rotary":
             raise ValueError(
                 "The TE-accelerated ESM-2 model only supports rotary position embeddings, received "
-                f"{self.config.position_embedding_type}"
+                f"{config.position_embedding_type}"
             )
 
         self.padding_idx = config.pad_token_id
