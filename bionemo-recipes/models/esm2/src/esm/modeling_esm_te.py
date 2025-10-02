@@ -39,7 +39,7 @@ from transformers.modeling_outputs import (
 )
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.esm.configuration_esm import EsmConfig
-from transformers.models.esm.modeling_esm import EsmEmbeddings, EsmPooler
+from transformers.models.esm.modeling_esm import EsmPooler
 from transformers.utils import logging
 
 
@@ -305,15 +305,10 @@ class NVEsmModel(NVEsmPreTrainedModel):
         super().__init__(config)
         self.config = config
 
-        # Create EsmEmbeddings with temporarily modified config to use padded vocab size
-        # This ensures the word embeddings layer uses the padded vocabulary size for FP8 support
-        original_vocab_size = config.vocab_size
-        config.vocab_size = config.padded_vocab_size
         # Ensure pad_token_id is set properly, defaulting to 0 if not specified
         if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
             config.pad_token_id = 0
-        self.embeddings = EsmEmbeddings(config)
-        config.vocab_size = original_vocab_size  # Restore original vocab_size
+        self.embeddings = NVEsmEmbeddings(config)
         self.encoder = NVEsmEncoder(config)
         self.pooler = EsmPooler(config) if add_pooling_layer else None
 
@@ -389,9 +384,12 @@ class NVEsmModel(NVEsmPreTrainedModel):
 
         embedding_output = self.embeddings(
             input_ids=input_ids,
-            position_ids=position_ids,
             attention_mask=attention_mask,
             inputs_embeds=inputs_embeds,
+            cu_seq_lens_q=cu_seq_lens_q,
+            cu_seq_lens_k=cu_seq_lens_k,
+            max_length_q=max_length_q,
+            max_length_k=max_length_k,
         )
         encoder_outputs = self.encoder(
             embedding_output,
@@ -538,3 +536,83 @@ class NVEsmLMHead(nn.Module):
         x = torch.nn.functional.gelu(x)
         x = self.decoder(x)
         return x
+
+
+class NVEsmEmbeddings(nn.Module):
+    """Modified version of EsmEmbeddings to support THD inputs."""
+
+    def __init__(self, config):
+        """Initialize a NVEsmEmbeddings."""
+        super().__init__()
+        self.word_embeddings = nn.Embedding(
+            config.padded_vocab_size, config.hidden_size, padding_idx=config.pad_token_id
+        )
+
+        self.layer_norm = (
+            nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps) if config.emb_layer_norm_before else None
+        )
+
+        if config.position_embedding_type != "rotary":
+            raise ValueError(
+                "The TE-accelerated ESM-2 model only supports rotary position embeddings, received "
+                f"{self.config.position_embedding_type}"
+            )
+
+        self.padding_idx = config.pad_token_id
+        self.token_dropout = config.token_dropout
+        self.mask_token_id = config.mask_token_id
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        inputs_embeds=None,
+        cu_seq_lens_q: torch.IntTensor | None = None,
+        cu_seq_lens_k: torch.IntTensor | None = None,
+        max_length_q: int | None = None,
+        max_length_k: int | None = None,
+    ):
+        """Forward pass of the NVEsmEmbeddings."""
+        if inputs_embeds is None:
+            inputs_embeds = self.word_embeddings(input_ids)
+
+        # Note that if we want to support ESM-1 (not 1b!) in future then we need to support an
+        # embedding_scale factor here.
+        embeddings = inputs_embeds
+
+        # Matt: ESM has the option to handle masking in MLM in a slightly unusual way. If the token_dropout
+        # flag is False then it is handled in the same was as BERT/RoBERTa. If it is set to True, however,
+        # masked tokens are treated as if they were selected for input dropout and zeroed out.
+        # This "mask-dropout" is compensated for when masked tokens are not present, by scaling embeddings by
+        # a factor of (fraction of unmasked tokens during training) / (fraction of unmasked tokens in sample).
+        # This is analogous to the way that dropout layers scale down outputs during evaluation when not
+        # actually dropping out values (or, equivalently, scale up their un-dropped outputs in training).
+        if self.token_dropout and input_ids is not None:
+            embeddings = embeddings.masked_fill((input_ids == self.mask_token_id).unsqueeze(-1), 0.0)
+            mask_ratio_train = 0.15 * 0.8  # Hardcoded as the ratio used in all ESM model training runs
+
+            if cu_seq_lens_q is None:
+                # BSHD token dropout correction
+                src_lengths = attention_mask.sum(-1) if attention_mask is not None else input_ids.shape[1]
+                mask_ratio_observed = (input_ids == self.mask_token_id).sum(-1).float() / src_lengths
+                embeddings = (embeddings * (1 - mask_ratio_train) / (1 - mask_ratio_observed)[:, None, None]).to(
+                    embeddings.dtype
+                )
+
+            else:
+                src_lengths = torch.diff(cu_seq_lens_q)
+                # We need to find the number of masked tokens in each sequence in the padded batch.
+                is_masked = (input_ids == self.mask_token_id).squeeze(0)
+                n_masked_per_seq = torch.nested.nested_tensor_from_jagged(is_masked, offsets=cu_seq_lens_q).sum(1)
+                mask_ratio_observed = n_masked_per_seq / src_lengths
+                scale_factor = (1 - mask_ratio_train) / (1 - mask_ratio_observed)
+                reshaped_scale_factor = torch.repeat_interleave(scale_factor, src_lengths, dim=0)
+                embeddings = (embeddings * reshaped_scale_factor.unsqueeze(-1)).to(embeddings.dtype)
+
+        if self.layer_norm is not None:
+            embeddings = self.layer_norm(embeddings)
+
+        if attention_mask is not None:
+            embeddings = (embeddings * attention_mask.unsqueeze(-1)).to(embeddings.dtype)
+
+        return embeddings
