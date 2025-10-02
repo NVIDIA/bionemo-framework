@@ -14,10 +14,14 @@
 # limitations under the License.
 
 import logging
+from dataclasses import dataclass
+from typing import Dict, Iterator, Optional, Union
 
 import datasets
 import datasets.distributed
+import torch
 from torch.utils.data import DataLoader, DistributedSampler
+from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
@@ -26,6 +30,16 @@ from distributed_config import DistributedConfig
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DataLoaderInfo:
+    """Wrapper class to hold data related items."""
+
+    iterator: Iterator[Dict[str, torch.Tensor]]
+    dataloader: Union[StatefulDataLoader, DataLoader]
+    dataset: Union[datasets.Dataset, datasets.IterableDataset]
+    sampler: Optional[DistributedSampler]
 
 
 def infinite_dataloader(dataloader, dataset_or_sampler):
@@ -55,6 +69,8 @@ def create_dataloader(
     sequence_packing_pad_to_multiple_of: int | None = None,
     buffer_size: int = 10_000,
     use_lazy_tokenization: bool = True,
+    use_stateful_dataloader: bool = False,
+    mlm_probability: float = 0.15,
 ):
     """Create a dataloader for the dataset.
 
@@ -71,6 +87,8 @@ def create_dataloader(
         buffer_size: The buffer size to use for the distributed sampler.
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization if the dataset is a
             non-streaming datasets.Dataset. Defaults to True.
+        use_stateful_dataloader: Whether to use the StatefulDataLoader. Defaults to False.
+        mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
 
     Returns:
         A dataloader that just infinitely loops over the dataset.
@@ -120,29 +138,45 @@ def create_dataloader(
     if use_sequence_packing:
         data_collator = MLMDataCollatorWithFlattening(
             tokenizer=tokenizer,
-            mlm_probability=0.15,
+            mlm_probability=mlm_probability,
             pad_to_multiple_of=sequence_packing_pad_to_multiple_of,
             seed=seed,
         )
     else:
         data_collator = DataCollatorForLanguageModeling(
             tokenizer=tokenizer,
-            mlm_probability=0.15,
+            mlm_probability=mlm_probability,
             pad_to_multiple_of=max_seq_length,
             seed=seed,
         )
 
-    train_dataloader = DataLoader(
-        tokenized_dataset,
-        sampler=sampler,
-        batch_size=micro_batch_size,
-        collate_fn=data_collator,
-        num_workers=num_workers,
-        pin_memory=True,
-        persistent_workers=True,
-    )
+    if use_stateful_dataloader:
+        train_dataloader = StatefulDataLoader(
+            tokenized_dataset,
+            sampler=sampler,
+            batch_size=micro_batch_size,
+            collate_fn=data_collator,
+            num_workers=num_workers,
+            pin_memory=True,
+            persistent_workers=True,
+        )
+    else:  # TODO: Figure out if you can use StateFulDataloaders for both maybe?
+        train_dataloader = DataLoader(
+            tokenized_dataset,
+            sampler=sampler,
+            batch_size=micro_batch_size,
+            collate_fn=data_collator,
+            num_workers=num_workers,
+            pin_memory=True,
+            persistent_workers=True,
+        )
+
+    # Note: Do we need access to the underlying dataloader so we can save it's state
+    # and gain access to the underlying dataset? If so -> might need to return more than just this iterator.
 
     # Create the infinite iterator
     train_iterator = infinite_dataloader(train_dataloader, dataset if sampler is None else sampler)
 
-    return train_iterator
+    dataloader_info = DataLoaderInfo(train_iterator, train_dataloader, dataset, sampler)
+
+    return dataloader_info
