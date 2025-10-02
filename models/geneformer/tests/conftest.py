@@ -1,18 +1,55 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Pytest configuration for geneformer tests."""
 
 import os
-import sys
 import tempfile
-from pathlib import Path
 
 import pytest
 import requests
 import torch
+from transformers.models.bert.configuration_bert import BertConfig
 
 
-# Add the src directory to the Python path so tests can import geneformer modules
-src_path = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(src_path))
+@pytest.fixture
+def get_config():
+    """Get a test configuration for BERT model."""
+    return BertConfig(
+        attention_probs_dropout_prob=0.02,
+        classifier_dropout=None,
+        hidden_act="gelu",
+        hidden_dropout_prob=0.02,
+        hidden_size=256,
+        initializer_range=0.02,
+        intermediate_size=1024,
+        layer_norm_eps=1e-12,
+        max_position_embeddings=2048,
+        micro_batch_size=4,
+        model_type="bert",
+        num_attention_heads=8,
+        num_hidden_layers=6,
+        pad_token_id=0,
+        position_embedding_type="absolute",
+        seq_length=2048,
+        transformers_version="4.52.0.dev0",
+        type_vocab_size=2,
+        use_cache=True,
+        use_te_layers=False,
+        vocab_size=25427,
+    )
 
 
 @pytest.fixture
@@ -44,18 +81,9 @@ def input_data():
         with open(tmp_file_path, "wb") as f:
             f.writelines(response.iter_content(chunk_size=8192))
 
-        print("Successfully downloaded token dictionary")
-
         # Load the token dictionary from the temporary file
         with open(tmp_file_path, "rb") as f:
             token_dictionary = pickle.load(f)
-
-        vocab_size = len(token_dictionary)
-        pad_token_id = token_dictionary.get("<pad>", 0)
-        mask_token_id = token_dictionary.get("<mask>", 1)
-
-        print(f"Loaded geneformer token dictionary with {vocab_size} tokens")
-        print(f"Pad token ID: {pad_token_id}, Mask token ID: {mask_token_id}")
 
         # Get some actual gene token IDs (excluding special tokens)
         gene_tokens = [
@@ -104,7 +132,25 @@ def input_data():
             "attention_mask": attention_mask,
             "labels": labels,
         }
-
     finally:
         if os.path.exists(tmp_file_path):
             os.unlink(tmp_file_path)
+
+
+@pytest.fixture
+def te_config():
+    """Create a TEBertConfig for testing with TE layers enabled."""
+    from geneformer.modeling_bert_te import TEBertConfig
+
+    config_dict = {
+        "hidden_size": 256,
+        "num_hidden_layers": 2,
+        "num_attention_heads": 4,
+        "intermediate_size": 512,
+        "max_position_embeddings": 4096,  # Model capacity
+        "vocab_size": 20275,  # Geneformer vocabulary size
+        "torch_dtype": torch.bfloat16,
+        "use_te_layers": True,
+        "fuse_qkv_params": True,  # Enable fused QKV parameters for TE optimization
+    }
+    return TEBertConfig(**config_dict)

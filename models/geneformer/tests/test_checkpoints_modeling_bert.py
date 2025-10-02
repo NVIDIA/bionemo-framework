@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for Geneformer checkpoint integration with Transformer Engine models."""
 
 import pytest
@@ -48,173 +63,41 @@ MODEL_VARIANTS = [
 
 
 @pytest.mark.parametrize("model_variant", MODEL_VARIANTS, ids=[variant[0] for variant in MODEL_VARIANTS])
-def test_geneformer_checkpoint_has_te_layers(model_variant):
-    """Test that the actual Geneformer checkpoints use Transformer Engine layers."""
-    from geneformer.modeling_bert_te import BertForMaskedLM as TEBertForMaskedLM
-    from geneformer.modeling_bert_te import TEBertConfig
-
-    model_name, model_info = model_variant
-
-    # Require CUDA to be available
-    assert torch.cuda.is_available(), "CUDA is required for this test"
-
-    print(f"Loading {model_name} checkpoint from Hugging Face...")
-    print(f"  - {model_info['description']}")
-    print(f"  - Input size: {model_info['input_size']}")
-    print(f"  - Vocabulary: {model_info['vocabulary']}")
-    print(f"  - Training data: {model_info['training_data']}")
-
-    # Load the specific Geneformer checkpoint from Hugging Face
-    model_hf = load_geneformer_model(model_name)
-
-    # Convert the config to our TE config format
-    hf_config_dict = model_hf.config.to_dict()
-    te_config_dict = {
-        "hidden_size": hf_config_dict["hidden_size"],
-        "num_hidden_layers": hf_config_dict["num_hidden_layers"],
-        "num_attention_heads": hf_config_dict["num_attention_heads"],
-        "intermediate_size": hf_config_dict["intermediate_size"],
-        "max_position_embeddings": hf_config_dict["max_position_embeddings"],
-        "vocab_size": hf_config_dict["vocab_size"],
-        "attention_probs_dropout_prob": hf_config_dict.get("attention_probs_dropout_prob", 0.1),
-        "hidden_dropout_prob": hf_config_dict.get("hidden_dropout_prob", 0.1),
-        "hidden_act": hf_config_dict.get("hidden_act", "relu"),
-        "initializer_range": hf_config_dict.get("initializer_range", 0.02),
-        "layer_norm_eps": hf_config_dict.get("layer_norm_eps", 1e-12),
-        "pad_token_id": hf_config_dict.get("pad_token_id", 0),
-        "model_type": hf_config_dict.get("model_type", "bert"),
-        "torch_dtype": torch.float32,
-        "use_te_layers": True,  # Enable TE layers
-        "fuse_qkv_params": True,  # Enable fused QKV parameters for TE optimization
-    }
-
-    print(f"Creating TE model with config: {te_config_dict}")
-
-    te_config = TEBertConfig(**te_config_dict)
-    model_te = TEBertForMaskedLM(te_config)
-
-    device = torch.device("cuda")
-    model_hf = model_hf.to(device)
-    model_te = model_te.to(device)
-
-    print("Verifying TE model has Transformer Engine layers...")
-
-    # print(f"\nAll layers in {model_name} TE model:")
-    # for name, module in model_te.named_modules():
-    #     print(f"  {name}: {type(module).__name__}")
-
-    # Check that our TE model has Transformer Engine layers
-    # We need to verify that the layers are using TE implementations
-    te_layer_count = 0
-
-    # Check the encoder layers
-    encoder = model_te.bert.encoder
-    for i, layer in enumerate(encoder.layer):
-        if hasattr(layer, "__class__") and "TEBertLayer" in str(layer.__class__):
-            print(f"Layer {i}: {type(layer).__name__}")
-            te_layer_count += 1
-        else:
-            print(f"Layer {i}: {type(layer).__name__} (not TEBertLayer)")
-
-    print("\nLayer verification summary:")
-    print(f"  - TEBertLayer instances found: {te_layer_count}")
-    print(f"  - Total encoder layers: {len(encoder.layer)}")
-
-    # Assert that we have the expected number of TE layers
-    expected_layers = te_config.num_hidden_layers
-    assert te_layer_count == expected_layers, (
-        f"Expected {expected_layers} TEBertLayer instances, found {te_layer_count}"
-    )
-    print(f"All {te_layer_count} encoder layers are TEBertLayer instances")
-
-    print("TE model architecture verification passed!")
-
-    del model_hf, model_te
-    torch.cuda.empty_cache()
-
-    print(f"{model_name} checkpoint TE layer verification completed successfully!")
-
-
-@pytest.mark.parametrize("model_variant", MODEL_VARIANTS, ids=[variant[0] for variant in MODEL_VARIANTS])
-def test_geneformer_checkpoint_loss(model_variant):
+def test_geneformer_checkpoint_loss(model_variant, input_data):
     """Test that the TE model can process input data and produce valid loss outputs."""
-    from geneformer.modeling_bert_te import BertForMaskedLM as TEBertForMaskedLM
-    from geneformer.modeling_bert_te import TEBertConfig
 
     model_name, model_info = model_variant
-
-    # Require CUDA to be available
-    assert torch.cuda.is_available(), "CUDA is required for this test"
-
-    print(f"Testing loss computation for {model_name}...")
-    print(f"  - {model_info['description']}")
 
     # Load the specific Geneformer checkpoint from Hugging Face
     model_hf = load_geneformer_model(model_name)
 
-    # Convert the config to our TE config format
-    hf_config_dict = model_hf.config.to_dict()
-    te_config_dict = {
-        "hidden_size": hf_config_dict["hidden_size"],
-        "num_hidden_layers": hf_config_dict["num_hidden_layers"],
-        "num_attention_heads": hf_config_dict["num_attention_heads"],
-        "intermediate_size": hf_config_dict["intermediate_size"],
-        "max_position_embeddings": hf_config_dict["max_position_embeddings"],
-        "vocab_size": hf_config_dict["vocab_size"],
-        "attention_probs_dropout_prob": hf_config_dict.get("attention_probs_dropout_prob", 0.1),
-        "hidden_dropout_prob": hf_config_dict.get("hidden_dropout_prob", 0.1),
-        "hidden_act": hf_config_dict.get("hidden_act", "relu"),
-        "initializer_range": hf_config_dict.get("initializer_range", 0.02),
-        "layer_norm_eps": hf_config_dict.get("layer_norm_eps", 1e-12),
-        "pad_token_id": hf_config_dict.get("pad_token_id", 0),
-        "model_type": hf_config_dict.get("model_type", "bert"),
-        "torch_dtype": torch.float32,
-        "use_te_layers": True,  # Enable TE layers
-        "fuse_qkv_params": True,  # Enable fused QKV parameters for TE optimization
-    }
+    # Convert the pretrained HF model to TE format to get the same weights
+    from geneformer.convert import convert_geneformer_hf_to_te
 
-    print(f"Creating TE model with config: {te_config_dict}")
+    model_te = convert_geneformer_hf_to_te(model_hf)
 
-    # Create our TE model with the same architecture
-    te_config = TEBertConfig(**te_config_dict)
-    model_te = TEBertForMaskedLM(te_config)
-
-    # Move both models to CUDA
     device = torch.device("cuda")
     model_hf = model_hf.to(device)
     model_te = model_te.to(device)
 
-    # Test that both models can process the same input
-    print("Testing model compatibility with input data...")
-
-    batch_size = 1
-    seq_length = min(128, te_config.max_position_embeddings)
-
-    input_ids = torch.randint(0, te_config.vocab_size, (batch_size, seq_length), dtype=torch.long, device=device)
-    attention_mask = torch.ones(batch_size, seq_length, dtype=torch.float32, device=device)
-    labels = torch.randint(0, te_config.vocab_size, (batch_size, seq_length), dtype=torch.long, device=device)
-
-    test_input = {
-        "input_ids": input_ids,
-        "attention_mask": attention_mask,
-        "labels": labels,
-    }
+    # Use realistic geneformer input data instead of random inputs
+    test_input = {k: v.to(device) for k, v in input_data.items()}
 
     # Test both models can process the input
     with torch.no_grad():
         te_outputs = model_te(**test_input)
-
-        hf_input = {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "labels": labels,
-        }
-        hf_outputs = model_hf(**hf_input)
+        hf_outputs = model_hf(**test_input)
 
     # Verify both models produce valid outputs
     assert te_outputs.loss is not None, "TE model should produce loss"
     assert hf_outputs.loss is not None, "HF model should produce loss"
     assert te_outputs.logits.shape == hf_outputs.logits.shape, "Both models should have same output shape"
+
+    # Verify losses are close to each other (indicating similar model behavior)
+    loss_diff = abs(te_outputs.loss - hf_outputs.loss)
+    assert loss_diff < 0.1, (
+        f"Loss difference {loss_diff:.4f} should be < 0.1. TE loss: {te_outputs.loss:.4f}, HF loss: {hf_outputs.loss:.4f}"
+    )
 
     print("Model compatibility test passed!")
     print(f" - TE model loss: {te_outputs.loss.item():.4f}")
@@ -235,9 +118,6 @@ def test_geneformer_checkpoint_weight_compatibility(model_variant):
     from geneformer.modeling_bert_te import TEBertConfig
 
     model_name, model_info = model_variant
-
-    # Require CUDA to be available
-    assert torch.cuda.is_available(), "CUDA is required for this test"
 
     print(f"Testing weight compatibility with {model_name} checkpoint...")
     print(f"  - {model_info['description']}")
