@@ -34,7 +34,7 @@ on:
         required: false
         type: string
   schedule:
-    - cron: "0 12 * * *" # everyday at 4am PST
+    - cron: "0 8 * * *" # everyday at 12am PST
 
 jobs:
   submit-lepton-jobs:
