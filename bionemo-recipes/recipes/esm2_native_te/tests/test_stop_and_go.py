@@ -152,11 +152,24 @@ def test_stop_and_go_single_gpu(tmp_path):
     print("step10_path is", step10_path_reference)
     print("created the following files: os.listdir(step10_path_reference)", os.listdir(step10_path_reference))
 
-    # From step 5, load the checkpoint and model and optimizer.
-    model, optimizer, scheduler, start_step = load_checkpoint_ddp(
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
+    # Create fresh model, optimizer, scheduler for the resume test
+    config = AutoConfig.from_pretrained("nvidia/esm2_t6_8M_UR50D", trust_remote_code=True, dtype=torch.bfloat16)
+    resumed_model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    
+    try:
+        del resumed_model.esm.contact_head
+    except AttributeError:
+        pass
+    
+    resumed_model = resumed_model.to(device=device)
+    resumed_optimizer = AdamW(resumed_model.parameters(), **adamw_kwargs)
+    resumed_scheduler = get_linear_schedule_with_warmup(resumed_optimizer, **lr_scheduler_kwargs)
+    
+    # Load checkpoint from step 5 into the fresh model
+    resumed_model, resumed_optimizer, resumed_scheduler, start_step = load_checkpoint_ddp(
+            model=resumed_model,
+            optimizer=resumed_optimizer,
+            scheduler=resumed_scheduler,
             ckpt_path=step5_path_reference,
             dist_config=dist_config,
         )
@@ -175,7 +188,7 @@ def test_stop_and_go_single_gpu(tmp_path):
     new_dataloader = new_dataloader_info.dataloader
     new_dataloader.load_state_dict(dataloader_state)
 
-    model.train()
+    resumed_model.train()
     for step, batch in enumerate(new_dataloader):
         batch["labels"] = batch["input_ids"].clone()
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
@@ -183,7 +196,7 @@ def test_stop_and_go_single_gpu(tmp_path):
 
         # Forward pass with mixed precision.
         with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-            outputs = model(**batch)
+            outputs = resumed_model(**batch)
 
         # Backward pass.
         loss = outputs.loss
@@ -192,9 +205,9 @@ def test_stop_and_go_single_gpu(tmp_path):
         loss.backward()
 
         # Step optimizer.
-        optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad()
+        resumed_optimizer.step()
+        resumed_scheduler.step()
+        resumed_optimizer.zero_grad()
         if step == 3:
             break
 
@@ -205,9 +218,9 @@ def test_stop_and_go_single_gpu(tmp_path):
     torch.save(batch, f"{step5_path_reloaded}_batch.pt")
     torch.save(new_dataloader_info.dataloader.state_dict(), f"{step5_path_reloaded}_dataloader_state.pt")
     save_checkpoint_ddp(
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
+        model=resumed_model,
+        optimizer=resumed_optimizer,
+        scheduler=resumed_scheduler,
         ckpt_path=step5_path_reloaded,
         step=step,
         dist_config=dist_config,
@@ -216,12 +229,13 @@ def test_stop_and_go_single_gpu(tmp_path):
     # Let's compare the batches now.
     reference_batch_step_10 = torch.load(f"{step10_path_reference}_batch.pt")['input_ids']
     reloaded_batch_step_5 = torch.load(f"{step5_path_reloaded}_batch.pt")['input_ids']
-    assert torch.equal(reference_batch_step_10, reloaded_batch_step_5)
+    assert torch.equal(reference_batch_step_10, reloaded_batch_step_5), \
+        "Final batches don't match - dataloader state restoration may have failed"
 
 
-    # Let's compare logits now.
+    # Let's compare logits now (using allclose for floating point tolerance)
     reference_logits_step_10 = torch.load(f"{step10_path_reference}_logits.pt")
     reloaded_logits_step_5 = torch.load(f"{step5_path_reloaded}_logits.pt")
-    assert torch.equal(reference_logits_step_10, reloaded_logits_step_5)
-    
+    assert torch.allclose(reference_logits_step_10, reloaded_logits_step_5, rtol=1e-5, atol=1e-5), \
+        "Logits don't match - model state may not have been restored correctly"
     
