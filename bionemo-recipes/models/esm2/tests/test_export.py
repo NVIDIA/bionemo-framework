@@ -87,7 +87,7 @@ def test_export_te_checkpoint_to_hf(model_name):
         te_model_path = te_checkpoint_path / model_name
 
         hf_export_path = temp_path / "hf_export"
-        export_te_checkpoint(str(te_model_path), str(hf_export_path))
+        export_te_checkpoint(str(te_model_path), hf_export_path)
 
         model_hf_exported = AutoModelForMaskedLM.from_pretrained(str(hf_export_path))
 

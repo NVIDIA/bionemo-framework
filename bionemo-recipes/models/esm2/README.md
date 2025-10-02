@@ -16,7 +16,7 @@ The ESM-2 implementation natively supports the following TransformerEngine-provi
 | **Sequence Packing / THD input format** | ✅ Supported                                                                     |
 | **FP8 with THD input format**           | ✅ Supported where FP8 is supported                                              |
 | **Import from HuggingFace checkpoints** | ✅ Supported                                                                     |
-| **Export to HuggingFace checkpoints**   | ✅ Under development                                                             |
+| **Export to HuggingFace checkpoints**   | ✅ Supported                                                           |
 
 See [BioNemo Recipes](../../recipes/README.md) for more details on how to use these features to accelerate model
 training and inference.
@@ -137,7 +137,7 @@ from esm.export import export_te_checkpoint
 
 hf_export_path = Path("hf_export")
 exported_model_path = te_checkpoint_path / "esm2_t6_8M_UR50D"
-export_te_checkpoint(str(exported_model_path), str(hf_export_path))
+export_te_checkpoint(str(exported_model_path), hf_export_path)
 ```
 
 This step creates a new Hugging Face model that should be functionally equivalent to the original.

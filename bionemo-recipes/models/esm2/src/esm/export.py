@@ -119,7 +119,7 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     torch.cuda.empty_cache()
 
 
-def export_te_checkpoint(te_checkpoint_path: str, output_path: str):
+def export_te_checkpoint(te_checkpoint_path: str, output_path: Path):
     """Export a Transformer Engine checkpoint back to the original HuggingFace Facebook ESM-2 format.
 
     This function converts from the NVIDIA Transformer Engine (TE) format back to the
@@ -129,7 +129,7 @@ def export_te_checkpoint(te_checkpoint_path: str, output_path: str):
 
     Args:
         te_checkpoint_path (str): Path to the TE checkpoint
-        output_path (str): Output path for the converted Facebook ESM-2 format model
+        output_path (Path): Output path for the converted Facebook ESM-2 format model
     """
     if not Path(te_checkpoint_path).exists():
         raise FileNotFoundError(f"TE checkpoint {te_checkpoint_path} not found")
@@ -143,15 +143,15 @@ def export_te_checkpoint(te_checkpoint_path: str, output_path: str):
 
     tokenizer_config_path = Path(te_checkpoint_path) / "tokenizer_config.json"
     if tokenizer_config_path.exists():
-        shutil.copy(tokenizer_config_path, Path(output_path) / "tokenizer_config.json")
+        shutil.copy(tokenizer_config_path, output_path / "tokenizer_config.json")
 
     vocab_path = Path(te_checkpoint_path) / "vocab.txt"
     if vocab_path.exists():
-        shutil.copy(vocab_path, Path(output_path) / "vocab.txt")
+        shutil.copy(vocab_path, output_path / "vocab.txt")
 
     special_tokens_path = Path(te_checkpoint_path) / "special_tokens_map.json"
     if special_tokens_path.exists():
-        shutil.copy(special_tokens_path, Path(output_path) / "special_tokens_map.json")
+        shutil.copy(special_tokens_path, output_path / "special_tokens_map.json")
 
     model_hf = AutoModelForMaskedLM.from_pretrained(
         output_path,
