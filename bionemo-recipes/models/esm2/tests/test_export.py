@@ -94,7 +94,6 @@ def test_export_te_checkpoint_to_hf(model_name):
         original_state_dict = model_hf_original.state_dict()
         exported_state_dict = model_hf_exported.state_dict()
 
-        # assert original_state_dict.keys() == exported_state_dict.keys()
         original_keys = {k for k in original_state_dict.keys() if "contact_head" not in k}
         exported_keys = {k for k in exported_state_dict.keys() if "contact_head" not in k}
         assert original_keys == exported_keys

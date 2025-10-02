@@ -43,7 +43,7 @@ def main():
         help="Specific model tag to convert. If not provided, all models will be converted.",
     )
     hf_to_te_parser.add_argument(
-        "--output_path",
+        "--output-path",
         type=str,
         default="./hf_to_te_checkpoint_export",
         help="Output directory path for the converted model. Defaults to './hf_to_te_checkpoint_export'",
@@ -51,7 +51,7 @@ def main():
 
     te_to_hf_parser = subparsers.add_parser("te-to-hf", help="Convert from Transformer Engine to HuggingFace format")
     te_to_hf_parser.add_argument(
-        "--checkpoint-path", type=str, required=True, help="Path to the HuggingFace checkpoint to convert"
+        "--checkpoint-path", type=str, required=True, help="Path to the Transformer Engine checkpoint to convert"
     )
     te_to_hf_parser.add_argument(
         "--output-path",
@@ -64,9 +64,6 @@ def main():
 
     if args.conversion_type == "hf-to-te":
         if args.model:
-            if args.model not in ESM_TAGS:
-                print(f"Error: '{args.model}' is not a valid model tag.\nAvailable models: {', '.join(ESM_TAGS)}")
-                return
             print(f"Converting {args.model} from HuggingFace to Transformer Engine format")
             export_hf_checkpoint(args.model, Path(args.output_path))
         else:
@@ -75,8 +72,6 @@ def main():
                 export_hf_checkpoint(tag, Path(args.output_path))
     else:
         print(f"Converting {args.checkpoint_path} from Transformer Engine to HuggingFace format")
-        if not Path(args.checkpoint_path).exists():
-            raise FileNotFoundError(f"TE checkpoint {args.checkpoint_path} not found")
         export_te_checkpoint(args.checkpoint_path, Path(args.output_path))
 
 
