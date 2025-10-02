@@ -13,13 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""LLAMA3 recipe with ASCII tokenization and genomic windowing for BioNeMo."""
+"""LLAMA3 recipe with HuggingFace tokenization and genomic windowing for BioNeMo."""
 
-from tokenizer import NucleotideASCIITokenizer
-from .dataloader import GenomicSequenceDataset, create_genomic_dataloader, infinite_dataloader
+from .sqlite_dataset import GenomicSequenceDataset, create_genomic_dataloader, infinite_dataloader
 
 __all__ = [
-    "NucleotideASCIITokenizer",
     "GenomicSequenceDataset", 
     "create_genomic_dataloader",
     "infinite_dataloader",

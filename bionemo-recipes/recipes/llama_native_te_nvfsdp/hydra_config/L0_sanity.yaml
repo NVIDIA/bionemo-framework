@@ -23,6 +23,6 @@ lr_scheduler_kwargs:
 # Wandb config for testing
 wandb_init_args:
   project: "llama3-genomic-pretraining"  
-  name: "l0-sanity-test-ddp"
-  notes: "Sanity test for LLAMA3 genomic training pipeline with DDP"
-  tags: ["llama3", "genomic", "sanity-test", "ascii-tokenizer", "ddp"]
+  name: "l0-sanity-test-fsdp"
+  notes: "Sanity test for LLAMA3 genomic training pipeline with FSDP + HF tokenizer"
+  tags: ["llama3", "genomic", "sanity-test", "hf-tokenizer", "fsdp", "nemo-convention"]

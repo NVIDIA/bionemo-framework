@@ -29,11 +29,10 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoTokenizer
 
-from dataloader import create_genomic_dataloader
+from sqlite_dataset import create_genomic_dataloader
 from model import NVLlamaForCausalLM
-from tokenizer import NucleotideASCIITokenizer
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -109,7 +108,10 @@ def main(args: DictConfig):
         wandb.init(**args.wandb_init_args, config=dict(OmegaConf.to_container(args, resolve=True, throw_on_missing=True)))
 
     # Create tokenizer for genomic sequences (ASCII nucleotide encoding)
-    tokenizer = NucleotideASCIITokenizer(vocab_size=256)
+    # Load from saved HuggingFace tokenizer with NeMo convention (EOS=0, PAD=1, BOS=2)
+    import os
+    tokenizer_path = os.path.join(os.path.dirname(__file__), "nucleotide_tokenizer")
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
 
     # Create model config from pretrained (ESM-2 pattern: config from HF, weights from scratch)
     config = AutoConfig.from_pretrained(
