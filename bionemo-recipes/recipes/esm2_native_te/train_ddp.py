@@ -56,26 +56,43 @@ def main(args: DictConfig) -> float | None:
 
     # Create an empty ESM-2 model with a masked language model head.
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
+    config_thd = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
-    if args.dataset.use_sequence_packing:
-        config.attn_input_format = "thd"
+    config_thd.attn_input_format = "thd"
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    model_thd = AutoModelForMaskedLM.from_config(config_thd, trust_remote_code=True)
+    # Copy weights exactly
+    model_thd.load_state_dict(model.state_dict())
     logger.info("Initialized Model:\n%s", model)
+    logger.info("Initialized Model THD:\n%s", model_thd)
 
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
     # avoid errors with unused parameters.
     try:
         del model.esm.contact_head
+        del model_thd.esm.contact_head
     except AttributeError:
         pass
 
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
+    optimizer_thd = AdamW(model_thd.parameters(), **args.adamw_kwargs)
+
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+    scheduler_thd = get_linear_schedule_with_warmup(optimizer_thd, **args.lr_scheduler_kwargs)
 
     model = model.to(device=device)
+    model_thd = model_thd.to(device=device)
+
     model = torch.nn.parallel.DistributedDataParallel(
         model,
+        device_ids=[dist_config.local_rank],
+        output_device=dist_config.local_rank,
+        device_mesh=device_mesh["ddp"],
+    )
+
+    model_thd = torch.nn.parallel.DistributedDataParallel(
+        model_thd,
         device_ids=[dist_config.local_rank],
         output_device=dist_config.local_rank,
         device_mesh=device_mesh["ddp"],
@@ -91,6 +108,9 @@ def main(args: DictConfig) -> float | None:
 
     # Create a dataloader that just infinitely loops over the dataset.
     train_iterator = create_dataloader(dist_config, **args.dataset)
+    # Create THD iterator
+    args.dataset.use_sequence_packing = True
+    train_iterator_thd = create_dataloader(dist_config, **args.dataset)
 
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_ddp" if args.checkpoint.ckpt_dir else None
@@ -109,27 +129,39 @@ def main(args: DictConfig) -> float | None:
 
     # Training loop.
     model.train()
+    model_thd.train()
     for step in range(start_step, args.num_train_steps):
         # Get batch.
         batch = next(train_iterator)
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch_thd = next(train_iterator_thd)
+        batch_thd = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch_thd.items()}
+        breakpoint()
 
         # Forward pass with mixed precision.
         with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
             with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
                 outputs = model(**batch)
+                outputs_thd = model_thd(**batch_thd)
 
         # Backward pass.
         loss = outputs.loss
+        loss_thd = outputs_thd.loss
         loss.backward()
+        loss_thd.backward()
+        print(f"Loss: {loss}, Loss_THD: {loss_thd}")
 
         # Compute and clip gradient norms.
         total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+        #        total_norm_thd = torch.nn.utils.clip_grad_norm_(model_thd.parameters(), max_norm=1.0).item()
 
         # Step optimizer.
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad()
+        optimizer_thd.step()
+        scheduler_thd.step()
+        optimizer_thd.zero_grad()
 
         if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
             save_checkpoint_ddp(
