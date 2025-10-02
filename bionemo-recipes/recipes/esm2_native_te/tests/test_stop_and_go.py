@@ -239,3 +239,8 @@ def test_stop_and_go_single_gpu(tmp_path):
     assert torch.allclose(reference_logits_step_10, reloaded_logits_step_5, rtol=1e-5, atol=1e-5), \
         "Logits don't match - model state may not have been restored correctly"
     
+    # Let's compare the losses now.
+    reference_loss_step_10 = torch.load(f"{step10_path_reference}_loss.pt")
+    reloaded_loss_step_5 = torch.load(f"{step5_path_reloaded}_loss.pt")
+    assert torch.allclose(reference_loss_step_10, reloaded_loss_step_5, rtol=1e-5, atol=1e-5), \
+        "Losses don't match - model state may not have been restored correctly"
