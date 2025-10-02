@@ -14,6 +14,13 @@
 # limitations under the License.
 
 
+from pathlib import Path
+import pytest
+import tempfile
+import torch
+from transformers import AutoModelForMaskedLM
+
+
 def test_export_hf_checkpoint(tmp_path):
     from transformers import AutoModel, AutoModelForMaskedLM, AutoTokenizer
 
@@ -63,3 +70,35 @@ def test_export_hf_checkpoint(tmp_path):
     assert "**Benchmark Score:** 0.37" in readme_contents, (
         f"README.md does not contain the expected CASP14 score line: {readme_contents}"
     )
+
+@pytest.mark.parametrize("model_name", ["esm2_t6_8M_UR50D"])
+def test_export_te_checkpoint_to_hf(model_name):
+    """Test the export function that saves TE checkpoint as HF format."""
+    from esm.export import export_hf_checkpoint, export_te_checkpoint
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+
+        model_hf_original = AutoModelForMaskedLM.from_pretrained(f"facebook/{model_name}")
+
+        # Use export_hf_checkpoint to create TE checkpoint
+        te_checkpoint_path = temp_path / "te_checkpoint"
+        export_hf_checkpoint(model_name, te_checkpoint_path)
+        te_model_path = te_checkpoint_path / model_name
+
+        hf_export_path = temp_path / "hf_export"
+        export_te_checkpoint(str(te_model_path), str(hf_export_path))
+
+        model_hf_exported = AutoModelForMaskedLM.from_pretrained(str(hf_export_path))
+
+        original_state_dict = model_hf_original.state_dict()
+        exported_state_dict = model_hf_exported.state_dict()
+
+        # assert original_state_dict.keys() == exported_state_dict.keys()
+        original_keys = {k for k in original_state_dict.keys() if "contact_head" not in k}
+        exported_keys = {k for k in exported_state_dict.keys() if "contact_head" not in k}
+        assert original_keys == exported_keys
+
+        for key in original_state_dict.keys():
+            if not key.endswith("_extra_state") and not key.endswith("inv_freq") and "contact_head" not in key:
+                torch.testing.assert_close(original_state_dict[key], exported_state_dict[key], atol=1e-5, rtol=1e-5)

@@ -16,7 +16,7 @@ The ESM-2 implementation natively supports the following TransformerEngine-provi
 | **Sequence Packing / THD input format** | ✅ Supported                                                                     |
 | **FP8 with THD input format**           | ✅ Supported where FP8 is supported                                              |
 | **Import from HuggingFace checkpoints** | ✅ Supported                                                                     |
-| **Export to HuggingFace checkpoints**   | 🚧 Under development                                                             |
+| **Export to HuggingFace checkpoints**   | ✅ Under development                                                             |
 
 See [BioNemo Recipes](../../recipes/README.md) for more details on how to use these features to accelerate model
 training and inference.
@@ -77,17 +77,108 @@ Training recipes are available in the `bionemo-recipes/recipes/` directory:
 Generate converted ESM-2 checkpoints from existing HuggingFace transformers checkpoints:
 
 ```bash
-mkdir -p checkpoint_export
+mkdir -p hf_to_te_checkpoint_export
 docker build -t esm2 .
 docker run --rm -it --gpus all \
-  -v $PWD/checkpoint_export/:/workspace/bionemo/checkpoint_export \
+  -v $PWD/hf_to_te_checkpoint_export/:/workspace/bionemo/hf_to_te_checkpoint_export \
   -v $HOME/.cache/huggingface/:/root/.cache/huggingface \
-  esm2 python export.py
+  esm2 python export.py hf-to-te
 ```
 
 ### TE to HF Transformers conversion
 
-(Coming soon)
+```bash
+MODEL_TAG=esm2_t6_8M_UR50D # specify which model to convert
+mkdir -p te_to_hf_checkpoint_export
+docker build -t esm2 .
+docker run --rm -it --gpus all \
+  -v $PWD/te_to_hf_checkpoint_export/:/workspace/bionemo/te_to_hf_checkpoint_export \
+  -v $PWD/hf_to_te_checkpoint_export/$MODEL_TAG:/workspace/bionemo/hf_to_te_checkpoint_export/$MODEL_TAG \
+  -v $HOME/.cache/huggingface/:/root/.cache/huggingface \
+  esm2 python export.py te-to-hf --checkpoint-path /workspace/bionemo/hf_to_te_checkpoint_export/$MODEL_TAG
+```
+
+## Developer Conversion Workflow
+
+This section explains how to convert between Hugging Face and Transformer Engine (TE) ESM2 model formats. The process demonstrates bidirectional conversion: from Hugging Face to TE format for optimized inference, and back to Hugging Face format for sharing and deployment. The workflow involves several key steps:
+
+### Step 1: Load Original Hugging Face Model
+
+First, load the original ESM2 model from Hugging Face:
+
+```python
+from transformers import AutoModelForMaskedLM
+
+model_hf_original = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+```
+
+This loads the pre-trained ESM2 model that will serve as our reference for comparison.
+
+### Step 2: Export to Transformer Engine Format
+
+Convert the Hugging Face model to Transformer Engine format using the high-level export API:
+
+```python
+from pathlib import Path
+from esm.export import export_hf_checkpoint
+
+te_checkpoint_path = Path("te_checkpoint")
+export_hf_checkpoint("esm2_t6_8M_UR50D", te_checkpoint_path)
+```
+
+This creates a Transformer Engine checkpoint that can be used for optimized inference.
+
+### Step 3: Export Back to Hugging Face Format
+
+Convert the Transformer Engine checkpoint back to Hugging Face format:
+
+```python
+from esm.export import export_te_checkpoint
+
+hf_export_path = Path("hf_export")
+exported_model_path = te_checkpoint_path / "esm2_t6_8M_UR50D"
+export_te_checkpoint(str(exported_model_path), str(hf_export_path))
+```
+
+This step creates a new Hugging Face model that should be functionally equivalent to the original.
+
+### Step 4: Load and Test the Exported Model
+
+Load the exported model and perform validation:
+
+```python
+from transformers import AutoTokenizer
+model_hf_exported = AutoModelForMaskedLM.from_pretrained(str(hf_export_path))
+tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
+```
+
+### Step 5: Validate Model Equivalence
+
+Test the exported model against the original using masked language modeling:
+
+```python
+import torch
+from transformers import DataCollatorForLanguageModeling
+
+# Prepare test sequence
+sequence = "MKTVRQERLKSIVRILERSKEPVSGAQLAEELSVSRQVIVQDIAYLRSLGYNIVATPRGYVLAGG"
+batch = tokenizer([sequence], return_tensors="pt")
+collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15)
+inputs = collator([{"input_ids": batch["input_ids"][0]}])
+
+# Compare outputs
+with torch.no_grad():
+    outputs_original = model_hf_original(**inputs)
+    outputs_exported = model_hf_exported(**inputs)
+
+# Check differences
+logits_diff = torch.abs(outputs_original.logits - outputs_exported.logits).max()
+print(f"Max logits difference: {logits_diff:.2e}")
+
+if outputs_original.loss is not None and outputs_exported.loss is not None:
+    loss_diff = abs(outputs_original.loss - outputs_exported.loss)
+    print(f"Loss difference: {loss_diff:.2e}")
+```
 
 ## Developer Guide
 

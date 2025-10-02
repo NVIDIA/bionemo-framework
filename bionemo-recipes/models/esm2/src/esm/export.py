@@ -155,7 +155,7 @@ def export_te_checkpoint(te_checkpoint_path: str, output_path: str):
 
     model_hf = AutoModelForMaskedLM.from_pretrained(
         output_path,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         trust_remote_code=False,
     )
     del model_hf
