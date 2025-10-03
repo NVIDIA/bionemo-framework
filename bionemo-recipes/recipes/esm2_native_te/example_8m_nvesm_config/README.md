@@ -1,0 +1,236 @@
+---
+library_name: transformers
+license: mit
+widget:
+  - text: MQIFVKTLTGKTITLEVEPS<mask>TIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+---
+
+> [!NOTE]
+> This model has been optimized using NVIDIA's [TransformerEngine](https://github.com/NVIDIA/TransformerEngine)
+> library. Slight numerical differences may be observed between the original model and the optimized
+> version. For instructions on how to install TransformerEngine, please refer to the
+> [official documentation](https://github.com/NVIDIA/TransformerEngine?tab=readme-ov-file#installation).
+
+# ESM-2 (TransformerEngine-Optimized) Overview
+
+## Description:
+
+ESM-2 is a state-of-the-art protein model trained on a masked language modelling objective. It predicts protein
+structures from amino acid sequences, leveraging a transformer-based architecture for accurate 3D modeling. It is
+suitable for fine-tuning on a wide range of tasks that take protein sequences as input.
+
+This version of the ESM-2 model is optimized with NVIDIA's
+[TransformerEngine](https://github.com/NVIDIA/TransformerEngine) library. It is based on the original ESM-2 model from
+Facebook Research, and (within numerical precision) has identical weights and outputs.
+
+This model is ready for commercial/non-commercial use.
+
+## Third-Party Community Consideration
+
+This model is not owned or developed by NVIDIA. This model has been developed and built to a third-party's requirements
+for this application and use case; see link to Non-NVIDIA Model Card [ESM-2 Model
+Card](https://huggingface.co/facebook/esm2_t6_8M_UR50D).
+
+### License/Terms of Use:
+
+ESM-2 is licensed under the [MIT license](https://github.com/facebookresearch/esm/blob/main/LICENSE).
+
+### Deployment Geography:
+
+Global
+
+### Use Case:
+
+Protein structure prediction, specifically predicting 3D protein structures from amino acid sequences.
+
+### Release Date:
+
+Hugging Face 07/29/2025 via [https://huggingface.co/nvidia/esm2_t6_8M_UR50D](https://huggingface.co/nvidia/esm2_t6_8M_UR50D)
+
+## Reference(s):
+
+- [Evolutionary-scale prediction of atomic level protein structure with a language
+  model](https://www.biorxiv.org/content/10.1101/2022.07.20.500902v2) - detailed information on the model architecture
+  and training data, please refer to the accompanying [paper].
+- Demo notebooks
+  ([PyTorch](https://colab.research.google.com/github/huggingface/notebooks/blob/main/examples/protein_language_modeling.ipynb),
+  [TensorFlow](https://colab.research.google.com/github/huggingface/notebooks/blob/main/examples/protein_language_modeling-tf.ipynb))
+  which demonstrate how to fine-tune ESM-2 models on your tasks of interest.
+
+## Model Architecture:
+
+**Architecture Type:** Transformer
+**Network Architecture:** ESM-2
+
+**This model was developed based on:** [ESM-2](https://huggingface.co/facebook/esm2_t6_8M_UR50D) <br>
+**Number of model parameters:** 7.5 x 10^6
+
+## Input:
+
+**Input Type:** Text (Protein Sequences) <br>
+**Input Format:** String <br>
+**Input Parameters:** One-Dimensional (1D) <br>
+**Other Properties Related to Input:** Protein sequence represented as a string of canonical amino acids, of maximum
+length 1022. Longer sequences are automatically truncated to this length.
+
+## Output:
+
+**Output Type:** Embeddings (Amino acid and sequence-level) <br>
+**Output Format:** Vector <br>
+**Output Parameters:** One-Dimensional (1D) <br>
+**Other Properties Related to Output:** Numeric vector with floating-point values corresponding to an embedding for each
+amino acid in the input protein sequence. Maximum output length is 1022 embeddings - one embedding vector per amino
+acid.
+
+Our AI models are designed and/or optimized to run on NVIDIA GPU-accelerated systems. By leveraging NVIDIA’s hardware
+(e.g. GPU cores) and software frameworks (e.g., CUDA libraries), the model achieves faster training and inference times
+compared to CPU-only solutions.
+
+## Software Integration:
+
+**Runtime Engine(s):**
+
+- Hugging Face Transformers
+
+**Supported Hardware Microarchitecture Compatibility:**
+
+- NVIDIA Ampere
+- NVIDIA Blackwell
+- NVIDIA Hopper
+
+**[Preferred/Supported] Operating System(s):**
+
+- Linux
+
+The integration of foundation and fine-tuned models into AI systems requires additional testing using use-case-specific
+data to ensure safe and effective deployment. Following the V-model methodology, iterative testing and validation at
+both unit and system levels are essential to mitigate risks, meet technical and functional requirements, and ensure
+compliance with safety and ethical standards before deployment.
+
+## Model Version: This model features the following version/checkpoints:
+
+Several ESM-2 checkpoints are available with varying sizes. Larger sizes have better accuracy, but require more memory
+and time to train:
+
+| Checkpoint name                                                          | Num layers | Num parameters |
+| ------------------------------------------------------------------------ | ---------- | -------------- |
+| [esm2_t48_15B_UR50D](https://huggingface.co/nvidia/esm2_t48_15B_UR50D)   | 48         | 15B            |
+| [esm2_t36_3B_UR50D](https://huggingface.co/nvidia/esm2_t36_3B_UR50D)     | 36         | 3B             |
+| [esm2_t33_650M_UR50D](https://huggingface.co/nvidia/esm2_t33_650M_UR50D) | 33         | 650M           |
+| [esm2_t30_150M_UR50D](https://huggingface.co/nvidia/esm2_t30_150M_UR50D) | 30         | 150M           |
+| [esm2_t12_35M_UR50D](https://huggingface.co/nvidia/esm2_t12_35M_UR50D)   | 12         | 35M            |
+| [esm2_t6_8M_UR50D](https://huggingface.co/nvidia/esm2_t6_8M_UR50D)       | 6          | 8M             |
+
+## Training and Evaluation Datasets:
+
+## Training Datasets:
+
+**Link:** [UniRef90](https://www.uniprot.org/uniref?query=%28identity%3A0.9%29)
+
+**Data Modality:**
+
+- Text (Protein Sequences)
+
+**Text Training Data Size:**
+
+- 1 Billion to 10 Trillion Tokens
+
+**Data Collection Method:**
+
+- Human
+
+**Labeling Method:**
+
+- N/A
+
+**Properties (Quantity, Dataset Descriptions, Sensor(s)):** UniRef90 clusters are generated from the UniRef100 seed
+sequences with a 90% sequence identity threshold using the MMseqs2 algorithm. The seed sequences are the longest members
+of the UniRef100 cluster. However, the longest sequence is not always the most informative. There is often more
+biologically relevant information and annotation (name, function, cross-references) available on other cluster members.
+All the proteins in each cluster are ranked to facilitate the selection of a biologically relevant representative for
+the cluster.
+
+**Link:** [UniRef50](https://www.uniprot.org/uniref?query=%28identity%3A0.5%29)
+
+**Data Modality:**
+
+- Text (Protein Sequences)
+
+**Text Training Data Size:**
+
+- 1 Billion to 10 Trillion Tokens
+
+**Data Collection Method:**
+
+- Human
+
+**Labeling Method:**
+
+- N/A
+
+**Properties:** UniRef50 clusters are generated from the UniRef90 seed sequences with a 50% sequence identity threshold
+using the MMseqs2 algorithm. The seed sequences are the longest members of the UniRef90 cluster. However, the longest
+sequence is not always the most informative. There is often more biologically relevant information and annotation (name,
+function, cross-references) available on other cluster members. All the proteins in each cluster are ranked to
+facilitate the selection of a biologically relevant representative for the cluster.
+
+## Evaluation Datasets:
+
+**Link:** [Continuous Automated Model Evaluation (CAMEO)](https://pmc.ncbi.nlm.nih.gov/articles/PMC8673552/)
+
+**Benchmark Score:** 0.48
+
+**Data Collection Method:**
+
+- Human
+
+**Labeling Method:**
+
+- N/A
+
+**Properties:** The data is collected by taking sequences of protein structures that are about to be released weekly by
+the Protein Data Bank (PDB). These sequences are sent as "blind targets" to participating protein structure prediction
+servers, which then return their predictions.
+
+**Link:** [CASP14 (Critical Assessment of Methods of Protein Structure Prediction)](https://pubmed.ncbi.nlm.nih.gov/34533838/)
+
+**Benchmark Score:** 0.37
+
+**Data Collection Method:**
+
+- Human
+
+**Labeling Method:**
+
+- N/A
+
+**Properties:** The data for CASP14 targets is collected from protein structures that are newly solved by experimental
+structural biologists. The CASP organizers receive the amino acid sequences of these proteins before their full,
+three-dimensional structures are publicly released in the Protein Data Bank (PDB). They then provide these sequences to
+participating research groups and servers, who must submit their predicted structures within a specific time frame.
+
+## Inference:
+
+**Acceleration Engine:**
+
+- Hugging Face Transformers
+
+**Test Hardware:**
+
+- A100
+- H100
+- H200
+- GB200
+
+## Ethical Considerations:
+
+NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable
+development for a wide array of AI applications. When downloaded or used in accordance with our terms of service,
+developers should work with their internal model team to ensure this model meets requirements for the relevant industry
+and use case and addresses unforeseen product misuse.
+
+Users are responsible for ensuring the physical properties of model-generated molecules are appropriately evaluated and
+comply with applicable safety regulations and ethical standards.
+
+Please report model quality, risk, security vulnerabilities or NVIDIA AI Concerns
+[here](https://www.nvidia.com/en-us/support/submit-security-vulnerability/).

@@ -109,6 +109,14 @@ directory within the checkpoint directory.
 
 Checkpointing is implemented for all three strategies, see [`checkpoint.py`](checkpoint.py) for more details.
 
+## Pre-training from a local model file
+
+To pre-train with a custom model file, set `model_tag` to a local config directory, e.g.
+
+```bash
+python train_ddp.py model_tag=example_8m_nvesm_checkpoint
+```
+
 ## Running Inference with the Trained Model
 
 Models can be loaded from the final checkpoint directory using the `AutoModel.from_pretrained` method. For example:
