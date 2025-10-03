@@ -153,16 +153,6 @@ class NVEsmEncoder(nn.Module):
         if config.position_embedding_type == "rotary":
             self.rotary_embeddings = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
 
-            # Keep on CPU, pin for faster non_blocking H2D; don't persist in state_dict.
-            if config.attn_input_format == "bshd":
-                self.register_buffer(
-                    "te_rope_emb",
-                    self.rotary_embeddings(max_seq_len=config.max_position_embeddings).cpu().pin_memory(),
-                    persistent=False,
-                )
-            else:
-                self.te_rope_emb = None
-
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -206,16 +196,10 @@ class NVEsmEncoder(nn.Module):
         te_rope_emb = None
         if self.config.position_embedding_type == "rotary":
             if self.config.attn_input_format == "bshd":
-                te_rope_emb = self.te_rope_emb.to(
+                seq_len = hidden_states.shape[1]
+                te_rope_emb = self.rotary_embeddings(max_seq_len=seq_len).to(
                     device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
                 )
-                seq_len = hidden_states.shape[1]
-                if te_rope_emb.size(0) < seq_len:
-                    raise RuntimeError(
-                        f"ROPE length {te_rope_emb.size(0)} < input seq length {seq_len}. "
-                        f"Increase max_position_embeddings."
-                    )
-                te_rope_emb = te_rope_emb[:seq_len]
 
             elif self.config.attn_input_format == "thd":
                 assert cu_seq_lens_q is not None

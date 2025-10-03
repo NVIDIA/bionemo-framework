@@ -78,82 +78,6 @@ def test_nv_esm_embeddings_from_model(te_model_checkpoint, input_data_thd, input
     torch.testing.assert_close(outputs_thd, outputs_bshd, atol=1e-8, rtol=1e-8)
 
 
-@pytest.mark.parametrize("use_token_dropout", [True, False])
-def test_first_transformer_layer(te_model_checkpoint, input_data_thd, input_data, use_token_dropout):
-    torch.testing.assert_close(
-        input_data["input_ids"][input_data["attention_mask"].to(bool)],
-        input_data_thd["input_ids"].flatten(0),
-    )
-
-    torch.testing.assert_close(
-        input_data["labels"][input_data["attention_mask"].to(bool)],
-        input_data_thd["labels"].flatten(0),
-    )
-
-    model_thd = NVEsmForMaskedLM.from_pretrained(
-        te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16, token_dropout=use_token_dropout
-    )
-    model_bshd = NVEsmForMaskedLM.from_pretrained(
-        te_model_checkpoint, dtype=torch.bfloat16, token_dropout=use_token_dropout
-    )
-    model_thd.to("cuda")
-    model_bshd.to("cuda")
-
-    embedding = model_thd.esm.embeddings
-    assert embedding.token_dropout == use_token_dropout
-
-    input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
-    input_data_thd.pop("labels")
-    embeddings_thd = embedding(**input_data_thd)
-
-    input_data_bshd = {k: v.to("cuda") for k, v in input_data.items()}
-    input_data_bshd.pop("labels")
-    embeddings_bshd = embedding(**input_data_bshd)
-
-    # Ensure embeddings match -- shouldn't these be the same as the test above?
-    torch.testing.assert_close(
-        embeddings_thd,
-        embeddings_bshd[input_data_bshd["attention_mask"].to(bool)].unsqueeze(0),
-        atol=1e-8,
-        rtol=1e-8,
-    )
-
-    layer_thd = model_thd.esm.encoder.layers[0]
-    layer_bshd = model_bshd.esm.encoder.layers[0]
-
-    def get_output_bshd(embeddings, inputs_bshd):
-        extended_attention_mask = model_bshd.get_extended_attention_mask(
-            inputs_bshd["attention_mask"], embeddings.shape
-        )
-        extended_attention_mask = extended_attention_mask < -1
-        return layer_bshd(
-            embeddings,
-            attention_mask=extended_attention_mask,
-            rotary_pos_emb=model_bshd.esm.encoder.te_rope_emb,
-        )
-
-    def get_output_thd(embeddings, inputs_thd):
-        return layer_thd(
-            embeddings,
-            cu_seqlens_q=inputs_thd["cu_seq_lens_q"],
-            cu_seqlens_kv=inputs_thd["cu_seq_lens_k"],
-            max_seqlen_q=inputs_thd["max_length_q"],
-            max_seqlen_kv=inputs_thd["max_length_k"],
-            rotary_pos_emb=model_thd.esm.encoder.rotary_embeddings(max_seq_len=inputs_thd["cu_seq_lens_q"][-1]),
-        )
-
-    output_bshd = get_output_bshd(embeddings_bshd, input_data_bshd)
-    # output_thd = get_output_thd(embeddings_thd.squeeze(0), input_data_thd)
-    output_thd = get_output_thd(embeddings_bshd[input_data_bshd["attention_mask"].to(bool)], input_data_thd)
-
-    torch.testing.assert_close(
-        output_bshd[input_data_bshd["attention_mask"].to(bool)],
-        output_thd,
-        atol=1e-8,
-        rtol=1e-8,
-    )
-
-
 def test_thd_from_collator_output(te_model_checkpoint, input_data_thd):
     model_thd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
     model_thd.to("cuda")
@@ -343,4 +267,4 @@ def test_thd_backwards_passes_match(te_model_checkpoint, input_data, input_data_
     torch.testing.assert_close(thd_grads, bshd_grads)
 
     # sus
-    torch.testing.assert_close(thd_word_embeddings_grad, bshd_word_embeddings_grad, atol=1e-2, rtol=1e-5)
+    torch.testing.assert_close(thd_word_embeddings_grad, bshd_word_embeddings_grad, atol=1e-3, rtol=1e-5)
