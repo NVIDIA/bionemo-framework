@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 from pathlib import Path
 
-from esm.export import export_hf_checkpoint
+from esm.export import export_hf_checkpoint, export_te_checkpoint
 
 
 ESM_TAGS = [
@@ -30,10 +31,48 @@ ESM_TAGS = [
 
 def main():
     """Export the ESM2 models from Hugging Face to the Transformer Engine format."""
-    # TODO (peter): maybe add a way to specify the model to export or option to export all models?
-    for tag in ESM_TAGS:
-        print(f"Converting {tag}...")
-        export_hf_checkpoint(tag, Path("./checkpoint_export"))
+    parser = argparse.ArgumentParser(description="Convert ESM2 models from Hugging Face to Transformer Engine format")
+
+    subparsers = parser.add_subparsers(dest="conversion_type", required=True, help="Type of conversion to perform")
+
+    hf_to_te_parser = subparsers.add_parser("hf-to-te", help="Convert from HuggingFace to Transformer Engine format")
+    hf_to_te_parser.add_argument(
+        "--model",
+        type=str,
+        choices=ESM_TAGS,
+        help="Specific model tag to convert. If not provided, all models will be converted.",
+    )
+    hf_to_te_parser.add_argument(
+        "--output-path",
+        type=str,
+        default="./hf_to_te_checkpoint_export",
+        help="Output directory path for the converted model. Defaults to './hf_to_te_checkpoint_export'",
+    )
+
+    te_to_hf_parser = subparsers.add_parser("te-to-hf", help="Convert from Transformer Engine to HuggingFace format")
+    te_to_hf_parser.add_argument(
+        "--checkpoint-path", type=str, required=True, help="Path to the Transformer Engine checkpoint to convert"
+    )
+    te_to_hf_parser.add_argument(
+        "--output-path",
+        type=str,
+        default="./te_to_hf_checkpoint_export",
+        help="Output directory path for the converted model. Defaults to './te_to_hf_checkpoint_export'",
+    )
+    
+    args = parser.parse_args()
+
+    if args.conversion_type == "hf-to-te":
+        if args.model:
+            print(f"Converting {args.model} from HuggingFace to Transformer Engine format")
+            export_hf_checkpoint(args.model, Path(args.output_path))
+        else:
+            for tag in ESM_TAGS:
+                print(f"Converting {tag} from HuggingFace to Transformer Engine format")
+                export_hf_checkpoint(tag, Path(args.output_path))
+    else:
+        print(f"Converting {args.checkpoint_path} from Transformer Engine to HuggingFace format")
+        export_te_checkpoint(args.checkpoint_path, Path(args.output_path))
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
 Dockerfile
 README.md
-checkpoint_export/
+hf_to_te_checkpoint_export/
+te_to_hf_checkpoint_export/
