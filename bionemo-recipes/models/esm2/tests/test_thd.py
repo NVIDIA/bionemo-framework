@@ -242,7 +242,7 @@ def test_thd_logits_match(te_model_checkpoint, input_data, input_data_thd, attn_
         )
 
     bshd_logits = bshd_outputs.logits[input_data_bshd["attention_mask"].to(bool)]
-    torch.testing.assert_close(bshd_logits, thd_outputs.logits)
+    torch.testing.assert_close(bshd_logits, thd_outputs.logits, atol=1e-8, rtol=1e-8)
 
 
 @pytest.mark.parametrize("token_dropout", [True, False])
