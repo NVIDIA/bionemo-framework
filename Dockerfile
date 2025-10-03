@@ -366,3 +366,6 @@ RUN chmod 777 -R /workspace/bionemo2/
 # FIXME the following results in unstable training curves even if faster.
 #  See https://github.com/NVIDIA/bionemo-framework/pull/421
 # ENV NVTE_FUSED_ATTN=1 NVTE_FLASH_ATTN=0
+# Remove libtiff just for v2.7 release due to CVE https://nvd.nist.gov/vuln/detail/CVE-2025-9900
+# This has no effect on bionemo since we do not do any image processing.
+RUN apt remove -qy libtiff6
