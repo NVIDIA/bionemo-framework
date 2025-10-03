@@ -199,13 +199,20 @@ class NVEsmEncoder(nn.Module):
                 seq_len = hidden_states.shape[1]
                 te_rope_emb = self.rotary_embeddings(max_seq_len=seq_len).to(
                     device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
-                )
+                )  # [seq_len, 1, 1, hidden_size]
+
+            # A, B, C
+            # D, E, _
+            # rope: [3, 1, 1, hidden_size]
 
             elif self.config.attn_input_format == "thd":
                 assert cu_seq_lens_q is not None
                 te_rope_emb = self.rotary_embeddings(max_seq_len=cu_seq_lens_q[-1]).to(
                     device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
-                )
+                )  # [T, 1, 1, hidden_size]
+
+            # A, B, C, D, E
+            # rope: [5, 1, 1, hidden_size]
 
             else:
                 raise ValueError(f"Unsupported attention input format: {self.config.attn_input_format}")
