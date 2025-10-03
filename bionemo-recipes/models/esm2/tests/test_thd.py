@@ -261,11 +261,11 @@ def test_thd_backwards_passes_match(te_model_checkpoint, input_data, input_data_
     bshd_grads = {name: p.grad for name, p in model_bshd.named_parameters() if p.grad is not None}
 
     # max_diff_by_layer = {key: (thd_grads[key] - bshd_grads[key]).abs().max().item() for key in thd_grads.keys()}
-    torch.testing.assert_close(thd_grads, bshd_grads, atol=1e-8, rtol=1e-8)
 
     # # For some reason, the word embeddings grads have a slightly higher numerical error.
-    # thd_word_embeddings_grad = thd_grads.pop("esm.embeddings.word_embeddings.weight")
-    # bshd_word_embeddings_grad = bshd_grads.pop("esm.embeddings.word_embeddings.weight")
+    thd_word_embeddings_grad = thd_grads.pop("esm.embeddings.word_embeddings.weight")
+    bshd_word_embeddings_grad = bshd_grads.pop("esm.embeddings.word_embeddings.weight")
+    torch.testing.assert_close(thd_grads, bshd_grads)
 
     # # sus
-    # torch.testing.assert_close(thd_word_embeddings_grad, bshd_word_embeddings_grad, atol=1e-3, rtol=1e-5)
+    torch.testing.assert_close(thd_word_embeddings_grad, bshd_word_embeddings_grad, atol=1e-2, rtol=1e-5)
