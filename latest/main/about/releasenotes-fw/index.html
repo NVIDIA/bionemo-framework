@@ -12226,12 +12226,23 @@
 <p>Evo2 model improvements:</p>
 </li>
 <li>
+<p>Context, tensor and data parallelism support in the prediction endpoint as well as support for context lengths over 8192 https://github.com/NVIDIA/bionemo-framework/pull/1123. Fixes https://github.com/NVIDIA/bionemo-framework/issues/910 and https://github.com/NVIDIA/bionemo-framework/issues/1048.</p>
+</li>
+<li>
 <p>LoRA fine-tuning by @gabenavarro: https://github.com/NVIDIA/bionemo-framework/pull/980. Note: internal CI coverage of LoRA convergence is still a work in progress; therefore, we cannot guarantee convergence.</p>
 </li>
-<li>Fix a 2x memory-usage issue during Evo2 generation: https://github.com/NVIDIA/NeMo/pull/14515</li>
-<li>Add flash-decode support in inference: https://github.com/NVIDIA/bionemo-framework/pull/1000</li>
-<li>Update Rotary Embedding and sequence-length defaults to address incorrect checkpoint conversion: https://github.com/NVIDIA/NeMo/pull/14514</li>
-<li>Improvements to tag masking in the Evo2 loss: https://github.com/NVIDIA/bionemo-framework/pull/1008</li>
+<li>
+<p>Fix a 2x memory-usage issue during Evo2 generation: https://github.com/NVIDIA/NeMo/pull/14515</p>
+</li>
+<li>
+<p>Add flash-decode support in inference: https://github.com/NVIDIA/bionemo-framework/pull/1000</p>
+</li>
+<li>
+<p>Update Rotary Embedding and sequence-length defaults to address incorrect checkpoint conversion: https://github.com/NVIDIA/NeMo/pull/14514</p>
+</li>
+<li>
+<p>Improvements to tag masking in the Evo2 loss: https://github.com/NVIDIA/bionemo-framework/pull/1008</p>
+</li>
 <li>
 <p>Support for <a href="https://arxiv.org/abs/2312.16903">Spike-no-more</a> to improve training stability: https://github.com/NVIDIA/bionemo-framework/pull/1011</p>
 </li>
@@ -12245,7 +12256,6 @@
 </ul>
 <h3 id="known-issues">Known Issues</h3>
 <ul>
-<li>Users have reported issues with the Evo2 predict script at sequence lengths over 8192; see https://github.com/NVIDIA/bionemo-framework/issues/910 and https://github.com/NVIDIA/bionemo-framework/issues/1048.</li>
 <li>We have removed <code>libtiff</code> from the container due to a known vulnerability, <a href="https://ubuntu.com/security/CVE-2025-9900">CVE-2025-9900</a>. <code>libtiff</code> isn't directly used in any BioNeMo code; however, users might face issues with e.g. Pillow or other common image-manipulation libraries inside this container.</li>
 </ul>
 <h2 id="bionemo-framework-v263">BioNeMo Framework v2.6.3</h2>
