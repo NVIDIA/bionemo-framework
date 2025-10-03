@@ -25,6 +25,7 @@ from typing import List, Optional
 import torch
 from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
 from megatron.core.distributed import DistributedDataParallelConfig
+from megatron.core.enums import Fp8Recipe
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -43,8 +44,8 @@ from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommO
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
+from nemo.utils import logging as logger
 from nemo.utils.exp_manager import TimingCallback
-from megatron.core.enums import Fp8Recipe
 
 from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
 from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
@@ -55,7 +56,6 @@ from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
-from nemo.utils import logging as logger
 
 
 torch._dynamo.config.suppress_errors = True
