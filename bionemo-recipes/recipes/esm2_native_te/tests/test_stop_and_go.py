@@ -120,8 +120,8 @@ def test_stop_and_go_single_gpu(tmp_path):  # noqa: C901
         # Backward pass.
         loss = outputs.loss
         logits = outputs.logits
-        # TODO[LIGHT]: Get gradients
         loss.backward()
+        grads = {name: p.grad for name, p in model.named_parameters() if p.grad is not None}
 
         # Step optimizer.
         optimizer.step()
@@ -131,10 +131,6 @@ def test_stop_and_go_single_gpu(tmp_path):  # noqa: C901
         if step == 5:
             dataloader_state = reference_dataloader_info.dataloader.state_dict()
             torch.save(dataloader_state, f"{step5_path_reference}_dataloader_state.pt")
-
-            # torch.save(logits.cpu(), f"{step5_path_reference}_logits.pt")
-            # torch.save(loss.cpu(), f"{step5_path_reference}_loss.pt")
-            # Let's save a random layers weights to disk also
             save_checkpoint_ddp(
                 model=model,
                 optimizer=optimizer,
@@ -158,11 +154,7 @@ def test_stop_and_go_single_gpu(tmp_path):  # noqa: C901
     torch.save(logits.cpu(), f"{step10_path_reference}_logits.pt")
     torch.save(loss.cpu(), f"{step10_path_reference}_loss.pt")
     torch.save(batch, f"{step10_path_reference}_batch.pt")
-    print("step5_path is", step5_path_reference)
-    print("created the following files: os.listdir(step5_path_reference)", os.listdir(step5_path_reference))
-    print("step10_path is", step10_path_reference)
-    print("created the following files: os.listdir(step10_path_reference)", os.listdir(step10_path_reference))
-
+    torch.save(grads, f"{step10_path_reference}_grads.pt")
     # Create fresh model, optimizer, scheduler for the resume test
     config = AutoConfig.from_pretrained("nvidia/esm2_t6_8M_UR50D", trust_remote_code=True, dtype=torch.bfloat16)
     resumed_model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
@@ -212,8 +204,8 @@ def test_stop_and_go_single_gpu(tmp_path):  # noqa: C901
         # Backward pass.
         loss = outputs.loss
         logits = outputs.logits
-        # TODO[LIGHT]: Get gradients
         loss.backward()
+        resumed_grads = {name: p.grad for name, p in resumed_model.named_parameters() if p.grad is not None}
 
         # Step optimizer.
         resumed_optimizer.step()
@@ -227,6 +219,7 @@ def test_stop_and_go_single_gpu(tmp_path):  # noqa: C901
     torch.save(loss.cpu(), f"{step5_path_reloaded}_loss.pt")
     torch.save(batch, f"{step5_path_reloaded}_batch.pt")
     torch.save(new_dataloader_info.dataloader.state_dict(), f"{step5_path_reloaded}_dataloader_state.pt")
+    torch.save(resumed_grads, f"{step5_path_reloaded}_grads.pt")
     save_checkpoint_ddp(
         model=resumed_model,
         optimizer=resumed_optimizer,
@@ -277,3 +270,7 @@ def test_stop_and_go_single_gpu(tmp_path):  # noqa: C901
     assert resumed_scheduler.last_epoch == scheduler.last_epoch
     assert resumed_scheduler.base_lrs == scheduler.base_lrs
     assert resumed_scheduler.get_last_lr() == scheduler.get_last_lr()
+
+    reference_grads_step_10 = torch.load(f"{step10_path_reference}_grads.pt")
+    reloaded_grads_step_5 = torch.load(f"{step5_path_reloaded}_grads.pt")
+    torch.testing.assert_close(reference_grads_step_10, reloaded_grads_step_5, atol=1e-2, rtol=1e-2)
