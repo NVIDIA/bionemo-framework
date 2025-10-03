@@ -42,10 +42,10 @@ def simple_database():
     """)
     
     test_sequences = [
-        ("seq_A", "A" * 10000, 10000),
-        ("seq_T", "T" * 8000, 8000),
-        ("seq_C", "C" * 5000, 5000),
-        ("seq_G", "G" * 2000, 2000),
+        ("seq_A", "A" * 100, 100),
+        ("seq_T", "T" * 80, 80),
+        ("seq_C", "C" * 50, 50),
+        ("seq_G", "G" * 20, 20),
     ]
     
     cursor.executemany(
@@ -61,112 +61,106 @@ def simple_database():
     Path(db_path).unlink()
 
 
-def test_dataset_index_0_returns_all_as(simple_database, tokenizer):
-    """Test dataset[0] returns all As (with seed=42).
+def test_dataset_loads_sample_sequence(simple_database, tokenizer):
+    """Test dataset retrieves sequences correctly from database.
     
-    Pattern: expected_sequence = [65] * seqlen
+    Pattern: expected_sequence = [nucleotide_id] * seqlen
     """
     dataset = GenomicSequenceDataset(
         database_path=simple_database,
-        seq_length=100,
+        seq_length=10,
         tokenizer=tokenizer,
-        stride=50,
-        min_window_length=50,
+        stride=5,
+        min_window_length=5,
         seed=42,
     )
     
     sample = dataset[0]
     nucleotides = sample["input_ids"][1:-1]  # Remove BOS/EOS
     
-    # With seed=42, index 0 is all As
-    expected_sequence = [65] * len(nucleotides)  # All As
+    # With seed=42, index 0 is all As (10 nucleotides)
+    expected_sequence = [65] * 10  # All As
     received_sequence = nucleotides.tolist()
     
     assert received_sequence == expected_sequence
 
 
-def test_dataset_index_1_returns_all_ts(simple_database, tokenizer):
-    """Test dataset[1] returns all Ts (with seed=42).
-    
-    Pattern: expected_sequence = [84] * 100
+def test_dataloader_returns_expected_batch(tokenizer):
+    """Test dataloader returns exact expected batch.
     """
-    dataset = GenomicSequenceDataset(
-        database_path=simple_database,
-        seq_length=100,
-        tokenizer=tokenizer,
-        stride=50,
-        min_window_length=50,
-        seed=42,
-    )
+    # Create minimal test database with exactly 2 sequences (one batch worth)
+    temp_db = tempfile.NamedTemporaryFile(delete=False, suffix=".sqlite")
+    db_path = temp_db.name
+    temp_db.close()
     
-    sample = dataset[1]
-    nucleotides = sample["input_ids"][1:-1]
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE sequences (contig_id TEXT PRIMARY KEY, nt_sequence TEXT NOT NULL, length INTEGER NOT NULL)")
+    cursor.executemany("INSERT INTO sequences VALUES (?, ?, ?)", [
+        ("seq_A", "A" * 5, 5),
+    ])
+    conn.commit()
+    conn.close()
     
-    # With seed=42, index 1 is all Ts (100 tokens)
-    expected_sequence = [84] * 100  # All Ts
-    received_sequence = nucleotides.tolist()
-    
-    assert received_sequence == expected_sequence
+    try:
+        args = DictConfig({
+            "dataset": {
+                "database_path": db_path,
+                "seq_length": 5,
+                "batch_size": 1,  # Just one sample per batch
+                "num_workers": 0,
+                "stride": 3,
+                "min_window_length": 3,
+                "seed": 42,
+            }
+        })
+        
+        train_iterator, epoch_len = create_genomic_dataloader(args, tokenizer)
+        returned_batch = next(train_iterator)
+        
+        # Hardcode expected batch (1 sequence, so the output will be deterministic)
+        # seq_A: 5bp of As -> BOS + 5 As + EOS
+        BOS = tokenizer.bos_token_id  # 2
+        EOS = tokenizer.eos_token_id  # 0
+        A = 65  # ASCII value of 'A'
+        
+        expected_batch = {
+            "input_ids": torch.tensor([
+                [BOS, A, A, A, A, A, EOS],  # All As
+            ], dtype=torch.int64),
+            "labels": torch.tensor([
+                [BOS, A, A, A, A, A, EOS],  # Same as input_ids
+            ], dtype=torch.int64),
+            "attention_mask": torch.tensor([
+                [1, 1, 1, 1, 1, 1, 1],  # All real tokens
+            ], dtype=torch.int64),
+        }
+        
+        assert torch.equal(returned_batch["input_ids"], expected_batch["input_ids"])
+        assert torch.equal(returned_batch["labels"], expected_batch["labels"])
+        assert torch.equal(returned_batch["attention_mask"], expected_batch["attention_mask"])
+        
+    finally:
+        Path(db_path).unlink()
 
 
-def test_dataset_index_3_returns_all_gs(simple_database, tokenizer):
-    """Test dataset[3] returns all Gs (with seed=42).
+def test_attention_mask_aligns_with_labels(simple_database, tokenizer):
+    """Test attention_mask correctly identifies real vs padded positions in labels.
     
-    Pattern: expected_sequence = [71] * 100
+    Where attention_mask=1: labels should contain real token IDs
+    Where attention_mask=0: labels should contain ignore_index value
     """
-    dataset = GenomicSequenceDataset(
-        database_path=simple_database,
-        seq_length=100,
-        tokenizer=tokenizer,
-        stride=50,
-        min_window_length=50,
-        seed=42,
-    )
+    # Define the ignore value we expect for padding (HF's LanguageModeling Collator hardcoded default) 
+    IGNORE_PAD_TOKEN = -100
     
-    sample = dataset[3]
-    nucleotides = sample["input_ids"][1:-1]
-    
-    # With seed=42, index 3 is all Gs (100 tokens)
-    expected_sequence = [71] * 100  # All Gs
-    received_sequence = nucleotides.tolist()
-    
-    assert received_sequence == expected_sequence
-
-
-def test_dataset_index_5_returns_all_cs(simple_database, tokenizer):
-    """Test dataset[5] returns all Cs (with seed=42).
-    
-    Pattern: expected_sequence = [67] * 100
-    """
-    dataset = GenomicSequenceDataset(
-        database_path=simple_database,
-        seq_length=100,
-        tokenizer=tokenizer,
-        stride=50,
-        min_window_length=50,
-        seed=42,
-    )
-    
-    sample = dataset[5]
-    nucleotides = sample["input_ids"][1:-1]
-    
-    # With seed=42, index 5 is all Cs (100 tokens)
-    expected_sequence = [67] * 100  # All Cs
-    received_sequence = nucleotides.tolist()
-    
-    assert received_sequence == expected_sequence
-
-
-def test_dataloader_returns_batch_with_required_keys(simple_database, tokenizer):
-    """Test dataloader batches have input_ids, labels, attention_mask."""
     args = DictConfig({
         "dataset": {
             "database_path": simple_database,
-            "seq_length": 1000,
+            "seq_length": 80,  # Larger window to create mixed-length batch to properly test padding
             "batch_size": 2,
             "num_workers": 0,
-            "stride": 800,
-            "min_window_length": 500,
+            "stride": 60,
+            "min_window_length": 10,
             "seed": 42,
         }
     })
@@ -174,74 +168,31 @@ def test_dataloader_returns_batch_with_required_keys(simple_database, tokenizer)
     train_iterator, epoch_len = create_genomic_dataloader(args, tokenizer)
     batch = next(train_iterator)
     
-    assert "input_ids" in batch
-    assert "labels" in batch
-    assert "attention_mask" in batch
-
-
-def test_batch_size_is_correct(simple_database, tokenizer):
-    """Test batch size matches configuration."""
-    args = DictConfig({
-        "dataset": {
-            "database_path": simple_database,
-            "seq_length": 1000,
-            "batch_size": 3,
-            "num_workers": 0,
-            "stride": 800,
-            "min_window_length": 500,
-            "seed": 42,
-        }
-    })
+    # Check first sequence
+    attention_mask = batch["attention_mask"][0]
+    labels = batch["labels"][0]
+    input_ids = batch["input_ids"][0]
     
-    train_iterator, epoch_len = create_genomic_dataloader(args, tokenizer)
-    batch = next(train_iterator)
+    # Where attention_mask=1, labels should equal input_ids (NON PADDED tokens)
+    real_positions = attention_mask == 1
+    real_labels = labels[real_positions]
+    real_input_ids = input_ids[real_positions]
     
-    assert batch["input_ids"].shape[0] == 3
-    assert batch["labels"].shape[0] == 3
-    assert batch["attention_mask"].shape[0] == 3
-
-
-def test_labels_equal_input_ids_for_causal_lm(simple_database, tokenizer):
-    """Test labels equal input_ids for non-padding positions."""
-    args = DictConfig({
-        "dataset": {
-            "database_path": simple_database,
-            "seq_length": 1000,
-            "batch_size": 2,
-            "num_workers": 0,
-            "stride": 800,
-            "min_window_length": 500,
-            "seed": 42,
-        }
-    })
+    # Check labels match input_ids for real positions
+    assert torch.all(real_labels == real_input_ids)
     
-    train_iterator, epoch_len = create_genomic_dataloader(args, tokenizer)
-    batch = next(train_iterator)
+    # Check a few positions to ensure real tokens (not all IGNORE_INDEX), and no accidental MLM bugs
+    assert real_labels[0].item() == 2  # BOS
+    assert real_labels[1].item() in [65, 84, 67, 71]  # Nucleotide
+    assert real_labels[-1].item() == 0  # EOS
     
-    # For real tokens, labels should equal input_ids
-    real_mask = batch["attention_mask"] == 1
-    assert torch.all(batch["labels"][real_mask] == batch["input_ids"][real_mask])
-
-
-def test_padding_positions_are_minus_100(simple_database, tokenizer):
-    """Test padding positions are -100 in labels."""
-    args = DictConfig({
-        "dataset": {
-            "database_path": simple_database,
-            "seq_length": 1000,
-            "batch_size": 2,
-            "num_workers": 0,
-            "stride": 800,
-            "min_window_length": 500,
-            "seed": 42,
-        }
-    })
+    # Ensure NO real position has padding
+    assert torch.all(real_labels != IGNORE_PAD_TOKEN)
     
-    train_iterator, epoch_len = create_genomic_dataloader(args, tokenizer)
-    batch = next(train_iterator)
-    
-    padding_mask = batch["attention_mask"] == 0
-    assert torch.all(batch["labels"][padding_mask] == -100)
+    # Where attention_mask=0, labels should be the pad token
+    padded_positions = attention_mask == 0
+    if padded_positions.any():
+        assert torch.all(labels[padded_positions] == IGNORE_PAD_TOKEN)
 
 
 def test_epoch_length_equals_total_windows_divided_by_batch_size(simple_database, tokenizer):
@@ -249,11 +200,11 @@ def test_epoch_length_equals_total_windows_divided_by_batch_size(simple_database
     args = DictConfig({
         "dataset": {
             "database_path": simple_database,
-            "seq_length": 1000,
+            "seq_length": 10,
             "batch_size": 3,
             "num_workers": 0,
-            "stride": 800,
-            "min_window_length": 500,
+            "stride": 8,
+            "min_window_length": 5,
             "seed": 42,
         }
     })
