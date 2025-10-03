@@ -9,8 +9,9 @@ on:
         default: "h100-sxm"
         type: choice
         options:
-          - h100-sxm
           - h200
+          - h100-sxm
+          - a100-80gb
       model_config:
         description: "Model configuration to use"
         required: true
@@ -59,7 +60,7 @@ jobs:
       - name: Submit Lepton Jobs
         env:
           LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
-          GPU_TYPE: ${{ github.event.inputs.gpu_type      || 'h100-sxm' }}
+          GPU_TYPE: ${{ github.event.inputs.gpu_type      || 'a100-80gb' }}
           BRANCH: ${{ github.event.inputs.branch        || 'main' }}
           COMMIT_SHA: ${{ github.event.inputs.commit_sha    || '' }}
           MODEL_CONFIG: ${{ github.event.inputs.model_config  || 'esm2_native_te' }}
@@ -73,6 +74,8 @@ jobs:
             NODE_GROUP="nv-int-multiteam-nebius-h200-01"
           elif [ "$GPU_TYPE" = "h100-sxm" ]; then
             NODE_GROUP="yo-bom-lepton-001"
+          elif [ "$GPU_TYPE" = "a100-80gb" ]; then
+            NODE_GROUP="az-sat-lepton-001"
           else
             echo "Error: Unknown GPU type: $GPU_TYPE"
             exit 1
