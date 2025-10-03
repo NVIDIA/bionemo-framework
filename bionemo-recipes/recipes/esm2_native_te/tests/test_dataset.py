@@ -26,11 +26,13 @@ requires_multi_gpu = pytest.mark.skipif(
     reason="Test requires at least 2 GPUs",
 )
 
+
 @dataclass
 class MockDistributedConfig:
     rank: int
     local_rank: int
     world_size: int
+
 
 def test_stateful_dataloader_works_with_iterator():
     tokenizer_name = "facebook/esm2_t6_8M_UR50D"
@@ -238,11 +240,9 @@ def test_stateful_dataloader_with_multiple_workers():
     assert torch.equal(loaded_batches[2], reference_batches[8])
 
 
-
 @requires_multi_gpu
 def test_stateful_dataloader_with_multiple_gpus():
     pass
-
 
 
 def test_iterable_dataloader_yields_different_values_per_rank():
