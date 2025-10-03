@@ -44,10 +44,10 @@ node_group: az-sat-lepton-001
 ############################################################
 mount_from: node-nfs:fs1
 
-# mounts:
-#   - path: /BioNeMo
-#     mount_path: /BioNeMo
-#     from_: ${mount_from}
+mounts:
+  - path: /BioNeMo
+    mount_path: /BioNeMo
+    from_: ${mount_from}
 
 ############################################################
 # W&B Initialization

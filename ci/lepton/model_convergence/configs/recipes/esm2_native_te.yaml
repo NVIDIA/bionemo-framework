@@ -6,12 +6,12 @@ defaults:
 ############################################################
 # lepton job info
 ############################################################
-node_group: az-sat-lepton-001
+node_group: yo-bom-lepton-001
 mount_from: node-nfs:fs1
 num_nodes: 1
 device_type: gpu
 num_devices: 2
-gpu_type: a100-80gb
+gpu_type: h100-sxm
 resource_shape: "${device_type}.${num_devices}x${gpu_type}"
 
 ############################################################
@@ -113,6 +113,9 @@ run_script: |
     num_train_steps=${num_train_steps} \
     dataset.micro_batch_size=${micro_batch_size} \
     dataset.use_sequence_packing=${thd_enabled} \
+    dataset.load_dataset_kwargs.path=${load_dataset_kwargs_path} \
+    dataset.load_dataset_kwargs.streaming=${load_dataset_kwargs_streaming} \
+    +dataset.load_dataset_kwargs.revision=${load_dataset_kwargs_revision} \
     lr_scheduler_kwargs.num_warmup_steps=${num_warmup_steps} \
     checkpoint.ckpt_dir=${ckpt_dir} \
     checkpoint.save_final_model=${save_final_model} \
