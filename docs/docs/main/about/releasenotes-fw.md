@@ -1,27 +1,33 @@
 # Release Notes
 
-## BioNeMo Framework v2.7rc1
+## BioNeMo Framework v2.7
 
 ### Updates & Improvements
 
-- Adds a header to SCDL archives, providing improved provenance tracking and supporting future releases. Also adds tracking of the AnnData API coverage in SCDL tests.
-  This header stores metadata about the archive and its composite arrays, including a version, the array lengths and data types, and information about the RowFeatureIndexes. This adds the features necessary to fix https://github.com/NVIDIA/bionemo-framework/issues/999 as well as implement simple bit-packing of the rowptr, colptr, and data arrays. It also should make SCDL more secure, enable strict compatibility checking, and open the door to more performance improvements. https://github.com/NVIDIA/bionemo-framework/pull/1030
+- Evo2 model improvements:
 
-- Spike-no-more support for potentially improved training stability: https://github.com/NVIDIA/bionemo-framework/pull/1011
+  - Context, tensor and data parallelism support in the prediction endpoint as well as support for context lengths over 8192 https://github.com/NVIDIA/bionemo-framework/pull/1123. Fixes https://github.com/NVIDIA/bionemo-framework/issues/910 and https://github.com/NVIDIA/bionemo-framework/issues/1048.
 
-- Improvements in tag masking in Evo2 loss https://github.com/NVIDIA/bionemo-framework/pull/1008
+  - LoRA fine-tuning by @gabenavarro: https://github.com/NVIDIA/bionemo-framework/pull/980. Note: internal CI coverage of LoRA convergence is still a work in progress; therefore, we cannot guarantee convergence.
 
-- Flash decode support in inference https://github.com/NVIDIA/bionemo-framework/pull/1000
+  - Fix a 2x memory-usage issue during Evo2 generation: https://github.com/NVIDIA/NeMo/pull/14515
 
-- Evo2 Lora feature by @gabenavarro https://github.com/NVIDIA/bionemo-framework/pull/980
+  - Add flash-decode support in inference: https://github.com/NVIDIA/bionemo-framework/pull/1000
 
-- Added partial-conv benchmark for Evo 2 finetune (from checkpoint) and Evo 2 LoRA finetuning https://github.com/NVIDIA/bionemo-framework/pull/1028
+  - Update Rotary Embedding and sequence-length defaults to address incorrect checkpoint conversion: https://github.com/NVIDIA/NeMo/pull/14514
+
+  - Improvements to tag masking in the Evo2 loss: https://github.com/NVIDIA/bionemo-framework/pull/1008
+
+  - Support for [Spike-no-more](https://arxiv.org/abs/2312.16903) to improve training stability: https://github.com/NVIDIA/bionemo-framework/pull/1011
+
+- Added a header to SCDL archives, providing improved provenance tracking and supporting future releases. It also adds tracking of AnnData API coverage in SCDL tests.
+  This header stores metadata about the archive and its composite arrays, including a version; the array lengths and data types; and information about the RowFeatureIndexes. This adds the features necessary to fix https://github.com/NVIDIA/bionemo-framework/issues/999 as well as to implement simple bit-packing of the rowptr, colptr, and data arrays. It should also make SCDL more secure, enable strict compatibility checking, and open the door to further performance improvements: https://github.com/NVIDIA/bionemo-framework/pull/1030
+
+- `bionemo-geometric` has been deprecated and removed. The molecular-featurization tooling in this package has moved to [cuik-molmaker](https://github.com/NVIDIA-Digital-Bio/cuik-molmaker).
 
 ### Known Issues
 
-- Users have reported issues in the predict script at sequence lengths over 8192 https://github.com/NVIDIA/bionemo-framework/issues/910 and https://github.com/NVIDIA/bionemo-framework/issues/1048 for example.
-- PR in progress to update Rotary Embedding and sequence length defaults to support incorrect checkpoint conversion https://github.com/NVIDIA/NeMo/pull/14514
-- PR in progress to fix 2x memory usage issue during generation https://github.com/NVIDIA/NeMo/pull/14515
+- We have removed `libtiff` from the container due to a known vulnerability, [CVE-2025-9900](https://ubuntu.com/security/CVE-2025-9900). `libtiff` isn't directly used in any BioNeMo code; however, users might face issues with e.g. Pillow or other common image-manipulation libraries inside this container.
 
 ## BioNeMo Framework v2.6.3
 
