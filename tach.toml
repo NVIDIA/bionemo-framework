@@ -71,12 +71,6 @@ depends_on = [
 ]
 
 [[modules]]
-path = "bionemo.geometric"
-depends_on = [
-    "bionemo.core",
-]
-
-[[modules]]
 path = "bionemo.llm"
 depends_on = [
     "bionemo.core",
