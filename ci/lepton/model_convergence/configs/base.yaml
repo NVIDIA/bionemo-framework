@@ -33,7 +33,7 @@ environment_variables:
 # - h200: nv-int-multiteam-nebius-h200-01
 # - a100: az-sat-lepton-001
 ############################################################
-node_group: az-sat-lepton-001
+node_group: yo-bom-lepton-001
 
 ############################################################
 # Shared Mounts
