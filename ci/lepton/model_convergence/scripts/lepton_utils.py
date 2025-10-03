@@ -21,6 +21,9 @@ resource_shapes_by_node_group = {
     "nv-int-multiteam-nebius-h200-01": ["h200"],
 }
 
+UNIVERSAL_CPU_RESOURCES = ["cpu.small", "cpu.medium", "cpu.large"]
+
+
 
 def construct_mount(path: str, mount_path: str, from_: str = "node-nfs:lepton-shared-fs") -> Mount:
     """Construct a Mount object for a given path, mount_path, and source."""
@@ -52,11 +55,16 @@ def validate_resource_shape(node_group: str, resource_shape: str) -> None:
 
     Args:
         node_group: The node group name
-        resource_shape: The resource shape (e.g., "gpu.2xh100-sxm")
+        resource_shape: The resource shape (e.g., "gpu.2xh100-sxm" or "cpu.small")
 
     Raises:
         SystemExit: If node group is unknown or resource shape is incompatible
     """
+    print(f"Validating resource shape: {resource_shape} for node group: {node_group}")
+    # CPU resources are available on all clusters
+    if resource_shape in UNIVERSAL_CPU_RESOURCES:
+        return
+    
     if node_group not in resource_shapes_by_node_group:
         known_groups = ", ".join(sorted(resource_shapes_by_node_group.keys()))
         raise SystemExit(f"Unknown node group '{node_group}'.\nKnown node groups: {known_groups}")
@@ -67,7 +75,7 @@ def validate_resource_shape(node_group: str, resource_shape: str) -> None:
         gpu_part = resource_shape.split(".", 1)[1]  # Get "2xh100-sxm"
         gpu_type = gpu_part.split("x", 1)[1]  # Get "h100-sxm"
     except (IndexError, ValueError):
-        raise SystemExit(f"Invalid resource shape format: {resource_shape}. Expected format: gpu.NxGPU_TYPE")
+        raise SystemExit(f"Invalid resource shape format: {resource_shape}. Expected format: gpu.NxGPU_TYPE or cpu.SIZE")
 
     available_gpu_types = resource_shapes_by_node_group[node_group]
     if gpu_type not in available_gpu_types:
