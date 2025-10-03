@@ -598,22 +598,20 @@ class NVEsmEmbeddings(nn.Module):
             embeddings = embeddings.masked_fill((input_ids == self.mask_token_id).unsqueeze(-1), 0.0)
             mask_ratio_train = 0.15 * 0.8  # Hardcoded as the ratio used in all ESM model training runs
 
-            breakpoint()
-
-            if using_thd:
+            if not using_thd:
                 # BSHD token dropout correction
                 src_lengths = attention_mask.sum(-1) if attention_mask is not None else input_ids.shape[1]
-                mask_ratio_observed = (input_ids == self.mask_token_id).sum(-1).float() / src_lengths
-                embeddings = (embeddings * (1 - mask_ratio_train) / (1 - mask_ratio_observed)[:, None, None]).to(
-                    embeddings.dtype
-                )
+                n_masked_per_seq = (input_ids == self.mask_token_id).sum(-1).float()
+                mask_ratio_observed = n_masked_per_seq / src_lengths
+                scale_factor = (1 - mask_ratio_train) / (1 - mask_ratio_observed)
+                embeddings = (embeddings * scale_factor[:, None, None]).to(embeddings.dtype)
 
             else:
                 src_lengths = torch.diff(cu_seq_lens_q)
                 # We need to find the number of masked tokens in each sequence in the padded batch.
                 is_masked = (input_ids == self.mask_token_id).squeeze(0)
                 n_masked_per_seq = torch.nested.nested_tensor_from_jagged(is_masked, offsets=cu_seq_lens_q).sum(1)
-                mask_ratio_observed = n_masked_per_seq / src_lengths
+                mask_ratio_observed = n_masked_per_seq.float() / src_lengths
                 scale_factor = (1 - mask_ratio_train) / (1 - mask_ratio_observed)
                 reshaped_scale_factor = torch.repeat_interleave(scale_factor, src_lengths, dim=0)
                 embeddings = (embeddings * reshaped_scale_factor.unsqueeze(-1)).to(embeddings.dtype)
