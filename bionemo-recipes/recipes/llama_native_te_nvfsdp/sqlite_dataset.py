@@ -11,6 +11,7 @@ Implements meeting requirements:
 4. EVO2-style overlap ratio (200bp default)
 """
 
+import logging
 import sqlite3
 import random
 import numpy as np
@@ -20,6 +21,8 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from omegaconf import DictConfig
 from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizerBase
+
+logger = logging.getLogger(__name__)
 
 
 class GenomicSequenceDataset(Dataset):
@@ -79,7 +82,7 @@ class GenomicSequenceDataset(Dataset):
         # Step 3: Randomize lookups - shuffle window indices
         self._randomize_window_access()
         
-        print(f"Dataset ready: {len(self.window_mappings):,} windows with EVO2-style tiling")
+        logger.info(f"Dataset ready: {len(self.window_mappings):,} windows with EVO2-style tiling")
     
     def _load_sequences(self):
         """Load sequence metadata from SQLite database."""
@@ -91,7 +94,7 @@ class GenomicSequenceDataset(Dataset):
             cursor.execute("SELECT contig_id, length FROM sequences ORDER BY contig_id")
             self.sequences = cursor.fetchall()
             
-        print(f"Loaded {len(self.sequences)} sequences from database")
+        logger.info(f"Loaded {len(self.sequences)} sequences from database")
     
     def _create_window_mappings(self):
         """
@@ -123,7 +126,7 @@ class GenomicSequenceDataset(Dataset):
                     self.window_mappings.append((seq_idx, contig_id, start_pos, effective_length))
                     total_windows += 1
         
-        print(f"Created {total_windows:,} window mappings with stride={self.stride} (overlap={self.seq_length - self.stride}bp)")
+        logger.info(f"Created {total_windows:,} window mappings with stride={self.stride} (overlap={self.seq_length - self.stride}bp)")
     
     def _randomize_window_access(self):
         """
@@ -135,7 +138,7 @@ class GenomicSequenceDataset(Dataset):
         # Create shuffled indices for randomized access
         self.shuffled_indices = list(range(len(self.window_mappings)))
         random.shuffle(self.shuffled_indices)
-        print(f"Shuffled {len(self.shuffled_indices):,} window indices for randomized access")
+        logger.info(f"Shuffled {len(self.shuffled_indices):,} window indices for randomized access")
     
     def __len__(self) -> int:
         """Return number of windows."""
@@ -248,11 +251,11 @@ def create_genomic_dataloader(args: DictConfig, tokenizer: PreTrainedTokenizerBa
     # Calculate epoch length  
     epoch_len = len(dataloader)
     
-    print(f"Created genomic dataloader: {len(dataset):,} windows, {epoch_len:,} batches per epoch")
-    print(f"Tiling: stride={dataset.stride}, overlap={dataset.seq_length - dataset.stride}bp")
-    print("Randomization: fixed_positions=True, shuffled_access=True (EVO2 style)")
-    print("Mode: Simplified for testing (no distributed training)")
-    print(f"Collator: DataCollatorForLanguageModeling(mlm=False) - model handles label shifting")
+    logger.info(f"Created genomic dataloader: {len(dataset):,} windows, {epoch_len:,} batches per epoch")
+    logger.info(f"Tiling: stride={dataset.stride}, overlap={dataset.seq_length - dataset.stride}bp")
+    logger.info("Randomization: fixed_positions=True, shuffled_access=True (EVO2 style)")
+    logger.info("Mode: Simplified for testing (no distributed training)")
+    logger.info(f"Collator: DataCollatorForLanguageModeling(mlm=False) - model handles label shifting")
     
     # Create infinite iterator (matches Bruno's interface and other recipes)
     train_iterator = infinite_dataloader(dataloader)
