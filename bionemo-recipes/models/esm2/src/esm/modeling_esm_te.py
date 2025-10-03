@@ -581,6 +581,12 @@ class NVEsmEmbeddings(nn.Module):
         # embedding_scale factor here.
         embeddings = inputs_embeds
 
+        if all(x is not None for x in [cu_seq_lens_q, cu_seq_lens_k, max_length_q, max_length_k]):
+            using_thd = True
+            attention_mask = None
+        else:
+            using_thd = False
+
         # Matt: ESM has the option to handle masking in MLM in a slightly unusual way. If the token_dropout
         # flag is False then it is handled in the same was as BERT/RoBERTa. If it is set to True, however,
         # masked tokens are treated as if they were selected for input dropout and zeroed out.
@@ -592,7 +598,9 @@ class NVEsmEmbeddings(nn.Module):
             embeddings = embeddings.masked_fill((input_ids == self.mask_token_id).unsqueeze(-1), 0.0)
             mask_ratio_train = 0.15 * 0.8  # Hardcoded as the ratio used in all ESM model training runs
 
-            if cu_seq_lens_q is None:
+            breakpoint()
+
+            if using_thd:
                 # BSHD token dropout correction
                 src_lengths = attention_mask.sum(-1) if attention_mask is not None else input_ids.shape[1]
                 mask_ratio_observed = (input_ids == self.mask_token_id).sum(-1).float() / src_lengths
