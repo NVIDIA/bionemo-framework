@@ -75,7 +75,7 @@ def input_data(tokenizer, tokenized_proteins):
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm_probability=0.15,
-        pad_to_multiple_of=256,
+        pad_to_multiple_of=32,
         seed=42,
     )
 
