@@ -107,13 +107,17 @@ def create_nucleotide_tokenizer(
 
 if __name__ == "__main__":
     import torch
+    import logging
     from transformers import DataCollatorForLanguageModeling, AutoTokenizer
     import tempfile
     import os
     
-    print("="*80)
-    print("Creating HuggingFace PreTrainedTokenizerFast for Nucleotides")
-    print("="*80)
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    logger.info("="*80)
+    logger.info("Creating HuggingFace PreTrainedTokenizerFast for Nucleotides")
+    logger.info("="*80)
     
     # Create tokenizer with NeMo convention (but we add BOS for causal LM)
     tokenizer = create_nucleotide_tokenizer(
@@ -123,33 +127,33 @@ if __name__ == "__main__":
         unk_id=3,
     )
     
-    print(f"\n✅ Tokenizer created")
-    print(f"   Vocab size: {tokenizer.vocab_size}")
-    print(f"   Special tokens:")
-    print(f"     - PAD: {tokenizer.pad_token} = {tokenizer.pad_token_id}")
-    print(f"     - EOS: {tokenizer.eos_token} = {tokenizer.eos_token_id}")
-    print(f"     - BOS: {tokenizer.bos_token} = {tokenizer.bos_token_id}")
-    print(f"     - UNK: {tokenizer.unk_token} = {tokenizer.unk_token_id}")
+    logger.info("Tokenizer created")
+    logger.info(f"  Vocab size: {tokenizer.vocab_size}")
+    logger.info("  Special tokens:")
+    logger.info(f"    PAD: {tokenizer.pad_token} = {tokenizer.pad_token_id}")
+    logger.info(f"    EOS: {tokenizer.eos_token} = {tokenizer.eos_token_id}")
+    logger.info(f"    BOS: {tokenizer.bos_token} = {tokenizer.bos_token_id}")
+    logger.info(f"    UNK: {tokenizer.unk_token} = {tokenizer.unk_token_id}")
     
     # Test encoding/decoding
-    print("\n" + "-"*80)
-    print("Test 1: Encoding/Decoding")
-    print("-"*80)
+    logger.info("\n" + "-"*80)
+    logger.info("Test 1: Encoding/Decoding")
+    logger.info("-"*80)
     
     sequence = "ATCGATCG"
     encoded = tokenizer.encode(sequence, add_special_tokens=True)
     decoded = tokenizer.decode(encoded, skip_special_tokens=True)
     
-    print(f"Original:  '{sequence}'")
-    print(f"Encoded:   {encoded}")
-    print(f"Expected:  [2(BOS), 65(A), 84(T), 67(C), 71(G), 65(A), 84(T), 67(C), 71(G), 0(EOS)]")
-    print(f"Decoded:   '{decoded}'")
-    print(f"✅ Roundtrip: {sequence == decoded}")
+    logger.info(f"Original:  '{sequence}'")
+    logger.info(f"Encoded:   {encoded}")
+    logger.info(f"Expected:  [2(BOS), 65(A), 84(T), 67(C), 71(G), 65(A), 84(T), 67(C), 71(G), 0(EOS)]")
+    logger.info(f"Decoded:   '{decoded}'")
+    logger.info(f"Roundtrip successful: {sequence == decoded}")
     
     # Test padding
-    print("\n" + "-"*80)
-    print("Test 2: Padding")
-    print("-"*80)
+    logger.info("\n" + "-"*80)
+    logger.info("Test 2: Padding")
+    logger.info("-"*80)
     
     batch = tokenizer(
         ["ATCG", "ATCGATCGATCG"],
@@ -157,16 +161,16 @@ if __name__ == "__main__":
         return_tensors="pt"
     )
     
-    print(f"Batch keys: {list(batch.keys())}")
-    print(f"Input IDs shape: {batch['input_ids'].shape}")
-    print(f"Input IDs:\n{batch['input_ids']}")
-    print(f"Attention mask:\n{batch['attention_mask']}")
-    print(f"✅ Padding works!")
+    logger.info(f"Batch keys: {list(batch.keys())}")
+    logger.info(f"Input IDs shape: {batch['input_ids'].shape}")
+    logger.info(f"Input IDs:\n{batch['input_ids']}")
+    logger.info(f"Attention mask:\n{batch['attention_mask']}")
+    logger.info("Padding verified")
     
     # Test with DataCollator
-    print("\n" + "-"*80)
-    print("Test 3: DataCollatorForLanguageModeling (mlm=False)")
-    print("-"*80)
+    logger.info("\n" + "-"*80)
+    logger.info("Test 3: DataCollatorForLanguageModeling (mlm=False)")
+    logger.info("-"*80)
     
     collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
@@ -179,42 +183,43 @@ if __name__ == "__main__":
     ]
     
     collated = collator(examples)
-    print(f"Collated keys: {list(collated.keys())}")
-    print(f"Labels shape: {collated['labels'].shape}")
-    print(f"Labels (first 20): {collated['labels'][0][:20].tolist()}")
-    print(f"✅ Works with DataCollator!")
+    logger.info(f"Collated keys: {list(collated.keys())}")
+    logger.info(f"Labels shape: {collated['labels'].shape}")
+    logger.info(f"Labels (first 20): {collated['labels'][0][:20].tolist()}")
+    logger.info("DataCollator integration verified")
     
     # Test save/load
-    print("\n" + "-"*80)
-    print("Test 4: Save/Load with AutoTokenizer")
-    print("-"*80)
+    logger.info("\n" + "-"*80)
+    logger.info("Test 4: Save/Load with AutoTokenizer")
+    logger.info("-"*80)
     
     with tempfile.TemporaryDirectory() as tmpdir:
         save_path = os.path.join(tmpdir, "nucleotide_tokenizer")
         
         # Save
         tokenizer.save_pretrained(save_path)
-        print(f"✅ Saved to: {save_path}")
-        print(f"   Files created:")
+        logger.info(f"Saved to: {save_path}")
+        logger.info("Files created:")
         for f in os.listdir(save_path):
-            print(f"     - {f}")
+            logger.info(f"  - {f}")
         
         # Load with AutoTokenizer
         loaded = AutoTokenizer.from_pretrained(save_path)
-        print(f"✅ Loaded with AutoTokenizer.from_pretrained()")
+        logger.info("Loaded with AutoTokenizer.from_pretrained()")
         
         # Verify it works
         test_seq = "ATCG"
         test_enc = loaded.encode(test_seq, add_special_tokens=True)
         test_dec = loaded.decode(test_enc, skip_special_tokens=True)
-        print(f"   Test: '{test_seq}' -> {test_enc} -> '{test_dec}'")
-        print(f"✅ Loaded tokenizer works correctly!")
+        logger.info(f"Test: '{test_seq}' -> {test_enc} -> '{test_dec}'")
+        logger.info("Loaded tokenizer verified")
     
-    print("\n" + "="*80)
-    print("✅ ALL TESTS PASSED!")
-    print("="*80)
-    print("\nReady to use in your training pipeline:")
-    print("  1. Run this script once to create the tokenizer")
-    print("  2. Save it: tokenizer.save_pretrained('./tokenizer_files')")
-    print("  3. Use everywhere: AutoTokenizer.from_pretrained('./tokenizer_files')")
+    logger.info("\n" + "="*80)
+    logger.info("ALL TESTS PASSED")
+    logger.info("="*80)
+    logger.info("\nIntegration workflow:")
+    logger.info("  1. Create tokenizer: tokenizer = create_nucleotide_tokenizer()")
+    logger.info("  2. Save to directory: tokenizer.save_pretrained('./nucleotide_tokenizer')")
+    logger.info("  3. Load in training: tokenizer = AutoTokenizer.from_pretrained('./nucleotide_tokenizer')")
+    logger.info("  4. Use with DataCollatorForLanguageModeling for batch collation")
 
