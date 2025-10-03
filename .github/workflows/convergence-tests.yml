@@ -60,7 +60,7 @@ jobs:
       - name: Submit Lepton Jobs
         env:
           LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
-          GPU_TYPE: ${{ github.event.inputs.gpu_type      || 'a100-80gb' }}
+          GPU_TYPE: ${{ github.event.inputs.gpu_type      || 'h100-sxm' }}
           BRANCH: ${{ github.event.inputs.branch        || 'main' }}
           COMMIT_SHA: ${{ github.event.inputs.commit_sha    || '' }}
           MODEL_CONFIG: ${{ github.event.inputs.model_config  || 'esm2_native_te' }}
