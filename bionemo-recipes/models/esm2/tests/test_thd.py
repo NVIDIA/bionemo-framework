@@ -245,6 +245,50 @@ def test_thd_logits_match(te_model_checkpoint, input_data, input_data_thd, attn_
     torch.testing.assert_close(bshd_logits, thd_outputs.logits)
 
 
+@pytest.mark.parametrize("token_dropout", [True, False])
+def test_thd_logits_match_with_bf16_autocast(
+    te_model_checkpoint, input_data, input_data_thd, attn_impl, token_dropout
+):
+    # Ensure the input data is the same
+    torch.testing.assert_close(
+        input_data["input_ids"][input_data["attention_mask"].to(bool)],
+        input_data_thd["input_ids"].flatten(0),
+    )
+
+    torch.testing.assert_close(
+        input_data["labels"][input_data["attention_mask"].to(bool)],
+        input_data_thd["labels"].flatten(0),
+    )
+
+    # Create models
+    model_bshd = NVEsmForMaskedLM.from_pretrained(
+        te_model_checkpoint, token_dropout=token_dropout, dtype=torch.bfloat16
+    )
+    model_thd = NVEsmForMaskedLM.from_pretrained(
+        te_model_checkpoint, token_dropout=token_dropout, attn_input_format="thd", dtype=torch.bfloat16
+    )
+
+    model_bshd.to("cuda")
+    model_thd.to("cuda")
+
+    input_data_bshd = {k: v.to("cuda") for k, v in input_data.items()}
+    input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
+
+    with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+        thd_outputs = model_thd(**input_data_thd, output_hidden_states=True)
+        bshd_outputs = model_bshd(**input_data_bshd, output_hidden_states=True)
+
+    for i, (bshd_hidden, thd_hidden) in enumerate(zip(bshd_outputs.hidden_states, thd_outputs.hidden_states)):
+        torch.testing.assert_close(
+            bshd_hidden[input_data_bshd["attention_mask"].to(bool)],
+            thd_hidden.squeeze(0),
+            msg=lambda msg: "Hidden states do not match going into layer " + str(i + 1) + ": " + msg,
+        )
+
+    bshd_logits = bshd_outputs.logits[input_data_bshd["attention_mask"].to(bool)]
+    torch.testing.assert_close(bshd_logits, thd_outputs.logits)
+
+
 def test_thd_backwards_works(te_model_checkpoint, input_data_thd, attn_impl):
     if attn_impl == "fused_attn" and torch.cuda.get_device_capability() == (12, 0):
         pytest.xfail("BIONEMO-2840: On sm120 the THD backwards implementation is not available for fused attn.")
