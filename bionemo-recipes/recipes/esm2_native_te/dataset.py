@@ -123,6 +123,8 @@ def create_dataloader(
             mlm_probability=0.15,
             pad_to_multiple_of=sequence_packing_pad_to_multiple_of,
             seed=seed,
+            bshd_pad_to_multiple_of=max_seq_length,
+            bshd_equivalent=True,
         )
     else:
         data_collator = DataCollatorForLanguageModeling(

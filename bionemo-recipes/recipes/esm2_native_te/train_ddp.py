@@ -59,6 +59,11 @@ def main(args: DictConfig) -> float | None:
     config_thd = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     config_thd.attn_input_format = "thd"
+
+    # Set token dropout off
+    config.token_dropout = False
+    config_thd.token_dropout = False
+
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
     model_thd = AutoModelForMaskedLM.from_config(config_thd, trust_remote_code=True)
     # Copy weights exactly
