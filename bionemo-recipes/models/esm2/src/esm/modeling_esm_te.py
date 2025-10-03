@@ -195,6 +195,7 @@ class NVEsmEncoder(nn.Module):
                 "THD expects embeddings shaped [1, total_tokens, hidden_size]."
             )
             hidden_states = hidden_states.squeeze(0)
+            attention_mask = None
 
         elif self.config.attn_input_format == "bshd":
             if any(x is not None for x in [cu_seq_lens_q, cu_seq_lens_k, max_length_q, max_length_k]):
