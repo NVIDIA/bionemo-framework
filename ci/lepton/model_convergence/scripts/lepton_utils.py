@@ -19,10 +19,10 @@ from leptonai.api.v1.types.deployment import EnvValue, EnvVar, Mount
 resource_shapes_by_node_group = {
     "yo-bom-lepton-001": ["h100-sxm"],
     "nv-int-multiteam-nebius-h200-01": ["h200"],
+    "az-sat-lepton-001": ["a100-80gb"],
 }
 
-UNIVERSAL_CPU_RESOURCES = ["cpu.small", "cpu.medium", "cpu.large"]
-
+UNIVERSAL_CPU_RESOURCES = ["cpu.small", "cpu.medium", "cpu.large", "my.cpu.large-40gb-mem"]
 
 
 def construct_mount(path: str, mount_path: str, from_: str = "node-nfs:lepton-shared-fs") -> Mount:
@@ -64,7 +64,7 @@ def validate_resource_shape(node_group: str, resource_shape: str) -> None:
     # CPU resources are available on all clusters
     if resource_shape in UNIVERSAL_CPU_RESOURCES:
         return
-    
+
     if node_group not in resource_shapes_by_node_group:
         known_groups = ", ".join(sorted(resource_shapes_by_node_group.keys()))
         raise SystemExit(f"Unknown node group '{node_group}'.\nKnown node groups: {known_groups}")
@@ -75,7 +75,9 @@ def validate_resource_shape(node_group: str, resource_shape: str) -> None:
         gpu_part = resource_shape.split(".", 1)[1]  # Get "2xh100-sxm"
         gpu_type = gpu_part.split("x", 1)[1]  # Get "h100-sxm"
     except (IndexError, ValueError):
-        raise SystemExit(f"Invalid resource shape format: {resource_shape}. Expected format: gpu.NxGPU_TYPE or cpu.SIZE")
+        raise SystemExit(
+            f"Invalid resource shape format: {resource_shape}. Expected format: gpu.NxGPU_TYPE or cpu.SIZE"
+        )
 
     available_gpu_types = resource_shapes_by_node_group[node_group]
     if gpu_type not in available_gpu_types:
