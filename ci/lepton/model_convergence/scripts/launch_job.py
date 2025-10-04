@@ -17,7 +17,8 @@
 
 """Lepton Job submission script with Hydra configuration.
 
-Demo: python launch_job.py --config-name "evo2_finetune_lora" job_name="evo2-finetune-lora-job"
+Demo for model convergence: python launch_job.py --config-name "evo2_finetune_lora"
+Demo for SCDL performance: python launch_job.py --config-path="../../scdl_perf/configs" --config-name="scdl"
 """
 
 import json
@@ -81,7 +82,10 @@ def launch_single_job(client, cfg: DictConfig):
     chosen_group, valid_node_ids, resource_shape = _resolve_scheduling_target(client, cfg)
 
     full_cfg_json = json.dumps(OmegaConf.to_container(cfg, resolve=True))
-    rendered = render_wrapper_string(cfg.script, full_cfg_json)
+    template_type = getattr(cfg, "template_type", "convergence_tests")
+
+    rendered = render_wrapper_string(cfg.script, full_cfg_json, template=template_type)
+
     command = ["bash", "-c", rendered]
 
     # env vars
