@@ -512,7 +512,7 @@ def dataset_config(request):
     return {"dataset_dir": dataset_dir, "training_config": training_config}
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def initial_checkpoint():
     """Load the initial checkpoint for distributed training tests."""
     from bionemo.core.data.load import load
@@ -520,10 +520,15 @@ def initial_checkpoint():
     return load("evo2/7b-8k:1.0")
 
 
-@pytest.fixture
-def base_checkpoint(tmp_path, initial_checkpoint, dataset_config):
-    """Create a base checkpoint by training one step with no parallelism."""
+@pytest.fixture(scope="session")
+def base_checkpoint(tmp_path_factory, initial_checkpoint, dataset_config):
+    """Create a base checkpoint by training one step with no parallelism.
+
+    This fixture is session-scoped, so it creates the checkpoint once and reuses it
+    across all parametrized test cases, significantly improving test performance.
+    """
     num_steps = 1
+    tmp_path = tmp_path_factory.mktemp("base_checkpoint_session")
     base_path = tmp_path / "base_training"
 
     # Create command with the initial checkpoint and dataset (if provided)
