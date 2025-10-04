@@ -7,6 +7,7 @@ defaults:
 # lepton job info
 ############################################################
 node_group: yo-bom-lepton-001
+mount_from: node-nfs:fs1
 num_nodes: 1
 device_type: gpu
 num_devices: 2
@@ -23,10 +24,10 @@ variant: train # train, finetune
 
 # Core identifiers for filtering
 framework: native # native, accelerate
-parallelism_strategy: fsdp2 # ddp, fsdp2, mfsdp
-precision: fp8 # likely bf16 or fp8
+precision: fp16 # likely bf16 or fp8
 te_enabled: true
-fp8_enabled: true
+fp8_enabled: false
+# thd_enabled: false
 
 # Catchall for additional features/configs
 extras: [] # e.g. [thd]
@@ -53,16 +54,20 @@ wandb_init_args:
 model_tag: nvidia/esm2_t36_3B_UR50D
 # task_cmd: train_fsdp2 # mfsdp
 num_train_steps: 10_000
+# dataset commands
 micro_batch_size: 16
-num_warmup_steps: 20_000
+load_dataset_kwargs_path: nvidia/esm2_uniref_pretraining_data
+load_dataset_kwargs_streaming: true
+load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma: allowlist secret
 
+# lr commands
+num_warmup_steps: 2_000
 # checkpoint controls
 ckpt_dir: ""
 save_checkpoints: false
 save_final_model: false
 resume_from_checkpoint: false
 use_distributed_checkpoint_fsdp2: false
-save_every_n_steps: 50
 
 ############################################################
 # Each product is a different config to run, alongside
@@ -71,18 +76,31 @@ save_every_n_steps: 50
 products:
   - config: L1_3B
     task_cmd: train_fsdp2
+    parallelism_strategy: fsdp2
+    thd_enabled: true
+    wandb_name: "${config}__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  - config: L1_3B
+    task_cmd: train_fsdp2
+    parallelism_strategy: fsdp2
+    thd_enabled: false
     wandb_name: "${config}__${now:%Y%m%d-%H%M%S}__${gitsha:}"
   - config: L1_3B
     task_cmd: train_mfsdp
-    wandb_name: "${config}__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    micro_batch_size: 2
+    parallelism_strategy: mfsdp
+    thd_enabled: true
+    wandb_name: "${config}__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
   - config: L1_3B
-    task_cmd: train_ddp
+    task_cmd: train_mfsdp
+    parallelism_strategy: mfsdp
+    thd_enabled: false
     wandb_name: "${config}__${now:%Y%m%d-%H%M%S}__${gitsha:}"
 
 ############################################################
 # run script
 # This gets called right after `checkout_script` in the base config.
+# dataset.load_dataset_kwargs.path=${load_dataset_kwargs_path} \
+# dataset.load_dataset_kwargs.streaming=${load_dataset_kwargs_streaming} \
+# +dataset.load_dataset_kwargs.revision=${load_dataset_kwargs_revision} \
 ############################################################
 run_script: |
   torchrun ${task_cmd}.py \
@@ -94,10 +112,14 @@ run_script: |
     wandb_init_args.name=${wandb_name} \
     num_train_steps=${num_train_steps} \
     dataset.micro_batch_size=${micro_batch_size} \
+    dataset.use_sequence_packing=${thd_enabled} \
+    dataset.load_dataset_kwargs.path=${load_dataset_kwargs_path} \
+    dataset.load_dataset_kwargs.streaming=${load_dataset_kwargs_streaming} \
+    +dataset.load_dataset_kwargs.revision=${load_dataset_kwargs_revision} \
     lr_scheduler_kwargs.num_warmup_steps=${num_warmup_steps} \
     checkpoint.ckpt_dir=${ckpt_dir} \
     checkpoint.save_final_model=${save_final_model} \
     checkpoint.resume_from_checkpoint=${resume_from_checkpoint} \
-    checkpoint.save_every_n_steps=${save_every_n_steps} \
     +checkpoint.save_checkpoints=${save_checkpoints} \
-    +checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2}
+    +checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2} \
+    fp8_config.enabled=${fp8_enabled}
