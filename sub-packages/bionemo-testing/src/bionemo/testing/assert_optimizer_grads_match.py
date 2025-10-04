@@ -55,8 +55,8 @@ def machine_epsilon_for_dtype(dtype: torch.dtype) -> float:
 
 
 def relative_grad_diff(g_hat: TensorLike, g_ref: TensorLike, eps_den: float = 1e-30) -> float:
-    """
-    Relative difference ||g_hat - g_ref||_F / ||g_ref||_F.
+    """Relative difference ||g_hat - g_ref||_F / ||g_ref||_F.
+
     Accepts a single tensor or an iterable of shards for each argument.
     """
     # If sharded, assume shards align 1:1; otherwise pass the merged tensors.
@@ -80,8 +80,8 @@ def expected_rel_bound(
     dtype: Optional[torch.dtype] = torch.bfloat16,
     k: float = 4.0,
 ) -> float:
-    """
-    Bound ~ k * (C ** (L + 1 - l)) * eps_mch, with 1-based layer index l.
+    """Bound ~ k * (C ** (L + 1 - l)) * eps_mch, with 1-based layer index l.
+
     - L is hard-coded default to 32 per your request.
     - C is 'close to 1'; 1.01-1.05 are reasonable defaults.
     - k absorbs the hidden constant in big-O; 2-8 are common choices.
@@ -103,8 +103,8 @@ def check_gradient(
     dtype: Optional[torch.dtype] = None,
     k: float = 4.0,
 ) -> Tuple[float, float, bool]:
-    """
-    Compute (rel_error, bound, ok) for layer l.
+    """Compute (rel_error, bound, ok) for layer l.
+
     - If dtype is None, infer from g_ref (or g_hat if needed).
     # See https://www.arxiv.org/pdf/2506.09280 theorem 5.3
     """
@@ -123,6 +123,7 @@ def _filter_optimizer_tensors(plain_tensors: Dict[str, torch.Tensor]) -> Dict[st
 
 
 def assert_grads_close(left: torch.Tensor, right: torch.Tensor):
+    """Assert that two gradient tensors are close using theorem 5.3 of https://www.arxiv.org/pdf/2506.09280."""
     # Implement theorem 5.3 of https://www.arxiv.org/pdf/2506.09280
 
     # This is the real test:
@@ -154,7 +155,10 @@ def assert_grads_close(left: torch.Tensor, right: torch.Tensor):
 
 
 def unshard_row_parallel_state(saved_state, out_features, in_features, tp):
-    # saved_state: [..., tp, out_features * (in_features // tp)]
+    """Unshard row-parallel state tensor from sharded format to full format.
+
+    saved_state: [..., tp, out_features * (in_features // tp)]
+    """
     prefix = saved_state.shape[:-2]
     per = in_features // tp
     x = saved_state.view(*prefix, tp, out_features, per)  # [..., tp, O, I_shard]
@@ -298,9 +302,9 @@ def load_dist_checkpoint_pt(
     return placeholders  # dict[str, Tensor]
 
 
-def _test_optimizer_states_match(checkpoint_dirs):
-    """
-    Compare optimizer state across provided torch_dist checkpoints:
+def assert_optimizer_states_match(checkpoint_dirs):
+    """Compare optimizer state across provided torch_dist checkpoints.
+
     - Keys: ensure the set of optimizer tensor keys match across checkpoints
     - Values: ensure corresponding tensors are equal (allclose)
     - Structure (non-tensor common state): ensure common optimizer structures match
@@ -333,6 +337,7 @@ def _test_optimizer_states_match(checkpoint_dirs):
 
 
 def main():
+    """Main entry point for comparing optimizer states across multiple checkpoints."""
     parser = ArgumentParser(
         description="Given checkpoints saved with adam b1,b2=0 trained for one step, "
         "we can check that the gradients match under different training configurations. "
@@ -341,7 +346,7 @@ def main():
     )
     parser.add_argument("checkpoints", nargs="+", type=Path, help="Path to the checkpoints to compare")
     args = parser.parse_args()
-    _test_optimizer_states_match(args.checkpoints)
+    assert_optimizer_states_match(args.checkpoints)
 
 
 if __name__ == "__main__":

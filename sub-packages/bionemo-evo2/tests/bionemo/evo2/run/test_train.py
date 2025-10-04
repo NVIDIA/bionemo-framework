@@ -28,10 +28,10 @@ from nemo import lightning as nl
 from transformer_engine.pytorch.fp8 import check_fp8_support
 
 from bionemo.evo2.run.train import parse_args, train
+from bionemo.testing.assert_optimizer_grads_match import assert_optimizer_states_match
 from bionemo.testing.lightning import extract_global_steps_from_log
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
-from bionemo.testing.test_optimizer_grads_match import _test_optimizer_states_match
 
 from .common import small_training_cmd, small_training_finetune_cmd
 
@@ -629,4 +629,4 @@ def test_distributed_training_gradient_equivalence(
     # Use the custom gradient comparison logic to verify optimizer states match
     # This implements theorem 5.3 of https://www.arxiv.org/pdf/2506.09280 for gradient equivalence
     checkpoint_dirs = [str(base_checkpoint / "weights"), str(parallel_checkpoint / "weights")]
-    _test_optimizer_states_match(checkpoint_dirs)
+    assert_optimizer_states_match(checkpoint_dirs)
