@@ -9,8 +9,9 @@ on:
         default: "h100-sxm"
         type: choice
         options:
-          - h100-sxm
           - h200
+          - h100-sxm
+          - a100-80gb
       model_config:
         description: "Model configuration to use"
         required: true
@@ -34,7 +35,7 @@ on:
         required: false
         type: string
   schedule:
-    - cron: "0 12 * * *" # everyday at 4am PST
+    - cron: "0 8 * * *" # everyday at 12am PST
 
 jobs:
   submit-lepton-jobs:
@@ -73,6 +74,8 @@ jobs:
             NODE_GROUP="nv-int-multiteam-nebius-h200-01"
           elif [ "$GPU_TYPE" = "h100-sxm" ]; then
             NODE_GROUP="yo-bom-lepton-001"
+          elif [ "$GPU_TYPE" = "a100-80gb" ]; then
+            NODE_GROUP="az-sat-lepton-001"
           else
             echo "Error: Unknown GPU type: $GPU_TYPE"
             exit 1
