@@ -83,6 +83,15 @@ python train_fsdp2.py --config-name L0_sanity \
   dataset.sequence_packing_pad_to_multiple_of=16
 ```
 
+### Comparing Against the HF Transformers Reference Implementation
+
+To launch training with the ESM-2 model as implemented in HF Transformers, pass a `facebook/esm2` checkpoint as the
+model tag:
+
+```bash
+python train_fsdp2.py --config-name L0_sanity model_tag=facebook/esm2_t6_8M_UR50D
+```
+
 ## Saving and Loading Checkpoints
 
 To enable checkpoint saving, ensure that `checkpoint.ckpt_dir` is set to a writable directory. Checkpointing frequency is
