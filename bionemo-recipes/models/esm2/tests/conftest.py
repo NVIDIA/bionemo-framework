@@ -17,13 +17,9 @@ import importlib
 import os
 
 import pytest
-import torch
 import transformer_engine.pytorch
-from datasets import Dataset
-from torch.utils.data import DataLoader
 from transformers import AutoModelForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
 
-from esm.collator import MLMDataCollatorWithFlattening
 from esm.convert import convert_esm_hf_to_te
 
 
@@ -47,26 +43,7 @@ def tokenizer():
 
 
 @pytest.fixture
-def bshd_data_collator(tokenizer):
-    return DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        pad_to_multiple_of=1024,
-        seed=42,
-    )
-
-
-@pytest.fixture
-def thd_data_collator(tokenizer):
-    return MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        pad_to_multiple_of=8,
-        seed=42,
-    )
-
-
-def get_test_proteins():
+def test_proteins():
     return [
         "MLSATEKLSDYISSLFASVSIINSISTEDLFFLKLTCQTFSKDSEEYKAAYRILRGVQRGKVQIIEEALVS",
         "MFVFFAGTLVNQDTLNFRDQLNINVVGTVRGIAQDASKYLEYAIDSV",
@@ -87,46 +64,22 @@ def get_test_proteins():
 
 
 @pytest.fixture
-def test_proteins():
-    return get_test_proteins()
-
-
-def get_input_data(tokenizer, data_collator):
-    torch.manual_seed(42)
-
-    dataset = Dataset.from_list([{"sequence": p} for p in get_test_proteins()])
-
-    def tokenize_function(examples):
-        return tokenizer(
-            examples["sequence"],
-            truncation=True,
-            max_length=1024,
-        )
-
-    tokenized_proteins = dataset.map(
-        tokenize_function,
-        batched=True,
-        remove_columns=["sequence"],
-    )
-
-    dataloader = DataLoader(
-        tokenized_proteins,
-        batch_size=len(tokenized_proteins),
-        collate_fn=data_collator,
-    )
-
-    batch = next(iter(dataloader))
-    return batch
+def tokenized_proteins(tokenizer, test_proteins):
+    return [tokenizer(p, truncation=True, max_length=1024) for p in test_proteins]
 
 
 @pytest.fixture
-def input_data(tokenizer, bshd_data_collator):
-    return get_input_data(tokenizer, bshd_data_collator)
+def input_data(tokenizer, tokenized_proteins):
+    """BSHD mock input data for forward pass tests."""
 
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        pad_to_multiple_of=256,
+        seed=42,
+    )
 
-@pytest.fixture
-def input_data_thd(tokenizer, thd_data_collator):
-    return get_input_data(tokenizer, thd_data_collator)
+    return data_collator(tokenized_proteins)
 
 
 @pytest.fixture

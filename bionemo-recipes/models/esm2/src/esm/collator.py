@@ -108,6 +108,8 @@ class MLMDataCollatorWithFlattening:
         seed: int | None = None,
         pad_to_multiple_of: int | None = None,
         return_position_ids: bool = False,
+        bshd_equivalent: bool = False,
+        bshd_pad_to_multiple_of: int | None = None,
     ):
         """Initialize the MLMDataCollatorWithFlattening.
 
@@ -122,6 +124,10 @@ class MLMDataCollatorWithFlattening:
             pad_to_multiple_of (int | None): If set, pads the total sequence length to be divisible
                 by this number by adding a mock sequence at the end. Defaults to None.
             return_position_ids (bool): Whether to return position ids. Defaults to False.
+            bshd_equivalent (bool): Whether to return a batch exactly reproduces the random masking of the BSHD
+                collator, at the expense of additional computation time. Defaults to False.
+            bshd_pad_to_multiple_of (int | None): For the bshd_equivalent mode, mimics padding that would be done by the
+                BSHD collator. Defaults to None.
         """
         self.mlm_collator = DataCollatorForLanguageModeling(
             tokenizer=tokenizer,
@@ -131,10 +137,16 @@ class MLMDataCollatorWithFlattening:
             random_replace_prob=random_replace_prob,
             return_tensors=return_tensors,
             seed=seed,
+            pad_to_multiple_of=bshd_pad_to_multiple_of,
         )
         self.return_tensors = return_tensors
         self.pad_to_multiple_of = pad_to_multiple_of
         self.return_position_ids = return_position_ids
+        self.bshd_equivalent = bshd_equivalent
+        self.bshd_pad_to_multiple_of = bshd_pad_to_multiple_of
+
+        if bshd_pad_to_multiple_of is not None and not bshd_equivalent:
+            raise ValueError("bshd_pad_to_multiple_of can only be used when bshd_equivalent is True")
 
     def __call__(self, features, return_tensors=None):
         """Process a batch of variable-length sequences for Flash Attention with MLM.
@@ -195,6 +207,9 @@ class MLMDataCollatorWithFlattening:
             sequence processing capabilities. When pad_to_multiple_of is used, an additional
             mock sequence is appended to reach the desired total length.
         """
+        if self.bshd_equivalent:
+            return self.bshd_compatible_call(features, return_tensors=return_tensors)
+
         if return_tensors is None:
             return_tensors = self.return_tensors
 
@@ -209,20 +224,48 @@ class MLMDataCollatorWithFlattening:
         )
 
         if self.pad_to_multiple_of is not None:
-            # Ensure token_pad is an integer, defaulting to 1 if pad_token_id is None or invalid
-            pad_token_id = self.mlm_collator.tokenizer.pad_token_id
-            if not isinstance(pad_token_id, int):
-                logger.warning(f"tokenizer.pad_token_id is not an integer, using 1 instead: {pad_token_id}")
-                pad_token_id = 1
-
-            batch = _pt_pad_to_multiple_of(
-                batch,
-                self.pad_to_multiple_of,
-                token_pad=pad_token_id,
-                label_pad=-100,
-            )
+            batch = self._pad_batch_to_multiple_of(batch)
 
         return batch
+
+    def bshd_compatible_call(self, features, return_tensors=None):
+        """Mask tokens in a way that's identical to the BSHD collator.
+
+        This ensures the randomized masking outputs of the THD collator are identical to the BSHD collator.
+        """
+        # Perform the masking with the BSHD collator.
+        bshd_batch = self.mlm_collator(features, return_tensors=return_tensors)
+
+        # Create the flattened batch to get the cu_seq_lens_q and cu_seq_lens_k values.
+        packed_batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
+
+        # Get the masked input_ids and labels from the BSHD batch.
+        masked_input_ids = bshd_batch["input_ids"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
+        masked_labels = bshd_batch["labels"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
+
+        # Update the packed batch with the masked input_ids and labels.
+        packed_batch["input_ids"] = masked_input_ids
+        packed_batch["labels"] = masked_labels
+
+        if self.pad_to_multiple_of is not None:
+            packed_batch = self._pad_batch_to_multiple_of(packed_batch)
+
+        return packed_batch
+
+    def _pad_batch_to_multiple_of(self, batch):
+        """Add a mock sequence to make the total number of tokens divisible by pad_to_multiple_of."""
+        # Ensure token_pad is an integer, defaulting to 1 if pad_token_id is None or invalid
+        pad_token_id = self.mlm_collator.tokenizer.pad_token_id
+        if not isinstance(pad_token_id, int):
+            logger.warning(f"tokenizer.pad_token_id is not an integer, using 1 instead: {pad_token_id}")
+            pad_token_id = 1
+
+        return _pt_pad_to_multiple_of(
+            batch,
+            self.pad_to_multiple_of,
+            token_pad=pad_token_id,
+            label_pad=-100,
+        )
 
 
 @dataclass

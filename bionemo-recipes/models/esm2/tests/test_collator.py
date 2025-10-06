@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import torch
+from transformers import DataCollatorForLanguageModeling
 
 from esm.collator import DataCollatorWithFlattening, MLMDataCollatorWithFlattening
 
@@ -321,3 +322,44 @@ def test_mlm_data_collator_with_flattening_pad_to_multiple_of(tokenizer, test_pr
     # Assert that the attention mask is padded with zeros
     assert (batch["attention_mask"][:, -remainder:] == 0).all()
     assert (batch["attention_mask"][:, :-remainder] == 1).all()
+
+
+def test_mlm_data_collator_with_flattening_bshd_equivalent(tokenizer, test_proteins):
+    """Test MLMDataCollatorWithFlattening with bshd_equivalent=True."""
+    thd_collator = MLMDataCollatorWithFlattening(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        seed=42,
+        pad_to_multiple_of=16,
+        bshd_equivalent=True,
+        bshd_pad_to_multiple_of=256,
+    )
+
+    bshd_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        seed=42,
+        pad_to_multiple_of=256,
+    )
+
+    features = [tokenizer(protein) for protein in test_proteins]
+
+    # Do the masking a bunch of times to make sure the random numerics continue to match.
+    for _ in range(25):
+        thd_batch = thd_collator(features)
+        bshd_batch = bshd_collator(features)
+
+        packed_bshd_inputs = bshd_batch["input_ids"][bshd_batch["attention_mask"].to(bool)].unsqueeze(0)
+        packed_bshd_labels = bshd_batch["labels"][bshd_batch["attention_mask"].to(bool)].unsqueeze(0)
+
+        # Since we pad out the THD inputs beyond the packed BSHD inputs (for FP8 compatibility), we truncate the THD
+        # inputs before comparing.
+        torch.testing.assert_close(
+            thd_batch["input_ids"][:, : packed_bshd_inputs.shape[1]],
+            packed_bshd_inputs,
+        )
+
+        torch.testing.assert_close(
+            thd_batch["labels"][:, : packed_bshd_labels.shape[1]],
+            packed_bshd_labels,
+        )

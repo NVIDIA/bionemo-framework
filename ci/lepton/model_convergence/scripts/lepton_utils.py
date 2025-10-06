@@ -19,6 +19,7 @@ from leptonai.api.v1.types.deployment import EnvValue, EnvVar, Mount
 resource_shapes_by_node_group = {
     "yo-bom-lepton-001": ["h100-sxm"],
     "nv-int-multiteam-nebius-h200-01": ["h200"],
+    "az-sat-lepton-001": ["a100-80gb"],
 }
 
 

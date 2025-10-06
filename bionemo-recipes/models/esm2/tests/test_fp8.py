@@ -19,6 +19,7 @@ import transformer_engine
 from transformer_engine.common.recipe import DelayedScaling, MXFP8BlockScaling
 from transformer_engine.pytorch.fp8 import check_fp8_support, check_mxfp8_support
 
+from esm.collator import MLMDataCollatorWithFlattening
 from esm.modeling_esm_te import NVEsmForMaskedLM
 
 
@@ -35,6 +36,18 @@ def requires_mxfp8(func):
         mxfp8_available = False
         reason = "MXFP8 is not supported on sm120"
     return pytest.mark.skipif(not mxfp8_available, reason=f"MXFP8 is not supported on this GPU: {reason}")(func)
+
+
+@pytest.fixture
+def input_data_thd(tokenizer, tokenized_proteins):
+    data_collator = MLMDataCollatorWithFlattening(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        pad_to_multiple_of=32,  # MXFP8 requires the sequence length to be divisible by 32, regular FP8 requires 16.
+        seed=42,
+    )
+
+    return data_collator(tokenized_proteins)
 
 
 @requires_fp8
