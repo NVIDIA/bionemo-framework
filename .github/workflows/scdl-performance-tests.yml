@@ -1,0 +1,11 @@
+name: SCDL Performance Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-performance-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run performance benchmarks
+        run: echo "running performance benchmarks"
