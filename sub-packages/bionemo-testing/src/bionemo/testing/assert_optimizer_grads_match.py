@@ -32,8 +32,10 @@ def _as_iter(x: TensorLike):
 
 def _fro_norm(x: TensorLike) -> torch.Tensor:
     """Frobenius norm; supports sharded tensors (sum of shard ||·||_F^2)."""
-    it = _as_iter(x)
-    s = torch.tensor(0.0, device=next(iter(it)).device if it else "cpu")
+    it = list(_as_iter(x))  # Convert to list to avoid iterator consumption issues
+    if not it:
+        return torch.tensor(0.0, device="cpu")
+    s = torch.tensor(0.0, device=it[0].device)
     for t in it:
         s = s + t.float().pow(2).sum()
     return torch.sqrt(s)
@@ -59,13 +61,18 @@ def relative_grad_diff(g_hat: TensorLike, g_ref: TensorLike, eps_den: float = 1e
 
     Accepts a single tensor or an iterable of shards for each argument.
     """
-    # If sharded, assume shards align 1:1; otherwise pass the merged tensors.
-    gh_iter, gr_iter = _as_iter(g_hat), _as_iter(g_ref)
-    if len(list(gh_iter)) != len(list(gr_iter)):
-        # Re-materialize since we consumed generators above:
-        gh_iter, gr_iter = _as_iter(g_hat), _as_iter(g_ref)
-    num_sq = torch.tensor(0.0, device=next(iter(gh_iter)).device)
-    for a, b in zip(_as_iter(g_hat), _as_iter(g_ref)):
+    # Convert to lists to avoid iterator consumption issues
+    gh_list = list(_as_iter(g_hat))
+    gr_list = list(_as_iter(g_ref))
+
+    if len(gh_list) != len(gr_list):
+        raise ValueError(f"Shard count mismatch: {len(gh_list)} vs {len(gr_list)}")
+
+    if not gh_list:
+        return 0.0
+
+    num_sq = torch.tensor(0.0, device=gh_list[0].device)
+    for a, b in zip(gh_list, gr_list):
         num_sq = num_sq + (a.float() - b.float()).pow(2).sum()
     num = torch.sqrt(num_sq)
     den = _fro_norm(g_ref)
@@ -110,8 +117,11 @@ def check_gradient(
     """
     # Infer dtype if not provided
     if dtype is None:
-        t0 = next(iter(_as_iter(g_ref)))
-        dtype = t0.dtype
+        gr_list = list(_as_iter(g_ref))
+        if gr_list:
+            dtype = gr_list[0].dtype
+        else:
+            dtype = torch.bfloat16  # fallback
     rel = relative_grad_diff(g_hat, g_ref)
     bnd = expected_rel_bound(l, L=L, C=C, dtype=dtype, k=k)
     return rel, bnd, (rel <= bnd)
