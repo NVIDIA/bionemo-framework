@@ -431,6 +431,7 @@ def predict(
     seq_len_interpolation_factor: int | None = None,
     files_per_subdir: int | None = None,
     lora_checkpoint_path: Path | None = None,
+    extra_callbacks: list | None = None,  # use this for making testing the predict loop easier.
 ):
     """Inference workflow for Evo2.
 
@@ -468,6 +469,8 @@ def predict(
             save_all_model_parallel_ranks=False,  # only write one copy of predictions.
         )
     ]
+    if extra_callbacks is not None:
+        callbacks.extend(extra_callbacks)
 
     # The following two config options are really only used for testing, but may also be useful for getting output from
     #   specific layers of the model.
@@ -546,6 +549,9 @@ def predict(
             sequence_parallel=sequence_parallel,
             save_ckpt_format=ckpt_format,
             ckpt_load_strictness="log_all",
+            setup_optimizers=False,
+            store_optimizer_states=False,
+            configure_optimizers=False,
             data_sampler=nl.MegatronDataSampler(
                 micro_batch_size=micro_batch_size,
                 global_batch_size=global_batch_size,
@@ -567,7 +573,6 @@ def predict(
             fp8_amax_compute_algo="max" if fp8 and full_fp8 else "most_recent",
         ),
     )
-    trainer.strategy._setup_optimizers = False
 
     nemo_logger = NeMoLogger(log_dir=work_dir)
     nemo_logger.setup(trainer, resume_if_exists=True)
