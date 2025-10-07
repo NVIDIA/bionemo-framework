@@ -66,6 +66,7 @@ def test_ddp_vs_fsdp_single_gpu(strategy, backend):
         pytest.fail(f"Command failed with exit code {result.returncode}")
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 @pytest.mark.parametrize("strategy", ["fsdp2", pytest.param("mfsdp", marks=pytest.mark.xfail(reason="BIONEMO-2726"))])
 @pytest.mark.parametrize("backend", ["te", "eager"])

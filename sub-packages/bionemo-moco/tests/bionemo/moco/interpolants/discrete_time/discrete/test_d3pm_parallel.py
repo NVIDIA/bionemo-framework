@@ -59,7 +59,13 @@ def d3pm_parallel_interpolate(
         assert result.shape == (5, 10)
 
 
-@pytest.mark.parametrize("world_size", [1, 2])
+@pytest.mark.parametrize(
+    "world_size",
+    [
+        pytest.param(1, id="world_size=1"),
+        pytest.param(2, id="world_size=2", marks=pytest.mark.multi_gpu),
+    ],
+)
 def test_d3pm_parallel_interpolate(
     d3pm,
     world_size,

@@ -206,7 +206,7 @@ jobs:
           cache-to: ${{ steps.cache.outputs.cache-to }}
 
 
-  run-tests:
+  run-tests-single-gpu:
     needs:
       - build-bionemo-image
       - get-pr-labels
@@ -221,14 +221,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run tests
+      - name: Run single-GPU tests
         # Tests in this stage generate code coverage metrics for the repository
         # Coverage data is uploaded to Codecov in subsequent stages
         env:
           BIONEMO_DATA_SOURCE: ngc
         run: |
           chmod +x ./ci/scripts/run_pytest_unittests.sh
-          ./ci/scripts/run_pytest_unittests.sh
+          chmod +x ./ci/scripts/pytest_runner.sh
+          ./ci/scripts/pytest_runner.sh --no-nbval --skip-slow --skip-multi-gpu
 
       - name: Upload coverage to Codecov
         # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
@@ -246,7 +247,42 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  run-tests-slow:
+  run-tests-multi-gpu:
+    needs:
+      - build-bionemo-image
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-rtx6000ada-latest-2-nemo
+    container:
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    if: needs.build-bionemo-image.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run multi-GPU tests
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        run: |
+          chmod +x ./ci/scripts/run_pytest_unittests.sh
+          chmod +x ./ci/scripts/pytest_runner.sh
+          ./ci/scripts/pytest_runner.sh --no-nbval --skip-slow --only-multi-gpu --allow-no-tests
+
+      - name: Upload coverage to Codecov
+        if: github.event_name != 'merge_group' && github.event_name != 'schedule'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && github.event_name != 'schedule' }}
+        uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  run-tests-slow-single-gpu:
     needs:
       - build-bionemo-image
       - get-pr-labels
@@ -268,15 +304,43 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run slow tests
+      - name: Run slow single-GPU tests
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        run: |
+          chmod +x ./ci/scripts/pytest_runner.sh
+          ./ci/scripts/pytest_runner.sh --no-nbval --only-slow --skip-multi-gpu --allow-no-tests
 
+  run-tests-slow-multi-gpu:
+    needs:
+      - build-bionemo-image
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-rtx6000ada-latest-2-nemo
+    container:
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    if: |
+        (needs.build-bionemo-image.result == 'success') &&
+        (
+          (github.event_name == 'schedule') ||
+          (github.event_name == 'merge_group') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
+        )
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run slow multi-GPU tests
         env:
           BIONEMO_DATA_SOURCE: ngc
         # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
         #  to run package by package like we do with the fast tests.
         run: |
-          chmod +x ./ci/scripts/run_pytest_slow.sh
-          ./ci/scripts/run_pytest_slow.sh
+          chmod +x ./ci/scripts/pytest_runner.sh
+          ./ci/scripts/pytest_runner.sh --no-nbval --only-slow --only-multi-gpu --allow-no-tests
 
 
   run-tests-notebooks:
@@ -317,8 +381,10 @@ jobs:
       - pre-commit
       - get-pr-labels
       - build-bionemo-image
-      - run-tests
-      - run-tests-slow
+      - run-tests-single-gpu
+      - run-tests-multi-gpu
+      - run-tests-slow-single-gpu
+      - run-tests-slow-multi-gpu
       - run-tests-notebooks
       # Add all other run-*-test jobs
     runs-on: ubuntu-latest

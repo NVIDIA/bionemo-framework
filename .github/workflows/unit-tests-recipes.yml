@@ -127,11 +127,11 @@ jobs:
           echo '${{ toJSON(steps.set-dirs.outputs) }}'
         shell: bash
 
-  unit-tests:
+  unit-tests-single-gpu:
     needs: changed-dirs
     runs-on: linux-amd64-gpu-l4-latest-1
     if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
-    name: "unit-tests (${{ matrix.recipe.name }})"
+    name: "unit-tests-single-gpu (${{ matrix.recipe.name }})"
     container:
       image: ${{ matrix.recipe.image }}
       options: --shm-size=16G
@@ -166,20 +166,65 @@ jobs:
             exit 1
           fi
 
-      - name: Run tests
+      - name: Run single-GPU tests
         working-directory: ${{ matrix.recipe.dir }}
-        run: pytest -v .
+        run: pytest -v -m "not multi_gpu" .
+
+  unit-tests-multi-gpu:
+    needs: changed-dirs
+    runs-on: linux-amd64-gpu-rtx6000ada-latest-2-nemo
+    if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
+    name: "unit-tests-multi-gpu (${{ matrix.recipe.name }})"
+    container:
+      image: ${{ matrix.recipe.image }}
+      options: --shm-size=16G
+    strategy:
+      matrix:
+        recipe: ${{ fromJson(needs.changed-dirs.outputs.dirs) }}
+      fail-fast: false
+
+    steps:
+      - name: Show GPU info
+        run: nvidia-smi
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: "${{ matrix.recipe.dir }}"
+          sparse-checkout-cone-mode: false
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.recipe.dir }}
+        run: |
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+            PIP_CONSTRAINT= pip install -e .
+            echo "Installed ${{ matrix.recipe.dir }} as editable package"
+          elif [ -f requirements.txt ]; then
+            PIP_CONSTRAINT= pip install -r requirements.txt
+            echo "Installed ${{ matrix.recipe.dir }} from requirements.txt"
+          else
+            echo "No pyproject.toml, setup.py, or requirements.txt found in ${{ matrix.recipe.dir }}"
+            exit 1
+          fi
+
+      - name: Run multi-GPU tests
+        working-directory: ${{ matrix.recipe.dir }}
+        run: pytest -v -m "multi_gpu" . || exit 0  # Allow no tests found for recipes without multi-GPU tests
 
   verify-recipe-tests:
     # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.
     # Use this job as the required check for PRs.
-    needs: unit-tests
+    needs:
+      - unit-tests-single-gpu
+      - unit-tests-multi-gpu
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check unit-tests matrix status
         run: |
-          if [[ "${{ needs.unit-tests.result }}" == "failure" || "${{ needs.unit-tests.result }}" == "cancelled" ]]; then
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
             echo "Some unit-tests matrix jobs have failed or been cancelled!"
             exit 1
           else

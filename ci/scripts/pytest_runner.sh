@@ -29,6 +29,8 @@ Options:
     --no-nbval          Skip jupyter notebook validation tests
     --skip-slow         Skip tests marked as slow (@pytest.mark.slow)
     --only-slow         Only run tests marked as slow (@pytest.mark.slow)
+    --skip-multi-gpu    Skip tests marked as multi_gpu (@pytest.mark.multi_gpu)
+    --only-multi-gpu    Only run tests marked as multi_gpu (@pytest.mark.multi_gpu)
     --allow-no-tests    Allow sub-packages with no found tests (for example no slow tests if --only-slow is set)
     --ignore-files      Skip files from tests using glob patterns (comma-separated, no spaces).
                             Example: --ignore-files docs/*.ipynb,src/specific_test.py
@@ -55,6 +57,8 @@ SKIP_DOCS=false
 NO_NBVAL=false
 SKIP_SLOW=false
 ONLY_SLOW=false
+SKIP_MULTI_GPU=false
+ONLY_MULTI_GPU=false
 ALLOW_NO_TESTS=false
 # TODO(@cspades): Ignore this Evo2 notebook test, which has a tendency to leave a 32GB orphaned process in GPU.
 declare -a IGNORE_FILES=()
@@ -67,6 +71,8 @@ while (( $# > 0 )); do
         --no-nbval) NO_NBVAL=true ;;
         --skip-slow) SKIP_SLOW=true ;;
         --only-slow) ONLY_SLOW=true ;;
+        --skip-multi-gpu) SKIP_MULTI_GPU=true ;;
+        --only-multi-gpu) ONLY_MULTI_GPU=true ;;
         --allow-no-tests) ALLOW_NO_TESTS=true ;;
         --ignore-files)
             shift
@@ -95,8 +101,22 @@ for ignore_file in "${IGNORE_FILES[@]}"; do
     PYTEST_OPTIONS+=(--ignore-glob="$ignore_file")
 done
 [[ "$NO_NBVAL" != true ]] && PYTEST_OPTIONS+=(--nbval-lax)
-[[ "$SKIP_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "not slow")
-[[ "$ONLY_SLOW" == true ]] && PYTEST_OPTIONS+=(-m "slow")
+
+# Build marker expression for filtering tests
+MARKER_EXPR=""
+if [[ "$SKIP_SLOW" == true ]]; then
+    MARKER_EXPR="not slow"
+elif [[ "$ONLY_SLOW" == true ]]; then
+    MARKER_EXPR="slow"
+fi
+
+if [[ "$SKIP_MULTI_GPU" == true ]]; then
+    [[ -n "$MARKER_EXPR" ]] && MARKER_EXPR="$MARKER_EXPR and not multi_gpu" || MARKER_EXPR="not multi_gpu"
+elif [[ "$ONLY_MULTI_GPU" == true ]]; then
+    [[ -n "$MARKER_EXPR" ]] && MARKER_EXPR="$MARKER_EXPR and multi_gpu" || MARKER_EXPR="multi_gpu"
+fi
+
+[[ -n "$MARKER_EXPR" ]] && PYTEST_OPTIONS+=(-m "$MARKER_EXPR")
 
 # Define test directories
 TEST_DIRS=(./sub-packages/bionemo-*/)
