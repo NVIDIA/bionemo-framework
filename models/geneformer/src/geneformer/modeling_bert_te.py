@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # coding=utf-8
 # Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
 # Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
@@ -90,8 +105,17 @@ class TEBertConfig(BertConfig):
         self.fuse_qkv_params = kwargs.get("fuse_qkv_params", False)
 
 
-class TEBertLayer(te.TransformerLayer):
-    """BERT layer using Transformer Engine implementation."""
+class TEBertLayer(nn.Module):
+    """Custom BERT layer using individual TE components for correct post-norm architecture.
+
+    This builds a BERT-style post-norm layer using:
+    - te.MultiheadAttention (with input_layernorm=False)
+    - te.LayerNorm for post-attention normalization as layernorm
+    - te.Linear for MLP layers (fc1, fc2) wrapped in layernorm_mlp module
+    - te.LayerNorm for post-MLP normalization as layernorm_mlp.layer_norm
+
+    Parameter naming matches convert.py expectations for weight loading from HF checkpoints.
+    """
 
     def __init__(self, config, layer_number=None):
         """Initialize the TEBertLayer.
@@ -100,27 +124,67 @@ class TEBertLayer(te.TransformerLayer):
             config: Configuration object containing model parameters.
             layer_number: Optional layer number for identification.
         """
-        super().__init__(
-            hidden_size=config.hidden_size,
-            ffn_hidden_size=config.intermediate_size,
-            num_attention_heads=config.num_attention_heads,
-            layernorm_epsilon=config.layer_norm_eps,
-            hidden_dropout=config.hidden_dropout_prob,
-            attention_dropout=config.attention_probs_dropout_prob,
-            layer_number=layer_number,
-            layer_type="encoder",
-            self_attn_mask_type="padding",
-            activation="gelu",
-            attn_input_format="bshd",
-            # seq_length=config.seq_length,
-            micro_batch_size=config.micro_batch_size,
-            num_gqa_groups=config.num_attention_heads,
-            fuse_qkv_params=getattr(config, "fuse_qkv_params", False),
-            params_dtype=config.torch_dtype,
-            window_size=(-1, -1),
-        )
+        super().__init__()
+
+        self.hidden_size = config.hidden_size
+        self.num_attention_heads = config.num_attention_heads
+        self.layer_number = layer_number
         self.is_decoder = config.is_decoder
         self.add_cross_attention = config.add_cross_attention
+
+        # Self-attention using TE MultiheadAttention
+        self.self_attention = te.MultiheadAttention(
+            hidden_size=config.hidden_size,
+            num_attention_heads=config.num_attention_heads,
+            num_gqa_groups=config.num_attention_heads,
+            attention_dropout=config.attention_probs_dropout_prob,
+            input_layernorm=False,  # No LayerNorm before attention
+            attention_type="self",
+            layer_number=layer_number,
+            attn_mask_type="padding",
+            params_dtype=config.torch_dtype,
+            fuse_qkv_params=getattr(config, "fuse_qkv_params", False),
+            window_size=(-1, -1),  # No sliding window attention
+            qkv_format="bshd",  #  BERT uses [batch, seq, head, dim]
+        )
+
+        # Post-attention TE LayerNorm
+        self.layernorm = te.LayerNorm(
+            normalized_shape=config.hidden_size,
+            eps=config.layer_norm_eps,
+            params_dtype=config.torch_dtype,
+        )
+
+        # MLP using TE Linear layers
+        self.layernorm_mlp = nn.Module()
+        self.layernorm_mlp.fc1 = te.Linear(
+            config.hidden_size,
+            config.intermediate_size,
+            bias=True,
+            params_dtype=config.torch_dtype,
+        )
+
+        if config.hidden_act != "relu":
+            raise ValueError(f"Geneformer requires hidden_act='relu', got '{config.hidden_act}'")
+        self.layernorm_mlp.activation = nn.ReLU()
+
+        self.layernorm_mlp.fc2 = te.Linear(
+            config.intermediate_size,
+            config.hidden_size,
+            bias=True,
+            params_dtype=config.torch_dtype,
+        )
+
+        # Post-MLP LayerNorm
+        self.layernorm_mlp.layer_norm = te.LayerNorm(
+            normalized_shape=config.hidden_size,
+            eps=config.layer_norm_eps,
+            params_dtype=config.torch_dtype,
+        )
+
+        # Dropout
+        self.attention_dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.mlp_dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(
         self,
@@ -134,6 +198,18 @@ class TEBertLayer(te.TransformerLayer):
     ) -> Tuple[torch.Tensor]:
         """Forward pass through the TE BERT layer.
 
+        Architecture:
+            Input
+            → Self-Attention
+            → Dropout
+            → Residual Connection
+            → LayerNorm  (POST-norm)
+            → MLP (FC1 → ReLU → FC2)
+            → Dropout
+            → Residual Connection
+            → LayerNorm  (POST-norm)
+            → Output
+
         Args:
             hidden_states: Input hidden states.
             attention_mask: Attention mask.
@@ -146,15 +222,59 @@ class TEBertLayer(te.TransformerLayer):
         Returns:
             Tuple of tensors containing the layer output.
         """
-        outputs = (
-            super().forward(
-                hidden_states=hidden_states,
-                attention_mask=attention_mask,
-                self_attn_mask_type="no_mask",
-            ),  # I want this to be (12, 2048, 256)
+        # Attention mask handling for TE MultiheadAttention,  [batch, 1, 1, seq_len], True=masked, False=attend
+        te_attention_mask = None
+        te_mask_type = "no_mask"
+
+        if attention_mask is not None:
+            # Check if there's actual padding (not all 1s for 2D or not all 0s for 4D)
+            if attention_mask.dim() == 2:
+                # Standard [batch, seq_len] where 1=attend, 0=masked
+                has_padding = not torch.all(attention_mask == 1)
+                if has_padding:
+                    # Convert to TE format: [batch, 1, 1, seq_len], invert polarity
+                    te_attention_mask = ~attention_mask.bool().unsqueeze(1).unsqueeze(1)
+                    te_mask_type = "padding"
+            elif attention_mask.dim() in [3, 4]:
+                # Extended mask with -inf for masked positions
+
+                has_masking = torch.any(
+                    attention_mask < -10000.0
+                )  # Check if it's not a trivial mask (all zeros/no masking)
+                if has_masking:
+                    # Extract padding mask and convert to TE format
+                    if attention_mask.dim() == 4:
+                        padding_mask = attention_mask[:, 0, 0, :]  # [batch, seq_len]
+                    else:  # dim == 3
+                        padding_mask = attention_mask[:, 0, :]  # [batch, seq_len]
+                    # -inf to True (masked), 0 to False (attend)
+                    # Then reshape to [batch, 1, 1, seq_len]
+                    te_attention_mask = (padding_mask < -10000.0).unsqueeze(1).unsqueeze(1)
+                    te_mask_type = "padding"
+
+        # Self-Attention sub-layer
+        attention_output = self.self_attention(
+            hidden_states,
+            attention_mask=te_attention_mask,
+            attn_mask_type=te_mask_type,
         )
-        # outputs = outputs[1:]
-        return outputs
+
+        # Residual connection + dropout + LayerNorm (POST-norm)
+        attention_output = self.attention_dropout(attention_output)
+        hidden_states = hidden_states + attention_output
+        hidden_states = self.layernorm(hidden_states)
+
+        # MLP sub-layer
+        mlp_output = self.layernorm_mlp.fc1(hidden_states)
+        mlp_output = self.layernorm_mlp.activation(mlp_output)
+        mlp_output = self.layernorm_mlp.fc2(mlp_output)
+
+        # Residual connection + dropout + LayerNorm (POST-norm)
+        mlp_output = self.mlp_dropout(mlp_output)
+        hidden_states = hidden_states + mlp_output
+        hidden_states = self.layernorm_mlp.layer_norm(hidden_states)
+
+        return (hidden_states,)
 
 
 class BertEncoder(nn.Module):

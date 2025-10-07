@@ -80,6 +80,10 @@ def test_geneformer_checkpoint_loss(model_variant, input_data):
     model_hf = model_hf.to(device)
     model_te = model_te.to(device)
 
+    # Ensure both models are in eval mode for consistent behavior
+    model_hf.eval()
+    model_te.eval()
+
     # Use realistic geneformer input data instead of random inputs
     test_input = {k: v.to(device) for k, v in input_data.items()}
 
@@ -221,15 +225,16 @@ def _get_parameter_mapping():
         # Attention output components
         "bert.encoder.layer.*.attention.output.dense.weight": "bert.encoder.layer.*.self_attention.proj.weight",
         "bert.encoder.layer.*.attention.output.dense.bias": "bert.encoder.layer.*.self_attention.proj.bias",
-        "bert.encoder.layer.*.attention.output.LayerNorm.weight": "bert.encoder.layer.*.self_attention.layernorm_qkv.layer_norm_weight",
-        "bert.encoder.layer.*.attention.output.LayerNorm.bias": "bert.encoder.layer.*.self_attention.layernorm_qkv.layer_norm_bias",
-        # MLP components
-        "bert.encoder.layer.*.intermediate.dense.weight": "bert.encoder.layer.*.layernorm_mlp.fc1_weight",
-        "bert.encoder.layer.*.intermediate.dense.bias": "bert.encoder.layer.*.layernorm_mlp.fc1_bias",
-        "bert.encoder.layer.*.output.dense.weight": "bert.encoder.layer.*.layernorm_mlp.fc2_weight",
-        "bert.encoder.layer.*.output.dense.bias": "bert.encoder.layer.*.layernorm_mlp.fc2_bias",
-        "bert.encoder.layer.*.output.LayerNorm.weight": "bert.encoder.layer.*.layernorm_mlp.layer_norm_weight",
-        "bert.encoder.layer.*.output.LayerNorm.bias": "bert.encoder.layer.*.layernorm_mlp.layer_norm_bias",
+        # With output_layernorm=True, LayerNorm is separate (not in layernorm_qkv)
+        "bert.encoder.layer.*.attention.output.LayerNorm.weight": "bert.encoder.layer.*.layernorm.weight",
+        "bert.encoder.layer.*.attention.output.LayerNorm.bias": "bert.encoder.layer.*.layernorm.bias",
+        # MLP components (custom TEBertLayer uses submodules, so dots not underscores)
+        "bert.encoder.layer.*.intermediate.dense.weight": "bert.encoder.layer.*.layernorm_mlp.fc1.weight",
+        "bert.encoder.layer.*.intermediate.dense.bias": "bert.encoder.layer.*.layernorm_mlp.fc1.bias",
+        "bert.encoder.layer.*.output.dense.weight": "bert.encoder.layer.*.layernorm_mlp.fc2.weight",
+        "bert.encoder.layer.*.output.dense.bias": "bert.encoder.layer.*.layernorm_mlp.fc2.bias",
+        "bert.encoder.layer.*.output.LayerNorm.weight": "bert.encoder.layer.*.layernorm_mlp.layer_norm.weight",
+        "bert.encoder.layer.*.output.LayerNorm.bias": "bert.encoder.layer.*.layernorm_mlp.layer_norm.bias",
         # Classification head
         "cls.predictions.bias": "cls.predictions.bias",
         "cls.predictions.decoder.weight": "cls.predictions.decoder.weight",
@@ -352,7 +357,7 @@ def _unpack_fused_qkv_in_te_state_dict(te_state_dict, num_layers, num_heads):
 
     for layer_idx in range(num_layers):
         # Unpack fused QKV weight
-        fused_weight_key = f"bert.encoder.layer.{layer_idx}.self_attention.layernorm_qkv.weight"
+        fused_weight_key = f"bert.encoder.layer.{layer_idx}.self_attention.qkv.weight"
         if fused_weight_key in unpacked_te_state_dict:
             fused_weight = unpacked_te_state_dict[fused_weight_key]
             query_weight, key_weight, value_weight = unpack_weight_func(mock_ctx, fused_weight)
@@ -366,7 +371,7 @@ def _unpack_fused_qkv_in_te_state_dict(te_state_dict, num_layers, num_heads):
             del unpacked_te_state_dict[fused_weight_key]
 
         # Unpack fused QKV bias
-        fused_bias_key = f"bert.encoder.layer.{layer_idx}.self_attention.layernorm_qkv.bias"
+        fused_bias_key = f"bert.encoder.layer.{layer_idx}.self_attention.qkv.bias"
         if fused_bias_key in unpacked_te_state_dict:
             fused_bias = unpacked_te_state_dict[fused_bias_key]
             query_bias, key_bias, value_bias = unpack_bias_func(mock_ctx, fused_bias)

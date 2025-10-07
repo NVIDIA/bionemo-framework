@@ -30,7 +30,7 @@ def get_config():
     return BertConfig(
         attention_probs_dropout_prob=0.02,
         classifier_dropout=None,
-        hidden_act="gelu",
+        hidden_act="relu",
         hidden_dropout_prob=0.02,
         hidden_size=256,
         initializer_range=0.02,
@@ -95,13 +95,13 @@ def input_data():
         # Use actual gene tokens for realistic testing
         batch_size = 2
         seq_length = 2048  # taken from examples/pretraining_new_model/pretrain_geneformer_w_deepspeed.py
+        num_genes = min(seq_length, len(gene_tokens))  # Use full sequence length
 
         # Create input_ids using actual gene tokens (based on Geneformer/geneformer/tokenizer.py)
         # No padding needed - Geneformer truncates sequences like in tokenizer.py line 742
         input_ids = torch.zeros(batch_size, seq_length, dtype=torch.long)
         for i in range(batch_size):
             # example["input_ids"][0 : self.model_input_size]
-            num_genes = min(seq_length, len(gene_tokens))  # Use full sequence length
             gene_indices = torch.randint(0, len(gene_tokens), (num_genes,))
             input_ids[i, :num_genes] = torch.tensor([gene_tokens[idx] for idx in gene_indices])
 
@@ -109,7 +109,6 @@ def input_data():
         # based on models/geneformer/Geneformer/geneformer/evaluation_utils.py line 45
         attention_mask = torch.ones(batch_size, seq_length, dtype=torch.bfloat16)
         for i in range(batch_size):
-            num_genes = min(seq_length, len(gene_tokens))
             attention_mask[i, num_genes:] = 0  # Mask out unused positions
 
         # Create labels for masked language modeling
@@ -147,6 +146,7 @@ def te_config():
         "num_hidden_layers": 2,
         "num_attention_heads": 4,
         "intermediate_size": 512,
+        "hidden_act": "relu",
         "max_position_embeddings": 4096,  # Model capacity
         "vocab_size": 20275,  # Geneformer vocabulary size
         "torch_dtype": torch.bfloat16,

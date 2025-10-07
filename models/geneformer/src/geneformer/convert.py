@@ -38,15 +38,16 @@ mapping = {
     # Attention output parameters
     "bert.encoder.layer.*.attention.output.dense.weight": "bert.encoder.layer.*.self_attention.proj.weight",
     "bert.encoder.layer.*.attention.output.dense.bias": "bert.encoder.layer.*.self_attention.proj.bias",
-    "bert.encoder.layer.*.attention.output.LayerNorm.weight": "bert.encoder.layer.*.self_attention.layernorm_qkv.layer_norm_weight",
-    "bert.encoder.layer.*.attention.output.LayerNorm.bias": "bert.encoder.layer.*.self_attention.layernorm_qkv.layer_norm_bias",
-    # MLP parameters
-    "bert.encoder.layer.*.intermediate.dense.weight": "bert.encoder.layer.*.layernorm_mlp.fc1_weight",
-    "bert.encoder.layer.*.intermediate.dense.bias": "bert.encoder.layer.*.layernorm_mlp.fc1_bias",
-    "bert.encoder.layer.*.output.dense.weight": "bert.encoder.layer.*.layernorm_mlp.fc2_weight",
-    "bert.encoder.layer.*.output.dense.bias": "bert.encoder.layer.*.layernorm_mlp.fc2_bias",
-    "bert.encoder.layer.*.output.LayerNorm.weight": "bert.encoder.layer.*.layernorm_mlp.layer_norm_weight",
-    "bert.encoder.layer.*.output.LayerNorm.bias": "bert.encoder.layer.*.layernorm_mlp.layer_norm_bias",
+    # Attention LayerNorm
+    "bert.encoder.layer.*.attention.output.LayerNorm.weight": "bert.encoder.layer.*.layernorm.weight",
+    "bert.encoder.layer.*.attention.output.LayerNorm.bias": "bert.encoder.layer.*.layernorm.bias",
+    # MLP parameters (custom TEBertLayer)
+    "bert.encoder.layer.*.intermediate.dense.weight": "bert.encoder.layer.*.layernorm_mlp.fc1.weight",
+    "bert.encoder.layer.*.intermediate.dense.bias": "bert.encoder.layer.*.layernorm_mlp.fc1.bias",
+    "bert.encoder.layer.*.output.dense.weight": "bert.encoder.layer.*.layernorm_mlp.fc2.weight",
+    "bert.encoder.layer.*.output.dense.bias": "bert.encoder.layer.*.layernorm_mlp.fc2.bias",
+    "bert.encoder.layer.*.output.LayerNorm.weight": "bert.encoder.layer.*.layernorm_mlp.layer_norm.weight",
+    "bert.encoder.layer.*.output.LayerNorm.bias": "bert.encoder.layer.*.layernorm_mlp.layer_norm.bias",
     # Classification head parameters
     "cls.predictions.bias": "cls.predictions.bias",
     "cls.predictions.decoder.weight": "cls.predictions.decoder.weight",
@@ -133,9 +134,11 @@ def convert_geneformer_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Modu
     for i in range(model_te.config.num_hidden_layers):
         extra_state_entries.extend(
             [
-                f"bert.encoder.layer.{i}.layernorm_mlp._extra_state",
+                # Custom TEBertLayer with individual TE components
+                f"bert.encoder.layer.{i}.layernorm_mlp.fc1._extra_state",
+                f"bert.encoder.layer.{i}.layernorm_mlp.fc2._extra_state",
                 f"bert.encoder.layer.{i}.self_attention.core_attention._extra_state",
-                f"bert.encoder.layer.{i}.self_attention.layernorm_qkv._extra_state",
+                f"bert.encoder.layer.{i}.self_attention.qkv._extra_state",
                 f"bert.encoder.layer.{i}.self_attention.proj._extra_state",
             ]
         )
@@ -159,7 +162,7 @@ def convert_geneformer_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Modu
         "bert.encoder.layer.*.attention.self.key.weight",
         "bert.encoder.layer.*.attention.self.value.weight",
     ),
-    target_key="bert.encoder.layer.*.self_attention.layernorm_qkv.weight",
+    target_key="bert.encoder.layer.*.self_attention.qkv.weight",
 )
 def _pack_qkv_weight(ctx: io.TransformCTX, query, key, value):
     """Pack the QKV weights into fused TE format."""
@@ -179,7 +182,7 @@ def _pack_qkv_weight(ctx: io.TransformCTX, query, key, value):
         "bert.encoder.layer.*.attention.self.key.bias",
         "bert.encoder.layer.*.attention.self.value.bias",
     ),
-    target_key="bert.encoder.layer.*.self_attention.layernorm_qkv.bias",
+    target_key="bert.encoder.layer.*.self_attention.qkv.bias",
 )
 def _pack_qkv_bias(ctx: io.TransformCTX, query, key, value):
     """Pack the QKV biases into fused TE format."""
@@ -212,7 +215,7 @@ def _pack_qkv_bias(ctx: io.TransformCTX, query, key, value):
 
 
 @io.state_transform(
-    source_key="bert.encoder.layer.*.self_attention.layernorm_qkv.weight",
+    source_key="bert.encoder.layer.*.self_attention.qkv.weight",
     target_key=(
         "bert.encoder.layer.*.attention.self.query.weight",
         "bert.encoder.layer.*.attention.self.key.weight",
@@ -245,7 +248,7 @@ def _unpack_qkv_weight(ctx: io.TransformCTX, qkv_weight):
 
 
 @io.state_transform(
-    source_key="bert.encoder.layer.*.self_attention.layernorm_qkv.bias",
+    source_key="bert.encoder.layer.*.self_attention.qkv.bias",
     target_key=(
         "bert.encoder.layer.*.attention.self.query.bias",
         "bert.encoder.layer.*.attention.self.key.bias",
