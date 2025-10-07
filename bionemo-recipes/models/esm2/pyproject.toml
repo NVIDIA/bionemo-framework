@@ -30,3 +30,7 @@ package-dir = { "" = "src" }
 
 [tool.pytest.ini_options]
 addopts = ["--color=yes", "--strict-markers", "--tb=short", "-v"]
+markers = [
+    "slow: medium-complexity tests, like integration tests, on a single GPU",
+    "multi_gpu: tests that require multiple GPUs",
+]
