@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 # Training config
-model_tag: nvidia/esm2_t6_8M_UR50D
+model_tag: ./example_8m_checkpoint  # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
 num_train_steps: 250
 
 dataset:

@@ -1,4 +1,4 @@
-model_tag: "nvidia/esm2_t6_8M_UR50D"
+model_tag: nvidia/esm2_t6_8M_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D or a local path.
 stop_after_n_steps: 500_000
 
 dataset:

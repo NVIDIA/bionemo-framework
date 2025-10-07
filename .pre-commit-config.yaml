@@ -8,6 +8,15 @@ repos:
         types_or: [python, rust]
         pass_filenames: true
         always_run: false
+  - repo: local
+    hooks:
+      - id: check-copied-files
+        name: Run check-copied-files script
+        entry: ./ci/scripts/check_copied_files.py
+        language: python
+        types_or: [python]
+        pass_filenames: true
+        always_run: false
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v2.3.0
     hooks:
