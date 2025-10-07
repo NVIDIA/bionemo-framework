@@ -42,7 +42,7 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
 
 def main():
     """Copy files from the source to the destinations."""
-    parser = argparse.ArgumentParser(description="Ensure files have proper license headers")
+    parser = argparse.ArgumentParser(description="Ensure copied files are synchronized across recipe folders")
     parser.add_argument("files", nargs="*", help="Files to process", default=[])
     parser.add_argument("--fix", action="store_true", help="Copy the files from source to destinations")
 
@@ -52,8 +52,9 @@ def main():
     all_files = set(SOURCE_TO_DESTINATION_MAP.keys()) | set(
         functools.reduce(operator.iadd, SOURCE_TO_DESTINATION_MAP.values(), [])
     )
-    changed_files = filter(lambda x: x not in all_files, args.files)
-    if args.files and not changed_files:
+    relevant_files = [f for f in args.files if f in all_files]
+    # If pre-commit passed a list of files and none are relevant, skip.
+    if args.files and not relevant_files:
         return
 
     for source, destinations in SOURCE_TO_DESTINATION_MAP.items():
