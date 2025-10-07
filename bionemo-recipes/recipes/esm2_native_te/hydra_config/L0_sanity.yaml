@@ -6,6 +6,9 @@ defaults:
 model_tag: nvidia/esm2_t6_8M_UR50D
 num_train_steps: 250
 
+# We want this on in CI/CD to validate that the script runs successfully with torch.compile.
+use_torch_compile: true
+
 dataset:
   tokenizer_name: ${model_tag}
   micro_batch_size: 2
