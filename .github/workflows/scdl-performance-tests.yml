@@ -30,6 +30,6 @@ jobs:
           set -euo pipefail
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
 
-          python launch_job.py \
+          python ci/lepton/model_convergence/scripts/launch_job.py \
             --config-path="../../scdl_performance/configs" \
             --config-name="scdl"
