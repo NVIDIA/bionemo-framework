@@ -67,7 +67,7 @@ def main():
         for destination in destinations:
             if not Path(destination).exists():
                 raise ValueError(
-                    f"Source file {destination} does not exist -- if this file was removed, please update the "
+                    f"Destination file {destination} does not exist -- if this file was removed, please update the "
                     f"source-to-destination map in {Path(__file__).relative_to(Path.cwd())}"
                 )
 
