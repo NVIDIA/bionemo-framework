@@ -92,6 +92,10 @@ def main(args: DictConfig) -> float | None:
     # Create a dataloader that just infinitely loops over the dataset.
     train_iterator = create_dataloader(dist_config, **args.dataset)
 
+    if args.use_torch_compile:
+        # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
+        model = torch.compile(model)
+
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_ddp" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:

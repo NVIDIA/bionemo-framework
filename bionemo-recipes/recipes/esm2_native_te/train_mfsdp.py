@@ -116,6 +116,9 @@ def main(args: DictConfig) -> float | None:
     else:
         fp8_recipe = None
 
+    if args.use_torch_compile:
+        logger.warning("BIONEMO-2977: Using torch.compile with mfsdp is currently not supported.")
+
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_mfsdp" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
