@@ -24,6 +24,8 @@ jobs:
           pip install -r ci/lepton/model_convergence/requirements.txt
 
       - name: Submit SCDL Performance Job
+        env:
+          LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
         run: |
           set -euo pipefail
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
