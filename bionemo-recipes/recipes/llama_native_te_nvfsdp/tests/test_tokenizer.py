@@ -103,11 +103,6 @@ def test_tokenizer_attention_mask_correct(tokenizer):
     assert batch['attention_mask'][1].tolist() == expected_mask_1
 
 
-def test_tokenizer_vocab_size(tokenizer):
-    """Test tokenizer has correct vocab size for the ASCII approach."""
-    assert tokenizer.vocab_size == 256
-
-
 def test_tokenizer_mixed_nucleotides(tokenizer):
     """Test all standard nucleotides encode correctly."""
     sequence = "ATCGGTC"

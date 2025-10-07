@@ -106,7 +106,7 @@ def test_overlapping_windows_creates_more_samples(simple_database, tokenizer):
     
     assert len(dataset_overlap) == 29  # With overlap
     assert len(dataset_no_overlap) == 25  # Without overlap
-    assert len(dataset_overlap) > len(dataset_no_overlap)
+    assert len(dataset_overlap) - len(dataset_no_overlap) == 4
 
 
 def test_getitem_returns_tokenized_sequence_with_special_tokens(simple_database, tokenizer):

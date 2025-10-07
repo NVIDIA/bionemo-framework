@@ -61,28 +61,46 @@ def simple_database():
     Path(db_path).unlink()
 
 
-def test_dataset_loads_sample_sequence(simple_database, tokenizer):
+def test_dataset_loads_sample_sequence(tokenizer):
     """Test dataset retrieves sequences correctly from database.
     
+    Uses single sequence so shuffling doesn't affect test (Jonathan's suggestion).
     Pattern: expected_sequence = [nucleotide_id] * seqlen
     """
-    dataset = GenomicSequenceDataset(
-        database_path=simple_database,
-        seq_length=10,
-        tokenizer=tokenizer,
-        stride=5,
-        min_window_length=5,
-        seed=42,
-    )
+    # Create minimal database with just 1 sequence
+    temp_db = tempfile.NamedTemporaryFile(delete=False, suffix=".sqlite")
+    db_path = temp_db.name
+    temp_db.close()
     
-    sample = dataset[0]
-    nucleotides = sample["input_ids"][1:-1]  # Remove BOS/EOS
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE sequences (contig_id TEXT PRIMARY KEY, nt_sequence TEXT NOT NULL, length INTEGER NOT NULL)")
+    cursor.execute("INSERT INTO sequences VALUES (?, ?, ?)", ("seq_T", "T" * 10, 10))
+    conn.commit()
+    conn.close()
     
-    # With seed=42, index 0 is all As (10 nucleotides)
-    expected_sequence = [65] * 10  # All As
-    received_sequence = nucleotides.tolist()
-    
-    assert received_sequence == expected_sequence
+    try:
+        dataset = GenomicSequenceDataset(
+            database_path=db_path,
+            seq_length=10,
+            tokenizer=tokenizer,
+            stride=5,
+            min_window_length=5,
+            seed=42,
+        )
+        
+        # Only 1 sequence → 1 window → dataset[0] is predictable regardless of shuffle
+        sample = dataset[0]
+        nucleotides = sample["input_ids"][1:-1]  # Remove BOS/EOS
+        
+        # Should be all Ts (10 nucleotides)
+        expected_sequence = [84] * 10  # All Ts
+        received_sequence = nucleotides.tolist()
+        
+        assert received_sequence == expected_sequence
+        
+    finally:
+        Path(db_path).unlink()
 
 
 def test_dataloader_returns_expected_batch(tokenizer):
