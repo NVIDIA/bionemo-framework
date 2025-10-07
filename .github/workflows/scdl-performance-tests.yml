@@ -2,6 +2,8 @@ name: SCDL Performance Test
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 9 * * *" # everyday at 1am PST
 
 jobs:
   submit-lepton-jobs:
