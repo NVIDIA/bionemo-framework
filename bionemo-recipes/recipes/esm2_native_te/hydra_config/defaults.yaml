@@ -1,5 +1,5 @@
 # Training config
-model_tag: ??? # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D, or a local path.
+model_tag: ??? # E.g., nvidia/esm2_t6_8M_UR50D, facebook/esm2_t6_8M_UR50D, or a local path (e.g ./example_8m_checkpoint)
 num_train_steps: ???
 save_every_n_steps: 50
 
