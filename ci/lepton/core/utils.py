@@ -32,11 +32,17 @@ def render_wrapper_string(script: str, all_config_json: str, template: str = "co
     Returns:
         str: The rendered shell script with the script and config JSON substituted in place.
     """
-    template_path = Path(__file__).parent / "logging_templates" / f"{template}.sh"
-
-    if not template_path.exists():
+    # Map template names to their launcher directories
+    template_paths = {
+        "convergence_tests": Path(__file__).parent.parent / "model_convergence" / "launchers" / "convergence_tests.sh",
+        "scdl_performance": Path(__file__).parent.parent / "scdl_performance" / "launchers" / "scdl_performance.sh"
+    }
+    
+    template_path = template_paths.get(template)
+    
+    if not template_path or not template_path.exists():
         raise ValueError(
-            f"Template not found: {template_path}. Valid options: 'convergence_tests', 'scdl_performance'"
+            f"Template not found: {template}. Valid options: 'convergence_tests', 'scdl_performance'"
         )
 
     tpl = template_path.read_text(encoding="utf-8")

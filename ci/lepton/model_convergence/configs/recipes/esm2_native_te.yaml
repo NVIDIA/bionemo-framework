@@ -98,9 +98,6 @@ products:
 ############################################################
 # run script
 # This gets called right after `checkout_script` in the base config.
-# dataset.load_dataset_kwargs.path=${load_dataset_kwargs_path} \
-# dataset.load_dataset_kwargs.streaming=${load_dataset_kwargs_streaming} \
-# +dataset.load_dataset_kwargs.revision=${load_dataset_kwargs_revision} \
 ############################################################
 run_script: |
   torchrun ${task_cmd}.py \

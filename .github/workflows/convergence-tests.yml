@@ -86,7 +86,8 @@ jobs:
             RUN_ONLY_ARGS="+run_only=$CONFIG_OVERRIDE"
           fi
 
-          python ci/lepton/model_convergence/scripts/launch_job.py \
+          python ci/lepton/core/launch_job.py \
+            --config-path ../model_convergence/configs \
             --config-name "recipes/$MODEL_CONFIG" \
             $RUN_ONLY_ARGS \
             branch="$BRANCH" \
