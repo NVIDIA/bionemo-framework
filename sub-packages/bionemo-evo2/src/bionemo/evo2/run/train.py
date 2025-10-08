@@ -51,6 +51,7 @@ from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
 from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.models.peft import Evo2LoRA
+from bionemo.evo2.run.utils import infer_model_type, patch_eden_tokenizer
 from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
 from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
@@ -667,17 +668,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(args=args)
 
 
-def patch_eden_tokenizer(tokenizer):
-    """Patch the Eden tokenizer to work with the Evo2 tokenizer."""
-    bos_id, eos_id, sep_id, pad_id = 1, 2, 3, 0
-
-    # Patch the private attrs so tokenizer.bos_id/.eos_id/.pad_id work
-    tokenizer._bos_id = bos_id
-    tokenizer._eos_id = eos_id
-    tokenizer._sep_id = sep_id
-    tokenizer._pad_id = pad_id
-
-
 def train(args: argparse.Namespace) -> nl.Trainer:
     """Main function to run Evo2 training."""
     tokenizer = get_nmt_tokenizer(
@@ -809,14 +799,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         config_modifiers_init["hybrid_override_pattern"] = args.hybrid_override_pattern
     if args.num_layers:
         config_modifiers_init["num_layers"] = args.num_layers
-    if args.model_size in HYENA_MODEL_OPTIONS:
-        model_type = "hyena"
-    elif args.model_size in MAMBA_MODEL_OPTIONS:
-        model_type = "mamba"
-    elif args.model_size in LLAMA_MODEL_OPTIONS:
-        model_type = "llama"
-    else:
-        raise ValueError(f"Invalid model size: {args.model_size}")
+
+    model_type = infer_model_type(args.model_size)
 
     # Create model based on selected model type
     if model_type == "hyena":
