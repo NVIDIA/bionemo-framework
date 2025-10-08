@@ -17,8 +17,8 @@
 
 """Lepton Job submission script with Hydra configuration.
 
-Demo for model convergence: python launch_job.py --config-name "evo2_finetune_lora"
-Demo for SCDL performance: python launch_job.py --config-path="../../scdl_perf/configs" --config-name="scdl"
+Demo for model convergence: python ci/lepton/core/launch_job.py --config-path="../model_convergence/configs" --config-name="recipes/esm2_native_te"
+Demo for SCDL performance: python ci/lepton/core/launch_job.py --config-path="../scdl_performance/configs" --config-name="scdl"
 """
 
 import json
