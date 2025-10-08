@@ -219,9 +219,6 @@ class TemporalGeneformerDataModule(SingleCellDataModule):
             f"Enhanced features: no_neighbor_policy={no_neighbor_policy}, token_selection_policy={token_selection_policy}"
         )
 
-        # Explicitly indicate we're using the new temporal dataset implementation
-        logger.info("[TemporalDataModule] Using Redesigned TemporalGeneformerDataset")
-
         # Report number of valid indices in each dataset split
         if hasattr(self, "_train_dataset_ori") and self._train_dataset_ori is not None:
             train_len = len(self._train_dataset_ori)
