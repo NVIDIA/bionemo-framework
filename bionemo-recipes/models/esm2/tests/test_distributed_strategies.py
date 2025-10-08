@@ -221,8 +221,7 @@ if __name__ == "__main__":
         input_data = {k: v.to(device) for k, v in input_data.items()}
 
         optimizer.zero_grad()
-        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-            outputs = model(**input_data)
+        outputs = model(**input_data)
         outputs.loss.backward()
 
         # get gradients

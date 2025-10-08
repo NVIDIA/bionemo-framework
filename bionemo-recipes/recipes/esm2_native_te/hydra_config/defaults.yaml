@@ -1,7 +1,6 @@
 # Training config
 model_tag: ???
 num_train_steps: ???
-save_every_n_steps: 50
 
 # TODO: Once BIONEMO-2583 and BIONEMO-2719 are fixed, enable this by default and simplify training scripts to remove the
 # meta-device conditional.
