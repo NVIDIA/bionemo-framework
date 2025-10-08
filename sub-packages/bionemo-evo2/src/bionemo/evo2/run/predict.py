@@ -21,7 +21,7 @@ import argparse
 import functools
 import tempfile
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import nemo.lightning as nl
 import torch
@@ -29,7 +29,7 @@ from lightning.pytorch import LightningDataModule
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
 from megatron.core.utils import get_batch_on_this_cp_rank
-from nemo.collections.llm.gpt.model.base import get_packed_seq_params
+from nemo.collections.llm.gpt.model.base import GPTModel, get_packed_seq_params
 from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS, HyenaModel
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning import NeMoLogger
@@ -38,10 +38,12 @@ from nemo.utils import logging as logger
 from torch import Tensor
 
 from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
+from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
 from bionemo.evo2.models.peft import Evo2LoRA
+from bionemo.evo2.run.utils import infer_model_type, patch_eden_tokenizer
 from bionemo.llm.data import collate
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.utils.callbacks import PredictionWriter
@@ -65,6 +67,11 @@ def parse_args():
         "--devices",
         type=int,
         help="Number of devices to use for prediction, defaults to tensor_model_parallel_size * pipeline_model_parallel_size * context_parallel_size.",
+    )
+    ap.add_argument(
+        "--eden-tokenizer",
+        action="store_true",
+        help="Patch the tokenizer to work with the one used in training the Eden model.",
     )
     ap.add_argument("--fasta", type=Path, required=True, help="Fasta path from which to generate logit predictions.")
     ap.add_argument("--ckpt-dir", type=Path, required=True, help="NeMo2 checkpoint directory for inference.")
@@ -96,17 +103,12 @@ def parse_args():
         help="Interval to write predictions to disk. If doing very large predictions, you may want to set this to 'batch'.",
     )
     ap.add_argument(
-        "--model-type",
-        type=str,
-        choices=["hyena", "mamba"],
-        default="hyena",
-        help="Model architecture family to use. Choose between 'hyena' and 'mamba'.",
-    )
-    ap.add_argument(
         "--model-size",
         type=str,
         default="7b_arc_longcontext",
-        choices=sorted(list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys())),
+        choices=sorted(
+            list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys()) + list(LLAMA_MODEL_OPTIONS.keys())
+        ),
         help="Model size to use. Defaults to '7b_arc_longcontext'.",
     )
     # output args:
@@ -299,6 +301,10 @@ class MambaPredictor(BasePredictor, MambaModel):
     """Mamba model for prediction with additional metrics."""
 
 
+class LlamaPredictor(BasePredictor, GPTModel):
+    """Llama model for prediction with additional metrics."""
+
+
 def hyena_predict_forward_step(model, batch) -> torch.Tensor:
     """Performs a forward step for the Hyena model.
 
@@ -376,11 +382,13 @@ def hyena_predict_data_step(dataloader_iter) -> dict[str, torch.Tensor]:
 class PredictDataModule(LightningDataModule):
     """Create a dataloader for prediction."""
 
-    def __init__(self, dataset: torch.utils.data.Dataset, batch_size: int = 1):
+    def __init__(self, dataset: torch.utils.data.Dataset, batch_size: int = 1, tokenizer=None):
         """Create a dataloader for prediction."""
         super().__init__()
         self.dataset = dataset
         self.batch_size = batch_size
+        self.tokenizer = tokenizer
+        self.pad_token_id = tokenizer.pad_token_id if tokenizer is not None else 0
 
     def setup(self, stage: str | None = None) -> None:
         """Set up the dataloader."""
@@ -398,7 +406,7 @@ class PredictDataModule(LightningDataModule):
             drop_last=False,
             collate_fn=functools.partial(
                 collate.padding_collate_fn,
-                padding_values={"tokens": 0, "position_ids": 0, "loss_mask": False},
+                padding_values={"tokens": self.pad_token_id, "position_ids": self.pad_token_id, "loss_mask": False},
                 min_length=None,
                 max_length=None,
             ),
@@ -414,8 +422,8 @@ def predict(
     context_parallel_size: int,
     num_nodes: int = 1,
     devices: int | None = None,
+    eden_tokenizer: bool = False,
     model_size: str = "7b",
-    model_type: str = "hyena",
     ckpt_format: CheckpointFormats = "torch_dist",
     fp8: bool = False,
     full_fp8: bool = False,
@@ -474,28 +482,27 @@ def predict(
 
     # The following two config options are really only used for testing, but may also be useful for getting output from
     #   specific layers of the model.
-    config_modifiers_init = {}
+    config_modifiers_init: dict[str, Any] = {
+        "distribute_saved_activations": False if sequence_parallel and tensor_parallel_size > 1 else True,
+    }
     if hybrid_override_pattern is not None:
         config_modifiers_init["hybrid_override_pattern"] = hybrid_override_pattern
     if num_layers is not None:
         config_modifiers_init["num_layers"] = num_layers
 
     tokenizer = get_nmt_tokenizer("byte-level")
+    if eden_tokenizer:
+        patch_eden_tokenizer(tokenizer)
+
+    model_type = infer_model_type(model_size)
 
     # Select model config based on model type
     if model_type == "hyena":
-        if "-1m" in model_size and "nv" not in model_size and seq_len_interpolation_factor is None:
-            # TODO remove this override once we add this as a default upstream in NeMo.
-            #  if you see this, just check the pointed to model option for the 1m model in nemo and see if it already
-            #  has this option set.
-            config_modifiers_init["seq_len_interpolation_factor"] = 128
-
         if model_size not in HYENA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Hyena: {model_size}")
         config = HYENA_MODEL_OPTIONS[model_size](
             forward_step_fn=hyena_predict_forward_step,
-            data_step_fn=hyena_predict_data_step,  # , attention_backend=AttnBackend.fused,
-            distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
+            data_step_fn=hyena_predict_data_step,
             # Only use vortex style FP8 in the model config if using FP8 and not full FP8. This will only apply FP8 to
             #   the projection layer of the hyena mixer.
             vortex_style_fp8=fp8 and not full_fp8,
@@ -515,13 +522,12 @@ def predict(
             log_prob_collapse_option=log_prob_collapse_option,
             model_transform=model_transform,
         )
-    else:  # mamba
+    elif model_type == "mamba":  # mamba
         if model_size not in MAMBA_MODEL_OPTIONS:
             raise ValueError(f"Invalid model size for Mamba: {model_size}")
         config = MAMBA_MODEL_OPTIONS[model_size](
             forward_step_fn=hyena_predict_forward_step,  # Can reuse the same forward steps
             data_step_fn=hyena_predict_data_step,
-            distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
             **config_modifiers_init,
         )
 
@@ -531,6 +537,23 @@ def predict(
             output_log_prob_seqs=output_log_prob_seqs,
             log_prob_collapse_option=log_prob_collapse_option,
         )
+    elif model_type == "llama":
+        if model_size not in LLAMA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Llama: {model_size}")
+        config = LLAMA_MODEL_OPTIONS[model_size](
+            forward_step_fn=hyena_predict_forward_step,
+            data_step_fn=hyena_predict_data_step,
+            **config_modifiers_init,
+        )
+        model = LlamaPredictor(
+            config,
+            tokenizer=tokenizer,
+            output_log_prob_seqs=output_log_prob_seqs,
+            log_prob_collapse_option=log_prob_collapse_option,
+        )
+    else:
+        # This shouldn't be possible to reach.
+        raise ValueError(f"Invalid model type: {model_type}.")
 
     # Create PTL trainer.
     trainer = nl.Trainer(
@@ -587,7 +610,7 @@ def predict(
     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
 
     dataset = SimpleFastaDataset(fasta_path, tokenizer, prepend_bos=prepend_bos)
-    datamodule = PredictDataModule(dataset, batch_size=micro_batch_size)
+    datamodule = PredictDataModule(dataset, batch_size=micro_batch_size, tokenizer=tokenizer)
     trainer.predict(model, datamodule=datamodule)  # TODO return_predictions=False
     dataset.write_idx_map(
         output_dir
@@ -607,7 +630,6 @@ def main():
         context_parallel_size=args.context_parallel_size,
         output_dir=args.output_dir,
         model_size=args.model_size,
-        model_type=args.model_type,
         ckpt_format=args.ckpt_format,
         fp8=args.fp8,
         full_fp8=args.full_fp8,
@@ -622,6 +644,7 @@ def main():
         files_per_subdir=args.files_per_subdir,
         write_interval=args.write_interval,
         lora_checkpoint_path=args.lora_checkpoint_path,
+        eden_tokenizer=args.eden_tokenizer,
     )
 
 
