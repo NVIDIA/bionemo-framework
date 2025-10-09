@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import socket
 
 
 os.environ["NVIDIA_TF32_OVERRIDE"] = (
@@ -78,6 +79,23 @@ def test_d3pm_parallel_interpolate(
     visible_devices = torch.cuda.device_count() if device_type == "cuda" else 1  # assume 1 for non-CUDA (e.g., CPU)
     if world_size > visible_devices:
         pytest.skip(f"Insufficient devices: {world_size} devices requested, but only {visible_devices} are visible")
+
+    # Set up environment variables BEFORE spawning so all processes use the same values
+    if "MASTER_ADDR" not in os.environ:
+        os.environ["MASTER_ADDR"] = "localhost"
+    if "MASTER_PORT" not in os.environ:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("", 0))
+        port = s.getsockname()[1]
+        s.close()
+        os.environ["MASTER_PORT"] = str(port)
+
+    # Fix hanging issue on A6000 GPUs
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            if "A6000" in torch.cuda.get_device_name(i):
+                os.environ["NCCL_P2P_DISABLE"] = "1"
+                break
 
     torch.multiprocessing.spawn(  # type: ignore
         fn=d3pm_parallel_interpolate,
