@@ -27,8 +27,10 @@ import nemo.lightning as nl
 import torch
 from lightning.pytorch import LightningDataModule
 from megatron.core import parallel_state
+from megatron.core.enums import Fp8Recipe
 from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
 from megatron.core.utils import get_batch_on_this_cp_rank
+from nemo.collections.llm.gpt.data.megatron.hyena.evo2_dataset import Evo2Dataset
 from nemo.collections.llm.gpt.model.base import GPTModel, get_packed_seq_params
 from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS, HyenaModel
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
@@ -75,7 +77,13 @@ def parse_args():
     )
     ap.add_argument("--fasta", type=Path, required=True, help="Fasta path from which to generate logit predictions.")
     ap.add_argument("--ckpt-dir", type=Path, required=True, help="NeMo2 checkpoint directory for inference.")
+    ap.add_argument("--min-length", type=int, required=False, help="Minimum sequence length for padding.")
     ap.add_argument("--prepend-bos", action="store_true", help="Prepend BOS token to sequences. Defaults to False.")
+    ap.add_argument(
+        "--mask-phylogenetic-tags",
+        action="store_true",
+        help="Mask phylogenetic tags in loss computation. Defaults to False.",
+    )
     ap.add_argument("--tensor-parallel-size", type=int, default=1, help="Order of tensor parallelism. Defaults to 1.")
     ap.add_argument(
         "--pipeline-model-parallel-size",
@@ -86,6 +94,16 @@ def parse_args():
     )
     ap.add_argument(
         "--context-parallel-size", type=int, default=1, help="Order of context parallelism. Defaults to 1."
+    )
+    ap.add_argument(
+        "--fp8-recipe",
+        type=str,
+        default="delayed",
+        choices=list(Fp8Recipe.__members__.keys()),
+        help="FP8 recipe to use for FP8 tensors in the forward and backward pass. Note that some recipes are only "
+        "supported by certain architectures. For example 'mxfp8' requires at least blackwell, and 'blockwise' is only "
+        "implemented for hopper (but not blackwell). 'tensorwise' and 'delayed' are currently supported by all "
+        "architectures, but 'tensorwise' is preferred over 'delayed' which is the default for historical reasons.",
     )
     ap.add_argument(
         "--no-sequence-parallel",
@@ -382,12 +400,19 @@ def hyena_predict_data_step(dataloader_iter) -> dict[str, torch.Tensor]:
 class PredictDataModule(LightningDataModule):
     """Create a dataloader for prediction."""
 
-    def __init__(self, dataset: torch.utils.data.Dataset, batch_size: int = 1, tokenizer=None):
+    def __init__(
+        self,
+        dataset: torch.utils.data.Dataset,
+        batch_size: int = 1,
+        tokenizer=None,
+        min_length: int | None = None,
+    ):
         """Create a dataloader for prediction."""
         super().__init__()
         self.dataset = dataset
         self.batch_size = batch_size
         self.tokenizer = tokenizer
+        self.min_length = min_length
         default_pad_id = 0
         self.pad_token_id = getattr(tokenizer, "pad_id", default_pad_id) if tokenizer is not None else default_pad_id
 
@@ -408,7 +433,7 @@ class PredictDataModule(LightningDataModule):
             collate_fn=functools.partial(
                 collate.padding_collate_fn,
                 padding_values={"tokens": self.pad_token_id, "position_ids": self.pad_token_id, "loss_mask": False},
-                min_length=None,
+                min_length=self.min_length,
                 max_length=None,
             ),
         )
@@ -428,6 +453,7 @@ def predict(
     ckpt_format: CheckpointFormats = "torch_dist",
     fp8: bool = False,
     full_fp8: bool = False,
+    fp8_recipe: str = "delayed",
     work_dir: Path | None = None,
     micro_batch_size: int = 1,
     output_log_prob_seqs: bool = False,
@@ -440,6 +466,8 @@ def predict(
     seq_len_interpolation_factor: int | None = None,
     files_per_subdir: int | None = None,
     lora_checkpoint_path: Path | None = None,
+    mask_phylogenetic_tags: bool = False,
+    min_length: int | None = None,
     extra_callbacks: list | None = None,  # use this for making testing the predict loop easier.
 ):
     """Inference workflow for Evo2.
@@ -447,6 +475,11 @@ def predict(
     Returns:
         None
     """
+    if fp8 and not full_fp8 and fp8_recipe != "delayed":
+        logger.warning(
+            "fp8_recipe is ignored when using fp8 and not full_fp8 since it is set inside of the layer "
+            "config to match vortex style FP8."
+        )
     if work_dir is None:
         work_dir = Path(tempfile.mkdtemp())
     if files_per_subdir is None and write_interval == "batch":
@@ -490,6 +523,8 @@ def predict(
         config_modifiers_init["hybrid_override_pattern"] = hybrid_override_pattern
     if num_layers is not None:
         config_modifiers_init["num_layers"] = num_layers
+    if seq_len_interpolation_factor is not None:
+        config_modifiers_init["seq_len_interpolation_factor"] = seq_len_interpolation_factor
 
     tokenizer = get_nmt_tokenizer("byte-level")
     if eden_tokenizer:
@@ -592,13 +627,14 @@ def predict(
             params_dtype=torch.bfloat16,
             # Only use FP8 in this plugin when using full FP8 precision and FP8.
             #   Otherwise use vortex_style_fp8 in the model config.
+            fp8_recipe=fp8_recipe,
             fp8="hybrid" if fp8 and full_fp8 else None,
             fp8_amax_history_len=16 if fp8 and full_fp8 else 1,
             fp8_amax_compute_algo="max" if fp8 and full_fp8 else "most_recent",
         ),
     )
 
-    nemo_logger = NeMoLogger(log_dir=work_dir)
+    nemo_logger = NeMoLogger(log_dir=str(work_dir))
     nemo_logger.setup(trainer, resume_if_exists=True)
     resume = nl.AutoResume(
         resume_if_exists=True,
@@ -610,8 +646,22 @@ def predict(
 
     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
 
-    dataset = SimpleFastaDataset(fasta_path, tokenizer, prepend_bos=prepend_bos)
-    datamodule = PredictDataModule(dataset, batch_size=micro_batch_size, tokenizer=tokenizer)
+    if mask_phylogenetic_tags:
+
+        def custom_loss_masker(tokens):
+            # Run the evo2 dataset mask_phylogenetic_tags function
+            return Evo2Dataset.mask_phylogenetic_tags(
+                tokens,
+                Evo2Dataset.TAG_BOUNDS,
+                Evo2Dataset.TAG_CHARS,
+                tokenizer.eod if tokenizer is not None else Evo2Dataset.DEFAULT_EOD,
+                Evo2Dataset.MAX_TAG_LEN,
+            )
+    else:
+        custom_loss_masker = None
+
+    dataset = SimpleFastaDataset(fasta_path, tokenizer, prepend_bos=prepend_bos, custom_loss_masker=custom_loss_masker)
+    datamodule = PredictDataModule(dataset, batch_size=micro_batch_size, tokenizer=tokenizer, min_length=min_length)
     trainer.predict(model, datamodule=datamodule)  # TODO return_predictions=False
     dataset.write_idx_map(
         output_dir
@@ -634,6 +684,7 @@ def main():
         ckpt_format=args.ckpt_format,
         fp8=args.fp8,
         full_fp8=args.full_fp8,
+        fp8_recipe=args.fp8_recipe,
         micro_batch_size=args.micro_batch_size,
         output_log_prob_seqs=args.output_log_prob_seqs,
         log_prob_collapse_option=args.log_prob_collapse_option,
@@ -645,6 +696,8 @@ def main():
         files_per_subdir=args.files_per_subdir,
         write_interval=args.write_interval,
         lora_checkpoint_path=args.lora_checkpoint_path,
+        mask_phylogenetic_tags=args.mask_phylogenetic_tags,
+        min_length=args.min_length,
         eden_tokenizer=args.eden_tokenizer,
     )
 
