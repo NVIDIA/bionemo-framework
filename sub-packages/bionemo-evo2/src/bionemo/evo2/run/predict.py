@@ -388,7 +388,7 @@ class PredictDataModule(LightningDataModule):
         self.dataset = dataset
         self.batch_size = batch_size
         self.tokenizer = tokenizer
-        self.pad_token_id = tokenizer.pad_token_id if tokenizer is not None else 0
+        self.pad_token_id = tokenizer.pad_id if tokenizer is not None else 0
 
     def setup(self, stage: str | None = None) -> None:
         """Set up the dataloader."""
