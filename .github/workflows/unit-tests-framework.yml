@@ -251,7 +251,7 @@ jobs:
     needs:
       - build-bionemo-image
       - get-pr-labels
-    runs-on: linux-amd64-gpu-rtx6000ada-latest-2-nemo
+    runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
       credentials:
@@ -315,7 +315,7 @@ jobs:
     needs:
       - build-bionemo-image
       - get-pr-labels
-    runs-on: linux-amd64-gpu-rtx6000ada-latest-2-nemo
+    runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
       credentials:

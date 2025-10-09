@@ -172,7 +172,7 @@ jobs:
 
   unit-tests-multi-gpu:
     needs: changed-dirs
-    runs-on: linux-amd64-gpu-rtx6000ada-latest-2-nemo
+    runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
     if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
     name: "unit-tests-multi-gpu (${{ matrix.recipe.name }})"
     container:
