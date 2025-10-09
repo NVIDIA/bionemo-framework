@@ -3,14 +3,6 @@ name: SCDL Performance Test
 on:
   workflow_dispatch:
     inputs:
-      gpu_type:
-        description: "GPU type to use"
-        required: true
-        default: "h100-sxm"
-        type: choice
-        options:
-          - h200
-          - h100-sxm
       branch:
         description: "Branch to use (ignored if commit SHA is provided)"
         required: true
@@ -46,29 +38,14 @@ jobs:
       - name: Submit SCDL Performance Job
         env:
           LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
-          GPU_TYPE: ${{ github.event.inputs.gpu_type      || 'h100-sxm' }}
           BRANCH: ${{ github.event.inputs.branch        || 'main' }}
           COMMIT_SHA: ${{ github.event.inputs.commit_sha    || '' }}
         run: |
           set -euo pipefail
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
 
-          # Map GPU type to node group
-          if [ "$GPU_TYPE" = "h200" ]; then
-            NODE_GROUP="nv-int-multiteam-nebius-h200-01"
-          elif [ "$GPU_TYPE" = "h100-sxm" ]; then
-            NODE_GROUP="yo-bom-lepton-001"
-          elif [ "$GPU_TYPE" = "a100-80gb" ]; then
-            NODE_GROUP="az-sat-lepton-001"
-          else
-            echo "Error: Unknown GPU type: $GPU_TYPE"
-            exit 1
-          fi
-
           python ci/lepton/core/launch_job.py \
             --config-path="../scdl_performance/configs" \
             --config-name="scdl" \
             branch="$BRANCH" \
-            commit_sha=$COMMIT_SHA \
-            node_group=$NODE_GROUP \
-            gpu_type="$GPU_TYPE"
+            commit_sha=$COMMIT_SHA
