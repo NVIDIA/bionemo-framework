@@ -97,7 +97,15 @@ checkout_script: |
 # The `script` section combines the checkout step with the run step.
 ############################################################
 run_script: |
-  python simple-benchmark/scdl_speedtest.py   --json /workspace/benchmark.json
+  echo "ls ../../../../data: $(ls -la ../../../../data)"
+  echo "ls ../../../../data/scdl_performance: $(ls -la ../../../../data/scdl_performance)"
+  python simple-benchmark/scdl_speedtest.py \
+    --json /workspace/benchmark.json \
+    --max-time 120 \
+    --warmup-time 30 \
+    --generate-baseline \
+    -i ../../../../data/scdl_performance/tahoe_data \
+    --scdl-path ../../../../data/scdl_performance/all_tahoe_memmap
 
 script: |
   ${checkout_script}

@@ -62,7 +62,7 @@ def register_resolvers():
 
     def sanitize(value: str) -> str:
         # Replace all forbidden characters `/ \ # ? % :` with '-'
-        return re.sub(r"[\/\\#\?\%:]", "-", value)
+        return re.sub(r"[\/\\#\?\%:_]", "-", value).lower()
 
     def gitsha():
         try:

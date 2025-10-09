@@ -14,7 +14,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Lepton Job submission script with Hydra configuration.
 
 Demo for model convergence: python ci/lepton/core/launch_job.py --config-path="../model_convergence/configs" --config-name="recipes/esm2_native_te"
@@ -178,15 +177,6 @@ def main(cfg: DictConfig):
 
             # Create new OmegaConf object from merged dict
             product_cfg = OmegaConf.create(merged_dict)
-
-            # Generate job name using recipe_subdir and config value
-            # Extract the base recipe name from recipe_subdir (e.g., "geneformer" from "geneformer_native_te_mfsdp_fp8")
-            recipe_parts = product_cfg.recipe_subdir.split("_")
-            base_recipe_name = recipe_parts[0] if recipe_parts else product_cfg.recipe_subdir
-
-            # Create job name as base_recipe_name-config (e.g., "geneformer-10m")
-            config_name = product_dict["config"].replace("_", "-").replace("/", "-")
-            product_cfg.job_name = f"convtest-{base_recipe_name}-{config_name}".lower()
 
             print(f"\n[{i}/{len(cfg.products)}] Launching: {product_cfg.job_name}")
 

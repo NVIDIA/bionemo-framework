@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Get job name
 JOB_NAME="${LEPTON_JOB_NAME:-unknown-job}"
+
 # Run the script
 set +e
 (
@@ -41,6 +42,25 @@ else
   echo "Warning: ALL_CONFIG_JSON is not valid JSON. Using empty object."
   ALL_CONFIG_JSON_UPDATED='{}'
 fi
+
+# --- Added commit/branch tracking ---
+echo "commit in bionemo-framework"
+(cd bionemo-framework && git log -1 || true)
+
+# Get commit SHA from framework repo
+COMMIT_SHA="$(cd bionemo-framework && git rev-parse HEAD 2>/dev/null || true)"
+echo "Resolved framework commit: ${COMMIT_SHA:-<none>}"
+
+# Inject/overwrite commit and branch info into config
+if [ -n "${COMMIT_SHA:-}" ]; then
+  ALL_CONFIG_JSON_UPDATED="$(printf '%s' "$ALL_CONFIG_JSON_UPDATED" | jq -c --arg commit "$COMMIT_SHA" '.commit_sha = $commit')"
+
+  RESOLVED_BRANCH="$(cd bionemo-framework && git branch -r --contains "$COMMIT_SHA" | grep 'origin/' | head -1 | sed 's|.*origin/||' || true)"
+  if [ -n "$RESOLVED_BRANCH" ] && [ "$RESOLVED_BRANCH" != "HEAD" ]; then
+    ALL_CONFIG_JSON_UPDATED="$(printf '%s' "$ALL_CONFIG_JSON_UPDATED" | jq -c --arg branch "$RESOLVED_BRANCH" '.branch = $branch')"
+  fi
+fi
+# --- End commit/branch tracking ---
 
 # Authenticate to Lepton
 pip install -q leptonai >/dev/null 2>&1 || pip install -q leptonai || true
