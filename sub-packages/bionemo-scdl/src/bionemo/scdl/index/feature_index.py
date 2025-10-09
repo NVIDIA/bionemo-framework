@@ -25,7 +25,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 
-__all__: Sequence[str] = ("RowFeatureIndex",)
+__all__: Sequence[str] = ("FeatureIndex",)
 
 
 def are_dicts_equal(dict1: dict[str, np.ndarray], dict2: dict[str, np.ndarray]) -> bool:
@@ -42,8 +42,8 @@ def are_dicts_equal(dict1: dict[str, np.ndarray], dict2: dict[str, np.ndarray]) 
     return dict1.keys() == dict2.keys() and all(np.array_equal(dict1[k], dict2[k]) for k in dict1)
 
 
-class RowFeatureIndex:
-    """Maintains a mapping between a row and its features.
+class FeatureIndex:
+    """Maintains a mapping between a row or column and its features.
 
     This is a ragged dataset, where the number and dimension of features
     can be different at every row.
@@ -93,7 +93,7 @@ class RowFeatureIndex:
         return self._version
 
     def __len__(self) -> int:
-        """The length is the number of rows or RowFeatureIndex length."""
+        """The length is the number of rows or FeatureIndex length."""
         return len(self._feature_arr)
 
     def append_features(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
@@ -220,13 +220,13 @@ class RowFeatureIndex:
         """
         return int(max(self._cumulative_sum_index[-1], 0))
 
-    def concat(self, other_row_index: RowFeatureIndex, fail_on_empty_index: bool = True) -> RowFeatureIndex:
+    def concat(self, other_row_index: FeatureIndex, fail_on_empty_index: bool = True) -> FeatureIndex:
         """Concatenates the other FeatureIndex to this one.
 
         Returns the new, updated index. Warning: modifies this index in-place.
 
         Args:
-            other_row_index: another RowFeatureIndex
+            other_row_index: another FeatureIndex
             fail_on_empty_index: A boolean flag that sets whether to raise an
             error if an empty row index is passed in.
 
@@ -234,15 +234,15 @@ class RowFeatureIndex:
             self, the RowIndexFeature after the concatenations.
 
         Raises:
-            TypeError if other_row_index is not a RowFeatureIndex
-            ValueError if an empty RowFeatureIndex is passed and the function is
+            TypeError if other_row_index is not a FeatureIndex
+            ValueError if an empty FeatureIndex is passed and the function is
             set to fail in this case.
         """
         match other_row_index:
             case self.__class__():
                 pass
             case _:
-                raise TypeError("Error: trying to concatenate something that's not a RowFeatureIndex.")
+                raise TypeError("Error: trying to concatenate something that's not a FeatureIndex.")
 
         if fail_on_empty_index and not len(other_row_index._feature_arr) > 0:
             raise ValueError("Error: Cannot append empty FeatureIndex.")
@@ -254,7 +254,7 @@ class RowFeatureIndex:
         return self
 
     def save(self, datapath: str) -> None:
-        """Saves the RowFeatureIndex to a given path.
+        """Saves the FeatureIndex to a given path.
 
         Args:
             datapath: path to save the index
@@ -271,15 +271,15 @@ class RowFeatureIndex:
         np.save(Path(datapath) / "version.npy", np.array(self._version))
 
     @staticmethod
-    def load(datapath: str) -> RowFeatureIndex:
+    def load(datapath: str) -> FeatureIndex:
         """Loads the data from datapath.
 
         Args:
             datapath: the path to load from
         Returns:
-            An instance of RowFeatureIndex
+            An instance of FeatureIndex
         """
-        new_row_feat_index = RowFeatureIndex()
+        new_row_feat_index = FeatureIndex()
         parquet_data_paths = sorted(Path(datapath).rglob("*.parquet"))
         data_tables = [pq.read_table(csv_path) for csv_path in parquet_data_paths]
         new_row_feat_index._feature_arr = [

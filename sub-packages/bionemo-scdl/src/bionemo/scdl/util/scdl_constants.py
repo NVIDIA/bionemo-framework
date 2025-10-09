@@ -40,7 +40,8 @@ class FileNames(str, Enum):
     NEIGHBOR_INDICES_PTR = "neighbor_indptr.npy"
     NEIGHBOR_VALUES = "neighbor_values.npy"
     METADATA = "metadata.json"
-    FEATURES = "features"
+    ROW_FEATURES = "row_features"
+    COL_FEATURES = "col_features"
     VERSION = "version.json"
     HEADER = "header.sch"
 
@@ -208,7 +209,9 @@ VALID_DTYPE_CONVERSIONS = (
             ("uint8", "float64"),
             ("uint16", "float32"),
             ("uint16", "float64"),
+            ("uint32", "float32"),
             ("uint32", "float64"),
+            ("uint64", "float64"),
         }
     )
 )
