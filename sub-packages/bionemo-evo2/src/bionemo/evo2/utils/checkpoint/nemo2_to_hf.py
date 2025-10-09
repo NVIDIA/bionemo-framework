@@ -37,7 +37,6 @@ def main():
     elif model_type == "mamba":
         exporter = HFNemotronExporter(args.model_path)
     elif model_type == "llama":
-        # evo2_config = LLAMA_MODEL_OPTIONS[args.model_size]()
         exporter = HFLlamaExporter(args.model_path)
     else:
         raise ValueError(f"Invalid model type: {model_type}.")
