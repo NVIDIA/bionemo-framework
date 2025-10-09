@@ -80,8 +80,9 @@ def test_mdlm_parallel_interpolate(
     if "MASTER_ADDR" not in os.environ:
         os.environ["MASTER_ADDR"] = "localhost"
     if "MASTER_PORT" not in os.environ:
+        # Find a free port for this test (bind to localhost only for security)
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind(("", 0))
+        s.bind(("localhost", 0))
         port = s.getsockname()[1]
         s.close()
         os.environ["MASTER_PORT"] = str(port)
