@@ -50,7 +50,9 @@ def parse_args():
     parser.add_argument(
         "--model-size",
         type=str,
-        choices=sorted(HYENA_MODEL_OPTIONS.keys()),
+        choices=sorted(
+            set(HYENA_MODEL_OPTIONS.keys()) | set(MAMBA_MODEL_OPTIONS.keys()) | set(LLAMA_MODEL_OPTIONS.keys())
+        ),
         default="1b",
         help="Model architecture to use, choose between 1b, 7b, 40b, or test (a sub-model of 4 layers, "
         "less than 1B parameters). '*_arc_longcontext' models have GLU / FFN dimensions that support 1M "
@@ -150,7 +152,7 @@ class _OptimizerRemoverBase:
         from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 
         tokenizer = get_nmt_tokenizer(
-            library=self.model_config.tokenizer_library,
+            library=getattr(self.model_config, "tokenizer_library", "byte-level"),
         )
 
         return tokenizer

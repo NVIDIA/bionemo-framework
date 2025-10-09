@@ -23,6 +23,7 @@ def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-type", type=str, required=True, help="Model type to convert.")
+    parser.add_argument("--model-path", type=str, required=True, help="Model path to convert.")
     parser.add_argument("--output-dir", type=str, required=True, help="Output directory path for the converted model.")
     return parser.parse_args()
 
