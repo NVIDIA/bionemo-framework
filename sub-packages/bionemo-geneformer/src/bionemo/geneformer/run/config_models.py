@@ -17,12 +17,16 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import List, Optional, Type
 
+from numpy import true_divide
+
 from nemo.utils import logging
 from pydantic import field_serializer, field_validator
 from tokenizers import Tokenizer
 
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
+from bionemo.geneformer.data.singlecell.datamodule_scmap import SingleCellDataModuleSCMAP
+from bionemo.geneformer.data.singlecell.temporal.temporal_datamodule import TemporalGeneformerDataModule
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
 from bionemo.geneformer.model.finetune_token_regressor import FineTuneSeqLenBioBertConfig
 from bionemo.llm.run.config_models import (
@@ -131,6 +135,235 @@ class GeneformerPretrainingDataConfig(DataConfig[SingleCellDataModule]):
         return data
 
 
+class TemporalGeneformerDataConfig(DataConfig[TemporalGeneformerDataModule]):
+    """Configuration class for Temporal Geneformer training data.
+    
+    Extends the base data config to support temporal/neighbor-based training
+    where models learn to predict next cells in a trajectory.
+    
+    Attributes:
+        train_dataset_path (str | None): Path to the training SCDL dataset with neighbor information.
+        val_dataset_path (str | None): Path to the validation SCDL dataset with neighbor information.
+        test_dataset_path (str | None): Path to the test SCDL dataset with neighbor information.
+        predict_dataset_path (str | None): Path to the prediction SCDL dataset with neighbor information.
+        tokenizer_vocab_path (str): Path to the tokenizer vocabulary file.
+        median_dict_path (str): Path to the median dictionary file.
+        result_dir (str | pathlib.Path): Directory where results will be stored.
+        micro_batch_size (int): Size of the micro-batch.
+        seq_length (int): Maximum sequence length.
+        mask_prob (float): Probability of masking tokens in next cell.
+        mask_token_prob (float): Probability of using [MASK] token.
+        random_token_prob (float): Probability of using random token.
+        neighbor_key (str): Key for neighbor data in SCDL.
+        num_dataset_workers (int): Number of workers for data loading.
+        seed (int): Random seed for reproducibility.
+        only_cells_with_neighbors (bool): Whether to only use cells with neighbors.
+        no_neighbor_policy (str): Policy for handling cells without neighbors.
+        token_selection_policy (str): Policy for selecting tokens from next cell.
+        normalize_gene_expression (bool): Whether to normalize gene expression.
+        target_sum (int): Target sum for normalization.
+    """
+    
+    # Core data parameters - separate paths for train/val/test/predict
+    train_dataset_path: str | None = None
+    val_dataset_path: str | None = None
+    test_dataset_path: str | None = None
+    predict_dataset_path: str | None = None
+    tokenizer_vocab_path: str  
+    median_dict_path: str
+    result_dir: str | pathlib.Path = "./results"
+    micro_batch_size: int = 8
+    seq_length: int = 2048
+    
+    # Temporal-specific parameters
+    mask_prob: float = 0.15
+    mask_token_prob: float = 0.8
+    random_token_prob: float = 0.1
+    neighbor_key: str = "next_cell_ids"
+    num_dataset_workers: int = 0
+    seed: int = 42
+    only_cells_with_neighbors: bool = true_divide
+    no_neighbor_policy: str = "skip"
+    token_selection_policy: str = "identity"
+    normalize_gene_expression: bool = True
+    target_sum: int = 10000
+
+    @field_serializer("result_dir")
+    def serialize_paths(self, value: pathlib.Path) -> str:  # noqa: D102
+        return serialize_path_or_str(value)
+
+    @field_validator("result_dir")
+    def deserialize_paths(cls, value: str) -> pathlib.Path:  # noqa: D102
+        return deserialize_str_to_path(value)
+
+    def geneformer_preprocess(self) -> GeneformerDataArtifacts:
+        """Geneformer datamodule expects certain artifacts to be present in the data directory.
+
+        This method uses a legacy 'preprocessor' from BioNeMo 1 to acquire the associated artifacts.
+        """
+        if self.train_dataset_path is None:
+            raise ValueError("train_dataset_path must be provided for preprocessing")
+            
+        preprocessor = GeneformerPreprocess(
+            download_directory=pathlib.Path(self.train_dataset_path),
+            medians_file_path=pathlib.Path(self.median_dict_path),
+            tokenizer_vocab_path=pathlib.Path(self.tokenizer_vocab_path),
+        )
+        result = preprocessor.preprocess()
+        if "tokenizer" in result and "median_dict" in result:
+            logging.info("*************** Temporal Preprocessing Finished ************")
+            return GeneformerDataArtifacts(tokenizer=result["tokenizer"], median_dict=result["median_dict"])
+        else:
+            logging.error("Temporal preprocessing failed.")
+            raise ValueError("Temporal preprocessing failed to create tokenizer and/or median dictionary.")
+
+    def construct_data_module(self, global_batch_size: int) -> TemporalGeneformerDataModule:
+        """Construct and return a TemporalGeneformerDataModule."""
+        # First, get the tokenizer and median_dict through preprocessing
+        geneformer_data_artifacts: GeneformerDataArtifacts = self.geneformer_preprocess()
+        
+        data = TemporalGeneformerDataModule(
+            train_dataset_path=self.train_dataset_path,
+            val_dataset_path=self.val_dataset_path,
+            test_dataset_path=self.test_dataset_path,
+            predict_dataset_path=self.predict_dataset_path,
+            tokenizer=geneformer_data_artifacts.tokenizer,
+            median_dict=geneformer_data_artifacts.median_dict,
+            seq_length=self.seq_length,
+            mask_prob=self.mask_prob,
+            mask_token_prob=self.mask_token_prob,
+            random_token_prob=self.random_token_prob,
+            neighbor_key=self.neighbor_key,
+            micro_batch_size=self.micro_batch_size,
+            global_batch_size=global_batch_size,
+            num_workers=self.num_dataset_workers,
+            pin_memory=False,
+            persistent_workers=self.num_dataset_workers > 0,
+            seed=self.seed,
+            only_cells_with_neighbors=self.only_cells_with_neighbors,
+            no_neighbor_policy=self.no_neighbor_policy,
+        )
+        return data
+
+
+class SCMAPGeneformerDataConfig(DataConfig[SingleCellDataModuleSCMAP]):
+    """Configuration class for SCMAP format Geneformer training data.
+    
+    This config supports the SCMAP memory-mapped data format with optional
+    temporal/neighbor-based training for next cell prediction.
+    
+    Attributes:
+        train_dataset_path (str | None): Path to the training SCMAP dataset directory.
+        val_dataset_path (str | None): Path to the validation SCMAP dataset directory.
+        test_dataset_path (str | None): Path to the test SCMAP dataset directory.
+        predict_dataset_path (str | None): Path to the prediction SCMAP dataset directory.
+        tokenizer_vocab_path (str): Path to the tokenizer vocabulary file.
+        median_dict_path (str): Path to the median dictionary file.
+        result_dir (str | pathlib.Path): Directory where results will be stored.
+        micro_batch_size (int): Size of the micro-batch.
+        seq_length (int): Maximum sequence length.
+        mask_prob (float): Probability of masking tokens.
+        mask_token_prob (float): Probability of using [MASK] token.
+        random_token_prob (float): Probability of using random token.
+        num_dataset_workers (int): Number of workers for data loading.
+        seed (int): Random seed for reproducibility.
+        next_cell_prediction (bool): Enable next cell prediction (temporal training).
+        no_neighbor_policy (str): Policy for handling cells without neighbors ("identity", "skip").
+        filter_no_neighbors (bool): Whether to filter out cells without neighbors.
+        assert_increasing_columns (bool): Check if column indices are increasing (for debugging).
+        prepend_cls_token (bool): Whether to prepend CLS token.
+        eos_token (int | None): Optional EOS token ID.
+    """
+    
+    # Core data parameters - separate paths for train/val/test/predict
+    train_dataset_path: str | None = None
+    val_dataset_path: str | None = None
+    test_dataset_path: str | None = None
+    predict_dataset_path: str | None = None
+    tokenizer_vocab_path: str  
+    median_dict_path: str
+    result_dir: str | pathlib.Path = "./results"
+    micro_batch_size: int = 8
+    seq_length: int = 2048
+    
+    # Masking parameters
+    mask_prob: float = 0.15
+    mask_token_prob: float = 0.8
+    random_token_prob: float = 0.1
+    
+    # Data loading parameters
+    num_dataset_workers: int = 0
+    seed: int = 42
+    
+    # SCMAP-specific parameters
+    next_cell_prediction: bool = False
+    no_neighbor_policy: str = "identity"
+    filter_no_neighbors: bool = False
+    assert_increasing_columns: bool = False
+    prepend_cls_token: bool = True
+    eos_token: int | None = None
+
+    @field_serializer("result_dir")
+    def serialize_paths(self, value: pathlib.Path) -> str:  # noqa: D102
+        return serialize_path_or_str(value)
+
+    @field_validator("result_dir")
+    def deserialize_paths(cls, value: str) -> pathlib.Path:  # noqa: D102
+        return deserialize_str_to_path(value)
+
+    def geneformer_preprocess(self) -> GeneformerDataArtifacts:
+        """Geneformer datamodule expects certain artifacts to be present in the data directory.
+
+        This method uses a legacy 'preprocessor' from BioNeMo 1 to acquire the associated artifacts.
+        """
+        if self.train_dataset_path is None:
+            raise ValueError("train_dataset_path must be provided for preprocessing")
+            
+        preprocessor = GeneformerPreprocess(
+            download_directory=pathlib.Path(self.train_dataset_path).parent,
+            medians_file_path=pathlib.Path(self.median_dict_path),
+            tokenizer_vocab_path=pathlib.Path(self.tokenizer_vocab_path),
+        )
+        result = preprocessor.preprocess()
+        if "tokenizer" in result and "median_dict" in result:
+            logging.info("*************** SCMAP Preprocessing Finished ************")
+            return GeneformerDataArtifacts(tokenizer=result["tokenizer"], median_dict=result["median_dict"])
+        else:
+            logging.error("SCMAP preprocessing failed.")
+            raise ValueError("SCMAP preprocessing failed to create tokenizer and/or median dictionary.")
+
+    def construct_data_module(self, global_batch_size: int) -> SingleCellDataModuleSCMAP:
+        """Construct and return a SingleCellDataModuleSCMAP."""
+        # First, get the tokenizer and median_dict through preprocessing
+        geneformer_data_artifacts: GeneformerDataArtifacts = self.geneformer_preprocess()
+        
+        data = SingleCellDataModuleSCMAP(
+            train_dataset_path=self.train_dataset_path,
+            val_dataset_path=self.val_dataset_path,
+            test_dataset_path=self.test_dataset_path,
+            predict_dataset_path=self.predict_dataset_path,
+            tokenizer=geneformer_data_artifacts.tokenizer,
+            median_dict=geneformer_data_artifacts.median_dict,
+            seq_length=self.seq_length,
+            mask_prob=self.mask_prob,
+            mask_token_prob=self.mask_token_prob,
+            random_token_prob=self.random_token_prob,
+            micro_batch_size=self.micro_batch_size,
+            global_batch_size=global_batch_size,
+            num_workers=self.num_dataset_workers,
+            pin_memory=False,
+            persistent_workers=self.num_dataset_workers > 0,
+            seed=self.seed,
+            next_cell_prediction=self.next_cell_prediction,
+            no_neighbor_policy=self.no_neighbor_policy,
+            filter_no_neighbors=self.filter_no_neighbors,
+            assert_increasing_columns=self.assert_increasing_columns,
+            prepend_cls_token=self.prepend_cls_token,
+            eos_token=self.eos_token,
+        )
+        return data
+
+
 class ExposedGeneformerPretrainConfig(ExposedModelConfig[GeneformerConfig]):
     """Exposes custom parameters for pretraining and binds the class to GeneformerConfig.
 
@@ -142,6 +375,10 @@ class ExposedGeneformerPretrainConfig(ExposedModelConfig[GeneformerConfig]):
     # Custom parameters for FineTuning
     initial_ckpt_path: Optional[str] = None
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=list)
+    # Allow YAML to set per-token loss calculation; forwarded to GeneformerConfig via exposed_to_internal_bionemo_model_config
+    calculate_per_token_loss: bool = False
+    # Allow YAML to control attention dropout explicitly (GeneformerConfig supports this field)
+    attention_dropout: float = 0.1
 
     def model_class(self) -> Type[GeneformerConfig]:  # noqa: D102
         return GeneformerConfig

@@ -1,0 +1,121 @@
+# Temporal Geneformer Training Configuration
+# This config demonstrates how to continue training from a geneformer checkpoint
+# with temporal/next-cell training using the config-driven approach
+
+# Model Configuration - Uses existing GeneformerConfig with checkpoint resumption
+bionemo_model_config:
+  # Core model parameters (inherited from BioBertConfig)
+  # seq_length: 2048
+  # num_layers: 12
+  # hidden_size: 768
+  # ffn_hidden_size: 3072
+  # num_attention_heads: 12
+  calculate_per_token_loss: True  # Enable per-token loss calculation
+
+  # 10M model
+  seq_length: 2048
+  num_layers: 6
+  hidden_size: 256
+  ffn_hidden_size: 512
+  num_attention_heads: 4
+  attention_dropout: 0.0
+  hidden_dropout: 0.0
+  
+  # Required dtype fields
+  params_dtype: "bf16-mixed"
+  pipeline_dtype: "bf16-mixed"
+  autocast_dtype: "bf16-mixed"
+  
+  # 🔑 KEY: Resume from pretrained geneformer checkpoint
+  initial_ckpt_path: "/home/ubuntu/.cache/bionemo/a27061ee347f453b1bf175e288df31e9813903ebcb4924a77ac50dccc730889d-geneformer_10M_240530_nemo2.tar.gz.untar"
+  
+  # Optional: Skip certain layers if needed (useful for fine-tuning)
+  initial_ckpt_skip_keys_with_these_prefixes: []
+
+# Data Configuration - Uses TemporalGeneformerDataConfig with separate dataset paths
+data_config:
+  train_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/scmemmap_processed_data/train"  # Update this path
+  val_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/scmemmap_processed_data/val"      # Update this path
+  test_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/scmemmap_processed_data/test"    # Update this path
+  
+  # Tokenizer and median dict paths
+  tokenizer_vocab_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/scmemmap_processed_data/train/geneformer.vocab"  # Update this path
+  median_dict_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/scmemmap_processed_data/train/medians.json"          # Update this path
+  
+  result_dir: "./scmap_temporal_results"
+  # Training parameters
+  micro_batch_size: 8
+  seq_length: 2048
+  num_dataset_workers: 4
+  
+  # Temporal-specific parameters
+  mask_prob: 0.15
+  mask_token_prob: 0.8
+  random_token_prob: 0.1
+  neighbor_key: "next_cell_ids"
+  seed: 42
+  
+  # 🔑 SCMAP-specific parameters for temporal training
+  next_cell_prediction: true       # Enable temporal/next-cell prediction
+  filter_no_neighbors: true        # Only use cells that have neighbors
+  no_neighbor_policy: "identity"   # Policy for cells without neighbors (if filter is false)
+  assert_increasing_columns: false # Debug flag for CSR format validation
+  prepend_cls_token: true          # Add [CLS] token at beginning
+  eos_token: null    
+  
+  # Gene expression normalization
+  normalize_gene_expression: true
+  target_sum: 10000
+
+# Training Configuration
+training_config:
+  max_steps: 20000
+  val_check_interval: 500  # Validate every 1000 steps
+  limit_val_batches: 200    # Use more validation batches for better estimates
+  log_every_n_steps: 50     # Log every 50 steps to reduce noise
+  enable_checkpointing: true
+  create_checkpoint_callback: true
+  # gradient_clip_val: 1.0    # 🔧 ADDED: Gradient clipping to prevent exploding gradients
+
+# Parallel Configuration
+parallel_config:
+  tensor_model_parallel_size: 1
+  pipeline_model_parallel_size: 1
+  sequence_parallel: false
+  num_devices: 2
+  average_in_collective: false 
+
+# Optimizer Configuration
+optim_config:
+  lr: 0.00005  # 🔧 REDUCED LEARNING RATE - this is where you change it!
+  optimizer: "adam"  # 🔧 FIXED: Changed from "adamw" to "adam" - Megatron Core only supports "adam" and "sgd"
+  adam_eps: 1.0e-8
+  weight_decay: 0.1
+  lr_scheduler: "cosine"
+  cosine_rampup_frac: 0.025  # 🔧 FIXED: Set to 0 to disable warmup and start immediately at target LR
+  cosine_hold_frac: 0.0
+  interval: "step"
+  monitor: "val_loss"
+
+# Experiment Configuration
+experiment_config:
+  experiment_name: "geneformer_scmap_temporal"
+  experiment_version: "v1.0"
+  save_top_k: 3
+  monitor: "val_loss"
+  mode: "min"
+  save_every_n_steps: 2000  # Save checkpoint every 2000 steps
+  result_dir: "./scmap_temporal_results"
+  restore_from_checkpoint_path: null
+
+# Weights & Biases Configuration (optional)
+wandb_config:
+  entity: "clara-discovery"
+  project: "geneformer_temporal"
+  name: "scmap_next_cell_prediction"
+  tags: ["geneformer", "temporal", "scmap", "next_cell_prediction"]
+  group: "geneformer_temporal"
+  offline: false
+  id: null
+  anonymous: false
+  log_model: false 
