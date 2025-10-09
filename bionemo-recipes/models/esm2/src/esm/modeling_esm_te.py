@@ -526,7 +526,9 @@ class NVEsmEmbeddings(nn.Module):
         )
 
         self.layer_norm = (
-            nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps) if config.emb_layer_norm_before else None
+            transformer_engine.pytorch.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+            if config.emb_layer_norm_before
+            else None
         )
 
         if config.position_embedding_type != "rotary":
