@@ -19,22 +19,13 @@ import subprocess
 
 import pytest
 import torch
-from transformer_engine.pytorch.fp8 import check_fp8_support, check_mxfp8_support
+from transformer_engine.pytorch.fp8 import check_fp8_support
 
 
 def requires_fp8(func):
     """Decorator to skip tests that require FP8 support."""
     fp8_available, reason = check_fp8_support()
     return pytest.mark.skipif(not fp8_available, reason=f"FP8 is not supported on this GPU: {reason}")(func)
-
-
-def requires_mxfp8(func):
-    """Decorator to skip tests that require MXFP8 support."""
-    mxfp8_available, reason = check_mxfp8_support()
-    if torch.cuda.get_device_capability() == (12, 0):
-        mxfp8_available = False
-        reason = "MXFP8 is not supported on sm120"
-    return pytest.mark.skipif(not mxfp8_available, reason=f"MXFP8 is not supported on this GPU: {reason}")(func)
 
 
 requires_multi_gpu = pytest.mark.skipif(
@@ -46,6 +37,7 @@ requires_multi_gpu = pytest.mark.skipif(
 @pytest.mark.parametrize(
     "strategy", ["ddp", "fsdp2", pytest.param("mfsdp", marks=pytest.mark.xfail(reason="BIONEMO-2999"))]
 )
+@requires_fp8
 def test_single_process_attaches_correct_fp8_recipe(strategy):
     cmd = [
         "torchrun",
@@ -72,6 +64,7 @@ def test_single_process_attaches_correct_fp8_recipe(strategy):
 @pytest.mark.parametrize(
     "strategy", ["ddp", "fsdp2", pytest.param("mfsdp", marks=pytest.mark.xfail(reason="BIONEMO-2999"))]
 )
+@requires_fp8
 @requires_multi_gpu
 def test_multi_process_fp8_recipes_are_synced(strategy):
     cmd = [
