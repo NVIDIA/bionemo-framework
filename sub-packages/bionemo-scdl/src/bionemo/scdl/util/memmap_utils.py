@@ -22,11 +22,12 @@ This module contains helper functions for:
 """
 
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Iterable
 
 import numpy as np
 
 from bionemo.scdl.util.scdl_constants import (
+    VALID_DTYPE_CONVERSIONS,
     FileNames,
     Mode,
 )
@@ -45,8 +46,10 @@ def check_integer_valued_and_cast(array, sample_size=100_000, tol=1e-8):
     """
     sample = np.random.choice(array.data, min(sample_size, len(array.data)), replace=False)
     if ((np.abs(sample - np.round(sample)) < tol) | (~np.isfinite(sample))).all():
+        # Return numpy dtype string (e.g., 'uint8') for consistency with self.dtypes
         return smallest_uint_dtype(sample.max())
     else:
+        # Return numpy dtype string (e.g., 'float32')
         return array.dtype
 
 
@@ -68,6 +71,36 @@ def smallest_uint_dtype(x: int):
         if x < (1 << bits):
             return dtype
     raise ValueError(f"No unsigned integer dtype can represent the given number: {x}")
+
+
+def determine_dtype(dtypes: Iterable[object]) -> str:
+    """Determine the minimal common lossless destination dtype.
+
+    Preference order:
+    - Smallest unsigned integer if possible
+    - Otherwise, smallest float
+    """
+    uint_order = ["uint8", "uint16", "uint32", "uint64"]
+    float_order = ["float16", "float32", "float64"]
+
+    # Normalize inputs to canonical numpy dtype names (e.g., 'uint32', 'float32')
+    source_dtypes = {np.dtype(dt).name for dt in dtypes}
+
+    # Allowed destinations per source include identity and any listed conversions
+    per_source_allowed = [({src} | {dst for (s, dst) in VALID_DTYPE_CONVERSIONS if s == src}) for src in source_dtypes]
+    common = set.intersection(*per_source_allowed) if per_source_allowed else set()
+    if not common:
+        raise ValueError(f"No common lossless destination dtype for sources: {sorted(source_dtypes)}")
+
+    common_uints = [dt for dt in common if dt in uint_order]
+    if common_uints:
+        return min(common_uints, key=uint_order.index)
+
+    common_floats = [dt for dt in common if dt in float_order]
+    if common_floats:
+        return min(common_floats, key=float_order.index)
+
+    raise ValueError(f"Unsupported dtype family in common destinations: {sorted(common)}")
 
 
 def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:
@@ -200,3 +233,19 @@ def _create_compressed_sparse_row_memmaps(
         dtypes,
     )
     return data_arr, col_arr, row_arr
+
+
+def _extract_features(feature_df, feature_index_name: str) -> Dict[str, np.ndarray]:
+    """Normalize a feature dataframe/index into a dict for FeatureIndex.append_features.
+
+    If the dataframe has columns, use them; otherwise use the index under feature_index_name.
+    Returns an empty dict when neither is present.
+    """
+    try:
+        if hasattr(feature_df, "columns") and len(feature_df.columns) > 0:
+            return {col: np.array(feature_df[col].values) for col in feature_df.columns}
+        if hasattr(feature_df, "index") and len(feature_df.index) > 0:
+            return {feature_index_name: feature_df.index.values}
+    except Exception:
+        pass
+    return {}

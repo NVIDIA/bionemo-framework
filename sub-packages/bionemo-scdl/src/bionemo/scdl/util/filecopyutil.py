@@ -54,42 +54,69 @@ def extend_files(
     - ValueError: If conversion is not a safe upscaling operation.
 
     """
+    # Ensure destination file exists (supports in-place conversion workflows that rename original away)
+    dest_dir = os.path.dirname(first) or "."
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir, exist_ok=True)
+    if not os.path.exists(first):
+        open(first, "wb").close()
+
+    if source_dtype is not None and buffer_size_b % np.dtype(source_dtype).itemsize != 0:
+        raise ValueError(
+            f"Buffer size {buffer_size_b} is not divisible by source dtype size {np.dtype(source_dtype).itemsize}"
+        )
+
     # Check if dtype conversion is needed
     if source_dtype is not None and dest_dtype is not None and source_dtype != dest_dtype:
         _extend_files_with_dtype_conversion(
             first, second, source_dtype, dest_dtype, buffer_size_b, delete_file2_on_complete, offset
         )
-        return
+    else:
+        # Fast path for matching dtypes or dtype params not provided
+        _extend_files_fast_copy(first, second, buffer_size_b, delete_file2_on_complete, offset)
 
-    # Original fast path for matching dtypes or no dtype specified
-    with open(first, "r+b") as f1, open(second, "rb") as f2:
+
+def _extend_files_fast_copy(
+    first: str,
+    second: str,
+    buffer_size_b: int,
+    delete_file2_on_complete: bool,
+    offset: int,
+):
+    """Fast raw-byte copy path when no dtype conversion is needed.
+
+    Copies in chunks, ensuring at least 8 bytes per iteration (except possibly the last chunk).
+    """
+    with open(first, "r+b") as f_dest, open(second, "rb") as f_source:
         size1 = os.path.getsize(first)
         size2 = os.path.getsize(second)
 
         # Resize file1 to the final size to accommodate both files
-        f1.seek(size1 + size2 - 1 - offset)
-        f1.write(b"\0")  # Extend file1
+        f_dest.seek(size1 + size2 - 1 - offset)
+        f_dest.write(b"\0")  # Extend file1
 
         # Move data from file2 to file1 in chunks
         read_position = offset  # Start reading from the beginning of file2
         write_position = size1  # Start appending at the end of original data1
-        f2.seek(read_position)
+        f_source.seek(read_position)
 
+        min_bytes = 8
         while read_position < size2:
-            # Determine how much to read/write in this iteration
-            chunk_size = min(buffer_size_b, size2 - read_position)
+            # Determine how much to read/write in this iteration (at least 8 bytes if available)
+            remaining = size2 - read_position
+            chunk_size = min(remaining, max(min_bytes, buffer_size_b))
 
             # Read data from file2
-            new_data = f2.read(chunk_size)
+            new_data = f_source.read(chunk_size)
 
             # Write the new data into file1
-            f1.seek(write_position)
-            f1.write(new_data)
+            f_dest.seek(write_position)
+            f_dest.write(new_data)
 
             # Update pointers
             read_position += chunk_size
             write_position += chunk_size
-            f2.seek(read_position)
+            f_source.seek(read_position)
 
     if delete_file2_on_complete:
         os.remove(second)
@@ -141,47 +168,57 @@ def _extend_files_with_dtype_conversion(
     # Check if conversion is valid
     if (source_dtype_str, dest_dtype_str) not in VALID_DTYPE_CONVERSIONS:
         raise ValueError(
-            f"Conversion from {source_dtype_str} to {dest_dtype_str} is not supported. "
-            f"Only lossless conversions are allowed. "
-            f"Valid conversions: uint upscaling (uint8→uint16→uint32→uint64), "
-            f"float upscaling (float16→float32→float64), "
-            f"and safe uint→float (uint8/16→float32, uint8/16/32→float64)."
+            (
+                f"Unsupported dtype conversion: {source_dtype_str} → {dest_dtype_str}. "
+                "Only lossless, safe conversions are permitted. "
+                "Allowed: uint upscaling (uint8→uint16→uint32→uint64), "
+                "float upscaling (float16→float32→float64), "
+                "and safe uint→float (uint8/16→float32, uint8/16/32→float64)."
+            )
         )
 
-    # Calculate number of elements that fit in buffer
-    # Use source dtype size since we're reading from source
-    elements_per_chunk = buffer_size_b // source_dtype_np.itemsize
+    # Calculate number of elements that fit in buffer (prefer >=8 bytes per iteration)
+    elements_per_chunk = max(1, buffer_size_b // source_dtype_np.itemsize)
 
     # Get source file size and calculate number of elements
     size2 = os.path.getsize(second)
     num_elements = (size2 - offset) // source_dtype_np.itemsize
 
-    # Open destination in append mode and source for reading
-    with open(first, "ab") as f_dest, open(second, "rb") as f_source:
-        # Skip offset bytes in source
-        if offset > 0:
-            f_source.seek(offset)
+    # Pre-extend destination to final size, then write in-place with explicit positions
+    extend_bytes = num_elements * dest_dtype_np.itemsize
+    size1 = os.path.getsize(first)
+    with open(first, "r+b") as f_dest:
+        # Resize file1 to the final size to accommodate converted bytes
+        if extend_bytes > 0:
+            f_dest.seek(size1 + extend_bytes - 1)
+            f_dest.write(b"\0")
 
-        elements_processed = 0
-        while elements_processed < num_elements:
-            # Read chunk
-            chunk_elements = min(elements_per_chunk, num_elements - elements_processed)
-            bytes_to_read = chunk_elements * source_dtype_np.itemsize
+        write_position = size1
 
-            chunk_bytes = f_source.read(bytes_to_read)
-            if not chunk_bytes:
-                break
+        with open(second, "rb") as f_source:
+            # Position source at the requested offset
+            if offset > 0:
+                f_source.seek(offset)
 
-            # Convert to numpy array with source dtype
-            source_array = np.frombuffer(chunk_bytes, dtype=source_dtype_np)
+            elements_processed = 0
+            while elements_processed < num_elements:
+                # Read chunk in units of source dtype
+                chunk_elements = min(elements_per_chunk, num_elements - elements_processed)
+                bytes_to_read = chunk_elements * source_dtype_np.itemsize
 
-            # Convert to destination dtype (upscaling)
-            dest_array = source_array.astype(dest_dtype_np)
+                chunk_bytes = f_source.read(bytes_to_read)
+                if not chunk_bytes:
+                    break
 
-            # Write converted data
-            f_dest.write(dest_array.tobytes())
+                source_array = np.frombuffer(memoryview(chunk_bytes), dtype=source_dtype_np)
 
-            elements_processed += len(source_array)
+                # Convert to destination dtype (upscaling) and write in-place
+                dest_array = source_array.astype(dest_dtype_np)
+                f_dest.seek(write_position)
+                f_dest.write(dest_array.tobytes())
+                write_position += dest_array.nbytes
+
+                elements_processed += len(source_array)
 
     if delete_file2_on_complete:
         os.remove(second)

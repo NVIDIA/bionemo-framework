@@ -15,8 +15,10 @@
 
 from typing import Tuple
 
+import anndata as ad
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 
@@ -81,6 +83,7 @@ def compare_fn():
         for row_idx in range(len(dns)):
             assert (dns[row_idx][0] == dt[row_idx][0]).all()
             assert (dns[row_idx][1] == dt[row_idx][1]).all()
+        assert dns.dtypes == dt.dtypes, f"Dtype mismatch: {dns.dtypes} != {dt.dtypes}"
 
     return _compare
 
@@ -113,6 +116,13 @@ def test_load_h5ad(tmp_path, test_directory):
     assert ds.number_nonzero_values() == 5
     np.isclose(ds.sparsity(), 0.9375, rtol=1e-6)
     assert len(ds) == 8
+    # Dtype expectations: integer-valued counts in 0-255, 10 columns, 5 nnz
+    assert ds.dtypes["data.npy"] == "uint8"
+    assert ds.dtypes["col_ptr.npy"] == "uint8"
+    assert ds.dtypes["row_ptr.npy"] == "uint8"
+    assert ds.dtypes["data.npy"] == "uint8"
+    assert ds.dtypes["col_ptr.npy"] == "uint8"
+    assert ds.dtypes["row_ptr.npy"] == "uint8"
 
 
 def test_h5ad_no_file(tmp_path):
@@ -130,6 +140,10 @@ def test_SingleCellMemMapDataset_constructor(generate_dataset):
     assert len(generate_dataset) == 8
 
     assert generate_dataset.shape() == (8, [10])
+    # Dtype expectations: integer-valued counts in 0-255, 10 columns, 5 nnz
+    assert generate_dataset.dtypes["data.npy"] == "uint8"
+    assert generate_dataset.dtypes["col_ptr.npy"] == "uint8"
+    assert generate_dataset.dtypes["row_ptr.npy"] == "uint8"
 
 
 def test_SingleCellMemMapDataset_get_row(generate_dataset):
@@ -200,6 +214,10 @@ def test_concat_SingleCellMemMapDatasets_underlying_memmaps(tmp_path, test_direc
     assert (np.array(dt.row_index) == exp_rows).all()
     assert (np.array(dt.col_index) == exp_cols).all()
     assert (np.array(dt.data) == exp_data).all()
+    # Dtypes should remain minimal and consistent
+    assert dt.dtypes["data.npy"] == "uint8"
+    assert dt.dtypes["col_ptr.npy"] == "uint8"
+    assert dt.dtypes["row_ptr.npy"] == "uint8"
 
 
 def test_concat_SingleCellMemMapDatasets_diff(tmp_path, test_directory):
@@ -213,6 +231,10 @@ def test_concat_SingleCellMemMapDatasets_diff(tmp_path, test_directory):
     assert dt.number_of_rows() == exp_number_of_rows
     assert dt.number_of_values() == exp_n_val
     assert dt.number_nonzero_values() == exp_nnz
+    # Dtypes should promote safely; for sample inputs they remain uint8
+    assert dt.dtypes["data.npy"] == "uint8"
+    assert dt.dtypes["col_ptr.npy"] == "uint8"
+    assert dt.dtypes["row_ptr.npy"] == "uint8"
 
 
 def test_concat_SingleCellMemMapDatasets_multi(tmp_path, compare_fn, test_directory):
@@ -250,40 +272,20 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
     compare_fn(ds_regular, ds_lazy)
 
 
-# TODO: fix this
-@pytest.mark.skip(reason="This test is not working as expected")
-def test_integer_compression(tmp_path):
-    """Test that integer-valued float data gets compressed to smaller integer dtypes."""
-    import scipy.sparse as sp
+def test_load_h5ad_properly_converted_dtypes(tmp_path):
+    """Create an h5ad with large values/columns to force dtype promotion."""
+    n_rows, n_cols = 2, 70_000
+    data = np.array([1.0, 70_000.0, 10.0], dtype=np.float32)
+    indices = np.array([0, 10, 65_537], dtype=np.int64)
+    indptr = np.array([0, 1, 3], dtype=np.int64)
+    X = sp.csr_matrix((data, indices, indptr), shape=(n_rows, n_cols))
 
-    from bionemo.scdl.util.memmap_utils import check_integer_valued_and_cast
+    a = ad.AnnData(X=X)
+    h5ad_path = tmp_path / "big_dtype.h5ad"
+    a.write_h5ad(h5ad_path)
 
-    # Create sparse matrix with integer-valued floats (0-255 range)
-    data = np.array([1.0, 5.0, 23.0, 156.0, 200.0], dtype=np.float32)
-    indices = np.array([0, 1, 2, 3, 4])
-    indptr = np.array([0, 2, 5])
-    sparse_matrix = sp.csr_matrix((data, indices, indptr), shape=(2, 5))
+    ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=h5ad_path)
 
-    # Test compression detection
-    result_dtype = check_integer_valued_and_cast(sparse_matrix)
-
-    # Should detect integers and compress to uint8
-    assert result_dtype == np.uint8, f"Expected uint8, got {result_dtype}"
-
-    # Test that values are preserved when converted
-    converted_data = sparse_matrix.data.astype(result_dtype)
-    assert np.allclose(converted_data, data), "Values not preserved after conversion"
-
-    # Test with larger values requiring uint16
-    data_large = np.array([1.0, 500.0, 2000.0, 30000.0], dtype=np.float32)
-    sparse_large = sp.csr_matrix((data_large, [0, 1, 2, 3], [0, 2, 4]), shape=(1, 4))
-    result_dtype_large = check_integer_valued_and_cast(sparse_large)
-
-    assert result_dtype_large == np.uint16, f"Expected uint16, got {result_dtype_large}"
-
-    # Test with non-integer values (should keep float32)
-    data_float = np.array([1.5, 2.7, 3.14], dtype=np.float32)
-    sparse_float = sp.csr_matrix((data_float, [0, 1, 2], [0, 2, 3]), shape=(1, 3))
-    result_dtype_float = check_integer_valued_and_cast(sparse_float)
-
-    assert result_dtype_float == np.float32, f"Expected float32, got {result_dtype_float}"
+    assert ds.dtypes["data.npy"] == "uint32"
+    assert ds.dtypes["col_ptr.npy"] == "uint32"
+    assert ds.dtypes["row_ptr.npy"] == "uint8"

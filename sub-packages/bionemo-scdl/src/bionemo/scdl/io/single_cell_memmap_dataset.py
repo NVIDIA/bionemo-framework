@@ -38,9 +38,10 @@ from bionemo.scdl.util.memmap_utils import (
     _create_row_memmaps,
     _pad_sparse_array,
     check_integer_valued_and_cast,
+    determine_dtype,
     smallest_uint_dtype,
 )
-from bionemo.scdl.util.scdl_constants import VALID_DTYPE_CONVERSIONS, FileNames, Mode, NeighborSamplingStrategy
+from bionemo.scdl.util.scdl_constants import FileNames, Mode, NeighborSamplingStrategy
 
 
 # Set up logger
@@ -1241,50 +1242,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         column_dtypes = {self.dtypes[FileNames.COLPTR.value]}
         data_dtypes = {self.dtypes[FileNames.DATA.value]}
 
-        def determine_dtype(dtypes):
-            """Determine a minimal common dtype for lossless conversion.
-
-            Uses `VALID_DTYPE_CONVERSIONS` to find a common destination dtype all sources can
-            convert to without loss.
-
-            Preference:
-            - If a common unsigned-integer dtype exists, choose the smallest such uint.
-            - Otherwise, choose the smallest float that all sources can convert to.
-            - Raise if no common lossless destination exists.
-            """
-            _uint_order = ["uint8", "uint16", "uint32", "uint64"]
-            _float_order = ["float16", "float32", "float64"]
-
-            source_dtypes = set(dtypes)
-
-            # For each source dtype, compute the set of allowed destinations (including identity)
-            def allowed_destinations(src: str) -> set:
-                return {src} | {dst for (s, dst) in VALID_DTYPE_CONVERSIONS if s == src}
-
-            per_source_allowed = [allowed_destinations(s) for s in source_dtypes]
-            common_destinations = set.intersection(*per_source_allowed) if per_source_allowed else set()
-
-            if not common_destinations:
-                raise ValueError(f"No common lossless destination dtype for sources: {sorted(source_dtypes)}")
-
-            # Prefer staying in unsigned integers if possible (choose the smallest acceptable)
-            common_uints = [dt for dt in common_destinations if dt in _uint_order]
-            if common_uints:
-                return min(common_uints, key=lambda x: _uint_order.index(x))
-
-            # Otherwise, choose the smallest acceptable float
-            common_floats = [dt for dt in common_destinations if dt in _float_order]
-            if common_floats:
-                return min(common_floats, key=lambda x: _float_order.index(x))
-
-            # If we reach here, only non-supported families remain
-            raise ValueError(f"Unsupported dtype family in common destinations: {sorted(common_destinations)}")
-
         for mmap in mmaps:
-            column_dtypes.add(mmap.dtypes[FileNames.COLPTR.value])
-            data_dtypes.add(mmap.dtypes[FileNames.DATA.value])
+            # Always convert dtype to string to handle cases like np.dtype('float32')
+            column_dtypes.add(str(mmap.dtypes[FileNames.COLPTR.value]))
+            data_dtypes.add(str(mmap.dtypes[FileNames.DATA.value]))
             cumulative_elements += mmap.number_nonzero_values()
-
         new_dtypes = {
             FileNames.COLPTR.value: determine_dtype(column_dtypes),
             FileNames.DATA.value: determine_dtype(data_dtypes),
@@ -1313,7 +1275,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 )
                 # Update dtype in self.dtypes
                 self.dtypes[key] = target_dtype
-
         # Copy the data from self and other into the new arrays.
         cumulative_elements = self.number_nonzero_values()
         cumulative_rows = self.number_of_rows()
@@ -1338,7 +1299,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 buffer_size_b=extend_copy_size,
                 delete_file2_on_complete=True,
                 offset=np.dtype(self.dtypes[f"{FileNames.ROWPTR.value}"]).itemsize,
-                source_dtype=self.dtypes[f"{FileNames.ROWPTR.value}"],
+                source_dtype=mmap.dtypes[f"{FileNames.ROWPTR.value}"],
                 dest_dtype=new_dtypes[f"{FileNames.ROWPTR.value}"],
             )
 
@@ -1347,7 +1308,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 f"{mmap.data_path}/{FileNames.DATA.value}",
                 buffer_size_b=extend_copy_size,
                 delete_file2_on_complete=destroy_on_copy,
-                source_dtype=self.dtypes[f"{FileNames.DATA.value}"],
+                source_dtype=mmap.dtypes[f"{FileNames.DATA.value}"],
                 dest_dtype=new_dtypes[f"{FileNames.DATA.value}"],
             )
             extend_files(
@@ -1355,7 +1316,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 f"{mmap.data_path}/{FileNames.COLPTR.value}",
                 buffer_size_b=extend_copy_size,
                 delete_file2_on_complete=destroy_on_copy,
-                source_dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
+                source_dtype=mmap.dtypes[f"{FileNames.COLPTR.value}"],
                 dest_dtype=new_dtypes[f"{FileNames.COLPTR.value}"],
             )
             self._feature_index.concat(mmap._feature_index)

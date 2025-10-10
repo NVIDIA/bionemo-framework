@@ -208,7 +208,9 @@ VALID_DTYPE_CONVERSIONS = (
             ("uint8", "float64"),
             ("uint16", "float32"),
             ("uint16", "float64"),
+            ("uint32", "float32"),
             ("uint32", "float64"),
+            ("uint64", "float64"),
         }
     )
 )
