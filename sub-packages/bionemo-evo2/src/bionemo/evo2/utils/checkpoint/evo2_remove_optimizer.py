@@ -68,7 +68,7 @@ class _OptimizerRemoverBase:
         """
         instance = super().__new__(cls, path)
         if model_config is None:
-            model_config = io.load_context(instance, subpath="model.config")
+            model_config = io.load_context(path, subpath="model.config")
         instance.model_config = model_config
         return instance
 
