@@ -65,20 +65,13 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         mesh_dim_names=("dp", "tp"),
     )
 
-    # Create an empty ESM-2 model with a masked language model head.
+    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.dataset.use_sequence_packing:
         config.attn_input_format = "thd"
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
     logger.info("Initialized Model:\n%s", model)
-
-    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
-    # avoid errors with unused parameters.
-    try:
-        del model.esm.contact_head
-    except AttributeError:
-        pass
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
