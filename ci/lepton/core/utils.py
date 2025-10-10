@@ -21,7 +21,7 @@ from pathlib import Path
 from omegaconf import OmegaConf
 
 
-def render_wrapper_string(script: str, all_config_json: str, template: str = "convergence_tests") -> str:
+def render_launcher_string(script: str, all_config_json: str, template: str = "convergence_tests") -> str:
     """Renders the wrapper shell script template with the provided script and config JSON.
 
     Args:

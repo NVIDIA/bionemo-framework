@@ -31,7 +31,7 @@ from leptonai.api.v1.types.deployment import LeptonContainer
 from leptonai.api.v1.types.job import LeptonJob, LeptonJobUserSpec
 from leptonai.api.v2.client import APIClient
 from omegaconf import DictConfig, OmegaConf
-from utils import register_resolvers, render_wrapper_string
+from utils import register_resolvers, render_launcher_string
 
 
 # need this to sanitize config inputs (e.g. branch names for wandb)
@@ -83,7 +83,7 @@ def launch_single_job(client, cfg: DictConfig):
     full_cfg_json = json.dumps(OmegaConf.to_container(cfg, resolve=True))
     template_type = getattr(cfg, "template_type", "convergence_tests")
 
-    rendered = render_wrapper_string(cfg.script, full_cfg_json, template=template_type)
+    rendered = render_launcher_string(cfg.script, full_cfg_json, template=template_type)
 
     command = ["bash", "-c", rendered]
 
