@@ -19,6 +19,7 @@
 
 import json
 from pathlib import Path
+from typing import Callable
 
 import torch
 
@@ -33,13 +34,16 @@ class SimpleFastaDataset(torch.utils.data.Dataset):
     input_ids to handle the off-by-one token prediction alignment.
     """
 
-    def __init__(self, fasta_path: Path, tokenizer, prepend_bos: bool = True):
+    def __init__(
+        self, fasta_path: Path, tokenizer, prepend_bos: bool = True, custom_loss_masker: Callable | None = None
+    ):
         """Initialize the dataset."""
         super().__init__()
         self.fasta = NvFaidx(fasta_path)
         self.seqids = sorted(self.fasta.keys())
         self.tokenizer = tokenizer
         self.prepend_bos = prepend_bos  # needed for getting predictions for the requested set of tokens.
+        self.custom_loss_masker = custom_loss_masker
 
     def write_idx_map(self, output_dir: Path):
         """Write the index map to the output directory."""
@@ -59,6 +63,9 @@ class SimpleFastaDataset(torch.utils.data.Dataset):
         else:
             tokens: list[int] = tokenized_seq
         loss_mask = torch.ones_like(torch.tensor(tokens, dtype=torch.long), dtype=torch.long)
+        if self.custom_loss_masker is not None:
+            custom_loss_mask = self.custom_loss_masker(tokens)
+            loss_mask &= custom_loss_mask
         if self.prepend_bos:
             loss_mask[0] = (
                 0  # mask the eos token which we use for causal offsetting. Later in predict we take the output
